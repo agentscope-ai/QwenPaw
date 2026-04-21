@@ -173,15 +173,7 @@ export function BroadcastModal({
                     <CheckOutlined />
                   </span>
                 )}
-                <Tooltip
-                  title={getAgentDisplayName(
-                    {
-                      id: workspace.agent_id,
-                      name: workspace.agent_name ?? "",
-                    },
-                    t,
-                  )}
-                >
+                <Tooltip title={`ID: ${workspace.agent_id}`}>
                   <div
                     className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
                   >

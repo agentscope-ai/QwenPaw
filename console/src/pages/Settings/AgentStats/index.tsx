@@ -149,7 +149,7 @@ function AgentStatsPage() {
 
   const hasData =
     data &&
-    ((data.total_chats ?? 0) > 0 ||
+    ((data.total_active_sessions ?? 0) > 0 ||
       (data.total_messages ?? 0) > 0 ||
       (data.total_llm_calls ?? 0) > 0 ||
       (data.total_tool_calls ?? 0) > 0);
@@ -239,26 +239,26 @@ function AgentStatsPage() {
   );
 
   const chatPieConfig = useMemo(() => {
-    if (!data?.chats_by_channel?.length) return null;
+    if (!data?.channel_stats?.length) return null;
     return {
       ...pieCommon,
-      data: data.chats_by_channel.map((item) => ({
+      data: data.channel_stats.map((item) => ({
         channel: item.channel,
-        value: Number(item.count),
+        value: Number(item.session_count),
       })),
     };
-  }, [data?.chats_by_channel, pieCommon]);
+  }, [data?.channel_stats, pieCommon]);
 
   const messagePieConfig = useMemo(() => {
-    if (!data?.messages_by_channel?.length) return null;
+    if (!data?.channel_stats?.length) return null;
     return {
       ...pieCommon,
-      data: data.messages_by_channel.map((item) => ({
+      data: data.channel_stats.map((item) => ({
         channel: item.channel,
         value: Number(item.total_messages),
       })),
     };
-  }, [data?.messages_by_channel, pieCommon]);
+  }, [data?.channel_stats, pieCommon]);
 
   return (
     <div className={styles.page}>
@@ -298,7 +298,7 @@ function AgentStatsPage() {
               <>
                 <div className={styles.summaryCards}>
                   <SummaryCard
-                    value={data.total_chats}
+                    value={data.total_active_sessions}
                     label={t("agentStats.totalSessions")}
                     tooltip={t("agentStats.totalSessionsTooltip")}
                   />

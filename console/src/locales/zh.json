@@ -314,6 +314,8 @@
     "sourceVersion": "源码版本",
     "currentVersion": "当前版本",
     "builtinLanguage": "语言",
+    "langDefault": "默认",
+    "langDefaultTooltip": "保持每个技能原有的语言",
     "langEn": "英文",
     "langZh": "中文",
     "builtinLanguageChangeTitle": "切换内置技能语言？",
