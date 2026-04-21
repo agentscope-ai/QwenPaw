@@ -22,6 +22,7 @@ const DOC_SLUGS = [
   "commands",
   "heartbeat",
   "config",
+  "backup",
   "cli",
   "community",
   "contributing",

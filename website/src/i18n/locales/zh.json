@@ -266,6 +266,7 @@
     "heartbeat": "心跳",
     "config": "配置与工作目录",
     "security": "安全",
+    "backup": "备份与恢复",
     "cli": "CLI",
     "plugins": "插件系统",
     "faq": "常见问题",

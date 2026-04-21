@@ -266,6 +266,7 @@
     "heartbeat": "Heartbeat",
     "config": "Config & working dir",
     "security": "Security",
+    "backup": "Backup & Restore",
     "cli": "CLI",
     "plugins": "Plugin System",
     "faq": "FAQ",
