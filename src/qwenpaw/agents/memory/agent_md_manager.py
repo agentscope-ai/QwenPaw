@@ -31,7 +31,7 @@ class AgentMdManager:
         if agent_id:
             agent_config = load_agent_config(agent_id)
             memory_dir_name = (
-                agent_config.running.reme_light_memory_config.daily_memory_dir
+                agent_config.running.daily_memory_dir
             )
         else:
             memory_dir_name = "memory"

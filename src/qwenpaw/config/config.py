@@ -516,11 +516,6 @@ class ReMeLightMemoryConfig(BaseModel):
         "background task burden. Recommended: 5 or 10.",
     )
 
-    daily_memory_dir: str = Field(
-        default="memory",
-        description="Dir name to daily summary file",
-    )
-
     dream_cron: str = Field(
         default="0 23 * * *",
         description="Cron expression for dream-based memory optimization job "
@@ -815,6 +810,11 @@ class AgentsRunningConfig(BaseModel):
 
     reme_light_memory_config: ReMeLightMemoryConfig = Field(
         default_factory=ReMeLightMemoryConfig,
+    )
+
+    daily_memory_dir: str = Field(
+        default="memory",
+        description="Dir name to daily summary file",
     )
 
 
