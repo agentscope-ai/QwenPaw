@@ -289,6 +289,20 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 )
                 or getattr(incoming_message, "senderStaffId", None)
                 or "",
+                "sender_dingtalk_id": getattr(
+                    incoming_message,
+                    "sender_id",
+                    None,
+                )
+                or getattr(incoming_message, "senderId", None)
+                or "",
+                "sender_nick": getattr(
+                    incoming_message,
+                    "sender_nick",
+                    None,
+                )
+                or getattr(incoming_message, "senderNick", None)
+                or "",
             }
             if is_bot_mentioned:
                 meta["bot_mentioned"] = True

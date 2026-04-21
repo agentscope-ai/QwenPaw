@@ -11,7 +11,7 @@ from click.testing import CliRunner
 
 from qwenpaw.cli.main import cli
 from qwenpaw.constant import BUILTIN_QA_AGENT_SKILL_NAMES
-from qwenpaw.providers.models import ModelSlotConfig
+from qwenpaw.config.config import ModelSlotConfig
 
 
 def test_agents_list_uses_shared_tool_helper(monkeypatch) -> None:

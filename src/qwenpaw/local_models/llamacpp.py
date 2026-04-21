@@ -62,6 +62,7 @@ class LlamaCppBackend:
         self.cuda_version = self._resolve_cuda_version()
         self.backend = self._resolve_backend()
         self.target_dir = DEFAULT_LOCAL_PROVIDER_DIR / "bin"
+        self.log_dir = DEFAULT_LOCAL_PROVIDER_DIR / "logs"
         self._context = mp.get_context("spawn")
         self._server_process: ManagedProcess | None = None
         self._server_log_task: asyncio.Task[None] | None = None
@@ -138,8 +139,8 @@ class LlamaCppBackend:
             return int(latest_version[1:]) > int(
                 (await self.get_version()),
             )
-        except Exception:
-            logger.warning("Failed to check for llama.cpp updates")
+        except Exception as exc:
+            logger.warning(f"Failed to check for llama.cpp updates: {exc}")
             return True
 
     def download(
@@ -218,6 +219,7 @@ class LlamaCppBackend:
         model_path: Path,
         model_name: str,
         max_context_length: int | None = None,
+        port: int | None = None,
     ) -> LlamaCppServerSetupResult:
         """Setup llama.cpp server and return the runtime port and model info.
 
@@ -225,6 +227,7 @@ class LlamaCppBackend:
             model_path: Path to a local HF repo directory or GGUF file
             model_name: Name of the model to be used in the server
             max_context_length: Optional context window passed to llama.cpp
+            port: Optional fixed server port. None means auto select.
         """
         installed, message = self.check_llamacpp_installation()
         if not installed:
@@ -244,7 +247,9 @@ class LlamaCppBackend:
             model_name == self._server_model_name
             and self._server_process is not None
         ):
-            if self._server_process.returncode is None:
+            if self._server_process.returncode is None and (
+                port is None or port == self._server_port
+            ):
                 logger.info(
                     "Requested model %s is already served on port %s",
                     model_name,
@@ -265,7 +270,7 @@ class LlamaCppBackend:
             await self.shutdown_server()
 
         self._server_transitioning = True
-        port = self._find_free_port()
+        port = self._resolve_server_port(port)
         process_kwargs: dict[str, Any] = {}
         if self.os_name != "windows":
             process_kwargs["start_new_session"] = True
@@ -315,7 +320,7 @@ class LlamaCppBackend:
 
         result = await run_command_async(
             [str(self.executable), "--list-devices"],
-            timeout=10,
+            timeout=30,
         )
         return [
             line.strip()
@@ -331,7 +336,7 @@ class LlamaCppBackend:
 
         result = await run_command_async(
             [str(self.executable), "--version"],
-            timeout=10,
+            timeout=30,
         )
         lines = result.stderr_lines
         for line in lines:
@@ -355,6 +360,7 @@ class LlamaCppBackend:
         max_context_length: int | None,
         process_kwargs: dict[str, Any],
     ) -> ManagedProcess:
+        self.log_dir.mkdir(parents=True, exist_ok=True)
         command = [
             str(self.executable),
             "--host",
@@ -365,9 +371,15 @@ class LlamaCppBackend:
             str(resolved_model_path),
             "--alias",
             model_name,
+            "--log-file",
+            str(self.log_dir / "llama-server.log"),
             "--gpu-layers",
             "auto",
         ]
+        logger.info(
+            "Start llama.cpp server with command:\n  > %s",
+            " ".join(command),
+        )
         if max_context_length is not None:
             command.extend(["--ctx-size", str(max_context_length)])
         if resolved_mmproj_path is not None:
@@ -652,6 +664,33 @@ class LlamaCppBackend:
             sock.bind((host, 0))
             sock.listen(1)
             return int(sock.getsockname()[1])
+
+    @staticmethod
+    def _is_port_available(port: int, host: str = "127.0.0.1") -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            if system_info.get_os_name() == "windows" and hasattr(
+                socket,
+                "SO_EXCLUSIVEADDRUSE",
+            ):
+                sock.setsockopt(
+                    socket.SOL_SOCKET,
+                    socket.SO_EXCLUSIVEADDRUSE,
+                    1,
+                )
+            try:
+                sock.bind((host, port))
+            except OSError:
+                return False
+        return True
+
+    def _resolve_server_port(self, requested_port: int | None) -> int:
+        if requested_port is None:
+            return self._find_free_port()
+        if not self._is_port_available(requested_port):
+            raise ValueError(
+                f"Requested llama.cpp port is unavailable: {requested_port}",
+            )
+        return requested_port
 
     async def server_ready(
         self,

@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+
 import os
 import json
 import re
@@ -31,8 +33,90 @@ from ..constant import (
     LLM_RATE_LIMIT_PAUSE,
     WORKING_DIR,
 )
-from ..providers.models import ModelSlotConfig
-from ..agents.acp.core import ACPConfig
+
+
+# ============================================================================
+# Core config models (moved here to avoid circular imports)
+# ============================================================================
+
+
+class ModelSlotConfig(BaseModel):
+    """Model slot configuration for LLM routing."""
+
+    provider_id: str = Field(default="")
+    model: str = Field(default="")
+
+
+class ActiveModelsInfo(BaseModel):
+    """Active models information for provider manager."""
+
+    active_llm: ModelSlotConfig | None
+
+
+class ACPAgentConfig(BaseModel):
+    """Configuration for one ACP agent."""
+
+    enabled: bool = False
+    command: str = ""
+    args: list[str] = Field(default_factory=list)
+    env: Dict[str, str] = Field(default_factory=dict)
+    trusted: bool = True
+    tool_parse_mode: str = "call_title"
+    stdio_buffer_limit_bytes: int = Field(
+        default=50 * 1024 * 1024,
+        gt=0,
+    )
+
+
+def _get_default_acp_agents() -> Dict[str, ACPAgentConfig]:
+    """Get default ACP agents configuration."""
+    return {
+        "opencode": ACPAgentConfig(
+            enabled=True,
+            command="opencode",
+            args=["acp"],
+            trusted=True,
+            tool_parse_mode="update_detail",
+        ),
+        "qwen_code": ACPAgentConfig(
+            enabled=True,
+            command="qwen",
+            args=["--acp"],
+            trusted=True,
+            tool_parse_mode="call_detail",
+        ),
+        "claude_code": ACPAgentConfig(
+            enabled=True,
+            command="npx",
+            args=["-y", "@zed-industries/claude-agent-acp"],
+            trusted=True,
+            tool_parse_mode="update_detail",
+        ),
+        "codex": ACPAgentConfig(
+            enabled=True,
+            command="npx",
+            args=["-y", "@zed-industries/codex-acp"],
+            trusted=True,
+            tool_parse_mode="call_detail",
+        ),
+    }
+
+
+class ACPConfig(BaseModel):
+    """ACP (Agent Communication Protocol) configuration."""
+
+    agents: Dict[str, ACPAgentConfig] = Field(
+        default_factory=_get_default_acp_agents,
+    )
+
+    @model_validator(mode="after")
+    def _merge_default_agents(self):
+        """Merge default agents with user-configured agents."""
+        for name, agent_cfg in _get_default_acp_agents().items():
+            if name not in self.agents:
+                self.agents[name] = agent_cfg
+        return self
+
 
 # Agent ID validation: alphanumeric, hyphens, underscores.
 _AGENT_ID_PATTERN = re.compile(
@@ -144,6 +228,7 @@ class DingTalkConfig(BaseChannelConfig):
     robot_code: str = ""
     media_dir: Optional[str] = None
     card_auto_layout: bool = False
+    at_sender_on_reply: bool = False
 
 
 class FeishuConfig(BaseChannelConfig):
@@ -833,6 +918,10 @@ class AgentProfileConfig(BaseModel):
     security: Optional["SecurityConfig"] = Field(
         default=None,
         description="Security configuration for this agent",
+    )
+    acp: Optional[ACPConfig] = Field(
+        default=None,
+        description="ACP configuration for this agent",
     )
 
 

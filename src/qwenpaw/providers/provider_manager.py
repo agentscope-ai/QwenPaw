@@ -17,10 +17,10 @@ from agentscope_runtime.engine.schemas.exception import (
 )
 
 from ..constant import SECRET_DIR
+from ..config.config import ModelSlotConfig
 from ..exceptions import ProviderError
 from .anthropic_provider import AnthropicProvider
 from .gemini_provider import GeminiProvider
-from .models import ModelSlotConfig
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
 from .lmstudio_provider import LMStudioProvider
@@ -507,8 +507,19 @@ PROVIDER_DASHSCOPE = OpenAIProvider(
 
 PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
     id="aliyun-codingplan",
-    name="Aliyun Coding Plan",
+    name="Aliyun Coding Plan (China)",
     base_url="https://coding.dashscope.aliyuncs.com/v1",
+    api_key_prefix="sk-sp",
+    models=ALIYUN_CODINGPLAN_MODELS,
+    # This provider doesn't support connection check without model config
+    support_connection_check=False,
+    freeze_url=True,
+)
+
+PROVIDER_ALIYUN_CODINGPLAN_INTL = OpenAIProvider(
+    id="aliyun-codingplan-intl",
+    name="Aliyun Coding Plan (International)",
+    base_url="https://coding-intl.dashscope.aliyuncs.com/v1",
     api_key_prefix="sk-sp",
     models=ALIYUN_CODINGPLAN_MODELS,
     # This provider doesn't support connection check without model config
@@ -706,10 +717,6 @@ PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
 )
 
 
-class ActiveModelsInfo(BaseModel):
-    active_llm: ModelSlotConfig | None
-
-
 class ProviderManager:  # pylint: disable=too-many-public-methods
     """A manager class to handle all providers,
     including built-in and custom ones."""
@@ -758,6 +765,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_MODELSCOPE)
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
+        self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN_INTL)
         self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
@@ -1117,21 +1125,41 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self,
         provider_id: str,
         model_id: str,
+        image_only: bool = False,
     ) -> dict:
-        """Probe a model's multimodal capabilities and persist the result."""
+        """Probe a model's multimodal capabilities and persist the result.
+
+        Args:
+            provider_id: Provider identifier.
+            model_id: Model identifier.
+            image_only: When True, skip the video probe for a faster result.
+                Only ``supports_image`` will be accurate; ``supports_video``
+                will remain at its previous value (not updated).
+        """
         provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             return {"error": f"Provider '{provider_id}' not found"}
 
-        result = await provider.probe_model_multimodal(model_id)
+        result = await provider.probe_model_multimodal(
+            model_id,
+            image_only=image_only,
+        )
 
-        # Update the model's capability flags
+        # Update the model's capability flags.
+        # For image_only probes, leave supports_video untouched so a
+        # subsequent full probe can fill it in correctly.
         for model in provider.models + provider.extra_models:
             if model.id == model_id:
                 model.supports_image = result.supports_image
-                model.supports_video = result.supports_video
-                model.supports_multimodal = result.supports_multimodal
+                if not image_only:
+                    model.supports_video = result.supports_video
+                    model.supports_multimodal = result.supports_multimodal
+                else:
+                    # Partial update: derive supports_multimodal from
+                    # image alone; video will be updated by the full probe.
+                    if result.supports_image:
+                        model.supports_multimodal = True
                 model.probe_source = "probed"
                 break
 

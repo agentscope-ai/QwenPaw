@@ -28,6 +28,14 @@ class LocalModelConfig(BaseModel):
         description="Maximum context length passed to llama.cpp on startup.",
         ge=32768,
     )
+    port: int | None = Field(
+        default=None,
+        description=(
+            "Optional fixed port for llama.cpp startup. Null means auto."
+        ),
+        ge=1,
+        le=65535,
+    )
 
 
 class LocalModelManager:  # pylint: disable=too-many-public-methods
@@ -106,6 +114,12 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         """Persist the max context length for future llama.cpp startups."""
         async with self._server_lifecycle_lock:
             self._config.max_context_length = max_context_length
+            await self._save_config()
+
+    async def set_port(self, port: int | None) -> None:
+        """Persist the llama.cpp server port for future startups."""
+        async with self._server_lifecycle_lock:
+            self._config.port = port
             await self._save_config()
 
     def check_llamacpp_installation(self) -> tuple[bool, str]:
@@ -207,6 +221,7 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
                 model_path=self._model_manager.get_model_dir(model_id),
                 model_name=model_id,
                 max_context_length=self._config.max_context_length,
+                port=self._config.port,
             )
 
     async def shutdown_server(self) -> None:

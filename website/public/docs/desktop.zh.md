@@ -6,6 +6,7 @@
 >
 > - **兼容性测试不完整**：未在所有系统版本和硬件配置上进行充分测试
 > - **性能可能存在缺陷**：启动速度、内存占用等方面可能需要进一步优化
+> - **更新方式存在缺陷**：目前暂时需要卸载后重新下载才能完成版本更新
 > - **功能持续完善中**：部分功能可能不稳定或缺失
 >
 > 欢迎反馈问题，帮助我们改进产品质量。
@@ -14,7 +15,7 @@
 
 本文档说明如何在 Windows 和 macOS 系统上安装和使用 QwenPaw Desktop 桌面应用。
 
-[releases]: https://github.com/agentscope-ai/QwenPaw/releases
+[releases]: https://qwenpaw.agentscope.io/downloads
 
 ## 特别说明
 

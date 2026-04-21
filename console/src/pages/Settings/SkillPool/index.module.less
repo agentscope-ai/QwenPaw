@@ -63,6 +63,29 @@
   gap: 8px;
 }
 
+.languageToggle {
+  display: flex;
+  gap: 6px;
+}
+
+.importToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.importToolbarDivider {
+  width: 1px;
+  height: 16px;
+  background: rgba(0, 0, 0, 0.12);
+  margin: 0 4px;
+
+  :global(.dark-mode) & {
+    background: rgba(255, 255, 255, 0.15);
+  }
+}
+
 .headerActionsRight {
   display: flex;
   align-items: center;
@@ -109,6 +132,25 @@
   color: #999;
 }
 
+.noSearchResults {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 80px 24px;
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.noSearchResultsIcon {
+  font-size: 40px;
+  opacity: 0.6;
+}
+
+.noSearchResultsText {
+  font-size: 14px;
+}
+
 /* ─── Toolbar (search + view toggle) ─────────────────────────────────────── */
 .toolbar {
   display: flex;
@@ -119,15 +161,42 @@
 }
 
 .searchContainer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex: 1;
   max-width: 600px;
 }
 
-.searchSelect {
-  width: 100%;
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-secondary, #d9d9d9);
+  border-radius: 6px;
+  font-size: 14px;
+  color: rgba(20, 20, 19, 0.88);
+  background: var(--color-bg-base, #ffffff);
+  outline: none;
+  transition: border-color 0.2s;
+
+  &::placeholder {
+    color: rgba(20, 20, 19, 0.25);
+  }
+
+  &:focus {
+    border-color: #ff7f16;
+  }
+}
+
+.tagSelect {
+  min-width: 160px;
+  max-width: 240px;
 
   :global {
     .ant-select-selector {
+      height: 36px !important;
       min-height: 36px;
       padding: 2px 4px;
     }
@@ -146,6 +215,13 @@
       font-size: 12px;
     }
   }
+}
+
+.tagSelectEmpty {
+  padding: 24px 16px;
+  text-align: center;
+  color: rgba(20, 20, 19, 0.35);
+  font-size: 13px;
 }
 
 .filterGroup {
@@ -435,6 +511,8 @@
 .cardTopRight {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
   flex-shrink: 0;
 }
@@ -803,8 +881,31 @@
     color: rgba(255, 255, 255, 0.35);
   }
 
-  /* Search select - dark mode */
-  .searchSelect {
+  .noSearchResults {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .tagSelectEmpty {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* Search input - dark mode */
+  .searchInput {
+    background: #2a2a2a;
+    border-color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.88);
+
+    &::placeholder {
+      color: rgba(255, 255, 255, 0.25);
+    }
+
+    &:focus {
+      border-color: #ff7f16;
+    }
+  }
+
+  /* Tag select - dark mode */
+  .tagSelect {
     :global {
       .ant-select-selector {
         background: #2a2a2a;

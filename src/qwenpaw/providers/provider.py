@@ -315,8 +315,17 @@ class Provider(ProviderInfo, ABC):
         self,
         model_id: str,  # pylint: disable=unused-argument
         timeout: float = 10,  # pylint: disable=unused-argument
+        image_only: bool = False,  # pylint: disable=unused-argument
     ) -> ProbeResult:
         """Probe if a model supports multimodal input.
+
+        Args:
+            model_id: Model identifier.
+            timeout: Per-probe timeout in seconds.
+            image_only: When True, skip the video probe and return after
+                the image probe only.  Use this for fast checks (e.g.
+                from ``view_image``) to avoid blocking on the slower
+                video probe.
 
         Default implementation returns ProbeResult() (all False).
         Subclasses with API access should override.

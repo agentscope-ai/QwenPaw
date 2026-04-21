@@ -1,0 +1,147 @@
+.page {
+  height: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 16px 24px;
+}
+
+.loading {
+  text-align: center;
+  padding: 60px;
+  color: #999;
+}
+
+.filters {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 20px 0;
+}
+
+.datePicker {
+  width: 260px;
+
+  @media (max-width: 480px) {
+    width: 100%;
+  }
+}
+
+.summaryCards {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.card {
+  flex: 1 1 140px;
+  min-width: 120px;
+  text-align: center;
+  padding: 16px;
+}
+
+.cardValue {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 4px;
+}
+
+.cardLabel {
+  font-size: 13px;
+  color: #999;
+  cursor: help;
+}
+
+.chartCard {
+  margin-bottom: 24px;
+  border: none !important;
+
+  :global {
+    .qwenpaw-card-body {
+      padding: 16px;
+    }
+
+    .qwenpaw-spark-title {
+      font-family: Inter !important;
+      font-size: 16px !important;
+      font-weight: 500 !important;
+      padding: 0 0 12px;
+    }
+  }
+}
+
+.trendRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+
+  @media (max-width: 768px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.chartContainerShort {
+  width: 100%;
+  min-height: 75px;
+}
+
+.pieChartsRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+
+  @media (max-width: 768px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.pieChartContainer {
+  width: 100%;
+  min-height: 300px;
+  min-width: 200px;
+}
+
+.chartTitle {
+  cursor: help;
+}
+
+.error {
+  text-align: center;
+  padding: 60px;
+
+  > p {
+    color: #ff4d4f;
+    margin-bottom: 16px;
+  }
+}
+
+:global(.dark-mode) {
+  .loading {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .error {
+    > p {
+      color: #ff7875;
+    }
+  }
+
+  .cardValue {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .cardLabel {
+    color: rgba(255, 255, 255, 0.35);
+  }
+}

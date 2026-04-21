@@ -1,4 +1,4 @@
-import { Button, Select, Tooltip } from "@agentscope-ai/design";
+import { Button, Input, Select, Tooltip } from "@agentscope-ai/design";
 import { Badge } from "antd";
 import {
   AppstoreOutlined,
@@ -7,7 +7,6 @@ import {
   ImportOutlined,
   PlusOutlined,
   ReloadOutlined,
-  SearchOutlined,
   SendOutlined,
   SyncOutlined,
   UnorderedListOutlined,
@@ -27,6 +26,7 @@ import { getBuiltinNoticeLines } from "./builtinNotice";
 import { useSkillPool } from "./useSkillPool";
 import { useProgressiveRender } from "../../../hooks/useProgressiveRender";
 import { PageHeader } from "@/components/PageHeader";
+import type { PoolSkillSpec } from "../../../api/types";
 import styles from "./index.module.less";
 
 function SkillPoolPage() {
@@ -174,28 +174,38 @@ function SkillPoolPage() {
         {!pool.loading && pool.skills.length > 0 && (
           <div className={styles.toolbar}>
             <div className={styles.searchContainer}>
+              <Input
+                className={styles.searchInput}
+                placeholder={t("skills.searchPlaceholder")}
+                value={pool.searchQuery}
+                onChange={(e) => pool.setSearchQuery(e.target.value)}
+                allowClear
+              />
               <Select
                 mode="multiple"
-                className={styles.searchSelect}
-                placeholder={t("skills.searchPlaceholder")}
+                className={styles.tagSelect}
+                placeholder={t("skills.filterByTag")}
                 value={pool.searchTags}
                 onChange={pool.setSearchTags}
-                searchValue={pool.searchQuery}
-                onSearch={pool.setSearchQuery}
-                open={pool.filterOpen && pool.allTags.length > 0}
+                open={pool.filterOpen}
                 onDropdownVisibleChange={pool.setFilterOpen}
                 allowClear
                 maxTagCount="responsive"
-                suffixIcon={<SearchOutlined />}
                 notFoundContent={<></>}
-                dropdownRender={() => (
-                  <SkillFilterDropdown
-                    allTags={pool.allTags}
-                    searchTags={pool.searchTags}
-                    setSearchTags={pool.setSearchTags}
-                    styles={styles}
-                  />
-                )}
+                dropdownRender={() =>
+                  pool.allTags.length > 0 ? (
+                    <SkillFilterDropdown
+                      allTags={pool.allTags}
+                      searchTags={pool.searchTags}
+                      setSearchTags={pool.setSearchTags}
+                      styles={styles}
+                    />
+                  ) : (
+                    <div className={styles.tagSelectEmpty}>
+                      {t("skills.noTags")}
+                    </div>
+                  )
+                }
               />
             </div>
             <div className={styles.toolbarRight}>
@@ -227,9 +237,16 @@ function SkillPoolPage() {
           <div className={styles.loading}>
             <span className={styles.loadingText}>{t("common.loading")}</span>
           </div>
+        ) : pool.sortedSkills.length === 0 && pool.skills.length > 0 ? (
+          <div className={styles.noSearchResults}>
+            <span className={styles.noSearchResultsIcon}>🔍</span>
+            <span className={styles.noSearchResultsText}>
+              {t("skills.noSearchResults")}
+            </span>
+          </div>
         ) : pool.viewMode === "card" ? (
           <div className={styles.skillsGrid}>
-            {visibleSkills.map((skill: any) => (
+            {visibleSkills.map((skill: PoolSkillSpec) => (
               <PoolSkillCard
                 key={skill.name}
                 skill={skill}
@@ -245,7 +262,7 @@ function SkillPoolPage() {
           </div>
         ) : (
           <div className={styles.skillsList}>
-            {visibleSkills.map((skill: any) => (
+            {visibleSkills.map((skill: PoolSkillSpec) => (
               <PoolSkillListItem
                 key={skill.name}
                 skill={skill}
@@ -284,6 +301,7 @@ function SkillPoolPage() {
         loading={pool.importBuiltinLoading}
         sources={pool.builtinSources}
         notice={pool.builtinNotice}
+        defaultLanguage={pool.builtinLanguage}
         defaultSelectedNames={pool.builtinNotice?.actionable_skill_names}
         onCancel={pool.closeImportBuiltin}
         onConfirm={pool.handleImportBuiltins}
@@ -302,6 +320,7 @@ function SkillPoolPage() {
         onContentChange={pool.handleDrawerContentChange}
         onShowMarkdownChange={pool.setShowMarkdown}
         onConfigTextChange={pool.setConfigText}
+        onChangeBuiltinLanguage={pool.handleBuiltinLanguageSwitch}
         validateFrontmatter={pool.validateFrontmatter}
       />
 

@@ -183,6 +183,7 @@ function SessionsPage() {
           scroll={{ x: 1500 }}
           pagination={{
             pageSize: 10,
+            showSizeChanger: false,
           }}
         />
       </Card>

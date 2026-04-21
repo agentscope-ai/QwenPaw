@@ -246,6 +246,49 @@ def is_encrypted(value: str) -> bool:
     return bool(value) and value.startswith(_ENC_PREFIX)
 
 
+def reload_master_key_from_disk() -> None:
+    """Invalidate the in-process master-key cache and re-sync the OS keyring.
+
+    Call this after a backup restore has replaced ``SECRET_DIR/.master_key``
+    on disk so that the running process and the OS keyring both pick up the
+    restored key instead of continuing to use the old one.
+
+    Resolution order after clearing the cache:
+    1. Read the new key from ``SECRET_DIR/.master_key``.
+    2. If successful and the OS keyring is available, overwrite the keyring
+       entry with the restored key so that the next process start does not
+       fall back to the old keyring value.
+    3. If anything goes wrong, log a warning but never propagate the error
+       to the restore caller.
+    """
+    global _cached_master_key, _cached_fernet
+    try:
+        with _master_key_lock:
+            _cached_master_key = None
+            _cached_fernet = None
+
+            key_hex = _read_key_file()
+            if not key_hex:
+                logger.warning(
+                    "reload_master_key_from_disk: .master_key file not found"
+                    " or unreadable after restore; cache cleared but keyring"
+                    " not updated",
+                )
+                return
+
+            _try_keyring_set(key_hex)
+            logger.info(
+                "reload_master_key_from_disk: in-process cache invalidated"
+                " and keyring updated with restored master key",
+            )
+    except Exception:
+        logger.warning(
+            "reload_master_key_from_disk: unexpected error; master-key cache"
+            " has been cleared but keyring sync may be incomplete",
+            exc_info=True,
+        )
+
+
 # ---------------------------------------------------------------------------
 # High-level helpers for dict-based secret fields
 # ---------------------------------------------------------------------------

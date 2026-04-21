@@ -4,6 +4,7 @@ export interface ModelInfo {
   supports_multimodal: boolean | null;
   supports_image: boolean | null;
   supports_video: boolean | null;
+  probe_source?: string | null;
   is_free?: boolean;
   generate_kwargs: Record<string, unknown>;
 }
@@ -89,10 +90,12 @@ export interface ModelConfigRequest {
 
 export interface LocalModelConfig {
   max_context_length: number;
+  port: number | null;
 }
 
 export interface LocalModelConfigRequest {
   max_context_length?: number;
+  port?: number | null;
   generate_kwargs?: Record<string, unknown>;
 }
 

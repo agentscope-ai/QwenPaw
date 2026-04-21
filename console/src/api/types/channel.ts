@@ -28,6 +28,7 @@ export interface DingTalkConfig extends BaseChannelConfig {
   card_template_id: string;
   card_template_key: string;
   robot_code: string;
+  at_sender_on_reply?: boolean;
 }
 
 export interface FeishuConfig extends BaseChannelConfig {

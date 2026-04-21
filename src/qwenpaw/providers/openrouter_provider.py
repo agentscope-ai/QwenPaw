@@ -10,9 +10,9 @@ from agentscope.model import ChatModelBase
 from openai import APIError, AsyncOpenAI
 
 from qwenpaw.providers.provider import (
+    Provider,
     ExtendedModelInfo,
     ModelInfo,
-    Provider,
 )
 
 
@@ -22,6 +22,7 @@ class OpenRouterProvider(Provider):
     _DEFAULT_HEADERS = {
         "HTTP-Referer": "https://qwenpaw.agentscope.io/",
         "X-Title": "QwenPaw",
+        "User-Agent": "QwenPaw/1.1",
     }
 
     def _client(self, timeout: float = 30) -> AsyncOpenAI:

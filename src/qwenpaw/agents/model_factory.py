@@ -629,6 +629,53 @@ def _fix_image_mime_types(messages: list[dict]) -> None:
                     )
 
 
+_MEDIA_BLOCK_TYPES = ("image", "audio", "video")
+
+
+def _fixup_media_list(items: list) -> None:
+    """Normalize media blocks in a list in-place.
+
+    - Strips ``file://`` prefixes from source URLs.
+    - Replaces media blocks whose local file no longer exists with
+      a text placeholder so the downstream formatter won't throw.
+    - Recurses into ``tool_result`` output lists.
+    """
+    for i, block in enumerate(items):
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype in _MEDIA_BLOCK_TYPES:
+            source = block.get("source")
+            if not (
+                isinstance(source, dict)
+                and source.get("type") == "url"
+                and isinstance(source.get("url"), str)
+            ):
+                continue
+            if source["url"].startswith("file://"):
+                source["url"] = _file_url_to_path(source["url"])
+            url = source["url"]
+            if not url.startswith(
+                ("http://", "https://", "data:"),
+            ) and not os.path.exists(url):
+                logger.warning(
+                    "Media file no longer exists, "
+                    "replacing with placeholder: %s",
+                    url,
+                )
+                items[i] = {
+                    "type": "text",
+                    "text": (
+                        f"[{btype.title()} unavailable"
+                        f" — file deleted from disk]"
+                    ),
+                }
+        elif btype == "tool_result":
+            output = block.get("output")
+            if isinstance(output, list):
+                _fixup_media_list(output)
+
+
 # pylint: disable-next=too-many-statements
 def _create_file_block_support_formatter(
     base_formatter_class: Type[FormatterBase],
@@ -688,18 +735,11 @@ def _create_file_block_support_formatter(
                         extra_contents[block["id"]] = block["extra_content"]
 
             # Convert file:// URLs to paths for all media blocks,
+            # and replace deleted local files with text placeholders.
             # TODO: remove this after AgentScope updated
             for msg in normalized_msgs:
-                for block in msg.get_content_blocks():
-                    if block.get("type") in ("image", "audio", "video"):
-                        source = block.get("source")
-                        if (
-                            isinstance(source, dict)
-                            and source.get("type") == "url"
-                            and isinstance(source.get("url"), str)
-                            and source["url"].startswith("file://")
-                        ):
-                            source["url"] = _file_url_to_path(source["url"])
+                if isinstance(msg.content, list):
+                    _fixup_media_list(msg.content)
 
             # For Anthropic, fully override formatting to handle
             # media blocks (top-level & inside tool_result output).
