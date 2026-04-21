@@ -86,11 +86,11 @@ Stores backups of MEMORY.md created before each Auto-Dream optimization.
 
 The memory management system follows a three-phase automated workflow, where different types of memory information are automatically written at the appropriate stage:
 
-| Information Type             | Write Target           | Writing Timing                   | Processing Method                                                                                                                                             |
-| ---------------------------- | ---------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Daily notes, runtime context | `memory/YYYY-MM-DD.md` | **Accumulation Phase (Daytime)** | Auto-Memory automatically appends to daily logs                                                                                                               |
-| Decisions, preferences, persistent facts, reusable experiences | `MEMORY.md` | **Integration Phase (Night)**    | Auto-Dream crystallizes using five core principles, strictly limited to: core business decisions, confirmed user preferences, high-value reusable experiences |
-| User says "remember this"    | `memory/YYYY-MM-DD.md` | **Accumulation Phase (Daytime)** | Immediately writes to daily log, processed by Auto-Dream later                                                                                                |
+| Information Type                                               | Write Target           | Writing Timing                   | Processing Method                                                                                                                                             |
+| -------------------------------------------------------------- | ---------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Daily notes, runtime context                                   | `memory/YYYY-MM-DD.md` | **Accumulation Phase (Daytime)** | Auto-Memory automatically appends to daily logs                                                                                                               |
+| Decisions, preferences, persistent facts, reusable experiences | `MEMORY.md`            | **Integration Phase (Night)**    | Auto-Dream crystallizes using five core principles, strictly limited to: core business decisions, confirmed user preferences, high-value reusable experiences |
+| User says "remember this"                                      | `memory/YYYY-MM-DD.md` | **Accumulation Phase (Daytime)** | Immediately writes to daily log, processed by Auto-Dream later                                                                                                |
 
 Recommended workflow: Enable Auto-Memory during the day to accumulate memories → Auto-Dream at night to integrate and optimize → Auto-Memory-Search the next day for precise retrieval.
 
@@ -105,9 +105,9 @@ Auto-Memory automatically persists important information from conversations into
 
 **Trigger Methods**
 
-| Trigger Method   | Config                    | Description                                              | Default |
-| ---------------- | ------------------------- | -------------------------------------------------------- | ------- |
-| Periodic trigger | `auto_memory_interval`    | Auto-summarize every N user messages. `null` to disable  | `null`  |
+| Trigger Method     | Config                   | Description                                                 | Default |
+| ------------------ | ------------------------ | ----------------------------------------------------------- | ------- |
+| Periodic trigger   | `auto_memory_interval`   | Auto-summarize every N user messages. `null` to disable     | `null`  |
 | Compaction trigger | `summarize_when_compact` | Summarize before context compaction when threshold exceeded | `true`  |
 
 - **Input**: User conversations, Agent tool call results, explicit "remember this" commands
@@ -124,13 +124,13 @@ Auto-Dream is an intelligent memory integration system that automatically optimi
 
 **Five Optimization Principles**
 
-| Principle                | Description                                                                      |
-| ------------------------ | -------------------------------------------------------------------------------- |
-| **Noise Removal**        | Eliminates temporary details, bug fixes, and one-time tasks                      |
-| **Essence Preservation** | Retains only core business decisions, confirmed user preferences, and reusable insights |
-| **Contradiction Resolution** | Automatically updates outdated information with the latest state             |
-| **Structure Creation**   | Organizes fragmented notes into coherent, universal principles                   |
-| **Backup Protection**    | Automatically creates backups to `backup/` directory before each optimization, enabling historical version rollback |
+| Principle                    | Description                                                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Noise Removal**            | Eliminates temporary details, bug fixes, and one-time tasks                                                         |
+| **Essence Preservation**     | Retains only core business decisions, confirmed user preferences, and reusable insights                             |
+| **Contradiction Resolution** | Automatically updates outdated information with the latest state                                                    |
+| **Structure Creation**       | Organizes fragmented notes into coherent, universal principles                                                      |
+| **Backup Protection**        | Automatically creates backups to `backup/` directory before each optimization, enabling historical version rollback |
 
 - **Output**: Generates high-quality crystallized knowledge updated to `MEMORY.md`
 - **Content guidelines**: Strictly limited to three types of high-value information: core business decisions, confirmed user preferences, high-value reusable experiences
