@@ -47,7 +47,10 @@ class ModuleRegistryImpl implements ModuleRegistry {
       // Only copy enumerable own properties
       for (const exportName of Object.keys(module)) {
         try {
-          const descriptor = Object.getOwnPropertyDescriptor(module, exportName);
+          const descriptor = Object.getOwnPropertyDescriptor(
+            module,
+            exportName,
+          );
           if (descriptor && descriptor.enumerable && !descriptor.get) {
             // Only copy plain properties, skip getter/setter
             safeCopy[exportName] = module[exportName];
@@ -66,7 +69,10 @@ class ModuleRegistryImpl implements ModuleRegistry {
       this.modules.set(key, safeCopy);
     } catch (err) {
       if (console && console.error) {
-        console.error(`[moduleRegistry] Failed to register module: ${key}`, err);
+        console.error(
+          `[moduleRegistry] Failed to register module: ${key}`,
+          err,
+        );
       }
     }
   }

@@ -1,9 +1,9 @@
 /**
  * vite-plugin-patchable.ts
- * 
+ *
  * Vite plugin for automatic host module registration in plugin system.
  * Scans source files, extracts exports, and generates registration code.
- * 
+ *
  * Usage:
  *   1. Add to vite.config.ts: plugins: [vitePatchable()]
  *   2. Call in main.tsx: installHostExternals() and registerHostModules()
@@ -238,9 +238,7 @@ function generateRegistryFile(
     if (!rel.startsWith(".")) rel = `./${rel}`;
     const relNoExt = rel.replace(/\.[tj]sx?$/, "");
     imports.push(`import * as ${alias} from "${relNoExt}";`);
-    registers.push(
-      `  moduleRegistry.register("${info.moduleKey}", ${alias});`,
-    );
+    registers.push(`  moduleRegistry.register("${info.moduleKey}", ${alias});`);
   }
 
   return [

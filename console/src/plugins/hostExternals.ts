@@ -29,7 +29,6 @@ export interface HostExternals {
   apiBaseUrl: string;
   getApiUrl: typeof getApiUrl;
   getApiToken: typeof getApiToken;
-
 }
 
 export interface PluginRouteDeclaration {
