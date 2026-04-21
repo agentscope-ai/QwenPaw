@@ -32,6 +32,25 @@ for _module in _MISSING_MODULES:
     if _module not in sys.modules:
         sys.modules[_module] = MagicMock()
 
+# =============================================================================
+# Circular Import Guard
+# =============================================================================
+# qwenpaw.agents.memory.proactive imports app.runner which has a circular
+# import on Linux (app.runner → react_agent → agents.memory → proactive →
+# app.runner).  Pre-register the proactive package as a no-op mock so that
+# importing agents.memory (and its __init__.py) doesn't trigger the cycle.
+_PROACTIVE_MODULES = [
+    "qwenpaw.agents.memory.proactive",
+    "qwenpaw.agents.memory.proactive.proactive_types",
+    "qwenpaw.agents.memory.proactive.proactive_trigger",
+    "qwenpaw.agents.memory.proactive.proactive_responder",
+    "qwenpaw.agents.memory.proactive.proactive_utils",
+    "qwenpaw.agents.memory.proactive.proactive_prompts",
+]
+for _mod in _PROACTIVE_MODULES:
+    if _mod not in sys.modules:
+        sys.modules[_mod] = MagicMock()
+
 
 # =============================================================================
 # Directory Fixtures
