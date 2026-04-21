@@ -105,7 +105,7 @@ docker run -p 127.0.0.1:8088:8088 \
   agentscope/qwenpaw:latest
 ```
 
-5. If using the Desktop app (Windows `.exe` or macOS `.app`), you currently need to uninstall and reinstall:
+5. If using the Desktop app (Windows `.exe` or macOS `.zip`), you currently need to uninstall and reinstall:
    - Uninstall QwenPaw on your machine
    - Download the latest build: https://qwenpaw.agentscope.io/downloads
    - Reinstall
