@@ -259,6 +259,7 @@
     "channels": "频道配置",
     "skills": "Skills",
     "mcp": "MCP 与内置工具",
+    "acpServer": "ACP 集成",
     "memory": "记忆",
     "context": "上下文",
     "commands": "魔法命令",

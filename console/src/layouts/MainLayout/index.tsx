@@ -24,6 +24,7 @@ const SkillPoolPage = lazyImportWithRetry("../../pages/Settings/SkillPool");
 const ToolsPage = lazyImportWithRetry("../../pages/Agent/Tools");
 const WorkspacePage = lazyImportWithRetry("../../pages/Agent/Workspace");
 const MCPPage = lazyImportWithRetry("../../pages/Agent/MCP");
+const ACPPage = lazyImportWithRetry("../../pages/Agent/ACP");
 const ModelsPage = lazyImportWithRetry("../../pages/Settings/Models");
 const EnvironmentsPage = lazyImportWithRetry(
   "../../pages/Settings/Environments",
@@ -50,6 +51,7 @@ const pathToKey: Record<string, string> = {
   "/skill-pool": "skill-pool",
   "/tools": "tools",
   "/mcp": "mcp",
+  "/acp": "acp",
   "/workspace": "workspace",
   "/agents": "agents",
   "/models": "models",
@@ -108,6 +110,8 @@ export default function MainLayout() {
                   <Route path="/skill-pool" element={<SkillPoolPage />} />
                   <Route path="/tools" element={<ToolsPage />} />
                   <Route path="/mcp" element={<MCPPage />} />
+                  <Route path="/acp" element={<ACPPage />} />
+                  <Route path="/ACP" element={<Navigate to="/acp" replace />} />
                   <Route path="/workspace" element={<WorkspacePage />} />
                   <Route path="/agents" element={<AgentsPage />} />
                   <Route path="/models" element={<ModelsPage />} />

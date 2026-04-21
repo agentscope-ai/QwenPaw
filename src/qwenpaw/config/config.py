@@ -62,6 +62,10 @@ class ACPAgentConfig(BaseModel):
     env: Dict[str, str] = Field(default_factory=dict)
     trusted: bool = True
     tool_parse_mode: str = "call_title"
+    stdio_buffer_limit_bytes: int = Field(
+        default=50 * 1024 * 1024,
+        gt=0,
+    )
 
 
 def _get_default_acp_agents() -> Dict[str, ACPAgentConfig]:
@@ -914,6 +918,10 @@ class AgentProfileConfig(BaseModel):
     security: Optional["SecurityConfig"] = Field(
         default=None,
         description="Security configuration for this agent",
+    )
+    acp: Optional[ACPConfig] = Field(
+        default=None,
+        description="ACP configuration for this agent",
     )
 
 

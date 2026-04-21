@@ -156,12 +156,6 @@ class BaseChannel(ABC):
         self._debounce_seconds: float = 0.0
         self._debounce_pending: Dict[str, List[Any]] = {}
         self._debounce_timers: Dict[str, asyncio.Task[None]] = {}
-        self._tool_stream_buffers: Dict[str, List[str]] = {}
-        self._tool_stream_timers: Dict[str, asyncio.Task[None]] = {}
-        self._tool_stream_targets: Dict[
-            str,
-            tuple[str, str, Optional[Dict[str, Any]]],
-        ] = {}
 
     def _is_native_payload(self, payload: Any) -> bool:
         """True if payload is a native dict that can be time-debounced."""
@@ -966,11 +960,18 @@ class BaseChannel(ABC):
         status = getattr(event, "status", None)
         if status != RunStatus.InProgress:
             return False
-        return await self._send_tool_output_content_increment(
+        data = getattr(event, "data", None) or {}
+        if not isinstance(data, dict) or "output" not in data:
+            return False
+        body = self._format_stream_tool_output_body(event)
+        if not body:
+            return False
+        await self.send_content_parts(
             to_handle,
-            event,
+            [TextContent(text=body)],
             send_meta,
         )
+        return True
 
     async def on_event_message_completed(
         self,
@@ -983,8 +984,6 @@ class BaseChannel(ABC):
         Hook: one message event completed. Default: send_message_content.
         Override for batch/debounce (e.g. DingTalk merge then send).
         """
-        if getattr(event, "type", None) in _TOOL_OUTPUT_MESSAGE_TYPES:
-            await self._flush_all_stream_tool_buffers(to_handle, send_meta)
         await self.send_message_content(to_handle, event, send_meta)
 
     async def on_event_response(
@@ -1074,107 +1073,55 @@ class BaseChannel(ABC):
         )
         await self.send_content_parts(to_handle, parts, meta)
 
-    async def _send_tool_output_content_increment(
+    def _truncate_stream_tool_chunk(
         self,
-        to_handle: str,
+        text: Any,
+        limit: int = 72,
+    ) -> str:
+        preview = " ".join(str(text or "").split()).strip()
+        if len(preview) > limit:
+            return preview[:limit] + "..."
+        return preview
+
+    def _format_stream_tool_output_body(
+        self,
         event: Any,
-        meta: Optional[Dict[str, Any]] = None,
-    ) -> bool:
+    ) -> Optional[str]:
         data = getattr(event, "data", None) or {}
         if not isinstance(data, dict):
-            return False
+            return None
         output = data.get("output")
         if isinstance(output, str):
             try:
                 output = json.loads(output)
             except json.JSONDecodeError:
-                return False
+                return None
         if not isinstance(output, list):
-            return False
+            return None
 
         tool_name = data.get("name") or "tool"
         chunks: List[str] = []
+        seen_chunks: set[str] = set()
         for block in output:
-            if not isinstance(block, dict) or block.get("type") != "text":
+            if not isinstance(block, dict):
                 continue
-            text = str(block.get("text") or "").strip()
-            if len(text) > 72:
-                text = text[:72] + "..."
-            if text:
-                chunks.append(text)
+            block_type = block.get("type")
+            raw_text = ""
+            if block_type == "text":
+                raw_text = str(block.get("text") or "")
+            elif block_type == "thinking":
+                raw_text = str(block.get("thinking") or "")
+            if not raw_text.strip():
+                continue
+            preview = self._truncate_stream_tool_chunk(raw_text)
+            if not preview or preview in seen_chunks:
+                continue
+            seen_chunks.add(preview)
+            chunks.append(preview)
         if not chunks:
-            return False
-        await self.send_stream_tool(to_handle, tool_name, chunks, meta)
-        return True
-
-    async def _flush_stream_tool_buffer(
-        self,
-        key: str,
-        delay: float = 1,
-    ) -> None:
-        if delay > 0:
-            await asyncio.sleep(delay)
-        chunks = self._tool_stream_buffers.pop(key, [])
-        self._tool_stream_timers.pop(key, None)
-        target = self._tool_stream_targets.pop(key, None)
-        if not chunks or not target:
-            return
-        to_handle, tool_name, meta = target
-        stream_meta = dict(meta or {})
-        stream_meta["is_tool_stream"] = True
-        body = f"⌛️ **{tool_name}**:\n" + "\n".join(
+            return None
+        return f"⌛️ **{tool_name}**:\n" + "\n".join(
             f"`{text}`" for text in chunks
-        )
-        body = body.strip()
-        if not body:
-            return
-        await self.send_content_parts(
-            to_handle,
-            [TextContent(text=body)],
-            stream_meta,
-        )
-
-    async def _flush_all_stream_tool_buffers(
-        self,
-        to_handle: str,
-        meta: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        session_key = (
-            (meta or {}).get("session_id")
-            or (meta or {}).get("conversation_id")
-            or to_handle
-        )
-        prefix = f"{session_key}:"
-        keys = [
-            key for key in self._tool_stream_buffers if key.startswith(prefix)
-        ]
-        for key in keys:
-            old = self._tool_stream_timers.pop(key, None)
-            if old and not old.done():
-                old.cancel()
-            await self._flush_stream_tool_buffer(key, delay=0)
-
-    async def send_stream_tool(
-        self,
-        to_handle: str,
-        tool_name: str,
-        chunks: List[str],
-        meta: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        session_key = (
-            (meta or {}).get("session_id")
-            or (meta or {}).get("conversation_id")
-            or to_handle
-        )
-        key = f"{session_key}:{tool_name}"
-        self._tool_stream_targets[key] = (to_handle, tool_name, meta)
-        buffer = self._tool_stream_buffers.setdefault(key, [])
-        buffer.extend(chunks)
-        old = self._tool_stream_timers.pop(key, None)
-        if old and not old.done():
-            old.cancel()
-        self._tool_stream_timers[key] = asyncio.create_task(
-            self._flush_stream_tool_buffer(key, delay=1),
         )
 
     async def send_content_parts(
