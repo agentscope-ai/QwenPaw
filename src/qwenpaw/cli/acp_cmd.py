@@ -42,7 +42,16 @@ def acp_cmd(
 
     workspace_dir = Path(workspace) if workspace else None
 
-    from ..agents.acp.server import run_qwenpaw_agent
+    try:
+        from ..agents.acp.server import run_qwenpaw_agent
+    except ModuleNotFoundError as exc:
+        if exc.name != "acp":
+            raise
+        raise click.ClickException(
+            "ACP support is not installed in this environment. "
+            "Reinstall or sync dependencies so the "
+            "`agent-client-protocol` package is available.",
+        ) from exc
 
     asyncio.run(
         run_qwenpaw_agent(
