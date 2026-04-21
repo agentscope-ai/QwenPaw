@@ -9,9 +9,6 @@ on:
       - 'tests/conftest.py'
       - 'pyproject.toml'
       - '.github/workflows/unit-tests.yml'
-    paths-ignore:
-      - 'src/qwenpaw/app/channels/**'
-      - 'tests/unit/channels/**'
   pull_request:
     branches: [main, master, dev, develop]
     paths:
@@ -20,9 +17,6 @@ on:
       - 'tests/conftest.py'
       - 'pyproject.toml'
       - '.github/workflows/unit-tests.yml'
-    paths-ignore:
-      - 'src/qwenpaw/app/channels/**'
-      - 'tests/unit/channels/**'
   workflow_dispatch:
 
 concurrency:
