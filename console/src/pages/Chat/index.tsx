@@ -14,6 +14,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import { chatApi } from "../../api/modules/chat";
+import { consoleApi, type PendingApproval } from "../../api/modules/console";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
@@ -60,6 +61,44 @@ interface CommandSuggestion {
   command: string;
   value: string;
   description: string;
+}
+
+function ApprovalMessageCard(props: any) {
+  const data = props?.data || {};
+  return (
+    <div className={styles.approvalCard}>
+      <div className={styles.approvalTitle}>{data.title}</div>
+      <div className={styles.approvalTool}>
+        {data.toolLabel}: <code>{data.toolName}</code>
+      </div>
+      {data.operationPreview ? (
+        <div className={styles.approvalOperation}>
+          {data.operationLabel}: <code>{data.operationPreview}</code>
+        </div>
+      ) : null}
+      {data.summary ? (
+        <div className={styles.approvalSummary}>{data.summary}</div>
+      ) : null}
+      <div className={styles.approvalActions}>
+        <button
+          type="button"
+          className={styles.approvalNo}
+          disabled={!!data.submitting}
+          onClick={() => data.onAction?.("deny")}
+        >
+          {data.denyText}
+        </button>
+        <button
+          type="button"
+          className={styles.approvalYes}
+          disabled={!!data.submitting}
+          onClick={() => data.onAction?.("approve")}
+        >
+          {data.approveText}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function messageRequestsHistoryClear(message: unknown): boolean {
@@ -458,6 +497,12 @@ export default function ChatPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const { message } = useAppMessage();
+  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(
+    null,
+  );
+  const [approvalSubmitting, setApprovalSubmitting] = useState(false);
+  const handledApprovalUntilRef = useRef<Record<string, number>>({});
+  const approvalMessageIdRef = useRef<string | null>(null);
 
   const isChatActiveRef = useRef(false);
   isChatActiveRef.current =
@@ -578,6 +623,107 @@ export default function ChatPage() {
   }, []);
 
   // Setup multimodal capabilities tracking via custom hook
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      const sessionId = window.currentSessionId || "";
+      if (!sessionId) {
+        if (!cancelled) setPendingApproval(null);
+        return;
+      }
+      try {
+        const data = await consoleApi.getPendingApproval(sessionId);
+        if (cancelled) return;
+        if (data?.request_id) {
+          const suppressUntil =
+            handledApprovalUntilRef.current[data.request_id] || 0;
+          if (Date.now() < suppressUntil) {
+            setPendingApproval(null);
+          } else {
+            setPendingApproval(data);
+          }
+        } else {
+          setPendingApproval(null);
+        }
+      } catch {
+        // keep quiet to avoid notification noise on polling
+      }
+    };
+
+    tick();
+    const timer = setInterval(tick, 1500);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [chatId, refreshKey]);
+
+  const handleApprovalAction = useCallback(
+    async (action: "approve" | "deny") => {
+      if (!pendingApproval?.request_id || approvalSubmitting) return;
+      setApprovalSubmitting(true);
+      try {
+        handledApprovalUntilRef.current[pendingApproval.request_id] =
+          Date.now() + 8000;
+        setPendingApproval(null);
+        chatRef.current?.input.submit({
+          query: action === "approve" ? "/approve" : "/deny",
+        } as any);
+      } catch {
+        message.error(t("chat.approval.failed"));
+      } finally {
+        setApprovalSubmitting(false);
+      }
+    },
+    [approvalSubmitting, message, pendingApproval, t],
+  );
+
+  useEffect(() => {
+    const currentId = approvalMessageIdRef.current;
+    const api = chatRef.current?.messages;
+    if (!api) return;
+
+    if (!pendingApproval?.request_id) {
+      if (currentId) {
+        const existing = api.getMessage(currentId as any);
+        if (existing) api.removeMessage(existing as any);
+        approvalMessageIdRef.current = null;
+      }
+      return;
+    }
+
+    const msgId = `approval-${pendingApproval.request_id}`;
+    approvalMessageIdRef.current = msgId;
+    api.updateMessage({
+      id: msgId,
+      role: "assistant",
+      msgStatus: "finished",
+      cards: [
+        {
+          id: `approval-card-${pendingApproval.request_id}`,
+          code: "ApprovalCardInline",
+          component: ApprovalMessageCard,
+          data: {
+            title: t("chat.approval.title"),
+            toolLabel: t("chat.approval.tool"),
+            operationLabel: t("chat.approval.operation"),
+            toolName: pendingApproval.tool_name,
+            operationPreview: pendingApproval.operation_preview,
+            summary: pendingApproval.operation_preview
+              ? ""
+              : pendingApproval.result_summary,
+            approveText: t("chat.approval.approve"),
+            denyText: t("chat.approval.deny"),
+            submitting: approvalSubmitting,
+            onAction: (action: "approve" | "deny") => {
+              void handleApprovalAction(action);
+            },
+          },
+        },
+      ],
+    } as any);
+  }, [approvalSubmitting, handleApprovalAction, pendingApproval, t]);
 
   // Refresh chat when selectedAgent changes, preserving last active chat per agent
   const { setLastChatId, getLastChatId } = useAgentStore();

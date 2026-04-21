@@ -1309,6 +1309,15 @@
       "userMessage": "用户",
       "assistantMessage": "助手",
       "titleMatch": "标题"
+    },
+    "approval": {
+      "title": "工具执行审批",
+      "tool": "工具",
+      "operation": "将执行的操作",
+      "approve": "是，继续执行",
+      "deny": "否，拒绝执行",
+      "failed": "审批请求发送失败",
+      "stale": "审批已失效或已被处理"
     }
   },
   "security": {

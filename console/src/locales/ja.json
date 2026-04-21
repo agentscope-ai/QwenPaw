@@ -1279,6 +1279,15 @@
       "userMessage": "ユーザー",
       "assistantMessage": "アシスタント",
       "titleMatch": "タイトル"
+    },
+    "approval": {
+      "title": "ツール実行の承認",
+      "tool": "ツール",
+      "operation": "実行操作",
+      "approve": "はい、続行",
+      "deny": "いいえ、拒否",
+      "failed": "承認操作の送信に失敗しました",
+      "stale": "承認は失効したか、すでに処理されています"
     }
   },
   "security": {

@@ -1447,6 +1447,15 @@
       "userMessage": "User",
       "assistantMessage": "Assistant",
       "titleMatch": "Title"
+    },
+    "approval": {
+      "title": "Tool Execution Approval",
+      "tool": "Tool",
+      "operation": "Operation",
+      "approve": "Yes, continue",
+      "deny": "No, reject",
+      "failed": "Failed to submit approval action",
+      "stale": "Approval is stale or already handled"
     }
   },
   "security": {

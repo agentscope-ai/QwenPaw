@@ -113,6 +113,107 @@
   }
 }
 
+.approvalCard {
+  width: 100%;
+  padding: 14px 14px 12px;
+  border-radius: 12px;
+  border: 1px solid #d9d9d9;
+  background: #ffffff;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+  margin: 6px 0 2px;
+}
+
+.approvalTitle {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #1f2329;
+}
+
+.approvalTool {
+  font-size: 13px;
+  color: #3f434a;
+  margin-bottom: 6px;
+}
+
+.approvalOperation {
+  font-size: 12px;
+  color: #1f2329;
+  margin-bottom: 8px;
+}
+
+.approvalSummary {
+  max-height: 110px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #4d5562;
+  background: #f7f8fa;
+  border: 1px solid #ebeef2;
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 12px;
+}
+
+.approvalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.approvalYes,
+.approvalNo {
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  font-size: 13px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.approvalYes {
+  color: #fff;
+  border-color: #0969da;
+  background: #0969da;
+}
+
+.approvalNo {
+  background: #fff;
+  color: #24292f;
+}
+
+:global(.dark-mode) {
+  .approvalCard {
+    border-color: #30363d;
+    background: #161b22;
+    box-shadow: 0 8px 36px rgba(0, 0, 0, 0.45);
+  }
+
+  .approvalTitle {
+    color: #f0f6fc;
+  }
+
+  .approvalTool {
+    color: #c9d1d9;
+  }
+
+  .approvalOperation {
+    color: #f0f6fc;
+  }
+
+  .approvalSummary {
+    color: #9da7b3;
+    background: #0d1117;
+    border-color: #30363d;
+  }
+
+  .approvalNo {
+    color: #c9d1d9;
+    background: #21262d;
+    border-color: #30363d;
+  }
+}
+
 /* Prompt star icon - use theme color */
 :global {
   .chat-anywhere-prompt-icon,

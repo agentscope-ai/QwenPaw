@@ -2,6 +2,7 @@
 """Console APIs: push messages, chat, and file upload for chat."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import AsyncGenerator, Union
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
@@ -23,6 +25,23 @@ router = APIRouter(prefix="/console", tags=["console"])
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_DEBUG_LOG_LINES = 1000
+
+
+class PendingApprovalResponse(BaseModel):
+    request_id: str = ""
+    tool_name: str = ""
+    operation_preview: str = ""
+    result_summary: str = ""
+    findings_count: int = 0
+    created_at: float = 0.0
+
+
+class ApprovalActionRequest(BaseModel):
+    session_id: str = Field(default="")
+    action: str = Field(default="approve")
+    request_id: str | None = None
+    user_id: str | None = None
+    channel: str | None = None
 
 
 def _safe_filename(name: str) -> str:
@@ -278,3 +297,163 @@ async def get_push_messages(
     else:
         messages = await get_recent()
     return {"messages": messages}
+
+
+@router.get(
+    "/approvals/pending",
+    response_model=PendingApprovalResponse,
+    summary="Get pending approval for current session",
+)
+async def get_pending_approval(
+    session_id: str = Query(..., description="Session id"),
+) -> PendingApprovalResponse:
+    from ..approvals import get_approval_service
+
+    pending = await get_approval_service().get_pending_by_session(session_id)
+    if pending is None:
+        return PendingApprovalResponse()
+
+    operation_preview = ""
+    extra = pending.extra if isinstance(pending.extra, dict) else {}
+    tool_call = extra.get("tool_call") if isinstance(extra, dict) else None
+    if isinstance(tool_call, dict):
+        tool_input = tool_call.get("input", {})
+        if isinstance(tool_input, dict):
+            if (
+                pending.tool_name == "execute_shell_command"
+                and isinstance(tool_input.get("command"), str)
+            ):
+                operation_preview = tool_input["command"].strip()
+            elif (
+                pending.tool_name in {"write_file", "edit_file", "append_file"}
+                and isinstance(tool_input.get("path"), str)
+            ):
+                operation_preview = (
+                    f"{pending.tool_name} -> {tool_input['path'].strip()}"
+                )
+            elif (
+                pending.tool_name == "browser_cdp"
+                and isinstance(tool_input.get("action"), str)
+            ):
+                operation_preview = (
+                    f"browser_cdp action={tool_input['action']}"
+                )
+            elif tool_input:
+                preview_items = []
+                for key, value in list(tool_input.items())[:3]:
+                    val = str(value).strip().replace("\n", " ")
+                    if len(val) > 120:
+                        val = val[:117] + "..."
+                    preview_items.append(f"{key}={val}")
+                operation_preview = ", ".join(preview_items)
+
+    return PendingApprovalResponse(
+        request_id=pending.request_id,
+        tool_name=pending.tool_name,
+        operation_preview=operation_preview,
+        result_summary=pending.result_summary,
+        findings_count=pending.findings_count,
+        created_at=pending.created_at,
+    )
+
+
+async def _dispatch_approval_command(
+    request: Request,
+    *,
+    session_id: str,
+    user_id: str,
+    channel: str,
+    command_text: str,
+) -> None:
+    """Dispatch '/approve' or '/deny' through the existing console path."""
+    workspace = await get_agent_for_request(request)
+    console_channel = await workspace.channel_manager.get_channel("console")
+    if console_channel is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Channel Console not found",
+        )
+
+    native_payload = {
+        "channel_id": channel,
+        "sender_id": user_id,
+        "content_parts": [{"type": "text", "text": command_text}],
+        "meta": {
+            "session_id": session_id,
+            "user_id": user_id,
+        },
+    }
+    chat = await workspace.chat_manager.get_or_create_chat(
+        session_id,
+        user_id,
+        channel,
+        name=command_text,
+    )
+    queue, is_new = await workspace.task_tracker.attach_or_start(
+        chat.id,
+        native_payload,
+        console_channel.stream_one,
+    )
+    if not is_new:
+        # If a previous run is still active, attach_or_start ignores payload.
+        # Wait for the current run to finish, then start a fresh run for
+        # this approval command.
+        await workspace.task_tracker.detach_subscriber(chat.id, queue)
+
+        for _ in range(40):
+            status = await workspace.task_tracker.get_status(chat.id)
+            if status != "running":
+                break
+            await asyncio.sleep(0.1)
+
+        queue, _ = await workspace.task_tracker.attach_or_start(
+            chat.id,
+            native_payload,
+            console_channel.stream_one,
+        )
+
+    async def _drain_queue() -> None:
+        stream_it = workspace.task_tracker.stream_from_queue(queue, chat.id)
+        try:
+            async for _ in stream_it:
+                pass
+        finally:
+            await stream_it.aclose()
+
+    asyncio.create_task(_drain_queue())
+
+
+@router.post(
+    "/approvals/action",
+    response_model=dict,
+    summary="Resolve pending approval via frontend button",
+)
+async def post_approval_action(
+    body: ApprovalActionRequest,
+    request: Request,
+) -> dict:
+    action = (body.action or "").strip().lower()
+    if action not in {"approve", "deny"}:
+        raise HTTPException(status_code=400, detail="Invalid action")
+    session_id = (body.session_id or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    from ..approvals import get_approval_service
+
+    svc = get_approval_service()
+    pending = await svc.get_pending_by_session(session_id)
+    if pending is None:
+        return {"ok": False, "reason": "no_pending"}
+    if body.request_id and body.request_id != pending.request_id:
+        return {"ok": False, "reason": "stale_request"}
+
+    command_text = "/approve" if action == "approve" else "/deny"
+    await _dispatch_approval_command(
+        request,
+        session_id=session_id,
+        user_id=body.user_id or pending.user_id or "default",
+        channel=body.channel or pending.channel or "console",
+        command_text=command_text,
+    )
+    return {"ok": True}
