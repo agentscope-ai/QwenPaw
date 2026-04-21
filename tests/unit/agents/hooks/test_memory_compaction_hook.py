@@ -212,7 +212,19 @@ async def test_calls_compact_tool_result_when_enabled(hook, agent, mm):
     mm.check_context = AsyncMock(return_value=([], None, True))
     agent.memory.get_memory = AsyncMock(return_value=msgs)
 
+    # Verify module is in sys.modules
+    mod = sys.modules.get(_HOOK_MOD)
+    assert mod is not None, f"{_HOOK_MOD} not in sys.modules"
+    assert hasattr(
+        mod,
+        "load_agent_config",
+    ), f"load_agent_config not in {_HOOK_MOD}"
+
     with _mock_hook_deps(cfg):
+        # Verify replacement is active
+        assert (
+            mod.load_agent_config("x") is cfg
+        ), "load_agent_config replacement not active"
         await hook(agent, {})
 
     mm.compact_tool_result.assert_called_once_with(
