@@ -157,12 +157,18 @@ class TestAgentMdManagerReadWorkingMd:
     ):
         """Patch read_text_file_with_encoding_fallback to verify it's
         called."""
+        import sys
+
         (tmp_path / "enc.md").write_text("hello", encoding="utf-8")
-        patch_target = (
-            "qwenpaw.agents.memory.agent_md_manager"
-            ".read_text_file_with_encoding_fallback"
-        )
-        with patch(patch_target, return_value="patched") as mock_fn:
+        # Use the already-imported module from sys.modules to avoid
+        # patch path resolution issues with qwenpaw.agents.__getattr__
+        # on Linux (where the package attr may not yet be set).
+        mod = sys.modules["qwenpaw.agents.memory.agent_md_manager"]
+        with patch.object(
+            mod,
+            "read_text_file_with_encoding_fallback",
+            return_value="patched",
+        ) as mock_fn:
             result = manager.read_working_md("enc.md")
         mock_fn.assert_called_once()
         assert result == "patched"

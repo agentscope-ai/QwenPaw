@@ -7,6 +7,14 @@ Covers:
 - __call__: threshold too low, no messages, tool-result compact toggle,
   summary task toggle, compact-memory toggle, invalid-message fallback,
   marks messages compressed, exception handling
+
+NOTE: Tests use `hook.memory_manager` directly instead of injecting
+the `mm` fixture into each test method.  On Linux, pytest-asyncio
+creates two separate `mm` instances for async class methods — one for
+the `hook(mm)` dependency chain and one for the test parameter — so
+any modifications made via the `mm` parameter are invisible to the hook.
+Accessing `hook.memory_manager` always refers to the actual mock the
+hook uses, avoiding this duplication issue.
 """
 # pylint: disable=redefined-outer-name,protected-access
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -150,7 +158,6 @@ class TestMemoryCompactionHookThreshold:
         self,
         hook,
         agent,
-        mm,
     ):
         """token_count(100) >= threshold(50) → return early."""
         cfg = _make_config(threshold=50)
@@ -161,7 +168,7 @@ class TestMemoryCompactionHookThreshold:
             result = await hook(agent, {})
 
         assert result is None
-        mm.check_context.assert_not_called()
+        hook.memory_manager.check_context.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -176,10 +183,11 @@ class TestMemoryCompactionHookNoMessages:
         self,
         hook,
         agent,
-        mm,
     ):
         cfg = _make_config(threshold=5000)
-        mm.check_context = AsyncMock(return_value=([], None, True))
+        hook.memory_manager.check_context = AsyncMock(
+            return_value=([], None, True),
+        )
         with patch(_LOAD_CFG, return_value=cfg), patch(
             _GET_TC,
             return_value=_token_counter(),
@@ -187,7 +195,7 @@ class TestMemoryCompactionHookNoMessages:
             result = await hook(agent, {})
 
         assert result is None
-        mm.compact_memory.assert_not_called()
+        hook.memory_manager.compact_memory.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +210,6 @@ class TestToolResultCompaction:
         self,
         hook,
         agent,
-        mm,
     ):
         msgs = [MagicMock()]
         cfg = _make_config(
@@ -213,7 +220,9 @@ class TestToolResultCompaction:
             trc_recent_max_bytes=50000,
             trc_retention_days=7,
         )
-        mm.check_context = AsyncMock(return_value=([], None, True))
+        hook.memory_manager.check_context = AsyncMock(
+            return_value=([], None, True),
+        )
         agent.memory.get_memory = AsyncMock(return_value=msgs)
 
         with patch(_LOAD_CFG, return_value=cfg), patch(
@@ -222,7 +231,7 @@ class TestToolResultCompaction:
         ):
             await hook(agent, {})
 
-        mm.compact_tool_result.assert_called_once_with(
+        hook.memory_manager.compact_tool_result.assert_called_once_with(
             messages=msgs,
             recent_n=2,
             old_max_bytes=3000,
@@ -234,10 +243,11 @@ class TestToolResultCompaction:
         self,
         hook,
         agent,
-        mm,
     ):
         cfg = _make_config(threshold=5000, trc_enabled=False)
-        mm.check_context = AsyncMock(return_value=([], None, True))
+        hook.memory_manager.check_context = AsyncMock(
+            return_value=([], None, True),
+        )
 
         with patch(_LOAD_CFG, return_value=cfg), patch(
             _GET_TC,
@@ -245,7 +255,7 @@ class TestToolResultCompaction:
         ):
             await hook(agent, {})
 
-        mm.compact_tool_result.assert_not_called()
+        hook.memory_manager.compact_tool_result.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +270,6 @@ class TestMemorySummaryTask:
         self,
         hook,
         agent,
-        mm,
     ):
         msgs_to_compact = [MagicMock()]
         cfg = _make_config(
@@ -268,7 +277,7 @@ class TestMemorySummaryTask:
             summary_enabled=True,
             compact_enabled=False,
         )
-        mm.check_context = AsyncMock(
+        hook.memory_manager.check_context = AsyncMock(
             return_value=(msgs_to_compact, None, True),
         )
 
@@ -278,7 +287,7 @@ class TestMemorySummaryTask:
         ):
             await hook(agent, {})
 
-        mm.add_async_summary_task.assert_called_once_with(
+        hook.memory_manager.add_async_summary_task.assert_called_once_with(
             messages=msgs_to_compact,
         )
 
@@ -286,7 +295,6 @@ class TestMemorySummaryTask:
         self,
         hook,
         agent,
-        mm,
     ):
         msgs_to_compact = [MagicMock()]
         cfg = _make_config(
@@ -294,7 +302,7 @@ class TestMemorySummaryTask:
             summary_enabled=False,
             compact_enabled=False,
         )
-        mm.check_context = AsyncMock(
+        hook.memory_manager.check_context = AsyncMock(
             return_value=(msgs_to_compact, None, True),
         )
 
@@ -304,7 +312,7 @@ class TestMemorySummaryTask:
         ):
             await hook(agent, {})
 
-        mm.add_async_summary_task.assert_not_called()
+        hook.memory_manager.add_async_summary_task.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +327,6 @@ class TestContextCompaction:
         self,
         hook,
         agent,
-        mm,
     ):
         msgs_to_compact = [MagicMock()]
         cfg = _make_config(
@@ -327,10 +334,12 @@ class TestContextCompaction:
             summary_enabled=False,
             compact_enabled=True,
         )
-        mm.check_context = AsyncMock(
+        hook.memory_manager.check_context = AsyncMock(
             return_value=(msgs_to_compact, None, True),
         )
-        mm.compact_memory = AsyncMock(return_value="compact summary")
+        hook.memory_manager.compact_memory = AsyncMock(
+            return_value="compact summary",
+        )
 
         with patch(_LOAD_CFG, return_value=cfg), patch(
             _GET_TC,
@@ -338,7 +347,7 @@ class TestContextCompaction:
         ):
             await hook(agent, {})
 
-        mm.compact_memory.assert_called_once_with(
+        hook.memory_manager.compact_memory.assert_called_once_with(
             messages=msgs_to_compact,
             previous_summary="",
         )
@@ -350,7 +359,6 @@ class TestContextCompaction:
         self,
         hook,
         agent,
-        mm,
     ):
         msgs_to_compact = [MagicMock()]
         cfg = _make_config(
@@ -358,7 +366,7 @@ class TestContextCompaction:
             summary_enabled=False,
             compact_enabled=False,
         )
-        mm.check_context = AsyncMock(
+        hook.memory_manager.check_context = AsyncMock(
             return_value=(msgs_to_compact, None, True),
         )
 
@@ -368,7 +376,7 @@ class TestContextCompaction:
         ):
             await hook(agent, {})
 
-        mm.compact_memory.assert_not_called()
+        hook.memory_manager.compact_memory.assert_not_called()
         # update_compressed_summary still called with empty string
         agent.memory.update_compressed_summary.assert_called_once_with(
             "",
@@ -378,7 +386,6 @@ class TestContextCompaction:
         self,
         hook,
         agent,
-        mm,
     ):
         """compact_memory returning None triggers failure message."""
         msgs_to_compact = [MagicMock()]
@@ -387,10 +394,10 @@ class TestContextCompaction:
             summary_enabled=False,
             compact_enabled=True,
         )
-        mm.check_context = AsyncMock(
+        hook.memory_manager.check_context = AsyncMock(
             return_value=(msgs_to_compact, None, True),
         )
-        mm.compact_memory = AsyncMock(return_value=None)
+        hook.memory_manager.compact_memory = AsyncMock(return_value=None)
 
         with patch(_LOAD_CFG, return_value=cfg), patch(
             _GET_TC,
@@ -411,14 +418,14 @@ class TestContextCompaction:
 class TestMarkMessagesCompressed:
     """P1: mark_messages_compressed is always called with compacted msgs."""
 
-    async def test_marks_messages_compressed(self, hook, agent, mm):
+    async def test_marks_messages_compressed(self, hook, agent):
         msgs_to_compact = [MagicMock()]
         cfg = _make_config(
             threshold=5000,
             summary_enabled=False,
             compact_enabled=False,
         )
-        mm.check_context = AsyncMock(
+        hook.memory_manager.check_context = AsyncMock(
             return_value=(msgs_to_compact, None, True),
         )
 
@@ -445,7 +452,6 @@ class TestInvalidMessagesFallback:
         self,
         hook,
         agent,
-        mm,
     ):
         """check_valid_messages returns True → valid slice used."""
         # 10 messages; MEMORY_COMPACT_KEEP_RECENT=3 default
@@ -456,7 +462,7 @@ class TestInvalidMessagesFallback:
             summary_enabled=False,
             compact_enabled=False,
         )
-        mm.check_context = AsyncMock(
+        hook.memory_manager.check_context = AsyncMock(
             return_value=(msgs, None, False),
         )
         agent.memory.get_memory = AsyncMock(return_value=msgs)
@@ -474,7 +480,6 @@ class TestInvalidMessagesFallback:
         self,
         hook,
         agent,
-        mm,
     ):
         """check_valid_messages always False → keep_length=0 → all msgs."""
         msgs = [MagicMock() for _ in range(5)]
@@ -483,7 +488,7 @@ class TestInvalidMessagesFallback:
             summary_enabled=False,
             compact_enabled=False,
         )
-        mm.check_context = AsyncMock(
+        hook.memory_manager.check_context = AsyncMock(
             return_value=(msgs, None, False),
         )
         agent.memory.get_memory = AsyncMock(return_value=msgs)
@@ -521,12 +526,7 @@ class TestMemoryCompactionHookException:
 
         assert result is None
 
-    async def test_always_returns_none(
-        self,
-        hook,
-        agent,
-        mm,
-    ):  # pylint: disable=unused-argument
+    async def test_always_returns_none(self, hook, agent):
         """Return value is always None regardless of kwargs."""
         cfg = _make_config(threshold=5000)
         with patch(_LOAD_CFG, return_value=cfg), patch(
