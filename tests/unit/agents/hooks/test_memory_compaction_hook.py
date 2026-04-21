@@ -17,7 +17,6 @@ replacement (get sys.modules entry → replace attr → restore) bypasses
 this resolution and works reliably across all platforms.
 """
 # pylint: disable=redefined-outer-name,protected-access
-import contextlib
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -64,25 +63,34 @@ def _token_counter(count: int = 100):
     return tc
 
 
-@contextlib.contextmanager
-def _mock_hook_deps(cfg, tc=None):
+class _MockHookDeps:
     """Replace load_agent_config and get_token_counter in the hook module.
 
-    Uses direct sys.modules replacement instead of patch() to avoid
-    resolution issues caused by qwenpaw.agents.__getattr__ on Linux.
+    Class-based context manager ensures the CM object is kept alive on
+    the coroutine frame stack during await, preventing premature GC that
+    could occur with generator-based (contextlib.contextmanager) CMs on
+    Python 3.10/Linux.
     """
-    if tc is None:
-        tc = _token_counter()
-    mod = sys.modules[_HOOK_MOD]
-    orig_load = mod.load_agent_config
-    orig_tc = mod.get_token_counter
-    mod.load_agent_config = lambda *_a, **_kw: cfg
-    mod.get_token_counter = lambda *_a, **_kw: tc
-    try:
-        yield
-    finally:
-        mod.load_agent_config = orig_load
-        mod.get_token_counter = orig_tc
+
+    def __init__(self, cfg, tc=None):
+        self._cfg = cfg
+        self._tc = tc if tc is not None else _token_counter()
+        self._mod = sys.modules[_HOOK_MOD]
+
+    def __enter__(self):
+        self._orig_load = self._mod.load_agent_config
+        self._orig_tc = self._mod.get_token_counter
+        self._mod.load_agent_config = lambda *_a, **_kw: self._cfg
+        self._mod.get_token_counter = lambda *_a, **_kw: self._tc
+        return self
+
+    def __exit__(self, *_):
+        self._mod.load_agent_config = self._orig_load
+        self._mod.get_token_counter = self._orig_tc
+        return False
+
+
+_mock_hook_deps = _MockHookDeps
 
 
 # ---------------------------------------------------------------------------
