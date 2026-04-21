@@ -7,29 +7,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-# agentscope is installed — do NOT mock it in sys.modules.
-# Only mock packages that need isolated behavior (reme, agentscope_runtime).
+# All dependencies (agentscope, agentscope_runtime, reme, chromadb) are
+# installed in the venv. Do NOT mock installed packages — replacing them
+# with MagicMock() breaks submodule resolution for other test modules that
+# run in the same process (global sys.modules pollution).
+#
+# Only mock reme.reme_light so ReMeLight constructor is controllable.
 _MOCK_MODULES = [
     "reme",
     "reme.reme_light",
     "reme.memory",
     "reme.memory.file_based",
     "reme.memory.file_based.reme_in_memory_memory",
-    "agentscope_runtime",
-    "agentscope_runtime.engine",
-    "agentscope_runtime.engine.schemas",
-    "agentscope_runtime.engine.schemas.exception",
-    "chromadb",
 ]
 for _mod in _MOCK_MODULES:
     if _mod not in sys.modules:
         sys.modules[_mod] = MagicMock()
-
-# Wire up frequently used symbols
-_exc_class = type("AgentRuntimeErrorException", (Exception,), {})
-sys.modules[
-    "agentscope_runtime.engine.schemas.exception"
-].AgentRuntimeErrorException = _exc_class
 
 # ---------------------------------------------------------------------------
 # Module-level shortcut for the patch target prefix

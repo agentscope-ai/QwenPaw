@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=redefined-outer-name,protected-access
+# pylint: disable=redefined-outer-name,protected-access,unused-argument
 """Tests for BaseMemoryManager abstract base class."""
 import asyncio
 from unittest.mock import MagicMock
@@ -36,25 +36,25 @@ def _make_concrete_class():
 
         async def compact_memory(
             self,
-            _messages,
-            _previous_summary="",
-            _extra_instruction="",
-            **_kwargs,
+            messages,
+            previous_summary="",
+            extra_instruction="",
+            **kwargs,
         ):
             return "summary"
 
-        async def summary_memory(self, _messages, **_kwargs):
+        async def summary_memory(self, messages, **kwargs):
             return "full summary"
 
         async def memory_search(
             self,
-            _query,
-            _max_results=5,
-            _min_score=0.1,
+            query,
+            max_results=5,
+            min_score=0.1,
         ):
             return MagicMock()
 
-        def get_in_memory_memory(self, **_kwargs):
+        def get_in_memory_memory(self, **kwargs):
             return None
 
     return ConcreteMemoryManager
