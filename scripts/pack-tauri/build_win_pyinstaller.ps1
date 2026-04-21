@@ -143,28 +143,15 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "PyInstaller backend rebuilt with frontend" -ForegroundColor Green
 Write-Host ""
 
-# Step 3.5: Redirect LOCALAPPDATA so Tauri caches tools in the workspace
-# NSIS_PATH env var does NOT work on Windows — Tauri only checks it on
-# Linux/macOS. The only way to redirect the NSIS cache is via LOCALAPPDATA.
-# On Jenkins: avoids restricted system AppData profile.
-# On local machines: provides an isolated workspace cache.
-Write-Host "== Step 3.5: Redirecting LOCALAPPDATA for Tauri tools cache ==" -ForegroundColor Yellow
-$ORIG_LOCALAPPDATA = $env:LOCALAPPDATA
-$env:LOCALAPPDATA = Join-Path $DIST "local-cache"
-New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA | Out-Null
-Write-Host "LOCALAPPDATA: $ORIG_LOCALAPPDATA -> $env:LOCALAPPDATA" -ForegroundColor Green
-Write-Host ""
-
 # Step 4: Build Tauri app
+# Note: Tauri caches NSIS/Wix tools in target/.tauri/ via useLocalToolsDir
+# in tauri.conf.json — no LOCALAPPDATA redirect needed.
 Write-Host "== Step 4: Building Tauri App ==" -ForegroundColor Yellow
 Set-Location console
 
 Write-Host "Building for Windows..."
 bun tauri build
 $tauriExit = $LASTEXITCODE
-
-# Restore LOCALAPPDATA
-$env:LOCALAPPDATA = $ORIG_LOCALAPPDATA
 
 if ($tauriExit -ne 0) {
     throw "Tauri build failed"
