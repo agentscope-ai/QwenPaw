@@ -100,6 +100,7 @@ jobs:
 
       - name: Comment PR with coverage
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         uses: orgoro/coverage@v3.2
         with:
           coverageFile: coverage.xml
