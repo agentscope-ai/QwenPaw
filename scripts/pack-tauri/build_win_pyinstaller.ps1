@@ -11,6 +11,9 @@ $REPO_ROOT = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Set-Location $REPO_ROOT
 
 $DIST = if ($env:DIST) { $env:DIST } else { "dist" }
+if (-not [System.IO.Path]::IsPathRooted($DIST)) {
+    $DIST = Join-Path $REPO_ROOT $DIST
+}
 $VERSION_FILE = "src\qwenpaw\__version__.py"
 
 # Extract version
@@ -67,7 +70,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Frontend built" -ForegroundColor Green
-Set-Location ..
+Set-Location $REPO_ROOT
 Write-Host ""
 
 # Step 3: Rebuild PyInstaller with embedded frontend
@@ -90,7 +93,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Tauri build failed"
 }
 
-Set-Location ..
+Set-Location $REPO_ROOT
 Write-Host "Tauri app built" -ForegroundColor Green
 Write-Host ""
 
