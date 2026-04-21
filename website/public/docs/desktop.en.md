@@ -6,6 +6,7 @@
 >
 > - **Incomplete compatibility testing**: Not fully tested across all system versions and hardware configurations
 > - **Potential performance issues**: Startup time, memory usage, and other performance aspects may need further optimization
+> - **Update workflow limitations**: You currently need to uninstall and download the app again to complete a version update
 > - **Features under development**: Some features may be unstable or missing
 >
 > We welcome your feedback to help improve product quality.
