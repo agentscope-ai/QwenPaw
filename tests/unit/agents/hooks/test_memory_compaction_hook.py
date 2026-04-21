@@ -230,17 +230,29 @@ async def test_calls_compact_tool_result_when_enabled(hook, agent, mm):
     )
 
     with _mock_hook_deps(cfg):
-        # Verify replacement via both mod and hook globals
-        assert (
-            mod.load_agent_config("x") is cfg
-        ), "mod.load_agent_config not replaced"
-        hook_fn = hook.__call__.__globals__.get("load_agent_config")
-        assert hook_fn is not None, "load_agent_config not in hook globals"
-        assert hook_fn("x") is cfg, (
-            f"hook globals load_agent_config returns {hook_fn('x')!r}, "
-            f"not cfg. hook_fn={hook_fn!r}"
-        )
+        # Verify both replacements are active via hook globals
+        hook_load = hook.__call__.__globals__.get("load_agent_config")
+        assert hook_load is not None
+        assert hook_load("x") is cfg, f"load_agent_config={hook_load!r}"
+        hook_tc = hook.__call__.__globals__.get("get_token_counter")
+        assert hook_tc is not None
+        tc_result = hook_tc("x")
+        assert hasattr(
+            tc_result,
+            "count",
+        ), f"get_token_counter result={tc_result!r}"
+
+        n_get_mem_before = agent.memory.get_memory.call_count
         await hook(agent, {})
+        n_get_mem_after = agent.memory.get_memory.call_count
+        n_ctx = mm.check_context.call_count
+        n_ctr = mm.compact_tool_result.call_count
+
+    assert n_ctr == 1, (
+        f"compact_tool_result={n_ctr}, "
+        f"check_context={n_ctx}, "
+        f"get_memory={n_get_mem_after - n_get_mem_before}"
+    )
 
     mm.compact_tool_result.assert_called_once_with(
         messages=msgs,
