@@ -3,14 +3,13 @@
 
 from __future__ import annotations
 
-from .models import AgentStatsSummary, ChatStats, DailyStats, MessageStats
+from .models import AgentStatsSummary, ChannelStats, DailyStats
 from .service import AgentStatsService, get_agent_stats_service
 
 __all__ = [
     "AgentStatsService",
     "AgentStatsSummary",
-    "ChatStats",
+    "ChannelStats",
     "DailyStats",
     "get_agent_stats_service",
-    "MessageStats",
 ]
