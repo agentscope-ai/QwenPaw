@@ -13,7 +13,6 @@ All existing single-agent components are reused without modification.
 import logging
 from pathlib import Path
 from typing import Optional
-from agentscope_runtime.engine.schemas.exception import ConfigurationException
 
 from qwenpaw.config.utils import load_config
 
@@ -33,32 +32,6 @@ from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_memory_class(backend: str) -> type:
-    """Return the memory manager class for the given backend name."""
-    from ...agents.memory.base_memory_manager import memory_registry
-
-    cls = memory_registry.get(backend)
-    if cls is None:
-        raise ConfigurationException(
-            message=f"Unsupported memory manager backend: '{backend}'. "
-            f"Registered: {memory_registry.list_registered()}",
-        )
-    return cls
-
-
-def _resolve_context_class(backend: str) -> type:
-    """Return the context manager class for the given backend name."""
-    from ...agents.context.base_context_manager import context_registry
-
-    cls = context_registry.get(backend)
-    if cls is None:
-        raise ConfigurationException(
-            message=f"Unsupported context manager backend: '{backend}'. "
-            f"Registered: {context_registry.list_registered()}",
-        )
-    return cls
 
 
 class Workspace:
@@ -170,6 +143,13 @@ class Workspace:
         hardcoded initialization logic.
         """
         # pylint: disable=protected-access
+        from ...agents.memory.base_memory_manager import (
+            get_memory_manager_backend,
+        )
+        from ...agents.context.base_context_manager import (
+            get_context_manager_backend,
+        )
+
         sm = self._service_manager
 
         # Priority 10: Runner
@@ -192,7 +172,7 @@ class Workspace:
         sm.register(
             ServiceDescriptor(
                 name="memory_manager",
-                service_class=lambda ws: _resolve_memory_class(
+                service_class=lambda ws: get_memory_manager_backend(
                     ws._config.running.memory_manager_backend,
                 ),
                 init_args=lambda ws: {
@@ -215,7 +195,7 @@ class Workspace:
         sm.register(
             ServiceDescriptor(
                 name="context_manager",
-                service_class=lambda ws: _resolve_context_class(
+                service_class=lambda ws: get_context_manager_backend(
                     ws._config.running.context_manager_backend,
                 ),
                 init_args=lambda ws: {

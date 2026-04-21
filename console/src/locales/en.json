@@ -1208,7 +1208,7 @@
     "llmAcquireTimeoutGtPauseJitter": "Slot acquire timeout must be greater than rate limit pause + jitter",
     "contextManagementTitle": "Context Management",
     "memoryManagerBackend": "Memory Manager Backend",
-    "memoryManagerBackendTooltip": "Backend for the memory manager. Currently only ReMeLight is supported.",
+    "memoryManagerBackendTooltip": "Backend for the memory manager. Currently only remelight is supported.",
     "memoryManagerBackendRestartWarning": "Switching the memory manager backend does not support hot reload. Save and restart QwenPaw for changes to take effect.",
     "maxIters": "Max Iterations",
     "maxItersTooltip": "Maximum number of reasoning-acting iterations for ReAct agent",

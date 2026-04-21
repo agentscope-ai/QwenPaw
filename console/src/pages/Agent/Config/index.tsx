@@ -33,7 +33,7 @@ function AgentConfigPage() {
   const contextBackend =
     Form.useWatch("context_manager_backend", form) || "light";
   const memoryBackend =
-    Form.useWatch("memory_manager_backend", form) || "ReMeLight";
+    Form.useWatch("memory_manager_backend", form) || "remelight";
 
   const dynamicTabs = useMemo(() => {
     const baseTabs = [

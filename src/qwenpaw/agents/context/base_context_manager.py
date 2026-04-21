@@ -8,7 +8,6 @@ from agentscope.message import Msg
 
 from .agent_context import AgentContext
 from ..utils.registry import Registry
-from ...config.config import load_agent_config
 
 logger = logging.getLogger(__name__)
 
@@ -224,34 +223,39 @@ class BaseContextManager(ABC):
 context_registry: Registry[BaseContextManager] = Registry()
 
 
-def get_context_manager(
-    working_dir: str,
-    agent_id: str,
-) -> BaseContextManager:
-    """Create and return a context manager instance for the given agent.
+def get_context_manager_backend(backend: str) -> type[BaseContextManager]:
+    """Return the context manager class for the given backend name.
 
-    The backend is resolved from the agent configuration
-    (``running.context_manager_backend``).  Importing this module is enough
-    to access the registry; concrete implementations register themselves by
-    decorating their class with ``@context_registry.register("<name>")``.
+    If the backend is not registered, falls back to the first registered
+    backend.
 
     Args:
-        working_dir: Root directory for context storage.
-        agent_id: Unique agent identifier used for config loading.
+        backend: Backend name to resolve.
 
     Returns:
-        A fully-constructed ``BaseContextManager`` instance.
+        The context manager class.
 
     Raises:
-        ValueError: When the configured backend has no registered
-            implementation.
+        ValueError: When no context manager backends are registered.
     """
-
-    backend = load_agent_config(agent_id).running.context_manager_backend
     cls = context_registry.get(backend)
     if cls is None:
-        raise ValueError(
+        registered = context_registry.list_registered()
+        if not registered:
+            raise ValueError(
+                f"No context manager backends registered. "
+                f"Requested: '{backend}'",
+            )
+        fallback = registered[0]
+        logger.warning(
             f"Unsupported context manager backend: '{backend}'. "
-            f"Registered: {context_registry.list_registered()}",
+            f"Falling back to '{fallback}'. "
+            f"Registered: {registered}",
         )
-    return cls(working_dir=working_dir, agent_id=agent_id)
+        cls = context_registry.get(fallback)
+        if cls is None:
+            raise ValueError(
+                f"Fallback backend '{fallback}' not found in registry. "
+                f"This should not happen.",
+            )
+    return cls

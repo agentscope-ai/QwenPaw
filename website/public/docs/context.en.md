@@ -270,7 +270,7 @@ Configuration is located in `~/.qwenpaw/workspaces/{agent_id}/agent.json` under 
 | ------------------------- | ------------- | ---------------------------------- |
 | `max_input_length`        | `131072`      | Model context window size (tokens) |
 | `context_manager_backend` | `"light"`     | Context manager backend type       |
-| `memory_manager_backend`  | `"ReMeLight"` | Memory manager backend type        |
+| `memory_manager_backend`  | `"remelight"` | Memory manager backend type        |
 
 **`running.light_context_config` fields:**
 

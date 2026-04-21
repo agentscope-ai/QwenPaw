@@ -270,7 +270,7 @@ graph TB
 | ------------------------- | ------------- | ---------------------------- |
 | `max_input_length`        | `131072`      | 模型上下文窗口大小（tokens） |
 | `context_manager_backend` | `"light"`     | 上下文管理器后端类型         |
-| `memory_manager_backend`  | `"ReMeLight"` | 记忆管理器后端类型           |
+| `memory_manager_backend`  | `"remelight"` | 记忆管理器后端类型           |
 
 **`running.light_context_config` 字段：**
 

@@ -1070,7 +1070,7 @@
     "llmAcquireTimeoutGtPauseJitter": "槽位获取超时必须大于限流暂停时长与抖动范围之和",
     "contextManagementTitle": "上下文管理",
     "memoryManagerBackend": "记忆管理后端",
-    "memoryManagerBackendTooltip": "记忆管理器的后端类型，目前仅支持 ReMeLight",
+    "memoryManagerBackendTooltip": "记忆管理器的后端类型，目前仅支持 remelight",
     "memoryManagerBackendRestartWarning": "切换记忆管理后端不支持热更新，保存后需要重启 QwenPaw 才能生效",
     "maxIters": "最大迭代次数",
     "maxItersTooltip": "ReAct 智能体的最大推理-行动迭代次数",

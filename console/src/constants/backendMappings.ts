@@ -25,10 +25,10 @@ export const MEMORY_MANAGER_BACKEND_MAPPINGS: Record<
   string,
   BackendMapping<object>
 > = {
-  ReMeLight: {
+  remelight: {
     configField: "reme_light_memory_config",
     component: ReMeLightMemoryCard,
-    label: "ReMeLight",
+    label: "remelight",
     tabKey: "remeLightMemory",
   },
 };

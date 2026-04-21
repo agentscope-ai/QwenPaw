@@ -374,7 +374,7 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `max_input_length`         | int    | `131072` (128K) | Maximum input length (tokens) for model context window (must be ≥ 1000) |
 | `history_max_length`       | int    | `10000`         | Maximum output length (characters) for `/history` command               |
 | `context_manager_backend`  | string | `"light"`       | Context manager backend type                                            |
-| `memory_manager_backend`   | string | `"ReMeLight"`   | Memory manager backend type                                             |
+| `memory_manager_backend`   | string | `"remelight"`   | Memory manager backend type                                             |
 | `light_context_config`     | object | _(see below)_   | Light context manager configuration                                     |
 | `reme_light_memory_config` | object | _(see below)_   | ReMeLight memory manager configuration                                  |
 

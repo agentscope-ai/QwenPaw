@@ -811,7 +811,7 @@ class AgentsRunningConfig(BaseModel):
         default_factory=LightContextConfig,
     )
 
-    memory_manager_backend: str = Field(default="ReMeLight")
+    memory_manager_backend: str = Field(default="remelight")
 
     reme_light_memory_config: ReMeLightMemoryConfig = Field(
         default_factory=ReMeLightMemoryConfig,

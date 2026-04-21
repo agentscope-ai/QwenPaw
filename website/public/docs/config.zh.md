@@ -327,7 +327,7 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `max_input_length`         | int    | `131072` (128K) | 模型上下文窗口的最大输入长度（token 数，必须 ≥ 1000） |
 | `history_max_length`       | int    | `10000`         | `/history` 命令输出的最大长度（字符数）               |
 | `context_manager_backend`  | string | `"light"`       | 上下文管理器后端类型                                  |
-| `memory_manager_backend`   | string | `"ReMeLight"`   | 记忆管理器后端类型                                    |
+| `memory_manager_backend`   | string | `"remelight"`   | 记忆管理器后端类型                                    |
 | `light_context_config`     | object | _（见下方）_    | Light 上下文管理器配置                                |
 | `reme_light_memory_config` | object | _（见下方）_    | ReMeLight 记忆管理器配置                              |
 

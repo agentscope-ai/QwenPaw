@@ -73,7 +73,7 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
         return "local"
 
 
-@memory_registry.register("ReMeLight")
+@memory_registry.register("remelight")
 class ReMeLightMemoryManager(BaseMemoryManager):
     """Memory manager backed by ReMeLight.
 

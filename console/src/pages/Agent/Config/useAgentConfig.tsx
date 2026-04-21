@@ -37,7 +37,7 @@ export function useAgentConfig() {
       const memoryBackend =
         config.memory_manager_backend in MEMORY_MANAGER_BACKEND_MAPPINGS
           ? config.memory_manager_backend
-          : "ReMeLight";
+          : "remelight";
       form.setFieldsValue({
         max_iters: config.max_iters,
         auto_continue_on_text_only: config.auto_continue_on_text_only ?? false,

@@ -11,7 +11,6 @@ from agentscope.message import Msg
 from agentscope.tool import ToolResponse
 
 from ..utils.registry import Registry
-from ...config.config import load_agent_config
 
 logger = logging.getLogger(__name__)
 
@@ -240,22 +239,39 @@ class BaseMemoryManager(ABC):
 memory_registry: Registry[BaseMemoryManager] = Registry()
 
 
-def get_memory_manager(working_dir: str, agent_id: str) -> BaseMemoryManager:
-    """Create a memory manager instance for the given agent.
+def get_memory_manager_backend(backend: str) -> type[BaseMemoryManager]:
+    """Return the memory manager class for the given backend name.
 
-    The backend is resolved from
-    ``agent_config.running.memory_manager_backend``.
+    If the backend is not registered, falls back to the first registered
+    backend.
+
+    Args:
+        backend: Backend name to resolve.
+
+    Returns:
+        The memory manager class.
 
     Raises:
-        ValueError: When the configured backend has
-        no registered implementation.
+        ValueError: When no memory manager backends are registered.
     """
-
-    backend = load_agent_config(agent_id).running.memory_manager_backend
     cls = memory_registry.get(backend)
     if cls is None:
-        raise ValueError(
+        registered = memory_registry.list_registered()
+        if not registered:
+            raise ValueError(
+                f"No memory manager backends registered. "
+                f"Requested: '{backend}'",
+            )
+        fallback = registered[0]
+        logger.warning(
             f"Unsupported memory manager backend: '{backend}'. "
-            f"Registered: {memory_registry.list_registered()}",
+            f"Falling back to '{fallback}'. "
+            f"Registered: {registered}",
         )
-    return cls(working_dir=working_dir, agent_id=agent_id)
+        cls = memory_registry.get(fallback)
+        if cls is None:
+            raise ValueError(
+                f"Fallback backend '{fallback}' not found in registry. "
+                f"This should not happen.",
+            )
+    return cls

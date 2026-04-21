@@ -1055,7 +1055,7 @@
     "llmAcquireTimeoutGtPauseJitter": "Таймаут получения слота должен быть больше суммы паузы и джиттера",
     "contextManagementTitle": "Управление контекстом",
     "memoryManagerBackend": "Бэкенд менеджера памяти",
-    "memoryManagerBackendTooltip": "Тип бэкенда менеджера памяти. В настоящее время поддерживается только ReMeLight.",
+    "memoryManagerBackendTooltip": "Тип бэкенда менеджера памяти. В настоящее время поддерживается только remelight.",
     "memoryManagerBackendRestartWarning": "Смена бэкенда менеджера памяти не поддерживает горячую перезагрузку. Сохраните и перезапустите QwenPaw для применения изменений.",
     "maxIters": "Макс. итераций",
     "maxItersTooltip": "Максимальное число итераций рассуждение-действие для агента ReAct",

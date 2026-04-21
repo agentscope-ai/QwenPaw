@@ -1040,7 +1040,7 @@
     "llmAcquireTimeoutGtPauseJitter": "スロット取得タイムアウトはレート制限一時停止とジッターの合計より大きい必要があります",
     "contextManagementTitle": "コンテキスト管理",
     "memoryManagerBackend": "メモリマネージャーバックエンド",
-    "memoryManagerBackendTooltip": "メモリマネージャーのバックエンドタイプ。現在は ReMeLight のみサポートされています。",
+    "memoryManagerBackendTooltip": "メモリマネージャーのバックエンドタイプ。現在は remelight のみサポートされています。",
     "memoryManagerBackendRestartWarning": "メモリマネージャーバックエンドの切り替えはホットリロードに対応していません。変更を反映するには保存後に QwenPaw を再起動してください。",
     "maxIters": "最大反復回数",
     "maxItersTooltip": "ReActエージェントの推論・行動サイクルの最大反復回数",
