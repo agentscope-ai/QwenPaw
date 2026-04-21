@@ -83,7 +83,7 @@ if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
     $missing += "makensis"
 } else {
     $nsisInfo = makensis /version 2>$null
-    $NsisDir = (Get-Command makensis).Source | Split-Path -Parent
+    $NsisDir = (Get-Command makensis).Source | Split-Path -Parent | Split-Path -Parent
     Write-Host "  [OK] makensis (NSIS $nsisInfo)" -ForegroundColor Green
 }
 
