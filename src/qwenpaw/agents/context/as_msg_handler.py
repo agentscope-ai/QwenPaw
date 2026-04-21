@@ -288,7 +288,7 @@ class AsMsgHandler:
         messages: list[Msg],
         context_compact_threshold: int,
         context_compact_reserve: int,
-    ) -> tuple[list[Msg], list[Msg], bool]:
+    ) -> tuple[list[Msg], list[Msg], bool, int, int]:
         """Check if context exceeds threshold and split
         messages accordingly.
 
@@ -304,16 +304,18 @@ class AsMsgHandler:
 
         Returns:
             A tuple of (messages_to_compact, messages_to_keep,
-            tools_aligned):
+            tools_aligned, total_tokens, keep_tokens):
             - messages_to_compact: Older messages that
               exceed reserve limit
             - messages_to_keep: Recent messages within
               the reserve limit
             - tools_aligned: Whether tool_use and tool_result
               ids are aligned in messages_to_keep
+            - total_tokens: Total token count of all messages
+            - keep_tokens: Token count of messages to keep
         """
         if not messages:
-            return [], [], True
+            return [], [], True, 0, 0
 
         # Calculate total tokens and stats for all messages
         msg_stats: list[tuple[Msg, AsMsgStat]] = []
@@ -325,7 +327,7 @@ class AsMsgHandler:
 
         # If total tokens don't exceed threshold, no split needed
         if total_tokens < context_compact_threshold:
-            return [], messages, True
+            return [], messages, True, total_tokens, total_tokens
 
         # Collect all tool_use ids and their message indices
         # tool_use_id -> message index
@@ -422,14 +424,22 @@ class AsMsgHandler:
         # Validate tool ids alignment for messages_to_keep
         tools_aligned = self.validate_tool_ids_alignment(messages_to_keep)
 
+        keep_tokens = accumulated_tokens
+
         logger.info(
             f"Context check result: {len(messages_to_compact)} "
             f"messages to compact, {len(messages_to_keep)} "
             f"messages to keep, total tokens: {total_tokens}, "
             f"threshold: {context_compact_threshold}, "
             f"reserve: {context_compact_reserve}, "
-            f"kept tokens: {accumulated_tokens}, "
+            f"kept tokens: {keep_tokens}, "
             f"tools_aligned: {tools_aligned}",
         )
 
-        return messages_to_compact, messages_to_keep, tools_aligned
+        return (
+            messages_to_compact,
+            messages_to_keep,
+            tools_aligned,
+            total_tokens,
+            keep_tokens,
+        )

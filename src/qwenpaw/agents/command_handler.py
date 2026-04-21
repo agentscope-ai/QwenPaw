@@ -22,6 +22,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _fmt_tokens(n: int) -> str:
+    """Format token count as e.g. '82.3k' or '450'."""
+    return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+
+
 class ConversationCommandHandlerMixin:
     """Mixin for conversation (system) commands: /compact, /new, /clear, etc.
 
@@ -134,39 +139,57 @@ class CommandHandler(ConversationCommandHandlerMixin):
         extra_instruction = args.strip()
         if not messages:
             return await self._make_system_msg(
-                "**No messages to compact.**\n\n"
+                "ℹ️ **No messages to compact.**\n\n"
                 "- Current memory is empty\n"
                 "- No action taken",
             )
         if not self._has_memory_manager() or not self._has_context_manager():
             return await self._make_system_msg(
-                "**Memory/Context Manager Disabled**\n\n"
+                "⚠️ **Memory/Context Manager Disabled**\n\n"
                 "- Memory compaction is not available\n"
                 "- Enable memory and context manager to use this feature",
             )
 
         self.memory_manager.add_summarize_task(messages=messages)
-        compact_content = await self.context_manager.compact_context(
+        result = await self.context_manager.compact_context(
             messages=messages,
             previous_summary=self.memory.get_compressed_summary(),
             extra_instruction=extra_instruction,
         )
 
-        if not compact_content:
+        if not result.get("success"):
+            reason = result.get("reason", "unknown")
+            before = result.get("before_tokens", 0)
+            max_len = self._get_agent_config().running.max_input_length
+            before_pct = (
+                f"{before / max_len * 100:.0f}%" if max_len > 0 else "N/A"
+            )
             return await self._make_system_msg(
-                "**Compact Failed!**\n\n"
-                "- Memory compaction returned empty result\n"
-                "- Please check the logs for details\n"
-                "- If context exceeds max length, "
-                "please use `/new` or `/clear` to clear the context",
+                f"❌ **Compact Failed!**\n\n"
+                f"- Reason: {reason}\n"
+                f"- Messages: {len(messages)}, "
+                f"Tokens: {_fmt_tokens(before)}/"
+                f"{_fmt_tokens(max_len)} ({before_pct})\n"
+                f"- Please check the logs for details\n"
+                f"- If context exceeds max length, "
+                f"please use `/new` or `/clear` to clear the context",
             )
 
+        compact_content = result.get("history_compact", "")
         await self.memory.update_compressed_summary(compact_content)
-        updated_count = len(messages)
+        before = result.get("before_tokens", 0)
+        after = result.get("after_tokens", 0)
+        max_len = self._get_agent_config().running.max_input_length
         await self.memory.clear_content()
+        before_pct = f"{before / max_len * 100:.0f}%" if max_len > 0 else "N/A"
+        after_pct = f"{after / max_len * 100:.0f}%" if max_len > 0 else "N/A"
         return await self._make_system_msg(
-            f"**Compact Complete!**\n\n"
-            f"- Messages compacted: {updated_count}\n"
+            f"✅ **Compact Complete!**\n\n"
+            f"- Messages compacted: {len(messages)}\n"
+            f"- Tokens: {_fmt_tokens(before)}/"
+            f"{_fmt_tokens(max_len)}({before_pct}) -> "
+            f"{_fmt_tokens(after)}/"
+            f"{_fmt_tokens(max_len)}({after_pct})\n"
             f"**Compressed Summary:**\n{compact_content}\n"
             f"- Summary task started in background\n",
         )

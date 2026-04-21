@@ -39,6 +39,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _fmt_tokens(n: int) -> str:
+    """Format token count as e.g. '82.3k' or '450'."""
+    return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+
+
 @context_registry.register("light")
 class LightContextManager(BaseContextManager):
     """Context manager for agents with compaction support.
@@ -335,7 +340,7 @@ class LightContextManager(BaseContextManager):
         context_compact_threshold: int,
         context_compact_reserve: int,
         as_token_counter: EstimatedTokenCounter,
-    ) -> tuple[list[Msg], list[Msg], bool]:
+    ) -> tuple[list[Msg], list[Msg], bool, int, int]:
         """Check context size and determine if compaction is needed.
 
         Uses AsMsgHandler to analyze messages and split them into
@@ -348,10 +353,13 @@ class LightContextManager(BaseContextManager):
             as_token_counter: Token counter instance.
 
         Returns:
-            Tuple of (messages_to_compact, messages_to_keep, is_valid):
+            Tuple of (messages_to_compact, messages_to_keep, is_valid,
+            total_tokens, keep_tokens):
             - messages_to_compact: Older messages exceeding reserve limit.
             - messages_to_keep: Recent messages within reserve limit.
             - is_valid: True if tool_use/tool_result ids are aligned.
+            - total_tokens: Total token count of all messages.
+            - keep_tokens: Token count of messages to keep.
         """
         msg_handler = AsMsgHandler(as_token_counter)
         return await msg_handler.context_check(
@@ -405,13 +413,24 @@ class LightContextManager(BaseContextManager):
             add_thinking_block: Whether to include thinking blocks.
 
         Returns:
-            Dict with keys: user_message, history_compact, is_valid.
+            Dict with keys:
+            - success: Whether compaction produced a valid result.
+            - reason: Failure reason (empty string on success).
+            - user_message: The prompt sent to the LLM.
+            - history_compact: The compacted summary text.
+            - is_valid: Whether the summary passed format validation.
+            - before_tokens: Token count of messages before compaction.
+            - after_tokens: Token count of the compacted summary.
         """
         if not messages:
             return {
+                "success": False,
+                "reason": "empty messages",
                 "user_message": "",
                 "history_compact": "",
                 "is_valid": False,
+                "before_tokens": 0,
+                "after_tokens": 0,
             }
 
         agent_config = load_agent_config(self.agent_id)
@@ -441,9 +460,13 @@ class LightContextManager(BaseContextManager):
         if not history_formatted_str:
             logger.warning(f"No history to compact. messages={messages}")
             return {
+                "success": False,
+                "reason": "formatted history is empty",
                 "user_message": "",
                 "history_compact": "",
                 "is_valid": False,
+                "before_tokens": before_token_count,
+                "after_tokens": 0,
             }
 
         # Select prompts based on language
@@ -497,21 +520,37 @@ class LightContextManager(BaseContextManager):
         is_valid: bool = self._is_valid_summary(history_compact)
 
         if not is_valid:
+            reason = (
+                "empty summary"
+                if not history_compact.strip()
+                else "invalid format (missing ## header)"
+            )
             logger.warning(
                 f"Invalid summary result: {history_compact[:200]}...",
             )
             return {
+                "success": False,
+                "reason": reason,
                 "user_message": user_message,
                 "history_compact": history_compact,
                 "is_valid": False,
+                "before_tokens": before_token_count,
+                "after_tokens": await msg_handler.count_str_token(
+                    history_compact,
+                ),
             }
 
+        after_tokens = await msg_handler.count_str_token(history_compact)
         logger.info(f"Compactor Result:\n{history_compact[:500]}...")
 
         return {
+            "success": True,
+            "reason": "",
             "user_message": user_message,
             "history_compact": history_compact,
             "is_valid": True,
+            "before_tokens": before_token_count,
+            "after_tokens": after_tokens,
         }
 
     async def compact_context(
@@ -519,7 +558,7 @@ class LightContextManager(BaseContextManager):
         messages: list[Msg],
         previous_summary: str = "",
         extra_instruction: str = "",
-    ) -> str:
+    ) -> dict:
         """Public interface for context compaction.
 
         Args:
@@ -528,7 +567,8 @@ class LightContextManager(BaseContextManager):
             extra_instruction: Extra instruction for compaction.
 
         Returns:
-            Compacted summary string, or empty string if compaction failed.
+            Dict with keys: success, reason, history_compact,
+            before_tokens, after_tokens.
         """
         try:
             agent_config = load_agent_config(self.agent_id)
@@ -550,11 +590,22 @@ class LightContextManager(BaseContextManager):
                 compact_ratio=ccc.compact_threshold_ratio,
                 add_thinking_block=ccc.compact_with_thinking_block,
             )
-            if result.get("is_valid"):
-                return result.get("history_compact", "")
+            return {
+                "success": result.get("success", False),
+                "reason": result.get("reason", ""),
+                "history_compact": result.get("history_compact", ""),
+                "before_tokens": result.get("before_tokens", 0),
+                "after_tokens": result.get("after_tokens", 0),
+            }
         except Exception as e:
             logger.warning("compact_context failed: %s", e)
-        return ""
+            return {
+                "success": False,
+                "reason": f"LLM error: {e}",
+                "history_compact": "",
+                "before_tokens": 0,
+                "after_tokens": 0,
+            }
 
     # ------------------------------------------------------------------
     # Agent lifecycle hook methods
@@ -675,8 +726,10 @@ class LightContextManager(BaseContextManager):
 
             (
                 messages_to_compact,
-                _,
+                messages_to_keep,
                 is_valid,
+                ctx_total_tokens,
+                ctx_keep_tokens,
             ) = await self._check_context(
                 messages=messages,
                 context_compact_threshold=left_compact_threshold,
@@ -705,8 +758,16 @@ class LightContextManager(BaseContextManager):
                     messages_to_compact = messages[
                         : max(messages_length - keep_length, 0)
                     ]
+                    messages_to_keep = messages[
+                        max(messages_length - keep_length, 0) :
+                    ]
                 else:
                     messages_to_compact = messages
+                    messages_to_keep = []
+                # Token counts are no longer accurate after fallback,
+                # invalidate them.
+                ctx_total_tokens = 0
+                ctx_keep_tokens = 0
 
             if not messages_to_compact:
                 return None
@@ -716,44 +777,107 @@ class LightContextManager(BaseContextManager):
                     messages=messages_to_compact,
                 )
 
+            # Build context status info for printing
+            max_len = running_config.max_input_length
+            total_msgs = len(messages)
+            compact_count = len(messages_to_compact)
+            keep_count = len(messages_to_keep)
+
+            has_token_info = ctx_total_tokens > 0
+            total_tokens = (
+                str_token_count + ctx_total_tokens if has_token_info else 0
+            )
+            keep_tokens = ctx_keep_tokens if has_token_info else 0
+
+            if has_token_info:
+                pct = total_tokens / max_len * 100 if max_len > 0 else 0
+                token_line = (
+                    f"  Tokens: {_fmt_tokens(total_tokens)} / "
+                    f"{_fmt_tokens(max_len)} ({pct:.0f}%)"
+                )
+            else:
+                token_line = f"  Tokens: ? / {_fmt_tokens(max_len)}"
+
+            status_prefix = (
+                f"Context Status:\n"
+                f"{token_line}\n"
+                f"  {total_msgs} msgs -> compact({compact_count})"
+                f" + keep({keep_count})"
+            )
+
             await self._print_status_message(
                 agent,
-                "🔄 Context compaction started...",
+                f"{status_prefix}\n" "🔄 Context compaction started...",
             )
 
             ccc = running_config.light_context_config.context_compact_config
             if ccc.enabled:
-                result = await self._compact_context(
-                    messages=messages_to_compact,
-                    previous_summary=memory.get_compressed_summary(),
-                    as_llm=agent.model,
-                    as_llm_formatter=agent.formatter,
-                    as_token_counter=token_counter,
-                    language=agent_config.language,
-                    max_input_length=running_config.max_input_length,
-                    compact_ratio=ccc.compact_threshold_ratio,
-                    add_thinking_block=ccc.compact_with_thinking_block,
-                )
+                try:
+                    result = await self._compact_context(
+                        messages=messages_to_compact,
+                        previous_summary=memory.get_compressed_summary(),
+                        as_llm=agent.model,
+                        as_llm_formatter=agent.formatter,
+                        as_token_counter=token_counter,
+                        language=agent_config.language,
+                        max_input_length=running_config.max_input_length,
+                        compact_ratio=ccc.compact_threshold_ratio,
+                        add_thinking_block=ccc.compact_with_thinking_block,
+                    )
+                except Exception as e:
+                    logger.exception(
+                        "Context compaction LLM call failed: %s",
+                        e,
+                    )
+                    await self._print_status_message(
+                        agent,
+                        f"{status_prefix}\n"
+                        f"  ❌ Context compaction failed "
+                        f"(LLM error: {e}).",
+                    )
+                    return None
+
                 compact_content = (
                     result.get("history_compact", "")
-                    if result.get("is_valid")
+                    if result.get("success")
                     else ""
                 )
-                if not compact_content:
+                if not result.get("success"):
+                    reason = result.get("reason", "unknown")
                     await self._print_status_message(
                         agent,
-                        "⚠️ Context compaction failed.",
+                        f"{status_prefix}\n"
+                        f"  ❌ Context compaction failed "
+                        f"({reason}).",
                     )
                 else:
+                    if has_token_info:
+                        after_total = str_token_count + keep_tokens
+                        after_pct = (
+                            after_total / max_len * 100 if max_len > 0 else 0
+                        )
+                        after_token_line = (
+                            f"  Tokens: {_fmt_tokens(after_total)} / "
+                            f"{_fmt_tokens(max_len)} ({after_pct:.0f}%)"
+                        )
+                    else:
+                        after_token_line = (
+                            f"  Tokens: ? / {_fmt_tokens(max_len)}"
+                        )
                     await self._print_status_message(
                         agent,
-                        "✅ Context compaction completed",
+                        f"Context Status:\n"
+                        f"{after_token_line}\n"
+                        f"  {keep_count} msgs\n"
+                        "  ✅ Context compaction completed",
                     )
             else:
                 compact_content = ""
                 await self._print_status_message(
                     agent,
-                    "✅ Context compaction skipped",
+                    f"{status_prefix}\n"
+                    "  ⏭️ Context compaction skipped "
+                    "(disabled in config).",
                 )
 
             updated_count = await memory.mark_messages_compressed(

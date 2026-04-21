@@ -198,7 +198,7 @@ class BaseContextManager(ABC):
         messages: list[Msg],
         previous_summary: str = "",
         extra_instruction: str = "",
-    ) -> str:
+    ) -> dict:
         """Compact messages into a condensed summary.
 
         This is the public interface for context compaction, used by
@@ -212,7 +212,12 @@ class BaseContextManager(ABC):
             extra_instruction: Extra instruction for compaction.
 
         Returns:
-            Compacted summary string, or empty string if compaction failed.
+            Dict with keys:
+            - success: Whether compaction produced a valid result.
+            - reason: Failure reason (empty string on success).
+            - history_compact: The compacted summary text.
+            - before_tokens: Token count of messages before compaction.
+            - after_tokens: Token count of the compacted summary.
         """
 
 
