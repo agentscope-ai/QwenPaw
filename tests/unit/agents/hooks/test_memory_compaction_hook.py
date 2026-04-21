@@ -200,6 +200,12 @@ async def test_calls_compact_tool_result_when_enabled(hook, agent, mm):
     ):
         await hook(agent, {})
 
+    # Diagnostic: verify fixture identity before asserting
+    assert hook.memory_manager is mm, (
+        f"Fixture duplication detected: "
+        f"hook.memory_manager id={id(hook.memory_manager)}, "
+        f"mm id={id(mm)}"
+    )
     mm.compact_tool_result.assert_called_once_with(
         messages=msgs,
         recent_n=2,
