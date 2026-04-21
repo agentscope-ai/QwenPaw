@@ -607,8 +607,6 @@ def _check_console_staleness() -> None:
 
     build_hash_file = Path(_CONSOLE_STATIC_DIR) / ".build_hash"
     if not build_hash_file.exists():
-        import sys
-
         print(
             "\n[WARNING] Console frontend has no version info. "
             "If installed from source, consider rebuilding:\n"
@@ -619,8 +617,6 @@ def _check_console_staleness() -> None:
 
     built = build_hash_file.read_text().strip()
     if built != current:
-        import sys
-
         print(
             f"\n[WARNING] Console frontend may be outdated "
             f"(built at {built}, repo now at {current}).\n"
