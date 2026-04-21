@@ -344,7 +344,9 @@ async def create_agent(
 
     _initialize_agent_workspace(
         workspace_dir,
-        skill_names=(request.skill_names if request.skill_names is not None else []),
+        skill_names=(
+            request.skill_names if request.skill_names is not None else []
+        ),
     )
 
     agent_ref = AgentProfileRef(
