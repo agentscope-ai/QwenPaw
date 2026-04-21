@@ -204,14 +204,6 @@ function scanDirectory(
       }
 
       result.set(abs, { absPath: abs, moduleKey, exports });
-
-      if (verbose) {
-        console.log(
-          `[patchable] Found: ${moduleKey} → [${exports
-            .map((e) => e.name)
-            .join(", ")}]`,
-        );
-      }
     }
   }
 
@@ -329,12 +321,17 @@ export function vitePatchable(options: PatchableOptions = {}): Plugin {
     },
 
     handleHotUpdate({ file }) {
+      const normalized = normalizePath(file);
+      // Never react to changes in the generated registry file itself
+      // (writing it would re-trigger this hook, causing an infinite loop)
+      const outputAbs = normalizePath(
+        path.resolve(viteConfig.root, registryOutput),
+      );
+      if (normalized === outputAbs) return;
+
       if (/\.[tj]sx?$/.test(file)) {
-        const normalized = normalizePath(file);
         const wasTracked = modules.has(normalized);
-
         scan();
-
         const isTracked = modules.has(normalized);
 
         if (verbose && wasTracked !== isTracked) {
