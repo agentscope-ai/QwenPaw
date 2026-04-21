@@ -178,7 +178,8 @@ function CronJobsPage() {
 
     delete (processedValues as any).sessionStrategy;
     if (processedValues.request) {
-      const { session_id, user_id, ...requestRest } = processedValues.request as any;
+      const { session_id, user_id, ...requestRest } =
+        processedValues.request as any;
       processedValues.request = requestRest;
     }
 

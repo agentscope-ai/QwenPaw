@@ -361,7 +361,10 @@ export function JobDrawer({
         <Form.Item noStyle shouldUpdate>
           {({ getFieldValue }) =>
             getFieldValue("sessionStrategy") === "new_per_run" ? (
-              <div className={styles.formExtraText} style={{ marginBottom: 16 }}>
+              <div
+                className={styles.formExtraText}
+                style={{ marginBottom: 16 }}
+              >
                 {t("cronJobs.executionSessionNewPerRunHint")}
               </div>
             ) : null

@@ -65,7 +65,9 @@ export function useCronJobs() {
       ? ({ ...original, ...values, id: jobId } as CronJob)
       : null;
     if (optimisticUpdate) {
-      setJobs((prev) => prev.map((j) => (j.id === jobId ? optimisticUpdate : j)));
+      setJobs((prev) =>
+        prev.map((j) => (j.id === jobId ? optimisticUpdate : j)),
+      );
     }
 
     try {

@@ -33,10 +33,11 @@ class CronExecutor:
         target_user_id = job.dispatch.target.user_id
         dispatch_session_id = job.dispatch.target.session_id
         session_mode = job.execution.session.mode
+        job_id = job.id or "cron"
         execution_session_id = (
-            _generate_execution_session_id(job.id)
+            _generate_execution_session_id(job_id)
             if session_mode == "new_per_run"
-            else (dispatch_session_id or f"cron:{job.id}")
+            else (dispatch_session_id or f"cron:{job_id}")
         )
         dispatch_meta: Dict[str, Any] = {
             **dict(job.dispatch.meta or {}),

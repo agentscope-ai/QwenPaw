@@ -123,7 +123,7 @@ class CronJobRequest(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    input: Any
+    input: Optional[Any] = None
     session_id: Optional[str] = None
     user_id: Optional[str] = None
 

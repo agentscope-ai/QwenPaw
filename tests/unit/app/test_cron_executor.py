@@ -2,36 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-import sys
-import types
-from pathlib import Path
 from typing import Any
-
-ROOT = Path(__file__).resolve().parents[3]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-exc_mod = types.ModuleType("agentscope_runtime.engine.schemas.exception")
-
-
-class ConfigurationException(Exception):
-    def __init__(self, message: str = "") -> None:
-        super().__init__(message)
-        self.message = message
-
-
-exc_mod.ConfigurationException = ConfigurationException
-sys.modules.setdefault("agentscope_runtime", types.ModuleType("agentscope_runtime"))
-sys.modules.setdefault(
-    "agentscope_runtime.engine",
-    types.ModuleType("agentscope_runtime.engine"),
-)
-sys.modules.setdefault(
-    "agentscope_runtime.engine.schemas",
-    types.ModuleType("agentscope_runtime.engine.schemas"),
-)
-sys.modules["agentscope_runtime.engine.schemas.exception"] = exc_mod
 
 from qwenpaw.app.crons.executor import CronExecutor
 from qwenpaw.app.crons.models import CronJobSpec
@@ -64,7 +35,11 @@ def make_agent_job(mode: str = "dispatch") -> CronJobSpec:
             "id": "job-1",
             "name": "Job 1",
             "enabled": True,
-            "schedule": {"type": "cron", "cron": "0 9 * * *", "timezone": "UTC"},
+            "schedule": {
+                "type": "cron",
+                "cron": "0 9 * * *",
+                "timezone": "UTC",
+            },
             "task_type": "agent",
             "request": {
                 "input": [
@@ -72,7 +47,7 @@ def make_agent_job(mode: str = "dispatch") -> CronJobSpec:
                         "role": "user",
                         "type": "message",
                         "content": [{"type": "text", "text": "hello"}],
-                    }
+                    },
                 ],
                 "session_id": "request-session",
                 "user_id": "request-user",
@@ -80,7 +55,10 @@ def make_agent_job(mode: str = "dispatch") -> CronJobSpec:
             "dispatch": {
                 "type": "channel",
                 "channel": "console",
-                "target": {"user_id": "target-user", "session_id": "target-session"},
+                "target": {
+                    "user_id": "target-user",
+                    "session_id": "target-session",
+                },
                 "mode": "final",
                 "meta": {},
             },
@@ -91,7 +69,7 @@ def make_agent_job(mode: str = "dispatch") -> CronJobSpec:
                 "misfire_grace_seconds": 60,
             },
             "meta": {},
-        }
+        },
     )
 
 
@@ -138,9 +116,13 @@ def test_cron_executor_new_per_run_uses_fresh_execution_session() -> None:
         assert len(channel_manager.events) == 2
         for event_call in channel_manager.events:
             assert event_call["session_id"] == "target-session"
-            assert event_call["meta"]["dispatch_session_id"] == "target-session"
+            assert (
+                event_call["meta"]["dispatch_session_id"] == "target-session"
+            )
             assert event_call["meta"]["session_mode"] == "new_per_run"
-            assert event_call["meta"]["execution_session_id"].startswith("cron:job-1:")
+            assert event_call["meta"]["execution_session_id"].startswith(
+                "cron:job-1:",
+            )
 
     asyncio.run(_run())
 
@@ -155,17 +137,19 @@ def test_cron_executor_text_task_still_uses_dispatch_session() -> None:
                 "task_type": "text",
                 "text": "hello text",
                 "request": None,
-            }
+            },
         )
 
         await executor.execute(job)
 
-        assert runner.requests == []
+        assert not runner.requests
         assert len(channel_manager.texts) == 1
         text_call = channel_manager.texts[0]
         assert text_call["session_id"] == "target-session"
         assert text_call["meta"]["dispatch_session_id"] == "target-session"
         assert text_call["meta"]["session_mode"] == "new_per_run"
-        assert text_call["meta"]["execution_session_id"].startswith("cron:job-1:")
+        assert text_call["meta"]["execution_session_id"].startswith(
+            "cron:job-1:",
+        )
 
     asyncio.run(_run())
