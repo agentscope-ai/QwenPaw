@@ -15,6 +15,9 @@ $REPO_ROOT = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Set-Location $REPO_ROOT
 
 $DIST = if ($env:DIST) { $env:DIST } else { "dist" }
+if (-not [System.IO.Path]::IsPathRooted($DIST)) {
+    $DIST = Join-Path $REPO_ROOT $DIST
+}
 $VERSION_FILE = "src\qwenpaw\__version__.py"
 
 # Extract version

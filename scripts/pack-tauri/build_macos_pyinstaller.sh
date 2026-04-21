@@ -46,10 +46,9 @@ if [ $? -ne 0 ]; then
     echo "ERROR: Frontend build failed"
     exit 1
 fi
-echo "Frontend built"
-cd ..
-cp -R console/dist/. src/qwenpaw/console/
-echo ""
+cd "$REPO_ROOT"
+# cp -R console/dist/. src/qwenpaw/console/
+# echo ""
 
 # Step 3: Rebuild PyInstaller with embedded frontend
 echo "== Step 3: Rebuilding PyInstaller with embedded frontend =="
