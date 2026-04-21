@@ -13,7 +13,7 @@ SRC = REPO_ROOT / 'src' / 'qwenpaw'
 
 # Only include directories that exist (console/ is built in Step 2)
 _data_dirs = [
-    ('console', 'qwenpaw/console'),
+    # ('console', 'qwenpaw/console'),
     ('agents/skills', 'qwenpaw/agents/skills'),
     ('agents/md_files', 'qwenpaw/agents/md_files'),
     ('tokenizer', 'qwenpaw/tokenizer'),
