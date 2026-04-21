@@ -5,15 +5,13 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Optional, List, Dict
+from typing import TYPE_CHECKING, Optional, List, Dict
 
 import aiohttp
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
 
-from ....app.agent_context import get_current_agent_id
-from ....app.workspace import Workspace
 from ....config.config import load_agent_config
 from ...prompt import get_active_model_supports_multimodal
 from ...tools import (
@@ -34,13 +32,18 @@ from .proactive_utils import (
     is_agent_busy,
 )
 
+if TYPE_CHECKING:
+    from ....app.workspace import Workspace
+
 logger = logging.getLogger(__name__)
 
 
 async def generate_proactive_response(
-    workspace: Workspace,
+    workspace: "Workspace",
 ) -> Optional[Msg]:
     """Main function to generate proactive response based on memory."""
+    from ....app.agent_context import get_current_agent_id
+
     baseline_timestamp = datetime.now(timezone.utc)  # Use UTC time directly
     active_agent_id = get_current_agent_id()
 
@@ -305,7 +308,7 @@ async def send_proactive_message_via_http(
 
 async def _was_interrupted(
     baseline_timestamp: datetime,
-    workspace: Optional[Workspace] = None,
+    workspace: Optional["Workspace"] = None,
 ) -> bool:
     """Check if the proactive process was interrupted by new user activity.
 

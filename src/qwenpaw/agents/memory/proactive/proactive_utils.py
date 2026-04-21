@@ -4,18 +4,19 @@
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Any
+from typing import TYPE_CHECKING, List, Optional, Any
 
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg
 
-from ....app.workspace import Workspace
+if TYPE_CHECKING:
+    from ....app.workspace import Workspace
 
 logger = logging.getLogger(__name__)
 
 
 async def is_agent_busy(
-    workspace: Workspace,
+    workspace: "Workspace",
 ) -> bool:
     """Check if the agent is currently busy processing tasks."""
     try:
@@ -36,7 +37,7 @@ def ensure_tz_aware(dt: datetime) -> datetime:
 
 
 async def build_proactive_memory_context(
-    workspace: Workspace,
+    workspace: "Workspace",
     agent: ReActAgent,
     max_session_messages: int = 100,
     max_session_chars: int = 50000,
@@ -116,7 +117,7 @@ def _clean_message_content(msg: "Msg") -> Optional["Msg"]:
 async def _process_session_memory(
     session_id: str,
     user_id: str,
-    workspace: Workspace,
+    workspace: "Workspace",
 ) -> List[dict]:
     """Process a session's memory and return a list of messages."""
     from agentscope.memory import InMemoryMemory
@@ -303,7 +304,7 @@ async def _analyze_screen_activity(
 
 
 async def _read_chat_sessions_metadata(
-    workspace: Workspace,
+    workspace: "Workspace",
 ) -> List[dict]:
     """Read chat sessions metadata from chat manager."""
     sessions_to_read = []
@@ -352,7 +353,7 @@ def _filter_recent_sessions(
 
 async def _collect_messages(
     filtered_sessions: List[dict],
-    workspace: Workspace,
+    workspace: "Workspace",
 ) -> List[dict]:
     """Collect all messages from session memory."""
     all_messages = []
@@ -403,7 +404,7 @@ def _format_session_messages(
 
 
 async def get_last_message_ts(
-    workspace: Workspace = None,
+    workspace: "Workspace" = None,
 ) -> Optional[float]:
     """Get the timestamp of the last message."""
 

@@ -4,11 +4,8 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Optional, Any
+from typing import TYPE_CHECKING, Dict, Optional, Any
 
-from ....app.agent_context import get_current_agent_id
-from ....app.multi_agent_manager import MultiAgentManager
-from ....app.workspace import Workspace
 from .proactive_types import ProactiveConfig
 from .proactive_responder import generate_proactive_response
 from .proactive_utils import (
@@ -16,6 +13,9 @@ from .proactive_utils import (
     ensure_tz_aware,
     is_agent_busy,
 )
+
+if TYPE_CHECKING:
+    from ....app.workspace import Workspace
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ async def _handle_proactive_trigger(
     session_id: str,
     config: ProactiveConfig,
     last_trigger_attempt: Optional[datetime],
-    workspace: Workspace,
+    workspace: "Workspace",
 ) -> Optional[datetime]:
     """Handle the logic when a proactive trigger is attempted."""
     now_utc = datetime.now(timezone.utc)
@@ -209,6 +209,9 @@ async def proactive_trigger_loop(
     last_trigger_attempt: Optional[datetime] = None
 
     try:
+        from ....app.agent_context import get_current_agent_id
+        from ....app.multi_agent_manager import MultiAgentManager
+
         active_agent_id = get_current_agent_id()
         multi_agent_manager = MultiAgentManager()
         workspace = await multi_agent_manager.get_agent(active_agent_id)
