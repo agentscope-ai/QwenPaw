@@ -206,7 +206,12 @@ async def test_returns_none_when_no_messages_to_compact(hook, agent, mm):
 # ---------------------------------------------------------------------------
 
 
-async def test_calls_compact_tool_result_when_enabled(hook, agent, mm):
+async def test_calls_compact_tool_result_when_enabled(
+    hook,
+    agent,
+    mm,
+    monkeypatch,
+):
     """P1: compact_tool_result called when trc.enabled=True."""
     msgs = [MagicMock()]
     cfg = _make_config(
@@ -220,17 +225,13 @@ async def test_calls_compact_tool_result_when_enabled(hook, agent, mm):
     mm.check_context = AsyncMock(return_value=([], None, True))
     agent.memory.get_memory = AsyncMock(return_value=msgs)
 
-    # Set up mocks inline without any context manager
+    # Use pytest.monkeypatch for reliable module attribute replacement
     mod = sys.modules[_HOOK_MOD]
-    orig_load = mod.load_agent_config
-    orig_tc = mod.get_token_counter
-    mod.load_agent_config = lambda *_a, **_kw: cfg
-    mod.get_token_counter = lambda *_a, **_kw: _token_counter()
-    try:
-        await hook(agent, {})
-    finally:
-        mod.load_agent_config = orig_load
-        mod.get_token_counter = orig_tc
+    monkeypatch.setattr(mod, "load_agent_config", lambda *_a, **_kw: cfg)
+    tc = _token_counter()
+    monkeypatch.setattr(mod, "get_token_counter", lambda *_a, **_kw: tc)
+
+    await hook(agent, {})
 
     assert mm.compact_tool_result.call_count == 1, (
         f"compact_tool_result={mm.compact_tool_result.call_count}, "
