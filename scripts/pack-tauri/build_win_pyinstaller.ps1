@@ -34,6 +34,66 @@ Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "Version: $VERSION"
 Write-Host ""
 
+# Step 0: Prerequisites
+Write-Host "== Step 0: Checking Prerequisites ==" -ForegroundColor Yellow
+$missing = @()
+
+# bun
+if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
+    Write-Host "  [MISSING] bun" -ForegroundColor Red
+    Write-Host "    Install: https://bun.sh" -ForegroundColor Gray
+    $missing += "bun"
+} else {
+    Write-Host "  [OK] bun ($(bun --version))" -ForegroundColor Green
+}
+
+# rustc
+if (-not (Get-Command rustc -ErrorAction SilentlyContinue)) {
+    Write-Host "  [MISSING] rustc (Rust)" -ForegroundColor Red
+    Write-Host "    Install: https://rustup.rs" -ForegroundColor Gray
+    $missing += "rustc"
+} else {
+    Write-Host "  [OK] rustc ($(rustc --version))" -ForegroundColor Green
+}
+
+# Visual Studio Build Tools (MSVC)
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$hasMsvc = $false
+if (Test-Path $vswhere) {
+    $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+    if ($vsPath) { $hasMsvc = $true }
+}
+if (-not $hasMsvc) {
+    $hostTuple = & rustc --print host-tuple 2>$null
+    if ($hostTuple -match "msvc") { $hasMsvc = $true }
+}
+if (-not $hasMsvc) {
+    Write-Host "  [MISSING] Visual Studio Build Tools (C++ workload)" -ForegroundColor Red
+    Write-Host "    Install: https://visualstudio.microsoft.com/visual-cpp-build-tools/" -ForegroundColor Gray
+    Write-Host "    Required workload: 'Desktop development with C++'" -ForegroundColor Gray
+    $missing += "MSVC"
+} else {
+    Write-Host "  [OK] Visual Studio Build Tools (MSVC)" -ForegroundColor Green
+}
+
+# NSIS (makensis)
+if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+    Write-Host "  [MISSING] makensis (NSIS)" -ForegroundColor Red
+    Write-Host "    Install: https://nsis.sourceforge.io/Download" -ForegroundColor Gray
+    $missing += "makensis"
+} else {
+    $nsisInfo = makensis /version 2>$null
+    Write-Host "  [OK] makensis (NSIS $nsisInfo)" -ForegroundColor Green
+}
+
+if ($missing.Count -gt 0) {
+    Write-Host ""
+    Write-Host "Missing prerequisites: $($missing -join ', ')" -ForegroundColor Red
+    Write-Host "Install the missing tools and re-run this script." -ForegroundColor Red
+    exit 1
+}
+Write-Host ""
+
 # Step 1: Build PyInstaller backend
 Write-Host "== Step 1: Building PyInstaller Backend ==" -ForegroundColor Yellow
 $PYINSTALLER_SCRIPT = Join-Path $REPO_ROOT "scripts\pack-tauri\build_pyinstaller.ps1"
