@@ -61,10 +61,9 @@ from ..constant import (
     MEDIA_UNSUPPORTED_PLACEHOLDER,
     WORKING_DIR,
 )
-from ..agents.memory import BaseMemoryManager
-from ..agents.context import BaseContextManager
 
 if TYPE_CHECKING:
+    from ..agents.memory import BaseMemoryManager
     from ..config.config import AgentProfileConfig
     from .context import AgentContext
 

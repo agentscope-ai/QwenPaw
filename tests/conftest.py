@@ -32,37 +32,6 @@ for _module in _MISSING_MODULES:
     if _module not in sys.modules:
         sys.modules[_module] = MagicMock()
 
-# =============================================================================
-# Circular Import Guard
-# =============================================================================
-# Two circular import chains exist on Linux:
-#
-# Chain A: agents.memory.__init__ → proactive → app.runner → react_agent
-#          → agents.memory  (loop)
-# Chain B: agents.memory.reme_light_memory_manager → agents.tools
-#          → delegate_external_agent → agents.acp → app.runner
-#          → react_agent → agents.memory  (loop)
-#
-# Pre-register the root modules of these chains as MagicMock stubs so that
-# importing agents.memory doesn't trigger either cycle on Linux/Ubuntu.
-_CIRCULAR_GUARD_MODULES = [
-    # Chain A root
-    "qwenpaw.agents.memory.proactive",
-    "qwenpaw.agents.memory.proactive.proactive_types",
-    "qwenpaw.agents.memory.proactive.proactive_trigger",
-    "qwenpaw.agents.memory.proactive.proactive_responder",
-    "qwenpaw.agents.memory.proactive.proactive_utils",
-    "qwenpaw.agents.memory.proactive.proactive_prompts",
-    # Chain B root
-    "qwenpaw.agents.acp",
-    "qwenpaw.agents.acp.server",
-    "qwenpaw.agents.acp.tool_adapter",
-    "qwenpaw.agents.tools.delegate_external_agent",
-]
-for _mod in _CIRCULAR_GUARD_MODULES:
-    if _mod not in sys.modules:
-        sys.modules[_mod] = MagicMock()
-
 
 # =============================================================================
 # Directory Fixtures

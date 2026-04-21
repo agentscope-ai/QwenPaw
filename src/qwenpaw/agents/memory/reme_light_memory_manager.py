@@ -139,6 +139,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
 
         self.summary_toolkit = Toolkit()
+        from qwenpaw.agents.tools import (
+            read_file,
+            write_file,
+            edit_file,
+        )  # noqa: PLC0415
+
         self.summary_toolkit.register_tool_function(read_file)
         self.summary_toolkit.register_tool_function(write_file)
         self.summary_toolkit.register_tool_function(edit_file)
