@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Path, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
 from pydantic import BaseModel
 
 from ..utils import schedule_agent_reload
@@ -36,7 +36,11 @@ from ...config.config import (
     WecomConfig,
 )
 
-from .schemas_config import HeartbeatBody
+from .schemas_config import (
+    ChannelHealthResponse,
+    ChannelRestartResponse,
+    HeartbeatBody,
+)
 from ..channels.qrcode_auth_handler import (
     QRCODE_AUTH_HANDLERS,
     generate_qrcode_image,
@@ -138,6 +142,102 @@ async def put_channels(
     schedule_agent_reload(request, agent.agent_id)
 
     return channels_config
+
+
+# ── Channel health check & restart ─────────────────────────────────────────
+
+
+async def _resolve_channel_manager(
+    request: Request,
+    channel_name: str = Path(
+        ...,
+        description="Name of the channel",
+        min_length=1,
+    ),
+):
+    """Shared dependency: validate channel name and return channel_manager."""
+    from ..agent_context import get_agent_for_request
+
+    available = get_available_channels()
+    if channel_name not in available:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Channel '{channel_name}' not available",
+        )
+
+    agent = await get_agent_for_request(request)
+    channel_manager = agent.channel_manager
+    if channel_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Channel manager not initialized",
+        )
+    return channel_manager
+
+
+@router.get(
+    "/channels/{channel_name}/health",
+    response_model=ChannelHealthResponse,
+    summary="Health check for a channel",
+    description="Return the runtime health status of a specific channel",
+)
+async def get_channel_health(
+    channel_name: str = Path(
+        ...,
+        description="Name of the channel to check",
+        min_length=1,
+    ),
+    channel_manager=Depends(_resolve_channel_manager),
+) -> ChannelHealthResponse:
+    """Return health status for a specific channel."""
+    try:
+        return await channel_manager.get_channel_health(
+            channel_name,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Channel '{channel_name}' is not running."
+                " It may be disabled or not configured."
+            ),
+        ) from exc
+
+
+@router.post(
+    "/channels/{channel_name}/restart",
+    response_model=ChannelRestartResponse,
+    summary="Restart a channel",
+    description=(
+        "Stop and re-start a specific channel" " without restarting the agent"
+    ),
+)
+async def restart_channel(
+    channel_name: str = Path(
+        ...,
+        description="Name of the channel to restart",
+        min_length=1,
+    ),
+    channel_manager=Depends(_resolve_channel_manager),
+) -> ChannelRestartResponse:
+    """Restart a specific channel."""
+    try:
+        return await channel_manager.restart_channel(
+            channel_name,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Channel '{channel_name}' is not running."
+                " It may be disabled or not configured."
+            ),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(f"Failed to restart channel" f" '{channel_name}': {exc}"),
+        ) from exc
 
 
 # ── Unified QR code endpoints for all channels ─────────────────────────────

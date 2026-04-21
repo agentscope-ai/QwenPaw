@@ -9,7 +9,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 import httpx
 from agentscope_runtime.engine.schemas.agent_schemas import (
@@ -251,6 +251,36 @@ class MattermostChannel(BaseChannel):
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Check Mattermost WebSocket and bot identity status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "Mattermost channel is disabled.",
+            }
+        issues = []
+        task_alive = self._task is not None and not self._task.done()
+        if not task_alive:
+            issues.append("WebSocket task is not running")
+        if not self._bot_id:
+            issues.append("Bot identity not resolved (bot_id is empty)")
+        if issues:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "; ".join(issues),
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": (
+                f"Mattermost bot is connected "
+                f"(bot_id={self._bot_id}, "
+                f"username={self._bot_username})."
+            ),
+        }
 
     async def start(self) -> None:
         if not self.enabled:

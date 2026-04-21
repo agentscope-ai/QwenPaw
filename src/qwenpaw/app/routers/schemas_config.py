@@ -20,3 +20,19 @@ class HeartbeatBody(BaseModel):
     )
 
     model_config = {"populate_by_name": True, "extra": "allow"}
+
+
+class ChannelHealthResponse(BaseModel):
+    """Response model for GET /config/channels/{channel_name}/health."""
+
+    channel: str
+    status: str
+    detail: str = ""
+
+
+class ChannelRestartResponse(BaseModel):
+    """Response model for POST /config/channels/{channel_name}/restart."""
+
+    channel: str
+    status: str
+    detail: str = ""

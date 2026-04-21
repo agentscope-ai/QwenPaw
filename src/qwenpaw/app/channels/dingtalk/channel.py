@@ -2643,6 +2643,31 @@ class DingTalkChannel(BaseChannel):
             except asyncio.TimeoutError:
                 pass
 
+    async def health_check(self) -> Dict[str, Any]:
+        """Check DingTalk stream client and HTTP session status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "DingTalk channel is disabled.",
+            }
+        issues = []
+        if self._client is None:
+            issues.append("Stream client not initialized")
+        if self._http is None or self._http.closed:
+            issues.append("HTTP session not available")
+        if issues:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "; ".join(issues),
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "DingTalk stream client and HTTP session are active.",
+        }
+
     async def start(self) -> None:
         if not self.enabled:
             logger.debug("disabled by env DINGTALK_CHANNEL_ENABLED=0")

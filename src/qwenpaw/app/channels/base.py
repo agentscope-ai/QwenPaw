@@ -1303,6 +1303,23 @@ class BaseChannel(ABC):
             ),
         )
 
+    async def health_check(self) -> Dict[str, Any]:
+        """Return health status for this channel.
+
+        Default implementation returns a basic status dict.
+        Subclasses can override to add channel-specific checks
+        (e.g. webhook reachability, token validity, polling status).
+
+        Returns:
+            Dict with at least: channel, status ("healthy" / "unhealthy"),
+            and optional detail, error fields.
+        """
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "Channel is loaded and running.",
+        }
+
     async def start(self) -> None:
         raise NotImplementedError
 

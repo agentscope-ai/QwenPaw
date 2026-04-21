@@ -385,18 +385,20 @@ class ChannelManager:
             f"priority={priority_level}",
         )
 
-        # Get channel instance
-        ch = await self.get_channel(channel_id)
-        if not ch:
-            logger.error(
-                f"Consumer: channel not found: channel_id={channel_id}",
-            )
-            return
-
         while True:
             try:
                 # Get first payload
                 payload = await queue.get()
+
+                # Re-fetch channel each iteration so replace_channel()
+                # swaps are picked up automatically.
+                ch = await self.get_channel(channel_id)
+                if not ch:
+                    logger.error(
+                        "Consumer: channel not found: "
+                        f"channel_id={channel_id}",
+                    )
+                    return
 
                 # Drain queue for same-key payloads (batch merge logic)
                 # Note: In new architecture, same-key means same QueueKey,
@@ -530,6 +532,100 @@ class ChannelManager:
                 if ch.channel == channel:
                     return ch
             return None
+
+    async def get_channel_health(
+        self,
+        channel_name: str,
+    ) -> Dict[str, Any]:
+        """Get health status for a specific channel.
+
+        Args:
+            channel_name: Channel identifier (e.g. "dingtalk", "telegram")
+
+        Returns:
+            Health status dict from the channel's health_check() method.
+
+        Raises:
+            KeyError: If channel is not found in this manager.
+        """
+        channel_instance = await self.get_channel(channel_name)
+        if channel_instance is None:
+            raise KeyError(f"Channel not found: {channel_name}")
+        try:
+            return await channel_instance.health_check()
+        except Exception as exc:
+            logger.exception(
+                "health_check failed for channel=%s",
+                channel_name,
+            )
+            return {
+                "channel": channel_name,
+                "status": "unhealthy",
+                "detail": str(exc),
+            }
+
+    async def restart_channel(self, channel_name: str) -> Dict[str, Any]:
+        """Restart a single channel by stopping and re-starting it.
+
+        The channel is stopped, then a fresh instance is created via
+        clone() with the current config, and started via replace_channel().
+
+        Args:
+            channel_name: Channel identifier (e.g. "dingtalk", "telegram")
+
+        Returns:
+            Dict with restart result: channel, status, detail.
+
+        Raises:
+            KeyError: If channel is not found in this manager.
+        """
+        channel_instance = await self.get_channel(channel_name)
+        if channel_instance is None:
+            raise KeyError(f"Channel not found: {channel_name}")
+
+        logger.info("Restarting channel: %s", channel_name)
+
+        # Load the latest config for this channel
+        from ...config.config import load_agent_config
+
+        agent_id = self._workspace.agent_id if self._workspace else None
+        if agent_id is None:
+            raise RuntimeError(
+                "Cannot restart channel: workspace not set on ChannelManager",
+            )
+
+        agent_config = load_agent_config(agent_id)
+        channels_cfg = agent_config.channels
+        if channels_cfg is None:
+            raise RuntimeError(
+                f"No channels config found for agent {agent_id}",
+            )
+
+        # Get channel-specific config
+        channel_cfg = getattr(channels_cfg, channel_name, None)
+        if channel_cfg is None:
+            extra = getattr(channels_cfg, "__pydantic_extra__", None) or {}
+            channel_cfg = extra.get(channel_name)
+        if channel_cfg is None:
+            raise RuntimeError(
+                f"No config found for channel '{channel_name}'",
+            )
+
+        # Clone a fresh channel instance with current config and replace
+        new_channel = channel_instance.clone(channel_cfg)
+        if self._workspace is not None:
+            new_channel.set_workspace(
+                self._workspace,
+                self._command_registry,
+            )
+        await self.replace_channel(new_channel)
+
+        logger.info("Channel restarted successfully: %s", channel_name)
+        return {
+            "channel": channel_name,
+            "status": "restarted",
+            "detail": f"Channel '{channel_name}' has been restarted.",
+        }
 
     def set_workspace(self, workspace) -> None:
         """Set workspace and inject to all channels.
