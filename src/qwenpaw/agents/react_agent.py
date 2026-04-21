@@ -40,6 +40,7 @@ from .tools import (
     delegate_external_agent,
     chat_with_agent,
     check_agent_task,
+    query_task_detail,
     submit_to_agent,
     desktop_screenshot,
     edit_file,
@@ -57,6 +58,7 @@ from .tools import (
     write_file,
     create_memory_search_tool,
 )
+from .tools.task_detail import ProgressObservingHook, PLAN_CHANGE_HOOK_TYPE
 from .utils import process_file_and_media_blocks_in_message
 from ..constant import (
     MEDIA_UNSUPPORTED_PLACEHOLDER,
@@ -158,6 +160,24 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             f"Agent '{agent_config.id}' initialized with model: "
             f"{model_info} (class: {model.__class__.__name__})",
         )
+
+        # Create PlanNotebook if configured
+        plan_notebook = None
+        if (
+            hasattr(agent_config, "plan_notebook")
+            and agent_config.plan_notebook is not None
+            and agent_config.plan_notebook.enabled
+        ):
+            from agentscope.plan import PlanNotebook as _PlanNotebook
+
+            plan_notebook = _PlanNotebook(
+                max_subtasks=agent_config.plan_notebook.max_subtasks,
+            )
+            logger.info(
+                f"PlanNotebook enabled for agent '{agent_config.id}'"
+                f" (max_subtasks={agent_config.plan_notebook.max_subtasks})",
+            )
+
         # Initialize parent ReActAgent
         super().__init__(
             name="Friday",
@@ -167,6 +187,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             memory=InMemoryMemory(),
             formatter=formatter,
             max_iters=running_config.max_iters,
+            plan_notebook=plan_notebook,
         )
 
         # Setup memory manager
@@ -217,11 +238,13 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 }
                 # Only execute_shell_command supports async_execution
                 async_execution_tools = {
-                    "execute_shell_command": builtin_tools.get(
-                        "execute_shell_command",
-                    ).async_execution
-                    if "execute_shell_command" in builtin_tools
-                    else False,
+                    "execute_shell_command": (
+                        builtin_tools.get(
+                            "execute_shell_command",
+                        ).async_execution
+                        if "execute_shell_command" in builtin_tools
+                        else False
+                    ),
                 }
         except Exception as e:
             logger.warning(
@@ -250,6 +273,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             "chat_with_agent": chat_with_agent,
             "submit_to_agent": submit_to_agent,
             "check_agent_task": check_agent_task,
+            "query_task_detail": query_task_detail,
         }
 
         # Register only enabled tools
@@ -454,6 +478,42 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 hook=memory_compact_hook.__call__,
             )
             logger.debug("Registered memory compaction hook")
+
+        # Progress observing hook - snapshots PlanNotebook state to
+        # ProgressStore for query_task_detail lookups
+        progress_cfg = getattr(self._agent_config, "progress_observing", None)
+        if progress_cfg is not None and progress_cfg.enabled:
+            observing_hook = ProgressObservingHook(
+                agent_id=self._agent_config.id,
+                hook_type=progress_cfg.hook_type,
+            )
+            observing_type = progress_cfg.hook_type
+
+            if observing_type == PLAN_CHANGE_HOOK_TYPE:
+                if self.plan_notebook is not None:
+                    self.plan_notebook.register_plan_change_hook(
+                        hook_name="progress_observing",
+                        hook=observing_hook.on_plan_change,
+                    )
+                    logger.debug(
+                        "Registered progress_observing hook "
+                        "(type=plan_change on PlanNotebook)",
+                    )
+                else:
+                    logger.warning(
+                        "progress_observing hook_type=plan_change "
+                        "requires PlanNotebook to be enabled, skipping",
+                    )
+            else:
+                self.register_instance_hook(
+                    hook_type=observing_type,
+                    hook_name="progress_observing",
+                    hook=observing_hook.__call__,
+                )
+                logger.debug(
+                    f"Registered progress_observing hook "
+                    f"(type={observing_type})",
+                )
 
     def rebuild_sys_prompt(self) -> None:
         """Rebuild and replace the system prompt.

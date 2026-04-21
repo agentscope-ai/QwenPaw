@@ -14,7 +14,6 @@ from agentscope.tool import ToolResponse
 
 from ...config.utils import read_last_api
 
-
 DEFAULT_AGENT_API_BASE_URL = "http://127.0.0.1:8088"
 DEFAULT_AGENT_API_TIMEOUT = 30.0
 
@@ -139,7 +138,17 @@ def extract_agent_text_content(response_data: Dict[str, Any]) -> str:
         if not output:
             return ""
 
-        last_msg = output[-1]
+        # Search backwards for a message-type item,
+        # skipping trailing reasoning / tool-output items.
+        last_msg = None
+        for msg in reversed(output):
+            if msg.get("type") == "message":
+                last_msg = msg
+                break
+
+        if not last_msg:
+            return ""
+
         content = last_msg.get("content", [])
 
         text_parts = []

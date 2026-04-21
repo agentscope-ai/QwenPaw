@@ -34,7 +34,6 @@ from ..constant import (
     WORKING_DIR,
 )
 
-
 # ============================================================================
 # Core config models (moved here to avoid circular imports)
 # ============================================================================
@@ -62,10 +61,6 @@ class ACPAgentConfig(BaseModel):
     env: Dict[str, str] = Field(default_factory=dict)
     trusted: bool = True
     tool_parse_mode: str = "call_title"
-    stdio_buffer_limit_bytes: int = Field(
-        default=50 * 1024 * 1024,
-        gt=0,
-    )
 
 
 def _get_default_acp_agents() -> Dict[str, ACPAgentConfig]:
@@ -856,6 +851,80 @@ class AgentProfileRef(BaseModel):
     )
 
 
+class PlanNotebookConfig(BaseModel):
+    """Configuration for agentscope PlanNotebook integration.
+
+    When enabled, the agent gets plan/subtask tools (create_plan,
+    view_subtasks, finish_subtask, etc.) that help track complex
+    multi-step task progress.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable PlanNotebook for this agent",
+    )
+    max_subtasks: Optional[int] = Field(
+        default=None,
+        description=(
+            "Maximum number of subtasks in a plan. "
+            "None means no limit (agentscope default)."
+        ),
+    )
+
+
+class ProgressObservingConfig(BaseModel):
+    """Configuration for the progress_observing hook.
+
+    This hook snapshots agent progress into ProgressStore so that
+    ``query_task_detail`` can report what a running agent is doing.
+
+    All writes include two common fields: ``hook_type`` and
+    ``last_update`` (Unix timestamp).  Each hook type writes
+    additional fields:
+
+    - ``post_acting``: last_tool, last_tool_input, last_tool_output
+    - ``pre_acting``: current_tool, current_tool_input
+    - ``post_reasoning``: last_thought
+    - ``pre_reasoning``: status="running"
+    - ``plan_change``: plan_name, plan_progress, plan_progress_pct,
+      current_subtask
+
+    When PlanNotebook is enabled, instance hooks also add a plan
+    overlay (plan_name, plan_progress, plan_progress_pct,
+    current_subtask).
+
+    Supported hook_type values:
+
+    - Instance hooks (registered via ``register_instance_hook``):
+      pre_reply, post_reply, pre_print, post_print, pre_observe,
+      post_observe, pre_reasoning, post_reasoning, pre_acting,
+      post_acting.
+    - ``plan_change`` (registered via
+      ``plan_notebook.register_plan_change_hook``): fires when the
+      PlanNotebook's plan changes.  More efficient, but requires
+      PlanNotebook to be enabled.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable the progress_observing hook",
+    )
+    hook_type: str = Field(
+        default="post_acting",
+        description=(
+            "Hook type to register on. "
+            "Instance hooks: pre_reply, post_reply, pre_print, "
+            "post_print, pre_observe, post_observe, pre_reasoning, "
+            "post_reasoning, pre_acting, post_acting. "
+            "PlanNotebook hook: plan_change (requires PlanNotebook enabled)."
+        ),
+    )
+
+
 class AgentProfileConfig(BaseModel):
     """Complete Agent Profile configuration (stored in workspace/agent.json).
 
@@ -919,9 +988,13 @@ class AgentProfileConfig(BaseModel):
         default=None,
         description="Security configuration for this agent",
     )
-    acp: Optional[ACPConfig] = Field(
+    plan_notebook: Optional[PlanNotebookConfig] = Field(
         default=None,
-        description="ACP configuration for this agent",
+        description="PlanNotebook configuration for this agent",
+    )
+    progress_observing: Optional[ProgressObservingConfig] = Field(
+        default=None,
+        description="Progress observing hook configuration",
     )
 
 
@@ -1250,6 +1323,15 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             enabled=True,
             description="Check the status of a background agent task",
             icon="⏳",
+        ),
+        "query_task_detail": BuiltinToolConfig(
+            name="query_task_detail",
+            enabled=True,
+            description=(
+                "Query detailed progress of a running background task,"
+                " including PlanNotebook state and subtask progress"
+            ),
+            icon="📋",
         ),
     }
 
