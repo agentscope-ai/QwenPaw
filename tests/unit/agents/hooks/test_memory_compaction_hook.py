@@ -220,8 +220,17 @@ async def test_calls_compact_tool_result_when_enabled(hook, agent, mm):
     mm.check_context = AsyncMock(return_value=([], None, True))
     agent.memory.get_memory = AsyncMock(return_value=msgs)
 
-    with _mock_hook_deps(cfg):
+    # Set up mocks inline without any context manager
+    mod = sys.modules[_HOOK_MOD]
+    orig_load = mod.load_agent_config
+    orig_tc = mod.get_token_counter
+    mod.load_agent_config = lambda *_a, **_kw: cfg
+    mod.get_token_counter = lambda *_a, **_kw: _token_counter()
+    try:
         await hook(agent, {})
+    finally:
+        mod.load_agent_config = orig_load
+        mod.get_token_counter = orig_tc
 
     assert mm.compact_tool_result.call_count == 1, (
         f"compact_tool_result={mm.compact_tool_result.call_count}, "
