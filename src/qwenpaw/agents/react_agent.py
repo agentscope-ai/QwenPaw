@@ -16,6 +16,7 @@ from agentscope.agent._react_agent import _MemoryMark
 from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
+from agentscope.plan import PlanNotebook
 from anyio import ClosedResourceError
 from pydantic import BaseModel
 
@@ -158,6 +159,13 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             f"Agent '{agent_config.id}' initialized with model: "
             f"{model_info} (class: {model.__class__.__name__})",
         )
+
+        # Create PlanNotebook if enabled
+        plan_notebook = None
+        if running_config.enable_plan_notebook:
+            plan_notebook = PlanNotebook()
+            logger.info("PlanNotebook enabled for agent '%s'", agent_config.id)
+
         # Initialize parent ReActAgent
         super().__init__(
             name="Friday",
@@ -167,6 +175,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             memory=InMemoryMemory(),
             formatter=formatter,
             max_iters=running_config.max_iters,
+            plan_notebook=plan_notebook,
         )
 
         # Setup memory manager

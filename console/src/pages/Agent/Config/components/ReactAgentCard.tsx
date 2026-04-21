@@ -145,6 +145,15 @@ export function ReactAgentCard({
           placeholder={t("agentConfig.maxContextLengthPlaceholder")}
         />
       </Form.Item>
+
+      <Form.Item
+        label={t("agentConfig.enablePlanNotebook")}
+        name="enable_plan_notebook"
+        valuePropName="checked"
+        tooltip={t("agentConfig.enablePlanNotebookTooltip")}
+      >
+        <Switch />
+      </Form.Item>
     </Card>
   );
 }
