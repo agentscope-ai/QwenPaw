@@ -54,6 +54,9 @@ def _make_concrete_class():
         ):
             return MagicMock()
 
+        async def dream_memory(self, **kwargs):
+            pass
+
         def get_in_memory_memory(self, **kwargs):
             return None
 
