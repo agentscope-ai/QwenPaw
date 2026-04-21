@@ -121,6 +121,9 @@ def agent():
     a.memory.mark_messages_compressed = AsyncMock(return_value=1)
     a.memory.update_compressed_summary = AsyncMock()
     a.print = AsyncMock()
+    # MagicMock returns a truthy object for any unknown attribute, which fools
+    # the reentrancy guard. Set to False to match real initial state.
+    a._memory_compact_hook_running = False
     return a
 
 
