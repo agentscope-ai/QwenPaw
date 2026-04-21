@@ -195,7 +195,7 @@ export function installHostExternals(): void {
   }
   if (!window.QwenPaw.getModuleStats) {
     window.QwenPaw.getModuleStats = () => {
-      // 动态导入 moduleRegistry 来获取统计信息
+      // Get module statistics from moduleRegistry
       const modules = window.QwenPaw.modules;
       const keys = Object.keys(modules);
       return {

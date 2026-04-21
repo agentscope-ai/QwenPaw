@@ -1,98 +1,59 @@
-// vite-plugin-patchable.ts
-// 放在项目根目录，在 vite.config.ts 中引入
-//
-// 使用方式：
-//   1. 在需要暴露给插件的模块顶部加注释: // @patchable
-//   2. vite.config.ts 中引入: plugins: [vitePatchable()]
-//   3. main.tsx 中调用: installHostExternals() （会自动调用生成的 registerHostModules）
-//   4. 宿主代码从 .proxy 文件导入: import { fn } from "./foo.__proxy__"
-//      或开启 autoRewrite: true 自动重写所有 import
-//
-// 插件端使用：
-//   const mod = window.QwenPaw.modules["Chat/OptionsPanel/defaultConfig"];
-//   const orig = mod.getDefaultConfig;
-//   mod.getDefaultConfig = (type) => ({ ...orig(type), greeting: "Hi" });
+/**
+ * vite-plugin-patchable.ts
+ * 
+ * Vite plugin for automatic host module registration in plugin system.
+ * Scans source files, extracts exports, and generates registration code.
+ * 
+ * Usage:
+ *   1. Add to vite.config.ts: plugins: [vitePatchable()]
+ *   2. Call in main.tsx: installHostExternals() and registerHostModules()
+ *   3. Plugins access via: window.QwenPaw.modules["path/to/module"]
+ */
 
 import fs from "fs";
 import path from "path";
 import type { Plugin, ResolvedConfig } from "vite";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 类型定义
+// Type definitions
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface PatchableOptions {
-  /**
-   * 扫描目录列表，相对于 vite root（通常是项目根目录）
-   * @default ["src/pages"]
-   */
+  /** Directories to scan (relative to vite root) */
   include?: string[];
-
-  /**
-   * 生成的注册文件路径，相对于 vite root
-   * @default "src/plugins/generated/registerHostModules.ts"
-   */
+  /** Output path for generated registry file */
   registryOutput?: string;
-
-  /**
-   * moduleRegistry 单例的导入路径，相对于生成文件
-   * @default "../moduleRegistry"
-   */
+  /** Import path for moduleRegistry */
   registryImport?: string;
-
-  /**
-   * 是否需要 @patchable 标记才注册模块
-   * @default false （注册所有文件）
-   */
+  /** Require @patchable marker to register modules */
   requireMarker?: boolean;
-
-  /**
-   * 触发 @patchable 标记的正则（当 requireMarker = true 时使用）
-   * @default /^\s*(?:\/\/\s*@patchable|\/\*\*?\s*@patchable[\s\S]*?\*\/)/m
-   */
+  /** Regex to match @patchable marker */
   marker?: RegExp;
-
-  /**
-   * 排除文件的正则列表
-   * @default [/\.(test|spec)\.[tj]sx?$/, /\.d\.ts$/, /\.module\.(less|css|scss)$/]
-   */
+  /** Exclude file patterns */
   exclude?: RegExp[];
-
-  /**
-   * 是否输出调试日志
-   * @default false
-   */
+  /** Enable debug logging */
   verbose?: boolean;
 }
 
 interface ExportInfo {
   name: string;
-  /** function/class 走 call()；const/let/var 走 get() */
   kind: "callable" | "value";
 }
 
 interface ModuleInfo {
-  /** 绝对路径（normalize 后） */
   absPath: string;
-  /** 注册表 key，如 "Chat/OptionsPanel/defaultConfig" */
   moduleKey: string;
-  /** 提取到的导出列表 */
   exports: ExportInfo[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 工具函数
+// Utility functions
 // ─────────────────────────────────────────────────────────────────────────────
 
 function normalizePath(p: string): string {
   return p.replace(/\\/g, "/");
 }
 
-/**
- * 把绝对路径转换成模块 key
- * /project/src/pages/Chat/OptionsPanel/defaultConfig.ts
- * → Chat/OptionsPanel/defaultConfig
- */
 function absToModuleKey(absPath: string, pagesRoot: string): string {
   return normalizePath(path.relative(pagesRoot, absPath)).replace(
     /\.[tj]sx?$/,
@@ -101,15 +62,8 @@ function absToModuleKey(absPath: string, pagesRoot: string): string {
 }
 
 /**
- * 从 TypeScript/JavaScript 源码中提取导出名（不依赖 AST，正则实现）
- * 覆盖：
- *   export function foo
- *   export async function foo
- *   export class Foo
- *   export const/let/var foo = ...（含箭头函数判断）
- *   export { foo, bar as baz }
- *   export default function Foo / export default class Foo / export default Foo
- *   - 对于 export default，使用 "default" 作为导出名
+ * Extract export names from TypeScript/JavaScript source (regex-based, no AST)
+ * Covers: export function, export class, export const/let/var, export {}, export default
  */
 function extractExports(source: string): ExportInfo[] {
   const seen = new Set<string>();
@@ -132,21 +86,19 @@ function extractExports(source: string): ExportInfo[] {
     push(m[1], "callable");
   }
 
-  // export const/let/var foo [: Type] = ...
-  // 需要判断右侧是否是箭头函数
+  // export const/let/var foo = ... (detect arrow functions)
   const bindingRe =
     /export\s+(const|let|var)\s+(\w+)\s*(?::[^=]+)?=\s*([\s\S]{0,120})/g;
   for (const m of source.matchAll(bindingRe)) {
     const name = m[2];
     const rhs = m[3];
-    // 右侧开头是箭头函数特征：( args ) => 或 arg =>
     const isArrow = /^(?:\([^)]*\)|[\w]+)\s*(?::\s*[\w<>[\],\s]+)?\s*=>/.test(
       rhs.trim(),
     );
     push(name, isArrow ? "callable" : "value");
   }
 
-  // export { foo, bar as baz } (不含 from)
+  // export { foo, bar as baz } (without from)
   for (const m of source.matchAll(/export\s*\{([^}]+)\}(?!\s*from)/g)) {
     for (const part of m[1].split(",")) {
       const alias = part
@@ -158,8 +110,7 @@ function extractExports(source: string): ExportInfo[] {
     }
   }
 
-  // export { foo, bar as baz } from "./module" (re-export)
-  // 这些导出也应该被注册，因为它们在当前模块中可用
+  // export { foo } from "./module" (re-export)
   for (const m of source.matchAll(/export\s*\{([^}]+)\}\s*from\s*['"]/g)) {
     for (const part of m[1].split(",")) {
       const alias = part
@@ -171,17 +122,13 @@ function extractExports(source: string): ExportInfo[] {
     }
   }
 
-  // export * from "./module" - 这种情况无法静态分析，跳过
-  // 但我们可以标记该模块有导出
+  // export * from "./module" (wildcard re-export)
   const hasWildcardReexport = /export\s+\*\s+from\s+['"]/.test(source);
   if (hasWildcardReexport && results.length === 0) {
-    // 如果只有 export * from，我们添加一个特殊标记
-    // 这样至少该模块会被注册
     push("__reexport__", "value");
   }
 
-  // export default function Foo / export default class Foo
-  // 捕获默认导出的函数或类名
+  // export default function/class
   const defaultFunctionMatch = source.match(
     /export\s+default\s+(?:async\s+)?(?:function|class)\s+(\w+)/,
   );
@@ -189,8 +136,7 @@ function extractExports(source: string): ExportInfo[] {
     push("default", "callable");
   }
 
-  // export default Foo (标识符) 或 export default expression
-  // 仅在没有找到 function/class 时才检查
+  // export default <expression>
   if (!defaultFunctionMatch && /export\s+default\s+/.test(source)) {
     push("default", "value");
   }
@@ -199,7 +145,7 @@ function extractExports(source: string): ExportInfo[] {
 }
 
 /**
- * 递归扫描目录，收集所有 TS/TSX 文件（或带 @patchable 标记的文件）
+ * Recursively scan directory for TS/TSX files
  */
 function scanDirectory(
   dir: string,
@@ -232,13 +178,10 @@ function scanDirectory(
         continue;
       }
 
-      // 只处理 TS/TSX/JS/JSX，跳过已生成的 proxy 文件
       if (!/\.[tj]sx?$/.test(entry.name)) continue;
       if (/__proxy__/.test(entry.name)) continue;
 
-      // 应用排除规则
       if (exclude.some((re) => re.test(abs))) {
-        if (verbose) console.log(`[patchable] Excluded: ${abs}`);
         continue;
       }
 
@@ -249,7 +192,6 @@ function scanDirectory(
         continue;
       }
 
-      // 如果需要标记，检查是否有 @patchable
       if (requireMarker && !marker.test(source)) {
         continue;
       }
@@ -258,8 +200,6 @@ function scanDirectory(
       const exports = extractExports(source);
 
       if (exports.length === 0) {
-        if (verbose)
-          console.warn(`[patchable] No exports found (skipped): ${abs}`);
         continue;
       }
 
@@ -280,14 +220,7 @@ function scanDirectory(
 }
 
 /**
- * 生成集中注册文件（registerHostModules.ts）
- *
- * 生成结果示例：
- *   import { moduleRegistry } from "../moduleRegistry";
- *   import * as __mod0__ from "../../pages/Chat/OptionsPanel/defaultConfig";
- *   export function registerHostModules(): void {
- *     moduleRegistry.register("Chat/OptionsPanel/defaultConfig", __mod0__);
- *   }
+ * Generate registration file (registerHostModules.ts)
  */
 function generateRegistryFile(
   modules: Map<string, ModuleInfo>,
@@ -303,7 +236,6 @@ function generateRegistryFile(
     const alias = `__mod${i++}__`;
     let rel = normalizePath(path.relative(outputDir, info.absPath));
     if (!rel.startsWith(".")) rel = `./${rel}`;
-    // 去掉扩展名（TS 编译器和 Vite 都能解析无扩展名路径）
     const relNoExt = rel.replace(/\.[tj]sx?$/, "");
     imports.push(`import * as ${alias} from "${relNoExt}";`);
     registers.push(
@@ -321,21 +253,15 @@ function generateRegistryFile(
     ...imports,
     ``,
     `export function registerHostModules(): void {`,
-    `  console.log("[patchable] Registering %d module(s)...", ${modules.size});`,
+    `  console.log("[patchable] Registered %d module(s)", ${modules.size});`,
     ``,
     ...registers,
-    ``,
-    `  console.log(`,
-    `    "[patchable] Successfully registered %d module(s):",`,
-    `    moduleRegistry.keys().length,`,
-    `    moduleRegistry.keys(),`,
-    `  );`,
     `}`,
   ].join("\n");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Vite 插件主体
+// Vite plugin
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function vitePatchable(options: PatchableOptions = {}): Plugin {
@@ -376,11 +302,8 @@ export function vitePatchable(options: PatchableOptions = {}): Plugin {
       }
     }
 
-    if (verbose) {
-      console.log(`[patchable] Total modules found: ${modules.size}`);
-    }
+    console.log(`[patchable] Total modules found: ${modules.size}`);
 
-    // 生成注册文件
     const outputAbs = normalizePath(path.resolve(root, registryOutput));
     const outputDir = path.dirname(outputAbs);
 
@@ -408,7 +331,6 @@ export function vitePatchable(options: PatchableOptions = {}): Plugin {
     },
 
     handleHotUpdate({ file }) {
-      // 开发模式下，监听文件变化重新扫描
       if (/\.[tj]sx?$/.test(file)) {
         const normalized = normalizePath(file);
         const wasTracked = modules.has(normalized);
@@ -417,14 +339,12 @@ export function vitePatchable(options: PatchableOptions = {}): Plugin {
 
         const isTracked = modules.has(normalized);
 
-        if (wasTracked !== isTracked) {
-          if (verbose) {
-            console.log(
-              `[patchable] File ${
-                isTracked ? "added to" : "removed from"
-              } registry: ${file}`,
-            );
-          }
+        if (verbose && wasTracked !== isTracked) {
+          console.log(
+            `[patchable] File ${
+              isTracked ? "added to" : "removed from"
+            } registry: ${file}`,
+          );
         }
       }
     },

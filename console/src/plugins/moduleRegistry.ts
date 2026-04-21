@@ -1,37 +1,37 @@
 /**
  * moduleRegistry.ts
  *
- * 运行时模块注册表，用于插件系统的模块 monkey-patching
+ * Runtime module registry for plugin system monkey-patching
  *
- * 工作原理：
- * 1. 宿主应用启动时调用 moduleRegistry.register() 注册所有 @patchable 模块
- * 2. 插件通过 window.QwenPaw.modules 访问并修改模块导出
- * 3. 宿主代码通过 moduleRegistry.get/call 访问模块，确保使用插件修改后的版本
+ * How it works:
+ * 1. Host app calls moduleRegistry.register() at startup to register all @patchable modules
+ * 2. Plugins access and modify module exports via window.QwenPaw.modules
+ * 3. Host code accesses modules via moduleRegistry.get/call to ensure using plugin-modified versions
  */
 
 export interface ModuleRegistry {
   /**
-   * 注册模块（由生成的 registerHostModules() 调用）
+   * Register a module (called by generated registerHostModules())
    */
   register(key: string, module: Record<string, unknown>): void;
 
   /**
-   * 获取模块的某个导出值（用于 const/let/var 类型）
+   * Get a module export value (for const/let/var types)
    */
   get(moduleKey: string, exportName: string): unknown;
 
   /**
-   * 调用模块的某个导出函数（用于 function/class 类型）
+   * Call a module export function (for function/class types)
    */
   call(moduleKey: string, exportName: string, ...args: unknown[]): unknown;
 
   /**
-   * 获取所有已注册的模块 key
+   * Get all registered module keys
    */
   keys(): string[];
 
   /**
-   * 获取整个模块对象（供插件使用）
+   * Get entire module object (for plugin use)
    */
   getModule(key: string): Record<string, unknown> | undefined;
 }
@@ -40,20 +40,20 @@ class ModuleRegistryImpl implements ModuleRegistry {
   private modules = new Map<string, Record<string, unknown>>();
 
   register(key: string, module: Record<string, unknown>): void {
-    // 安全地复制模块导出，避免 ES Module namespace 的特殊属性导致错误
+    // Safely copy module exports, avoiding ES Module namespace special properties
     const safeCopy: Record<string, unknown> = {};
 
     try {
-      // 只复制可枚举的自有属性
+      // Only copy enumerable own properties
       for (const exportName of Object.keys(module)) {
         try {
           const descriptor = Object.getOwnPropertyDescriptor(module, exportName);
           if (descriptor && descriptor.enumerable && !descriptor.get) {
-            // 只复制普通属性，跳过 getter/setter
+            // Only copy plain properties, skip getter/setter
             safeCopy[exportName] = module[exportName];
           }
         } catch (e) {
-          // 跳过无法访问的属性
+          // Skip inaccessible properties
           if (console && console.warn) {
             console.warn(
               `[moduleRegistry] Cannot copy property ${exportName} from ${key}:`,
@@ -100,7 +100,7 @@ class ModuleRegistryImpl implements ModuleRegistry {
   }
 
   /**
-   * 获取所有模块（供 window.QwenPaw.modules 使用）
+   * Get all modules (for window.QwenPaw.modules)
    */
   getAllModules(): Record<string, Record<string, unknown>> {
     const result: Record<string, Record<string, unknown>> = {};
@@ -113,14 +113,14 @@ class ModuleRegistryImpl implements ModuleRegistry {
 
 export const moduleRegistry = new ModuleRegistryImpl();
 
-// 暴露到 window.QwenPaw.modules（供插件使用）
-// 初始化时设置
+// Expose to window.QwenPaw.modules (for plugin use)
+// Set during initialization
 if (typeof window !== "undefined") {
   if (!window.QwenPaw) {
     (window as any).QwenPaw = {};
   }
 
-  // 使用 Proxy 实现动态访问，确保插件总是能获取到最新的模块状态
+  // Use Proxy for dynamic access, ensuring plugins always get latest module state
   Object.defineProperty(window.QwenPaw, "modules", {
     get() {
       return (moduleRegistry as any).getAllModules();
