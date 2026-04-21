@@ -8,19 +8,27 @@ Covers:
   summary task toggle, compact-memory toggle, invalid-message fallback,
   marks messages compressed, exception handling
 
-NOTE: Tests are written as top-level async functions (not class methods)
-to avoid a pytest-asyncio issue on Linux where async class methods receive
-duplicate fixture instances, making assertions on the 'mm' mock unreliable.
+NOTE: Tests use direct sys.modules replacement instead of unittest.mock
+patch() to set up hook dependencies.  On Linux, patch() resolution for
+paths like "qwenpaw.agents.hooks.memory_compaction.X" may silently fail
+because qwenpaw.agents.__getattr__ raises AttributeError for subpackages
+before Python's import machinery can set the attribute.  Direct module
+replacement (get sys.modules entry → replace attr → restore) bypasses
+this resolution and works reliably across all platforms.
 """
 # pylint: disable=redefined-outer-name,protected-access
+import contextlib
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+_HOOK_MOD = "qwenpaw.agents.hooks.memory_compaction"
+_CHECK_VALID = "qwenpaw.agents.hooks.memory_compaction.check_valid_messages"
 
 
 def _make_config(
@@ -50,15 +58,31 @@ def _make_config(
     return cfg
 
 
-_LOAD_CFG = "qwenpaw.agents.hooks.memory_compaction.load_agent_config"
-_GET_TC = "qwenpaw.agents.hooks.memory_compaction.get_token_counter"
-_CHECK_VALID = "qwenpaw.agents.hooks.memory_compaction.check_valid_messages"
-
-
 def _token_counter(count: int = 100):
     tc = MagicMock()
     tc.count = AsyncMock(return_value=count)
     return tc
+
+
+@contextlib.contextmanager
+def _mock_hook_deps(cfg, tc=None):
+    """Replace load_agent_config and get_token_counter in the hook module.
+
+    Uses direct sys.modules replacement instead of patch() to avoid
+    resolution issues caused by qwenpaw.agents.__getattr__ on Linux.
+    """
+    if tc is None:
+        tc = _token_counter()
+    mod = sys.modules[_HOOK_MOD]
+    orig_load = mod.load_agent_config
+    orig_tc = mod.get_token_counter
+    mod.load_agent_config = lambda *_a, **_kw: cfg
+    mod.get_token_counter = lambda *_a, **_kw: tc
+    try:
+        yield
+    finally:
+        mod.load_agent_config = orig_load
+        mod.get_token_counter = orig_tc
 
 
 # ---------------------------------------------------------------------------
@@ -146,10 +170,7 @@ async def test_print_status_message_text_included(hook, agent):
 async def test_returns_none_when_threshold_too_low(hook, agent, mm):
     """P1: token_count(100) >= threshold(50) → return early."""
     cfg = _make_config(threshold=50)
-    with patch(_LOAD_CFG, return_value=cfg), patch(
-        _GET_TC,
-        return_value=_token_counter(count=100),
-    ):
+    with _mock_hook_deps(cfg, _token_counter(count=100)):
         result = await hook(agent, {})
 
     assert result is None
@@ -165,10 +186,7 @@ async def test_returns_none_when_no_messages_to_compact(hook, agent, mm):
     """P1: returns None when check_context yields empty list."""
     cfg = _make_config(threshold=5000)
     mm.check_context = AsyncMock(return_value=([], None, True))
-    with patch(_LOAD_CFG, return_value=cfg), patch(
-        _GET_TC,
-        return_value=_token_counter(),
-    ):
+    with _mock_hook_deps(cfg):
         result = await hook(agent, {})
 
     assert result is None
@@ -194,31 +212,9 @@ async def test_calls_compact_tool_result_when_enabled(hook, agent, mm):
     mm.check_context = AsyncMock(return_value=([], None, True))
     agent.memory.get_memory = AsyncMock(return_value=msgs)
 
-    # Debug: verify config before hook call
-    assert (
-        cfg.running.tool_result_compact.enabled is True
-    ), f"trc.enabled={cfg.running.tool_result_compact.enabled}"
-    assert (
-        cfg.running.memory_compact_threshold == 5000
-    ), f"threshold={cfg.running.memory_compact_threshold}"
-
-    with patch(_LOAD_CFG, return_value=cfg), patch(
-        _GET_TC,
-        return_value=_token_counter(),
-    ):
+    with _mock_hook_deps(cfg):
         await hook(agent, {})
 
-    assert hook.memory_manager is mm, (
-        f"Fixture duplication: "
-        f"hook.memory_manager id={id(hook.memory_manager)}, mm id={id(mm)}"
-    )
-    n_calls = mm.compact_tool_result.call_count
-    n_ctx = mm.check_context.call_count
-    n_mem = agent.memory.get_memory.call_count
-    assert n_calls == 1, (
-        f"compact_tool_result called {n_calls} times "
-        f"(check_context={n_ctx}, get_memory={n_mem})"
-    )
     mm.compact_tool_result.assert_called_once_with(
         messages=msgs,
         recent_n=2,
@@ -233,10 +229,7 @@ async def test_skips_compact_tool_result_when_disabled(hook, agent, mm):
     cfg = _make_config(threshold=5000, trc_enabled=False)
     mm.check_context = AsyncMock(return_value=([], None, True))
 
-    with patch(_LOAD_CFG, return_value=cfg), patch(
-        _GET_TC,
-        return_value=_token_counter(),
-    ):
+    with _mock_hook_deps(cfg):
         await hook(agent, {})
 
     mm.compact_tool_result.assert_not_called()
@@ -259,10 +252,7 @@ async def test_adds_summary_task_when_enabled(hook, agent, mm):
         return_value=(msgs_to_compact, None, True),
     )
 
-    with patch(_LOAD_CFG, return_value=cfg), patch(
-        _GET_TC,
-        return_value=_token_counter(),
-    ):
+    with _mock_hook_deps(cfg):
         await hook(agent, {})
 
     mm.add_async_summary_task.assert_called_once_with(
@@ -282,10 +272,7 @@ async def test_skips_summary_task_when_disabled(hook, agent, mm):
         return_value=(msgs_to_compact, None, True),
     )
 
-    with patch(_LOAD_CFG, return_value=cfg), patch(
-        _GET_TC,
-        return_value=_token_counter(),
-    ):
+    with _mock_hook_deps(cfg):
         await hook(agent, {})
 
     mm.add_async_summary_task.assert_not_called()
@@ -309,10 +296,7 @@ async def test_runs_compact_memory_when_enabled(hook, agent, mm):
     )
     mm.compact_memory = AsyncMock(return_value="compact summary")
 
-    with patch(_LOAD_CFG, return_value=cfg), patch(
-        _GET_TC,
-        return_value=_token_counter(),
-    ):
+    with _mock_hook_deps(cfg):
         await hook(agent, {})
 
     mm.compact_memory.assert_called_once_with(
@@ -336,10 +320,7 @@ async def test_skips_compact_memory_when_disabled(hook, agent, mm):
         return_value=(msgs_to_compact, None, True),
     )
 
-    with patch(_LOAD_CFG, return_value=cfg), patch(
-        _GET_TC,
-        return_value=_token_counter(),
-    ):
+    with _mock_hook_deps(cfg):
         await hook(agent, {})
 
     mm.compact_memory.assert_not_called()
@@ -361,10 +342,7 @@ async def test_compact_memory_failure_prints_warning(hook, agent, mm):
     )
     mm.compact_memory = AsyncMock(return_value=None)
 
-    with patch(_LOAD_CFG, return_value=cfg), patch(
-        _GET_TC,
-        return_value=_token_counter(),
-    ):
+    with _mock_hook_deps(cfg):
         result = await hook(agent, {})
 
     assert result is None
@@ -388,10 +366,7 @@ async def test_marks_messages_compressed(hook, agent, mm):
         return_value=(msgs_to_compact, None, True),
     )
 
-    with patch(_LOAD_CFG, return_value=cfg), patch(
-        _GET_TC,
-        return_value=_token_counter(),
-    ):
+    with _mock_hook_deps(cfg):
         await hook(agent, {})
 
     agent.memory.mark_messages_compressed.assert_called_once_with(
@@ -417,10 +392,10 @@ async def test_fallback_finds_valid_slice(hook, agent, mm):
     )
     agent.memory.get_memory = AsyncMock(return_value=msgs)
 
-    with patch(_LOAD_CFG, return_value=cfg), patch(
-        _GET_TC,
-        return_value=_token_counter(),
-    ), patch(_CHECK_VALID, return_value=True):
+    with _mock_hook_deps(cfg), patch(
+        _CHECK_VALID,
+        return_value=True,
+    ):
         result = await hook(agent, {})
 
     assert result is None
@@ -440,10 +415,10 @@ async def test_fallback_all_invalid_uses_full_messages(hook, agent, mm):
     )
     agent.memory.get_memory = AsyncMock(return_value=msgs)
 
-    with patch(_LOAD_CFG, return_value=cfg), patch(
-        _GET_TC,
-        return_value=_token_counter(),
-    ), patch(_CHECK_VALID, return_value=False):
+    with _mock_hook_deps(cfg), patch(
+        _CHECK_VALID,
+        return_value=False,
+    ):
         result = await hook(agent, {})
 
     assert result is None
@@ -459,26 +434,23 @@ async def test_fallback_all_invalid_uses_full_messages(hook, agent, mm):
 
 async def test_handles_config_load_error_gracefully(hook, agent):
     """P2: config load exception is caught, None returned."""
-    with patch(
-        _LOAD_CFG,
+    mod = sys.modules[_HOOK_MOD]
+    orig_load = mod.load_agent_config
+    mod.load_agent_config = MagicMock(
         side_effect=RuntimeError("config error"),
-    ):
+    )
+    try:
         result = await hook(agent, {})
+    finally:
+        mod.load_agent_config = orig_load
 
     assert result is None
 
 
-async def test_always_returns_none(
-    hook,
-    agent,
-    mm,
-):  # pylint: disable=unused-argument
+async def test_always_returns_none(hook, agent):
     """P2: return value is always None regardless of kwargs."""
     cfg = _make_config(threshold=5000)
-    with patch(_LOAD_CFG, return_value=cfg), patch(
-        _GET_TC,
-        return_value=_token_counter(),
-    ):
+    with _mock_hook_deps(cfg):
         result = await hook(agent, {"key": "value"})
 
     assert result is None
