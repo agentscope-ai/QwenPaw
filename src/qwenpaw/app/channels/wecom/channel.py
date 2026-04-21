@@ -689,7 +689,11 @@ class WecomChannel(BaseChannel):
                 fn = (Path(fn).stem or "file") + hint_ext
             self._media_dir.mkdir(parents=True, exist_ok=True)
             safe_name = (
-                "".join(c for c in fn.replace("企业微信截图", "screenshot") if c.isalnum() or c in "-_.")
+                "".join(
+                    c
+                    for c in fn.replace("企业微信截图", "screenshot")
+                    if c.isalnum() or c in "-_."
+                )
                 or "media"
             )
             url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
