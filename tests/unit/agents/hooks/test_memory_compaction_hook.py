@@ -194,17 +194,30 @@ async def test_calls_compact_tool_result_when_enabled(hook, agent, mm):
     mm.check_context = AsyncMock(return_value=([], None, True))
     agent.memory.get_memory = AsyncMock(return_value=msgs)
 
+    # Debug: verify config before hook call
+    assert (
+        cfg.running.tool_result_compact.enabled is True
+    ), f"trc.enabled={cfg.running.tool_result_compact.enabled}"
+    assert (
+        cfg.running.memory_compact_threshold == 5000
+    ), f"threshold={cfg.running.memory_compact_threshold}"
+
     with patch(_LOAD_CFG, return_value=cfg), patch(
         _GET_TC,
         return_value=_token_counter(),
     ):
         await hook(agent, {})
 
-    # Diagnostic: verify fixture identity before asserting
     assert hook.memory_manager is mm, (
-        f"Fixture duplication detected: "
-        f"hook.memory_manager id={id(hook.memory_manager)}, "
-        f"mm id={id(mm)}"
+        f"Fixture duplication: "
+        f"hook.memory_manager id={id(hook.memory_manager)}, mm id={id(mm)}"
+    )
+    n_calls = mm.compact_tool_result.call_count
+    n_ctx = mm.check_context.call_count
+    n_mem = agent.memory.get_memory.call_count
+    assert n_calls == 1, (
+        f"compact_tool_result called {n_calls} times "
+        f"(check_context={n_ctx}, get_memory={n_mem})"
     )
     mm.compact_tool_result.assert_called_once_with(
         messages=msgs,
