@@ -5,6 +5,8 @@ This module provides the main QwenPawAgent class built on ReActAgent,
 with integrated tools, skills, and memory management.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
