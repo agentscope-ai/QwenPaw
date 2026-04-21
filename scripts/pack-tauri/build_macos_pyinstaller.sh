@@ -46,7 +46,7 @@ if [ $? -ne 0 ]; then
     echo "ERROR: Frontend build failed"
     exit 1
 fi
-cd "$REPO_ROOT"
+cd ..
 # cp -R console/dist/. src/qwenpaw/console/
 # echo ""
 
