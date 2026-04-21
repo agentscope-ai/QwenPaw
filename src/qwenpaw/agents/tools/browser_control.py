@@ -43,17 +43,17 @@ logger = logging.getLogger(__name__)
 # contain at least one of these (case-insensitive) to be accepted.
 _TRUSTED_BROWSER_KEYWORDS = frozenset(
     {
-        "chrome",     # Google Chrome
-        "chromium",   # Chromium (open-source)
-        "edge",       # Microsoft Edge
-        "firefox",    # Mozilla Firefox
-        "brave",      # Brave Browser
-        "vivaldi",    # Vivaldi Browser
-        "opera",      # Opera
-        "360se",      # 360 Secure Browser
-        "yandex",     # Yandex Browser
-        "tor",        # Tor Browser
-    }
+        "chrome",  # Google Chrome
+        "chromium",  # Chromium (open-source)
+        "edge",  # Microsoft Edge
+        "firefox",  # Mozilla Firefox
+        "brave",  # Brave Browser
+        "vivaldi",  # Vivaldi Browser
+        "opera",  # Opera
+        "360se",  # 360 Secure Browser
+        "yandex",  # Yandex Browser
+        "tor",  # Tor Browser
+    },
 )
 
 
@@ -66,11 +66,11 @@ def _validate_executable_path(executable_path: str) -> None:
         raise ValueError(
             f"executable_path rejected: '{Path(executable_path).name}' "
             f"does not match any trusted browser name "
-            f"(keywords: {', '.join(sorted(_TRUSTED_BROWSER_KEYWORDS))})"
+            f"(keywords: {', '.join(sorted(_TRUSTED_BROWSER_KEYWORDS))})",
         )
     if not Path(executable_path).is_file():
         raise ValueError(
-            f"executable_path rejected: '{executable_path}' does not exist"
+            f"executable_path rejected: '{executable_path}' does not exist",
         )
 
 
@@ -365,7 +365,9 @@ def _sync_browser_launch(
 
     extra_args = list(_chromium_launch_args())
     if browser_args:
-        extra_args.extend(shlex.split(browser_args, posix=sys.platform != "win32"))
+        extra_args.extend(
+            shlex.split(browser_args, posix=sys.platform != "win32"),
+        )
     if cdp_port:
         extra_args.append(f"--remote-debugging-port={cdp_port}")
 
@@ -923,7 +925,10 @@ async def _action_start(
             pw, browser, context = await loop.run_in_executor(
                 _get_executor(),
                 lambda: _sync_browser_launch(
-                    state, cdp_port, browser_args, executable_path
+                    state,
+                    cdp_port,
+                    browser_args,
+                    executable_path,
                 ),
             )
             state["_sync_playwright"] = pw
@@ -944,7 +949,9 @@ async def _action_start(
                 exe = executable_path
             extra_args = list(_chromium_launch_args())
             if browser_args:
-                extra_args.extend(shlex.split(browser_args, posix=sys.platform != "win32"))
+                extra_args.extend(
+                    shlex.split(browser_args, posix=sys.platform != "win32"),
+                )
             if cdp_port:
                 extra_args.append(f"--remote-debugging-port={cdp_port}")
 
@@ -962,9 +969,9 @@ async def _action_start(
                     # launch_persistent_context returns context directly; no separate browser object
                     _attach_context_listeners(state, context)
                     state["playwright"] = pw
-                    state["browser"] = (
-                        None  # not needed for persistent context
-                    )
+                    state[
+                        "browser"
+                    ] = None  # not needed for persistent context
                     state["context"] = context
                 else:
                     launch_kwargs = {"headless": state["headless"]}
