@@ -212,48 +212,14 @@ async def test_calls_compact_tool_result_when_enabled(hook, agent, mm):
     mm.check_context = AsyncMock(return_value=([], None, True))
     agent.memory.get_memory = AsyncMock(return_value=msgs)
 
-    # Verify module is in sys.modules
-    mod = sys.modules.get(_HOOK_MOD)
-    assert mod is not None, f"{_HOOK_MOD} not in sys.modules"
-    assert hasattr(
-        mod,
-        "load_agent_config",
-    ), f"load_agent_config not in {_HOOK_MOD}"
-
-    # Verify hook uses same module dict we're patching
-    hook_globals = hook.__call__.__globals__
-    assert hook_globals is mod.__dict__, (
-        f"Module dict mismatch! "
-        f"hook globals id={id(hook_globals)}, "
-        f"mod dict id={id(mod.__dict__)}, "
-        f"hook class module={hook.__class__.__module__}"
-    )
-
     with _mock_hook_deps(cfg):
-        # Verify both replacements are active via hook globals
-        hook_load = hook.__call__.__globals__.get("load_agent_config")
-        assert hook_load is not None
-        assert hook_load("x") is cfg, f"load_agent_config={hook_load!r}"
-        hook_tc = hook.__call__.__globals__.get("get_token_counter")
-        assert hook_tc is not None
-        tc_result = hook_tc("x")
-        assert hasattr(
-            tc_result,
-            "count",
-        ), f"get_token_counter result={tc_result!r}"
-
-        n_get_mem_before = agent.memory.get_memory.call_count
         await hook(agent, {})
-        n_get_mem_after = agent.memory.get_memory.call_count
-        n_ctx = mm.check_context.call_count
-        n_ctr = mm.compact_tool_result.call_count
 
-    assert n_ctr == 1, (
-        f"compact_tool_result={n_ctr}, "
-        f"check_context={n_ctx}, "
-        f"get_memory={n_get_mem_after - n_get_mem_before}"
+    assert mm.compact_tool_result.call_count == 1, (
+        f"compact_tool_result={mm.compact_tool_result.call_count}, "
+        f"check_context={mm.check_context.call_count}, "
+        f"get_memory={agent.memory.get_memory.call_count}"
     )
-
     mm.compact_tool_result.assert_called_once_with(
         messages=msgs,
         recent_n=2,
