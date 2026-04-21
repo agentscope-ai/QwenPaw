@@ -83,6 +83,26 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "PyInstaller backend rebuilt with frontend" -ForegroundColor Green
 Write-Host ""
 
+# Step 3.5: Ensure NSIS is available for Tauri bundling
+# Workaround for https://github.com/tauri-apps/tauri/issues/9895
+# Jenkins service users have AppData in a restricted system profile,
+# so Tauri's default NSIS download location is blocked by Windows security.
+# We download NSIS to the workspace instead and set NSIS_PATH.
+Write-Host "== Step 3.5: Ensuring NSIS is available ==" -ForegroundColor Yellow
+$NSIS_DIR = Join-Path $DIST "tools\nsis"
+$MAKENSIS = Join-Path $NSIS_DIR "makensis.exe"
+if (-not (Test-Path $MAKENSIS)) {
+    Write-Host "Downloading NSIS..."
+    $NSIS_ZIP = Join-Path $DIST "tools\nsis-3.11.zip"
+    New-Item -ItemType Directory -Force -Path (Split-Path $NSIS_ZIP) | Out-Null
+    Invoke-WebRequest -Uri "https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.11/nsis-3.11.zip" -OutFile $NSIS_ZIP
+    Expand-Archive -Path $NSIS_ZIP -DestinationPath $NSIS_DIR -Force
+    Remove-Item $NSIS_ZIP
+}
+$env:NSIS_PATH = $NSIS_DIR
+Write-Host "NSIS path: $NSIS_DIR" -ForegroundColor Green
+Write-Host ""
+
 # Step 4: Build Tauri app
 Write-Host "== Step 4: Building Tauri App ==" -ForegroundColor Yellow
 Set-Location console
