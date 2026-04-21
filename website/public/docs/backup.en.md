@@ -10,12 +10,12 @@
 
 A backup is a single zip file (stored at `~/.qwenpaw.backups/<backup_id>.zip`) that may contain up to four kinds of content:
 
-| Module               | Path                                | Actual content                                                                                                                                                |
-| -------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Module               | Path                                | Actual content                                                                                                                                                                        |
+| -------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Agent workspaces** | `~/.qwenpaw/workspaces/<agent_id>/` | Every file inside each agent's workspace, e.g. persona files, memory, skills, chat history, and channel configs (including channel credentials such as `bot_token` and `app_secret`). |
-| **Global settings**  | `~/.qwenpaw/config.json`            | Runtime parameters, security rules, and other global settings.                                                                                                |
-| **Skill pool**       | `~/.qwenpaw/skill_pool/`            | The globally shared skill repository.                                                                                                                         |
-| **Secrets**          | `~/.qwenpaw.secret/`                | **LLM provider configuration (including API keys)**, plus environment variables used by tools and skills.                                                     |
+| **Global settings**  | `~/.qwenpaw/config.json`            | Runtime parameters, security rules, and other global settings.                                                                                                                        |
+| **Skill pool**       | `~/.qwenpaw/skill_pool/`            | The globally shared skill repository.                                                                                                                                                 |
+| **Secrets**          | `~/.qwenpaw.secret/`                | **LLM provider configuration (including API keys)**, plus environment variables used by tools and skills.                                                                             |
 
 > **Not packaged**: local model weights (too large — re-download on the target machine), runtime caches, and temporary files.
 
@@ -41,10 +41,10 @@ A backup ID has the format `qwenpaw-<version>-<timestamp>-<short8>`, which makes
 
 Console → **Settings → Backup**. Click **Create Backup** in the top-right corner. The dialog creates a **Full backup** by default; you can also switch to a **Partial backup**:
 
-| Mode              | Behavior                                                                                                                                                        |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Full backup**   | **Packages all four kinds of content in one click**: every agent workspace + global settings + skill pool + **secrets**. No checkboxes to tick, but the dialog explicitly warns about sensitive content. |
-| **Partial backup** | Tick exactly what to include: ① agent workspaces (and pick which agents), ② global settings, ③ skill pool, ④ secrets. **Secrets are unchecked by default** to avoid leaking credentials by accident. |
+| Mode               | Behavior                                                                                                                                                                                                 |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Full backup**    | **Packages all four kinds of content in one click**: every agent workspace + global settings + skill pool + **secrets**. No checkboxes to tick, but the dialog explicitly warns about sensitive content. |
+| **Partial backup** | Tick exactly what to include: ① agent workspaces (and pick which agents), ② global settings, ③ skill pool, ④ secrets. **Secrets are unchecked by default** to avoid leaking credentials by accident.     |
 
 > Even a "Full backup" only covers the four kinds of static assets above — local model weights are never included and must be re-downloaded on the target machine.
 
@@ -89,10 +89,10 @@ When you click the **Restore** button on any backup row, QwenPaw first opens the
 
 ### Two restore modes
 
-| Mode               | When to use                                                      | Behavior                                                                                                                  |
-| ------------------ | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| **Full restore**   | Roll back completely to the moment of the backup; full migration | **Completely replaces** the current instance with the backup contents (including the agent registry, global settings, skill pool, and secrets). |
-| **Custom restore** | Migrate only some modules; keep modules outside the restore scope | Pick **per item** which modules and which agents to restore; anything outside the restore scope is **left untouched**.   |
+| Mode               | When to use                                                       | Behavior                                                                                                                                        |
+| ------------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Full restore**   | Roll back completely to the moment of the backup; full migration  | **Completely replaces** the current instance with the backup contents (including the agent registry, global settings, skill pool, and secrets). |
+| **Custom restore** | Migrate only some modules; keep modules outside the restore scope | Pick **per item** which modules and which agents to restore; anything outside the restore scope is **left untouched**.                          |
 
 ### Full restore
 
@@ -128,11 +128,11 @@ Steps:
 
 ## Export / Import / Delete
 
-| Action     | Description                                                                                                                                                          |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Export** | Click **Export** on a row to download the backup's `.zip` file — handy for archiving or moving it to another machine.                                               |
+| Action     | Description                                                                                                                                                                                                      |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Export** | Click **Export** on a row to download the backup's `.zip` file — handy for archiving or moving it to another machine.                                                                                            |
 | **Import** | Click **Import Backup** at the top of the page and pick a local `.zip` file. If the backup ID conflicts with an existing one, an **overwrite confirmation** appears — confirm to overwrite without re-uploading. |
-| **Delete** | Delete a single backup or batch-delete by selection; the underlying zip file on disk is removed immediately.                                                         |
+| **Delete** | Delete a single backup or batch-delete by selection; the underlying zip file on disk is removed immediately.                                                                                                     |
 
 ---
 
@@ -146,11 +146,11 @@ Steps:
 
 ## Typical Use Cases
 
-| Scenario                            | Recommended action                                                                        |
-| ----------------------------------- | ----------------------------------------------------------------------------------------- |
-| Before a major version upgrade      | Create a "Full backup" so you can roll back in one click if the upgrade goes wrong        |
-| Before risky/experimental changes   | When clicking **Restore** later, tick "Create a pre-restore backup first"                 |
-| Migrating only some agents          | Create a partial backup with only the agents you need, and use **Custom restore** when restoring |
+| Scenario                          | Recommended action                                                                               |
+| --------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Before a major version upgrade    | Create a "Full backup" so you can roll back in one click if the upgrade goes wrong               |
+| Before risky/experimental changes | When clicking **Restore** later, tick "Create a pre-restore backup first"                        |
+| Migrating only some agents        | Create a partial backup with only the agents you need, and use **Custom restore** when restoring |
 
 ---
 
