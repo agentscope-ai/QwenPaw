@@ -220,6 +220,15 @@ async def test_calls_compact_tool_result_when_enabled(hook, agent, mm):
         "load_agent_config",
     ), f"load_agent_config not in {_HOOK_MOD}"
 
+    # Verify hook uses same module dict we're patching
+    hook_globals = hook.__call__.__globals__
+    assert hook_globals is mod.__dict__, (
+        f"Module dict mismatch! "
+        f"hook globals id={id(hook_globals)}, "
+        f"mod dict id={id(mod.__dict__)}, "
+        f"hook class module={hook.__class__.__module__}"
+    )
+
     with _mock_hook_deps(cfg):
         # Verify replacement is active
         assert (
