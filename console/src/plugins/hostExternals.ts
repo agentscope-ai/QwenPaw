@@ -126,6 +126,11 @@ export const pluginSystem = new PluginSystem();
 export interface WindowNamespace {
   /** Shared host dependencies (React, antd, API helpers). */
   host: HostExternals;
+  /**
+   * Mutable module registry. Host modules are registered at startup.
+   * Plugins can access and modify module exports to monkey-patch host functions.
+   */
+  modules: Record<string, Record<string, unknown>>;
   /** Register page routes for a plugin. */
   registerRoutes?: (pluginId: string, routes: PluginRouteDeclaration[]) => void;
   /** Register tool-call renderers for a plugin. */
@@ -133,15 +138,6 @@ export interface WindowNamespace {
     pluginId: string,
     renderers: Record<string, React.FC<any>>,
   ) => void;
-
-  getModuleStats?: () => {
-    total: number;
-    modules: string[];
-    hasModule: (key: string) => boolean;
-    getModule: (key: string) => Record<string, unknown> | undefined;
-    listByPrefix: (prefix: string) => string[];
-  };
-  modules: Record<string, Record<string, unknown>>;
 }
 
 declare global {
@@ -191,21 +187,6 @@ export function installHostExternals(): void {
           renderers,
         ).join(", ")}`,
       );
-    };
-  }
-  if (!window.QwenPaw.getModuleStats) {
-    window.QwenPaw.getModuleStats = () => {
-      // Get module statistics from moduleRegistry
-      const modules = window.QwenPaw.modules;
-      const keys = Object.keys(modules);
-      return {
-        total: keys.length,
-        modules: keys,
-        hasModule: (key: string) => key in modules,
-        getModule: (key: string) => modules[key],
-        listByPrefix: (prefix: string) =>
-          keys.filter((k) => k.startsWith(prefix)),
-      };
     };
   }
 }
