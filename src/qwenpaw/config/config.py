@@ -467,7 +467,7 @@ class EmbeddingModelConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    backend: Literal["openai"] = Field(
+    backend: str = Field(
         default="openai",
         description="Embedding backend (openai, etc.)",
     )
