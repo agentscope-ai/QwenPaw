@@ -35,19 +35,31 @@ for _module in _MISSING_MODULES:
 # =============================================================================
 # Circular Import Guard
 # =============================================================================
-# qwenpaw.agents.memory.proactive imports app.runner which has a circular
-# import on Linux (app.runner → react_agent → agents.memory → proactive →
-# app.runner).  Pre-register the proactive package as a no-op mock so that
-# importing agents.memory (and its __init__.py) doesn't trigger the cycle.
-_PROACTIVE_MODULES = [
+# Two circular import chains exist on Linux:
+#
+# Chain A: agents.memory.__init__ → proactive → app.runner → react_agent
+#          → agents.memory  (loop)
+# Chain B: agents.memory.reme_light_memory_manager → agents.tools
+#          → delegate_external_agent → agents.acp → app.runner
+#          → react_agent → agents.memory  (loop)
+#
+# Pre-register the root modules of these chains as MagicMock stubs so that
+# importing agents.memory doesn't trigger either cycle on Linux/Ubuntu.
+_CIRCULAR_GUARD_MODULES = [
+    # Chain A root
     "qwenpaw.agents.memory.proactive",
     "qwenpaw.agents.memory.proactive.proactive_types",
     "qwenpaw.agents.memory.proactive.proactive_trigger",
     "qwenpaw.agents.memory.proactive.proactive_responder",
     "qwenpaw.agents.memory.proactive.proactive_utils",
     "qwenpaw.agents.memory.proactive.proactive_prompts",
+    # Chain B root
+    "qwenpaw.agents.acp",
+    "qwenpaw.agents.acp.server",
+    "qwenpaw.agents.acp.tool_adapter",
+    "qwenpaw.agents.tools.delegate_external_agent",
 ]
-for _mod in _PROACTIVE_MODULES:
+for _mod in _CIRCULAR_GUARD_MODULES:
     if _mod not in sys.modules:
         sys.modules[_mod] = MagicMock()
 

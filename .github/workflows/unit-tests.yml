@@ -62,7 +62,9 @@ jobs:
             tests/unit/agents/memory \
             tests/unit/agents/utils \
             -v \
-            --tb=short
+            --tb=long \
+            -s \
+            --log-cli-level=WARNING
 
   coverage:
     name: Coverage Report
