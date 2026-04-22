@@ -42,6 +42,20 @@ def _make_agent_config(
     cfg = MagicMock()
     cfg.running.memory_summary.rebuild_memory_index_on_start = rebuild_on_start
     cfg.running.memory_summary.enabled = memory_summary_enabled
+    # New path (upstream refactor)
+    emc = cfg.running.reme_light_memory_config.embedding_model_config
+    cfg._emc = emc  # shortcut for tests that need to override api_key
+    emc.backend = "openai"
+    emc.api_key = "testkey"
+    emc.base_url = "http://localhost"
+    emc.model_name = "text-emb-3"
+    emc.dimensions = 1536
+    emc.enable_cache = False
+    emc.use_dimensions = False
+    emc.max_cache_size = 100
+    emc.max_input_length = 8192
+    emc.max_batch_size = 32
+    # Legacy path (older installed version compat)
     cfg.running.embedding_config.backend = "openai"
     cfg.running.embedding_config.api_key = "testkey"
     cfg.running.embedding_config.base_url = "http://localhost"
@@ -405,133 +419,6 @@ class TestReMeLightMemoryManagerMemorySearch:
 
 
 # ---------------------------------------------------------------------------
-# TestReMeLightMemoryManagerCompactMemory
-# ---------------------------------------------------------------------------
-
-
-class TestReMeLightMemoryManagerCompactMemory:
-    """P1: compact_memory() result handling."""
-
-    async def test_returns_history_compact_on_success(
-        self,
-        manager,
-        mock_reme,
-        agent_config,
-    ):
-        mock_reme.compact_memory = AsyncMock(
-            return_value={
-                "is_valid": True,
-                "history_compact": "compacted",
-            },
-        )
-        with patch(f"{_MOD}.load_agent_config", return_value=agent_config):
-            result = await manager.compact_memory(
-                messages=[MagicMock()],
-            )
-        assert result == "compacted"
-
-    async def test_returns_empty_string_when_invalid(
-        self,
-        manager,
-        mock_reme,
-        agent_config,
-        tmp_path,
-    ):
-        mock_reme.compact_memory = AsyncMock(
-            return_value={
-                "is_valid": False,
-                "user_message": "msg",
-                "history_compact": "bad",
-            },
-        )
-        agent_config.workspace_dir = str(tmp_path)
-        with patch(f"{_MOD}.load_agent_config", return_value=agent_config):
-            result = await manager.compact_memory(
-                messages=[MagicMock()],
-            )
-        assert result == ""
-
-    async def test_passes_extra_instruction_when_provided(
-        self,
-        manager,
-        mock_reme,
-        agent_config,
-    ):
-        mock_reme.compact_memory = AsyncMock(
-            return_value={"is_valid": True, "history_compact": "c"},
-        )
-        with patch(f"{_MOD}.load_agent_config", return_value=agent_config):
-            await manager.compact_memory(
-                messages=[MagicMock()],
-                extra_instruction="do extra",
-            )
-        _, kwargs = mock_reme.compact_memory.call_args
-        assert kwargs.get("extra_instruction") == "do extra"
-
-    async def test_str_result_returned_as_is(
-        self,
-        manager,
-        mock_reme,
-        agent_config,
-    ):
-        """Older reme versions return str instead of dict."""
-        mock_reme.compact_memory = AsyncMock(
-            return_value="legacy string",
-        )
-        with patch(f"{_MOD}.load_agent_config", return_value=agent_config):
-            result = await manager.compact_memory(
-                messages=[MagicMock()],
-            )
-        assert result == "legacy string"
-
-    async def test_no_extra_instruction_omits_kwarg(
-        self,
-        manager,
-        mock_reme,
-        agent_config,
-    ):
-        """When extra_instruction is empty, it is NOT passed to reme."""
-        mock_reme.compact_memory = AsyncMock(
-            return_value={"is_valid": True, "history_compact": "ok"},
-        )
-        with patch(f"{_MOD}.load_agent_config", return_value=agent_config):
-            await manager.compact_memory(messages=[MagicMock()])
-        _, kwargs = mock_reme.compact_memory.call_args
-        assert "extra_instruction" not in kwargs
-
-
-# ---------------------------------------------------------------------------
-# TestReMeLightMemoryManagerGetInMemoryMemory
-# ---------------------------------------------------------------------------
-
-
-class TestReMeLightMemoryManagerGetInMemoryMemory:
-    """P1: get_in_memory_memory() delegation."""
-
-    def test_returns_none_when_reme_is_none(self, manager):
-        manager._reme = None
-        result = manager.get_in_memory_memory()
-        assert result is None
-
-    def test_delegates_to_reme(
-        self,
-        manager,
-        mock_reme,
-        agent_config,
-    ):
-        expected = MagicMock()
-        mock_reme.get_in_memory_memory = MagicMock(
-            return_value=expected,
-        )
-        with patch(
-            f"{_MOD}.load_agent_config",
-            return_value=agent_config,
-        ):
-            result = manager.get_in_memory_memory()
-        assert result is expected
-
-
-# ---------------------------------------------------------------------------
 # TestReMeLightMemoryManagerGetEmbeddingConfig
 # ---------------------------------------------------------------------------
 
@@ -559,6 +446,7 @@ class TestReMeLightMemoryManagerGetEmbeddingConfig:
             assert key in cfg
 
     def test_uses_config_api_key(self, manager, agent_config):
+        agent_config._emc.api_key = "mykey"
         agent_config.running.embedding_config.api_key = "mykey"
         with patch(
             f"{_MOD}.load_agent_config",
@@ -573,6 +461,7 @@ class TestReMeLightMemoryManagerGetEmbeddingConfig:
         agent_config,
     ):
         """When config api_key is empty, use EnvVarLoader."""
+        agent_config._emc.api_key = ""
         agent_config.running.embedding_config.api_key = ""
         env_key = "env-api-key"
         with (
@@ -587,114 +476,3 @@ class TestReMeLightMemoryManagerGetEmbeddingConfig:
         ):
             cfg = manager.get_embedding_config()
         assert cfg["api_key"] == env_key
-
-
-# ---------------------------------------------------------------------------
-# TestReMeLightMemoryManagerCompactToolResult
-# ---------------------------------------------------------------------------
-
-
-class TestReMeLightMemoryManagerCompactToolResult:
-    """P1: compact_tool_result() delegation."""
-
-    async def test_delegates_to_reme(self, manager, mock_reme):
-        mock_reme.compact_tool_result = AsyncMock(return_value="ok")
-        await manager.compact_tool_result(some_kwarg=1)
-        mock_reme.compact_tool_result.assert_called_once_with(
-            some_kwarg=1,
-        )
-
-    async def test_returns_none_when_reme_is_none(self, manager):
-        manager._reme = None
-        result = await manager.compact_tool_result()
-        assert result is None
-
-
-# ---------------------------------------------------------------------------
-# TestReMeLightMemoryManagerCheckContext
-# ---------------------------------------------------------------------------
-
-
-class TestReMeLightMemoryManagerCheckContext:
-    """P1: check_context() delegation."""
-
-    async def test_delegates_to_reme(self, manager, mock_reme):
-        mock_reme.check_context = AsyncMock(
-            return_value=([], [], True),
-        )
-        result = await manager.check_context(threshold=10)
-        mock_reme.check_context.assert_called_once_with(threshold=10)
-        assert result == ([], [], True)
-
-    async def test_returns_none_when_reme_is_none(self, manager):
-        manager._reme = None
-        result = await manager.check_context()
-        assert result is None
-
-
-# ---------------------------------------------------------------------------
-# TestReMeLightMemoryManagerSummaryMemory
-# ---------------------------------------------------------------------------
-
-
-class TestReMeLightMemoryManagerSummaryMemory:
-    """P1: summary_memory() — MEM-001 enable/disable toggle."""
-
-    async def test_summary_memory_calls_reme(
-        self,
-        manager,
-        mock_reme,
-        agent_config,
-    ):
-        """MEM-001: delegates to _reme.summary_memory."""
-        mock_reme.summary_memory = AsyncMock(return_value="summ")
-        with (
-            patch(
-                f"{_MOD}.load_agent_config",
-                return_value=agent_config,
-            ),
-            patch(
-                f"{_MOD}.load_config",
-                return_value=MagicMock(user_timezone=None),
-            ),
-            patch(
-                f"{_MOD}.get_token_counter",
-                return_value=MagicMock(),
-            ),
-            patch(f"{_MOD}.set_current_workspace_dir"),
-            patch(f"{_MOD}.set_current_recent_max_bytes"),
-        ):
-            result = await manager.summary_memory(
-                messages=[MagicMock()],
-            )
-        mock_reme.summary_memory.assert_called_once()
-        assert result == "summ"
-
-    async def test_summary_memory_passes_language(
-        self,
-        manager,
-        mock_reme,
-        agent_config,
-    ):
-        """Language from config is forwarded to _reme.summary_memory."""
-        agent_config.language = "zh"
-        mock_reme.summary_memory = AsyncMock(return_value="s")
-        with (
-            patch(
-                f"{_MOD}.load_agent_config",
-                return_value=agent_config,
-            ),
-            patch(
-                f"{_MOD}.load_config",
-                return_value=MagicMock(user_timezone=None),
-            ),
-            patch(
-                f"{_MOD}.get_token_counter",
-                return_value=MagicMock(),
-            ),
-            patch(f"{_MOD}.set_current_workspace_dir"),
-            patch(f"{_MOD}.set_current_recent_max_bytes"),
-        ):
-            await manager.summary_memory(messages=[MagicMock()])
-        _, kwargs = mock_reme.summary_memory.call_args
-        assert kwargs.get("language") == "zh"

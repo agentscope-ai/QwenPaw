@@ -28,36 +28,29 @@ def _make_concrete_class():
         async def close(self):
             return True
 
+        def get_memory_prompt(self, language: str = "zh") -> str:
+            return ""
+
+        def list_memory_tools(self):
+            return []
+
+        # Compat: older installed versions declare these as abstract too
         async def compact_tool_result(self, **_kwargs):
             pass
 
         async def check_context(self, **_kwargs):
             return ([], [], True)
 
-        async def compact_memory(
-            self,
-            messages,
-            previous_summary="",
-            extra_instruction="",
-            **kwargs,
-        ):
-            return "summary"
+        async def compact_memory(self, messages, **_kwargs):
+            return ""
 
-        async def summary_memory(self, messages, **kwargs):
-            return "full summary"
+        async def summary_memory(self, messages, **_kwargs):
+            return ""
 
-        async def memory_search(
-            self,
-            query,
-            max_results=5,
-            min_score=0.1,
-        ):
-            return MagicMock()
+        async def memory_search(self, query, **_kwargs):
+            return None
 
-        async def dream_memory(self, **kwargs):
-            pass
-
-        def get_in_memory_memory(self, **kwargs):
+        def get_in_memory_memory(self, **_kwargs):
             return None
 
     return ConcreteMemoryManager
