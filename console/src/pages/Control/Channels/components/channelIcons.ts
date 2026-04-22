@@ -32,5 +32,6 @@ export const CHANNEL_DEFAULT_ICON_URL =
   "https://gw.alicdn.com/imgextra/i3/O1CN01xqM0EN1oKrRiAFX3K_!!6000000005207-2-tps-400-400.png";
 
 export function getChannelIconUrl(channelKey: string): string {
+  channelKey = channelKey === "wechat" ? "weixin" : channelKey;
   return CHANNEL_ICON_URLS[channelKey] ?? CHANNEL_DEFAULT_ICON_URL;
 }
