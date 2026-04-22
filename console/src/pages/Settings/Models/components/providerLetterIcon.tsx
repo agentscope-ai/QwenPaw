@@ -1,3 +1,5 @@
+import React from "react";
+
 /** Predefined background colors for provider letter-avatar icons. */
 const PROVIDER_LETTER_COLORS: Record<string, string> = {
   modelscope: "#6236FF",
@@ -58,3 +60,45 @@ export function getProviderLetterColor(providerId: string): string {
 export function getProviderLetter(providerId: string): string {
   return providerId.charAt(0).toUpperCase();
 }
+
+interface ProviderIconProps {
+  providerId: string;
+  size?: number;
+}
+
+/**
+ * Renders a provider icon as an uppercase first-letter avatar
+ * with a colored background.
+ */
+export const ProviderIcon: React.FC<ProviderIconProps> = ({
+  providerId,
+  size = 32,
+}) => {
+  const backgroundColor = getProviderLetterColor(providerId);
+  const letter = getProviderLetter(providerId);
+  const fontSize = size * 0.45;
+  const borderRadius = size * 0.25;
+
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius,
+        backgroundColor,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "#fff",
+        fontSize,
+        fontWeight: 600,
+        fontFamily: "Inter, sans-serif",
+        userSelect: "none",
+        flexShrink: 0,
+      }}
+      title={providerId}
+    >
+      {letter}
+    </div>
+  );
+};
