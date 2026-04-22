@@ -4,7 +4,7 @@ import type { ProviderInfo } from "../../../../../api/types";
 import { ModelManageModal } from "../modals/ModelManageModal";
 import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
-import { ProviderIcon } from "../providerLetterIcon";
+import { ProviderIcon } from "../ProviderIconComponent";
 
 interface LocalProviderCardProps {
   provider: ProviderInfo;

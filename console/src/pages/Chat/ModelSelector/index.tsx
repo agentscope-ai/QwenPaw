@@ -13,7 +13,7 @@ import { providerApi } from "../../../api/modules/provider";
 import type { ProviderInfo, ActiveModelsInfo } from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
 import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
-import { ProviderIcon } from "../../Settings/Models/components/providerLetterIcon";
+import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
 import styles from "./index.module.less";
 
 interface EligibleProvider {

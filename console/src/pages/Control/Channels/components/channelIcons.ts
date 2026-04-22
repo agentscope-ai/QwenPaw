@@ -32,6 +32,7 @@ export const CHANNEL_ICON_URLS: Record<string, string> = {
 
 /** Get the CDN icon URL for a channel, or undefined if none exists. */
 export function getChannelIconUrl(channelKey: string): string | undefined {
+  channelKey = channelKey === "wechat" ? "weixin" : channelKey;
   return CHANNEL_ICON_URLS[channelKey];
 }
 

@@ -7,7 +7,7 @@ import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import styles from "../../index.module.less";
-import { ProviderIcon } from "../providerLetterIcon";
+import { ProviderIcon } from "../ProviderIconComponent";
 
 interface RemoteProviderCardProps {
   provider: ProviderInfo;
