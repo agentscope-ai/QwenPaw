@@ -50,7 +50,7 @@ Console → **Settings → Backup**. Click **Create Backup** in the top-right co
 
 ### Full backup
 
-![Create a full backup](https://img.alicdn.com/imgextra/i3/O1CN01lMb2N81Wh9e3WnYPG_!!6000000002819-2-tps-882-928.png)
+![Create a full backup](https://img.alicdn.com/imgextra/i3/O1CN01LfFJ2L1ZtvXP3SDfi_!!6000000003253-2-tps-872-994.png)
 
 A full backup is best used as a complete snapshot:
 
@@ -80,7 +80,7 @@ A partial backup is best for migrating only specific modules or syncing only a f
 
 ### Pre-restore backup
 
-![Create a pre-restore backup](https://img.alicdn.com/imgextra/i4/O1CN01xIWPgV1bBcS9THtY8_!!6000000003427-2-tps-866-273.png)
+![Create a pre-restore backup](https://img.alicdn.com/imgextra/i3/O1CN01MwWjoy24qx3N2wfoR_!!6000000007443-2-tps-861-314.png)
 
 When you click the **Restore** button on any backup row, QwenPaw first opens the **Pre-restore backup** dialog:
 
@@ -122,7 +122,7 @@ Steps:
 4. Decide whether to restore the global settings / skill pool / secrets.
 5. Click **Start restore**.
 
-![Custom restore](https://img.alicdn.com/imgextra/i2/O1CN01rObfhL23GTtnvidfq_!!6000000007228-2-tps-1131-1396.png)
+![Custom restore](https://img.alicdn.com/imgextra/i3/O1CN01DAM9Pe264WP7KAF8P_!!6000000007608-2-tps-1132-1527.png)
 
 ---
 
