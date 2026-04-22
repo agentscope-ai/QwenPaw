@@ -819,6 +819,114 @@ class TestWeixinSendMethods:
 
         mock_ilink_client.send_text.assert_not_called()
 
+    async def test_send_text_direct_empty_response_is_success(
+        self,
+        weixin_channel,
+        mock_ilink_client,
+        caplog,
+    ):
+        """iLinkAI's sendmessage returns an empty dict on success. The
+        previous implementation defaulted missing ``ret`` to 1 and treated
+        every successful call as ``rejected``, which masked working sends
+        behind a stream of WARNING logs. Must not warn; must log ok."""
+        mock_ilink_client.send_text = AsyncMock(return_value={})
+        weixin_channel._client = mock_ilink_client
+
+        with caplog.at_level("INFO"):
+            await weixin_channel._send_text_direct(
+                to_user_id="user123",
+                text="Hello",
+                context_token="token_abc",
+                client=mock_ilink_client,
+            )
+
+        assert any(
+            "send_text ok" in r.message and r.levelname == "INFO"
+            for r in caplog.records
+        )
+        assert not any("rejected" in r.message for r in caplog.records)
+
+    async def test_send_text_direct_nonzero_ret_is_rejected(
+        self,
+        weixin_channel,
+        mock_ilink_client,
+        caplog,
+    ):
+        """A server-surfaced non-zero ``ret`` must log WARNING and abort
+        (no ``ok`` log)."""
+        mock_ilink_client.send_text = AsyncMock(return_value={"ret": 1})
+        weixin_channel._client = mock_ilink_client
+
+        with caplog.at_level("INFO"):
+            await weixin_channel._send_text_direct(
+                to_user_id="user123",
+                text="Hello",
+                context_token="token_abc",
+                client=mock_ilink_client,
+            )
+
+        assert any(
+            "send_text rejected" in r.message and r.levelname == "WARNING"
+            for r in caplog.records
+        )
+        assert not any("send_text ok" in r.message for r in caplog.records)
+
+    async def test_send_text_direct_nonzero_errcode_is_rejected(
+        self,
+        weixin_channel,
+        mock_ilink_client,
+        caplog,
+    ):
+        """A non-zero ``errcode`` (even with ``ret`` absent or zero) must
+        also be treated as rejection, not success."""
+        mock_ilink_client.send_text = AsyncMock(
+            return_value={"errcode": 123, "errmsg": "limit exceeded"},
+        )
+        weixin_channel._client = mock_ilink_client
+
+        with caplog.at_level("INFO"):
+            await weixin_channel._send_text_direct(
+                to_user_id="user123",
+                text="Hello",
+                context_token="token_abc",
+                client=mock_ilink_client,
+            )
+
+        assert any(
+            "send_text rejected" in r.message and r.levelname == "WARNING"
+            for r in caplog.records
+        )
+        assert not any("send_text ok" in r.message for r in caplog.records)
+
+    async def test_send_text_direct_non_dict_response_is_unexpected(
+        self,
+        weixin_channel,
+        mock_ilink_client,
+        caplog,
+    ):
+        """If the upstream contract drifts (e.g. returns ``None``, a list,
+        or a string), we must surface that explicitly rather than silently
+        claiming success. Otherwise a future protocol change would look
+        like 'everything works' while messages vanish again."""
+        mock_ilink_client.send_text = AsyncMock(return_value=None)
+        weixin_channel._client = mock_ilink_client
+
+        with caplog.at_level("INFO"):
+            await weixin_channel._send_text_direct(
+                to_user_id="user123",
+                text="Hello",
+                context_token="token_abc",
+                client=mock_ilink_client,
+            )
+
+        assert any(
+            "unexpected response shape" in r.message
+            and r.levelname == "WARNING"
+            for r in caplog.records
+        )
+        assert not any("send_text ok" in r.message for r in caplog.records)
+        assert not any("send_text rejected" in r.message for r in caplog.records)
+
     async def test_send_content_parts_success(
         self,
         weixin_channel,

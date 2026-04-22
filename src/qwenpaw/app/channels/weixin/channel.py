@@ -973,8 +973,78 @@ class WeixinChannel(BaseChannel):
         _client = client or self._client
         if not _client or not to_user_id or not text:
             return
+        # Per-request diagnostics for iLinkAI send failures: the token
+        # passed in was resolved upstream (meta-first, cache-fallback).
+        # We reconstruct the source after-the-fact by comparing to the
+        # cache so operators can tell "token is empty" from "token is
+        # stale" from "token is fresh but server still rejects". Kept at
+        # DEBUG because ``context_token`` is per-session auth material
+        # we don't want to even partially log at the default level.
+        if logger.isEnabledFor(logging.DEBUG):
+            cache_val = self._user_context_tokens.get(to_user_id, "")
+            if not context_token:
+                token_source = "empty"
+            elif not cache_val:
+                token_source = "meta-no-cache"
+            elif context_token == cache_val:
+                token_source = "cache-or-meta-matches"
+            else:
+                token_source = "meta-differs-from-cache"
+            logger.debug(
+                "weixin _send_text_direct sending: to_user_id=%s "
+                "text_len=%s context_token_len=%s token_source=%s "
+                "cache_has_user=%s",
+                to_user_id,
+                len(text),
+                len(context_token or ""),
+                token_source,
+                bool(cache_val),
+            )
         try:
-            await _client.send_text(to_user_id, text, context_token)
+            resp = await _client.send_text(to_user_id, text, context_token)
+            # iLinkAI's sendmessage endpoint returns an empty dict ``{}`` on
+            # success (unlike ``getconfig`` which returns ``{"ret": 0, ...}``)
+            # so missing ``ret`` is not a failure signal. Only treat the call
+            # as rejected when the server explicitly surfaces a non-zero
+            # ``ret`` or ``errcode``; a default-missing-to-1 check would
+            # produce false positives on every successful send.
+            #
+            # Non-dict responses, however, mean the upstream contract drifted
+            # (got a list / None / string / etc.). Surface that explicitly
+            # rather than silently claiming success -- otherwise a future
+            # protocol change would once again look like "everything works"
+            # while messages vanish.
+            if not isinstance(resp, dict):
+                logger.warning(
+                    "weixin send_text unexpected response shape: "
+                    "type=%s to_user_id=%s text_len=%s resp=%r",
+                    type(resp).__name__,
+                    to_user_id,
+                    len(text),
+                    resp,
+                )
+                return
+            ret = resp.get("ret")
+            errcode = resp.get("errcode")
+            rejected = (ret is not None and ret != 0) or (
+                errcode is not None and errcode != 0
+            )
+            if rejected:
+                logger.warning(
+                    "weixin send_text rejected: ret=%s errcode=%s "
+                    "to_user_id=%s text_len=%s resp=%s",
+                    ret,
+                    errcode,
+                    to_user_id,
+                    len(text),
+                    resp,
+                )
+                return
+            logger.info(
+                "weixin send_text ok: to_user_id=%s text_len=%s",
+                to_user_id,
+                len(text),
+            )
         except Exception:
             logger.exception("weixin _send_text_direct failed")
 
