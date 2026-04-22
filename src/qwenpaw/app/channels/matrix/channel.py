@@ -338,6 +338,33 @@ class MatrixChannel(BaseChannel):
             request_timeout=request_timeout,
         )
 
+    async def health_check(self) -> Dict[str, Any]:
+        """Check Matrix client connection status."""
+        if not getattr(self, "enabled", True) or not self._cfg.homeserver:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "Matrix homeserver not configured.",
+            }
+        if self._client is None:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "Matrix client not initialized.",
+            }
+        has_token = bool(self._client.access_token)
+        if not has_token:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "Matrix client has no access token (not logged in).",
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "Matrix client is connected.",
+        }
+
     # pylint: disable=too-many-branches
     async def start(self) -> None:
         if not self._cfg.homeserver:

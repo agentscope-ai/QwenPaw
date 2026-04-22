@@ -1648,6 +1648,34 @@ class QQChannel(BaseChannel):
             self._stop_event.set()
             logger.info("qq ws thread stopped")
 
+    async def health_check(self) -> Dict[str, Any]:
+        """Check QQ WebSocket and HTTP session status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "QQ channel is disabled.",
+            }
+        issues = []
+        ws_thread_alive = (
+            self._ws_thread is not None and self._ws_thread.is_alive()
+        )
+        if not ws_thread_alive:
+            issues.append("WebSocket thread is not running")
+        if self._http is None or self._http.closed:
+            issues.append("HTTP session not available")
+        if issues:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "; ".join(issues),
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "QQ WebSocket and HTTP session are active.",
+        }
+
     async def start(self) -> None:
         if not self.enabled:
             logger.debug("qq channel disabled by QQ_CHANNEL_ENABLED=0")

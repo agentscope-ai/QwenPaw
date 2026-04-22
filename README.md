@@ -58,13 +58,15 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-[2026-04-17] We've released **v1.1.2**! See the full [v1.1.2 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+- [2026-04-22] We've released **v1.1.3**! See the full [v1.1.3 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
-- **[v1.1.2] Added**: Mission Mode (`/mission`) for autonomous, multi-phase task execution; ACP protocol for external agent delegation; `qwenpaw doctor` diagnostic command; `qwenpaw agents create` CLI agent creation; scheduled memory consolidation (Dream); new Debug page.
-- **[v1.1.2] Changed**: Agent communication tools split into synchronous/asynchronous modes; provider list sorted by availability.
-- **[v1.1.2] New Contributors**: @FrankJingHao, @ployts, @cqhtyi, @leesf, @flystar32.
+  - **[v1.1.3] Added**: Backup & Restore system; QwenPaw as ACP Server; proactive agent messaging; Console Plugin System; Agent Statistics page; builtin skill language switch; Shell Evasion Guard.
+  - **[v1.1.3] Changed**: Debug page restructured under Settings; unified channel media directory; startup performance optimization.
+  - **[v1.1.3] New Contributors**: @daliu858, @xuanrui-L, @pxdawn, @mailmrcai, @linhuang0405, @imrewce, @zealonexp, @Prince-liu.
 
-[2026-04-14] We've released v1.1.1! See the full [v1.1.1 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+- [2026-04-17] We've released **v1.1.2**! See the full [v1.1.2 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+
+- [2026-04-14] We've released **v1.1.1**! See the full [v1.1.1 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
 [2026-04-12] **CoPaw is Officially Rebranding to QwenPaw**: This rebranding marks an important step forward into our next phase of open-source development.
 
@@ -414,17 +416,22 @@ Star QwenPaw on GitHub and be instantly notified of new releases.
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- |
 | **Horizontal Expansion**              | More channels, models, skills, MCPs — **community contributions welcome**                                                                        | Seeking Contributors |
 | **Existing Feature Extension**        | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome**                                     | Seeking Contributors |
-| **Console Web UI**                    | Expose more info/config in the Console                                                                                                           | In Progress          |
-| **Multi-agent**                      | Agentic Ralph Loop                                                                                  | In Progress          |
-| **Multimodal**                        | Voice/video calls and real-time interaction                                                                                                      | In Progress          |
-| **Small + Large Model Collaboration** | Multi-model routing; different models for different tasks                                                                                          | In Progress          |
-| **Memory System**                     | Experience distillation & skill extraction                                                                                                       | In Progress          |
-|                                       | Memory mechanism switching                                                                                                                       | In Progress             |
-|                                       | Multimodal memory fusion                                                                                                                         | Planned              |
-|                                       | Context-aware proactive delivery                                                                                                                 | Planned              |
-| **Sandbox**                           | Deeper integration with AgentScope Runtime sandboxes                                                                                             | In Progress          |
-| **Cloud-native**                      | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, tools, and skills                                                         | In Progress              |
-| **Skills Hub**                        | Enrich the [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) repository and improve discoverability of high-quality skills | Planned              |
+| **Multi-agent**                       | HiClaw integration: multi-tenant, cross-domain collaboration                                                                                     | In Progress          |
+|                                       | Agent Swarm / Team                                                                                                                               | Planned              |
+| **Small + Large Model Collaboration** | Intelligent switching between on-device and cloud models                                                                                         | In Progress          |
+| **QwenPaw Custom Models**             | Multimodal model support                                                                                                                           | Planned              |
+| **Memory System**                     | Context-aware proactive delivery                                                                                                                   | In Progress          |
+| **Context Management**                | Abstract design                                                                                                                                  | In Progress          |
+|                                       | Intelligent context compression                                                                                                                  | Planned              |
+|                                       | User-selectable compression (fine-grained control)                                                                                                 | Planned              |
+| **Versioning & Migration**            | One-click packaging; multi-version / multi-device migration                                                                                        | In Progress          |
+|                                       | Agent protocol: QwenPaw → QwenPaw                                                                                                                | In Progress          |
+|                                       | Agent protocol: OpenClaw → QwenPaw                                                                                                               | Planned              |
+|                                       | File area / chat rollback                                                                                                                        | In Progress          |
+| **Reliability & Self-operations**     | Self-update                                                                                                                                      | Planned              |
+|                                       | Failure rollback                                                                                                                                 | Planned              |
+| **Security**                          | Fine-grained security controls (rule-based)                                                                                                      | In Progress          |
+|                                       | LLM-based security controls                                                                                                                        | In Progress          |
 
 
 _Status:_ **In Progress** — actively being worked on; **Planned** — queued or under design, also welcome contributions; **Seeking Contributors** — we strongly encourage community contributions.

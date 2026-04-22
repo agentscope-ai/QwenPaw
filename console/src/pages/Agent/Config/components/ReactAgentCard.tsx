@@ -8,16 +8,16 @@ import {
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
+import {
+  CONTEXT_MANAGER_BACKEND_OPTIONS,
+  MEMORY_MANAGER_BACKEND_OPTIONS,
+} from "../../../../constants/backendMappings";
 import styles from "../index.module.less";
 
 const LANGUAGE_OPTIONS = [
   { value: "zh", label: "中文" },
   { value: "en", label: "English" },
   { value: "ru", label: "Русский" },
-];
-
-const MEMORY_MANAGER_BACKEND_OPTIONS = [
-  { value: "remelight", label: "ReMeLight" },
 ];
 
 interface ReactAgentCardProps {
@@ -105,20 +105,35 @@ export function ReactAgentCard({
         <Switch />
       </Form.Item>
 
-      <Form.Item
-        label={t("agentConfig.memoryManagerBackend")}
-        name="memory_manager_backend"
-        tooltip={t("agentConfig.memoryManagerBackendTooltip")}
-      >
-        <Select
-          options={MEMORY_MANAGER_BACKEND_OPTIONS}
-          style={{ width: "100%" }}
-        />
-      </Form.Item>
+      <div className={styles.reactAgentRow}>
+        <Form.Item
+          label={t("agentConfig.contextManagerBackend")}
+          name="context_manager_backend"
+          tooltip={t("agentConfig.contextManagerBackendTooltip")}
+          className={styles.reactAgentField}
+        >
+          <Select
+            options={CONTEXT_MANAGER_BACKEND_OPTIONS}
+            style={{ width: "100%" }}
+          />
+        </Form.Item>
+
+        <Form.Item
+          label={t("agentConfig.memoryManagerBackend")}
+          name="memory_manager_backend"
+          tooltip={t("agentConfig.memoryManagerBackendTooltip")}
+          className={styles.reactAgentField}
+        >
+          <Select
+            options={MEMORY_MANAGER_BACKEND_OPTIONS}
+            style={{ width: "100%" }}
+          />
+        </Form.Item>
+      </div>
       <Alert
         type="warning"
         showIcon
-        message={t("agentConfig.memoryManagerBackendRestartWarning")}
+        message={t("agentConfig.backendRestartWarning")}
         style={{ marginBottom: 16 }}
       />
 

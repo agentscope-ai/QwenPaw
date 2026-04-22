@@ -50,6 +50,7 @@ async def list_working_files(
         workspace = await get_agent_for_request(request)
         workspace_manager = AgentMdManager(
             str(workspace.workspace_dir),
+            agent_id=workspace.agent_id,
         )
         files = [
             MdFileInfo.model_validate(file)
@@ -75,6 +76,7 @@ async def read_working_file(
         workspace = await get_agent_for_request(request)
         workspace_manager = AgentMdManager(
             str(workspace.workspace_dir),
+            agent_id=workspace.agent_id,
         )
         content = workspace_manager.read_working_md(md_name)
         return MdFileContent(content=content)
@@ -100,6 +102,7 @@ async def write_working_file(
         workspace = await get_agent_for_request(request)
         workspace_manager = AgentMdManager(
             str(workspace.workspace_dir),
+            agent_id=workspace.agent_id,
         )
         workspace_manager.write_working_md(md_name, body.content)
         return {"written": True}
@@ -121,6 +124,7 @@ async def list_memory_files(
         workspace = await get_agent_for_request(request)
         workspace_manager = AgentMdManager(
             str(workspace.workspace_dir),
+            agent_id=workspace.agent_id,
         )
         files = [
             MdFileInfo.model_validate(file)
@@ -146,6 +150,7 @@ async def read_memory_file(
         workspace = await get_agent_for_request(request)
         workspace_manager = AgentMdManager(
             str(workspace.workspace_dir),
+            agent_id=workspace.agent_id,
         )
         content = workspace_manager.read_memory_md(md_name)
         return MdFileContent(content=content)
@@ -171,6 +176,7 @@ async def write_memory_file(
         workspace = await get_agent_for_request(request)
         workspace_manager = AgentMdManager(
             str(workspace.workspace_dir),
+            agent_id=workspace.agent_id,
         )
         workspace_manager.write_memory_md(md_name, body.content)
         return {"written": True}

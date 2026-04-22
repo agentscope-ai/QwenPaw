@@ -431,7 +431,7 @@ class CronManager:
         """Run one dream-based memory optimization task."""
         try:
             # Run dream task
-            await self._runner.memory_manager.dream_memory()
+            await self._runner.memory_manager.dream()
             logger.debug("Dream task executed successfully")
         except asyncio.CancelledError:
             logger.info("Dream task was cancelled")

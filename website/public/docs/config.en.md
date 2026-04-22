@@ -369,53 +369,63 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **Context Management:**
 
-| Field                | Type   | Default         | Description                                                             |
-| -------------------- | ------ | --------------- | ----------------------------------------------------------------------- |
-| `max_input_length`   | int    | `131072` (128K) | Maximum input length (tokens) for model context window (must be ≥ 1000) |
-| `history_max_length` | int    | `10000`         | Maximum output length (characters) for `/history` command               |
-| `context_compact`    | object | _(see below)_   | Context compaction configuration object                                 |
+| Field                      | Type   | Default         | Description                                                             |
+| -------------------------- | ------ | --------------- | ----------------------------------------------------------------------- |
+| `max_input_length`         | int    | `131072` (128K) | Maximum input length (tokens) for model context window (must be ≥ 1000) |
+| `history_max_length`       | int    | `10000`         | Maximum output length (characters) for `/history` command               |
+| `context_manager_backend`  | string | `"light"`       | Context manager backend type                                            |
+| `memory_manager_backend`   | string | `"remelight"`   | Memory manager backend type                                             |
+| `light_context_config`     | object | _(see below)_   | Light context manager configuration                                     |
+| `reme_light_memory_config` | object | _(see below)_   | ReMeLight memory manager configuration                                  |
 
-**Context Compaction (`context_compact` object):**
+**Light Context Configuration (`light_context_config` object):**
 
-| Field                          | Type   | Default     | Description                                                               |
-| ------------------------------ | ------ | ----------- | ------------------------------------------------------------------------- |
-| `context_compact_enabled`      | bool   | `true`      | Whether to enable automatic context compaction                            |
-| `memory_compact_ratio`         | float  | `0.75`      | Threshold ratio (relative to `max_input_length`) that triggers compaction |
-| `memory_reserve_ratio`         | float  | `0.1`       | Ratio of recent context to preserve after compaction for continuity       |
-| `compact_with_thinking_block`  | bool   | `true`      | Whether to include thinking blocks during compaction                      |
-| `token_count_model`            | string | `"default"` | Model to use for token counting                                           |
-| `token_count_use_mirror`       | bool   | `false`     | Whether to use HuggingFace mirror for token counting                      |
-| `token_count_estimate_divisor` | float  | `4.0`       | Divisor for byte-based token estimation (byte_len / divisor)              |
+| Field                          | Type   | Default    | Description                                                  |
+| ------------------------------ | ------ | ---------- | ------------------------------------------------------------ |
+| `dialog_path`                  | string | `"dialog"` | Dialog persistence directory (relative to working dir)       |
+| `token_count_estimate_divisor` | float  | `4.0`      | Divisor for byte-based token estimation (byte_len / divisor) |
 
-**Tool Result Compaction (`tool_result_compact` object):**
+**Light Context Compaction (`light_context_config.context_compact_config` object):**
 
-| Field              | Type | Default | Description                                        |
-| ------------------ | ---- | ------- | -------------------------------------------------- |
-| `enabled`          | bool | `true`  | Whether to enable tool result compaction           |
-| `recent_n`         | int  | `2`     | Number of recent messages using `recent_max_bytes` |
-| `old_max_bytes`    | int  | `3000`  | Byte threshold for older tool results              |
-| `recent_max_bytes` | int  | `50000` | Byte threshold for recent tool results             |
-| `retention_days`   | int  | `5`     | Number of days to retain tool result files         |
+| Field                         | Type  | Default | Description                                                               |
+| ----------------------------- | ----- | ------- | ------------------------------------------------------------------------- |
+| `enabled`                     | bool  | `true`  | Whether to enable automatic context compaction                            |
+| `compact_threshold_ratio`     | float | `0.8`   | Threshold ratio (relative to `max_input_length`) that triggers compaction |
+| `reserve_threshold_ratio`     | float | `0.1`   | Ratio of recent context to preserve after compaction for continuity       |
+| `compact_with_thinking_block` | bool  | `true`  | Whether to include thinking blocks during compaction                      |
 
-**Memory Configuration:**
+**Light Tool Result Pruning (`light_context_config.tool_result_pruning_config` object):**
 
-| Field                    | Type   | Default       | Description                                                |
-| ------------------------ | ------ | ------------- | ---------------------------------------------------------- |
-| `memory_summary`         | object | _(see below)_ | Memory summarization and search configuration object       |
-| `embedding_config`       | object | _(see below)_ | Embedding model configuration for semantic retrieval       |
-| `memory_manager_backend` | string | `"remelight"` | Memory manager backend type (currently only `"remelight"`) |
+| Field                          | Type | Default | Description                                      |
+| ------------------------------ | ---- | ------- | ------------------------------------------------ |
+| `enabled`                      | bool | `true`  | Whether to enable tool result pruning            |
+| `pruning_recent_n`             | int  | `2`     | Number of recent messages using higher threshold |
+| `pruning_old_msg_max_bytes`    | int  | `3000`  | Byte threshold for older tool results            |
+| `pruning_recent_msg_max_bytes` | int  | `50000` | Byte threshold for recent tool results           |
+| `offload_retention_days`       | int  | `5`     | Number of days to retain tool result files       |
 
-**Memory Summary Configuration (`memory_summary` object):**
+**ReMeLight Memory Configuration (`reme_light_memory_config` object):**
 
-| Field                           | Type  | Default | Description                                                                              |
-| ------------------------------- | ----- | ------- | ---------------------------------------------------------------------------------------- |
-| `memory_summary_enabled`        | bool  | `true`  | Whether to enable memory summarization during compaction                                 |
-| `force_memory_search`           | bool  | `false` | Whether to force memory search on every conversation turn                                |
-| `force_max_results`             | int   | `1`     | Maximum results for forced memory search                                                 |
-| `force_min_score`               | float | `0.3`   | Minimum relevance score for forced memory search (0.0 - 1.0)                             |
-| `rebuild_memory_index_on_start` | bool  | `false` | Whether to rebuild memory search index on startup. false = only monitor new file changes |
+| Field                           | Type        | Default        | Description                                                            |
+| ------------------------------- | ----------- | -------------- | ---------------------------------------------------------------------- |
+| `summarize_when_compact`        | bool        | `true`         | Whether to enable memory summarization during compaction               |
+| `auto_memory_interval`          | int \| null | `null`         | Auto memory every N user queries. null disables periodic auto memory   |
+| `dream_cron`                    | string      | `"0 23 * * *"` | Cron expression for dream-based memory optimization (empty to disable) |
+| `rebuild_memory_index_on_start` | bool        | `false`        | Whether to rebuild memory search index on startup                      |
+| `recursive_file_watcher`        | bool        | `false`        | Whether to watch memory directory recursively                          |
+| `auto_memory_search_config`     | object      | _(see below)_  | Auto memory search configuration                                       |
+| `embedding_model_config`        | object      | _(see below)_  | Embedding model configuration                                          |
 
-**Embedding Configuration (`embedding_config` object):**
+**Auto Memory Search Configuration (`reme_light_memory_config.auto_memory_search_config` object):**
+
+| Field         | Type  | Default | Description                                                |
+| ------------- | ----- | ------- | ---------------------------------------------------------- |
+| `enabled`     | bool  | `false` | Whether to auto search memory on every conversation turn   |
+| `max_results` | int   | `1`     | Maximum results for auto memory search                     |
+| `min_score`   | float | `0.1`   | Minimum relevance score for auto memory search (0.0 - 1.0) |
+| `timeout`     | float | `10.0`  | Timeout in seconds for auto memory search                  |
+
+**Embedding Configuration (`reme_light_memory_config.embedding_model_config` object):**
 
 | Field              | Type   | Default    | Description                                             |
 | ------------------ | ------ | ---------- | ------------------------------------------------------- |
@@ -633,7 +643,7 @@ Memory files are stored in the agent workspace:
 
 Memory search relies on vector embeddings for semantic retrieval. Configuration priority: **config file > env var > default**.
 
-Recommended to configure in `agent.json` under `running.embedding_config`, which supports more parameters (e.g., `use_dimensions`). Environment variables serve as fallback only:
+Recommended to configure in `agent.json` under `running.reme_light_memory_config.embedding_model_config`, which supports more parameters (e.g., `use_dimensions`). Environment variables serve as fallback only:
 
 | Variable (Fallback)    | Description                       | Default |
 | ---------------------- | --------------------------------- | ------- |

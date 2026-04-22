@@ -1157,6 +1157,34 @@ class WecomChannel(BaseChannel):
                 pass
             self._ws_loop = None
 
+    async def health_check(self) -> Dict[str, Any]:
+        """Check WeCom WebSocket client status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "WeCom channel is disabled.",
+            }
+        issues = []
+        if self._client is None:
+            issues.append("WeCom WebSocket client not initialized")
+        ws_thread_alive = (
+            self._ws_thread is not None and self._ws_thread.is_alive()
+        )
+        if not ws_thread_alive:
+            issues.append("WebSocket thread is not running")
+        if issues:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "; ".join(issues),
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "WeCom WebSocket client is connected.",
+        }
+
     async def start(self) -> None:
         if not self.enabled:
             logger.debug("wecom channel disabled")

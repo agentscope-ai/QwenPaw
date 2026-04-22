@@ -125,6 +125,11 @@ export const pluginSystem = new PluginSystem();
 export interface WindowNamespace {
   /** Shared host dependencies (React, antd, API helpers). */
   host: HostExternals;
+  /**
+   * Mutable module registry. Host modules are registered at startup.
+   * Plugins can access and modify module exports to monkey-patch host functions.
+   */
+  modules: Record<string, Record<string, unknown>>;
   /** Register page routes for a plugin. */
   registerRoutes?: (pluginId: string, routes: PluginRouteDeclaration[]) => void;
   /** Register tool-call renderers for a plugin. */

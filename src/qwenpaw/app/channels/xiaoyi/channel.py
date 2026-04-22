@@ -209,6 +209,32 @@ class XiaoYiChannel(BaseChannel):
         if not self.agent_id:
             raise ValueError("XiaoYi Agent ID is required")
 
+    async def health_check(self) -> Dict[str, Any]:
+        """Check XiaoYi WebSocket connection status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "XiaoYi channel is disabled.",
+            }
+        if not self._connected:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "XiaoYi WebSocket is not connected.",
+            }
+        if self._ws is None or self._ws.closed:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "XiaoYi WebSocket connection is closed.",
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "XiaoYi WebSocket is connected.",
+        }
+
     async def start(self) -> None:
         """Start WebSocket connection."""
         if not self.enabled:

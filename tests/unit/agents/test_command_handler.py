@@ -9,7 +9,7 @@ class DummyMemory:
         self.clear_content_called = 0
         self.clear_summary_called = 0
 
-    def clear_content(self) -> None:
+    async def clear_content(self) -> None:
         self.clear_content_called += 1
 
     def clear_compressed_summary(self) -> None:

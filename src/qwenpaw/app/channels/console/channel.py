@@ -577,6 +577,20 @@ class ConsoleChannel(BaseChannel):
 
     # ── lifecycle ───────────────────────────────────────────────────
 
+    async def health_check(self) -> Dict[str, Any]:
+        """Console channel is always healthy when enabled."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "Console channel is disabled.",
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "Console channel is running.",
+        }
+
     async def start(self) -> None:
         if not self.enabled:
             logger.debug("console channel disabled")
