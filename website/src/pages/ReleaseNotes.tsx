@@ -13,6 +13,7 @@ interface ReleaseNote {
 }
 
 const RELEASE_NOTES_DATA: { version: string; date?: string }[] = [
+  { version: "v1.1.3" },
   { version: "v1.1.2" },
   { version: "v1.1.1" },
   { version: "v1.1.0" },

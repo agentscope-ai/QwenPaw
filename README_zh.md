@@ -58,13 +58,15 @@
 
 ## 新闻
 
-[2026-04-17] 我们发布了 **v1.1.2**！完整更新说明见 [v1.1.2 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+- [2026-04-22] 我们发布了 **v1.1.3**！完整更新说明见 [v1.1.3 发布说明](https://qwenpaw.agentscope.io/release-notes)。
 
-- **[v1.1.2] 新增**：Mission 模式（`/mission`）支持长程任务执行；支持ACP协议调用外部工具；`qwenpaw doctor` 诊断命令；`qwenpaw agents create` 命令行创建 Agent；记忆定时整理（Dream）；新增调试页面。
-- **[v1.1.2] 优化**：Agent 通信工具拆分为同步/异步模式；供应商列表按可用性排序。
-- **[v1.1.2] 感谢新贡献者**：@FrankJingHao、@ployts、@cqhtyi、@leesf、@flystar32。
+  - **[v1.1.3] 新增**：备份与恢复系统；将QwenPaw作为ACP Server；主动消息推送功能；控制台插件系统；新增Agent 统计页面；内置技能多语言切换；Shell 混淆防护。
+  - **[v1.1.3] 变更**：调试页面重构至设置模块；统一频道媒体目录；启动速度优化。
+  - **[v1.1.3] 感谢新贡献者**：@daliu858、@xuanrui-L、@pxdawn、@mailmrcai、@linhuang0405、@imrewce、@zealonexp、@Prince-liu。
 
-[2026-04-14] 我们发布了 v1.1.1！完整更新说明见 [v1.1.1 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+- [2026-04-17] 我们发布了 **v1.1.2**！完整更新说明见 [v1.1.2 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+
+- [2026-04-14] 我们发布了 **v1.1.1**！完整更新说明见 [v1.1.1 发布说明](https://qwenpaw.agentscope.io/release-notes)。
 
 [2026-04-12] **CoPaw 正式更名为 QwenPaw**：这是一次品牌名称焕新，也是我们迈向下一阶段开源的重要一步。
 
