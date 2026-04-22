@@ -75,6 +75,7 @@ a = Analysis(
         'qwenpaw.app.channels.onebot',
         'qwenpaw.app.channels.xiaoyi',
         'qwenpaw.app.channels.voice',
+        'dotenv',
         'multipart',
         'websockets',
         # CLI commands (dynamically loaded by Click)
