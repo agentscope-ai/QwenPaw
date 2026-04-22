@@ -76,6 +76,11 @@ a = Analysis(
         'qwenpaw.app.channels.xiaoyi',
         'qwenpaw.app.channels.voice',
         *collect_submodules('dotenv'),
+        'dotenv',
+        'a2a',
+        'a2a.types',
+        'agentscope_runtime',
+        'psutil',
         'multipart',
         'websockets',
         # CLI commands (dynamically loaded by Click)
