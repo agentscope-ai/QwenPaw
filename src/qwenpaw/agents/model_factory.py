@@ -14,7 +14,7 @@ import base64
 import logging
 import os
 from typing import List, Sequence, Tuple, Type, Any, Union, Optional
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
 from agentscope.model import ChatModelBase, OpenAIChatModel
@@ -49,12 +49,13 @@ from ..token_usage import TokenRecordingModelWrapper
 def _file_url_to_path(url: str) -> str:
     """
     Strip file:// to path. On Windows file:///C:/path -> C:/path not /C:/path.
+    Percent-decodes the path so non-ASCII filenames resolve correctly.
     """
     s = url.removeprefix("file://")
     # Windows: file:///C:/path yields "/C:/path"; remove leading slash.
     if len(s) >= 3 and s.startswith("/") and s[1].isalpha() and s[2] == ":":
         s = s[1:]
-    return s
+    return unquote(s)
 
 
 logger = logging.getLogger(__name__)
@@ -221,7 +222,7 @@ def _format_openai_video_block(video_block: dict) -> dict:
         media_type = source["media_type"]
         url = f"data:{media_type};base64,{source['data']}"
     elif source["type"] == "url":
-        raw_url = source["url"].removeprefix("file://")
+        raw_url = _file_url_to_path(source["url"])
         if os.path.exists(raw_url) and os.path.isfile(raw_url):
             ext = os.path.splitext(raw_url)[1].lower()
             media_type = _SUPPORTED_VIDEO_EXTENSIONS.get(ext)

@@ -43,7 +43,7 @@ from ..base import (
     ProcessHandler,
 )
 from .utils import compress_image_for_wecom, format_markdown_tables
-from ..utils import split_text
+from ..utils import file_url_to_local_path, split_text
 
 logger = logging.getLogger(__name__)
 
@@ -770,7 +770,7 @@ class WecomChannel(BaseChannel):
         if not self._client or not self._upload_lock:
             return None
         # Strip file:// prefix
-        local = path.removeprefix("file://")
+        local = file_url_to_local_path(path) or path
         p = Path(local)
         if not p.is_file():
             logger.warning("wecom upload: file not found: %s", local[:80])
@@ -874,7 +874,7 @@ class WecomChannel(BaseChannel):
                 or ""
             )
             # WeCom voice only supports AMR; send other formats as file.
-            _local = raw_path.removeprefix("file://")
+            _local = file_url_to_local_path(raw_path) or raw_path
             media_type = (
                 "voice" if Path(_local).suffix.lower() == ".amr" else "file"
             )

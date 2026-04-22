@@ -45,7 +45,7 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
-from ..utils import split_text
+from ..utils import file_url_to_local_path, split_text
 from .client import ILinkClient, _DEFAULT_BASE_URL
 
 logger = logging.getLogger(__name__)
@@ -1001,8 +1001,7 @@ class WeixinChannel(BaseChannel):
 
         try:
             # Convert URL to local path if it's a file:// URL
-            if file_path.startswith("file://"):
-                file_path = file_path[7:]
+            file_path = file_url_to_local_path(file_path) or file_path
 
             # Check if file exists
             path_obj = Path(file_path)
