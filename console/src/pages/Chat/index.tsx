@@ -462,11 +462,17 @@ export default function ChatPage() {
   const [planEnabled, setPlanEnabled] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     planApi
       .getPlanConfig()
-      .then((cfg) => setPlanEnabled(cfg.enabled))
+      .then((cfg) => {
+        if (!cancelled) setPlanEnabled(cfg.enabled);
+      })
       .catch(() => {});
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent]);
 
   const isChatActiveRef = useRef(false);
   isChatActiveRef.current =

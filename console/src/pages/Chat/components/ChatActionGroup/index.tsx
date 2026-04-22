@@ -12,6 +12,7 @@ import ChatSessionDrawer from "../ChatSessionDrawer";
 import ChatSearchPanel from "../ChatSearchPanel";
 import PlanPanel from "../../../../components/PlanPanel";
 import { planApi } from "../../../../api/modules/plan";
+import { useAgentStore } from "../../../../stores/agentStore";
 
 const PlanIcon = () => (
   <svg
@@ -36,13 +37,20 @@ const ChatActionGroup: React.FC = () => {
   const [planOpen, setPlanOpen] = useState(false);
   const [planEnabled, setPlanEnabled] = useState(false);
   const { createSession } = useChatAnywhereSessions();
+  const { selectedAgent } = useAgentStore();
 
   useEffect(() => {
+    let cancelled = false;
     planApi
       .getPlanConfig()
-      .then((cfg) => setPlanEnabled(cfg.enabled))
+      .then((cfg) => {
+        if (!cancelled) setPlanEnabled(cfg.enabled);
+      })
       .catch(() => {});
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent]);
 
   return (
     <Flex gap={8} align="center">

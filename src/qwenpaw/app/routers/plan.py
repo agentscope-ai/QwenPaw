@@ -35,12 +35,43 @@ async def _get_workspace(request: Request):
     return await get_agent_for_request(request)
 
 
+async def _plan_from_session_state(
+    workspace,
+    session_id: str,
+) -> PlanStateResponse | None:
+    """Try to load the plan from the persisted session state on disk."""
+    try:
+        session = workspace.runner.session
+        states = await session.get_session_state_dict(
+            session_id=session_id,
+            allow_not_exist=True,
+        )
+    except Exception:
+        logger.debug("Failed to read session state for plan", exc_info=True)
+        return None
+
+    agent_state = states.get("agent", {})
+    nb_state = agent_state.get("plan_notebook") or {}
+    plan_data = nb_state.get("current_plan")
+    if not plan_data:
+        return None
+
+    try:
+        from agentscope.plan import Plan
+
+        plan = Plan(**plan_data)
+        return plan_to_response(plan)
+    except Exception:
+        logger.debug("Failed to parse plan from session state", exc_info=True)
+        return None
+
+
 @router.get(
     "/current",
     response_model=PlanStateResponse | None,
     summary="Get current plan state",
 )
-async def get_current_plan(  # pylint: disable=too-many-return-statements
+async def get_current_plan(
     request: Request,
     session_id: str | None = None,
 ) -> PlanStateResponse | None:
@@ -71,31 +102,7 @@ async def get_current_plan(  # pylint: disable=too-many-return-statements
     if not session_id:
         return None
 
-    try:
-        session = workspace.runner.session
-        states = await session.get_session_state_dict(
-            session_id=session_id,
-            allow_not_exist=True,
-        )
-    except Exception:
-        logger.debug("Failed to read session state for plan", exc_info=True)
-        return None
-
-    agent_state = states.get("agent", {})
-    nb_state = agent_state.get("plan_notebook") or {}
-    plan_data = nb_state.get("current_plan")
-
-    if not plan_data:
-        return None
-
-    try:
-        from agentscope.plan import Plan
-
-        plan = Plan(**plan_data)
-        return plan_to_response(plan)
-    except Exception:
-        logger.debug("Failed to parse plan from session state", exc_info=True)
-        return None
+    return await _plan_from_session_state(workspace, session_id)
 
 
 @router.get(
@@ -133,7 +140,8 @@ async def put_plan_config(
 async def plan_stream(request: Request) -> StreamingResponse:
     """Server-Sent Events endpoint for real-time plan updates.
 
-    The client subscribes using the agent ID from the URL path.
+    Subscribes to updates for the agent resolved from the request
+    context (``X-Agent-Id`` header or active-agent fallback).
     """
     workspace = await _get_workspace(request)
     agent_id = workspace.agent_id

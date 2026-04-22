@@ -10,6 +10,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
 import { planApi } from "../../../../api/modules/plan";
+import { useAgentStore } from "../../../../stores/agentStore";
 import {
   CONTEXT_MANAGER_BACKEND_OPTIONS,
   MEMORY_MANAGER_BACKEND_OPTIONS,
@@ -40,15 +41,22 @@ export function ReactAgentCard({
   onTimezoneChange,
 }: ReactAgentCardProps) {
   const { t } = useTranslation();
+  const { selectedAgent } = useAgentStore();
   const [planEnabled, setPlanEnabled] = useState(false);
   const [planLoading, setPlanLoading] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     planApi
       .getPlanConfig()
-      .then((cfg) => setPlanEnabled(cfg.enabled))
+      .then((cfg) => {
+        if (!cancelled) setPlanEnabled(cfg.enabled);
+      })
       .catch(() => {});
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent]);
 
   const handlePlanToggle = useCallback(async (checked: boolean) => {
     setPlanLoading(true);
