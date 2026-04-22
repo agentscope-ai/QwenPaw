@@ -25,7 +25,6 @@ from typing import Any, Dict, Optional, Tuple
 from agentscope.message import Msg
 from agentscope.tool import ToolResponse
 
-from ...app.agent_context import get_current_session_id
 from .agent_management import (
     _tool_text_response,
     format_background_status_text,
@@ -74,22 +73,17 @@ class _ProgressStore:
     ) -> Dict[str, Any]:
         """Look up progress by (agent_id, session_id).
 
-        Falls back to ``(agent_id, None)`` if the exact key is not
-        found, so callers that don't know the session still get a
-        result.
+        If an exact ``(agent_id, session_id)`` key is not found, falls
+        back to the most-recently written entry for that agent so that
+        callers without a session_id still get a result.
         """
         result = self._data.get((agent_id, session_id))
         if result is not None:
             return result
-        # Fallback: any session for this agent
-        if session_id is not None:
-            result = self._data.get((agent_id, None))
-            if result is not None:
-                return result
-            # Last resort: most recent entry for this agent
-            for key, val in reversed(list(self._data.items())):
-                if key[0] == agent_id:
-                    return val
+        # Fallback: most recent entry for this agent regardless of session
+        for key, val in reversed(list(self._data.items())):
+            if key[0] == agent_id:
+                return val
         return {}
 
     def remove(
@@ -106,6 +100,15 @@ progress_store = _ProgressStore()
 # =========================================================================
 # Helpers
 # =========================================================================
+
+
+def _get_current_session_id() -> Optional[str]:
+    """Lazily import get_current_session_id to avoid circular import."""
+    from ...app.agent_context import (  # noqa: PLC0415
+        get_current_session_id,
+    )
+
+    return get_current_session_id()
 
 
 def _truncate(text: str, max_len: int = 300) -> str:
@@ -225,7 +228,7 @@ class ProgressObservingHook:
         try:
             progress = self._build_progress(agent, kwargs, output)
             if progress:
-                session_id = get_current_session_id()
+                session_id = _get_current_session_id()
                 progress_store.set(
                     self.agent_id,
                     progress,
@@ -345,7 +348,7 @@ class ProgressObservingHook:
         """
         try:
             if plan is None:
-                session_id = get_current_session_id()
+                session_id = _get_current_session_id()
                 progress_store.remove(
                     self.agent_id,
                     session_id=session_id,
@@ -357,7 +360,7 @@ class ProgressObservingHook:
                 "last_update": time.time(),
             }
             progress.update(_extract_plan_overlay(plan))
-            session_id = get_current_session_id()
+            session_id = _get_current_session_id()
             progress_store.set(
                 self.agent_id,
                 progress,
@@ -384,6 +387,7 @@ class ProgressObservingHook:
 async def query_task_detail(
     task_id: str,
     agent_id: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> ToolResponse:
     """Query detailed progress of a running background task.
 
@@ -414,6 +418,11 @@ async def query_task_detail(
         agent_id (`str`, optional):
             The ID of the agent executing the task.  When provided, the
             tool can look up progress from the shared ProgressStore.
+        session_id (`str`, optional):
+            The session ID returned by ``submit_to_agent`` in the
+            ``[SESSION: ...]`` header.  Used for precise per-session
+            lookup in ProgressStore when the same agent has multiple
+            concurrent conversations.
 
     Returns:
         `ToolResponse`:
@@ -453,11 +462,10 @@ async def query_task_detail(
 
     if agent_id:
         normalized_agent_id = normalize_id(agent_id)
-        # Try session-scoped lookup first, then agent-only
-        task_session = status_result.get("session_id")
+        normalized_session_id = normalize_id(session_id)
         progress = progress_store.get(
             normalized_agent_id or "",
-            session_id=task_session,
+            session_id=normalized_session_id,
         )
         if progress:
             result["live_status"] = progress
