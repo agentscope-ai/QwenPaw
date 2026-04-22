@@ -994,6 +994,86 @@ class TestStreamWithTracker:
                                 pass
 
 
+@pytest.mark.asyncio
+class TestOnEventContent:
+    """Regression tests for in-progress content event handling."""
+
+    async def test_filter_tool_messages_suppresses_stream_tool_preview(
+        self,
+        base_channel,
+    ):
+        """When filter_tool_messages is enabled, in-progress tool previews
+        should not be sent to the user."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            ContentType,
+            RunStatus,
+        )
+
+        base_channel._filter_tool_messages = True
+        event = MagicMock(
+            type=ContentType.DATA,
+            status=RunStatus.InProgress,
+            data={
+                "name": "execute_shell_command",
+                "output": [
+                    {"type": "text", "text": "preview chunk"},
+                ],
+            },
+        )
+
+        with patch.object(
+            base_channel,
+            "send_content_parts",
+            new_callable=AsyncMock,
+        ) as mock_send:
+            handled = await base_channel.on_event_content(
+                MagicMock(),
+                "user123",
+                event,
+                {},
+            )
+
+        assert handled is True
+        mock_send.assert_not_awaited()
+
+    async def test_filter_tool_messages_does_not_swallow_non_tool_event(
+        self,
+        base_channel,
+    ):
+        """Regression: the filter_tool_messages check must live AFTER the
+        tool-shape guard. A blanket InProgress suppression would eat the
+        agent's own streaming reply content too, silently breaking the
+        channel (agent appears to hang with no output)."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            ContentType,
+            RunStatus,
+        )
+
+        base_channel._filter_tool_messages = True
+        # InProgress DATA event with NO "output" field -> not a tool preview.
+        event = MagicMock(
+            type=ContentType.DATA,
+            status=RunStatus.InProgress,
+            data={"thinking": "reasoning text, not a tool result"},
+        )
+
+        with patch.object(
+            base_channel,
+            "send_content_parts",
+            new_callable=AsyncMock,
+        ) as mock_send:
+            handled = await base_channel.on_event_content(
+                MagicMock(),
+                "user123",
+                event,
+                {},
+            )
+
+        # Falls through to the default path (not handled here).
+        assert handled is False
+        mock_send.assert_not_awaited()
+
+
 # =============================================================================
 # P2: Audio Content Detection
 # =============================================================================

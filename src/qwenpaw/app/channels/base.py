@@ -963,6 +963,17 @@ class BaseChannel(ABC):
         data = getattr(event, "data", None) or {}
         if not isinstance(data, dict) or "output" not in data:
             return False
+        # At this point the event is a tool-output preview: InProgress DATA
+        # event carrying a ``data.output`` payload. ``filter_tool_messages``
+        # is meant to hide the tool execution process from end users, so
+        # drop the preview here -- otherwise channels like Feishu still
+        # leak intermediate shell/API output.
+        #
+        # This check MUST stay after the shape guard above. A blanket
+        # InProgress suppression would also swallow the agent's own
+        # streaming reply content, silently breaking the whole channel.
+        if self._filter_tool_messages:
+            return True
         body = self._format_stream_tool_output_body(event)
         if not body:
             return False
