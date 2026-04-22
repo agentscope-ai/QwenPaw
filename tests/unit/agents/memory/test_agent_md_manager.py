@@ -103,7 +103,11 @@ class TestAgentMdManagerListWorkingMds:
 
     def test_size_matches_file_size(self, manager, tmp_path):
         content = "# Header\nsome content"
-        (tmp_path / "sized.md").write_text(content, encoding="utf-8")
+        (tmp_path / "sized.md").write_text(
+            content,
+            encoding="utf-8",
+            newline="\n",
+        )
         result = manager.list_working_mds()
         assert result[0]["size"] == len(content.encode("utf-8"))
 
