@@ -137,6 +137,7 @@ def _check_command_substitution(
                 GuardSeverity.HIGH,
                 "Command contains backtick (`) command substitution",
                 command,
+                risk_type="command_substitution",
                 matched=command[snippet_start:snippet_end],
                 snippet=command[snippet_start:snippet_end],
             )
@@ -150,6 +151,7 @@ def _check_command_substitution(
                 GuardSeverity.HIGH,
                 f"Command contains {label}",
                 command,
+                risk_type="command_substitution",
                 matched=m.group(0),
                 pattern=pattern.pattern,
             )
@@ -170,6 +172,7 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
             "Command contains ANSI-C quoting ($'...') "
             "which can hide characters",
             command,
+            risk_type="obfuscated_flags",
         )
 
     if _LOCALE_QUOTE_RE.search(command):
@@ -179,6 +182,7 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
             'Command contains locale quoting ($"...") '
             "which can hide characters",
             command,
+            risk_type="obfuscated_flags",
         )
 
     if _EMPTY_SPECIAL_QUOTE_DASH_RE.search(command):
@@ -188,6 +192,7 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
             "Command contains empty special quotes before dash "
             "(potential bypass)",
             command,
+            risk_type="obfuscated_flags",
         )
 
     if _EMPTY_QUOTE_DASH_RE.search(command):
@@ -197,6 +202,7 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
             "Command contains empty quotes before dash "
             "(potential flag bypass)",
             command,
+            risk_type="obfuscated_flags",
         )
 
     # Quoted flag content: whitespace + quote + dash-letter inside quote
@@ -225,6 +231,7 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
                         "Command contains quoted flag name "
                         "(potential obfuscation)",
                         command,
+                        risk_type="obfuscated_flags",
                         matched=command[i : j + 1],
                     )
 
@@ -253,6 +260,7 @@ def _check_backslash_escaped_whitespace(
                     "Command contains backslash-escaped whitespace"
                     " that could alter command parsing",
                     command,
+                    risk_type="backslash_escaped_whitespace",
                     matched=command[max(0, i - 1) : i + 1],
                 )
             state.feed(ch)
@@ -290,6 +298,7 @@ def _check_backslash_escaped_operators(
                     f"Command contains backslash before shell operator"
                     f" (\\{ch}) which can hide command structure",
                     command,
+                    risk_type="backslash_escaped_operators",
                     matched=command[max(0, i - 1) : i + 1],
                 )
             state.feed(ch)
@@ -321,6 +330,7 @@ def _check_newlines(command: str) -> GuardFinding | None:
                 "Command contains carriage return (\\r) which shell-quote"
                 " and bash tokenize differently",
                 command,
+                risk_type="newlines",
             )
 
     # Newline outside quotes followed by non-whitespace (hidden command)
@@ -339,6 +349,7 @@ def _check_newlines(command: str) -> GuardFinding | None:
                     "Command contains newlines that could separate"
                     " multiple commands",
                     command,
+                    risk_type="newlines",
                 )
 
     return None
@@ -390,6 +401,7 @@ def _check_comment_quote_desync(command: str) -> GuardFinding | None:
                     "Command contains quote characters inside a # comment"
                     " which can desync quote tracking",
                     command,
+                    risk_type="comment_quote_desync",
                     matched=command[
                         i : (line_end if line_end != -1 else i + 40)
                     ],
@@ -432,6 +444,7 @@ def _check_quoted_newline(command: str) -> GuardFinding | None:
                     " #-prefixed line, which can hide arguments from"
                     " line-based permission checks",
                     command,
+                    risk_type="quoted_newline",
                     matched=command[
                         max(0, i - 10) : min(len(command), line_end + 10)
                     ],
@@ -451,21 +464,24 @@ def _finding(
     description: str,
     command: str,
     *,
+    risk_type: str | None = None,
     matched: str | None = None,
     pattern: str | None = None,
     snippet: str | None = None,
 ) -> GuardFinding:
+    details = (
+        f"ShellEvasionGuardian: {description}\n"
+        f"Risk type: {risk_type or 'unknown'}\n\n"
+        "This pattern is commonly used to bypass shell command"
+        " security checks."
+    )
     return GuardFinding(
         id=f"GUARD-{uuid.uuid4().hex}",
         rule_id=rule_id,
         category=GuardThreatCategory.CODE_EXECUTION,
         severity=severity,
         title=f"[{severity.value}] {description}",
-        description=(
-            f"ShellEvasionGuardian: {description}\n\n"
-            "This pattern is commonly used to bypass shell command"
-            " security checks."
-        ),
+        description=details,
         tool_name="execute_shell_command",
         param_name="command",
         matched_value=matched,
@@ -476,6 +492,7 @@ def _finding(
             " intentional, approve manually."
         ),
         guardian="shell_evasion_guardian",
+        metadata={"risk_type": risk_type} if risk_type else {},
     )
 
 
