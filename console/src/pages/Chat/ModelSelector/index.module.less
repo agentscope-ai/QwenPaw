@@ -28,6 +28,16 @@
   max-width: 180px;
 }
 
+.triggerBadge {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(255, 127, 22, 0.12);
+  color: #ff7f16;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .triggerArrow {
   flex-shrink: 0;
   font-size: 18px;
@@ -60,6 +70,92 @@
   overflow: visible;
 }
 
+.section {
+  padding: 6px 0;
+}
+
+.sectionLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #999;
+}
+
+.sectionHint {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #bbb;
+}
+
+.sectionDisabled {
+  pointer-events: none;
+
+  .providerItem,
+  .slotRow {
+    color: #bbb;
+    cursor: not-allowed;
+  }
+
+  .providerItem:hover,
+  .slotRow:hover {
+    background: transparent;
+    color: #bbb;
+  }
+}
+
+.sectionDivider {
+  height: 1px;
+  margin: 2px 8px;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.optionItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #333;
+  transition: background 0.12s;
+
+  &:hover {
+    background: rgba(97, 92, 237, 0.06);
+    color: #ff7f16;
+  }
+
+  &.optionItemActive {
+    background: rgba(97, 92, 237, 0.08);
+    color: #ff7f16;
+    font-weight: 500;
+  }
+
+  &.optionItemDisabled {
+    color: #bbb;
+  }
+}
+
+.optionName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionHint {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #999;
+}
+
 .providerItem {
   position: relative;
   display: flex;
@@ -77,7 +173,7 @@
     color: #ff7f16;
   }
 
-  &:hover :global(.modelSubmenu) {
+  &:hover > :global(.modelSubmenu) {
     display: block;
   }
 
@@ -134,6 +230,66 @@
   border: 1px solid rgba(0, 0, 0, 0.06);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
   z-index: 1100;
+}
+
+.routingSubmenu {
+  overflow: visible;
+  max-height: none;
+}
+
+/* ---- Slot row inside routing-mode submenu (Local / Cloud) ---- */
+.slotRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #333;
+  gap: 10px;
+  transition: background 0.12s;
+
+  &:hover {
+    background: rgba(97, 92, 237, 0.06);
+    color: #ff7f16;
+  }
+
+  &:hover > .slotSubmenu {
+    display: block;
+  }
+
+  // Hover bridge to next-level submenu (mirrors .providerItem::after)
+  &::after {
+    content: "";
+    position: absolute;
+    left: -8px;
+    top: 0;
+    width: 8px;
+    height: 100%;
+    background: transparent;
+  }
+}
+
+.slotLabel {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.slotValue {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #666;
+}
+
+.slotSubmenu {
+  min-width: 180px;
 }
 
 .modelItem {
@@ -217,6 +373,41 @@
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   }
 
+  .triggerBadge {
+    background: rgba(255, 127, 22, 0.18);
+    color: #ff7f16;
+  }
+
+  .sectionLabel {
+    color: rgba(255, 255, 255, 0.38);
+  }
+
+  .sectionDivider {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .optionItem {
+    color: rgba(255, 255, 255, 0.85);
+
+    &:hover {
+      background: rgba(97, 92, 237, 0.15);
+      color: #ff7f16;
+    }
+
+    &.optionItemActive {
+      background: rgba(97, 92, 237, 0.18);
+      color: #ff7f16;
+    }
+
+    &.optionItemDisabled {
+      color: rgba(255, 255, 255, 0.28);
+    }
+  }
+
+  .optionHint {
+    color: rgba(255, 255, 255, 0.38);
+  }
+
   .providerItem {
     color: rgba(255, 255, 255, 0.85);
 
@@ -256,5 +447,33 @@
 
   .emptyTip {
     color: rgba(255, 255, 255, 0.25);
+  }
+
+  .sectionHint {
+    color: rgba(255, 255, 255, 0.38);
+  }
+
+  .sectionDisabled {
+    .providerItem,
+    .slotRow {
+      color: rgba(255, 255, 255, 0.28);
+    }
+  }
+
+  .slotRow {
+    color: rgba(255, 255, 255, 0.85);
+
+    &:hover {
+      background: rgba(97, 92, 237, 0.15);
+      color: #ff7f16;
+    }
+  }
+
+  .slotLabel {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .slotValue {
+    color: rgba(255, 255, 255, 0.6);
   }
 }
