@@ -112,9 +112,9 @@ repos:
           --disable=C0116,  # Disable missing function or method docstring for quick dev
         ]
   - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: 'v3.0.0'
+    rev: ''
     hooks:
       - id: prettier
-        additional_dependencies: [ 'prettier@3.0.0' ]
+        additional_dependencies: [ 'prettier@3.8.3' ]
         files: \.(tsx?)$
         exclude: '(?x)(^web/|^console/|/dist/|.*/skills/.*|^scripts/pack/)'
