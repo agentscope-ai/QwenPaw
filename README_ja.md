@@ -58,13 +58,15 @@
 
 ## ニュース
 
-[2026-04-17] **v1.1.2** をリリースしました！詳細は [v1.1.2 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
+- [2026-04-22] **v1.1.3** をリリースしました！詳細は [v1.1.3 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
 
-- **[v1.1.2] 新機能**：Mission モード（`/mission`）で長時間タスクの自律実行に対応；ACP プロトコルによる外部エージェントへのタスク委任；`qwenpaw doctor` 診断コマンド；`qwenpaw agents create` による CLI エージェント作成；メモリ定期整理（Dream）；新しいデバッグページ。
-- **[v1.1.2] 変更**：エージェント間通信ツールを同期/非同期モードに分離；プロバイダー一覧を利用可能順にソート。
-- **[v1.1.2] 新規コントリビューター**：@FrankJingHao、@ployts、@cqhtyi、@leesf、@flystar32 の皆さん、ありがとうございます。
+  - **[v1.1.3] 新機能**：バックアップ＆リストアシステム；QwenPaw を ACP Server として公開；プロアクティブメッセージ送信；コンソールプラグインシステム；エージェント統計ページ；組み込みスキルの多言語切替；Shell 難読化ガード。
+  - **[v1.1.3] 変更**：デバッグページを設定モジュールに移設；チャネルメディアディレクトリの統一；起動速度の最適化。
+  - **[v1.1.3] 新規コントリビューター**：@daliu858、@xuanrui-L、@pxdawn、@mailmrcai、@linhuang0405、@imrewce、@zealonexp、@Prince-liu の皆さん、ありがとうございます。
 
-[2026-04-14] v1.1.1 をリリースしました！詳細は [v1.1.1 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
+- [2026-04-17] **v1.1.2** をリリースしました！詳細は [v1.1.2 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
+
+- [2026-04-14] **v1.1.1** をリリースしました！詳細は [v1.1.1 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
 
 [2026-04-12] **CoPaw は正式に QwenPaw へリブランディングしました**。オープンソース開発の次のフェーズへ進むうえでの、重要な一歩です。
 
