@@ -6,9 +6,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# agentscope is installed — no sys.modules override needed.
-# reme is TYPE_CHECKING only in base_memory_manager, also no mock needed.
-
 
 # ---------------------------------------------------------------------------
 # Concrete subclass for testing the abstract base
@@ -88,244 +85,104 @@ class TestBaseMemoryManagerInit:
     def test_agent_id_is_stored(self, manager):
         assert manager.agent_id == "test-agent"
 
-    def test_chat_model_is_none_initially(self, manager):
-        assert manager.chat_model is None
+    def test_summary_task_info_starts_empty(self, manager):
+        assert manager._summary_task_info == {}
 
-    def test_formatter_is_none_initially(self, manager):
-        assert manager.formatter is None
+    def test_task_counter_starts_at_zero(self, manager):
+        assert manager._task_counter == 0
 
-    def test_summary_tasks_starts_empty(self, manager):
-        assert manager.summary_tasks == []
+    def test_worker_task_is_none_initially(self, manager):
+        assert manager._worker_task is None
 
 
 # ---------------------------------------------------------------------------
-# TestBaseMemoryManagerAddAsyncSummaryTask
+# TestBaseMemoryManagerAddSummarizeTask
 # ---------------------------------------------------------------------------
 
 
-class TestBaseMemoryManagerAddAsyncSummaryTask:
-    """P1: Tests for add_async_summary_task."""
+class TestBaseMemoryManagerAddSummarizeTask:
+    """P1: Tests for add_summarize_task."""
 
-    async def test_adds_task_to_list(self, manager):
-        """Adding a task appends it to summary_tasks."""
+    async def test_adds_task_info_entry(self, manager):
+        """Scheduling a task creates an entry in _summary_task_info."""
         msgs = [MagicMock()]
-        manager.add_async_summary_task(msgs)
-        assert len(manager.summary_tasks) == 1
-        # Clean up the created task
-        for t in manager.summary_tasks:
-            t.cancel()
+        manager.add_summarize_task(msgs)
+        assert len(manager._summary_task_info) == 1
+        if manager._worker_task:
+            manager._worker_task.cancel()
             try:
-                await t
+                await manager._worker_task
             except (asyncio.CancelledError, Exception):
                 pass
 
-    async def test_completed_tasks_are_pruned(self, manager):
-        """Done tasks are removed from the list before adding new one."""
-        # Create a completed task
-        done_task = asyncio.create_task(
-            asyncio.sleep(0),
-        )
-        await done_task  # let it finish
-        manager.summary_tasks = [done_task]
+    async def test_task_starts_as_pending(self, manager):
+        """New task has status 'pending'."""
+        manager.add_summarize_task([MagicMock()])
+        info = list(manager._summary_task_info.values())[0]
+        assert info["status"] == "pending"
+        if manager._worker_task:
+            manager._worker_task.cancel()
+            try:
+                await manager._worker_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
-        msgs = [MagicMock()]
-        manager.add_async_summary_task(msgs)
+    async def test_counter_increments_per_task(self, manager):
+        """Each call increments the task counter."""
+        manager.add_summarize_task([MagicMock()])
+        manager.add_summarize_task([MagicMock()])
+        assert manager._task_counter == 2
+        if manager._worker_task:
+            manager._worker_task.cancel()
+            try:
+                await manager._worker_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
-        # The done task is removed; only the new task remains
-        assert len(manager.summary_tasks) == 1
-
-    async def test_pending_tasks_are_kept(self, manager):
-        """Pending tasks remain in the list."""
-
-        async def never_done():
-            await asyncio.sleep(9999)
-
-        pending = asyncio.create_task(never_done())
-        manager.summary_tasks = [pending]
-
-        msgs = [MagicMock()]
-        manager.add_async_summary_task(msgs)
-
-        # pending kept + new task added
-        assert len(manager.summary_tasks) == 2
-        pending.cancel()
-        try:
-            await pending
-        except asyncio.CancelledError:
-            pass
-
-    async def test_failed_task_is_pruned_and_logged(
-        self,
-        manager,
-        caplog,
-    ):
-        """Tasks that raised exceptions are pruned."""
-
-        async def failing():
-            raise ValueError("boom")
-
-        failed = asyncio.create_task(failing())
-        try:
-            await failed
-        except ValueError:
-            pass
-
-        import logging
-
-        with caplog.at_level(logging.ERROR):
-            manager.add_async_summary_task([MagicMock()])
-
-        assert len(manager.summary_tasks) == 1
-
-    async def test_cancelled_task_logs_warning(
-        self,
-        manager,
-        caplog,
-    ):
-        """Cancelled tasks are pruned with a warning log."""
-
-        async def sleeper():
-            await asyncio.sleep(9999)
-
-        task = asyncio.create_task(sleeper())
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
-        import logging
-
-        with caplog.at_level(logging.WARNING):
-            manager.add_async_summary_task([MagicMock()])
-
-        assert len(manager.summary_tasks) == 1
+    async def test_worker_task_created(self, manager):
+        """Scheduling a task starts the background worker."""
+        manager.add_summarize_task([MagicMock()])
+        assert manager._worker_task is not None
+        if manager._worker_task:
+            manager._worker_task.cancel()
+            try:
+                await manager._worker_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
 
 # ---------------------------------------------------------------------------
-# TestBaseMemoryManagerAwaitSummaryTasks
+# TestBaseMemoryManagerListSummarizeStatus
 # ---------------------------------------------------------------------------
 
 
-class TestBaseMemoryManagerAwaitSummaryTasks:
-    """P1: Tests for await_summary_tasks."""
+class TestBaseMemoryManagerListSummarizeStatus:
+    """P1: Tests for list_summarize_status."""
 
-    async def test_returns_empty_string_when_no_tasks(
-        self,
-        manager,
-    ):
-        result = await manager.await_summary_tasks()
-        assert result == ""
-        assert manager.summary_tasks == []
+    def test_returns_empty_when_no_tasks(self, manager):
+        result = manager.list_summarize_status()
+        assert result == []
 
-    async def test_collects_result_of_completed_task(
-        self,
-        manager,
-    ):
-        """Successfully completed tasks yield 'completed' message."""
+    async def test_returns_status_for_pending_task(self, manager):
+        manager.add_summarize_task([MagicMock()])
+        statuses = manager.list_summarize_status()
+        assert len(statuses) == 1
+        assert statuses[0]["status"] == "pending"
+        if manager._worker_task:
+            manager._worker_task.cancel()
+            try:
+                await manager._worker_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
-        async def quick():
-            return "done"
-
-        task = asyncio.create_task(quick())
-        await task
-        manager.summary_tasks = [task]
-
-        result = await manager.await_summary_tasks()
-        assert "Summary task completed: done" in result
-        assert manager.summary_tasks == []
-
-    async def test_collects_result_of_running_task(self, manager):
-        """Pending tasks are awaited and result collected."""
-
-        async def quick():
-            return "pending_result"
-
-        task = asyncio.create_task(quick())
-        # Do NOT await — let await_summary_tasks do it
-        manager.summary_tasks = [task]
-
-        result = await manager.await_summary_tasks()
-        assert "pending_result" in result
-        assert manager.summary_tasks == []
-
-    async def test_handles_cancelled_task_already_done(
-        self,
-        manager,
-    ):
-        """Already-cancelled done tasks produce cancellation message."""
-
-        async def sleeper():
-            await asyncio.sleep(9999)
-
-        task = asyncio.create_task(sleeper())
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
-        manager.summary_tasks = [task]
-        result = await manager.await_summary_tasks()
-        assert "cancelled" in result.lower()
-        assert manager.summary_tasks == []
-
-    async def test_handles_failed_task_already_done(self, manager):
-        """Already-failed done tasks produce failure message."""
-
-        async def boom():
-            raise RuntimeError("failure")
-
-        task = asyncio.create_task(boom())
-        try:
-            await task
-        except RuntimeError:
-            pass
-
-        manager.summary_tasks = [task]
-        result = await manager.await_summary_tasks()
-        assert "failed" in result.lower()
-        assert manager.summary_tasks == []
-
-    async def test_handles_running_task_that_raises(self, manager):
-        """Running tasks that raise an exception produce failure msg."""
-
-        async def boom():
-            raise ValueError("runtime error")
-
-        task = asyncio.create_task(boom())
-        manager.summary_tasks = [task]
-
-        result = await manager.await_summary_tasks()
-        assert "failed" in result.lower()
-        assert manager.summary_tasks == []
-
-    async def test_clears_tasks_after_await(self, manager):
-        """summary_tasks is always cleared after await_summary_tasks."""
-
-        async def quick():
-            return "x"
-
-        task = asyncio.create_task(quick())
-        manager.summary_tasks = [task]
-        await manager.await_summary_tasks()
-        assert manager.summary_tasks == []
-
-    async def test_multiple_tasks_all_collected(self, manager):
-        """Multiple tasks are all awaited and results concatenated."""
-
-        async def t1():
-            return "r1"
-
-        async def t2():
-            return "r2"
-
-        tasks = [
-            asyncio.create_task(t1()),
-            asyncio.create_task(t2()),
-        ]
-        manager.summary_tasks = tasks
-        result = await manager.await_summary_tasks()
-        assert "r1" in result
-        assert "r2" in result
-        assert manager.summary_tasks == []
+    async def test_status_dict_has_required_keys(self, manager):
+        manager.add_summarize_task([MagicMock()])
+        status = manager.list_summarize_status()[0]
+        for key in ("task_id", "start_time", "status", "result", "error"):
+            assert key in status
+        if manager._worker_task:
+            manager._worker_task.cancel()
+            try:
+                await manager._worker_task
+            except (asyncio.CancelledError, Exception):
+                pass
