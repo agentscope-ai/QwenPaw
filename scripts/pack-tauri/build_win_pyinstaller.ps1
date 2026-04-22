@@ -86,6 +86,26 @@ if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
     Write-Host "  [OK] makensis (NSIS $nsisInfo)" -ForegroundColor Green
 }
 
+# python-dotenv (required by PyInstaller collect_submodules)
+$PYTHON_BIN = Join-Path $REPO_ROOT ".venv\Scripts\python.exe"
+if (-not (Test-Path $PYTHON_BIN)) {
+    $PYTHON_BIN = (Get-Command python -ErrorAction SilentlyContinue).Source
+}
+if ($PYTHON_BIN) {
+    & $PYTHON_BIN -c "import dotenv" 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  [INSTALL] python-dotenv" -ForegroundColor Yellow
+        & $PYTHON_BIN -m pip install python-dotenv | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            $missing += "python-dotenv"
+        }
+    } else {
+        Write-Host "  [OK] python-dotenv" -ForegroundColor Green
+    }
+} else {
+    $missing += "python"
+}
+
 if ($missing.Count -gt 0) {
     Write-Host ""
     Write-Host "Missing prerequisites: $($missing -join ', ')" -ForegroundColor Red
