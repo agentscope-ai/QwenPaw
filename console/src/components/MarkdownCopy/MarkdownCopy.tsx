@@ -79,8 +79,8 @@ export function MarkdownCopy({
       localShowMarkdown && !(editable && !textareaProps.disabled)
         ? content
         : editable
-        ? editContent
-        : content;
+          ? editContent
+          : content;
 
     if (!contentToCopy) return;
 

@@ -98,8 +98,8 @@ export function ACPDrawer({
         isCreateMode
           ? t("acp.createTitle")
           : activeKey
-          ? `${t("acp.editTitle")}: ${activeKey}`
-          : t("acp.editTitle")
+            ? `${t("acp.editTitle")}: ${activeKey}`
+            : t("acp.editTitle")
       }
       open={open}
       onClose={onClose}

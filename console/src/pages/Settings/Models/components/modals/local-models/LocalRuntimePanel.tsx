@@ -44,19 +44,19 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
         label: t("models.localRuntimeUpdateAvailable"),
       }
     : installed
-    ? {
-        className: styles.localStatusBadgeInstalled,
-        label: t("models.localRuntimeInstalled"),
-      }
-    : !installable
-    ? {
-        className: styles.localStatusBadgeDead,
-        label: t("models.localRuntimeUnsupported"),
-      }
-    : {
-        className: styles.localStatusBadgeMuted,
-        label: t("models.localRuntimeMissing"),
-      };
+      ? {
+          className: styles.localStatusBadgeInstalled,
+          label: t("models.localRuntimeInstalled"),
+        }
+      : !installable
+        ? {
+            className: styles.localStatusBadgeDead,
+            label: t("models.localRuntimeUnsupported"),
+          }
+        : {
+            className: styles.localStatusBadgeMuted,
+            label: t("models.localRuntimeMissing"),
+          };
   const runBadge =
     serverStatus?.message && !serverStatus.available
       ? {
@@ -64,14 +64,14 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
           label: t("models.localServerIdle"),
         }
       : isRunning
-      ? {
-          className: styles.localStatusBadgeRunning,
-          label: t("models.localServerOnline"),
-        }
-      : {
-          className: styles.localStatusBadgeDead,
-          label: t("models.localServerIdle"),
-        };
+        ? {
+            className: styles.localStatusBadgeRunning,
+            label: t("models.localServerOnline"),
+          }
+        : {
+            className: styles.localStatusBadgeDead,
+            label: t("models.localServerIdle"),
+          };
   const progressPercent = getProgressPercent(progress);
   const progressText = isDownloading ? formatProgressText(progress) : null;
   const canTriggerUpdate = hasUpdate && !isDownloading;

@@ -106,8 +106,8 @@ export const compareVersions = (a: string, b: string): number => {
         preLabel === "a" || preLabel === "alpha"
           ? -3
           : preLabel === "b" || preLabel === "beta"
-          ? -2
-          : -1; // rc or c
+            ? -2
+            : -1; // rc or c
       preNum = preMatch[3] ? Number(preMatch[3]) : 0;
     }
 

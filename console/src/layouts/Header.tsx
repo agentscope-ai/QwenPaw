@@ -93,8 +93,9 @@ export default function Header() {
         const versions = versionsWithTime.map((v) => v.version);
         const latest = versions[0] ?? data?.info?.version ?? "";
 
-        const releaseTime = versionsWithTime.find((v) => v.version === latest)
-          ?.uploadTime;
+        const releaseTime = versionsWithTime.find(
+          (v) => v.version === latest,
+        )?.uploadTime;
         const isOldEnough =
           !!releaseTime &&
           new Date(releaseTime) <= new Date(Date.now() - ONE_HOUR_MS);
@@ -117,8 +118,8 @@ export default function Header() {
     const lang = i18n.language?.startsWith("zh")
       ? "zh"
       : i18n.language?.startsWith("ru")
-      ? "ru"
-      : "en";
+        ? "ru"
+        : "en";
     const faqLang = lang === "zh" ? "zh" : "en";
     const url = `https://qwenpaw.agentscope.io/docs/faq.${faqLang}.md`;
     fetch(url, { cache: "no-cache" })
@@ -130,7 +131,7 @@ export default function Header() {
         setUpdateMarkdown(
           match && lang !== "ru"
             ? match[0].trim()
-            : UPDATE_MD[lang] ?? UPDATE_MD.en,
+            : (UPDATE_MD[lang] ?? UPDATE_MD.en),
         );
       })
       .catch(() => {

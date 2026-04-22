@@ -131,8 +131,8 @@ export function useSkillPool() {
     () =>
       Boolean(
         builtinNotice?.has_updates &&
-          builtinNotice.fingerprint &&
-          builtinNotice.fingerprint !== builtinNoticeAck,
+        builtinNotice.fingerprint &&
+        builtinNotice.fingerprint !== builtinNoticeAck,
       ),
     [builtinNotice, builtinNoticeAck],
   );
@@ -445,13 +445,13 @@ export function useSkillPool() {
         const title = allBuiltinUpgrades
           ? t("skills.builtinUpgradeTitle")
           : allLanguageSwitch
-          ? t("skills.languageSwitchTitle")
-          : t("skillPool.overwriteConfirm");
+            ? t("skills.languageSwitchTitle")
+            : t("skillPool.overwriteConfirm");
         const subtitle = allBuiltinUpgrades
           ? t("skillPool.builtinOverwriteTargetsContent")
           : allLanguageSwitch
-          ? t("skills.languageSwitchContent")
-          : t("skillPool.overwriteTargetsContent");
+            ? t("skills.languageSwitchContent")
+            : t("skillPool.overwriteTargetsContent");
         const confirmed = await confirmOverwrite(
           title,
           <div style={{ display: "grid", gap: 8 }}>
@@ -720,8 +720,8 @@ export function useSkillPool() {
         savedAsNew
           ? `${t("common.create")}: ${result.name}`
           : mode === "edit"
-          ? t("common.save")
-          : t("common.create"),
+            ? t("common.save")
+            : t("common.create"),
       );
       closeDrawer();
       invalidateSkillCache({ pool: true });

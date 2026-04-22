@@ -82,8 +82,8 @@ export function ImportHubModal({
   const inputStateClass = validation.ok
     ? styles.valid
     : validation.messageKey
-    ? styles.invalid
-    : "";
+      ? styles.invalid
+      : "";
 
   const activeMarketData = skillMarkets.find((m) => m.key === activeMarket);
 

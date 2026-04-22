@@ -479,13 +479,13 @@ export function useSkillsPage() {
         const title = allBuiltinUpgrades
           ? t("skills.builtinUpgradeTitle")
           : allLanguageSwitch
-          ? t("skills.languageSwitchTitle")
-          : t("skillPool.overwriteConfirm");
+            ? t("skills.languageSwitchTitle")
+            : t("skillPool.overwriteConfirm");
         const subtitle = allBuiltinUpgrades
           ? t("skillPool.builtinOverwriteTargetsContent")
           : allLanguageSwitch
-          ? t("skills.languageSwitchContent")
-          : t("skills.overwriteExistingList");
+            ? t("skills.languageSwitchContent")
+            : t("skills.overwriteExistingList");
         const confirmed = await confirmOverwrite(
           title,
           <div style={{ display: "grid", gap: 8 }}>

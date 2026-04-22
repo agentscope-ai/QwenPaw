@@ -149,8 +149,8 @@ export default function RestoreBackupModal({
       const agent_ids = isFull
         ? allBackupAgentIds
         : includeAgents
-        ? selectedAgents
-        : [];
+          ? selectedAgents
+          : [];
 
       await api.restoreBackup(backup.id, {
         mode: restoreMode,

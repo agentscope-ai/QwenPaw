@@ -9,8 +9,10 @@ import { useTranslation } from "react-i18next";
 import { getLocalizedTestConnectionMessage } from "./testConnectionMessage";
 import styles from "../../index.module.less";
 
-interface ProviderConfigFormValues
-  extends Omit<ProviderConfigRequest, "generate_kwargs"> {
+interface ProviderConfigFormValues extends Omit<
+  ProviderConfigRequest,
+  "generate_kwargs"
+> {
   generate_kwargs_text?: string;
 }
 

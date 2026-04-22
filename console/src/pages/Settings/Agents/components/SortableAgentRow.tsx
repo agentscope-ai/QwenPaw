@@ -14,8 +14,7 @@ const SortableHandleContext = createContext<SortableHandleContextValue | null>(
   null,
 );
 
-interface SortableAgentRowProps
-  extends React.HTMLAttributes<HTMLTableRowElement> {
+interface SortableAgentRowProps extends React.HTMLAttributes<HTMLTableRowElement> {
   "data-row-key": string;
 }
 

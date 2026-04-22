@@ -75,23 +75,23 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
   const statusLabel = isAvailable
     ? t("models.providerAvailable")
     : isConfigured
-    ? t("models.providerNoModels")
-    : t("models.providerNotConfigured");
+      ? t("models.providerNoModels")
+      : t("models.providerNotConfigured");
   const statusType = isAvailable
     ? "enabled"
     : isConfigured
-    ? "partial"
-    : "disabled";
+      ? "partial"
+      : "disabled";
   const statusDotColor = isAvailable
     ? "rgba(20, 184, 166, 1)"
     : isConfigured
-    ? "#faad14"
-    : "#d9d9d9";
+      ? "#faad14"
+      : "#d9d9d9";
   const statusDotShadow = isAvailable
     ? "0 0 0 2px rgba(82, 196, 26, 0.2)"
     : isConfigured
-    ? "0 0 0 2px rgba(250, 173, 20, 0.2)"
-    : "none";
+      ? "0 0 0 2px rgba(250, 173, 20, 0.2)"
+      : "none";
 
   return (
     <Card hoverable className={styles.providerCard}>
@@ -115,8 +115,8 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
               statusType === "enabled"
                 ? styles.enabled
                 : statusType === "partial"
-                ? styles.partial
-                : styles.disabled
+                  ? styles.partial
+                  : styles.disabled
             }`}
           >
             {statusLabel}
