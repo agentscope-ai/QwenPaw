@@ -1077,6 +1077,26 @@ class MCPClientConfig(BaseModel):
         if "isActive" in payload and "enabled" not in payload:
             payload["enabled"] = payload["isActive"]
 
+        # Resolve empty env values from os.environ at load time so that
+        # env vars set via the UI (persisted in envs.json) are picked up
+        # even if agent.json was created before the key was configured.
+        if isinstance(payload.get("env"), dict):
+            original_env = dict(payload["env"])
+            resolved_env = {
+                k: (v if v else os.environ.get(k, v))
+                for k, v in original_env.items()
+            }
+            payload["env"] = resolved_env
+            # If client was disabled solely because a required env key was
+            # missing (empty), re-enable it now that the key is available.
+            if not payload.get("enabled", True):
+                key_newly_available = any(
+                    not original_env[k] and resolved_env[k]
+                    for k in original_env
+                )
+                if key_newly_available:
+                    payload["enabled"] = True
+
         if "baseUrl" in payload and "url" not in payload:
             payload["url"] = payload["baseUrl"]
 
