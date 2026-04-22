@@ -3,9 +3,17 @@
 # -----------------------------------------------------------------------------
 FROM agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/node:slim AS console-builder
 WORKDIR /app
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 COPY console /app/console
-RUN cd /app/console && npm ci --include=dev && npm run build
-
+RUN cd /app/console && \
+    git init && \
+    git config --global user.email "build@example.com" && \
+    git config --global user.name "BuildBot" && \
+    git add . && \
+    git commit -m "chore: build simulation" && \
+    npm ci --include=dev && \
+    npm run build
+    
 # -----------------------------------------------------------------------------
 # Stage 2: runtime image with Python, Chromium, and app.
 # -----------------------------------------------------------------------------
