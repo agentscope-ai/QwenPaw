@@ -495,7 +495,10 @@ async def list_agent_files(
     except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
-    workspace_manager = AgentMdManager(str(workspace.workspace_dir))
+    workspace_manager = AgentMdManager(
+        str(workspace.workspace_dir),
+        agent_id=workspace.agent_id,
+    )
 
     try:
         files = [
@@ -526,7 +529,10 @@ async def read_agent_file(
     except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
-    workspace_manager = AgentMdManager(str(workspace.workspace_dir))
+    workspace_manager = AgentMdManager(
+        str(workspace.workspace_dir),
+        agent_id=workspace.agent_id,
+    )
 
     try:
         content = workspace_manager.read_working_md(filename)
@@ -560,7 +566,10 @@ async def write_agent_file(
     except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
-    workspace_manager = AgentMdManager(str(workspace.workspace_dir))
+    workspace_manager = AgentMdManager(
+        str(workspace.workspace_dir),
+        agent_id=workspace.agent_id,
+    )
 
     try:
         workspace_manager.write_working_md(filename, file_content.content)
@@ -587,7 +596,10 @@ async def list_agent_memory(
     except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
-    workspace_manager = AgentMdManager(str(workspace.workspace_dir))
+    workspace_manager = AgentMdManager(
+        str(workspace.workspace_dir),
+        agent_id=workspace.agent_id,
+    )
 
     try:
         files = [

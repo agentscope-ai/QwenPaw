@@ -13,7 +13,6 @@ from agentscope.message import Msg
 from agentscope.tool import Toolkit
 
 from ....config.config import load_agent_config
-from ...prompt import get_active_model_supports_multimodal
 from ...tools import (
     browser_use,
     execute_shell_command,
@@ -117,6 +116,8 @@ async def _initialize_single_proactive_agent(
     toolkit.register_tool_function(execute_shell_command)
 
     # Register desktop_screenshot only if the model supports multimodal
+    from ...prompt import get_active_model_supports_multimodal
+
     if get_active_model_supports_multimodal():
         toolkit.register_tool_function(desktop_screenshot)
 
