@@ -7,7 +7,8 @@ lifecycle status (submitted / pending / running / finished) — no details.
 
 This module provides:
 
-1. **ProgressStore** – process-level shared registry (``agent_id`` → progress).
+1. **ProgressStore** – process-level shared registry
+   (``(agent_id, session_id)`` → progress).
 2. **ProgressObservingHook** – snapshots agent progress into ProgressStore.
    Writes a structured dict per hook_type; if PlanNotebook is enabled,
    adds a plan overlay.  Configured via ``ProgressObservingConfig``.
@@ -19,11 +20,12 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from agentscope.message import Msg
 from agentscope.tool import ToolResponse
 
+from ...app.agent_context import get_current_session_id
 from .agent_management import (
     _tool_text_response,
     format_background_status_text,
@@ -43,24 +45,59 @@ PLAN_CHANGE_HOOK_TYPE = "plan_change"
 
 
 class _ProgressStore:
-    """Process-level registry mapping ``agent_id`` → progress data.
+    """Process-level registry mapping ``(agent_id, session_id)`` → progress.
 
-    Written by ProgressObservingHook (single writer per agent) and read
-    by ``query_task_detail`` (read-only).  No locking is needed because
-    dict assignment in CPython is atomic under the GIL.
+    Written by ProgressObservingHook (single writer per agent/session)
+    and read by ``query_task_detail`` (read-only).  No locking is needed
+    because dict assignment in CPython is atomic under the GIL.
+
+    The key is a ``(agent_id, session_id)`` tuple so that concurrent
+    sessions on the same agent don't overwrite each other's progress.
+    ``session_id`` may be ``None`` for agents that don't use sessions.
     """
 
     def __init__(self) -> None:
-        self._data: Dict[str, Dict[str, Any]] = {}
+        self._data: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
 
-    def set(self, agent_id: str, progress: Dict[str, Any]) -> None:
-        self._data[agent_id] = progress
+    def set(
+        self,
+        agent_id: str,
+        progress: Dict[str, Any],
+        session_id: Optional[str] = None,
+    ) -> None:
+        self._data[(agent_id, session_id)] = progress
 
-    def get(self, agent_id: str) -> Dict[str, Any]:
-        return self._data.get(agent_id, {})
+    def get(
+        self,
+        agent_id: str,
+        session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Look up progress by (agent_id, session_id).
 
-    def remove(self, agent_id: str) -> None:
-        self._data.pop(agent_id, None)
+        Falls back to ``(agent_id, None)`` if the exact key is not
+        found, so callers that don't know the session still get a
+        result.
+        """
+        result = self._data.get((agent_id, session_id))
+        if result is not None:
+            return result
+        # Fallback: any session for this agent
+        if session_id is not None:
+            result = self._data.get((agent_id, None))
+            if result is not None:
+                return result
+            # Last resort: most recent entry for this agent
+            for key, val in reversed(list(self._data.items())):
+                if key[0] == agent_id:
+                    return val
+        return {}
+
+    def remove(
+        self,
+        agent_id: str,
+        session_id: Optional[str] = None,
+    ) -> None:
+        self._data.pop((agent_id, session_id), None)
 
 
 progress_store = _ProgressStore()
@@ -188,11 +225,17 @@ class ProgressObservingHook:
         try:
             progress = self._build_progress(agent, kwargs, output)
             if progress:
-                progress_store.set(self.agent_id, progress)
+                session_id = get_current_session_id()
+                progress_store.set(
+                    self.agent_id,
+                    progress,
+                    session_id=session_id,
+                )
                 logger.debug(
-                    "ProgressObservingHook[%s]: agent='%s'",
+                    "ProgressObservingHook[%s]: agent='%s' session='%s'",
                     self.hook_type,
                     self.agent_id,
+                    session_id,
                 )
         except Exception:
             logger.exception(
@@ -302,7 +345,11 @@ class ProgressObservingHook:
         """
         try:
             if plan is None:
-                progress_store.remove(self.agent_id)
+                session_id = get_current_session_id()
+                progress_store.remove(
+                    self.agent_id,
+                    session_id=session_id,
+                )
                 return
 
             progress: Dict[str, Any] = {
@@ -310,7 +357,12 @@ class ProgressObservingHook:
                 "last_update": time.time(),
             }
             progress.update(_extract_plan_overlay(plan))
-            progress_store.set(self.agent_id, progress)
+            session_id = get_current_session_id()
+            progress_store.set(
+                self.agent_id,
+                progress,
+                session_id=session_id,
+            )
 
             logger.debug(
                 "ProgressObservingHook[plan_change]: agent='%s' plan='%s'",
@@ -401,7 +453,12 @@ async def query_task_detail(
 
     if agent_id:
         normalized_agent_id = normalize_id(agent_id)
-        progress = progress_store.get(normalized_agent_id or "")
+        # Try session-scoped lookup first, then agent-only
+        task_session = status_result.get("session_id")
+        progress = progress_store.get(
+            normalized_agent_id or "",
+            session_id=task_session,
+        )
         if progress:
             result["live_status"] = progress
 
