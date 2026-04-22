@@ -65,8 +65,8 @@ export function Hero() {
   const mascotSrc = !showIdle
     ? "https://img.alicdn.com/imgextra/i4/O1CN01nMDfdp23mXcSGecsm_!!6000000007298-1-tps-120-120.gif"
     : isHovered || !idlePlayedOnce
-    ? "https://img.alicdn.com/imgextra/i1/O1CN016cb70x1KlwOGcvRgb_!!6000000001205-1-tps-120-120.gif"
-    : "https://img.alicdn.com/imgextra/i1/O1CN01UzhqBc1tym2X8dhl6_!!6000000005971-2-tps-120-120.png";
+      ? "https://img.alicdn.com/imgextra/i1/O1CN016cb70x1KlwOGcvRgb_!!6000000001205-1-tps-120-120.gif"
+      : "https://img.alicdn.com/imgextra/i1/O1CN01UzhqBc1tym2X8dhl6_!!6000000005971-2-tps-120-120.png";
 
   return (
     <>
