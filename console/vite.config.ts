@@ -1,7 +1,7 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
-import { vitePatchable } from "./vite-plugin-patchable";
+// import { vitePatchable } from "./vite-plugin-patchable";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -17,13 +17,13 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
-      vitePatchable({
-        include: ["src/pages"],
-        registryOutput: "src/plugins/generated/registerHostModules.ts",
-        registryImport: "../moduleRegistry",
-        requireMarker: false,
-        verbose: true,
-      }),
+      // vitePatchable({
+      //   include: ["src/pages"],
+      //   registryOutput: "src/plugins/generated/registerHostModules.ts",
+      //   registryImport: "../moduleRegistry",
+      //   requireMarker: false,
+      //   verbose: true,
+      // }),
     ],
     css: {
       modules: {

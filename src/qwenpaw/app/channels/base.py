@@ -960,6 +960,8 @@ class BaseChannel(ABC):
         status = getattr(event, "status", None)
         if status != RunStatus.InProgress:
             return False
+        if self._filter_tool_messages:
+            return False
         data = getattr(event, "data", None) or {}
         if not isinstance(data, dict) or "output" not in data:
             return False

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -22,6 +23,76 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# pylint: disable=unused-argument
+def _should_skip_by_mtime(
+    session_file: Path,
+    start_date: date,
+    end_date: date,
+) -> bool:
+    try:
+        mtime = session_file.stat().st_mtime
+        mtime_date = date.fromtimestamp(mtime)
+        if mtime_date < start_date:
+            logger.debug(
+                "Skipping %s by mtime (%s) before start date %s",
+                session_file.name,
+                mtime_date.isoformat(),
+                start_date.isoformat(),
+            )
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def _should_skip_by_content_range(
+    session_data: dict,
+    start_date_str: str,
+    end_date_str: str,
+) -> bool:
+    memories = (
+        session_data.get("agent", {}).get("memory", {}).get("memories")
+    ) or session_data.get("agent", {}).get("memory", {}).get("content", [])
+
+    if not memories:
+        return True
+
+    timestamps: list[str] = []
+    for msg_item in memories:
+        if isinstance(msg_item, list) and len(msg_item) > 0:
+            msg_data = msg_item[0]
+        elif isinstance(msg_item, dict):
+            msg_data = msg_item
+        else:
+            continue
+
+        if not isinstance(msg_data, dict):
+            continue
+
+        timestamp = msg_data.get("timestamp")
+        if timestamp:
+            timestamps.append(str(timestamp)[:10])
+
+    if not timestamps:
+        return True
+
+    first_date = timestamps[0]
+    last_date = timestamps[-1]
+
+    if last_date < start_date_str or first_date > end_date_str:
+        logger.debug(
+            "Skipping session by content range [%s, %s] "
+            "outside target [%s, %s]",
+            first_date,
+            last_date,
+            start_date_str,
+            end_date_str,
+        )
+        return True
+
+    return False
 
 
 # pylint:disable=too-many-statements,too-many-branches
@@ -101,8 +172,8 @@ def _process_session_file(
     except Exception as e:
         logger.debug("Failed to count messages in session: %s", e)
 
-    if has_messages_in_range:
-        stats["session_count"] += 1
+    if has_messages_in_range and channel in channel_stats:
+        channel_stats[channel]["session_count"] += 1
 
     return tool_call_count, has_messages_in_range
 
@@ -177,34 +248,52 @@ class AgentStatsService:
                     if name.endswith(".json")
                 ]
 
-                async def _process_one(session_file: Path) -> tuple[int, bool]:
-                    try:
-                        async with aiofiles.open(
-                            session_file,
-                            "r",
-                            encoding="utf-8",
-                        ) as f:
-                            session_data = orjson.loads(await f.read())
-                    except Exception as e:
-                        logger.debug(
-                            "Failed to read session file %s: %s",
-                            session_file,
-                            e,
-                        )
-                        return 0, False
-                    stem = session_file.stem
-                    channel = session_file_to_channel.get(stem, "console")
+                session_fd_sem = asyncio.Semaphore((os.cpu_count() or 4) * 2)
 
-                    return _process_session_file(
-                        session_data,
-                        start_date_str,
-                        end_date_str,
-                        daily_stats,
-                        channel_stats,
-                        channel,
-                        stem,
-                        active_sessions,
-                    )
+                async def _process_one(session_file: Path) -> tuple[int, bool]:
+                    async with session_fd_sem:
+                        if _should_skip_by_mtime(
+                            session_file,
+                            start_date,
+                            end_date,
+                        ):
+                            return 0, False
+
+                        try:
+                            async with aiofiles.open(
+                                session_file,
+                                "r",
+                                encoding="utf-8",
+                            ) as f:
+                                session_data = orjson.loads(await f.read())
+                        except Exception as e:
+                            logger.debug(
+                                "Failed to read session file %s: %s",
+                                session_file,
+                                e,
+                            )
+                            return 0, False
+
+                        if _should_skip_by_content_range(
+                            session_data,
+                            start_date_str,
+                            end_date_str,
+                        ):
+                            return 0, False
+
+                        stem = session_file.stem
+                        channel = session_file_to_channel.get(stem, "console")
+
+                        return _process_session_file(
+                            session_data,
+                            start_date_str,
+                            end_date_str,
+                            daily_stats,
+                            channel_stats,
+                            channel,
+                            stem,
+                            active_sessions,
+                        )
 
                 tasks = [_process_one(sf) for sf in session_files]
                 results = await asyncio.gather(*tasks, return_exceptions=True)

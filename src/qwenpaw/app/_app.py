@@ -4,6 +4,7 @@ import inspect
 import asyncio
 import mimetypes
 import os
+import subprocess
 import sys
 import time
 import uuid
@@ -443,6 +444,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     _bg_task = asyncio.create_task(_background_startup())
 
+    # Schedule console staleness check to print after uvicorn's
+    # "Running on" message.
+    if _CONSOLE_STATIC_DIR:
+        asyncio.create_task(_warn_stale_console())
+
     try:
         yield
     finally:
@@ -573,6 +579,56 @@ _CONSOLE_INDEX = (
     Path(_CONSOLE_STATIC_DIR) / "index.html" if _CONSOLE_STATIC_DIR else None
 )
 logger.info(f"STATIC_DIR: {_CONSOLE_STATIC_DIR}")
+
+
+def _check_console_staleness() -> None:
+    """Check if console frontend build matches current repo commit."""
+    if not _CONSOLE_STATIC_DIR:
+        return
+
+    # Only relevant for source installs (repo has .git)
+    repo_dir = Path(__file__).resolve().parent.parent.parent.parent
+    if not (repo_dir / ".git").exists():
+        return
+
+    # Get current repo commit
+    try:
+        current = (
+            subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=str(repo_dir),
+                stderr=subprocess.DEVNULL,
+            )
+            .decode()
+            .strip()
+        )
+    except Exception:
+        return
+
+    build_hash_file = Path(_CONSOLE_STATIC_DIR) / ".build_hash"
+    if not build_hash_file.exists():
+        print(
+            "\n[WARNING] Console frontend has no version info. "
+            "If installed from source, consider rebuilding:\n"
+            "   cd console && npm ci && npm run build\n",
+            file=sys.stderr,
+        )
+        return
+
+    built = build_hash_file.read_text().strip()
+    if built != current:
+        print(
+            f"\n[WARNING] Console frontend may be outdated "
+            f"(built at {built}, repo now at {current}).\n"
+            f"   Run `cd console && npm ci && npm run build` to update.\n",
+            file=sys.stderr,
+        )
+
+
+async def _warn_stale_console() -> None:
+    """Print staleness warning after uvicorn's 'Running on' message."""
+    await asyncio.sleep(0.2)
+    _check_console_staleness()
 
 
 @app.get("/")

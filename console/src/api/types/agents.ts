@@ -1,11 +1,14 @@
 // Multi-agent management types
 
+import type { ModelSlotConfig } from "./provider";
+
 export interface AgentSummary {
   id: string;
   name: string;
   description: string;
   workspace_dir: string;
   enabled: boolean;
+  active_model?: ModelSlotConfig | null;
 }
 
 export interface AgentListResponse {
@@ -22,6 +25,7 @@ export interface AgentProfileConfig {
   name: string;
   description?: string;
   workspace_dir?: string;
+  active_model?: ModelSlotConfig | null;
   channels?: unknown;
   mcp?: unknown;
   heartbeat?: unknown;
@@ -39,6 +43,7 @@ export interface CreateAgentRequest {
   workspace_dir?: string;
   language?: string;
   skill_names?: string[];
+  active_model?: ModelSlotConfig | null;
 }
 
 export interface AgentProfileRef {

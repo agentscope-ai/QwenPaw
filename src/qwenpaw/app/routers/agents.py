@@ -3,6 +3,7 @@
 
 Provides RESTful API for managing multiple agent instances.
 """
+
 import json
 import logging
 from pathlib import Path
@@ -19,6 +20,7 @@ from ..utils import schedule_agent_reload
 from ...config.config import (
     AgentProfileConfig,
     AgentProfileRef,
+    ModelSlotConfig,
     load_agent_config,
     save_agent_config,
     generate_short_agent_id,
@@ -45,6 +47,7 @@ class AgentSummary(BaseModel):
     description: str
     workspace_dir: str
     enabled: bool
+    active_model: ModelSlotConfig | None = None
 
 
 class AgentListResponse(BaseModel):
@@ -73,6 +76,7 @@ class CreateAgentRequest(BaseModel):
     workspace_dir: str | None = None
     language: str = "en"
     skill_names: list[str] | None = None
+    active_model: ModelSlotConfig | None = None
 
     @field_validator("id", mode="before")
     @classmethod
@@ -192,6 +196,8 @@ async def list_agents() -> AgentListResponse:
                 else:
                     description = profile_desc
 
+            active_model = agent_config.active_model
+
             agents.append(
                 AgentSummary(
                     id=agent_id,
@@ -199,6 +205,7 @@ async def list_agents() -> AgentListResponse:
                     description=description,
                     workspace_dir=agent_ref.workspace_dir,
                     enabled=getattr(agent_ref, "enabled", True),
+                    active_model=active_model,
                 ),
             )
         except Exception:  # noqa: E722
@@ -332,6 +339,7 @@ async def create_agent(
         mcp=MCPConfig(),
         heartbeat=HeartbeatConfig(),
         tools=ToolsConfig(),
+        active_model=request.active_model,
     )
 
     _initialize_agent_workspace(
