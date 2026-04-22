@@ -1,3 +1,5 @@
+![QwenPaw README Banner](docs/readme-banner.png)
+
 <div align="center">
 
 # QwenPaw
