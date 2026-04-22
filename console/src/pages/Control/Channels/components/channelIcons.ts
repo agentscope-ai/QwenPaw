@@ -26,6 +26,8 @@ export const CHANNEL_ICON_URLS: Record<string, string> = {
     "https://gw.alicdn.com/imgextra/i1/O1CN01HWtzmr1hkK9beQICJ_!!6000000004315-2-tps-400-400.png",
   weixin:
     "https://gw.alicdn.com/imgextra/i4/O1CN01GsAob11fkfDWVIb3R_!!6000000004045-2-tps-400-400.png",
+  onebot:
+    "https://gw.alicdn.com/imgextra/i3/O1CN01xqM0EN1oKrRiAFX3K_!!6000000005207-2-tps-400-400.png",
 };
 
 /** Get the CDN icon URL for a channel, or undefined if none exists. */
