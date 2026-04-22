@@ -92,6 +92,19 @@ function AgentConfigPage() {
           </div>
         ),
       },
+      {
+        key: "semanticRouting",
+        label: (
+          <span className={styles.tabLabel}>
+            {t("agentConfig.semanticRouting.title")}
+          </span>
+        ),
+        children: (
+          <div className={styles.tabContent}>
+            <SemanticRoutingCard />
+          </div>
+        ),
+      },
     ];
 
     const contextMapping = CONTEXT_MANAGER_BACKEND_MAPPINGS[contextBackend];

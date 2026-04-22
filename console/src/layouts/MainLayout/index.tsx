@@ -38,10 +38,6 @@ const VoiceTranscriptionPage = lazyImportWithRetry(
 const AgentsPage = lazyImportWithRetry("../../pages/Settings/Agents");
 const DebugPage = lazyImportWithRetry("../../pages/Settings/Debug");
 const BackupsPage = lazyImportWithRetry("../../pages/Settings/Backups");
-const SemanticRoutingPage = lazyImportWithRetry(
-  "../../pages/Settings/SemanticRouting",
-);
-
 
 const { Content } = Layout;
 
