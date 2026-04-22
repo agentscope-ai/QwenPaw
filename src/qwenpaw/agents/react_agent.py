@@ -66,6 +66,7 @@ from ..constant import (
 
 if TYPE_CHECKING:
     from ..agents.memory import BaseMemoryManager
+    from ..agents.context import BaseContextManager
     from ..config.config import AgentProfileConfig
     from .context import AgentContext
 
