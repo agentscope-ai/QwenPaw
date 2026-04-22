@@ -5,7 +5,7 @@ Shared spec for both macOS and Windows — builds a single onefile binary.
 """
 
 from pathlib import Path
-from PyInstaller.utils.hooks import copy_metadata
+from PyInstaller.utils.hooks import copy_metadata, collect_submodules
 
 REPO_ROOT = Path(SPECPATH).parent.parent
 
@@ -75,7 +75,7 @@ a = Analysis(
         'qwenpaw.app.channels.onebot',
         'qwenpaw.app.channels.xiaoyi',
         'qwenpaw.app.channels.voice',
-        'dotenv',
+        *collect_submodules('dotenv'),
         'multipart',
         'websockets',
         # CLI commands (dynamically loaded by Click)
