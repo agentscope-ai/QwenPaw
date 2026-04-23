@@ -18,18 +18,23 @@ export default defineConfig(({ mode }) => {
     build: {
       rollupOptions: {
         output: {
-          manualChunks: {
-            markdown: [
-              "react-markdown",
-              "remark-gfm",
-              "rehype-highlight",
-              "rehype-raw",
-              "highlight.js",
-              "react-syntax-highlighter",
-            ],
-            mermaid: ["mermaid"],
-            router: ["react-router-dom"],
-            i18n: ["i18next", "react-i18next"],
+          manualChunks(id) {
+            const chunks: Record<string, string[]> = {
+              markdown: [
+                "react-markdown",
+                "remark-gfm",
+                "rehype-highlight",
+                "rehype-raw",
+                "highlight.js",
+                "react-syntax-highlighter",
+              ],
+              mermaid: ["mermaid"],
+              router: ["react-router-dom"],
+              i18n: ["i18next", "react-i18next"],
+            };
+            for (const [name, pkgs] of Object.entries(chunks)) {
+              if (pkgs.some((pkg) => id.includes(pkg))) return name;
+            }
           },
         },
       },
