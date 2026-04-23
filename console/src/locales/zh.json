@@ -505,6 +505,7 @@
     "name": "任务名称",
     "enabled": "启用状态",
     "scheduleType": "调度类型",
+    "scheduleFilterAll": "全部调度类型",
     "scheduleTypeRecurring": "循环任务",
     "scheduleTypeOnce": "一次性任务",
     "scheduleCron": "执行时间（Cron）",
@@ -592,16 +593,7 @@
     "calendarView": "日历视图",
     "calendarEmptyHint": "暂无一次性任务。创建一次性任务后会显示在日历中。",
     "calendarMoreItems": "还有 {{count}} 项",
-    "calendarDayListTitle": "{{date}} 的一次性任务",
-    "executionHistory": "执行记录",
-    "historyTitle": "执行记录 - {{name}}",
-    "historyEmpty": "暂无执行记录。",
-    "historyStatusSuccess": "成功",
-    "historyStatusFailed": "失败",
-    "historyStatusRunning": "执行中",
-    "historyStatusCancelled": "已取消",
-    "historyTriggerScheduled": "定时触发",
-    "historyTriggerManual": "手动触发"
+    "calendarDayListTitle": "{{date}} 的一次性任务"
   },
   "channels": {
     "title": "频道",

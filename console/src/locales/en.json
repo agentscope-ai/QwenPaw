@@ -651,6 +651,7 @@
     "name": "Job Name",
     "enabled": "Status",
     "scheduleType": "Schedule Type",
+    "scheduleFilterAll": "All Schedule Types",
     "scheduleTypeRecurring": "Recurring",
     "scheduleTypeOnce": "One-time",
     "scheduleCron": "Schedule (Cron)",
@@ -738,16 +739,7 @@
     "calendarView": "Calendar View",
     "calendarEmptyHint": "No one-time jobs yet. Create one-time jobs to see them on the calendar.",
     "calendarMoreItems": "+{{count}} more",
-    "calendarDayListTitle": "One-time jobs on {{date}}",
-    "executionHistory": "Execution History",
-    "historyTitle": "Execution History - {{name}}",
-    "historyEmpty": "No execution records yet.",
-    "historyStatusSuccess": "Success",
-    "historyStatusFailed": "Failed",
-    "historyStatusRunning": "Running",
-    "historyStatusCancelled": "Cancelled",
-    "historyTriggerScheduled": "Triggered by schedule",
-    "historyTriggerManual": "Triggered manually"
+    "calendarDayListTitle": "One-time jobs on {{date}}"
   },
   "channels": {
     "title": "Channels",

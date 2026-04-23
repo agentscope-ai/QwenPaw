@@ -5,6 +5,7 @@ import {
   Form,
   Modal,
   Popover,
+  Select,
   Table,
 } from "@agentscope-ai/design";
 import {
@@ -16,10 +17,7 @@ import {
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
-import type {
-  CronJobExecutionRecord,
-  CronJobSpecOutput,
-} from "../../../api/types";
+import type { CronJobSpecOutput } from "../../../api/types";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import {
@@ -37,6 +35,7 @@ type OneTimeCronJob = CronJob & {
   schedule: { type: "once"; run_at: string; timezone?: string };
 };
 type CronViewMode = "list" | "calendar";
+type ScheduleTypeFilter = "all" | "cron" | "once";
 type OneTimeJobEvent = {
   job: OneTimeCronJob;
   runAtInUserTimezone: dayjs.Dayjs;
@@ -60,16 +59,12 @@ function CronJobsPage() {
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
   const [saving, setSaving] = useState(false);
   const [viewMode, setViewMode] = useState<CronViewMode>("list");
+  const [scheduleTypeFilter, setScheduleTypeFilter] =
+    useState<ScheduleTypeFilter>("all");
   const [calendarMonth, setCalendarMonth] = useState(dayjs());
   const [activePopoverDate, setActivePopoverDate] = useState<string | null>(
     null,
   );
-  const [historyModalOpen, setHistoryModalOpen] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyRecords, setHistoryRecords] = useState<
-    CronJobExecutionRecord[]
-  >([]);
-  const [historyJobName, setHistoryJobName] = useState("");
   const [userTimezone, setUserTimezone] = useState("UTC");
   const [form] = Form.useForm<CronJob>();
   const userTimezoneRef = useRef("UTC");
@@ -183,21 +178,6 @@ function CronJobsPage() {
     setEditingJob(null);
   };
 
-  const handleViewHistory = async (job: CronJob) => {
-    setHistoryJobName(job.name);
-    setHistoryModalOpen(true);
-    setHistoryLoading(true);
-    try {
-      const records = await api.getCronJobHistory(job.id);
-      setHistoryRecords(records || []);
-    } catch (error) {
-      console.error("Failed to fetch cron history", error);
-      setHistoryRecords([]);
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-
   const handleSubmit = async (values: any) => {
     let schedule: any = values.schedule || {};
     if ((values.scheduleType || "cron") === "once") {
@@ -289,7 +269,6 @@ function CronJobsPage() {
   const columns = createColumns({
     onToggleEnabled: handleToggleEnabled,
     onExecuteNow: handleExecuteNow,
-    onViewHistory: handleViewHistory,
     onEdit: handleEdit,
     onDelete: handleDelete,
     t,
@@ -316,6 +295,11 @@ function CronJobsPage() {
         ),
     [jobs],
   );
+
+  const filteredListJobs = useMemo(() => {
+    if (scheduleTypeFilter === "all") return jobs;
+    return jobs.filter((job) => job.schedule?.type === scheduleTypeFilter);
+  }, [jobs, scheduleTypeFilter]);
 
   const oneTimeJobEvents = useMemo<OneTimeJobEvent[]>(
     () =>
@@ -377,6 +361,27 @@ function CronJobsPage() {
                 <CalendarOutlined />
               </button>
             </div>
+            {viewMode === "list" && (
+              <Select<ScheduleTypeFilter>
+                value={scheduleTypeFilter}
+                onChange={setScheduleTypeFilter}
+                style={{ width: 200 }}
+                options={[
+                  {
+                    label: t("cronJobs.scheduleFilterAll"),
+                    value: "all",
+                  },
+                  {
+                    label: t("cronJobs.scheduleTypeRecurring"),
+                    value: "cron",
+                  },
+                  {
+                    label: t("cronJobs.scheduleTypeOnce"),
+                    value: "once",
+                  },
+                ]}
+              />
+            )}
             <Button type="primary" onClick={handleCreate}>
               + {t("cronJobs.createJob")}
             </Button>
@@ -388,7 +393,7 @@ function CronJobsPage() {
         <Card className={styles.tableCard} bodyStyle={{ padding: 0 }}>
           <Table
             columns={columns}
-            dataSource={jobs}
+            dataSource={filteredListJobs}
             loading={loading}
             rowKey="id"
             scroll={{ x: 2840 }}
@@ -532,61 +537,6 @@ function CronJobsPage() {
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
       />
-
-      <Modal
-        visible={historyModalOpen}
-        title={t("cronJobs.historyTitle", { name: historyJobName })}
-        footer={null}
-        onCancel={() => setHistoryModalOpen(false)}
-      >
-        <div className={styles.historyList}>
-          {historyLoading ? (
-            <div className={styles.historyEmpty}>{t("common.loading")}</div>
-          ) : historyRecords.length === 0 ? (
-            <div className={styles.historyEmpty}>
-              {t("cronJobs.historyEmpty")}
-            </div>
-          ) : (
-            historyRecords.map((record, index) => (
-              <div
-                key={`${record.run_at}-${index}`}
-                className={styles.historyItem}
-              >
-                <div className={styles.historyItemMain}>
-                  <span className={styles.historyItemTime}>
-                    {dayjs(record.run_at)
-                      .tz(userTimezone)
-                      .format("YYYY-MM-DD HH:mm:ss")}
-                  </span>
-                  <span
-                    className={`${styles.historyItemStatus} ${
-                      record.status === "success"
-                        ? styles.historyItemStatusSuccess
-                        : styles.historyItemStatusError
-                    }`}
-                  >
-                    {record.status === "success"
-                      ? t("cronJobs.historyStatusSuccess")
-                      : record.status === "running"
-                      ? t("cronJobs.historyStatusRunning")
-                      : record.status === "cancelled"
-                      ? t("cronJobs.historyStatusCancelled")
-                      : t("cronJobs.historyStatusFailed")}
-                  </span>
-                </div>
-                <div className={styles.historyItemMeta}>
-                  {record.trigger === "manual"
-                    ? t("cronJobs.historyTriggerManual")
-                    : t("cronJobs.historyTriggerScheduled")}
-                </div>
-                {record.error && (
-                  <div className={styles.historyItemError}>{record.error}</div>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-      </Modal>
     </div>
   );
 }
