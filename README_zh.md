@@ -40,6 +40,8 @@
 >
 > **全域触达** — 钉钉、飞书、微信、Discord、Telegram 等频道，一个 QwenPaw 按需连接。
 >
+> **自进化与主动交互** — 智能体从交互中学习、反思经验、主动服务，越用越聪明。
+>
 > <details>
 > <summary><b>你可以用 QwenPaw 做什么</b></summary>
 >
@@ -433,6 +435,7 @@ QwenPaw 可在本机完全本地运行大模型，无需 API Key 或云端服务
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)         | 扩展与自定义能力                     |
 | [MCP和工具](https://qwenpaw.agentscope.io/docs/mcp)         | 管理 MCP 客户端和工具                |
 | [记忆](https://qwenpaw.agentscope.io/docs/memory)           | 长期记忆机制                         |
+| [自进化与主动交互](https://qwenpaw.agentscope.io/docs/self-evolving-and-proactive) | 智能体自进化与主动交互               |
 | [上下文](https://qwenpaw.agentscope.io/docs/context)        | 上下文管理机制                       |
 | [魔法命令](https://qwenpaw.agentscope.io/docs/commands)     | 控制对话状态，无需等待 AI 理解       |
 | [安全](https://qwenpaw.agentscope.io/docs/security)         | 工具防护、文件防护、技能安全扫描     |

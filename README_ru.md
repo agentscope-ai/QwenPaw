@@ -384,6 +384,7 @@ qwenpaw app # запустите сервис
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)             | Расширение и настройка возможностей             |
 | [MCP и инструменты](https://qwenpaw.agentscope.io/docs/mcp)     | Управление MCP-клиентами и инструментами       |
 | [Память](https://qwenpaw.agentscope.io/docs/memory)             | Механизм долговременной памяти                  |
+| [Саморазвитие и проактивное взаимодействие](https://qwenpaw.agentscope.io/docs/self-evolving-and-proactive) | Саморазвитие агента и проактивное взаимодействие |
 | [Контекст](https://qwenpaw.agentscope.io/docs/context)          | Механизм управления контекстом                  |
 | [Магические команды](https://qwenpaw.agentscope.io/docs/commands) | Управление состоянием диалога без ожидания AI |
 | [Безопасность](https://qwenpaw.agentscope.io/docs/security)     | Защита инструментов, защита файлов, сканирование безопасности навыков |
