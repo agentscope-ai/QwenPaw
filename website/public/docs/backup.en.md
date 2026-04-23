@@ -163,6 +163,22 @@ Steps:
 
 ---
 
+## Notes for Docker Users
+
+The backup directory inside a Docker container is `/app/working.backups`. If you deploy with Docker, you need to mount this directory to persist backup data — otherwise all backups will be lost when the container is recreated.
+
+Add `-v qwenpaw-backups:/app/working.backups` to your `docker run` command:
+
+```bash
+docker run -p 127.0.0.1:8088:8088 \
+  -v qwenpaw-data:/app/working \
+  -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
+  agentscope/qwenpaw:latest
+```
+
+---
+
 ## FAQ
 
 **Q: Will the backup include local models I downloaded?**
