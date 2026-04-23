@@ -1076,6 +1076,11 @@
     "maxItersMin": "最大反復回数は1以上である必要があります",
     "autoContinueOnTextOnly": "テキストのみのステップで自動継続",
     "autoContinueOnTextOnlyTooltip": "推論ステップがツール呼び出しなしのテキストのみで終わった場合、ヒントを挿入し同じツール方針でもう1回推論します。多段階タスクの途中停止を減らします。オフにすると従来どおりです。有効時はトークン消費が増える場合があります。",
+    "shellCommandTimeout": "Shellコマンドタイムアウト（秒）",
+    "shellCommandTimeoutTooltip": "execute_shell_commandツールのデフォルトタイムアウト（秒）。LLMはtimeoutパラメータで呼び出しごとにこの値を上書きできます。コンパイルやデータ処理などの長時間タスクに便利です。",
+    "shellCommandTimeoutPlaceholder": "タイムアウトを入力",
+    "shellCommandTimeoutRequired": "Shellコマンドタイムアウトは必須です",
+    "shellCommandTimeoutMin": "Shellコマンドタイムアウトは1秒以上である必要があります",
     "planMode": "プランモード",
     "planModeTooltip": "/plan <説明> で構造化タスクプランニングを使用できます。有効にするとプラン関連ツールが登録され、プランパネルが表示されます。",
     "maxInputLength": "最大入力長",
@@ -1409,6 +1414,19 @@
         "TOOL_CMD_SERVICE_RESTART": "システムサービスを中断させる可能性のあるサービス管理コマンドを検出",
         "TOOL_CMD_PROCESS_KILL": "重要なプロセスを終了させる可能性のあるプロセス終了コマンドを検出",
         "TOOL_CMD_PRIVILEGE_ESCALATION": "sudo、su、doas、pkexec、または runas を使用した権限昇格の試みを検出"
+      },
+      "categories": {
+        "command_injection": "コマンドインジェクション",
+        "code_execution": "コード実行",
+        "data_exfiltration": "データ漏洩",
+        "path_traversal": "パストラバーサル",
+        "sensitive_file_access": "機密ファイルアクセス",
+        "network_abuse": "ネットワーク不正利用",
+        "credential_exposure": "認証情報漏洩",
+        "resource_abuse": "リソース不正利用",
+        "privilege_escalation": "権限昇格",
+        "prompt_injection": "プロンプトインジェクション",
+        "other": "その他"
       }
     },
     "fileGuard": {

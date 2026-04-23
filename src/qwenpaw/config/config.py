@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import os
 import json
 import re
 from pathlib import Path
@@ -806,6 +805,16 @@ class AgentsRunningConfig(BaseModel):
         ),
     )
 
+    shell_command_timeout: float = Field(
+        default=60.0,
+        ge=1.0,
+        description=(
+            "Default timeout in seconds for execute_shell_command. "
+            "The LLM may still override this per-call via the timeout "
+            "parameter."
+        ),
+    )
+
     @model_validator(mode="after")
     def validate_llm_retry_backoff(self) -> "AgentsRunningConfig":
         """Validate LLM retry backoff relationships."""
@@ -1159,11 +1168,10 @@ class MCPConfig(BaseModel):
         default_factory=lambda: {
             "tavily_search": MCPClientConfig(
                 name="tavily_mcp",
-                # Auto-enable if TAVILY_API_KEY exists in environment
-                enabled=bool(os.getenv("TAVILY_API_KEY")),
+                enabled=False,
                 command="npx",
                 args=["-y", "tavily-mcp@latest"],
-                env={"TAVILY_API_KEY": os.getenv("TAVILY_API_KEY", "")},
+                env={"TAVILY_API_KEY": ""},
             ),
         },
     )

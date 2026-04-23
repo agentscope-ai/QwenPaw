@@ -54,6 +54,7 @@ RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504, 529}
 
 _openai_retryable: tuple[type[Exception], ...] | None = None
 _anthropic_retryable: tuple[type[Exception], ...] | None = None
+_httpx_retryable: tuple[type[Exception], ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,9 +122,28 @@ def _get_anthropic_retryable() -> tuple[type[Exception], ...]:
     return _anthropic_retryable
 
 
+def _get_httpx_retryable() -> tuple[type[Exception], ...]:
+    global _httpx_retryable
+    if _httpx_retryable is None:
+        try:
+            import httpx
+
+            _httpx_retryable = (
+                httpx.RemoteProtocolError,
+                httpx.TimeoutException,
+            )
+        except ImportError:
+            _httpx_retryable = ()
+    return _httpx_retryable
+
+
 def _is_retryable(exc: Exception) -> bool:
     """Return *True* if *exc* should trigger a retry."""
-    retryable = _get_openai_retryable() + _get_anthropic_retryable()
+    retryable = (
+        _get_openai_retryable()
+        + _get_anthropic_retryable()
+        + _get_httpx_retryable()
+    )
     if retryable and isinstance(exc, retryable):
         return True
 

@@ -1,4 +1,12 @@
-import { Table, Tag, Switch, Button, Tooltip } from "@agentscope-ai/design";
+import { useMemo } from "react";
+import {
+  Table,
+  Tag,
+  Switch,
+  Button,
+  Tooltip,
+  Collapse,
+} from "@agentscope-ai/design";
 import { Space } from "antd";
 import { Eye, Pencil, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -23,6 +31,20 @@ interface RuleTableProps {
   onDeleteRule: (ruleId: string) => void;
 }
 
+function groupRulesByCategory(
+  rules: MergedRule[],
+): Record<string, MergedRule[]> {
+  const groups: Record<string, MergedRule[]> = {};
+  for (const rule of rules) {
+    const category = rule.category || "other";
+    if (!groups[category]) {
+      groups[category] = [];
+    }
+    groups[category].push(rule);
+  }
+  return groups;
+}
+
 export function RuleTable({
   rules,
   enabled,
@@ -34,6 +56,8 @@ export function RuleTable({
   const { t } = useTranslation();
   const { isDark } = useTheme();
   const darkBtnStyle = isDark ? { color: "rgba(255,255,255,0.75)" } : undefined;
+
+  const groupedRules = useMemo(() => groupRulesByCategory(rules), [rules]);
 
   const columns = [
     {
@@ -166,14 +190,44 @@ export function RuleTable({
     },
   ];
 
+  const categoryKeys = Object.keys(groupedRules);
+
+  const collapseItems = categoryKeys.map((category) => {
+    const categoryRules = groupedRules[category];
+    const enabledCount = categoryRules.filter((r) => !r.disabled).length;
+    const totalCount = categoryRules.length;
+    const categoryLabel =
+      t(`security.rules.categories.${category}`, { defaultValue: "" }) ||
+      category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+    return {
+      key: category,
+      label: (
+        <span className={styles.collapseCategoryLabel}>
+          {categoryLabel}
+          <Tag style={{ marginLeft: 8 }}>
+            {enabledCount}/{totalCount}
+          </Tag>
+        </span>
+      ),
+      children: (
+        <Table
+          dataSource={categoryRules}
+          columns={columns}
+          rowKey="id"
+          pagination={false}
+          size="small"
+          className={styles.ruleTable}
+        />
+      ),
+    };
+  });
+
   return (
-    <Table
-      dataSource={rules}
-      columns={columns}
-      rowKey="id"
-      pagination={false}
-      size="small"
-      className={styles.ruleTable}
+    <Collapse
+      defaultActiveKey={categoryKeys}
+      items={collapseItems}
+      className={styles.ruleCollapse}
     />
   );
 }
