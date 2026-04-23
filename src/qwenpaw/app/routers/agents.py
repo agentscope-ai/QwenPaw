@@ -28,7 +28,6 @@ from ...config.config import (
     validate_agent_id,
 )
 from ...config.utils import load_config, save_config
-from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.utils import copy_workspace_md_files
 from ...agents.skills_manager import SkillPoolService, get_workspace_skills_dir
 from ..multi_agent_manager import MultiAgentManager
@@ -99,22 +98,6 @@ class CreateAgentRequest(BaseModel):
             stripped = value.strip()
             return stripped if stripped else None
         return value
-
-
-class MdFileInfo(BaseModel):
-    """Markdown file metadata."""
-
-    filename: str
-    path: str
-    size: int
-    created_time: str
-    modified_time: str
-
-
-class MdFileContent(BaseModel):
-    """Markdown file content."""
-
-    content: str
 
 
 def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
@@ -483,140 +466,6 @@ async def toggle_agent_enabled(
         "agent_id": agentId,
         "enabled": enabled,
     }
-
-
-@router.get(
-    "/{agentId}/files",
-    response_model=list[MdFileInfo],
-    summary="List agent workspace files",
-    description="List all markdown files in agent's workspace",
-)
-async def list_agent_files(
-    agentId: str = PathParam(...),
-    request: Request = None,
-) -> list[MdFileInfo]:
-    """List agent workspace files."""
-    manager = _get_multi_agent_manager(request)
-
-    try:
-        workspace = await manager.get_agent(agentId)
-    except (ValueError, AppBaseException) as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-
-    workspace_manager = AgentMdManager(
-        str(workspace.workspace_dir),
-        agent_id=workspace.agent_id,
-    )
-
-    try:
-        files = [
-            MdFileInfo.model_validate(file)
-            for file in workspace_manager.list_working_mds()
-        ]
-        return files
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.get(
-    "/{agentId}/files/{filename}",
-    response_model=MdFileContent,
-    summary="Read agent workspace file",
-    description="Read a markdown file from agent's workspace",
-)
-async def read_agent_file(
-    agentId: str = PathParam(...),
-    filename: str = PathParam(...),
-    request: Request = None,
-) -> MdFileContent:
-    """Read agent workspace file."""
-    manager = _get_multi_agent_manager(request)
-
-    try:
-        workspace = await manager.get_agent(agentId)
-    except (ValueError, AppBaseException) as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-
-    workspace_manager = AgentMdManager(
-        str(workspace.workspace_dir),
-        agent_id=workspace.agent_id,
-    )
-
-    try:
-        content = workspace_manager.read_working_md(filename)
-        return MdFileContent(content=content)
-    except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail=f"File '{filename}' not found",
-        ) from exc
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.put(
-    "/{agentId}/files/{filename}",
-    response_model=dict,
-    summary="Write agent workspace file",
-    description="Create or update a markdown file in agent's workspace",
-)
-async def write_agent_file(
-    agentId: str = PathParam(...),
-    filename: str = PathParam(...),
-    file_content: MdFileContent = Body(...),
-    request: Request = None,
-) -> dict:
-    """Write agent workspace file."""
-    manager = _get_multi_agent_manager(request)
-
-    try:
-        workspace = await manager.get_agent(agentId)
-    except (ValueError, AppBaseException) as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-
-    workspace_manager = AgentMdManager(
-        str(workspace.workspace_dir),
-        agent_id=workspace.agent_id,
-    )
-
-    try:
-        workspace_manager.write_working_md(filename, file_content.content)
-        return {"written": True, "filename": filename}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.get(
-    "/{agentId}/memory",
-    response_model=list[MdFileInfo],
-    summary="List agent memory files",
-    description="List all memory files for an agent",
-)
-async def list_agent_memory(
-    agentId: str = PathParam(...),
-    request: Request = None,
-) -> list[MdFileInfo]:
-    """List agent memory files."""
-    manager = _get_multi_agent_manager(request)
-
-    try:
-        workspace = await manager.get_agent(agentId)
-    except (ValueError, AppBaseException) as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-
-    workspace_manager = AgentMdManager(
-        str(workspace.workspace_dir),
-        agent_id=workspace.agent_id,
-    )
-
-    try:
-        files = [
-            MdFileInfo.model_validate(file)
-            for file in workspace_manager.list_memory_mds()
-        ]
-        return files
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 def _apply_workspace_md_templates(
