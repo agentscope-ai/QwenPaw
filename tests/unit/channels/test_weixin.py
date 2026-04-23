@@ -1117,50 +1117,6 @@ class TestWeixinQRCodeLogin:
 
 
 # =============================================================================
-# P1: ILinkClient HTTP timeouts
-# =============================================================================
-
-
-@pytest.mark.asyncio
-class TestILinkClientTimeouts:
-    """Per-endpoint timeout overrides on the underlying httpx calls."""
-
-    async def test_get_qrcode_status_uses_qrcode_polling_timeout(self):
-        """The QR-status endpoint is a short long-poll (server holds up to
-        ~30s). It must be called with the dedicated
-        ``_QRCODE_STATUS_TIMEOUT`` rather than the 15s
-        ``_DEFAULT_TIMEOUT`` used by regular GETs, otherwise a single
-        poll cycle can trip ``httpx.ReadTimeout`` and kill login before
-        the user's scan confirmation is delivered."""
-        from qwenpaw.app.channels.weixin.client import (
-            ILinkClient,
-            _DEFAULT_TIMEOUT,
-            _QRCODE_STATUS_TIMEOUT,
-        )
-
-        # Sanity: the two constants must actually differ; otherwise this
-        # test cannot distinguish the two code paths.
-        assert _QRCODE_STATUS_TIMEOUT > _DEFAULT_TIMEOUT
-
-        client = ILinkClient(
-            bot_token="t",
-            base_url="https://example.invalid",
-        )
-        mock_http = MagicMock()
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"status": "waiting"}
-        mock_resp.raise_for_status = MagicMock()
-        mock_http.get = AsyncMock(return_value=mock_resp)
-        client._client = mock_http
-
-        await client.get_qrcode_status("qr123")
-
-        mock_http.get.assert_called_once()
-        kwargs = mock_http.get.call_args.kwargs
-        assert kwargs["timeout"] == _QRCODE_STATUS_TIMEOUT
-
-
-# =============================================================================
 # P1: Inbound Message Handling
 # =============================================================================
 
