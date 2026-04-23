@@ -8,10 +8,7 @@ import {
   SparkMarkFill,
 } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
-import {
-  getChannelIconUrl,
-  getChannelLabel,
-} from "../../../Control/Channels/components";
+import { ChannelIcon } from "../../../Control/Channels/components";
 import type { ChatStatus } from "../../../../api/types/chat";
 import styles from "./index.module.less";
 
@@ -53,11 +50,6 @@ interface ChatSessionItemProps {
 
 const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
   const { t } = useTranslation();
-  const hasVisibleChannelLabel = Boolean(props.channelLabel?.trim());
-  const channelIconAlt =
-    hasVisibleChannelLabel || !props.channelKey
-      ? ""
-      : getChannelLabel(props.channelKey, t);
 
   const inProgress =
     props.generating === true || props.chatStatus === "running";
@@ -118,13 +110,7 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
               title={props.channelLabel || props.channelKey}
             >
               {props.channelKey ? (
-                <img
-                  className={styles.channelIcon}
-                  src={getChannelIconUrl(props.channelKey)}
-                  alt={channelIconAlt}
-                  loading="lazy"
-                  decoding="async"
-                />
+                <ChannelIcon channelKey={props.channelKey} size={14} />
               ) : null}
               {props.channelLabel ? (
                 <span className={styles.channelTagText}>

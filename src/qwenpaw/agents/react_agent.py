@@ -105,6 +105,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         namesake_strategy: NamesakeStrategy = "skip",
         workspace_dir: Path | None = None,
         task_tracker: Any | None = None,
+        plan_notebook: Any | None = None,
     ):
         """Initialize QwenPawAgent.
 
@@ -166,15 +167,18 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             f"{model_info} (class: {model.__class__.__name__})",
         )
         # Initialize parent ReActAgent
-        super().__init__(
-            name="Friday",
-            model=model,
-            sys_prompt=sys_prompt,
-            toolkit=toolkit,
-            memory=InMemoryMemory(),
-            formatter=formatter,
-            max_iters=running_config.max_iters,
-        )
+        init_kwargs: dict[str, Any] = {
+            "name": "Friday",
+            "model": model,
+            "sys_prompt": sys_prompt,
+            "toolkit": toolkit,
+            "memory": InMemoryMemory(),
+            "formatter": formatter,
+            "max_iters": running_config.max_iters,
+        }
+        if plan_notebook is not None:
+            init_kwargs["plan_notebook"] = plan_notebook
+        super().__init__(**init_kwargs)
 
         # Register memory tools provided by the memory manager
         if self.memory_manager is not None:
@@ -657,6 +661,80 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
     _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
 
+    # ------------------------------------------------------------------
+    # Plan gate: block non-create_plan tools when /plan gate is active
+    # ------------------------------------------------------------------
+
+    _PLAN_TOOLS_WITH_JSON_ARGS = frozenset(
+        {
+            "create_plan",
+            "revise_current_plan",
+        },
+    )
+    _PLAN_JSON_KEYS = ("subtask", "subtasks")
+
+    @staticmethod
+    def _fix_stringified_json_args(tool_call) -> None:
+        """Parse JSON-string arguments that models sometimes produce for
+        nested objects (e.g. ``subtask``).  Modifies *tool_call* in place."""
+        import json as _json
+
+        inp = tool_call.get("input")
+        if not isinstance(inp, dict):
+            return
+        for key in QwenPawAgent._PLAN_JSON_KEYS:
+            val = inp.get(key)
+            if isinstance(val, str):
+                try:
+                    inp[key] = _json.loads(val)
+                except (ValueError, TypeError):
+                    pass
+            elif isinstance(val, list):
+                for i, item in enumerate(val):
+                    if isinstance(item, str):
+                        try:
+                            val[i] = _json.loads(item)
+                        except (ValueError, TypeError):
+                            pass
+
+    async def _acting(self, tool_call) -> dict | None:
+        """Check plan tool gate before delegating to ToolGuardMixin."""
+        from ..plan.hints import check_plan_tool_gate
+
+        tool_name = str(tool_call.get("name", ""))
+
+        if tool_name in self._PLAN_TOOLS_WITH_JSON_ARGS:
+            self._fix_stringified_json_args(tool_call)
+
+        nb = getattr(self, "plan_notebook", None)
+        if nb is not None:
+            err = check_plan_tool_gate(nb, tool_name)
+            if err:
+                from agentscope.message import ToolResultBlock
+
+                tool_res_msg = Msg(
+                    "system",
+                    [
+                        ToolResultBlock(
+                            type="tool_result",
+                            id=tool_call["id"],
+                            name=tool_name,
+                            output=[{"type": "text", "text": err}],
+                        ),
+                    ],
+                    "system",
+                )
+                await self.print(tool_res_msg, True)
+                await self.memory.add(tool_res_msg)
+                return None
+
+        result = await super()._acting(tool_call)
+
+        if nb is not None and tool_name == "revise_current_plan":
+            nb._plan_just_mutated = True  # pylint: disable=protected-access
+
+        return result
+
     _AUTO_CONTINUE_MAX_EXTRA = 2
     _AUTO_CONTINUE_TAIL_CHARS = 600
 
@@ -713,6 +791,12 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         If an extra pass still returns text-only, keep the prior response to
         avoid repeated duplicated answers.
         """
+        from ..plan.hints import should_skip_auto_continue
+
+        nb = getattr(self, "plan_notebook", None)
+        if should_skip_auto_continue(nb):
+            return msg
+
         running = self._agent_config.running
         if not running.auto_continue_on_text_only:
             return msg

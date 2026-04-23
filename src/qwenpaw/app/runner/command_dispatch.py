@@ -50,11 +50,18 @@ def _get_last_user_text(msgs) -> str | None:
 
 
 def _is_conversation_command(query: str | None) -> bool:
-    """True if query is a conversation command (/compact, /new, etc.)."""
+    """True if query is a conversation command (/compact, /new, etc.).
+
+    ``/plan <description>`` (with arguments) is NOT a command — it
+    passes through the runner to activate plan mode.
+    """
     if not query or not query.startswith("/"):
         return False
     stripped = query.strip().lstrip("/")
-    cmd = stripped.split(" ", 1)[0] if stripped else ""
+    parts = stripped.split(" ", 1)
+    cmd = parts[0] if parts else ""
+    if cmd == "plan" and len(parts) > 1 and parts[1].strip():
+        return False
     return cmd in CommandHandler.SYSTEM_COMMANDS
 
 
@@ -270,6 +277,43 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
             value=memory.state_dict(),
             user_id=user_id,
         )
+
+        # Clear plan state when /clear or /new is used
+        metadata = getattr(response_msg, "metadata", None)
+        if isinstance(metadata, dict) and metadata.get("clear_plan"):
+            try:
+                from agentscope.plan import PlanNotebook, InMemoryPlanStorage
+
+                _empty_nb = PlanNotebook(storage=InMemoryPlanStorage())
+                await runner.session.update_session_state(
+                    session_id=session_id,
+                    key="agent.plan_notebook",
+                    value=_empty_nb.state_dict(),
+                    user_id=user_id,
+                )
+                logger.info(
+                    "Cleared plan_notebook from session %s",
+                    session_id,
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to clear plan_notebook from session",
+                    exc_info=True,
+                )
+
+            try:
+                from ...plan.broadcast import broadcast_plan_update
+
+                broadcast_plan_update(
+                    runner.agent_id,
+                    {"type": "plan_update", "plan": None},
+                    session_id=session_id,
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to broadcast plan clear",
+                    exc_info=True,
+                )
     else:
         logger.warning(
             "Skipping session_state update for conversation"

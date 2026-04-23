@@ -1076,6 +1076,8 @@
     "maxItersMin": "最大反復回数は1以上である必要があります",
     "autoContinueOnTextOnly": "テキストのみのステップで自動継続",
     "autoContinueOnTextOnlyTooltip": "推論ステップがツール呼び出しなしのテキストのみで終わった場合、ヒントを挿入し同じツール方針でもう1回推論します。多段階タスクの途中停止を減らします。オフにすると従来どおりです。有効時はトークン消費が増える場合があります。",
+    "planMode": "プランモード",
+    "planModeTooltip": "/plan <説明> で構造化タスクプランニングを使用できます。有効にするとプラン関連ツールが登録され、プランパネルが表示されます。",
     "maxInputLength": "最大入力長",
     "maxInputLengthTooltip": "モデルのコンテキストウィンドウの最大入力長（トークン数）",
     "maxInputLengthPlaceholder": "最大入力長を入力",
@@ -1293,6 +1295,9 @@
       },
       "skills": {
         "description": "チャットで利用可能なスキルを一覧し、明示的なスキルコマンドを表示します"
+      },
+      "plan": {
+        "description": "構造化された計画を作成し、タスクをサブタスクに分解します"
       }
     },
     "attachments": {
@@ -1688,5 +1693,18 @@
     "approveFailed": "承認に失敗しました",
     "cancelTask": "タスクをキャンセル",
     "denyFailed": "拒否に失敗しました"
+  },
+  "plan": {
+    "title": "プラン",
+    "noPlan": "アクティブなプランがありません",
+    "noPlanHint": "/plan <説明> でプランを作成",
+    "progress": "進捗",
+    "outcome": "結果",
+    "state": {
+      "todo": "未着手",
+      "in_progress": "進行中",
+      "done": "完了",
+      "abandoned": "中止"
+    }
   }
 }

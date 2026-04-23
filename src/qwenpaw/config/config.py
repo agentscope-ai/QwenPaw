@@ -896,6 +896,15 @@ class AgentProfileRef(BaseModel):
     )
 
 
+class PlanConfig(BaseModel):
+    """Plan mode configuration (stored in agent.json)."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Whether plan mode is enabled for this agent",
+    )
+
+
 class AgentProfileConfig(BaseModel):
     """Complete Agent Profile configuration (stored in workspace/agent.json).
 
@@ -972,6 +981,10 @@ class AgentProfileConfig(BaseModel):
     acp: Optional[ACPConfig] = Field(
         default=None,
         description="ACP configuration for this agent",
+    )
+    plan: PlanConfig = Field(
+        default_factory=PlanConfig,
+        description="Plan mode configuration for this agent",
     )
 
 
@@ -1397,6 +1410,7 @@ class ToolGuardConfig(BaseModel):
     denied_tools: List[str] = Field(default_factory=list)
     custom_rules: List[ToolGuardRuleConfig] = Field(default_factory=list)
     disabled_rules: List[str] = Field(default_factory=list)
+    shell_evasion_checks: Dict[str, bool] = Field(default_factory=dict)
 
 
 class FileGuardConfig(BaseModel):

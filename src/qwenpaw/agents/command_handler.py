@@ -47,11 +47,16 @@ class ConversationCommandHandlerMixin:
             "dump_history",
             "load_history",
             "proactive",
+            "plan",
         },
     )
 
     def is_conversation_command(self, query: str | None) -> bool:
         """Check if the query is a conversation system command.
+
+        ``/plan <description>`` (with arguments) is NOT a command — it
+        passes through the runner to activate plan mode.  Only bare
+        ``/plan`` is treated as a status command.
 
         Args:
             query: User query string
@@ -62,7 +67,10 @@ class ConversationCommandHandlerMixin:
         if not isinstance(query, str) or not query.startswith("/"):
             return False
         stripped = query.strip().lstrip("/")
-        cmd = stripped.split(" ", 1)[0] if stripped else ""
+        parts = stripped.split(" ", 1)
+        cmd = parts[0] if parts else ""
+        if cmd == "plan" and len(parts) > 1 and parts[1].strip():
+            return False
         return cmd in self.SYSTEM_COMMANDS
 
 
@@ -202,7 +210,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "**No messages to summarize.**\n\n"
                 "- Current memory is empty\n"
                 "- Compressed summary is clear\n"
+                "- Plan state cleared\n"
                 "- No action taken",
+                metadata={"clear_plan": True},
             )
         if not self._has_memory_manager():
             return await self._make_system_msg(
@@ -218,7 +228,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
         return await self._make_system_msg(
             "**New Conversation Started!**\n\n"
             "- Summary task started in background\n"
+            "- Plan state cleared\n"
             "- Ready for new conversation",
+            metadata={"clear_plan": True},
         )
 
     async def _process_clear(
@@ -232,8 +244,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
         return await self._make_system_msg(
             "**History Cleared!**\n\n"
             "- Compressed summary reset\n"
-            "- Memory is now empty",
-            metadata={"clear_history": True},
+            "- Memory is now empty\n"
+            "- Plan state cleared",
+            metadata={"clear_history": True, "clear_plan": True},
         )
 
     async def _process_compact_str(
@@ -545,6 +558,45 @@ class CommandHandler(ConversationCommandHandlerMixin):
     async def handle_command(self, query: str) -> Msg:
         """Process system commands (alias for handle_conversation_command)."""
         return await self.handle_conversation_command(query)
+
+    async def _process_plan(
+        self,
+        _messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
+        """Process bare /plan command to show plan status.
+
+        This handler is only called for ``/plan`` without arguments.
+        ``/plan <description>`` is routed through the runner instead.
+        """
+        from ..app.agent_context import get_current_agent_id
+
+        agent_id = get_current_agent_id()
+        try:
+            agent_config = load_agent_config(agent_id)
+            plan_enabled = getattr(
+                getattr(agent_config, "plan", None),
+                "enabled",
+                False,
+            )
+        except Exception:
+            plan_enabled = False
+
+        if not plan_enabled:
+            return await self._make_system_msg(
+                "**Plan Mode**\n\n"
+                "- Status: **disabled**\n"
+                "- Enable plan mode in Settings → Plan to use "
+                "`/plan <description>` for creating structured plans.",
+            )
+        return await self._make_system_msg(
+            "**Plan Mode**\n\n"
+            "- Status: **enabled**\n"
+            "- Use `/plan <description>` to create a new plan\n"
+            "- The plan panel on the right shows the current plan and "
+            "progress\n"
+            "- Use `/clear` or `/new` to clear any active plan",
+        )
 
     async def _process_proactive(
         self,

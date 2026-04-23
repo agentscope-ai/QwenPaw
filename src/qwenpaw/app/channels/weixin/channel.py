@@ -974,7 +974,18 @@ class WeixinChannel(BaseChannel):
         if not _client or not to_user_id or not text:
             return
         try:
-            await _client.send_text(to_user_id, text, context_token)
+            resp = await _client.send_text(to_user_id, text, context_token)
+            if isinstance(resp, dict):
+                ret = resp.get("ret", 0)
+                errcode = resp.get("errcode", 0)
+                if ret != 0 or errcode != 0:
+                    logger.warning(
+                        "weixin send_text rejected: "
+                        "ret=%s errcode=%s to_user_id=%s",
+                        ret,
+                        errcode,
+                        to_user_id,
+                    )
         except Exception:
             logger.exception("weixin _send_text_direct failed")
 

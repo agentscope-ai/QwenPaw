@@ -1276,6 +1276,8 @@
     "maxItersMin": "Max iterations must be at least 1",
     "autoContinueOnTextOnly": "Auto-continue on text-only step",
     "autoContinueOnTextOnlyTooltip": "If the model ends a reasoning step with only text (no tool calls), inject a hint and run one extra reasoning pass with the same tool policy so multi-step tasks are less likely to stop silently. Turn off to match legacy behavior. May increase token usage when enabled.",
+    "planMode": "Plan Mode",
+    "planModeTooltip": "Enable plan mode to use /plan <description> for structured task planning. When enabled, plan tools are registered and the plan panel becomes available.",
     "maxInputLength": "Max Input Length",
     "maxInputLengthTooltip": "Maximum input length (tokens) for the model context window",
     "maxInputLengthPlaceholder": "Enter max input length",
@@ -1524,6 +1526,9 @@
       },
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
+      },
+      "plan": {
+        "description": "Create a structured plan to decompose the task into subtasks"
       }
     },
     "attachments": {
@@ -1743,5 +1748,18 @@
     "approveFailed": "Failed to approve",
     "cancelTask": "Cancel Task",
     "denyFailed": "Failed to deny"
+  },
+  "plan": {
+    "title": "Plan",
+    "noPlan": "No active plan",
+    "noPlanHint": "Use /plan <description> to create a plan",
+    "progress": "Progress",
+    "outcome": "Outcome",
+    "state": {
+      "todo": "Todo",
+      "in_progress": "In Progress",
+      "done": "Done",
+      "abandoned": "Abandoned"
+    }
   }
 }

@@ -13,7 +13,7 @@ import { providerApi } from "../../../api/modules/provider";
 import type { ProviderInfo, ActiveModelsInfo } from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
 import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
-import { providerIcon } from "../../Settings/Models/components/providerIcon";
+import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
 import styles from "./index.module.less";
 
 interface EligibleProvider {
@@ -114,9 +114,7 @@ export default function ModelSelector() {
     return activeModelId;
   })();
 
-  const activeProviderIconUrl = activeProviderId
-    ? providerIcon(activeProviderId)
-    : null;
+  const showActiveProviderIcon = Boolean(activeProviderId);
 
   const handleOpenChange = useCallback(
     async (next: boolean) => {
@@ -207,11 +205,7 @@ export default function ModelSelector() {
                 isProviderActive ? styles.providerItemActive : "",
               ].join(" ")}
             >
-              <img
-                src={providerIcon(provider.id)}
-                alt=""
-                className={styles.providerIcon}
-              />
+              <ProviderIcon providerId={provider.id} size={20} />
               <span className={styles.providerName}>{provider.name}</span>
               <RightOutlined className={styles.providerArrow} />
 
@@ -266,12 +260,8 @@ export default function ModelSelector() {
           {saving && (
             <LoadingOutlined style={{ fontSize: 11, color: "#FF7F16" }} />
           )}
-          {activeProviderIconUrl && (
-            <img
-              src={activeProviderIconUrl}
-              alt=""
-              className={styles.providerIcon}
-            />
+          {showActiveProviderIcon && activeProviderId && (
+            <ProviderIcon providerId={activeProviderId} size={16} />
           )}
           <span className={styles.triggerName}>{activeModelName}</span>
           <SparkDownLine

@@ -30,6 +30,7 @@ import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
+import { planApi } from "../../api/modules/plan";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -44,6 +45,7 @@ interface ApprovalMessageData {
   createdAt: number;
   timeoutSeconds: number;
 }
+
 import {
   toDisplayUrl,
   copyText,
@@ -479,6 +481,20 @@ export default function ChatPage() {
   const [approvalRequests, setApprovalRequests] = useState<
     Map<string, ApprovalMessageData>
   >(new Map());
+  const [planEnabled, setPlanEnabled] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    planApi
+      .getPlanConfig()
+      .then((cfg) => {
+        if (!cancelled) setPlanEnabled(cfg.enabled);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent]);
 
   const isChatActiveRef = useRef(false);
   isChatActiveRef.current =
@@ -947,6 +963,13 @@ export default function ChatPage() {
         description: t("chat.commands.skills.description"),
       },
     ];
+    if (planEnabled) {
+      commandSuggestions.push({
+        command: "/plan",
+        value: "plan ",
+        description: t("chat.commands.plan.description"),
+      });
+    }
 
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;
@@ -975,8 +998,7 @@ export default function ChatPage() {
       welcome: {
         ...i18nConfig.welcome,
         nick: "QwenPaw",
-        avatar:
-          "https://gw.alicdn.com/imgextra/i2/O1CN01pyXzjQ1EL1PuZMlSd_!!6000000000334-2-tps-288-288.png",
+        avatar: "/qwenpaw.png",
       },
       sender: {
         ...(i18nConfig as any)?.sender,
@@ -1097,6 +1119,7 @@ export default function ChatPage() {
     multimodalCaps,
     toolRenderConfig,
     scheduleHistoryClear,
+    planEnabled,
   ]);
 
   return (

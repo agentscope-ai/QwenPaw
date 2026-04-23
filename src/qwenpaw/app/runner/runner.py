@@ -461,6 +461,89 @@ class AgentRunner(Runner):
                     refresher + original,
                 )
 
+            # --- Plan Mode ------------------------------------------
+            plan_notebook = None
+            plan_enabled = getattr(
+                getattr(agent_config, "plan", None),
+                "enabled",
+                False,
+            )
+            if plan_enabled:
+                try:
+                    from agentscope.plan import (
+                        PlanNotebook,
+                        InMemoryPlanStorage,
+                    )
+                    from ...plan.hints import SimplePlanToHint, set_plan_gate
+
+                    hint_gen = SimplePlanToHint()
+                    plan_notebook = PlanNotebook(
+                        plan_to_hint=hint_gen,
+                        storage=InMemoryPlanStorage(),
+                    )
+                    hint_gen.bind_notebook(plan_notebook)
+
+                    # Detect /plan <description> and set gate
+                    if query and query.strip().lower().startswith("/plan "):
+                        plan_desc = query.strip()[6:].strip()
+                        if plan_desc:
+                            set_plan_gate(plan_notebook, enabled=True)
+                            self._rewrite_last_message_text(
+                                msgs,
+                                plan_desc,
+                            )
+                            logger.info(
+                                "Plan mode: /plan gate set, desc=%s",
+                                plan_desc[:60],
+                            )
+
+                    # Register SSE broadcast hook + state tracking
+                    from ...plan.broadcast import broadcast_plan_update
+                    from ...plan.schemas import plan_to_response
+
+                    def _on_plan_change(  # pylint: disable=protected-access
+                        nb,
+                        plan,
+                    ):
+                        had_plan = getattr(nb, "_qp_had_plan", False)
+                        prev_id = getattr(nb, "_qp_prev_plan_id", None)
+
+                        if plan is not None:
+                            cur_id = plan.id
+                            if not had_plan or cur_id != prev_id:
+                                nb._plan_just_mutated = True
+                            nb._qp_prev_plan_id = cur_id
+                        else:
+                            if had_plan:
+                                nb._plan_recently_finished = True
+                            nb._qp_prev_plan_id = None
+                        nb._qp_had_plan = plan is not None
+
+                        payload = {
+                            "type": "plan_update",
+                            "plan": (
+                                plan_to_response(plan).model_dump()
+                                if plan is not None
+                                else None
+                            ),
+                        }
+                        broadcast_plan_update(
+                            self.agent_id,
+                            payload,
+                            session_id=session_id,
+                        )
+
+                    plan_notebook.register_plan_change_hook(
+                        "broadcast",
+                        _on_plan_change,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to create PlanNotebook",
+                        exc_info=True,
+                    )
+                    plan_notebook = None
+
             agent = QwenPawAgent(
                 agent_config=agent_config,
                 env_context=env_context,
@@ -470,6 +553,7 @@ class AgentRunner(Runner):
                 request_context=base_request_context,
                 workspace_dir=self.workspace_dir,
                 task_tracker=self._task_tracker,
+                plan_notebook=plan_notebook,
             )
             await agent.register_mcp_clients()
             agent.set_console_output_enabled(enabled=False)
@@ -522,6 +606,34 @@ class AgentRunner(Runner):
                 if skill_response is not None:
                     yield skill_response, True
                     return
+
+            # Ensure session file has a valid plan_notebook dict
+            # to prevent TypeError/KeyError during load_state_dict
+            if plan_notebook is not None:
+                try:
+                    _states = await self.session.get_session_state_dict(
+                        session_id=session_id,
+                        user_id=user_id,
+                        allow_not_exist=True,
+                    )
+                    _agent_st = _states.get("agent", {})
+                    _nb_val = _agent_st.get("plan_notebook")
+                    if _agent_st and (
+                        "plan_notebook" not in _agent_st
+                        or not isinstance(_nb_val, dict)
+                    ):
+                        await self.session.update_session_state(
+                            session_id=session_id,
+                            key="agent.plan_notebook",
+                            value=plan_notebook.state_dict(),
+                            user_id=user_id,
+                            create_if_not_exist=False,
+                        )
+                except Exception:
+                    logger.debug(
+                        "Pre-populate plan_notebook skipped",
+                        exc_info=True,
+                    )
 
             try:
                 await self.session.load_session_state(

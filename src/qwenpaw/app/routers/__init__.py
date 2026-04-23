@@ -25,6 +25,7 @@ from .files import router as files_router
 from .settings import router as settings_router
 from .plugins import router as plugins_router
 from .backup import router as backup_router
+from .plan import router as plan_router
 
 router = APIRouter()
 
@@ -50,6 +51,7 @@ router.include_router(files_router)
 router.include_router(settings_router)
 router.include_router(plugins_router)
 router.include_router(backup_router)
+router.include_router(plan_router)
 
 
 def create_agent_scoped_router() -> APIRouter:
