@@ -115,8 +115,8 @@ class DingTalkChannel(BaseChannel):
 
     Proactive send (stored sessionWebhook):
     - We store sessionWebhook from incoming messages in memory; send() uses it.
-    - Key uses short suffix of conversation_id so request and cron stay short.
-    - to_handle "dingtalk:sw:<session_id>" (session_id = last N of conv id).
+    - Key uses full conversation_id to ensure uniqueness across users.
+    - to_handle "dingtalk:sw:<session_id>" (session_id = full conversation_id).
     - Note: sessionWebhook has an expiry (sessionWebhookExpiredTime);
       push only works for users who have chatted recently. For cron to
       users who may not
@@ -224,9 +224,12 @@ class DingTalkChannel(BaseChannel):
         self._token_value: Optional[str] = None
         self._token_expires_at: float = 0.0
 
-        # Dedup: in-flight message_ids only (message_id is sufficient).
-        self._processing_message_ids: set = set()
+        # Dedup: in-flight message_ids with timestamps (message_id -> timestamp).
+        # Used for timeout-based preemption: new messages can preempt old ones
+        # after MESSAGE_ID_TIMEOUT_SECONDS (default: 60s).
+        self._processing_message_ids: Dict[str, float] = {}
         self._processing_message_ids_lock = threading.Lock()
+        self._message_id_timeout_seconds: float = 60.0  # 1 minute
 
     @classmethod
     def from_env(
@@ -321,7 +324,13 @@ class DingTalkChannel(BaseChannel):
         sender_id: str,
         channel_meta: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Session_id = short suffix of conversation_id for cron lookup."""
+        """
+        Session_id = full conversation_id for cron lookup.
+        
+        Note (2026-04-23): Using full conversation_id instead of short suffix
+        to avoid collisions between different users who may have conversation_ids
+        with the same suffix.
+        """
         meta = channel_meta or {}
         cid = meta.get("conversation_id")
         if cid:
@@ -358,8 +367,9 @@ class DingTalkChannel(BaseChannel):
         return request
 
     def to_handle_from_target(self, *, user_id: str, session_id: str) -> str:
-        # Key by session_id (short suffix of conversation_id) so cron can
+        # Key by session_id (full conversation_id) so cron can
         # use the same session_id to look up stored sessionWebhook.
+        # Note: Using full conversation_id avoids collisions between users.
         return f"dingtalk:sw:{session_id}"
 
     async def _before_consume_process(self, request: "AgentRequest") -> None:
@@ -603,17 +613,43 @@ class DingTalkChannel(BaseChannel):
     def _try_accept_message(self, msg_id: str) -> bool:
         """Return True if accepted; False if duplicate (msg_id already in
         progress). Thread-safe; handler in stream thread.
+        
+        Implements timeout-based preemption: if a message_id is older than
+        MESSAGE_ID_TIMEOUT_SECONDS (default: 120s), it will be preempted by
+        the new message. This prevents permanent blocking when message
+        processing gets stuck.
         """
+        current_time = time.time()
         with self._processing_message_ids_lock:
             if msg_id and msg_id in self._processing_message_ids:
+                old_timestamp = self._processing_message_ids[msg_id]
+                elapsed = current_time - old_timestamp
+                
+                # Check if old message has timed out - allow preemption
+                if elapsed > self._message_id_timeout_seconds:
+                    logger.info(
+                        "dingtalk dedup preempt: msg_id=%r old_elapsed=%.1fs "
+                        "timeout=%.1fs - allowing new message to preempt",
+                        msg_id,
+                        elapsed,
+                        self._message_id_timeout_seconds,
+                    )
+                    # Update timestamp for the new message
+                    self._processing_message_ids[msg_id] = current_time
+                    return True
+                
                 logger.info(
                     "dingtalk dedup reject: msg_id already in progress "
-                    "msg_id=%r",
+                    "msg_id=%r elapsed=%.1fs",
                     msg_id,
+                    elapsed,
                 )
                 return False
+            
+            # Accept new message with timestamp
             if msg_id:
-                self._processing_message_ids.add(msg_id)
+                self._processing_message_ids[msg_id] = current_time
+            
             logger.debug(
                 "dingtalk dedup accept: msg_id=%r in_flight_count=%s",
                 msg_id or "(empty)",
@@ -628,12 +664,43 @@ class DingTalkChannel(BaseChannel):
         with self._processing_message_ids_lock:
             for mid in msg_ids:
                 if mid:
-                    self._processing_message_ids.discard(mid)
+                    self._processing_message_ids.pop(mid, None)
             logger.debug(
                 "dingtalk dedup release: msg_ids=%s in_flight_count=%s",
                 msg_ids,
                 len(self._processing_message_ids),
             )
+
+    def _cleanup_stale_message_ids(self) -> int:
+        """Clean up message_ids that have exceeded timeout.
+        
+        Call this periodically (e.g., every 30 seconds) to prevent memory
+        buildup from message_ids that were never released due to errors.
+        
+        Returns:
+            Number of stale message_ids cleaned up
+        """
+        current_time = time.time()
+        stale_count = 0
+        
+        with self._processing_message_ids_lock:
+            stale_ids = []
+            for msg_id, timestamp in list(self._processing_message_ids.items()):
+                if current_time - timestamp > self._message_id_timeout_seconds:
+                    stale_ids.append(msg_id)
+            
+            for msg_id in stale_ids:
+                logger.warning(
+                    "dingtalk dedup cleanup: removing stale msg_id=%r "
+                    "age=%.1fs timeout=%.1fs",
+                    msg_id,
+                    current_time - self._processing_message_ids[msg_id],
+                    self._message_id_timeout_seconds,
+                )
+                del self._processing_message_ids[msg_id]
+                stale_count += 1
+        
+        return stale_count
 
     @staticmethod
     def _safe_set_future_result(
@@ -2697,6 +2764,7 @@ class DingTalkChannel(BaseChannel):
             download_url_fetcher=self._fetch_and_download_media,
             try_accept_message=self._try_accept_message,
             check_allowlist=self._check_allowlist,
+            release_message_ids=self._release_message_ids,
         )
         self._client.register_callback_handler(
             ChatbotMessage.TOPIC,
@@ -2722,10 +2790,44 @@ class DingTalkChannel(BaseChannel):
 
         await self._recover_active_cards()
 
+        # Start background cleanup task for stale message_ids
+        self._cleanup_task: Optional[asyncio.Task] = None
+        if self._loop:
+            self._cleanup_task = asyncio.create_task(
+                self._run_cleanup_loop(),
+                name="dingtalk_message_id_cleanup",
+            )
+
+    async def _run_cleanup_loop(self) -> None:
+        """Background task to clean up stale message_ids every 30 seconds."""
+        cleanup_interval = 30.0  # seconds
+        while not self._stop_event.is_set():
+            try:
+                await asyncio.sleep(cleanup_interval)
+                stale_count = self._cleanup_stale_message_ids()
+                if stale_count > 0:
+                    logger.info(
+                        "dingtalk cleanup: removed %d stale message_ids",
+                        stale_count,
+                    )
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("dingtalk cleanup loop failed")
+
     async def stop(self) -> None:
         if not self.enabled:
             return
         self._stop_event.set()
+        
+        # Cancel cleanup task
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+        
         if self._stream_thread:
             self._stream_thread.join(timeout=3)
         for task in self._debounce_timers.values():
