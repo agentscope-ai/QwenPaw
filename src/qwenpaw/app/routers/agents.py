@@ -347,6 +347,7 @@ async def create_agent(
         skill_names=(
             request.skill_names if request.skill_names is not None else []
         ),
+        language=request.language,
     )
 
     agent_ref = AgentProfileRef(
@@ -704,6 +705,7 @@ def _initialize_agent_workspace(
     workspace_dir: Path,
     skill_names: list[str] | None = None,
     md_template_id: str | None = None,
+    language: str | None = None,
 ) -> None:
     """Initialize agent workspace with only explicitly requested skills."""
     from ...config import load_config as load_global_config
@@ -713,7 +715,8 @@ def _initialize_agent_workspace(
     get_workspace_skills_dir(workspace_dir).mkdir(exist_ok=True)
 
     config = load_global_config()
-    language = config.agents.language or "zh"
+    if not language:
+        language = config.agents.language or "zh"
 
     _apply_workspace_md_templates(
         workspace_dir,
