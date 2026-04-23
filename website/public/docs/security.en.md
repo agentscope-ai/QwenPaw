@@ -576,7 +576,7 @@ QwenPaw supports optional web login authentication to protect the Console from u
    - Set `QWENPAW_AUTH_USERNAME` and `QWENPAW_AUTH_PASSWORD` environment variables
    - QwenPaw automatically creates the admin account on startup, skipping web registration
    - Useful for Docker, Kubernetes, server management panels, and other automated deployments
-5. **Localhost bypass** — Requests from localhost (`127.0.0.1` / `::1`) automatically skip authentication; CLI commands (`qwenpaw app`, `qwenpaw chat`, etc.) work without a token
+5. **Local CLI auth** — Protected localhost requests no longer skip authentication. CLI commands (`qwenpaw app`, `qwenpaw chat`, etc.) automatically attach a dedicated local CLI token for loopback destinations when web auth is enabled, so local automation still works without manually setting `QWENPAW_API_TOKEN` (legacy `COPAW_API_TOKEN` also works)
 
 **Security features**:
 
@@ -713,7 +713,7 @@ This command will:
 
 1. Display the current registered username
 2. Prompt for a new password (hidden input, requires confirmation twice)
-3. Rotate the session signing secret (the key stored in `auth.json`), which **invalidates all existing sessions** — all logged-in devices must log in again with the new password
+3. Rotate the session signing secret and local CLI token stored in `auth.json`, which **invalidates all existing sessions** — all logged-in devices and local CLI automations must authenticate again
 
 **Docker deployments**:
 
@@ -748,15 +748,15 @@ Click the **Logout** button at the bottom of the sidebar in the Console:
 
 ### Security details
 
-| Feature               | Detail                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------ |
-| Password storage      | Salted SHA-256 hash in `auth.json` (no plaintext stored)                                   |
-| Token format          | HMAC-SHA256 signed payload, 7-day expiry                                                   |
-| Token storage         | Browser localStorage, cleared on logout or 401 response                                    |
-| External dependencies | None — uses only Python standard library (`hashlib`, `hmac`, `secrets`)                    |
-| File permissions      | `auth.json` written with `0o600` (owner read/write only)                                   |
-| Localhost bypass      | Requests from `127.0.0.1` / `::1` skip auth (CLI access unaffected)                        |
-| CORS preflight        | `OPTIONS` requests pass through without auth check                                         |
-| WebSocket auth        | Token passed via query parameter, restricted to upgrade requests only                      |
-| Protected routes      | Only `/api/*` routes require authentication                                                |
-| Public routes         | `/api/auth/login`, `/api/auth/register`, `/api/auth/status`, `/api/version`, static assets |
+| Feature               | Detail                                                                                                      |
+| --------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Password storage      | Salted SHA-256 hash in `auth.json` (no plaintext stored)                                                    |
+| Token format          | HMAC-SHA256 signed payload, 7-day expiry                                                                    |
+| Token storage         | Browser localStorage, cleared on logout or 401 response                                                     |
+| External dependencies | None — uses only Python standard library (`hashlib`, `hmac`, `secrets`)                                     |
+| File permissions      | `auth.json` written with `0o600` (owner read/write only)                                                    |
+| Local CLI auth        | Loopback CLI requests use an automatically attached local CLI token; localhost traffic does not bypass auth |
+| CORS preflight        | `OPTIONS` requests pass through without auth check                                                          |
+| WebSocket auth        | Token passed via query parameter, restricted to upgrade requests only                                       |
+| Protected routes      | Only `/api/*` routes require authentication                                                                 |
+| Public routes         | `/api/auth/login`, `/api/auth/register`, `/api/auth/status`, `/api/version`, static assets                  |

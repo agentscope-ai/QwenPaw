@@ -86,13 +86,16 @@ class TestDictHelpers:
     def test_auth_secret_fields(self):
         data = {
             "jwt_secret": "hex-secret-value",
+            "local_cli_token": "cli-token-value",
             "user": {"username": "admin"},
         }
         enc = encrypt_dict_fields(data, AUTH_SECRET_FIELDS)
         assert is_encrypted(enc["jwt_secret"])
+        assert is_encrypted(enc["local_cli_token"])
         assert enc["user"] == {"username": "admin"}
         dec = decrypt_dict_fields(enc, AUTH_SECRET_FIELDS)
         assert dec["jwt_secret"] == "hex-secret-value"
+        assert dec["local_cli_token"] == "cli-token-value"
 
 
 class TestBackwardCompatibility:

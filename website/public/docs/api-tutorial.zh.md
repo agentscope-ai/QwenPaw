@@ -44,33 +44,40 @@ POST /api/console/chat
 2. Agent ID 通常显示在 Agent 选择器中
 3. 默认的 Agent ID 为 `default`
 
-### Localhost 自动免认证
+### 受保护 API 的认证
 
 ⚠️ **重要提示**：
 
-- **来自 `localhost` (127.0.0.1 或 ::1) 的请求会自动跳过 Web 认证**
-- 这是为了方便本地开发和 CLI 工具（`qwenpaw`）使用
-- 即使启用了 Web 认证，本地请求也**不需要**提供 `Authorization` 令牌
-- 如果从**远程机器**访问，则必须提供有效的认证令牌
+- 如果启用了 Web 登录认证，受保护的 `/api/` 接口即使来自 `localhost` 也需要认证
+- 直接调用 REST API 的客户端应发送 `Authorization: Bearer <YOUR_TOKEN>`
+- `qwenpaw` CLI 会在本地回环请求中使用专用的本地 CLI 令牌自动完成认证
+- 从远程机器访问时，只要启用了认证，就必须提供有效的认证令牌
 
 **示例**：
 
 ```bash
-# 本地请求 - 不需要 Authorization 令牌
+# 未启用认证 - 不需要 Authorization 令牌
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
   -H "X-Agent-Id: default" \
-  -d '{"input": [...]}'
+  -d '{"input":[{"role":"user","content":[{"type":"text","text":"你好"}]}],"channel":"console"}'
 
-# 远程请求 - 需要 Authorization 令牌
-curl -X POST http://your-server.com:8088/api/console/chat \
+# 已启用认证 - 先获取令牌
+AUTH_TOKEN="$(
+  curl -s -X POST http://localhost:8088/api/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"admin","password":"admin123"}' \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin)["token"])'
+)"
+
+curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <YOUR_TOKEN>" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
   -H "X-Agent-Id: default" \
-  -d '{"input": [...]}'
+  -d '{"input":[{"role":"user","content":[{"type":"text","text":"你好"}]}],"channel":"console"}'
 ```
 
-> **提示**：如果启用了 [Web 登录认证](./security#Web-登录认证)并从远程访问，需要提供身份验证令牌。详见文档末尾的 [Web 认证令牌](#web-认证令牌可选) 部分。
+> **提示**：如果启用了 [Web 登录认证](./security#Web-登录认证)，直接调用 REST API 时请先通过登录接口获取 Bearer 令牌。本地 CLI 令牌由 QwenPaw 自动管理，不应作为通用 REST API 令牌使用。
 
 ## 请求格式
 
@@ -110,9 +117,12 @@ API 使用特定的消息格式，与 OpenAI 的消息格式类似：
 
 ### 基本示例
 
+下面的示例包含启用 Web 登录认证时需要的 `Authorization` 头部。如果未启用认证，请删除该头部。
+
 ```bash
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
   -H "X-Agent-Id: default" \
   -d '{
     "input": [
@@ -138,6 +148,7 @@ curl -X POST http://localhost:8088/api/console/chat \
 - **URL**：`http://localhost:8088/api/console/chat`（如果部署在其他地址，请相应修改）
 - **Headers**：
   - `Content-Type: application/json`：指定请求体为 JSON 格式
+  - `Authorization: Bearer <YOUR_TOKEN>`：启用 Web 登录认证时必需
   - `X-Agent-Id: default`：指定 Agent ID，默认为 `default`
 - **--no-buffer**：禁用缓冲，实时显示流式响应
 
@@ -146,6 +157,7 @@ curl -X POST http://localhost:8088/api/console/chat \
 ```bash
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
   -H "X-Agent-Id: default" \
   -d '{
     "input": [
@@ -169,6 +181,8 @@ curl -X POST http://localhost:8088/api/console/chat \
 ## 响应格式
 
 API 返回 **Server-Sent Events (SSE)** 流式响应，每个事件以 `data:` 开头：
+
+流中可能包含响应生命周期事件和消息事件。助手文本可能出现在 `response.output[].content[]` 中，也可能出现在顶层 `message.content[]` 中，下面的示例会同时处理这两种结构。
 
 ```
 data: {"sequence_number":0,"object":"response","status":"created",...}
@@ -200,13 +214,14 @@ data: {"sequence_number":3,"object":"response","status":"completed",...}
 
 ## 多轮对话
 
-QwenPaw 通过 `session_id` 和 `user_id` 自动管理对话上下文。只需在不同的请求中使用相同的 `session_id`，系统会自动保存和加载对话历史：
+QwenPaw 通过 `session_id` 和 `user_id` 自动管理对话上下文。只需在不同的请求中使用相同的 `session_id`，系统会自动保存和加载对话历史。如果启用了 Web 登录认证，请带上下面示例中的 `Authorization: Bearer <YOUR_TOKEN>` 头部：
 
 **第一轮对话**：
 
 ```bash
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
   -H "X-Agent-Id: default" \
   -d '{
     "input": [
@@ -226,6 +241,7 @@ curl -X POST http://localhost:8088/api/console/chat \
 ```bash
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
   -H "X-Agent-Id: default" \
   -d '{
     "input": [
@@ -274,6 +290,20 @@ curl -X POST http://localhost:8088/api/console/chat \
 - 确认 `input` 字段存在且格式正确
 - 验证 JSON 格式有效
 
+#### 401 Unauthorized
+
+```json
+{
+  "detail": "Not authenticated"
+}
+```
+
+**解决方法**：
+
+- 如果启用了 Web 登录认证，请先从 `/api/auth/login` 获取令牌
+- 使用 `Authorization: Bearer <YOUR_TOKEN>` 发送令牌
+- 不要复制 `auth.json` 中的本地 CLI 令牌；该令牌只用于 `qwenpaw` CLI 的本地回环请求路径
+
 #### 404 Agent Not Found
 
 ```json
@@ -305,12 +335,27 @@ curl -X POST http://localhost:8088/api/console/chat \
 使用标准库 `urllib` 和 `json` 处理 SSE 流：
 
 ```python
-import urllib.request
 import json
+import os
+import urllib.request
 
 API_URL = "http://localhost:8088/api/console/chat"
 AGENT_ID = "default"
-AUTH_TOKEN = ""  # 如果启用了认证，在这里设置你的 token
+AUTH_TOKEN = os.getenv("QWENPAW_API_TOKEN", "")
+
+
+def iter_text_parts(event_data):
+    if event_data.get("object") == "message":
+        for content in event_data.get("content") or []:
+            if content.get("type") == "text":
+                yield content.get("text", "")
+
+    for item in event_data.get("output") or []:
+        if item.get("role") == "assistant":
+            for content in item.get("content") or []:
+                if content.get("type") == "text":
+                    yield content.get("text", "")
+
 
 def chat_with_agent(message, session_id="my-session"):
     # 准备请求
@@ -353,20 +398,17 @@ def chat_with_agent(message, session_id="my-session"):
         with urllib.request.urlopen(request) as response:
             for line in response:
                 line = line.decode('utf-8').strip()
-                if line.startswith('data: '):
-                    event_data = json.loads(line[6:])  # 去掉 'data: ' 前缀
+                if line.startswith('data:'):
+                    event_data = json.loads(line[5:].strip())
 
                     # 打印状态
                     status = event_data.get('status')
-                    print(f"状态: {status}")
+                    if status:
+                        print(f"状态: {status}")
 
                     # 提取回复内容
-                    if event_data.get('output'):
-                        for item in event_data['output']:
-                            if item.get('role') == 'assistant':
-                                for content in item.get('content', []):
-                                    if content.get('type') == 'text':
-                                        print(f"回复: {content.get('text')}")
+                    for text in iter_text_parts(event_data):
+                        print(f"回复: {text}")
 
                     # 检查错误
                     if event_data.get('error'):
@@ -380,6 +422,7 @@ def chat_with_agent(message, session_id="my-session"):
 
 # 使用示例
 if __name__ == "__main__":
+    # 启用 Web 登录认证时，请设置 QWENPAW_API_TOKEN。
     chat_with_agent("你好，请介绍一下自己")
 ```
 
@@ -388,22 +431,36 @@ if __name__ == "__main__":
 如果你安装了 `requests` 库，可以使用以下更简洁的代码：
 
 ```python
-import requests
 import json
+import os
+
+import requests
 
 API_URL = "http://localhost:8088/api/console/chat"
 LOGIN_URL = "http://localhost:8088/api/auth/login"
 AGENT_ID = "default"
 
 def get_auth_token(username, password):
-    """获取认证令牌（如果启用了认证）"""
+    """启用 Web 登录认证时获取认证令牌。"""
     response = requests.post(LOGIN_URL, json={
         "username": username,
         "password": password
     })
-    if response.status_code == 200:
-        return response.json()["token"]
-    return None
+    response.raise_for_status()
+    return response.json()["token"]
+
+
+def iter_text_parts(event_data):
+    if event_data.get("object") == "message":
+        for content in event_data.get("content") or []:
+            if content.get("type") == "text":
+                yield content.get("text", "")
+
+    for item in event_data.get("output") or []:
+        if item.get("role") == "assistant":
+            for content in item.get("content") or []:
+                if content.get("type") == "text":
+                    yield content.get("text", "")
 
 def chat_with_agent(message, session_id="my-session", auth_token=None):
     headers = {
@@ -429,30 +486,28 @@ def chat_with_agent(message, session_id="my-session", auth_token=None):
 
     # 流式请求
     with requests.post(API_URL, headers=headers, json=data, stream=True) as response:
-        for line in response.iter_lines():
-            if line:
-                line = line.decode('utf-8')
-                if line.startswith('data: '):
-                    event_data = json.loads(line[6:])
-                    status = event_data.get('status')
+        response.raise_for_status()
 
-                    if status == 'in_progress' or status == 'completed':
-                        if event_data.get('output'):
-                            for item in event_data['output']:
-                                if item.get('role') == 'assistant':
-                                    for content in item.get('content', []):
-                                        if content.get('type') == 'text':
-                                            print(content.get('text'), end='', flush=True)
+        for line in response.iter_lines(decode_unicode=True):
+            if not line or not line.startswith('data:'):
+                continue
 
-                    if event_data.get('error'):
-                        print(f"\n错误: {event_data['error'].get('message')}")
-                        break
+            event_data = json.loads(line[5:].strip())
+            if event_data.get('error'):
+                print(f"\n错误: {event_data['error'].get('message')}")
+                break
 
-# 使用示例
-# 1. 不使用认证
-chat_with_agent("你好，请介绍一下自己")
+            for text in iter_text_parts(event_data):
+                print(text, end='', flush=True)
 
-# 2. 使用认证
+# 使用示例：
+# 启用 Web 登录认证时，请设置 QWENPAW_API_TOKEN。
+chat_with_agent(
+    "你好，请介绍一下自己",
+    auth_token=os.getenv("QWENPAW_API_TOKEN") or None,
+)
+
+# 或者在代码中登录获取令牌。
 # token = get_auth_token("admin", "admin123")
 # chat_with_agent("你好，请介绍一下自己", auth_token=token)
 ```
@@ -466,22 +521,45 @@ const API_URL = "http://localhost:8088/api/console/chat";
 const LOGIN_URL = "http://localhost:8088/api/auth/login";
 const AGENT_ID = "default";
 
-// 获取认证令牌（如果启用了认证）
+// 启用 Web 登录认证时获取认证令牌。
 async function getAuthToken(username, password) {
-  try {
-    const response = await fetch(LOGIN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    if (response.ok) {
-      const data = await response.json();
-      return data.token;
-    }
-  } catch (error) {
-    console.error("Login failed:", error);
+  const response = await fetch(LOGIN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Login failed: ${response.status} ${await response.text()}`,
+    );
   }
-  return null;
+
+  const data = await response.json();
+  return data.token;
+}
+
+function textPartsFromEvent(eventData) {
+  const parts = [];
+
+  if (eventData.object === "message") {
+    for (const content of eventData.content || []) {
+      if (content.type === "text") {
+        parts.push(content.text || "");
+      }
+    }
+  }
+
+  for (const item of eventData.output || []) {
+    if (item.role === "assistant") {
+      for (const content of item.content || []) {
+        if (content.type === "text") {
+          parts.push(content.text || "");
+        }
+      }
+    }
+  }
+
+  return parts;
 }
 
 async function chatWithAgent(
@@ -520,34 +598,37 @@ async function chatWithAgent(
     }),
   });
 
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+  }
+  if (!response.body) {
+    throw new Error("Streaming response body is not available");
+  }
+
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  let buffer = "";
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    const chunk = decoder.decode(value);
-    const lines = chunk.split("\n");
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
 
     for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        const eventData = JSON.parse(line.slice(6));
+      if (line.startsWith("data:")) {
+        const eventData = JSON.parse(line.slice(5).trim());
 
         const status = eventData.status;
-        console.log("状态:", status);
+        if (status) {
+          console.log("状态:", status);
+        }
 
         // 提取回复
-        if (eventData.output) {
-          for (const item of eventData.output) {
-            if (item.role === "assistant") {
-              for (const content of item.content || []) {
-                if (content.type === "text") {
-                  console.log("回复:", content.text);
-                }
-              }
-            }
-          }
+        for (const text of textPartsFromEvent(eventData)) {
+          console.log("回复:", text);
         }
 
         // 检查错误
@@ -559,13 +640,15 @@ async function chatWithAgent(
   }
 }
 
-// 使用示例
-// 1. 不使用认证
-chatWithAgent("你好，请介绍一下自己").catch((error) =>
-  console.error("错误:", error),
-);
+// 使用示例：
+// 启用 Web 登录认证时，请设置 QWENPAW_API_TOKEN。
+chatWithAgent(
+  "你好，请介绍一下自己",
+  "my-session",
+  process.env.QWENPAW_API_TOKEN || null,
+).catch((error) => console.error("错误:", error));
 
-// 2. 使用认证
+// 或者在代码中登录获取令牌。
 // (async () => {
 //   const token = await getAuthToken('admin', 'admin123');
 //   if (token) {
@@ -593,19 +676,21 @@ chatWithAgent("你好，请介绍一下自己").catch((error) =>
 # 与 Agent 1 对话
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
   -H "X-Agent-Id: agent-1" \
   -d '{"input":[{"role":"user","content":[{"type":"text","text":"你好"}]}],"channel":"console"}'
 
 # 与 Agent 2 对话
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
   -H "X-Agent-Id: agent-2" \
   -d '{"input":[{"role":"user","content":[{"type":"text","text":"你好"}]}],"channel":"console"}'
 ```
 
 ### Web 认证令牌（可选）
 
-如果启用了 [Web 登录认证](./security#Web-登录认证)（`QWENPAW_AUTH_ENABLED=true`），所有 API 请求都需要提供身份验证令牌。
+如果启用了 [Web 登录认证](./security#Web-登录认证)（`QWENPAW_AUTH_ENABLED=true`），受保护的 API 请求都需要提供身份验证令牌。
 
 #### 注册账号
 
@@ -776,7 +861,7 @@ curl -X POST http://localhost:8088/api/console/chat \
   - 最长：100 年
 - **格式**：HMAC-SHA256 签名令牌
 - **存储**：建议安全存储，不要硬编码在代码中
-- **本地免认证**：来自 `127.0.0.1` 或 `::1` 的请求自动跳过认证
+- **本地 CLI 认证**：`qwenpaw` CLI 可以在回环请求中使用由 `auth.json` 管理的专用本地 CLI 令牌完成认证；直接调用 REST API 的客户端应使用 Bearer 令牌
 - **多令牌共存**：
   - ⚠️ 每次登录都会创建新令牌，旧令牌不会自动失效
   - 只要令牌未过期且签名有效，多个令牌可以同时使用

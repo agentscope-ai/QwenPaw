@@ -6,6 +6,7 @@ import secrets
 import click
 
 from ..app.auth import (
+    _ensure_local_cli_token,
     _hash_password,
     _load_auth_data,
     _save_auth_data,
@@ -56,8 +57,9 @@ def reset_password_cmd() -> None:
     data["user"]["password_hash"] = pw_hash
     data["user"]["password_salt"] = salt
 
-    # Invalidate existing tokens by rotating jwt_secret
+    # Invalidate browser sessions and local CLI credentials.
     data["jwt_secret"] = secrets.token_hex(32)
+    _ensure_local_cli_token(data, rotate=True)
 
     _save_auth_data(data)
     click.echo(

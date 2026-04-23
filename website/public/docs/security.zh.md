@@ -571,7 +571,7 @@ QwenPaw 支持可选的 Web 登录认证,保护控制台免受未授权访问。
    - 设置 `QWENPAW_AUTH_USERNAME` 和 `QWENPAW_AUTH_PASSWORD` 环境变量
    - QwenPaw 启动时自动创建管理员账户,跳过网页注册
    - 适用于 Docker、Kubernetes、服务器管理面板等自动化部署场景
-5. **本地免认证** — 来自本地(`127.0.0.1` / `::1`)的请求自动跳过认证,CLI 命令(`qwenpaw app`、`qwenpaw chat` 等)无需令牌即可正常工作
+5. **本地 CLI 认证** — 受保护的本地请求不再跳过认证。启用 Web 认证后,CLI 命令(`qwenpaw app`、`qwenpaw chat` 等)会在回环地址上自动附加专用的本地 CLI 令牌,因此本地自动化仍可工作,无需手动设置 `QWENPAW_API_TOKEN`(兼容旧的 `COPAW_API_TOKEN`)
 
 **安全特性**:
 
@@ -708,7 +708,7 @@ qwenpaw auth reset-password
 
 1. 显示当前注册的用户名
 2. 提示输入新密码(隐藏输入,需确认两次)
-3. 轮换 JWT 签名密钥,**使所有现有会话失效** — 所有已登录设备需使用新密码重新登录
+3. 轮换 `auth.json` 中的 JWT 签名密钥和本地 CLI 令牌,**使所有现有会话失效** — 所有已登录设备和本地 CLI 自动化都需重新认证
 
 **Docker 部署**:
 
@@ -750,7 +750,7 @@ qwenpaw app
 | 令牌存储       | 浏览器 localStorage，退出登录或收到 401 响应时清除                                    |
 | 外部依赖       | 无 — 仅使用 Python 标准库（`hashlib`、`hmac`、`secrets`）                             |
 | 文件权限       | `auth.json` 以 `0o600` 权限写入（仅所有者可读写）                                     |
-| 本地免认证     | 来自 `127.0.0.1` / `::1` 的请求跳过认证（CLI 访问不受影响）                           |
+| 本地 CLI 认证  | 回环地址上的 CLI 请求使用自动附加的本地 CLI 令牌；localhost 流量不会跳过认证          |
 | CORS 预检      | `OPTIONS` 请求无需认证直接放行                                                        |
 | WebSocket 认证 | 令牌通过查询参数传递，仅限升级请求                                                    |
 | 受保护路由     | 仅 `/api/*` 路由需要认证                                                              |

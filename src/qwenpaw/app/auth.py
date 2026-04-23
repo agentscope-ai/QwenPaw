@@ -15,10 +15,12 @@ Uses only Python stdlib (hashlib, hmac, secrets) to avoid adding new
 dependencies.  The password is stored as a salted SHA-256 hash in
 ``auth.json`` under ``SECRET_DIR``.
 """
+
 from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -43,6 +45,7 @@ AUTH_FILE = SECRET_DIR / "auth.json"
 
 # Token validity: 7 days (default)
 TOKEN_EXPIRY_SECONDS = 7 * 24 * 3600
+LOCAL_CLI_TOKEN_HEADER = "X-CoPaw-Local-CLI-Token"
 
 # Maximum token validity: 100 years (for "permanent" tokens)
 TOKEN_EXPIRY_MAX = 100 * 365 * 24 * 3600
@@ -121,6 +124,15 @@ def _get_jwt_secret() -> str:
         data["jwt_secret"] = secret
         _save_auth_data(data)
     return secret
+
+
+def _ensure_local_cli_token(data: dict, *, rotate: bool = False) -> str:
+    """Return the local CLI token, creating or rotating it when needed."""
+    token = str(data.get("local_cli_token", "")).strip()
+    if rotate or not token:
+        token = secrets.token_hex(32)
+        data["local_cli_token"] = token
+    return token
 
 
 def create_token(username: str, expiry_seconds: Optional[int] = None) -> str:
@@ -210,7 +222,8 @@ def _load_auth_data() -> dict:
     set to ``True`` when the file exists but cannot be read/parsed so
     that callers can fail closed instead of silently bypassing auth.
 
-    Encrypted fields (``jwt_secret``) are transparently decrypted.
+    Encrypted fields (``jwt_secret`` and ``local_cli_token``) are
+    transparently decrypted.
     Legacy plaintext values trigger an automatic re-encryption.
     """
     if AUTH_FILE.is_file():
@@ -244,7 +257,8 @@ def _load_auth_data() -> dict:
 def _save_auth_data(data: dict) -> None:
     """Save ``auth.json`` to ``SECRET_DIR`` with restrictive permissions.
 
-    Sensitive fields (``jwt_secret``) are encrypted before writing.
+    Sensitive fields (``jwt_secret`` and ``local_cli_token``) are encrypted
+    before writing.
     """
     _prepare_secret_parent(AUTH_FILE)
     encrypted_data = encrypt_dict_fields(data, AUTH_SECRET_FIELDS)
@@ -376,9 +390,10 @@ def register_user(
         "password_salt": salt,
     }
 
-    # Ensure jwt_secret exists
+    # Ensure auth secrets exist for browser sessions and local CLI clients.
     if not data.get("jwt_secret"):
         data["jwt_secret"] = secrets.token_hex(32)
+    _ensure_local_cli_token(data)
 
     _save_auth_data(data)
     logger.info("User '%s' registered", username)
@@ -456,6 +471,7 @@ def update_credentials(
         data["jwt_secret"] = secrets.token_hex(32)
 
     data["user"] = user
+    _ensure_local_cli_token(data, rotate=bool(new_password))
     _save_auth_data(data)
     logger.info("Credentials updated for user '%s'", user["username"])
     return create_token(user["username"], expiry_seconds)
@@ -491,6 +507,9 @@ def authenticate(
         and stored_salt
         and verify_password(password, stored_hash, stored_salt)
     ):
+        if not data.get("local_cli_token"):
+            _ensure_local_cli_token(data)
+            _save_auth_data(data)
         return create_token(username, expiry_seconds)
     return None
 
@@ -577,25 +596,64 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         token = self._extract_token(request)
-        if not token:
-            return Response(
-                content=json.dumps({"detail": "Not authenticated"}),
-                status_code=401,
-                media_type="application/json",
-            )
-
-        user = verify_token(token)
-        if user is None:
-            return Response(
-                content=json.dumps(
-                    {"detail": "Invalid or expired token"},
-                ),
-                status_code=401,
-                media_type="application/json",
-            )
+        if token:
+            user = verify_token(token)
+            if user is None:
+                return Response(
+                    content=json.dumps(
+                        {"detail": "Invalid or expired token"},
+                    ),
+                    status_code=401,
+                    media_type="application/json",
+                )
+        else:
+            user = self._authenticate_local_cli(request)
+            if user is None:
+                return Response(
+                    content=json.dumps({"detail": "Not authenticated"}),
+                    status_code=401,
+                    media_type="application/json",
+                )
 
         request.state.user = user
         return await call_next(request)
+
+    @staticmethod
+    def _is_loopback_request(request: Request) -> bool:
+        """Return ``True`` when the immediate client is a loopback host."""
+        client = getattr(request, "client", None)
+        host = str(getattr(client, "host", "") or "").strip().lower()
+        if not host:
+            return False
+        if host == "localhost":
+            return True
+        try:
+            return ipaddress.ip_address(host.split("%", 1)[0]).is_loopback
+        except ValueError:
+            return False
+
+    @classmethod
+    def _authenticate_local_cli(cls, request: Request) -> Optional[str]:
+        """Authenticate loopback CLI calls using the local CLI token."""
+        local_cli_token = request.headers.get(
+            LOCAL_CLI_TOKEN_HEADER,
+            "",
+        ).strip()
+        if not local_cli_token or not cls._is_loopback_request(request):
+            return None
+
+        data = _load_auth_data()
+        if data.get("_auth_load_error"):
+            return None
+
+        expected = str(data.get("local_cli_token", "")).strip()
+        if not expected or not hmac.compare_digest(local_cli_token, expected):
+            return None
+
+        username = str((data.get("user") or {}).get("username") or "").strip()
+        if not username:
+            return None
+        return username
 
     @staticmethod
     def _should_skip_auth(request: Request) -> bool:
@@ -617,9 +675,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not path.startswith("/api/"):
             return True
 
-        # Allow localhost requests without auth (CLI runs locally)
-        client_host = request.client.host if request.client else ""
-        return client_host in ("127.0.0.1", "::1")
+        return False
 
     @staticmethod
     def _extract_token(request: Request) -> Optional[str]:
