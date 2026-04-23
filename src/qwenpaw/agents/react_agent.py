@@ -5,6 +5,8 @@ This module provides the main QwenPawAgent class built on ReActAgent,
 with integrated tools, skills, and memory management.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
@@ -61,10 +63,10 @@ from ..constant import (
     MEDIA_UNSUPPORTED_PLACEHOLDER,
     WORKING_DIR,
 )
-from ..agents.memory import BaseMemoryManager
-from ..agents.context import BaseContextManager
 
 if TYPE_CHECKING:
+    from ..agents.memory import BaseMemoryManager
+    from ..agents.context import BaseContextManager
     from ..config.config import AgentProfileConfig
     from .context import AgentContext
 
@@ -1222,6 +1224,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         from ..config.context import (
             set_current_workspace_dir,
             set_current_recent_max_bytes,
+            set_current_shell_command_timeout,
         )
 
         set_current_workspace_dir(self._workspace_dir)
@@ -1229,6 +1232,9 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         pruning_config = light_ctx.tool_result_pruning_config
         set_current_recent_max_bytes(
             pruning_config.pruning_recent_msg_max_bytes,
+        )
+        set_current_shell_command_timeout(
+            self._agent_config.running.shell_command_timeout,
         )
 
         # Process file and media blocks in messages

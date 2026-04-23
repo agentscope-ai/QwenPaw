@@ -1139,6 +1139,11 @@
     "maxItersMin": "最大迭代次数必须大于等于 1",
     "autoContinueOnTextOnly": "纯文本步骤自动续跑",
     "autoContinueOnTextOnlyTooltip": "当某轮推理只输出文字、未调用任何工具时，注入提示并额外进行一轮推理（工具策略与当前步相同），减少多步任务「无声中断」。关闭则与旧版行为一致。开启后可能增加 token 消耗。",
+    "shellCommandTimeout": "Shell 命令超时（秒）",
+    "shellCommandTimeoutTooltip": "execute_shell_command 工具的默认超时时间（秒）。LLM 在单次调用时仍可通过 timeout 参数覆盖此值。适用于编译、数据处理等耗时任务。",
+    "shellCommandTimeoutPlaceholder": "请输入超时时间",
+    "shellCommandTimeoutRequired": "Shell 命令超时为必填项",
+    "shellCommandTimeoutMin": "Shell 命令超时至少为 1 秒",
     "planMode": "计划模式",
     "planModeTooltip": "启用后可使用 /plan <描述> 进行结构化任务规划。启用时会注册 plan 相关工具，并显示计划面板。",
     "maxInputLength": "最大输入长度",
@@ -1263,6 +1268,20 @@
     "embeddingMaxBatchSizeTooltip": "单次批量向量化请求的最大条目数",
     "embeddingMaxBatchSizeRequired": "最大批处理大小为必填项",
     "embeddingRestartWarning": "向量模型配置不支持热更新，保存后需要重启服务才能生效",
+    "toolExecutionLevel": {
+      "title": "工具执行安全",
+      "alertMessage": "配置工具调用的审批策略，控制智能体执行工具时的安全级别",
+      "strict": "严格模式",
+      "strictDesc": "所有工具调用都需要审批，最高安全级别",
+      "smart": "智能模式",
+      "smartDesc": "低风险工具自动放行，中高风险工具需要审批",
+      "auto": "自动模式",
+      "autoDesc": "仅被明确标记为需要审批的工具才会要求审批（默认）",
+      "off": "关闭模式",
+      "offDesc": "关闭所有工具审批，所有工具自动执行"
+    },
+    "saveLevelSuccess": "工具执行安全级别已保存",
+    "saveLevelFailed": "保存工具执行安全级别失败",
     "maxContextLength": "最大上下文长度",
     "maxContextLengthTooltip": "模型上下文窗口的最大 token 数，决定每次请求能携带的最大历史长度",
     "maxContextLengthRequired": "最大上下文长度为必填项",
@@ -1474,6 +1493,53 @@
         "TOOL_CMD_SERVICE_RESTART": "检测可能中断系统服务的服务管理命令",
         "TOOL_CMD_PROCESS_KILL": "检测可能终止关键进程的进程终止命令",
         "TOOL_CMD_PRIVILEGE_ESCALATION": "检测使用 sudo、su、doas、pkexec 或 runas 的权限提升尝试"
+      },
+      "categories": {
+        "command_injection": "命令注入",
+        "code_execution": "代码执行",
+        "data_exfiltration": "数据外泄",
+        "path_traversal": "路径穿越",
+        "sensitive_file_access": "敏感文件访问",
+        "network_abuse": "网络滥用",
+        "credential_exposure": "凭证泄露",
+        "resource_abuse": "资源滥用",
+        "privilege_escalation": "权限提升",
+        "prompt_injection": "提示注入",
+        "other": "其他"
+      }
+    },
+    "shellEvasion": {
+      "title": "Shell 逃逸检测",
+      "description": "配置启用哪些 Shell 逃逸和混淆检测。这些检测能够发现试图绕过简单正则检测来隐藏恶意意图的技术手段。",
+      "checks": {
+        "command_substitution": {
+          "name": "命令替换",
+          "description": "检测 $()、反引号、进程替换等命令替换模式"
+        },
+        "obfuscated_flags": {
+          "name": "混淆标志",
+          "description": "检测 ANSI-C 引号、本地化引号和空引号标志混淆"
+        },
+        "backslash_escaped_whitespace": {
+          "name": "反斜杠转义空白",
+          "description": "检测可能改变命令解析的反斜杠转义空格/制表符"
+        },
+        "backslash_escaped_operators": {
+          "name": "反斜杠转义操作符",
+          "description": "检测 Shell 操作符 (;|&<>) 前的反斜杠，可隐藏命令结构"
+        },
+        "newlines": {
+          "name": "隐藏换行符",
+          "description": "检测可能分隔隐藏命令的换行符和回车符"
+        },
+        "comment_quote_desync": {
+          "name": "注释引号失同步",
+          "description": "检测 # 注释中的引号字符，可导致引号追踪失同步"
+        },
+        "quoted_newline": {
+          "name": "引号内换行",
+          "description": "检测引号字符串中的换行符后跟 # 行，可隐藏参数"
+        }
       }
     },
     "fileGuard": {
@@ -1726,6 +1792,22 @@
     "progressSaving": "正在写入备份文件...",
     "progressDone": "备份完成",
     "localModelsNotice": "备份文件不包含本地模型文件。如需跨设备迁移，请在目标设备上重新下载所需的本地模型。"
+  },
+  "approval": {
+    "title": "安全审批",
+    "tool": "工具",
+    "severity": "严重性",
+    "findings": "发现",
+    "parameters": "参数",
+    "approve": "批准",
+    "deny": "拒绝",
+    "source": "来源",
+    "subSession": "子Agent",
+    "approved": "已批准工具调用",
+    "denied": "已拒绝工具调用",
+    "approveFailed": "批准失败",
+    "cancelTask": "取消任务",
+    "denyFailed": "拒绝失败"
   },
   "plan": {
     "title": "计划",

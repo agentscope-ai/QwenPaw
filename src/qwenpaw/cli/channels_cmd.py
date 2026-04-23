@@ -26,6 +26,7 @@ from ..config.config import (
     IMessageChannelConfig,
     QQConfig,
     VoiceChannelConfig,
+    WeixinConfig,
     load_agent_config,
     save_agent_config,
 )
@@ -386,6 +387,57 @@ def configure_feishu(current_config: FeishuConfig) -> FeishuConfig:
     return current_config
 
 
+def configure_weixin(current_config: WeixinConfig) -> WeixinConfig:
+    """Configure WeChat (iLink Bot) personal account channel interactively.
+
+    ``bot_token`` is intentionally not prompted: it is a short-lived bearer
+    token obtained via QR-code login at runtime and persisted to
+    ``bot_token_file``. The wizard only collects the surrounding config.
+    """
+    click.echo("\n=== Configure WeChat (iLink Bot) Channel ===")
+
+    enabled = prompt_confirm(
+        "Enable WeChat channel?",
+        default=current_config.enabled,
+    )
+
+    if not enabled:
+        current_config.enabled = False
+        return current_config
+
+    current_config.enabled = True
+
+    click.echo(
+        "Note: bot_token is obtained via QR-code login at runtime and "
+        "persisted to bot_token_file; it is not prompted here.",
+    )
+
+    bot_token_file = click.prompt(
+        "bot_token file path",
+        default=(
+            current_config.bot_token_file or "~/.qwenpaw/weixin_bot_token"
+        ),
+        type=str,
+    )
+    current_config.bot_token_file = bot_token_file
+
+    base_url = click.prompt(
+        "iLink API base URL (leave empty for default)",
+        default=current_config.base_url or "",
+        type=str,
+    )
+    current_config.base_url = base_url
+
+    media_dir = click.prompt(
+        "Local media download directory (leave empty to disable)",
+        default=current_config.media_dir or "",
+        type=str,
+    )
+    current_config.media_dir = media_dir or None
+
+    return current_config
+
+
 def configure_qq(current_config: QQConfig) -> QQConfig:
     """Configure QQ channel interactively."""
     click.echo("\n=== Configure QQ Channel ===")
@@ -642,6 +694,7 @@ _ALL_CHANNEL_CONFIGURATORS = {
     "telegram": ("Telegram", configure_telegram),
     "dingtalk": ("DingTalk", configure_dingtalk),
     "feishu": ("Feishu", configure_feishu),
+    "weixin": ("WeChat (iLink Bot)", configure_weixin),
     "qq": ("QQ", configure_qq),
     "console": ("Console", configure_console),
     "voice": ("Twilio", configure_voice),

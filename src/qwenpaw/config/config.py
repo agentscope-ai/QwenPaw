@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import os
 import json
 import re
 from pathlib import Path
@@ -806,6 +805,16 @@ class AgentsRunningConfig(BaseModel):
         ),
     )
 
+    shell_command_timeout: float = Field(
+        default=60.0,
+        ge=1.0,
+        description=(
+            "Default timeout in seconds for execute_shell_command. "
+            "The LLM may still override this per-call via the timeout "
+            "parameter."
+        ),
+    )
+
     @model_validator(mode="after")
     def validate_llm_retry_backoff(self) -> "AgentsRunningConfig":
         """Validate LLM retry backoff relationships."""
@@ -955,6 +964,16 @@ class AgentProfileConfig(BaseModel):
     language: str = Field(
         default="zh",
         description="Language setting for this agent",
+    )
+    approval_level: str = Field(
+        default="AUTO",
+        description=(
+            "Tool execution security level: "
+            "STRICT (all tools need approval), "
+            "SMART (low-risk auto-allowed), "
+            "AUTO (only guarded tools), "
+            "OFF (guard disabled)"
+        ),
     )
     system_prompt_files: List[str] = Field(
         default_factory=lambda: ["AGENTS.md", "SOUL.md", "PROFILE.md"],
@@ -1149,11 +1168,10 @@ class MCPConfig(BaseModel):
         default_factory=lambda: {
             "tavily_search": MCPClientConfig(
                 name="tavily_mcp",
-                # Auto-enable if TAVILY_API_KEY exists in environment
-                enabled=bool(os.getenv("TAVILY_API_KEY")),
+                enabled=False,
                 command="npx",
                 args=["-y", "tavily-mcp@latest"],
-                env={"TAVILY_API_KEY": os.getenv("TAVILY_API_KEY", "")},
+                env={"TAVILY_API_KEY": ""},
             ),
         },
     )

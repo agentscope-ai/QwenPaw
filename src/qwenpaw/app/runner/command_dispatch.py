@@ -147,7 +147,7 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
         logger.info("handle_daemon_command %s completed", query)
         return
 
-    # Control command path (e.g. /stop)
+    # Control command path (e.g. /stop, /approval)
     if _is_control_command(query):
         workspace = runner._workspace  # pylint: disable=protected-access
         if workspace is None:

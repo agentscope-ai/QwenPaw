@@ -127,7 +127,12 @@ async def post_console_chat(
     if len(native_payload["content_parts"]) > 0:
         content = native_payload["content_parts"][0]
         if content:
-            name = content.text[:10]
+            if isinstance(content, str):
+                name = content[:10]
+            elif hasattr(content, "text"):
+                name = content.text[:10]
+            else:
+                name = str(content)[:10]
         else:
             name = "Media Message"
     chat = await workspace.chat_manager.get_or_create_chat(
@@ -187,8 +192,42 @@ async def post_console_chat_stop(
     chat_id: str = Query(..., description="Chat id (ChatSpec.id) to stop"),
 ) -> dict:
     """Stop the running chat. Only stops when called."""
+    logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
     workspace = await get_agent_for_request(request)
+
+    # Try to stop with the provided chat_id first
+    logger.debug(
+        "[STOP API] Got workspace, calling task_tracker.request_stop...",
+    )
     stopped = await workspace.task_tracker.request_stop(chat_id)
+
+    # If not found, the chat_id might be a session_id (timestamp)
+    # Try to resolve it to the actual chat UUID
+    if not stopped:
+        logger.debug(
+            "[STOP API] chat_id not found in tracker, trying to resolve "
+            "from session_id...",
+        )
+        chat_manager = getattr(workspace.runner, "_chat_manager", None)
+        if chat_manager:
+            resolved_chat_id = await chat_manager.get_chat_id_by_session(
+                session_id=chat_id,
+                channel="console",
+            )
+            if resolved_chat_id:
+                logger.debug(
+                    "[STOP API] Resolved session_id=%s to chat_id=%s",
+                    chat_id[:12] if len(chat_id) >= 12 else chat_id,
+                    resolved_chat_id,
+                )
+                stopped = await workspace.task_tracker.request_stop(
+                    resolved_chat_id,
+                )
+
+    logger.debug(
+        "[STOP API] task_tracker.request_stop returned: stopped=%s",
+        stopped,
+    )
     return {"stopped": stopped}
 
 
@@ -268,13 +307,48 @@ async def get_push_messages(
     session_id: str | None = Query(None, description="Optional session id"),
 ):
     """
-    Return pending push messages. Without session_id: recent messages
-    (all sessions, last 60s), not consumed so every tab sees them.
+    Return pending push messages and ALL approval requests.
+
+    Messages:
+    - With session_id: consumed messages for that session
+    - Without session_id: recent messages (all sessions, last 60s)
+
+    Approvals:
+    - Always returns ALL pending approvals across all sessions
+    - Frontend filters by current session_id for display
+    - Includes session_id in each approval for filtering
     """
     from ..console_push_store import get_recent, take
+    from ..approvals import get_approval_service
 
+    # Get messages (session-specific or global)
     if session_id:
         messages = await take(session_id)
     else:
         messages = await get_recent()
-    return {"messages": messages}
+
+    # Get ALL pending approvals (not filtered by session)
+    approval_svc = get_approval_service()
+    # pylint: disable=protected-access
+    async with approval_svc._lock:
+        all_pending = list(approval_svc._pending.values())
+
+    # Serialize approval data with root_session_id for frontend filtering
+    approvals_data = [
+        {
+            "request_id": p.request_id,
+            "session_id": p.session_id,
+            "root_session_id": p.root_session_id,
+            "agent_id": p.agent_id,
+            "tool_name": p.tool_name,
+            "severity": p.severity,
+            "findings_count": p.findings_count,
+            "findings_summary": p.result_summary,
+            "tool_params": p.extra.get("tool_call", {}).get("input", {}),
+            "created_at": p.created_at,
+            "timeout_seconds": p.timeout_seconds,
+        }
+        for p in all_pending
+    ]
+
+    return {"messages": messages, "pending_approvals": approvals_data}

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageCircle, X } from "lucide-react";
 import { consoleApi, type PushMessage } from "../../api/modules/console";
+import { useApprovalContext } from "../../contexts/ApprovalContext";
 import styles from "./index.module.less";
 
 const POLL_INTERVAL_MS = 2500;
@@ -14,12 +15,13 @@ interface BubbleItem extends PushMessage {
   dismissAt: number;
 }
 
-export default function ConsoleCronBubble() {
+export default function ConsolePollService() {
   const [items, setItems] = useState<BubbleItem[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const seenIdsRef = useRef<Set<string>>(new Set());
   const originalTitleRef = useRef(document.title);
   const blinkRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { setApprovals } = useApprovalContext();
 
   const dismiss = (id: string) => {
     setItems((prev) => prev.filter((i) => i.id !== id));
@@ -34,6 +36,12 @@ export default function ConsoleCronBubble() {
       consoleApi
         .getPushMessages()
         .then((res) => {
+          // Update pending approvals (global, will be filtered by Chat component)
+          if (res?.pending_approvals) {
+            setApprovals(res.pending_approvals);
+          }
+
+          // Update message bubbles
           if (!res?.messages?.length) return;
           const seen = seenIdsRef.current;
           if (seen.size > MAX_SEEN_IDS) seen.clear();

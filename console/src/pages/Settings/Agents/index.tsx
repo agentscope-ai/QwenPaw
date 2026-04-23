@@ -14,7 +14,7 @@ import { reorderAgents } from "./reorder";
 import styles from "./index.module.less";
 
 export default function AgentsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { agents, loading, deleteAgent, toggleAgent, loadAgents, setAgents } =
     useAgents();
   const { selectedAgent, setSelectedAgent } = useAgentStore();
@@ -132,6 +132,7 @@ export default function AgentsPage() {
       } else {
         const result = await agentsApi.createAgent({
           ...payload,
+          language: i18n.language,
           skill_names: selectedSkills,
         });
         message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);

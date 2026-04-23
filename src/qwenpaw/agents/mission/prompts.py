@@ -354,37 +354,32 @@ worker prompt that includes:
 
 ### 3. Dispatch batch — all at once
 
-**⚠️ You MUST use `qwenpaw agents chat` to dispatch.  You are the
+**⚠️ You MUST use Agent Chat tools to dispatch workers.  You are the
 controller — NEVER run implementation commands (npm, pip, python,
 make, cargo, etc.) yourself.  NEVER create/edit source files yourself.
 ALL implementation work is done by workers.**
 
-For each story, save the prompt to a file, then dispatch:
-```bash
-# Step A: write worker prompt to file (one per story)
-cat > {loop_dir}/worker_prompt_US-001.txt << 'WORKER_EOF'
-<paste the composed worker prompt here, including Worker Instructions>
-WORKER_EOF
+For each story in the current batch, compose a worker prompt and
+dispatch it using the `submit_to_agent` tool.
 
-# Step B: dispatch via qwenpaw agents chat
-qwenpaw agents chat --background \\
-  --from-agent {agent_id} --to-agent {agent_id} \\
-  --text "$(cat {loop_dir}/worker_prompt_US-001.txt)"
-```
+**Example dispatch pattern:**
+- Build a prompt string containing loop_dir, story details, and Worker
+  Instructions
+- Call `submit_to_agent(to_agent=WORKER_AGENT_ID, text=worker_prompt)`
+- Save the returned task_id for monitoring
 
-Repeat for each story in the batch.  Save **all** returned TASK_IDs.
+Repeat for **all** stories in the current batch (same priority).
+Save **all** returned task_ids for monitoring.
 
 ### 4. Monitor all workers
 
 **CRITICAL: Do NOT stop or end your turn while workers are running.**
 
-Poll **all** running tasks in a loop:
-```bash
-sleep 30
-qwenpaw agents chat --background --task-id <TASK_ID_1>
-qwenpaw agents chat --background --task-id <TASK_ID_2>
-# ... one per running task
-```
+Poll **all** running tasks in a loop using `check_agent_task`:
+
+- Wait 30 seconds before first check
+- For each task_id, call `check_agent_task(task_id=TASK_ID)`
+- Examine the status field in the response
 - As each task finishes (status "completed" or "failed"), record it
   and stop polling that ID.
 - Continue polling the remaining tasks.
@@ -395,19 +390,14 @@ qwenpaw agents chat --background --task-id <TASK_ID_2>
 ### 5. Verify batch (worker → verifier pipeline)
 Once ALL **workers** in the batch finish:
 
-For **each completed story**, dispatch a **verification session**:
+For **each completed story**, dispatch a **verification session**
+using `submit_to_agent`.
 
-```bash
-# Step A: write verifier prompt to file
-cat > {loop_dir}/verifier_prompt_US-001.txt << 'VERIFIER_EOF'
-<paste the verifier prompt with the story JSON filled in>
-VERIFIER_EOF
-
-# Step B: dispatch verifier (separate session from worker)
-qwenpaw agents chat --background \
-  --from-agent {agent_id} --to-agent {agent_id} \
-  --text "$(cat {loop_dir}/verifier_prompt_US-001.txt)"
-```
+**Verifier dispatch pattern:**
+- Compose verifier prompt with loop_dir, story JSON, and Verifier
+  Instructions block
+- Call `submit_to_agent(to_agent=VERIFIER_AGENT_ID, text=verifier_prompt)`
+- Wait for result and check VERDICT
 
 The verifier is an **adversarial agent** that tries to break the
 worker's implementation.  It outputs a structured verdict:
@@ -450,19 +440,20 @@ pass or you hit the iteration limit.
 
 ## Rules
 
-**⚠️ RULE #1: You are the CONTROLLER.**  In Phase 2, implementation
-tools are disabled by the system.  ALL coding, building, and testing
-is done by workers via `qwenpaw agents chat --background`.
+**⚠️ RULE #1: You are the CONTROLLER.**  In Phase 2, you dispatch
+workers using Agent Chat tools (`submit_to_agent`, `check_agent_task`).
+ALL coding, building, and testing is done by workers.
 
 **Phase 2 continuity:** The system automatically loops back to you after
 each turn if stories remain.  Focus on dispatching the current batch,
 polling results, and reporting progress.  Do not worry about "ending
 your turn" — the system handles iteration control.
 
-**Implementation tools are disabled in Phase 2.**  You can only read
-files, use `sleep`, and dispatch workers via `qwenpaw agents chat`.
-If you try to use `execute_shell_command`, `write_file`, or `edit_file`,
-the system will reject the call.  Delegate ALL implementation to workers.
+**Delegation rule in Phase 2:**  You can read files, dispatch workers
+via Agent Chat tools (`submit_to_agent`, `check_agent_task`), and
+update progress files.  Delegate ALL implementation work to workers
+using these tools.  Workers will have appropriate tool access
+configured via their `approval_level` setting.
 
 ---
 

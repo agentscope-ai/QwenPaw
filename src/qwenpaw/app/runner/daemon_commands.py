@@ -32,7 +32,7 @@ class RestartInProgressError(Exception):
 
 DAEMON_PREFIX = "/daemon"
 DAEMON_SUBCOMMANDS = frozenset(
-    {"status", "restart", "reload-config", "version", "logs", "approve"},
+    {"status", "restart", "reload-config", "version", "logs"},
 )
 # Short names: /restart -> /daemon restart, etc.
 DAEMON_SHORT_ALIASES = {
@@ -42,7 +42,6 @@ DAEMON_SHORT_ALIASES = {
     "reload_config": "reload-config",
     "version": "version",
     "logs": "logs",
-    "approve": "approve",
 }
 
 LOG_PATH = LOG_FILE_PATH
@@ -191,46 +190,6 @@ def run_daemon_logs(lines: int = 100) -> str:
     return f"**Console log (last {lines} lines)**\n\n```\n{content}\n```"
 
 
-async def run_daemon_approve(
-    _context: DaemonContext,
-    session_id: str = "",
-) -> str:
-    """Resolve the next pending tool-guard approval for *session_id*.
-
-    Called when the user sends ``/daemon approve`` in the chat while a
-    tool-guard approval is pending.  The runner intercepts the message
-    before it reaches this function in most cases, but this serves as
-    a fallback and returns a helpful message when no approval is
-    pending.
-    """
-    try:
-        from ..approvals import get_approval_service
-        from ...security.tool_guard.approval import ApprovalDecision
-
-        svc = get_approval_service()
-        pending = await svc.get_pending_by_session(session_id)
-        if pending is None:
-            return (
-                "**No pending approval**\n\n"
-                "- There is no tool-guard approval waiting for this "
-                "session.\n"
-                "- This command is only valid when a sensitive tool "
-                "call is awaiting your review."
-            )
-        await svc.resolve_request(
-            pending.request_id,
-            ApprovalDecision.APPROVED,
-        )
-        return (
-            f"**Tool execution approved** ✅\n\n"
-            f"- Tool: `{pending.tool_name}`\n"
-            f"- Request: `{pending.request_id[:8]}…`"
-        )
-    except Exception as exc:
-        logger.warning("run_daemon_approve error: %s", exc, exc_info=True)
-        return f"**Approve failed**\n\n- {exc}"
-
-
 def parse_daemon_query(query: str) -> Optional[tuple[str, list[str]]]:
     """Parse /daemon <sub> or /<short>. Return (subcommand, args) or None."""
     if not query or not isinstance(query, str):
@@ -298,9 +257,6 @@ class DaemonCommandHandlerMixin:
                     n = max(1, min(int(a), 2000))
                     break
             text = run_daemon_logs(lines=n)
-        elif sub == "approve":
-            session_id = getattr(context, "session_id", "") or ""
-            text = await run_daemon_approve(context, session_id=session_id)
         else:
             text = "Unknown daemon subcommand."
         logger.info("handle_daemon_command %s completed", query)

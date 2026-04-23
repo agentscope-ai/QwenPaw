@@ -23,6 +23,7 @@ dayjs.extend(relativeTime);
 import MainLayout from "./layouts/MainLayout";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { PluginProvider, usePlugins } from "./plugins/PluginContext";
+import { ApprovalProvider } from "./contexts/ApprovalContext";
 import { Suspense } from "react";
 import { lazyImportWithRetry } from "./utils/lazyWithRetry";
 
@@ -182,24 +183,26 @@ function AppInner() {
         }}
       >
         <AntdApp>
-          <Routes>
-            <Route
-              path="/login"
-              element={
-                <Suspense fallback={null}>
-                  <LoginPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="/*"
-              element={
-                <AuthGuard>
-                  <MainLayout />
-                </AuthGuard>
-              }
-            />
-          </Routes>
+          <ApprovalProvider>
+            <Routes>
+              <Route
+                path="/login"
+                element={
+                  <Suspense fallback={null}>
+                    <LoginPage />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="/*"
+                element={
+                  <AuthGuard>
+                    <MainLayout />
+                  </AuthGuard>
+                }
+              />
+            </Routes>
+          </ApprovalProvider>
         </AntdApp>
       </ConfigProvider>
     </BrowserRouter>

@@ -4,7 +4,7 @@ import { Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Sidebar from "../Sidebar";
 import Header from "../Header";
-import ConsoleCronBubble from "../../components/ConsoleCronBubble";
+import ConsolePollService from "../../components/ConsolePollService";
 import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
 import { lazyImportWithRetry } from "../../utils/lazyWithRetry";
 import { usePlugins } from "../../plugins/PluginContext";
@@ -88,7 +88,7 @@ export default function MainLayout() {
       <Layout>
         <Sidebar selectedKey={selectedKey} />
         <Content className="page-container">
-          <ConsoleCronBubble />
+          <ConsolePollService />
           <div className="page-content">
             <ChunkErrorBoundary resetKey={currentPath}>
               <Suspense

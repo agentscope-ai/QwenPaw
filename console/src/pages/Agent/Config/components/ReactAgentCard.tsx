@@ -131,6 +131,31 @@ export function ReactAgentCard({
             placeholder={t("agentConfig.maxItersPlaceholder")}
           />
         </Form.Item>
+
+        <Form.Item
+          label={t("agentConfig.shellCommandTimeout")}
+          name="shell_command_timeout"
+          rules={[
+            {
+              required: true,
+              message: t("agentConfig.shellCommandTimeoutRequired"),
+            },
+            {
+              type: "number",
+              min: 1,
+              message: t("agentConfig.shellCommandTimeoutMin"),
+            },
+          ]}
+          tooltip={t("agentConfig.shellCommandTimeoutTooltip")}
+          className={styles.reactAgentField}
+        >
+          <InputNumber
+            style={{ width: "100%" }}
+            min={1}
+            step={10}
+            placeholder={t("agentConfig.shellCommandTimeoutPlaceholder")}
+          />
+        </Form.Item>
       </div>
 
       <Form.Item

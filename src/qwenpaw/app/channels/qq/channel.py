@@ -1361,6 +1361,44 @@ class QQChannel(BaseChannel):
     # WebSocket: message event handling
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _find_quoted_element(
+        d: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Find the quoted msg_elements entry by matching ref_msg_idx."""
+        msg_elements = d.get("msg_elements")
+        if not msg_elements or not isinstance(msg_elements, list):
+            return None
+
+        scene_ext = (d.get("message_scene") or {}).get("ext") or []
+
+        ref_idx: str = ""
+        own_idx: str = ""
+        for entry in scene_ext:
+            if isinstance(entry, str):
+                if entry.startswith("ref_msg_idx="):
+                    ref_idx = entry[len("ref_msg_idx=") :]
+                elif entry.startswith("msg_idx="):
+                    own_idx = entry[len("msg_idx=") :]
+
+        if not ref_idx:
+            return None
+
+        for elem in msg_elements:
+            if not isinstance(elem, dict):
+                continue
+            if elem.get("msg_idx") == ref_idx:
+                return elem
+
+        for elem in msg_elements:
+            if not isinstance(elem, dict):
+                continue
+            elem_idx = elem.get("msg_idx", "")
+            if elem_idx and elem_idx != own_idx:
+                return elem
+
+        return None
+
     def _handle_msg_event(
         self,
         event_type: str,
@@ -1403,12 +1441,42 @@ class QQChannel(BaseChannel):
             channel_id=d.get("channel_id", ""),
         )
 
+        # Extract quoted message (text + attachments) from msg_elements.
+        text_parts: List[str] = []
+        content_parts: List[Any] = []
+        quoted_elem = self._find_quoted_element(d)
+        if quoted_elem is not None:
+            quoted_text = (quoted_elem.get("content") or "").strip()
+            quoted_attachments = quoted_elem.get("attachments") or []
+            if quoted_text:
+                text_parts.insert(0, f"[quoted message: {quoted_text}]")
+            if quoted_attachments:
+                quoted_media = self._parse_qq_attachments(quoted_attachments)
+                if quoted_media:
+                    content_parts.extend(quoted_media)
+                else:
+                    text_parts.insert(0, "[quoted media: download failed]")
+            if not quoted_text and not quoted_attachments:
+                text_parts.insert(0, "[quoted message]")
+            logger.info(
+                "qq quoted message detected, text=%r attachments=%d",
+                quoted_text[:100] if quoted_text else "",
+                len(quoted_attachments),
+            )
+        if text:
+            text_parts.append(text)
+        combined_text = "\n".join(text_parts).strip()
+
+        if combined_text:
+            content_parts.insert(
+                0,
+                TextContent(type=ContentType.TEXT, text=combined_text),
+            )
+
         native = {
             "channel_id": "qq",
             "sender_id": sender,
-            "content_parts": [
-                TextContent(type=ContentType.TEXT, text=text),
-            ],
+            "content_parts": content_parts,
             "meta": meta,
         }
         request = self.build_agent_request_from_native(native)
@@ -1424,7 +1492,7 @@ class QQChannel(BaseChannel):
             spec.message_type,
             sender,
             extra_str,
-            text[:100],
+            combined_text[:100],
         )
 
     # ------------------------------------------------------------------

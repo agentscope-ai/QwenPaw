@@ -25,6 +25,7 @@ export interface AgentProfileConfig {
   name: string;
   description?: string;
   workspace_dir?: string;
+  approval_level?: string;
   active_model?: ModelSlotConfig | null;
   channels?: unknown;
   mcp?: unknown;

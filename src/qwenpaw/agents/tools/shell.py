@@ -17,7 +17,10 @@ from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
-from ...config.context import get_current_workspace_dir
+from ...config.context import (
+    get_current_shell_command_timeout,
+    get_current_workspace_dir,
+)
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -222,8 +225,7 @@ def _execute_subprocess_sync(
             text=False,
             cwd=cwd,
             env=env,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
-            | subprocess.CREATE_NO_WINDOW,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
         )
 
         # Parent copies are no longer needed — the child inherited its own
@@ -317,6 +319,13 @@ async def execute_shell_command(
             timeout = float(timeout)
         except (ValueError, TypeError):
             timeout = 60.0
+
+    # Apply agent-configured default when the caller used the hardcoded
+    # default (60.0).  An explicit LLM-provided value != 60.0 is kept.
+    if timeout == 60.0:
+        configured = get_current_shell_command_timeout()
+        if configured is not None:
+            timeout = configured
 
     # Use current workspace_dir from context, fallback to WORKING_DIR
     if cwd is not None:

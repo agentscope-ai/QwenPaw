@@ -122,7 +122,6 @@
   "voiceTranscription": {
     "title": "Voice Transcription",
     "description": "Configure how incoming audio and voice messages are handled.",
-    "loadFailed": "Failed to load audio mode settings",
     "saveSuccess": "Audio mode saved",
     "saveFailed": "Failed to save audio mode",
     "audioModeLabel": "Audio Mode",
@@ -1277,6 +1276,11 @@
     "maxItersMin": "Max iterations must be at least 1",
     "autoContinueOnTextOnly": "Auto-continue on text-only step",
     "autoContinueOnTextOnlyTooltip": "If the model ends a reasoning step with only text (no tool calls), inject a hint and run one extra reasoning pass with the same tool policy so multi-step tasks are less likely to stop silently. Turn off to match legacy behavior. May increase token usage when enabled.",
+    "shellCommandTimeout": "Shell Command Timeout (s)",
+    "shellCommandTimeoutTooltip": "Default timeout in seconds for the execute_shell_command tool. The LLM can still override this per-call via the timeout parameter. Useful for long-running tasks like compilation or data processing.",
+    "shellCommandTimeoutPlaceholder": "Enter timeout",
+    "shellCommandTimeoutRequired": "Shell command timeout is required",
+    "shellCommandTimeoutMin": "Shell command timeout must be at least 1 second",
     "planMode": "Plan Mode",
     "planModeTooltip": "Enable plan mode to use /plan <description> for structured task planning. When enabled, plan tools are registered and the plan panel becomes available.",
     "maxInputLength": "Max Input Length",
@@ -1401,6 +1405,20 @@
     "embeddingMaxBatchSizeTooltip": "Maximum number of items in a single batch embedding request",
     "embeddingMaxBatchSizeRequired": "Max batch size is required",
     "embeddingRestartWarning": "Embedding model config does not support hot reload. Save and restart the service for changes to take effect.",
+    "toolExecutionLevel": {
+      "title": "Tool Execution Security",
+      "alertMessage": "Configure tool call approval policy to control the security level when agents execute tools",
+      "strict": "Strict Mode",
+      "strictDesc": "All tool calls require approval, highest security level",
+      "smart": "Smart Mode",
+      "smartDesc": "Low-risk tools auto-approved, medium+ risk tools require approval",
+      "auto": "Auto Mode",
+      "autoDesc": "Only tools explicitly marked for approval require approval (default)",
+      "off": "Off Mode",
+      "offDesc": "Disable all tool approvals, all tools execute automatically"
+    },
+    "saveLevelSuccess": "Tool execution security level saved",
+    "saveLevelFailed": "Failed to save tool execution security level",
     "maxContextLength": "Max Context Length",
     "maxContextLengthTooltip": "Maximum token count for the model context window, determining how much history fits in each request",
     "maxContextLengthRequired": "Max context length is required",
@@ -1612,6 +1630,53 @@
         "TOOL_CMD_SERVICE_RESTART": "Detects service management commands that can disrupt system services",
         "TOOL_CMD_PROCESS_KILL": "Detects process termination commands that may kill critical processes",
         "TOOL_CMD_PRIVILEGE_ESCALATION": "Detects privilege escalation attempts using sudo, su, doas, pkexec, or runas"
+      },
+      "categories": {
+        "command_injection": "Command Injection",
+        "code_execution": "Code Execution",
+        "data_exfiltration": "Data Exfiltration",
+        "path_traversal": "Path Traversal",
+        "sensitive_file_access": "Sensitive File Access",
+        "network_abuse": "Network Abuse",
+        "credential_exposure": "Credential Exposure",
+        "resource_abuse": "Resource Abuse",
+        "privilege_escalation": "Privilege Escalation",
+        "prompt_injection": "Prompt Injection",
+        "other": "Other"
+      }
+    },
+    "shellEvasion": {
+      "title": "Shell Evasion Detection",
+      "description": "Configure which shell evasion and obfuscation detection checks are enabled. These checks detect techniques that attempt to hide malicious intent from simpler regex-only detection.",
+      "checks": {
+        "command_substitution": {
+          "name": "Command Substitution",
+          "description": "Detects $(), backticks, process substitution, and other command substitution patterns"
+        },
+        "obfuscated_flags": {
+          "name": "Obfuscated Flags",
+          "description": "Detects ANSI-C quoting, locale quoting, and empty-quote flag obfuscation"
+        },
+        "backslash_escaped_whitespace": {
+          "name": "Backslash Escaped Whitespace",
+          "description": "Detects backslash-escaped spaces/tabs that can alter command parsing"
+        },
+        "backslash_escaped_operators": {
+          "name": "Backslash Escaped Operators",
+          "description": "Detects backslash before shell operators (;|&<>) that can hide command structure"
+        },
+        "newlines": {
+          "name": "Hidden Newlines",
+          "description": "Detects newlines and carriage returns that could separate hidden commands"
+        },
+        "comment_quote_desync": {
+          "name": "Comment Quote Desync",
+          "description": "Detects quote characters inside # comments that can desync quote tracking"
+        },
+        "quoted_newline": {
+          "name": "Quoted Newline",
+          "description": "Detects newlines inside quoted strings followed by #-prefixed lines that can hide arguments"
+        }
       }
     },
     "fileGuard": {
@@ -1719,6 +1784,22 @@
     "nothingToUpdate": "Please enter a new username or password",
     "passwordEmpty": "Password cannot be blank",
     "usernameEmpty": "Username cannot be blank"
+  },
+  "approval": {
+    "title": "Security Approval Required",
+    "tool": "Tool",
+    "severity": "Severity",
+    "findings": "Findings",
+    "parameters": "Parameters",
+    "approve": "Approve",
+    "deny": "Deny",
+    "source": "Source",
+    "subSession": "Sub-Agent",
+    "approved": "Tool call approved",
+    "denied": "Tool call denied",
+    "approveFailed": "Failed to approve",
+    "cancelTask": "Cancel Task",
+    "denyFailed": "Failed to deny"
   },
   "plan": {
     "title": "Plan",

@@ -21,7 +21,6 @@ from .prompts import (
     DREAM_OPTIMIZATION_EN,
 )
 from ..model_factory import create_model_and_formatter
-from ..tools import read_file, write_file, edit_file
 from ..utils import get_token_counter
 from ...config import load_config
 from ...config.config import load_agent_config
@@ -139,6 +138,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
 
         self.summary_toolkit = Toolkit()
+        from qwenpaw.agents.tools import (
+            read_file,
+            write_file,
+            edit_file,
+        )  # noqa: PLC0415
+
         self.summary_toolkit.register_tool_function(read_file)
         self.summary_toolkit.register_tool_function(write_file)
         self.summary_toolkit.register_tool_function(edit_file)

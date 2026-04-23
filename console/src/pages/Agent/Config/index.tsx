@@ -2,7 +2,12 @@ import { useState, useMemo, useEffect } from "react";
 import { Button, Form, Tabs } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useAgentConfig } from "./useAgentConfig.tsx";
-import { ReactAgentCard, LlmRetryCard, LlmRateLimiterCard } from "./components";
+import {
+  ReactAgentCard,
+  LlmRetryCard,
+  LlmRateLimiterCard,
+  ToolExecutionLevelCard,
+} from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import {
   CONTEXT_MANAGER_BACKEND_MAPPINGS,
@@ -120,6 +125,21 @@ function AgentConfigPage() {
         ),
       });
     }
+
+    // Add Tool Execution Level tab
+    baseTabs.push({
+      key: "toolExecutionLevel",
+      label: (
+        <span className={styles.tabLabel}>
+          {t("agentConfig.toolExecutionLevelTitle")}
+        </span>
+      ),
+      children: (
+        <div className={styles.tabContent}>
+          <ToolExecutionLevelCard />
+        </div>
+      ),
+    });
 
     return baseTabs;
   }, [
