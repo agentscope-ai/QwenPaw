@@ -27,6 +27,7 @@ ENV_PREFIX = "qwenpaw_pack_"
 # See: issue.md and https://github.com/conda/conda-pack/issues/154
 CONDA_UNPACK_AFFECTED_PACKAGES = [
     "huggingface_hub",  # file_download.py, _local_folder.py use Windows long path prefix
+    "discord.py",       # ARG_NAME_SUBREGEX contains \\?\* which gets corrupted (#3677)
 ]
 
 

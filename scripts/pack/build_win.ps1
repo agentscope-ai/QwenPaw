@@ -18,6 +18,7 @@ $NsiPath = Join-Path $PackDir "desktop.nsi"
 # See: issue.md, scripts/pack/WINDOWS_FIX.md
 $CondaUnpackAffectedPackages = @(
   "huggingface_hub"  # Uses Windows extended-length path prefix (\\?\)
+  "discord.py"       # ARG_NAME_SUBREGEX contains \\?\* which gets corrupted (#3677)
 )
 
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
