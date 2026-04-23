@@ -805,6 +805,16 @@ class AgentsRunningConfig(BaseModel):
         ),
     )
 
+    shell_command_timeout: float = Field(
+        default=60.0,
+        ge=1.0,
+        description=(
+            "Default timeout in seconds for execute_shell_command. "
+            "The LLM may still override this per-call via the timeout "
+            "parameter."
+        ),
+    )
+
     @model_validator(mode="after")
     def validate_llm_retry_backoff(self) -> "AgentsRunningConfig":
         """Validate LLM retry backoff relationships."""
