@@ -15,6 +15,9 @@ export function useToolGuard() {
   const [builtinRules, setBuiltinRules] = useState<ToolGuardRule[]>([]);
   const [customRules, setCustomRules] = useState<ToolGuardRule[]>([]);
   const [disabledRules, setDisabledRules] = useState<Set<string>>(new Set());
+  const [shellEvasionChecks, setShellEvasionChecks] = useState<
+    Record<string, boolean>
+  >({});
   const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +35,7 @@ export function useToolGuard() {
       setBuiltinRules(builtin);
       setCustomRules(cfg.custom_rules ?? []);
       setDisabledRules(new Set(cfg.disabled_rules ?? []));
+      setShellEvasionChecks(cfg.shell_evasion_checks ?? {});
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Failed to load security config";
@@ -94,6 +98,13 @@ export function useToolGuard() {
     })),
   ];
 
+  const toggleShellEvasionCheck = useCallback(
+    (checkName: string, checked: boolean) => {
+      setShellEvasionChecks((prev) => ({ ...prev, [checkName]: checked }));
+    },
+    [],
+  );
+
   const buildSaveBody = useCallback((): ToolGuardConfig => {
     return {
       enabled,
@@ -101,8 +112,9 @@ export function useToolGuard() {
       denied_tools: config?.denied_tools ?? [],
       custom_rules: customRules,
       disabled_rules: Array.from(disabledRules),
+      shell_evasion_checks: shellEvasionChecks,
     };
-  }, [enabled, config, customRules, disabledRules]);
+  }, [enabled, config, customRules, disabledRules, shellEvasionChecks]);
 
   return {
     config,
@@ -112,6 +124,8 @@ export function useToolGuard() {
     enabled,
     setEnabled,
     mergedRules,
+    shellEvasionChecks,
+    toggleShellEvasionCheck,
     loading,
     error,
     fetchAll,

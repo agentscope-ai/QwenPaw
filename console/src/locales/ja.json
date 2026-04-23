@@ -1389,6 +1389,19 @@
         "TOOL_CMD_SERVICE_RESTART": "システムサービスを中断させる可能性のあるサービス管理コマンドを検出",
         "TOOL_CMD_PROCESS_KILL": "重要なプロセスを終了させる可能性のあるプロセス終了コマンドを検出",
         "TOOL_CMD_PRIVILEGE_ESCALATION": "sudo、su、doas、pkexec、または runas を使用した権限昇格の試みを検出"
+      },
+      "categories": {
+        "command_injection": "コマンドインジェクション",
+        "code_execution": "コード実行",
+        "data_exfiltration": "データ漏洩",
+        "path_traversal": "パストラバーサル",
+        "sensitive_file_access": "機密ファイルアクセス",
+        "network_abuse": "ネットワーク不正利用",
+        "credential_exposure": "認証情報漏洩",
+        "resource_abuse": "リソース不正利用",
+        "privilege_escalation": "権限昇格",
+        "prompt_injection": "プロンプトインジェクション",
+        "other": "その他"
       }
     },
     "fileGuard": {

@@ -1404,6 +1404,19 @@
         "TOOL_CMD_SERVICE_RESTART": "Обнаруживает команды управления службами, которые могут нарушить работу системных служб",
         "TOOL_CMD_PROCESS_KILL": "Обнаруживает команды завершения процессов, которые могут остановить критические процессы",
         "TOOL_CMD_PRIVILEGE_ESCALATION": "Обнаруживает попытки повышения привилегий с использованием sudo, su, doas, pkexec или runas"
+      },
+      "categories": {
+        "command_injection": "Внедрение команд",
+        "code_execution": "Выполнение кода",
+        "data_exfiltration": "Утечка данных",
+        "path_traversal": "Обход пути",
+        "sensitive_file_access": "Доступ к конфиденциальным файлам",
+        "network_abuse": "Злоупотребление сетью",
+        "credential_exposure": "Утечка учётных данных",
+        "resource_abuse": "Злоупотребление ресурсами",
+        "privilege_escalation": "Повышение привилегий",
+        "prompt_injection": "Внедрение промпта",
+        "other": "Другое"
       }
     },
     "fileGuard": {

@@ -1469,6 +1469,53 @@
         "TOOL_CMD_SERVICE_RESTART": "检测可能中断系统服务的服务管理命令",
         "TOOL_CMD_PROCESS_KILL": "检测可能终止关键进程的进程终止命令",
         "TOOL_CMD_PRIVILEGE_ESCALATION": "检测使用 sudo、su、doas、pkexec 或 runas 的权限提升尝试"
+      },
+      "categories": {
+        "command_injection": "命令注入",
+        "code_execution": "代码执行",
+        "data_exfiltration": "数据外泄",
+        "path_traversal": "路径穿越",
+        "sensitive_file_access": "敏感文件访问",
+        "network_abuse": "网络滥用",
+        "credential_exposure": "凭证泄露",
+        "resource_abuse": "资源滥用",
+        "privilege_escalation": "权限提升",
+        "prompt_injection": "提示注入",
+        "other": "其他"
+      }
+    },
+    "shellEvasion": {
+      "title": "Shell 逃逸检测",
+      "description": "配置启用哪些 Shell 逃逸和混淆检测。这些检测能够发现试图绕过简单正则检测来隐藏恶意意图的技术手段。",
+      "checks": {
+        "command_substitution": {
+          "name": "命令替换",
+          "description": "检测 $()、反引号、进程替换等命令替换模式"
+        },
+        "obfuscated_flags": {
+          "name": "混淆标志",
+          "description": "检测 ANSI-C 引号、本地化引号和空引号标志混淆"
+        },
+        "backslash_escaped_whitespace": {
+          "name": "反斜杠转义空白",
+          "description": "检测可能改变命令解析的反斜杠转义空格/制表符"
+        },
+        "backslash_escaped_operators": {
+          "name": "反斜杠转义操作符",
+          "description": "检测 Shell 操作符 (;|&<>) 前的反斜杠，可隐藏命令结构"
+        },
+        "newlines": {
+          "name": "隐藏换行符",
+          "description": "检测可能分隔隐藏命令的换行符和回车符"
+        },
+        "comment_quote_desync": {
+          "name": "注释引号失同步",
+          "description": "检测 # 注释中的引号字符，可导致引号追踪失同步"
+        },
+        "quoted_newline": {
+          "name": "引号内换行",
+          "description": "检测引号字符串中的换行符后跟 # 行，可隐藏参数"
+        }
       }
     },
     "fileGuard": {

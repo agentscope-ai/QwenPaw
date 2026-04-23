@@ -18,6 +18,7 @@ export interface ToolGuardConfig {
   denied_tools: string[];
   custom_rules: ToolGuardRule[];
   disabled_rules: string[];
+  shell_evasion_checks: Record<string, boolean>;
 }
 
 // ── File Guard types ──────────────────────────────────────────────

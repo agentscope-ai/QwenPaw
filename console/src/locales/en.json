@@ -1607,6 +1607,53 @@
         "TOOL_CMD_SERVICE_RESTART": "Detects service management commands that can disrupt system services",
         "TOOL_CMD_PROCESS_KILL": "Detects process termination commands that may kill critical processes",
         "TOOL_CMD_PRIVILEGE_ESCALATION": "Detects privilege escalation attempts using sudo, su, doas, pkexec, or runas"
+      },
+      "categories": {
+        "command_injection": "Command Injection",
+        "code_execution": "Code Execution",
+        "data_exfiltration": "Data Exfiltration",
+        "path_traversal": "Path Traversal",
+        "sensitive_file_access": "Sensitive File Access",
+        "network_abuse": "Network Abuse",
+        "credential_exposure": "Credential Exposure",
+        "resource_abuse": "Resource Abuse",
+        "privilege_escalation": "Privilege Escalation",
+        "prompt_injection": "Prompt Injection",
+        "other": "Other"
+      }
+    },
+    "shellEvasion": {
+      "title": "Shell Evasion Detection",
+      "description": "Configure which shell evasion and obfuscation detection checks are enabled. These checks detect techniques that attempt to hide malicious intent from simpler regex-only detection.",
+      "checks": {
+        "command_substitution": {
+          "name": "Command Substitution",
+          "description": "Detects $(), backticks, process substitution, and other command substitution patterns"
+        },
+        "obfuscated_flags": {
+          "name": "Obfuscated Flags",
+          "description": "Detects ANSI-C quoting, locale quoting, and empty-quote flag obfuscation"
+        },
+        "backslash_escaped_whitespace": {
+          "name": "Backslash Escaped Whitespace",
+          "description": "Detects backslash-escaped spaces/tabs that can alter command parsing"
+        },
+        "backslash_escaped_operators": {
+          "name": "Backslash Escaped Operators",
+          "description": "Detects backslash before shell operators (;|&<>) that can hide command structure"
+        },
+        "newlines": {
+          "name": "Hidden Newlines",
+          "description": "Detects newlines and carriage returns that could separate hidden commands"
+        },
+        "comment_quote_desync": {
+          "name": "Comment Quote Desync",
+          "description": "Detects quote characters inside # comments that can desync quote tracking"
+        },
+        "quoted_newline": {
+          "name": "Quoted Newline",
+          "description": "Detects newlines inside quoted strings followed by #-prefixed lines that can hide arguments"
+        }
       }
     },
     "fileGuard": {
