@@ -22,6 +22,10 @@ export const getPoolBuiltinStatusLabel = (
       return t("skillPool.statusUpToDate");
     case "outdated":
       return t("skillPool.statusOutdated");
+    case "not_synced":
+      return t("skillPool.statusNotSynced");
+    case "conflict":
+      return t("skillPool.statusConflict");
     default:
       return "-";
   }

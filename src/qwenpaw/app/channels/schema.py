@@ -38,6 +38,7 @@ BUILTIN_CHANNEL_TYPES = (
     "mqtt",
     "console",
     "voice",
+    "sip",
     "xiaoyi",
 )
 

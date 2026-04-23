@@ -17,10 +17,10 @@ from agentscope_runtime.engine.schemas.exception import (
 )
 
 from ..constant import SECRET_DIR
+from ..config.config import ModelSlotConfig
 from ..exceptions import ProviderError
 from .anthropic_provider import AnthropicProvider
 from .gemini_provider import GeminiProvider
-from .models import ModelSlotConfig
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
 from .lmstudio_provider import LMStudioProvider
@@ -507,8 +507,19 @@ PROVIDER_DASHSCOPE = OpenAIProvider(
 
 PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
     id="aliyun-codingplan",
-    name="Aliyun Coding Plan",
+    name="Aliyun Coding Plan (China)",
     base_url="https://coding.dashscope.aliyuncs.com/v1",
+    api_key_prefix="sk-sp",
+    models=ALIYUN_CODINGPLAN_MODELS,
+    # This provider doesn't support connection check without model config
+    support_connection_check=False,
+    freeze_url=True,
+)
+
+PROVIDER_ALIYUN_CODINGPLAN_INTL = OpenAIProvider(
+    id="aliyun-codingplan-intl",
+    name="Aliyun Coding Plan (International)",
+    base_url="https://coding-intl.dashscope.aliyuncs.com/v1",
     api_key_prefix="sk-sp",
     models=ALIYUN_CODINGPLAN_MODELS,
     # This provider doesn't support connection check without model config
@@ -706,10 +717,6 @@ PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
 )
 
 
-class ActiveModelsInfo(BaseModel):
-    active_llm: ModelSlotConfig | None
-
-
 class ProviderManager:  # pylint: disable=too-many-public-methods
     """A manager class to handle all providers,
     including built-in and custom ones."""
@@ -758,6 +765,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_MODELSCOPE)
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
+        self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN_INTL)
         self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
@@ -912,10 +920,17 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             models = await provider.fetch_models()
             if save:
                 provider.extra_models = models
-                self._save_provider(
-                    provider,
-                    is_builtin=provider_id in self.builtin_providers,
-                )
+                # Save provider config to appropriate location
+                is_plugin = provider_id in self.plugin_providers
+                if is_plugin:
+                    provider_info = ProviderInfo(**provider.model_dump())
+                    self.plugin_providers[provider_id]["info"] = provider_info
+                    self._save_plugin_provider(provider)
+                else:
+                    self._save_provider(
+                        provider,
+                        is_builtin=provider_id in self.builtin_providers,
+                    )
             return models
         except Exception as e:
             logger.warning(
@@ -1034,10 +1049,18 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 message=f"Provider '{provider_id}' not found.",
             )
         await provider.add_model(model_info)
-        self._save_provider(
-            provider,
-            is_builtin=provider_id in self.builtin_providers,
-        )
+
+        # Save provider config to appropriate location
+        is_plugin = provider_id in self.plugin_providers
+        if is_plugin:
+            provider_info = ProviderInfo(**provider.model_dump())
+            self.plugin_providers[provider_id]["info"] = provider_info
+            self._save_plugin_provider(provider)
+        else:
+            self._save_provider(
+                provider,
+                is_builtin=provider_id in self.builtin_providers,
+            )
         return await provider.get_info()
 
     async def update_model_config(
@@ -1058,10 +1081,18 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 model_name=f"{provider_id}/{model_id}",
                 details={"provider_id": provider_id, "model_id": model_id},
             )
-        self._save_provider(
-            provider,
-            is_builtin=provider_id in self.builtin_providers,
-        )
+
+        # Save provider config to appropriate location
+        is_plugin = provider_id in self.plugin_providers
+        if is_plugin:
+            provider_info = ProviderInfo(**provider.model_dump())
+            self.plugin_providers[provider_id]["info"] = provider_info
+            self._save_plugin_provider(provider)
+        else:
+            self._save_provider(
+                provider,
+                is_builtin=provider_id in self.builtin_providers,
+            )
         return await provider.get_info()
 
     async def delete_model_from_provider(
@@ -1076,31 +1107,59 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 message=f"Provider '{provider_id}' not found.",
             )
         await provider.delete_model(model_id=model_id)
-        self._save_provider(
-            provider,
-            is_builtin=provider_id in self.builtin_providers,
-        )
+
+        # Save provider config to appropriate location
+        is_plugin = provider_id in self.plugin_providers
+        if is_plugin:
+            provider_info = ProviderInfo(**provider.model_dump())
+            self.plugin_providers[provider_id]["info"] = provider_info
+            self._save_plugin_provider(provider)
+        else:
+            self._save_provider(
+                provider,
+                is_builtin=provider_id in self.builtin_providers,
+            )
         return await provider.get_info()
 
     async def probe_model_multimodal(
         self,
         provider_id: str,
         model_id: str,
+        image_only: bool = False,
     ) -> dict:
-        """Probe a model's multimodal capabilities and persist the result."""
+        """Probe a model's multimodal capabilities and persist the result.
+
+        Args:
+            provider_id: Provider identifier.
+            model_id: Model identifier.
+            image_only: When True, skip the video probe for a faster result.
+                Only ``supports_image`` will be accurate; ``supports_video``
+                will remain at its previous value (not updated).
+        """
         provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             return {"error": f"Provider '{provider_id}' not found"}
 
-        result = await provider.probe_model_multimodal(model_id)
+        result = await provider.probe_model_multimodal(
+            model_id,
+            image_only=image_only,
+        )
 
-        # Update the model's capability flags
+        # Update the model's capability flags.
+        # For image_only probes, leave supports_video untouched so a
+        # subsequent full probe can fill it in correctly.
         for model in provider.models + provider.extra_models:
             if model.id == model_id:
                 model.supports_image = result.supports_image
-                model.supports_video = result.supports_video
-                model.supports_multimodal = result.supports_multimodal
+                if not image_only:
+                    model.supports_video = result.supports_video
+                    model.supports_multimodal = result.supports_multimodal
+                else:
+                    # Partial update: derive supports_multimodal from
+                    # image alone; video will be updated by the full probe.
+                    if result.supports_image:
+                        model.supports_multimodal = True
                 model.probe_source = "probed"
                 break
 
@@ -1130,10 +1189,16 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 )
 
         # Persist to disk
-        self._save_provider(
-            provider,
-            is_builtin=provider_id in self.builtin_providers,
-        )
+        is_plugin = provider_id in self.plugin_providers
+        if is_plugin:
+            provider_info = ProviderInfo(**provider.model_dump())
+            self.plugin_providers[provider_id]["info"] = provider_info
+            self._save_plugin_provider(provider)
+        else:
+            self._save_provider(
+                provider,
+                is_builtin=provider_id in self.builtin_providers,
+            )
         return {
             "supports_image": result.supports_image,
             "supports_video": result.supports_video,
@@ -1168,10 +1233,17 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             pass
 
     def _save_plugin_provider(self, provider: Provider):
-        """Save a plugin provider configuration to disk."""
+        """Save a plugin provider configuration to disk.
+
+        Sensitive fields (``api_key``) are encrypted before writing.
+        """
         provider_path = self.plugin_path / f"{provider.id}.json"
+        data = encrypt_dict_fields(
+            provider.model_dump(),
+            PROVIDER_SECRET_FIELDS,
+        )
         with open(provider_path, "w", encoding="utf-8") as f:
-            json.dump(provider.model_dump(), f, ensure_ascii=False, indent=2)
+            json.dump(data, f, ensure_ascii=False, indent=2)
         try:
             os.chmod(provider_path, 0o600)
         except OSError:
@@ -1505,6 +1577,16 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
 
     async def _resume_local_model(self, local_manager) -> None:
         """Resume the active local model server from the previous run."""
+
+        def _clear_local_provider():
+            self.update_provider(
+                "qwenpaw-local",
+                {
+                    "base_url": "",
+                    "extra_models": [],
+                },
+            )
+
         local_models = self.get_provider("qwenpaw-local").extra_models
         model_id = local_models[0].id if local_models else None
         if model_id is None:
@@ -1516,6 +1598,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 "Skipping local model restore because"
                 " llama.cpp is not installed.",
             )
+            _clear_local_provider()
             return
 
         if not local_manager.is_model_downloaded(model_id):
@@ -1524,6 +1607,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 " model is not downloaded: %s",
                 model_id,
             )
+            _clear_local_provider()
             return
 
         try:
@@ -1534,6 +1618,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 model_id,
                 exc,
             )
+            _clear_local_provider()
             return
 
         self.update_provider(
@@ -1591,7 +1676,14 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             try:
                 with open(saved_config_path, "r", encoding="utf-8") as f:
                     saved_config = json.load(f)
-                # Merge saved config (mainly api_key and base_url)
+
+                # Decrypt sensitive fields
+                saved_config = decrypt_dict_fields(
+                    saved_config,
+                    PROVIDER_SECRET_FIELDS,
+                )
+
+                # Merge saved config (api_key, base_url, extra_models, etc)
                 if "api_key" in saved_config:
                     provider_info.api_key = saved_config["api_key"]
                 if "base_url" in saved_config:
@@ -1600,9 +1692,20 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     provider_info.generate_kwargs = saved_config[
                         "generate_kwargs"
                     ]
+                # Load extra_models from saved config
+                if "extra_models" in saved_config:
+                    provider_info.extra_models = [
+                        ModelInfo.model_validate(
+                            model.model_dump()
+                            if isinstance(model, BaseModel)
+                            else model,
+                        )
+                        for model in saved_config["extra_models"]
+                    ]
                 logger.info(
-                    f"✓ Loaded saved config for"
-                    f" plugin provider: {provider_id}",
+                    f"✓ Loaded saved config for plugin provider: "
+                    f"{provider_id} "
+                    f"({len(provider_info.extra_models)} extra model(s))",
                 )
             except Exception as e:
                 logger.warning(

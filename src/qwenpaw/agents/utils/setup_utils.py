@@ -8,6 +8,8 @@ import logging
 import shutil
 from pathlib import Path
 
+from ...constant import SUPPORTED_AGENT_LANGUAGES
+
 logger = logging.getLogger(__name__)
 
 _TEMPLATE_OVERRIDE_FILENAMES = {
@@ -16,6 +18,13 @@ _TEMPLATE_OVERRIDE_FILENAMES = {
     "PROFILE.md",
     "SOUL.md",
 }
+
+
+def normalize_agent_language(language: str) -> str:
+    """Map *language* to a supported agent language"""
+    if language in SUPPORTED_AGENT_LANGUAGES:
+        return language
+    return "en"
 
 
 def copy_md_files(

@@ -3,6 +3,7 @@ import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
 import type {
   BuiltinImportSpec,
+  BuiltinUpdateNotice,
   HubInstallTaskResponse,
   HubSkillSpec,
   PoolSkillSpec,
@@ -49,6 +50,8 @@ export function invalidateSkillCache(options?: {
     // Targeted invalidation based on options
     if (options.pool && key === "/skills/pool") {
       apiCache.delete(key);
+      apiCache.delete("/skills/pool/builtin-notice");
+      apiCache.delete("/skills/pool/builtin-sources");
     } else if (options.workspaces && key === "/skills/workspaces") {
       apiCache.delete(key);
     } else if (options.agentId && key === `/skills?agent=${options.agentId}`) {
@@ -309,8 +312,20 @@ export const skillApi = {
   listPoolBuiltinSources: () =>
     request<BuiltinImportSpec[]>("/skills/pool/builtin-sources"),
 
+  getPoolBuiltinNotice: async () => {
+    const cacheKey = "/skills/pool/builtin-notice";
+    const cached = getCached<BuiltinUpdateNotice>(cacheKey);
+    if (cached) return cached;
+
+    const data = await request<BuiltinUpdateNotice>(
+      "/skills/pool/builtin-notice",
+    );
+    setCache(cacheKey, data);
+    return data;
+  },
+
   importSelectedPoolBuiltins: (payload: {
-    skill_names: string[];
+    imports: Array<{ skill_name: string; language: string }>;
     overwrite_conflicts?: boolean;
   }) =>
     request<{
@@ -319,19 +334,26 @@ export const skillApi = {
       unchanged: string[];
       conflicts: Array<{
         skill_name: string;
+        language?: string;
+        status?: string;
+        source_name?: string;
         source_version_text?: string;
         current_version_text?: string;
         current_source?: string;
+        current_language?: string;
       }>;
     }>("/skills/pool/import-builtin", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
 
-  updatePoolBuiltin: (skillName: string) =>
+  updatePoolBuiltin: (skillName: string, language: string) =>
     request<Record<string, unknown>>(
       `/skills/pool/${encodeURIComponent(skillName)}/update-builtin`,
-      { method: "POST" },
+      {
+        method: "POST",
+        body: JSON.stringify({ language }),
+      },
     ),
 
   deleteSkillPoolSkill: (skillName: string) =>

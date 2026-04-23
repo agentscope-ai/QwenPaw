@@ -76,6 +76,7 @@ class WeixinChannel(BaseChannel):
         base_url: str = "",
         bot_prefix: str = "",
         media_dir: str = "",
+        workspace_dir: Path | None = None,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
@@ -108,9 +109,16 @@ class WeixinChannel(BaseChannel):
         self._context_tokens_file = (
             self._bot_token_file.parent / "weixin_context_tokens.json"
         )
-        self._media_dir = (
-            Path(media_dir).expanduser() if media_dir else DEFAULT_MEDIA_DIR
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
         )
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = DEFAULT_MEDIA_DIR
 
         self._client: Optional[ILinkClient] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -181,6 +189,7 @@ class WeixinChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Path | None = None,
     ) -> "WeixinChannel":
         return cls(
             process=process,
@@ -190,6 +199,7 @@ class WeixinChannel(BaseChannel):
             base_url=getattr(config, "base_url", "") or "",
             bot_prefix=getattr(config, "bot_prefix", "") or "",
             media_dir=getattr(config, "media_dir", None) or "",
+            workspace_dir=workspace_dir,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -964,7 +974,18 @@ class WeixinChannel(BaseChannel):
         if not _client or not to_user_id or not text:
             return
         try:
-            await _client.send_text(to_user_id, text, context_token)
+            resp = await _client.send_text(to_user_id, text, context_token)
+            if isinstance(resp, dict):
+                ret = resp.get("ret", 0)
+                errcode = resp.get("errcode", 0)
+                if ret != 0 or errcode != 0:
+                    logger.warning(
+                        "weixin send_text rejected: "
+                        "ret=%s errcode=%s to_user_id=%s",
+                        ret,
+                        errcode,
+                        to_user_id,
+                    )
         except Exception:
             logger.exception("weixin _send_text_direct failed")
 
@@ -1372,6 +1393,36 @@ class WeixinChannel(BaseChannel):
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Check WeChat long-poll client status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "WeChat channel is disabled.",
+            }
+        issues = []
+        if self._client is None:
+            issues.append("WeChat client not initialized")
+        if not self.bot_token:
+            issues.append("Bot token not available (not logged in)")
+        poll_thread_alive = (
+            self._poll_thread is not None and self._poll_thread.is_alive()
+        )
+        if not poll_thread_alive:
+            issues.append("Long-poll thread is not running")
+        if issues:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "; ".join(issues),
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "WeChat client is connected and polling.",
+        }
 
     async def start(self) -> None:
         if not self.enabled:

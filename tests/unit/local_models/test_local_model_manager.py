@@ -60,14 +60,20 @@ class _FakeLlamaCppBackend:
         model_path: Path,
         model_name: str,
         max_context_length: int | None = None,
+        port: int | None = None,
     ) -> LlamaCppServerSetupResult:
         self.calls.append(
             (
                 "setup",
-                (
-                    (model_path, model_name)
-                    if max_context_length is None
-                    else (model_path, model_name, max_context_length)
+                tuple(
+                    value
+                    for value in (
+                        model_path,
+                        model_name,
+                        max_context_length,
+                        port,
+                    )
+                    if value is not None
                 ),
             ),
         )
@@ -195,6 +201,7 @@ async def test_local_model_manager_forwards_async_server_calls(
         llamacpp_backend=cast(LlamaCppBackend, fake_llamacpp_backend),
     )
     await manager.set_max_context_length(131072)
+    await manager.set_port(43110)
 
     ready = await manager.check_llamacpp_server_ready(timeout=7.5)
     setup_result = await manager.setup_server("demo")
@@ -212,7 +219,7 @@ async def test_local_model_manager_forwards_async_server_calls(
     )
     assert fake_llamacpp_backend.calls == [
         ("server_ready", 7.5),
-        ("setup", (Path("/fake/path/demo"), "demo", 131072)),
+        ("setup", (Path("/fake/path/demo"), "demo", 131072, 43110)),
         ("shutdown", None),
     ]
 
@@ -238,6 +245,32 @@ async def test_set_max_context_length_persists_local_model_config(
     config_path = tmp_path / LocalModelManager.CONFIG_FILE_NAME
     assert json.loads(config_path.read_text(encoding="utf-8")) == {
         "max_context_length": 131072,
+        "port": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_set_port_persists_local_model_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        local_model_manager_module,
+        "DEFAULT_LOCAL_PROVIDER_DIR",
+        tmp_path,
+    )
+    manager = LocalModelManager(
+        model_manager=cast(ModelManager, _FakeModelManager()),
+        llamacpp_backend=cast(LlamaCppBackend, _FakeLlamaCppBackend()),
+    )
+
+    await manager.set_port(43110)
+
+    assert manager.get_config().port == 43110
+    config_path = tmp_path / LocalModelManager.CONFIG_FILE_NAME
+    assert json.loads(config_path.read_text(encoding="utf-8")) == {
+        "max_context_length": 65536,
+        "port": 43110,
     }
 
 

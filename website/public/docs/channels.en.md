@@ -1044,6 +1044,234 @@ After configuration, simply call your Twilio phone number to have a voice conver
 
 ---
 
+## SIP
+
+The SIP channel enables voice conversations with QwenPaw via standard SIP phones and softphones (e.g., Linphone, MicroSIP, IP desk phones). It works entirely on your local network or private infrastructure — no cloud account or public URL required.
+
+Two backend modes are available:
+
+| Mode        | Best for                          | External infra needed?            |
+| ----------- | --------------------------------- | --------------------------------- |
+| **Dev**     | Local development, PoC, debugging | None — built-in SIP registrar     |
+| **LiveKit** | Production, high quality          | LiveKit Server (or LiveKit Cloud) |
+
+### Quick try: Dev mode (3 minutes, zero external infra)
+
+The fastest way to try SIP. QwenPaw starts a built-in SIP registrar automatically — no Asterisk, FreeSWITCH, or any external server needed.
+
+1. Install:
+
+```bash
+pip install "qwenpaw[sip]"
+```
+
+2. Start QwenPaw and configure in Console:
+
+```bash
+qwenpaw init --defaults
+qwenpaw app
+```
+
+Open **http://127.0.0.1:8088/** → **Settings → Models**: configure a model provider and API key. Then go to **Control → Channels → SIP**: enable it, fill in your DashScope API Key, and click **Save**. All other fields can be left at their defaults — when `sip_server` is empty, QwenPaw automatically starts a built-in registrar, uses `aliyun` for STT/TTS, and picks a default voice.
+
+QwenPaw will restart the SIP channel automatically. You'll see in the terminal:
+
+```
+[SIP] Built-in SIP registrar started on 0.0.0.0:5060
+[SIP] Quickstart: register your softphone to <Your-IP>:5060
+[SIP] Dial 'sip:agent@<Your-IP>:5060' to talk with QwenPaw!
+```
+
+3. Open [Linphone](https://www.linphone.org/linphone) (or any SIP softphone) and configure:
+
+   - Go to **Preferences → SIP Accounts → Add**
+   - Username: any name (e.g., `caller`)
+   - SIP Domain: `127.0.0.1` (use IP address, **not** `localhost`, to avoid IPv6 issues)
+   - Transport: **UDP**
+   - No password needed — the built-in registrar accepts all registrations
+   - Dial: `sip:agent@127.0.0.1:5060`
+
+   You should hear the welcome greeting, then speak — QwenPaw will reply!
+
+   **Alternative: pjsua (CLI, uses system microphone/speaker)**
+
+   ```bash
+   pjsua --local-port=5062 \
+     --bound-addr=127.0.0.1 \
+     --no-tcp \
+     --id='sip:caller@127.0.0.1:5062' \
+     --registrar='sip:127.0.0.1:5060' \
+     --realm='*' --username=caller --password=pass
+   ```
+
+   Once registered, press `m` to make a call, enter `sip:agent@127.0.0.1:5060`, and talk through your microphone. Press `h` to hang up.
+
+> **Note**: The built-in registrar is for quick testing only. For production use, see [Production deployment](#production-deployment) below.
+
+### Quick try: LiveKit mode via browser (3 minutes, no SIP phone needed)
+
+You can test the full LiveKit audio pipeline directly from your browser using WebRTC — no SIP Trunk, Docker, or Redis required.
+
+1. Sign up for [LiveKit Cloud](https://cloud.livekit.io/) (free tier available) and create a project. Note your project URL (from **Settings → Project**), and API Key / API Secret (from **Settings → API keys**).
+
+2. Install, start QwenPaw, and configure in Console:
+
+```bash
+pip install "qwenpaw[sip,sip-livekit]"
+qwenpaw init --defaults
+qwenpaw app
+```
+
+Open **http://127.0.0.1:8088/** → **Settings → Models**: configure a model provider and API key. Then go to **Control → Channels → SIP**: enable it, set SIP Mode to **Production (LiveKit)**, and fill in these 4 fields:
+
+- **LiveKit URL** (e.g., `wss://<your-project>.livekit.cloud`)
+- **LiveKit API Key**
+- **LiveKit API Secret**
+- **DashScope API Key**
+
+All other fields can be left empty. Click **Save**.
+
+You'll see in the terminal: `Connected to room: sip-inbound, waiting...`
+
+3. Generate a token and join via [LiveKit Meet](https://meet.livekit.io/):
+
+   ```bash
+   # Install LiveKit CLI (one-time)
+   brew install livekit-cli
+
+   # Generate a token
+   lk token create \
+     --api-key <your-api-key> \
+     --api-secret <your-api-secret> \
+     --join --room sip-inbound \
+     --identity test-user
+   ```
+
+   - Open [meet.livekit.io](https://meet.livekit.io/) → click **"Custom"** at the bottom
+   - Enter your LiveKit Cloud URL (e.g., `wss://<your-project>.livekit.cloud`)
+   - Paste the generated token and click **Connect**
+   - Allow microphone access, then speak — QwenPaw responds!
+
+> **Note**: This browser-based test exercises the exact same audio pipeline (streaming STT, 24kHz TTS, barge-in) as a real SIP phone call. It's a fully valid test of LiveKit mode.
+
+### Production deployment
+
+For production use with real phone numbers and carrier-grade reliability, use one of these setups:
+
+**Dev mode with external SIP server:**
+
+Use Asterisk, FreeSWITCH, or any SIP PBX as the registrar. Set `sip_server` to your PBX address. QwenPaw registers as a SIP extension and receives calls routed by the PBX.
+
+**LiveKit mode with SIP Trunk:**
+
+For PSTN connectivity (real phone numbers), deploy LiveKit Server + LiveKit SIP with a SIP Trunk provider (e.g., Twilio, Telnyx, Vonage). See [LiveKit SIP docs](https://docs.livekit.io/sip/) for trunk and dispatch rule setup.
+
+| Production setup                  | Supports PSTN?   | Scalability | Complexity |
+| --------------------------------- | ---------------- | ----------- | ---------- |
+| Dev + Asterisk/FreeSWITCH         | Yes (with trunk) | Single call | Low        |
+| LiveKit + Twilio/Telnyx SIP Trunk | Yes              | High        | Medium     |
+| LiveKit + self-hosted SIP         | Depends          | High        | High       |
+
+### Dev mode configuration
+
+Dev mode uses `pyVoIP` — a pure-Python SIP library.
+
+**Method 1:** Configure in the Console
+
+Go to **Control → Channels**, click **SIP**, select **Dev (pyVoIP)** mode. Leave `sip_server` empty to use the built-in registrar, or fill in your external SIP server address. Click **Save**.
+
+**Method 2:** Edit agent workspace `agent.json`
+
+```json
+{
+  "channels": {
+    "sip": {
+      "enabled": true,
+      "sip_mode": "dev",
+      "sip_server": "",
+      "stt_provider": "aliyun",
+      "tts_provider": "aliyun",
+      "tts_voice": "longxiaochun",
+      "language": "zh-CN",
+      "welcome_greeting": "你好，我是QwenPaw"
+    }
+  }
+}
+```
+
+When `sip_server` is empty, QwenPaw starts a built-in SIP registrar on port 5060 and the agent registers to it automatically. When `sip_server` is set (e.g., `"192.168.1.100:5060"`), QwenPaw registers to that external server instead.
+
+### LiveKit mode configuration
+
+Production mode delegates SIP/RTP to LiveKit SIP Server — a Go binary that handles NAT traversal, jitter buffering, and codec negotiation. QwenPaw joins LiveKit rooms as an AI participant.
+
+1. Install extras:
+
+```bash
+pip install "qwenpaw[sip,sip-livekit]"
+```
+
+2. Configure the SIP channel in Console or `agent.json`:
+
+```json
+{
+  "channels": {
+    "sip": {
+      "enabled": true,
+      "sip_mode": "livekit",
+      "livekit_url": "wss://<your-project>.livekit.cloud",
+      "livekit_api_key": "your-api-key",
+      "livekit_api_secret": "your-api-secret",
+      "stt_provider": "aliyun",
+      "tts_provider": "aliyun",
+      "tts_voice": "longxiaochun",
+      "language": "zh-CN",
+      "welcome_greeting": "你好，我是QwenPaw"
+    }
+  }
+}
+```
+
+> **`livekit_url`**: Use `wss://<project>.livekit.cloud` for LiveKit Cloud, or `ws://<host>:<port>` for a self-hosted LiveKit Server.
+
+3. Start QwenPaw. For SIP phone calls, also set up LiveKit infrastructure with a SIP Trunk and Dispatch Rule (see [LiveKit SIP docs](https://docs.livekit.io/sip/)). For browser-based testing, see the [Quick try](#quick-try-livekit-mode-via-browser-3-minutes-no-sip-phone-needed) section above.
+
+### Usage
+
+After configuration, start a call from your SIP phone or browser:
+
+1. The call connects and you hear the welcome greeting
+2. Start speaking — QwenPaw converts speech to text via streaming STT
+3. The Agent processes your message and generates a reply
+4. The reply is converted to speech via TTS and played back to you
+5. Continue the conversation naturally — multi-turn is fully supported
+6. Barge-in supported: start speaking while the agent is talking to interrupt
+
+### SIP channel fields
+
+| Field                | Type   | Default                                      | Description                                                             |
+| -------------------- | ------ | -------------------------------------------- | ----------------------------------------------------------------------- |
+| `sip_mode`           | string | `"dev"`                                      | Backend mode: `"dev"` (pyVoIP) or `"livekit"`                           |
+| `sip_server`         | string | `""`                                         | SIP registrar address. Leave empty to use built-in registrar (dev mode) |
+| `sip_username`       | string | `""`                                         | SIP account username (default: `agent` with built-in registrar)         |
+| `sip_password`       | string | `""`                                         | SIP account password                                                    |
+| `sip_host`           | string | `"0.0.0.0"`                                  | Local bind address                                                      |
+| `sip_port`           | int    | `5061`                                       | Local SIP port (agent side)                                             |
+| `sip_transport`      | string | `"UDP"`                                      | SIP transport: `UDP`, `TCP`, or `TLS`                                   |
+| `rtp_port_low`       | int    | `10000`                                      | RTP port range start (dev mode only)                                    |
+| `rtp_port_high`      | int    | `20000`                                      | RTP port range end (dev mode only)                                      |
+| `livekit_url`        | string | `""`                                         | LiveKit Server WebSocket URL (production mode)                          |
+| `livekit_api_key`    | string | `""`                                         | LiveKit API key (production mode)                                       |
+| `livekit_api_secret` | string | `""`                                         | LiveKit API secret (production mode)                                    |
+| `tts_provider`       | string | `"aliyun"`                                   | TTS provider (currently supports `aliyun`)                              |
+| `tts_voice`          | string | `"longxiaochun"`                             | TTS voice model                                                         |
+| `stt_provider`       | string | `"aliyun"`                                   | STT provider (currently supports `aliyun`)                              |
+| `language`           | string | `"zh-CN"`                                    | Language code                                                           |
+| `welcome_greeting`   | string | `"Hi! This is QwenPaw. How can I help you?"` | Welcome message when call connects                                      |
+| `call_timeout`       | float  | `30.0`                                       | Outbound call timeout in seconds                                        |
+
+---
+
 ## Appendix
 
 ### Config overview

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
+from functools import partial
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -172,8 +174,11 @@ class ServiceManager:
         """Start all registered services in priority order.
 
         Services with same priority are started concurrently if allowed.
-        Reused services are skipped.
+        Reused services are skipped.  Between priority groups and after each
+        sequential service, the event loop is yielded so HTTP requests can
+        be served during background startup.
         """
+        t0 = time.perf_counter()
         logger.debug(
             f"Starting {len(self.descriptors)} services "
             f"({len(self.reused_services)} reused)",
@@ -198,12 +203,22 @@ class ServiceManager:
             for desc in sequential:
                 await self._start_service(desc)
 
+            # Yield between priority groups so event loop can serve requests
+            await asyncio.sleep(0)
+
+        elapsed = time.perf_counter() - t0
+        logger.debug(
+            f"All services started for {self.workspace.agent_id} "
+            f"in {elapsed:.3f}s",
+        )
+
     async def _start_service(self, descriptor: ServiceDescriptor) -> None:
         """Start a single service.
 
         Args:
             descriptor: Service descriptor
         """
+        t0 = time.perf_counter()
         name = descriptor.name
         is_reused = name in self.reused_services
 
@@ -220,6 +235,13 @@ class ServiceManager:
             service = await self._run_post_init(descriptor, service, name)
             await self._run_start_method(descriptor, service, is_reused)
 
+            elapsed = time.perf_counter() - t0
+            if elapsed > 0.05:
+                logger.debug(
+                    f"Service '{name}' ready for "
+                    f"{self.workspace.agent_id} ({elapsed:.3f}s)",
+                )
+
         except Exception as e:
             logger.exception(
                 f"Failed to start service '{name}' "
@@ -233,6 +255,11 @@ class ServiceManager:
         is_reused: bool,
     ) -> Any:
         """Get existing or create new service instance.
+
+        Synchronous constructors are offloaded to a thread pool via
+        ``asyncio.to_thread`` so they do not block the event loop
+        (important during background startup when the server is already
+        accepting HTTP requests).
 
         Args:
             descriptor: Service descriptor
@@ -260,8 +287,11 @@ class ServiceManager:
         if descriptor.init_args:
             init_kwargs = descriptor.init_args(self.workspace)
 
-        # Instantiate service
-        service = service_cls(**init_kwargs)
+        # Offload synchronous constructor to thread pool to avoid blocking
+        # the event loop during background startup.
+        service = await asyncio.to_thread(
+            partial(service_cls, **init_kwargs),
+        )
         self.services[descriptor.name] = service
         return service
 
@@ -308,6 +338,8 @@ class ServiceManager:
     ) -> None:
         """Run start method on service if applicable.
 
+        Synchronous start methods are offloaded to a thread pool.
+
         Args:
             descriptor: Service descriptor
             service: Service instance
@@ -320,7 +352,7 @@ class ServiceManager:
         if asyncio.iscoroutinefunction(start_fn):
             await start_fn()
         else:
-            start_fn()
+            await asyncio.to_thread(start_fn)
 
         logger.debug(
             f"Service '{descriptor.name}' started for "

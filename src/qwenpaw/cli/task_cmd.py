@@ -105,7 +105,6 @@ async def _run_task(
     with _isolated_skills_workspace(skills_dir, base_workspace) as workspace:
         agent = QwenPawAgent(
             agent_config=agent_config,
-            enable_memory_manager=False,
             request_context=request_context,
             workspace_dir=workspace,
         )
@@ -234,7 +233,7 @@ def task_cmd(
 ) -> None:
     """Run a single task instruction headlessly (no web server)."""
     from ..config.config import load_agent_config
-    from ..providers.models import ModelSlotConfig
+    from ..config.config import ModelSlotConfig
     from ..utils.logging import setup_logger
 
     setup_logger("info")

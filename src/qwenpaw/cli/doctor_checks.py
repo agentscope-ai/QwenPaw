@@ -52,13 +52,13 @@ from ..constant import (
     WORKING_DIR,
     EnvVarLoader,
 )
-from ..utils.logging import LOG_NAMESPACE
+from ..utils.logging import LOG_FILE_BASENAME
 from ..utils.system_info import summarize_python_environment
 from ..providers.provider import Provider
 
 
 # Log file opened on app startup (see ``qwenpaw.app._app`` lifespan).
-APP_LOG_BASENAME = f"{LOG_NAMESPACE}.log"
+APP_LOG_BASENAME = LOG_FILE_BASENAME
 
 # Built-in local llama.cpp provider id; legacy configs may still use
 # copaw-local.
@@ -566,16 +566,18 @@ def memory_embedding_notes(cfg: Config) -> list[str]:
             ac = load_agent_config(agent_id)
         except Exception:  # pylint: disable=broad-exception-caught
             continue
-        emb = ac.running.embedding_config
-        ms = ac.running.memory_summary
-        if ms.force_memory_search and not _embedding_has_credentials(
+        emb = ac.running.reme_light_memory_config.embedding_model_config
+        ms = ac.running.reme_light_memory_config.auto_memory_search_config
+        if ms.enabled and not _embedding_has_credentials(
             emb.api_key,
         ):
             notes.append(
-                f"{agent_id}: running.memory_summary.force_memory_search "
+                f"{agent_id}: "
+                "reme_light_memory_config.auto_memory_search_config.enabled "
                 "is on but no embedding API key is set in "
-                "running.embedding_config.api_key and no common "
-                "OPENAI_/DASHSCOPE_/ANTHROPIC_ API key env was found.",
+                "reme_light_memory_config.embedding_model_config.api_key "
+                "and no common OPENAI_/DASHSCOPE_/ANTHROPIC_ "
+                "API key env was found.",
             )
     return notes
 

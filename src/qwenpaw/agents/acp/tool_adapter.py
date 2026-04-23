@@ -39,12 +39,25 @@ def _string(value: Any) -> str:
 
 
 def _option_parts(option: Any) -> Optional[Tuple[str, str]]:
-    if not isinstance(option, dict):
-        return None
-    option_id = _string(option.get("optionId") or option.get("id"))
-    title = _string(
-        option.get("title") or option.get("name") or option_id or "option",
-    )
+    option_id = None
+    title = None
+    if isinstance(option, dict):
+        option_id = _string(
+            option.get("optionId")
+            or option.get("option_id")
+            or option.get("id"),
+        )
+        title = _string(option.get("title") or option.get("name"))
+    else:
+        option_id = _string(
+            getattr(option, "option_id", None)
+            or getattr(option, "optionId", None)
+            or getattr(option, "id", None),
+        )
+        title = _string(
+            getattr(option, "title", None) or getattr(option, "name", None),
+        )
+    title = title or option_id or "option"
     if not title:
         return None
     return title, option_id
@@ -96,7 +109,7 @@ def _render_error_event(event: dict[str, Any]) -> Optional[str]:
     return f"[error] {message_text}" if message_text else None
 
 
-def _render_event_text(event: dict[str, Any]) -> Optional[str]:
+def render_event_text(event: dict[str, Any]) -> Optional[str]:
     event_type = _string(event.get("type")).lower()
     if event_type == "text":
         return _render_text_event(event)
@@ -111,32 +124,48 @@ def _render_event_text(event: dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _response(
-    text: Optional[str],
-    *,
-    stream: bool = False,
-    is_last: bool = True,
-) -> Optional[ToolResponse]:
-    if not text:
-        return None
-    return response_text(text, stream=stream, is_last=is_last)
-
-
-def event_to_stream_response(
-    event: dict[str, Any],
+def format_stream_snapshot_response(
+    snapshot_items: list[str],
     *,
     runner_name: str,
     execution_cwd: Path,
     include_header: bool = False,
 ) -> Optional[ToolResponse]:
-    text = _render_event_text(event)
-    if include_header and text:
-        header = _header_text(
-            runner_name=runner_name,
-            execution_cwd=execution_cwd,
-        )
-        text = f"{header}\n{text}"
-    return _response(text, stream=True, is_last=False)
+    del runner_name
+    del execution_cwd
+    del include_header
+    blocks: list[TextBlock] = []
+    for text in snapshot_items:
+        cleaned = (text or "").strip()
+        if cleaned:
+            blocks.append(_text_block(cleaned))
+    if not blocks:
+        return None
+    return response_blocks(blocks, stream=True, is_last=False)
+
+
+def format_final_assistant_response(
+    *,
+    runner_name: str,
+    execution_cwd: Path,
+    final_event: Optional[dict[str, Any]],
+) -> ToolResponse:
+    text = None
+    if final_event is not None:
+        text = render_event_text(final_event or {})
+    body = text or "completed without text output"
+    return response_blocks(
+        [
+            _text_block(
+                _header_text(
+                    runner_name=runner_name,
+                    execution_cwd=execution_cwd,
+                ),
+            ),
+            _text_block(body),
+        ],
+        is_last=True,
+    )
 
 
 def format_permission_suspended_response(
@@ -190,7 +219,7 @@ def format_permission_suspended_response(
     )
     reply_hint = (
         "\n\nReply with one exact option id using "
-        '`spawn_agent(action="respond", runner=..., message=...)`.'
+        '`delegate_external_agent(action="respond", runner=..., message=...)`.'
     )
     text = (
         intro
@@ -199,23 +228,6 @@ def format_permission_suspended_response(
         + reply_hint
     )
     return response_text(text)
-
-
-def format_run_completion_response(
-    *,
-    runner_name: str,
-    execution_cwd: Path,
-    final_event: Optional[dict[str, Any]],
-) -> ToolResponse:
-    text = None
-    if final_event is not None:
-        text = _render_event_text(final_event or {})
-    header = _header_text(
-        runner_name=runner_name,
-        execution_cwd=execution_cwd,
-    )
-    body = text or "completed without text output"
-    return response_text(f"{header}\n{body}")
 
 
 def format_close_response(*, runner_name: str, closed: bool) -> ToolResponse:

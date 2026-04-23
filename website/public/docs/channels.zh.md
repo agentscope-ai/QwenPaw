@@ -1069,6 +1069,234 @@ cloudflared tunnel --url http://localhost:8088
 
 ---
 
+## SIP
+
+SIP 频道让你可以通过标准 SIP 电话或软电话（如 Linphone、MicroSIP、IP 座机）与 QwenPaw 进行语音对话。完全在本地网络或私有基础设施上运行，无需云账号或公网 URL。
+
+提供两种后端模式：
+
+| 模式        | 适用场景            | 需要外部基础设施？                 |
+| ----------- | ------------------- | ---------------------------------- |
+| **Dev**     | 本地开发、PoC、调试 | 不需要 — 内置 SIP 注册服务器       |
+| **LiveKit** | 生产环境、高音质    | LiveKit Server（或 LiveKit Cloud） |
+
+### 快速体验：Dev 模式（3 分钟，零外部依赖）
+
+最快的体验方式。QwenPaw 会自动启动内置 SIP 注册服务器，无需 Asterisk、FreeSWITCH 或任何外部服务。
+
+1. 安装：
+
+```bash
+pip install "qwenpaw[sip]"
+```
+
+2. 启动 QwenPaw 并在控制台中配置：
+
+```bash
+qwenpaw init --defaults
+qwenpaw app
+```
+
+打开 **http://127.0.0.1:8088/** → **设置 → 模型**：配置模型提供商和 API Key。然后进入 **控制 → 频道 → SIP**：启用，填入 DashScope API Key，点击 **保存**。其他字段全部留空即可 — `sip_server` 留空时 QwenPaw 自动启动内置注册服务器，STT/TTS 默认使用 `aliyun`，语音模型自动选择默认音色。
+
+QwenPaw 会自动重启 SIP 频道，终端中会看到：
+
+```
+[SIP] Built-in SIP registrar started on 0.0.0.0:5060
+[SIP] Quickstart: register your softphone to <你的IP>:5060
+[SIP] Dial 'sip:agent@<你的IP>:5060' to talk with QwenPaw!
+```
+
+3. 打开 [Linphone](https://www.linphone.org/linphone)（或任意 SIP 软电话）并配置：
+
+   - 进入 **Preferences → SIP Accounts → Add**
+   - Username：任意名称（如 `caller`）
+   - SIP Domain：`127.0.0.1`（使用 IP 地址，**不要**用 `localhost`，避免 IPv6 问题）
+   - Transport：**UDP**
+   - 无需密码 — 内置注册服务器接受所有注册
+   - 拨号：`sip:agent@127.0.0.1:5060`
+
+   你会听到欢迎语，然后说话 — QwenPaw 会回复！
+
+   **也可以用 pjsua（命令行，使用系统麦克风/扬声器）**
+
+   ```bash
+   pjsua --local-port=5062 \
+     --bound-addr=127.0.0.1 \
+     --no-tcp \
+     --id='sip:caller@127.0.0.1:5062' \
+     --registrar='sip:127.0.0.1:5060' \
+     --realm='*' --username=caller --password=pass
+   ```
+
+   注册成功后按 `m` 发起呼叫，输入 `sip:agent@127.0.0.1:5060`，即可通过麦克风对话。按 `h` 挂断。
+
+> **注意**：内置注册服务器仅供快速试用。生产环境请参见下方[生产部署](#生产部署)。
+
+### 快速体验：LiveKit 模式浏览器测试（3 分钟，无需 SIP 电话）
+
+你可以直接用浏览器通过 WebRTC 测试完整的 LiveKit 音频管线，无需 SIP Trunk、Docker 或 Redis。
+
+1. 注册 [LiveKit Cloud](https://cloud.livekit.io/)（有免费额度），创建项目。在 **Settings → Project** 中获取项目 URL，在 **Settings → API keys** 中获取 API Key 和 API Secret。
+
+2. 安装、启动 QwenPaw 并在控制台中配置：
+
+```bash
+pip install "qwenpaw[sip,sip-livekit]"
+qwenpaw init --defaults
+qwenpaw app
+```
+
+打开 **http://127.0.0.1:8088/** → **设置 → 模型**：配置模型提供商和 API Key。然后进入 **控制 → 频道 → SIP**：启用，SIP 模式选 **Production (LiveKit)**，填写以下 4 个字段：
+
+- **LiveKit URL**（如 `wss://<your-project>.livekit.cloud`）
+- **LiveKit API Key**
+- **LiveKit API Secret**
+- **DashScope API Key**
+
+其他字段全部留空即可，点击 **保存**。
+
+终端中会看到：`Connected to room: sip-inbound, waiting...`
+
+3. 生成 Token 并通过 [LiveKit Meet](https://meet.livekit.io/) 加入房间：
+
+   ```bash
+   # 安装 LiveKit CLI（一次性）
+   brew install livekit-cli
+
+   # 生成 Token
+   lk token create \
+     --api-key <your-api-key> \
+     --api-secret <your-api-secret> \
+     --join --room sip-inbound \
+     --identity test-user
+   ```
+
+   - 打开 [meet.livekit.io](https://meet.livekit.io/) → 点击底部 **"Custom"**
+   - 输入你的 LiveKit Cloud URL（如 `wss://<your-project>.livekit.cloud`）
+   - 粘贴生成的 Token 并点击 **Connect**
+   - 允许麦克风权限，然后说话 — QwenPaw 会回复！
+
+> **注意**：浏览器测试与真实 SIP 电话走的是完全相同的音频管线（流式 STT、24kHz TTS、语音打断），是 LiveKit 模式的完整验证。
+
+### 生产部署
+
+生产环境下使用真实电话号码和运营商级可靠性，可选择以下方案：
+
+**Dev 模式 + 外部 SIP 服务器：**
+
+使用 Asterisk、FreeSWITCH 或任意 SIP PBX 作为注册服务器。将 `sip_server` 设为 PBX 地址，QwenPaw 注册为 SIP 分机，由 PBX 路由来电。
+
+**LiveKit 模式 + SIP Trunk：**
+
+需要 PSTN 连接（真实电话号码）时，部署 LiveKit Server + LiveKit SIP，配合 SIP Trunk 提供商（如 Twilio、Telnyx、Vonage）。参见 [LiveKit SIP 文档](https://docs.livekit.io/sip/)。
+
+| 生产方案                          | 支持 PSTN？    | 可扩展性 | 复杂度 |
+| --------------------------------- | -------------- | -------- | ------ |
+| Dev + Asterisk/FreeSWITCH         | 是（需 trunk） | 单路通话 | 低     |
+| LiveKit + Twilio/Telnyx SIP Trunk | 是             | 高       | 中     |
+| LiveKit + 自建 SIP 基础设施       | 视情况         | 高       | 高     |
+
+### Dev 模式配置
+
+Dev 模式使用 `pyVoIP` — 一个纯 Python SIP 库。
+
+**方式一：** 在控制台中配置
+
+进入 **控制 → 频道**，点击 **SIP**，选择 **Dev (pyVoIP)** 模式。`sip_server` 留空使用内置注册服务器，或填写外部 SIP 服务器地址。点击 **保存**。
+
+**方式二：** 编辑 agent 工作区 `agent.json`
+
+```json
+{
+  "channels": {
+    "sip": {
+      "enabled": true,
+      "sip_mode": "dev",
+      "sip_server": "",
+      "stt_provider": "aliyun",
+      "tts_provider": "aliyun",
+      "tts_voice": "longxiaochun",
+      "language": "zh-CN",
+      "welcome_greeting": "你好，我是QwenPaw"
+    }
+  }
+}
+```
+
+`sip_server` 留空时，QwenPaw 自动在 5060 端口启动内置 SIP 注册服务器，agent 自动注册。设置 `sip_server`（如 `"192.168.1.100:5060"`）时，QwenPaw 注册到该外部服务器。
+
+### LiveKit 模式配置
+
+生产模式将 SIP/RTP 委托给 LiveKit SIP Server，处理 NAT 穿透、抖动缓冲和编解码协商。QwenPaw 作为 AI 参与者加入 LiveKit 房间。
+
+1. 安装扩展：
+
+```bash
+pip install "qwenpaw[sip,sip-livekit]"
+```
+
+2. 在控制台或 `agent.json` 中配置 SIP 频道：
+
+```json
+{
+  "channels": {
+    "sip": {
+      "enabled": true,
+      "sip_mode": "livekit",
+      "livekit_url": "wss://<your-project>.livekit.cloud",
+      "livekit_api_key": "your-api-key",
+      "livekit_api_secret": "your-api-secret",
+      "stt_provider": "aliyun",
+      "tts_provider": "aliyun",
+      "tts_voice": "longxiaochun",
+      "language": "zh-CN",
+      "welcome_greeting": "你好，我是QwenPaw"
+    }
+  }
+}
+```
+
+> **`livekit_url`**：LiveKit Cloud 使用 `wss://<project>.livekit.cloud`，自建 LiveKit Server 使用 `ws://<host>:<port>`。
+
+3. 启动 QwenPaw。如需 SIP 电话呼入，还需部署 LiveKit 基础设施并配置 SIP Trunk 和 Dispatch Rule（参见 [LiveKit SIP 文档](https://docs.livekit.io/sip/)）。浏览器测试请参见上方[快速体验](#快速体验livekit-模式浏览器测试3-分钟无需-sip-电话)。
+
+### 使用方式
+
+配置完成后，从 SIP 电话或浏览器发起通话：
+
+1. 电话接通，听到欢迎语
+2. 开始说话 — QwenPaw 通过流式 STT 将语音转为文本
+3. Agent 处理消息并生成回复
+4. 回复通过 TTS 转为语音播放给你
+5. 自然地继续对话 — 完全支持多轮对话
+6. 支持语音打断：在 Agent 说话时直接开口即可打断
+
+### SIP 频道专属字段说明
+
+| 字段                 | 类型   | 默认值                                       | 说明                                                   |
+| -------------------- | ------ | -------------------------------------------- | ------------------------------------------------------ |
+| `sip_mode`           | string | `"dev"`                                      | 后端模式：`"dev"`（pyVoIP）或 `"livekit"`              |
+| `sip_server`         | string | `""`                                         | SIP 注册服务器地址，留空使用内置注册服务器（dev 模式） |
+| `sip_username`       | string | `""`                                         | SIP 账号用户名（内置注册服务器默认 `agent`）           |
+| `sip_password`       | string | `""`                                         | SIP 账号密码                                           |
+| `sip_host`           | string | `"0.0.0.0"`                                  | 本地绑定地址                                           |
+| `sip_port`           | int    | `5061`                                       | 本地 SIP 端口（agent 侧）                              |
+| `sip_transport`      | string | `"UDP"`                                      | SIP 传输协议：`UDP`、`TCP` 或 `TLS`                    |
+| `rtp_port_low`       | int    | `10000`                                      | RTP 端口范围起始（仅 dev 模式）                        |
+| `rtp_port_high`      | int    | `20000`                                      | RTP 端口范围结束（仅 dev 模式）                        |
+| `livekit_url`        | string | `""`                                         | LiveKit Server WebSocket URL（生产模式）               |
+| `livekit_api_key`    | string | `""`                                         | LiveKit API 密钥（生产模式）                           |
+| `livekit_api_secret` | string | `""`                                         | LiveKit API 密钥（生产模式）                           |
+| `tts_provider`       | string | `"aliyun"`                                   | TTS 提供商（目前支持 `aliyun`）                        |
+| `tts_voice`          | string | `"longxiaochun"`                             | TTS 语音模型                                           |
+| `stt_provider`       | string | `"aliyun"`                                   | STT 提供商（目前支持 `aliyun`）                        |
+| `language`           | string | `"zh-CN"`                                    | 语言代码                                               |
+| `welcome_greeting`   | string | `"Hi! This is QwenPaw. How can I help you?"` | 欢迎语（接通电话后的第一句话）                         |
+| `call_timeout`       | float  | `30.0`                                       | 呼出超时时间（秒）                                     |
+
+---
+
 ## 附录
 
 ### 配置总览

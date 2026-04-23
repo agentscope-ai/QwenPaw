@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """API routers."""
+
 from fastapi import APIRouter
 
-from .agent import router as agent_router
 from .agents import router as agents_router
 from .config import router as config_router
 from .local_models import router as local_models_router
@@ -17,15 +17,18 @@ from ..crons.api import router as cron_router
 from ..runner.api import router as runner_router
 from .console import router as console_router
 from .token_usage import router as token_usage_router
+from .agent_stats import router as agent_stats_router
 from .auth import router as auth_router
 from .messages import router as messages_router
 from .files import router as files_router
 from .settings import router as settings_router
+from .plugins import router as plugins_router
+from .backup import router as backup_router
+from .plan import router as plan_router
 
 router = APIRouter()
 
 router.include_router(agents_router)
-router.include_router(agent_router)
 router.include_router(config_router)
 router.include_router(console_router)
 router.include_router(cron_router)
@@ -40,9 +43,13 @@ router.include_router(tools_router)
 router.include_router(workspace_router)
 router.include_router(envs_router)
 router.include_router(token_usage_router)
+router.include_router(agent_stats_router)
 router.include_router(auth_router)
 router.include_router(files_router)
 router.include_router(settings_router)
+router.include_router(plugins_router)
+router.include_router(backup_router)
+router.include_router(plan_router)
 
 
 def create_agent_scoped_router() -> APIRouter:

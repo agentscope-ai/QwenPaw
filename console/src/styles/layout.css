@@ -303,6 +303,11 @@ html.dark-mode .ant-select-item {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
+html.dark-mode .qwenpaw-select-item-empty,
+html.dark-mode .ant-select-item-empty {
+  color: rgba(255, 255, 255, 0.65);
+}
+
 html.dark-mode .qwenpaw-select-item-option-active,
 html.dark-mode .ant-select-item-option-active {
   background: rgba(97, 92, 237, 0.12) !important;
@@ -1039,5 +1044,29 @@ html.dark-mode .ant-empty-description {
 }
 
 html.dark-mode .qwenpaw-input-prefix {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.debug-log-container {
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+html.dark-mode .debug-log-container {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+html.dark-mode .debug-log-container mark {
+  background: rgba(255, 214, 102, 0.35) !important;
+  color: rgba(0, 0, 0, 0.9);
+}
+
+html.dark-mode .qwenpaw-typography-secondary,
+html.dark-mode .ant-typography-secondary {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+html.dark-mode .debug-log-path strong {
   color: rgba(255, 255, 255, 0.85) !important;
 }

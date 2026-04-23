@@ -18,6 +18,7 @@ $NsiPath = Join-Path $PackDir "desktop.nsi"
 # See: issue.md, scripts/pack/WINDOWS_FIX.md
 $CondaUnpackAffectedPackages = @(
   "huggingface_hub"  # Uses Windows extended-length path prefix (\\?\)
+  "discord.py"       # ARG_NAME_SUBREGEX contains \\?\* which gets corrupted
 )
 
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
@@ -115,6 +116,10 @@ if (Test-Path $CondaUnpack) {
     & $pythonExe -c "from huggingface_hub import file_download; print('✓ huggingface_hub import OK')"
     if ($LASTEXITCODE -ne 0) {
       throw "CRITICAL: huggingface_hub still has import errors after reinstall. See issue.md"
+    }
+    & $pythonExe -c "import discord; print('✓ discord.py import OK')"
+    if ($LASTEXITCODE -ne 0) {
+      throw "CRITICAL: discord.py still has import errors after reinstall."
     }
     Write-Host "[build_win] ✓ conda-unpack corruption fixed successfully."
   } else {

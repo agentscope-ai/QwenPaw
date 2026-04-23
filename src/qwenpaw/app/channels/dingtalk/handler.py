@@ -99,13 +99,58 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 return val.strip()
         return None
 
+    def _resolve_single_download(
+        self,
+        content_dict: Dict[str, Any],
+        msg_dict: Dict[str, Any],
+        robot_code: Optional[str],
+    ) -> Optional[Any]:
+        """Resolve a single downloadCode into a Content object.
+
+        For voice messages (``mapped == "audio"``), prefer the built-in
+        ``recognition`` text from DingTalk over downloading the AMR file.
+        """
+        dl_code = content_dict.get("downloadCode") or content_dict.get(
+            "download_code",
+        )
+        if not dl_code or not robot_code:
+            return None
+
+        type_mapping = get_type_mapping()
+        msgtype = (msg_dict.get("msgtype") or "").lower().strip()
+        mapped = type_mapping.get(msgtype, msgtype or "file")
+        if mapped not in ("image", "file", "video", "audio"):
+            mapped = "file"
+
+        # Voice messages from DingTalk include a ``recognition`` field
+        # with the transcribed text.  Use it directly instead of
+        # downloading the AMR file and running our own transcription.
+        if mapped == "audio":
+            recognition = (content_dict.get("recognition") or "").strip()
+            if recognition:
+                logger.info(
+                    "Using DingTalk voice recognition: %s",
+                    recognition[:80],
+                )
+                return TextContent(
+                    type=ContentType.TEXT,
+                    text=recognition,
+                )
+
+        filename_hint = self._extract_filename_hint(content_dict)
+        return self._fetch_download_url_and_content(
+            dl_code,
+            robot_code,
+            mapped,
+            filename_hint=filename_hint,
+        )
+
     def _parse_rich_content(
         self,
         incoming_message: Any,
     ) -> List[Any]:
         """Parse richText from incoming_message into runtime Content list."""
         content: List[Any] = []
-        type_mapping = get_type_mapping()
         try:
             robot_code = getattr(
                 incoming_message,
@@ -117,6 +162,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             raw = c.get("richText")
             raw = raw or c.get("rich_text")
             rich_list = raw if isinstance(raw, list) else []
+            type_mapping = get_type_mapping()
             for item in rich_list:
                 if not isinstance(item, dict):
                     continue
@@ -156,33 +202,9 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
 
             # -------- 2) single downloadCode (pure picture/file) --------
             if not content:
-                dl_code = c.get("downloadCode") or c.get("download_code")
-                if dl_code and robot_code:
-                    msgtype = (
-                        (
-                            msg_dict.get(
-                                "msgtype",
-                            )
-                            or ""
-                        )
-                        .lower()
-                        .strip()
-                    )
-                    mapped = type_mapping.get(
-                        msgtype,
-                        msgtype or "file",
-                    )
-                    if mapped not in ("image", "file", "video", "audio"):
-                        mapped = "file"
-                    filename_hint = self._extract_filename_hint(c)
-                    part_content = self._fetch_download_url_and_content(
-                        dl_code,
-                        robot_code,
-                        mapped,
-                        filename_hint=filename_hint,
-                    )
-                    if part_content is not None:
-                        content.append(part_content)
+                part = self._resolve_single_download(c, msg_dict, robot_code)
+                if part is not None:
+                    content.append(part)
 
         except Exception:
             logger.exception("failed to fetch richText download url(s)")
@@ -288,6 +310,20 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     None,
                 )
                 or getattr(incoming_message, "senderStaffId", None)
+                or "",
+                "sender_dingtalk_id": getattr(
+                    incoming_message,
+                    "sender_id",
+                    None,
+                )
+                or getattr(incoming_message, "senderId", None)
+                or "",
+                "sender_nick": getattr(
+                    incoming_message,
+                    "sender_nick",
+                    None,
+                )
+                or getattr(incoming_message, "senderNick", None)
                 or "",
             }
             if is_bot_mentioned:

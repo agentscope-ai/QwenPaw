@@ -105,6 +105,7 @@ class WecomChannel(BaseChannel):
         bot_prefix: str = "",
         media_dir: str = "",
         welcome_text: str = "",
+        workspace_dir: Path | None = None,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
@@ -131,9 +132,16 @@ class WecomChannel(BaseChannel):
         self.secret = secret
         self.bot_prefix = bot_prefix
         self.welcome_text = welcome_text
-        self._media_dir = (
-            Path(media_dir).expanduser() if media_dir else DEFAULT_MEDIA_DIR
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
         )
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = DEFAULT_MEDIA_DIR
         self._max_reconnect_attempts = max_reconnect_attempts
 
         self._client: Any = None
@@ -187,6 +195,7 @@ class WecomChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Path | None = None,
     ) -> "WecomChannel":
         return cls(
             process=process,
@@ -196,6 +205,7 @@ class WecomChannel(BaseChannel):
             bot_prefix=getattr(config, "bot_prefix", "") or "",
             media_dir=getattr(config, "media_dir", None) or "",
             welcome_text=getattr(config, "welcome_text", "") or "",
+            workspace_dir=workspace_dir,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -414,6 +424,7 @@ class WecomChannel(BaseChannel):
                             FileContent(
                                 type=ContentType.FILE,
                                 file_url=path,
+                                filename=filename,
                             ),
                         )
                     else:
@@ -471,6 +482,29 @@ class WecomChannel(BaseChannel):
                                 )
                             else:
                                 text_parts.append("[image: download failed]")
+                    elif itype == "file":
+                        file_info = item.get("file") or {}
+                        url = file_info.get("url") or ""
+                        aes_key = file_info.get("aeskey") or ""
+                        filename = file_info.get("filename") or "file.bin"
+                        if url:
+                            path = await self._download_media(
+                                url,
+                                aes_key=aes_key,
+                                filename_hint=filename,
+                            )
+                            if path:
+                                content_parts.append(
+                                    FileContent(
+                                        type=ContentType.FILE,
+                                        file_url=path,
+                                        filename=filename,
+                                    ),
+                                )
+                            else:
+                                text_parts.append("[file: download failed]")
+                        else:
+                            text_parts.append("[file: no url]")
             else:
                 text_parts.append(f"[{msgtype}]")
 
@@ -591,9 +625,9 @@ class WecomChannel(BaseChannel):
             native = {
                 "channel_id": self.channel,
                 "sender_id": sender_id,
-                # Group chats share one session; omit user_id so the
-                # session file is keyed by session_id only.
-                "user_id": "" if is_group else sender_id,
+                # Group chats use a non-empty placeholder to prevent
+                # Runner.stream_query from overwriting it with session_id.
+                "user_id": "group" if is_group else sender_id,
                 "session_id": session_id,
                 "content_parts": content_parts,
                 "meta": meta,
@@ -655,7 +689,12 @@ class WecomChannel(BaseChannel):
                 fn = (Path(fn).stem or "file") + hint_ext
             self._media_dir.mkdir(parents=True, exist_ok=True)
             safe_name = (
-                "".join(c for c in fn if c.isalnum() or c in "-_.") or "media"
+                "".join(
+                    c
+                    for c in fn.replace("企业微信截图", "screenshot")
+                    if c.isalnum() or c in "-_."
+                )
+                or "media"
             )
             url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
             path = self._media_dir / f"wecom_{url_hash}_{safe_name}"
@@ -679,12 +718,29 @@ class WecomChannel(BaseChannel):
         Returns the ack frame body dict, or raises on timeout / error.
         """
         req_id = generate_req_id(cmd)
-        loop = asyncio.get_event_loop()
-        fut: asyncio.Future[Any] = loop.create_future()
+        # Use the main event loop for the future (response handling)
+        main_loop = asyncio.get_running_loop()
+        fut: asyncio.Future[Any] = main_loop.create_future()
+
+        # WebSocket operations must run in the WS thread's event loop
+        ws_loop = self._ws_loop
+        if ws_loop is None:
+            raise RuntimeError("WebSocket loop not initialized")
+
+        # Register the future after the ws_loop check so it won't leak
+        # if the check raises.
         self._upload_ack_futures[req_id] = fut
-        try:
+
+        async def _send() -> None:
             await self._client._ws_manager.send(
                 {"cmd": cmd, "headers": {"req_id": req_id}, "body": body},
+            )
+
+        try:
+            # Schedule send in WS thread and wait for response
+            send_future = asyncio.run_coroutine_threadsafe(_send(), ws_loop)
+            send_future.add_done_callback(
+                lambda f: f.result() if not f.cancelled() else None,
             )
             ack = await asyncio.wait_for(
                 asyncio.shield(fut),
@@ -795,11 +851,13 @@ class WecomChannel(BaseChannel):
                     media_type,
                 )
                 return media_id
-            except Exception:
+            except Exception as e:
                 logger.exception(
-                    "wecom _upload_media failed path=%s",
+                    "wecom _upload_media failed path=%s error=%s",
                     local[:60],
+                    str(e)[:100],
                 )
+
                 return None
 
     async def _send_media_part(
@@ -1098,6 +1156,34 @@ class WecomChannel(BaseChannel):
             except Exception:
                 pass
             self._ws_loop = None
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Check WeCom WebSocket client status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "WeCom channel is disabled.",
+            }
+        issues = []
+        if self._client is None:
+            issues.append("WeCom WebSocket client not initialized")
+        ws_thread_alive = (
+            self._ws_thread is not None and self._ws_thread.is_alive()
+        )
+        if not ws_thread_alive:
+            issues.append("WebSocket thread is not running")
+        if issues:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "; ".join(issues),
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "WeCom WebSocket client is connected.",
+        }
 
     async def start(self) -> None:
         if not self.enabled:

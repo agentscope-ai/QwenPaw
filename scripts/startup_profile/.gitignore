@@ -1,0 +1,11 @@
+# Output files
+output/
+*.log
+_trace_temp.py
+
+# Keep source files
+!analyze.py
+!viewer.html
+!README.md
+!README_EN.md
+!.gitignore

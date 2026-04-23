@@ -1,7 +1,7 @@
 import { Card } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import React, { useState } from "react";
-import { getChannelIconUrl } from "./channelIcons";
+import { ChannelIcon } from "./ChannelIcon";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import styles from "../index.module.less";
 
@@ -26,12 +26,7 @@ export const ChannelCard = React.memo(function ChannelCard({
   const botPrefix = getConfigString("bot_prefix");
 
   const getChannelIcon = () => (
-    <img
-      src={getChannelIconUrl(channelKey)}
-      alt={channelKey}
-      width={32}
-      height={32}
-    />
+    <ChannelIcon channelKey={channelKey} size={32} />
   );
 
   const getCardClassNames = () => {

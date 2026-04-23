@@ -36,7 +36,6 @@ export function PoolSkillListItem({
 
   return (
     <div
-      key={skill.name}
       className={`${styles.skillListItem} ${
         isSelected ? styles.selectedListItem : ""
       }`}

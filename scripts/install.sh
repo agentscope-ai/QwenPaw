@@ -80,7 +80,7 @@ Options:
   --from-source [DIR]   Install from source. If DIR is given, use that local
                         directory; otherwise clone from GitHub.
   --extras <EXTRAS>     Comma-separated optional extras to install
-                        (e.g. llamacpp, mlx, llamacpp,mlx)
+                        (e.g. dev, whisper)
   -h, --help            Show this help
 
 Environment:
@@ -147,7 +147,7 @@ uv venv "$QWENPAW_VENV" --python "$PYTHON_VERSION" --quiet
 info "Python environment ready ($("$QWENPAW_VENV/bin/python" --version))"
 
 # ── Step 3: Install QwenPaw ────────────────────────────────────────────────────
-# Build extras suffix: "" or "[llamacpp,mlx]"
+# Build extras suffix: "" or "[dev,whisper]"
 EXTRAS_SUFFIX=""
 if [ -n "$EXTRAS" ]; then
     EXTRAS_SUFFIX="[$EXTRAS]"

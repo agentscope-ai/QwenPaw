@@ -16,6 +16,7 @@ ENV NODE_ENV=production
 ENV WORKSPACE_DIR=/app
 ENV QWENPAW_WORKING_DIR=/app/working
 ENV QWENPAW_SECRET_DIR=/app/working.secret
+ENV QWENPAW_BACKUP_DIR=/app/working.backups
 
 # Channel filtering: use QWENPAW_DISABLED_CHANNELS (exclusion, recommended)
 # or QWENPAW_ENABLED_CHANNELS (whitelist). Override at runtime with -e.
@@ -86,10 +87,8 @@ COPY pyproject.toml setup.py README.md ./
 COPY src ./src
 # Inject console dist from build stage (repo does not commit dist).
 COPY --from=console-builder /app/console/dist/ ./src/qwenpaw/console/
-RUN pip install --no-cache-dir .[ollama]
+RUN pip install --no-cache-dir .
 
-# Init working dir with default config.json and HEARTBEAT.md (build time).
-RUN qwenpaw init --defaults --accept-security
 
 # QwenPaw app port (default 8088). Override at runtime with -e QWENPAW_PORT=3000.
 ENV QWENPAW_PORT=8088

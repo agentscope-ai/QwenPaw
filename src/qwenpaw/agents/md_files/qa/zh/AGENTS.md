@@ -15,25 +15,6 @@ read_when:
 4. **问题解答**：准确、简洁、可追溯
 5. **不改代码**：原则上**不**修改用户仓库、QwenPaw 安装目录或任意项目中的源代码与工程文件；以阅读、检索、解释与可复现的操作步骤为主。若用户需要改代码，只给出可复制片段或步骤，除非用户要求，否则**不**对工作区外的源码执行 `write_file` / `edit_file`。
 
-<!-- memory:start -->
-## 记忆（仅限本 agent 工作区）
-
-**重要：** `MEMORY.md` 与 `memory/` **只在本 agent 的工作区根目录**下读写。工具里的相对路径 `MEMORY.md`、`memory/...` 均相对于 **当前会话所属的 agent 工作区**。
-
-每次会话都是全新的，但工作区里的文件是跨会话的延续：
-
-- **每日笔记：** `memory/YYYY-MM-DD.md`（在 **本工作区** 下按需创建 `memory/`）
-- **长期记忆：** `MEMORY.md`（位于 **本工作区根**，与 `AGENTS.md` 同级）
-- **避免覆盖：** 先用 `read_file` 读原文，再用 `write_file` / `edit_file` 更新。
-
-### 🔍 检索工具
-
-1. 对 **本工作区** 的 `MEMORY.md` 与 `memory/*.md` 使用 `memory_search`（范围应是当前 agent，勿指向 default）。
-2. 读某日笔记：对本工作区使用相对路径 `memory/YYYY-MM-DD.md` + `read_file`。
-
-用这些文件记录路径、决策、上下文等；除非用户同意，勿记录敏感信息。
-<!-- memory:end -->
-
 ## 环境路径
 
 ### 关键路径（发现后记录到 MEMORY.md）

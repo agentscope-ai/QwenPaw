@@ -21,6 +21,45 @@ from ...exceptions import AgentStateError
 logger = logging.getLogger(__name__)
 
 
+def _safe_json_loads(content: str, filepath: str = "") -> dict:
+    """Parse JSON with corruption recovery.
+
+    Attempts standard ``json.loads`` first.  If that fails due to
+    trailing garbage (a common symptom of concurrent-write race
+    conditions), falls back to ``raw_decode`` to extract the first
+    valid JSON object.  If the file is completely unparseable, returns
+    an empty dict and logs a warning so callers never crash.
+
+    Args:
+        content: Raw file content.
+        filepath: Used only for log messages.
+
+    Returns:
+        Parsed dict, or ``{}`` when the content is beyond recovery.
+    """
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+
+    # Try to extract the first valid JSON object.
+    try:
+        result, _ = json.JSONDecoder().raw_decode(content)
+        logger.warning(
+            "Session file %s had corrupted JSON. "
+            "Recovered first valid object via raw_decode.",
+            filepath,
+        )
+        return result
+    except json.JSONDecodeError:
+        logger.warning(
+            "Session file %s is completely corrupted and could not "
+            "be recovered. Returning empty dict.",
+            filepath,
+        )
+        return {}
+
+
 # Characters forbidden in Windows filenames
 _UNSAFE_FILENAME_RE = re.compile(r'[\\/:*?"<>|]')
 
@@ -111,7 +150,7 @@ class SafeJSONSession(SessionBase):
                 errors="surrogatepass",
             ) as f:
                 content = await f.read()
-                states = json.loads(content)
+                states = _safe_json_loads(content, session_save_path)
 
             for name, state_module in state_modules_mapping.items():
                 if name in states:
@@ -154,7 +193,7 @@ class SafeJSONSession(SessionBase):
                 errors="surrogatepass",
             ) as f:
                 content = await f.read()
-                states = json.loads(content)
+                states = _safe_json_loads(content, session_save_path)
 
         else:
             if not create_if_not_exist:
@@ -223,7 +262,7 @@ class SafeJSONSession(SessionBase):
                 errors="surrogatepass",
             ) as file:
                 content = await file.read()
-                states = json.loads(content)
+                states = _safe_json_loads(content, session_save_path)
 
             logger.info(
                 "Get session state dict from %s successfully.",

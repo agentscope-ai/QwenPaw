@@ -3,6 +3,7 @@ export const providerIcon = (provider: string) => {
     case "modelscope":
       return "https://gw.alicdn.com/imgextra/i4/O1CN01exenB61EAwhgY4pmA_!!6000000000312-2-tps-400-400.png";
     case "aliyun-codingplan":
+    case "aliyun-codingplan-intl":
       return "https://gw.alicdn.com/imgextra/i4/O1CN01nEmGhQ1we71GXW6eo_!!6000000006332-2-tps-400-400.png";
     case "deepseek":
       return "https://gw.alicdn.com/imgextra/i4/O1CN01YfmXc81ogO3pR0aW8_!!6000000005254-2-tps-400-400.png";
@@ -27,7 +28,6 @@ export const providerIcon = (provider: string) => {
     case "lmstudio":
       return "https://gw.alicdn.com/imgextra/i4/O1CN01Abv67y1jHaXLqikIJ_!!6000000004523-2-tps-200-200.png";
     case "siliconflow-cn":
-      return "https://img.alicdn.com/imgextra/i1/O1CN01TUkzVC1clAoPa2ix8_!!6000000003640-2-tps-520-520.png";
     case "siliconflow-intl":
       return "https://img.alicdn.com/imgextra/i1/O1CN01TUkzVC1clAoPa2ix8_!!6000000003640-2-tps-520-520.png";
     case "qwenpaw-local":

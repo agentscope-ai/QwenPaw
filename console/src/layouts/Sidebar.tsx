@@ -26,6 +26,7 @@ import {
   SparkModifyLine,
   SparkBrowseLine,
   SparkMcpMcpLine,
+  SparkScanLine,
   SparkToolLine,
   SparkDataLine,
   SparkMicLine,
@@ -35,9 +36,13 @@ import {
   SparkMenuExpandLine,
   SparkMenuFoldLine,
   SparkOtherLine,
+  SparkBarChartLine,
+  SparkDebugLine,
+  SparkSaveLine,
 } from "@agentscope-ai/icons";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
+import { usePlugins } from "../plugins/PluginContext";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
 import { KEY_TO_PATH, DEFAULT_OPEN_KEYS } from "./constants";
@@ -59,6 +64,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark } = useTheme();
+  const { pluginRoutes } = usePlugins();
   const [authEnabled, setAuthEnabled] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
@@ -193,6 +199,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.mcp"),
     },
     {
+      key: "acp",
+      icon: <SparkScanLine size={18} />,
+      path: "/acp",
+      label: t("nav.acp"),
+    },
+    {
       key: "agent-config",
       icon: <SparkModifyLine size={18} />,
       path: "/agent-config",
@@ -229,6 +241,18 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.tokenUsage"),
     },
     {
+      key: "agent-stats",
+      icon: <SparkBarChartLine size={18} />,
+      path: "/agent-stats",
+      label: t("nav.agentStats"),
+    },
+    {
+      key: "backups",
+      icon: <SparkSaveLine size={18} />,
+      path: "/backups",
+      label: t("nav.backups"),
+    },
+    {
       key: "voice-transcription",
       icon: <SparkMicLine size={18} />,
       path: "/voice-transcription",
@@ -236,10 +260,17 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     },
     {
       key: "debug",
-      icon: <SparkOtherLine size={18} />,
+      icon: <SparkDebugLine size={18} />,
       path: "/debug",
       label: t("nav.debug", "Debug"),
     },
+    // Append plugin nav items dynamically
+    ...pluginRoutes.map((route) => ({
+      key: route.path.replace(/^\//, ""),
+      icon: <span style={{ fontSize: 18 }}>{route.icon}</span>,
+      path: route.path,
+      label: route.label,
+    })),
   ];
 
   // ── Menu items — agent-scoped (Chat + Control + Workspace) ──────────────
@@ -301,6 +332,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           icon: <SparkMcpMcpLine size={16} />,
         },
         {
+          key: "acp",
+          label: collapsed ? null : t("nav.acp"),
+          icon: <SparkScanLine size={16} />,
+        },
+        {
           key: "agent-config",
           label: collapsed ? null : t("nav.agentConfig"),
           icon: <SparkModifyLine size={16} />,
@@ -347,6 +383,16 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           icon: <SparkDataLine size={16} />,
         },
         {
+          key: "agent-stats",
+          label: collapsed ? null : t("nav.agentStats"),
+          icon: <SparkBarChartLine size={16} />,
+        },
+        {
+          key: "backups",
+          label: collapsed ? null : t("nav.backups"),
+          icon: <SparkSaveLine size={16} />,
+        },
+        {
           key: "voice-transcription",
           label: collapsed ? null : t("nav.voiceTranscription"),
           icon: <SparkMicLine size={16} />,
@@ -354,11 +400,24 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         {
           key: "debug",
           label: collapsed ? null : t("nav.debug", "Debug"),
-          icon: <SparkOtherLine size={16} />,
+          icon: <SparkDebugLine size={16} />,
         },
       ],
     },
   ];
+
+  // Append plugin menu items as a group (only when there are plugins)
+  if (pluginRoutes.length > 0) {
+    settingsMenuItems.push({
+      key: "plugins-group",
+      label: collapsed ? null : t("nav.plugins"),
+      children: pluginRoutes.map((route) => ({
+        key: route.path.replace(/^\//, ""),
+        label: collapsed ? null : route.label,
+        icon: <span style={{ fontSize: 16 }}>{route.icon}</span>,
+      })),
+    } as any);
+  }
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -420,10 +479,13 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           <Menu
             mode="inline"
             selectedKeys={[selectedKey]}
-            openKeys={DEFAULT_OPEN_KEYS}
+            openKeys={[
+              ...DEFAULT_OPEN_KEYS,
+              ...(pluginRoutes.length > 0 ? ["plugins-group"] : []),
+            ]}
             onClick={({ key }) => {
-              const path = KEY_TO_PATH[String(key)];
-              if (path) navigate(path);
+              const path = KEY_TO_PATH[String(key)] ?? `/${String(key)}`;
+              navigate(path);
             }}
             items={settingsMenuItems}
             theme={isDark ? "dark" : "light"}

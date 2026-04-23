@@ -3,234 +3,275 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Optional
+from collections.abc import Callable
+from datetime import datetime
+from typing import Any
 
-
-from agentscope.formatter import FormatterBase
 from agentscope.message import Msg
-from agentscope.model import ChatModelBase
 from agentscope.tool import ToolResponse
 
-if TYPE_CHECKING:
-    from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
-
+from ..utils.registry import Registry
 
 logger = logging.getLogger(__name__)
 
 
 class BaseMemoryManager(ABC):
-    """Abstract base class defining the memory manager interface.
+    """Abstract base class for memory manager backends.
 
-    All memory manager backends must implement this interface to be usable
-    as a drop-in replacement within the workspace.
-
-    Concrete implementations are responsible for managing conversation memory,
-    including compaction, summarization, semantic search, and lifecycle
-    management.
+    Lifecycle:
+        1. Instantiate with ``working_dir`` and ``agent_id``.
+        2. ``await start()`` – initialize storage backend.
+        3. Use ``summarize()``, ``memory_search()``, etc. during session.
+        4. ``await close()`` – flush and release resources.
 
     Attributes:
-        working_dir: Working directory path for memory storage.
-        agent_id: Unique agent identifier.
-        chat_model: Chat model used for compaction and summarization.
-        formatter: Formatter paired with the chat model.
+        working_dir: Root directory for persisting memory files.
+        agent_id: Unique identifier of the owning agent.
     """
 
-    def __init__(
-        self,
-        working_dir: str,
-        agent_id: str,
-    ):
-        """Initialize common memory manager attributes.
-
-        Args:
-            working_dir: Working directory path for memory storage.
-            agent_id: Unique agent identifier.
-        """
+    def __init__(self, working_dir: str, agent_id: str):
         self.working_dir: str = working_dir
         self.agent_id: str = agent_id
-        self.chat_model: Optional[ChatModelBase] = None
-        self.formatter: Optional[FormatterBase] = None
-
-        # Initialize list to track background summarization tasks
-        self.summary_tasks: list[asyncio.Task] = []
+        self._summary_task_info: dict[str, dict[str, Any]] = {}
+        self._task_counter: int = 0
+        self._task_queue: asyncio.Queue[
+            tuple[str, list[Msg], dict]
+        ] = asyncio.Queue()
+        self._worker_task: asyncio.Task | None = None
 
     @abstractmethod
     async def start(self) -> None:
-        """Start the memory manager lifecycle."""
+        """Initialize the storage backend. Called once after instantiation."""
 
     @abstractmethod
     async def close(self) -> bool:
-        """Close the memory manager and perform cleanup."""
-
-    @abstractmethod
-    async def compact_tool_result(self, **kwargs) -> None:
-        """Compact tool results by truncating large outputs.
-
-        Args:
-            **kwargs: Compaction parameters (messages, thresholds, etc.).
-        """
-
-    @abstractmethod
-    async def check_context(self, **kwargs) -> tuple:
-        """Check context size and determine if compaction is needed.
-
-        Args:
-            **kwargs: Context check parameters (messages, thresholds, etc.).
+        """Flush pending state and release resources.
 
         Returns:
-            Tuple of (messages_to_compact, remaining_messages, is_valid).
+            ``True`` if shutdown completed cleanly.
         """
 
     @abstractmethod
-    async def compact_memory(
+    def get_memory_prompt(self, language: str = "zh") -> str:
+        """Return the memory guidance prompt for inclusion
+        in the system prompt.
+
+        Args:
+            language: Language code (``"zh"`` or ``"en"``).
+
+        Returns:
+            Formatted memory guidance string.
+        """
+
+    @abstractmethod
+    def list_memory_tools(self) -> list[Callable[..., ToolResponse]]:
+        """Return tool functions exposed to the agent for memory access.
+
+        Each returned callable may have any signature but must return a
+        ``ToolResponse``.  Implementations register whatever memory-related
+        tools make sense for the backend (e.g. semantic search, listing).
+
+        Returns:
+            Ordered list of tool functions to register with the agent toolkit.
+        """
+
+    # pylint: disable=unused-argument
+    async def summarize(self, messages: list[Msg], **kwargs) -> str:
+        """Summarize conversation messages and persist to memory.
+
+        NOTE: This method is optional. Subclasses may override this method
+        to implement actual summarization. Base implementation returns empty
+        string, indicating no summarization support.
+
+        Args:
+            messages: Ordered conversation messages to summarize.
+            **kwargs: Implementation-specific options.
+
+        Returns:
+            Summary string, or empty string if not implemented.
+        """
+        return ""
+
+    # pylint: disable=unused-argument
+    async def retrieve(
         self,
-        messages: list[Msg],
-        previous_summary: str = "",
-        extra_instruction: str = "",
+        messages: list[Msg] | Msg,
         **kwargs,
-    ) -> str:
-        """Compact a list of messages into a condensed summary.
+    ) -> dict | None:
+        """Retrieve relevant memory based on the given messages.
+
+        NOTE: This method is optional. Subclasses may override this method
+        to implement actual retrieval. Base implementation returns None,
+        indicating no retrieval support or no relevant memory found.
 
         Args:
-            messages: List of messages to compact.
-            previous_summary: Optional previous summary to incorporate.
-            extra_instruction: Optional manual instruction for compaction.
-            **kwargs: Additional keyword arguments.
+            messages: One or more conversation messages used as the query.
+            **kwargs: Implementation-specific options.
 
         Returns:
-            Condensed summary string, or empty string on failure.
+            Dict with memory context to merge with kwargs, or None if
+            not implemented or no relevant memory found.
         """
+        return None
 
-    @abstractmethod
-    async def summary_memory(self, messages: list[Msg], **kwargs) -> str:
-        """Generate a comprehensive summary of the given messages.
+    # pylint: disable=unused-argument
+    async def dream(self, **kwargs) -> None:
+        """Optimize memory files via a background agent pass.
+
+        NOTE: This method is optional. Subclasses may override this method
+        to implement actual memory optimization. Base implementation does
+        nothing, indicating no dream support.
+
+        Runs a lightweight ReAct agent with file-editing tools to
+        consolidate redundant or outdated memory entries.
+        """
+        return None
+
+    async def _summarize_worker(self) -> None:
+        """Background worker that processes summarize tasks serially."""
+        while True:
+            task_id, messages, kwargs = await self._task_queue.get()
+            info = self._summary_task_info.get(task_id)
+            if info is None:
+                continue
+
+            info["status"] = "running"
+            logger.info(f"Summary task {task_id} started")
+            try:
+                result = await self.summarize(messages=messages, **kwargs)
+                info["status"] = "completed"
+                info["result"] = result
+                logger.info(f"Summary task {task_id} completed")
+            except asyncio.CancelledError:
+                info["status"] = "cancelled"
+                logger.info(f"Summary task {task_id} cancelled")
+                raise
+            except BaseException as e:
+                info["status"] = "failed"
+                info["error"] = str(e)
+                logger.error(f"Summary task {task_id} failed: {e}")
+
+    def add_summarize_task(self, messages: list[Msg], **kwargs):
+        """Schedule a background summarization task without blocking.
+
+        Tasks are executed serially in FIFO order. If no task is running,
+        execution starts immediately; otherwise the task queues.
 
         Args:
-            messages: List of messages to summarize.
-            **kwargs: Additional keyword arguments.
-
-        Returns:
-            Comprehensive summary string.
+            messages: Messages to pass to ``summarize()``.
+            **kwargs: Forwarded to ``summarize()``.
         """
+        # Ensure worker is running
+        if self._worker_task is None or self._worker_task.done():
+            self._worker_task = asyncio.create_task(self._summarize_worker())
 
-    @abstractmethod
-    async def dream_memory(self, **kwargs) -> None:
-        """Run one dream-based memory optimization task.
+        self._task_counter += 1
+        task_id = f"task_{self._task_counter}"
 
-        This method performs dream-based memory optimization by executing
-        an agent query with specific instructions for memory file optimization.
+        self._summary_task_info[task_id] = {
+            "task_id": task_id,
+            "task": self._worker_task,  # Reference to the worker task
+            "start_time": datetime.now(),
+            "status": "pending",
+            "result": None,
+            "error": None,
+        }
 
-        Args:
-            **kwargs: Additional keyword arguments for the dream task.
-        """
+        # Enqueue for serial execution
+        self._task_queue.put_nowait((task_id, messages, kwargs))
 
-    def add_async_summary_task(self, messages: list[Msg], **kwargs):
-        """Add an asynchronous summary task for the given messages."""
+    def _update_task_statuses(self) -> None:
+        """Update status for pending/running tasks if worker was cancelled."""
+        if self._worker_task is None:
+            return
+        if not self._worker_task.done():
+            return
 
-        remaining_tasks = []
-        for task in self.summary_tasks:
-            if task.done():
-                if task.cancelled():
-                    logger.warning("Summary task was cancelled.")
-                    continue
-                exc = task.exception()
-                if exc is not None:
-                    logger.error(f"Summary task failed: {exc}")
+        # Worker finished - update any running tasks
+        for task_id, info in self._summary_task_info.items():
+            if info["status"] == "running":
+                if self._worker_task.cancelled():
+                    info["status"] = "cancelled"
+                    logger.info(
+                        f"Summary task {task_id} cancelled (worker stopped)",
+                    )
                 else:
-                    result = task.result()
-                    logger.info(f"Summary task completed: {result}")
-            else:
-                remaining_tasks.append(task)
-        self.summary_tasks = remaining_tasks
-
-        task = asyncio.create_task(
-            self.summary_memory(messages=messages, **kwargs),
-        )
-        self.summary_tasks.append(task)
-
-    async def await_summary_tasks(self) -> str:
-        """
-        Wait for all background summary tasks to complete and collect results.
-
-        Blocks until all pending summary tasks in the task list have completed,
-        canceled, or failed. Collects status information from each task and
-        clears the task list after processing.
-
-        Returns:
-            str: A concatenated string of status messages, including:
-                - Completion confirmations with results
-                - Cancellation notices
-                - Error messages for failed tasks
-
-        Note:
-            - This method will block if any tasks are still running
-            - All tasks are removed from summary_tasks after this call
-            - Task exceptions are logged but do not raise to the caller
-            - Use this before application shutdown
-        """
-        result = ""
-        for task in self.summary_tasks:
-            if task.done():
-                # Task has already completed, check its status
-                if task.cancelled():
-                    logger.warning("Summary task was cancelled.")
-                    result += "Summary task was cancelled.\n"
-                else:
-                    # Check if the task raised an exception
-                    exc = task.exception()
+                    exc = self._worker_task.exception()
                     if exc is not None:
-                        logger.error(f"Summary task failed: {exc}")
-                        result += f"Summary task failed: {exc}\n"
-                    else:
-                        # Task completed successfully, collect result
-                        task_result = task.result()
-                        logger.info(f"Summary task completed: {task_result}")
-                        result += f"Summary task completed: {task_result}\n"
+                        info["status"] = "failed"
+                        info["error"] = str(exc)
+                        logger.error(f"Summary task {task_id} failed: {exc}")
 
-            else:
-                # Task is still running, wait for it to complete
-                try:
-                    task_result = await task
-                    logger.info(f"Summary task completed: {task_result}")
-                    result += f"Summary task completed: {task_result}\n"
+    def list_summarize_status(self) -> list[dict]:
+        """Return status of all summary tasks as list of dicts.
 
-                except asyncio.CancelledError:
-                    logger.warning("Summary task was cancelled while waiting.")
-                    result += "Summary task was cancelled.\n"
+        Each dict contains:
+            - task_id: Unique identifier
+            - start_time: When the task was enqueued
+            - status: "pending", "running", "completed",
+                "failed", or "cancelled"
+            - result: Summary result (if completed)
+            - error: Error message (if failed)
 
-                except Exception as e:
-                    logger.exception(f"Summary task failed: {e}")
-                    result += f"Summary task failed: {e}\n"
+        Returns:
+            List of task status dicts.
+        """
+        self._update_task_statuses()
 
-        # Clear the task list after processing all tasks
-        self.summary_tasks.clear()
+        result = []
+        for _task_id, info in self._summary_task_info.items():
+            result.append(
+                {
+                    "task_id": info["task_id"],
+                    "start_time": info["start_time"].isoformat(),
+                    "status": info["status"],
+                    "result": info["result"],
+                    "error": info["error"],
+                },
+            )
         return result
 
-    @abstractmethod
-    async def memory_search(
-        self,
-        query: str,
-        max_results: int = 5,
-        min_score: float = 0.1,
-    ) -> ToolResponse:
-        """Search stored memories for relevant content.
 
-        Args:
-            query: The search query string.
-            max_results: Maximum number of results to return.
-            min_score: Minimum relevance score threshold.
+# ---------------------------------------------------------------------------
+# Registry and factory
+# ---------------------------------------------------------------------------
 
-        Returns:
-            ToolResponse containing search results.
-        """
+memory_registry: Registry[BaseMemoryManager] = Registry()
 
-    @abstractmethod
-    def get_in_memory_memory(self, **kwargs) -> "ReMeInMemoryMemory | None":
-        """Retrieve the in-memory memory object for the agent.
 
-        Args:
-            **kwargs: Additional keyword arguments.
+def get_memory_manager_backend(backend: str) -> type[BaseMemoryManager]:
+    """Return the memory manager class for the given backend name.
 
-        Returns:
-            In-memory memory instance.
-        """
+    If the backend is not registered, falls back to the first registered
+    backend.
+
+    Args:
+        backend: Backend name to resolve.
+
+    Returns:
+        The memory manager class.
+
+    Raises:
+        ValueError: When no memory manager backends are registered.
+    """
+    cls = memory_registry.get(backend)
+    if cls is None:
+        registered = memory_registry.list_registered()
+        if not registered:
+            raise ValueError(
+                f"No memory manager backends registered. "
+                f"Requested: '{backend}'",
+            )
+        fallback = registered[0]
+        logger.warning(
+            f"Unsupported memory manager backend: '{backend}'. "
+            f"Falling back to '{fallback}'. "
+            f"Registered: {registered}",
+        )
+        cls = memory_registry.get(fallback)
+        if cls is None:
+            raise ValueError(
+                f"Fallback backend '{fallback}' not found in registry. "
+                f"This should not happen.",
+            )
+    return cls

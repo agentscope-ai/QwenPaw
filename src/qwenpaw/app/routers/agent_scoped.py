@@ -20,7 +20,7 @@ class AgentContextMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: RequestResponseEndpoint,
     ) -> Response:
-        """Extract agentId from path/header and inject into context."""
+        """Extract agentId and root_session_id from path/headers."""
         import logging
         from ..agent_context import set_current_agent_id
 
@@ -46,6 +46,19 @@ class AgentContextMiddleware(BaseHTTPMiddleware):
         if agent_id:
             set_current_agent_id(agent_id)
 
+        # Extract X-Root-Session-Id header for cross-session approval routing
+        root_session_id = request.headers.get("X-Root-Session-Id")
+        if root_session_id:
+            # Inject into request.request_context for runner access
+            if not hasattr(request, "request_context"):
+                request.request_context = {}
+            request.request_context["root_session_id"] = root_session_id
+            logger.debug(
+                "AgentContextMiddleware: root_session_id=%s from "
+                "X-Root-Session-Id header",
+                root_session_id[:12],
+            )
+
         response = await call_next(request)
         return response
 
@@ -56,7 +69,6 @@ def create_agent_scoped_router() -> APIRouter:
     Returns:
         APIRouter with all sub-routers mounted under /{agentId}/
     """
-    from .agent import router as agent_router
     from .skills import router as skills_router
     from .tools import router as tools_router
     from .config import router as config_router
@@ -65,12 +77,12 @@ def create_agent_scoped_router() -> APIRouter:
     from ..crons.api import router as cron_router
     from ..runner.api import router as chats_router
     from .console import router as console_router
+    from .plugins import router as plugins_router
+    from .plan import router as plan_router
 
-    # Create parent router with agentId parameter
     router = APIRouter(prefix="/agents/{agentId}", tags=["agent-scoped"])
 
     # Include all agent-specific sub-routers (they keep their own prefixes)
-    # /agents/{agentId}/agent/* -> agent_router
     # /agents/{agentId}/chats/* -> chats_router
     # /agents/{agentId}/config/* -> config_router (channels, heartbeat)
     # /agents/{agentId}/cron/* -> cron_router
@@ -78,7 +90,6 @@ def create_agent_scoped_router() -> APIRouter:
     # /agents/{agentId}/skills/* -> skills_router
     # /agents/{agentId}/tools/* -> tools_router
     # /agents/{agentId}/workspace/* -> workspace_router
-    router.include_router(agent_router)
     router.include_router(chats_router)
     router.include_router(config_router)
     router.include_router(cron_router)
@@ -87,5 +98,7 @@ def create_agent_scoped_router() -> APIRouter:
     router.include_router(tools_router)
     router.include_router(workspace_router)
     router.include_router(console_router)
+    router.include_router(plugins_router)
+    router.include_router(plan_router)
 
     return router

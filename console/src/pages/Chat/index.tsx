@@ -8,6 +8,7 @@ import { Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { SparkCopyLine, SparkAttachmentLine } from "@agentscope-ai/icons";
+import { usePlugins } from "../../plugins/PluginContext";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
@@ -26,6 +27,25 @@ import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
+import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
+import { commandsApi } from "../../api/modules/commands";
+import { useApprovalContext } from "../../contexts/ApprovalContext";
+import { planApi } from "../../api/modules/plan";
+
+interface ApprovalMessageData {
+  requestId: string;
+  sessionId: string;
+  rootSessionId?: string;
+  agentId: string;
+  toolName: string;
+  severity: string;
+  findingsCount: number;
+  findingsSummary: string;
+  toolParams: Record<string, unknown>;
+  createdAt: number;
+  timeoutSeconds: number;
+}
+
 import {
   toDisplayUrl,
   copyText,
@@ -453,15 +473,195 @@ export default function ChatPage() {
   }, [location.pathname]);
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const { selectedAgent } = useAgentStore();
+  const { toolRenderConfig } = usePlugins();
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const { message } = useAppMessage();
+  const { approvals } = useApprovalContext();
+  const [approvalRequests, setApprovalRequests] = useState<
+    Map<string, ApprovalMessageData>
+  >(new Map());
+  const [planEnabled, setPlanEnabled] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    planApi
+      .getPlanConfig()
+      .then((cfg) => {
+        if (!cancelled) setPlanEnabled(cfg.enabled);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent]);
 
   const isChatActiveRef = useRef(false);
   isChatActiveRef.current =
     location.pathname === "/" || location.pathname.startsWith("/chat");
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
+
+  // Consume approvals from Context and filter by current session
+  useEffect(() => {
+    // Get current session ID from multiple sources
+    // During new session creation, chatId may be empty but window.currentSessionId gets set
+    const currentSessionId = window.currentSessionId || chatId || "";
+
+    // Filter approvals by root_session_id (includes children sessions)
+    console.log(
+      "[Approval] Filtering approvals:",
+      "currentSessionId=",
+      currentSessionId,
+      "chatId=",
+      chatId,
+      "window.currentSessionId=",
+      window.currentSessionId,
+      "approvals=",
+      approvals.map((a) => ({
+        tool: a.tool_name,
+        session: a.session_id.slice(0, 8),
+        root: a.root_session_id.slice(0, 8),
+      })),
+    );
+
+    // If no session ID yet, check if we have approvals that could tell us the session
+    // (e.g., first message sent, approval arrives before session ID is set in window)
+    let effectiveSessionId = currentSessionId;
+    if (!effectiveSessionId && approvals.length > 0) {
+      // Use the root_session_id from the first approval as a hint
+      // This handles the race condition where approval arrives before session ID is propagated
+      effectiveSessionId = approvals[0].root_session_id;
+      console.log(
+        "[Approval] No session ID yet, using first approval's root_session_id:",
+        effectiveSessionId,
+      );
+    }
+
+    const sessionApprovals = effectiveSessionId
+      ? approvals.filter(
+          (approval) => approval.root_session_id === effectiveSessionId,
+        )
+      : approvals; // Show all if no session ID (fallback)
+
+    console.log(
+      "[Approval] After filtering:",
+      sessionApprovals.length,
+      "approval(s)",
+    );
+
+    // Convert to map for display
+    const newMap = new Map<string, ApprovalMessageData>();
+    for (const approval of sessionApprovals) {
+      newMap.set(approval.request_id, {
+        requestId: approval.request_id,
+        sessionId: approval.session_id,
+        rootSessionId: approval.root_session_id,
+        agentId: approval.agent_id,
+        toolName: approval.tool_name,
+        severity: approval.severity,
+        findingsCount: approval.findings_count,
+        findingsSummary: approval.findings_summary,
+        toolParams: approval.tool_params,
+        createdAt: approval.created_at,
+        timeoutSeconds: approval.timeout_seconds,
+      });
+    }
+
+    setApprovalRequests(newMap);
+  }, [approvals, chatId]);
+
+  const handleApprove = useCallback(
+    async (requestId: string) => {
+      console.log("[Approval] handleApprove called:", requestId);
+      console.log(
+        "[Approval] Current requests map size:",
+        approvalRequests.size,
+      );
+      const request = approvalRequests.get(requestId);
+      if (!request) {
+        console.error("[Approval] Request not found:", requestId);
+        return;
+      }
+
+      // Use currentSessionId (root session) instead of request.sessionId (sub-agent session)
+      const rootSessionId = window.currentSessionId || chatId || "";
+      console.log("[Approval] Sending approve command:", {
+        requestId,
+        rootSessionId,
+        subAgentSessionId: request.sessionId,
+      });
+
+      try {
+        // Add exit animation class
+        const cardElement = document.querySelector(
+          `[data-approval-id="${requestId}"]`,
+        );
+        if (cardElement) {
+          cardElement.classList.add("approvalCardExit");
+        }
+
+        await commandsApi.sendApprovalCommand(
+          "approve",
+          requestId,
+          rootSessionId,
+        );
+        console.log("[Approval] Approve command sent successfully");
+        message.success(t("approval.approved"));
+
+        // Delay removal to let animation complete
+        // Backend will remove from pending list, next poll will update UI
+        setTimeout(() => {
+          setApprovalRequests((prev) => {
+            const next = new Map(prev);
+            next.delete(requestId);
+            return next;
+          });
+        }, 300); // Match animation duration
+      } catch (error) {
+        message.error(t("approval.approveFailed"));
+        console.error("[Approval] Failed to approve:", error);
+      }
+    },
+    [approvalRequests, chatId, t, message],
+  );
+
+  const handleDeny = useCallback(
+    async (requestId: string) => {
+      const request = approvalRequests.get(requestId);
+      if (!request) return;
+
+      // Use currentSessionId (root session) instead of request.sessionId (sub-agent session)
+      const rootSessionId = window.currentSessionId || chatId || "";
+
+      try {
+        // Add exit animation class
+        const cardElement = document.querySelector(
+          `[data-approval-id="${requestId}"]`,
+        );
+        if (cardElement) {
+          cardElement.classList.add("approvalCardExit");
+        }
+
+        await commandsApi.sendApprovalCommand("deny", requestId, rootSessionId);
+        message.success(t("approval.denied"));
+
+        // Delay removal to let animation complete
+        // Backend will remove from pending list, next poll will update UI
+        setTimeout(() => {
+          setApprovalRequests((prev) => {
+            const next = new Map(prev);
+            next.delete(requestId);
+            return next;
+          });
+        }, 300); // Match animation duration
+      } catch (error) {
+        message.error(t("approval.denyFailed"));
+        console.error("Failed to deny:", error);
+      }
+    },
+    [approvalRequests, chatId, t, message],
+  );
 
   // Use custom hooks for better separation of concerns
   const isComposingRef = useIMEComposition(isChatActive);
@@ -753,16 +953,6 @@ export default function ChatPage() {
         description: t("chat.commands.compact.description"),
       },
       {
-        command: "/approve",
-        value: "approve",
-        description: t("chat.commands.approve.description"),
-      },
-      {
-        command: "/deny",
-        value: "deny",
-        description: t("chat.commands.deny.description"),
-      },
-      {
         command: "/mission",
         value: "mission",
         description: t("chat.commands.mission.description"),
@@ -773,6 +963,13 @@ export default function ChatPage() {
         description: t("chat.commands.skills.description"),
       },
     ];
+    if (planEnabled) {
+      commandSuggestions.push({
+        command: "/plan",
+        value: "plan ",
+        description: t("chat.commands.plan.description"),
+      });
+    }
 
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;
@@ -801,8 +998,7 @@ export default function ChatPage() {
       welcome: {
         ...i18nConfig.welcome,
         nick: "QwenPaw",
-        avatar:
-          "https://gw.alicdn.com/imgextra/i2/O1CN01pyXzjQ1EL1PuZMlSd_!!6000000000334-2-tps-288-288.png",
+        avatar: "/qwenpaw.png",
       },
       sender: {
         ...(i18nConfig as any)?.sender,
@@ -843,6 +1039,7 @@ export default function ChatPage() {
         fetch: customFetch,
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
+
           if (payloadRequestsHistoryClear(payload)) {
             pendingClearHistoryRef.current = true;
             if (payloadCompletesResponse(payload)) {
@@ -855,12 +1052,25 @@ export default function ChatPage() {
           return toDisplayUrl(url);
         },
         cancel(data: { session_id: string }) {
+          console.log(
+            "[Cancel] Cancel button clicked, session_id:",
+            data.session_id,
+          );
           const chatId =
             sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
+          console.log("[Cancel] Resolved chat_id:", chatId);
           if (chatId) {
-            chatApi.stopChat(chatId).catch((err) => {
-              console.error("Failed to stop chat:", err);
-            });
+            console.log("[Cancel] Calling stopChat API...");
+            chatApi
+              .stopChat(chatId)
+              .then(() => {
+                console.log("[Cancel] stopChat API succeeded");
+              })
+              .catch((err) => {
+                console.error("[Cancel] Failed to stop chat:", err);
+              });
+          } else {
+            console.warn("[Cancel] No chat_id found, cannot stop");
           }
         },
         async reconnect(data: { session_id: string; signal?: AbortSignal }) {
@@ -882,6 +1092,8 @@ export default function ChatPage() {
           });
         },
       },
+      customToolRenderConfig:
+        Object.keys(toolRenderConfig).length > 0 ? toolRenderConfig : undefined,
       actions: {
         list: [
           {
@@ -905,7 +1117,9 @@ export default function ChatPage() {
     t,
     isDark,
     multimodalCaps,
+    toolRenderConfig,
     scheduleHistoryClear,
+    planEnabled,
   ]);
 
   return (
@@ -924,6 +1138,73 @@ export default function ChatPage() {
           options={options}
         />
       </div>
+
+      {/* Render approval cards as overlays */}
+      {Array.from(approvalRequests.values()).map((request) => (
+        <div
+          key={request.requestId}
+          data-approval-id={request.requestId}
+          style={{
+            position: "fixed",
+            bottom: 80,
+            right: 24,
+            zIndex: 1000,
+            maxWidth: 480,
+            width: "calc(100vw - 48px)",
+          }}
+        >
+          <ApprovalCard
+            requestId={request.requestId}
+            toolName={request.toolName}
+            severity={request.severity}
+            findingsCount={request.findingsCount}
+            findingsSummary={request.findingsSummary}
+            toolParams={request.toolParams}
+            createdAt={request.createdAt}
+            timeoutSeconds={request.timeoutSeconds}
+            sessionId={request.sessionId}
+            rootSessionId={request.rootSessionId}
+            onApprove={handleApprove}
+            onDeny={handleDeny}
+            onCancel={() => {
+              console.log("[Chat] onCancel called for approval card");
+              const sessionId = window.currentSessionId || "";
+
+              // Use the same fallback chain as customFetch:
+              // 1. sessionApi.getRealIdForSession (UUID from backend)
+              // 2. chatIdRef.current (URL param)
+              // 3. sessionId (timestamp fallback)
+              const resolvedChatId =
+                sessionApi.getRealIdForSession(sessionId) ??
+                chatIdRef.current ??
+                sessionId;
+
+              console.log(
+                "[Chat] Resolved chat_id for stop:",
+                resolvedChatId,
+                "from session_id:",
+                sessionId,
+                "chatIdRef:",
+                chatIdRef.current,
+              );
+
+              if (resolvedChatId) {
+                console.log("[Chat] Calling stopChat with:", resolvedChatId);
+                chatApi
+                  .stopChat(resolvedChatId)
+                  .then(() => {
+                    console.log("[Chat] stopChat succeeded");
+                  })
+                  .catch((err) => {
+                    console.error("[Chat] stopChat failed:", err);
+                  });
+              } else {
+                console.warn("[Chat] No chat_id resolved, cannot cancel task");
+              }
+            }}
+          />
+        </div>
+      ))}
 
       <Modal
         open={showModelPrompt}

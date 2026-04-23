@@ -252,12 +252,12 @@
 }
 
 .sectionConfigureContainer {
-  padding: 0 16px;
+  padding: 0 16px 24px 16px;
 }
 
 .sectionContainer {
   .sectionHeader {
-    padding: 0 16px;
+    padding: 24px 16px 0 16px;
   }
 
   .tableCard {
@@ -401,6 +401,115 @@
   :global(.qwenpaw-table-tbody > tr > td) {
     padding-left: 16px !important;
     padding-right: 16px !important;
+  }
+}
+
+/* ---- Rule Collapse (category grouping) ---- */
+.ruleCollapse {
+  background: transparent;
+  border: none;
+
+  :global(.qwenpaw-collapse-item) {
+    margin-bottom: 12px;
+    border: 1px solid #e8e8e8;
+    border-radius: 8px !important;
+    overflow: hidden;
+  }
+
+  :global(.qwenpaw-collapse-header) {
+    font-weight: 600;
+    font-size: 14px;
+    padding: 12px 16px !important;
+    background: #fafafa;
+  }
+
+  :global(.qwenpaw-collapse-content-box) {
+    padding: 0 !important;
+  }
+}
+
+:global(.dark-mode) {
+  .ruleCollapse {
+    :global(.qwenpaw-collapse-item) {
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    :global(.qwenpaw-collapse-header) {
+      background: rgba(255, 255, 255, 0.04);
+    }
+  }
+}
+
+.collapseCategoryLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ---- Shell Evasion Checks ---- */
+.shellEvasionSection {
+  margin-top: 16px;
+}
+
+.shellEvasionGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.shellEvasionItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  background: #fafafa;
+  transition: all 0.2s;
+
+  &:hover {
+    border-color: #d9d9d9;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  }
+}
+
+.shellEvasionItemInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  margin-right: 12px;
+}
+
+.shellEvasionItemName {
+  font-weight: 500;
+  font-size: 13px;
+  color: #333;
+}
+
+.shellEvasionItemDesc {
+  font-size: 12px;
+  color: #999;
+  line-height: 1.4;
+}
+
+:global(.dark-mode) {
+  .shellEvasionItem {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+
+    &:hover {
+      border-color: rgba(255, 255, 255, 0.2);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+  }
+
+  .shellEvasionItemName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .shellEvasionItemDesc {
+    color: rgba(255, 255, 255, 0.45);
   }
 }
 
