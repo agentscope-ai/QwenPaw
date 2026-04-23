@@ -19,6 +19,34 @@ echo "========================================="
 echo "Version: ${VERSION}"
 echo ""
 
+# Step 0: Prerequisites
+echo "== Step 0: Checking Prerequisites =="
+missing=()
+
+if command -v bun &>/dev/null; then
+    echo "  [OK] bun ($(bun --version))"
+else
+    echo "  [MISSING] bun"
+    echo "    Install: https://bun.sh"
+    missing+=("bun")
+fi
+
+if command -v rustc &>/dev/null; then
+    echo "  [OK] rustc ($(rustc --version))"
+else
+    echo "  [MISSING] rustc (Rust)"
+    echo "    Install: https://rustup.rs"
+    missing+=("rustc")
+fi
+
+if [ ${#missing[@]} -gt 0 ]; then
+    echo ""
+    echo "Missing prerequisites: ${missing[*]}"
+    echo "Install the missing tools and re-run this script."
+    exit 1
+fi
+echo ""
+
 # Step 1: Build PyInstaller backend
 echo "== Step 1: Building PyInstaller Backend =="
 bash scripts/pack-tauri/build_pyinstaller.sh
