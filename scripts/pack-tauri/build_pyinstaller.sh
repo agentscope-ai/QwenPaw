@@ -26,11 +26,18 @@ echo ""
 
 # Check prerequisites
 echo "== Checking prerequisites =="
+
+# Create venv if missing (prefer uv if available)
 PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
 if [ ! -f "$PYTHON_BIN" ]; then
-    echo "ERROR: Python not found in .venv"
-    echo "Please create virtual environment first: python -m venv .venv"
-    exit 1
+    if command -v uv &>/dev/null; then
+        echo "Creating virtual environment with uv..."
+        uv venv "${REPO_ROOT}/.venv"
+    else
+        echo "ERROR: Python not found in .venv"
+        echo "Please create virtual environment first: python -m venv .venv"
+        exit 1
+    fi
 fi
 
 echo "Python: $("$PYTHON_BIN" --version)"
