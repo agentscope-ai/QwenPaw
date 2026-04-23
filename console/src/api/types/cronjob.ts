@@ -59,6 +59,13 @@ export interface CronJobView extends CronJobSpecOutput {
   last_run_time?: number;
 }
 
+export interface CronJobExecutionRecord {
+  run_at: string;
+  status: "success" | "error" | "running" | "skipped" | "cancelled";
+  error?: string | null;
+  trigger?: "scheduled" | "manual";
+}
+
 export type CronJobSpecInputLegacy = Record<string, unknown>;
 export type CronJobSpecOutputLegacy = Record<string, unknown>;
 export type CronJobViewLegacy = Record<string, unknown>;

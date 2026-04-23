@@ -14,6 +14,7 @@ type CronJob = CronJobSpecOutput;
 interface ColumnHandlers {
   onToggleEnabled: (job: CronJob) => void;
   onExecuteNow: (job: CronJob) => void;
+  onViewHistory: (job: CronJob) => void;
   onEdit: (job: CronJob) => void;
   onDelete: (jobId: string) => void;
   t: TFunction;
@@ -301,7 +302,7 @@ export const createColumns = (
     {
       title: handlers.t("cronJobs.action"),
       key: "action",
-      width: 240,
+      width: 320,
       fixed: "right",
       render: (_: unknown, record: CronJob) => {
         const menuItems: MenuProps["items"] = [
@@ -337,6 +338,13 @@ export const createColumns = (
               onClick={() => handlers.onExecuteNow(record)}
             >
               {handlers.t("cronJobs.executeNow")}
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              onClick={() => handlers.onViewHistory(record)}
+            >
+              {handlers.t("cronJobs.executionHistory")}
             </Button>
             <Dropdown menu={{ items: menuItems }} placement="bottomRight">
               <Button type="text" size="small" icon={<MoreOutlined />} />

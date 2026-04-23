@@ -309,6 +309,87 @@
   color: rgba(20, 20, 19, 0.88);
 }
 
+.historyList {
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.historyEmpty {
+  padding: 20px 0;
+  text-align: center;
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.historyItem {
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fafafa;
+}
+
+.historyItemMain {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.historyItemTime {
+  font-size: 13px;
+  color: rgba(20, 20, 19, 0.88);
+}
+
+.historyItemStatus {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.historyItemStatusSuccess {
+  color: #389e0d;
+}
+
+.historyItemStatusError {
+  color: #cf1322;
+}
+
+.historyItemMeta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.historyItemError {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #cf1322;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.historyItemErrorCollapsed {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+
+.historyItemErrorToggle {
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #1677ff;
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    color: #4096ff;
+  }
+}
+
 .formActions {
   display: flex;
   justify-content: flex-end;
@@ -532,6 +613,37 @@
 
   .dayJobItemName {
     color: rgba(255, 255, 255, 0.88);
+  }
+
+  .historyEmpty,
+  .historyItemMeta {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .historyItem {
+    background: #262626;
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .historyItemTime {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .historyItemStatusSuccess {
+    color: #95de64;
+  }
+
+  .historyItemStatusError,
+  .historyItemError {
+    color: #ff7875;
+  }
+
+  .historyItemErrorToggle {
+    color: #69b1ff;
+
+    &:hover {
+      color: #91caff;
+    }
   }
 
   .dayJobPopoverOverlay {

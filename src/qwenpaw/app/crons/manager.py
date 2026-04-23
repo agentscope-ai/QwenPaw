@@ -5,7 +5,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -23,11 +23,12 @@ from .heartbeat import (
     parse_heartbeat_every,
     run_heartbeat_once,
 )
-from .models import CronJobSpec, CronJobState
+from .models import CronExecutionRecord, CronJobSpec, CronJobState
 from .repo.base import BaseJobRepository
 
 HEARTBEAT_JOB_ID = "_heartbeat"
 DREAM_JOB_ID = "_dream"
+CRON_HISTORY_LIMIT = 50
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ class CronManager:
 
         self._lock = asyncio.Lock()
         self._states: Dict[str, CronJobState] = {}
+        self._history: Dict[str, list[CronExecutionRecord]] = {}
         self._rt: Dict[str, _Runtime] = {}
         self._started = False
 
@@ -67,6 +69,10 @@ class CronManager:
             if self._started:
                 return
             jobs_file = await self._repo.load()
+            valid_job_ids = {
+                job.id for job in jobs_file.jobs if job.id is not None
+            }
+            await self._repo.prune_orphan_history(valid_job_ids)
 
             self._scheduler.start()
             for job in jobs_file.jobs:
@@ -156,6 +162,11 @@ class CronManager:
     def get_state(self, job_id: str) -> CronJobState:
         return self._states.get(job_id, CronJobState())
 
+    async def get_history(self, job_id: str) -> list[CronExecutionRecord]:
+        if job_id not in self._history:
+            self._history[job_id] = await self._repo.get_history(job_id)
+        return self._history[job_id]
+
     # ----- write/control -----
 
     async def create_or_replace_job(self, spec: CronJobSpec) -> None:
@@ -169,6 +180,8 @@ class CronManager:
             if self._started and self._scheduler.get_job(job_id):
                 self._scheduler.remove_job(job_id)
             self._states.pop(job_id, None)
+            self._history.pop(job_id, None)
+            await self._repo.delete_history(job_id)
             self._rt.pop(job_id, None)
             return await self._repo.delete_job(job_id)
 
@@ -294,6 +307,7 @@ class CronManager:
             self._execute_once(
                 job,
                 auto_disable_once=False,
+                trigger="manual",
             ),
             name=f"cron-run-{job_id}",
         )
@@ -421,6 +435,7 @@ class CronManager:
         await self._execute_once(
             job,
             auto_disable_once=True,
+            trigger="scheduled",
         )
         if job.schedule.type == "once":
             return
@@ -468,6 +483,7 @@ class CronManager:
         job: CronJobSpec,
         *,
         auto_disable_once: bool = True,
+        trigger: Literal["scheduled", "manual"] = "scheduled",
     ) -> None:
         assert job.id is not None, "Job must have an id"
         rt = self._rt.get(job.id)
@@ -508,6 +524,18 @@ class CronManager:
             finally:
                 st.last_run_at = datetime.now(timezone.utc)
                 self._states[job.id] = st
+                record = CronExecutionRecord(
+                    run_at=st.last_run_at,
+                    status=st.last_status or "error",
+                    error=st.last_error,
+                    trigger=trigger,
+                )
+                records = await self._repo.append_history(
+                    job.id,
+                    record,
+                    limit=CRON_HISTORY_LIMIT,
+                )
+                self._history[job.id] = records
                 if job.schedule.type == "once" and auto_disable_once:
                     try:
                         await self._disable_once_job(job)

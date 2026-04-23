@@ -202,6 +202,13 @@ class CronJobState(BaseModel):
     last_error: Optional[str] = None
 
 
+class CronExecutionRecord(BaseModel):
+    run_at: datetime
+    status: Literal["success", "error", "running", "skipped", "cancelled"]
+    error: Optional[str] = None
+    trigger: Literal["scheduled", "manual"] = "scheduled"
+
+
 class CronJobView(BaseModel):
     spec: CronJobSpec
     state: CronJobState = Field(default_factory=CronJobState)

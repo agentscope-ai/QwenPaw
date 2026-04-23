@@ -17,7 +17,10 @@ import {
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
-import type { CronJobSpecOutput } from "../../../api/types";
+import type {
+  CronJobExecutionRecord,
+  CronJobSpecOutput,
+} from "../../../api/types";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import {
@@ -65,6 +68,15 @@ function CronJobsPage() {
   const [activePopoverDate, setActivePopoverDate] = useState<string | null>(
     null,
   );
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyRecords, setHistoryRecords] = useState<
+    CronJobExecutionRecord[]
+  >([]);
+  const [historyJobName, setHistoryJobName] = useState("");
+  const [expandedHistoryErrors, setExpandedHistoryErrors] = useState<
+    Set<string>
+  >(new Set());
   const [userTimezone, setUserTimezone] = useState("UTC");
   const [form] = Form.useForm<CronJob>();
   const userTimezoneRef = useRef("UTC");
@@ -178,6 +190,22 @@ function CronJobsPage() {
     setEditingJob(null);
   };
 
+  const handleViewHistory = async (job: CronJob) => {
+    setHistoryJobName(job.name);
+    setHistoryModalOpen(true);
+    setExpandedHistoryErrors(new Set());
+    setHistoryLoading(true);
+    try {
+      const records = await api.getCronJobHistory(job.id);
+      setHistoryRecords(records || []);
+    } catch (error) {
+      console.error("Failed to fetch cron history", error);
+      setHistoryRecords([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   const handleSubmit = async (values: any) => {
     let schedule: any = values.schedule || {};
     if ((values.scheduleType || "cron") === "once") {
@@ -269,10 +297,34 @@ function CronJobsPage() {
   const columns = createColumns({
     onToggleEnabled: handleToggleEnabled,
     onExecuteNow: handleExecuteNow,
+    onViewHistory: handleViewHistory,
     onEdit: handleEdit,
     onDelete: handleDelete,
     t,
   });
+
+  const HISTORY_ERROR_PREVIEW_LINES = 4;
+  const HISTORY_ERROR_PREVIEW_CHARS = 280;
+
+  const shouldShowErrorToggle = (errorText: string) => {
+    const lineCount = errorText.split("\n").length;
+    return (
+      lineCount > HISTORY_ERROR_PREVIEW_LINES ||
+      errorText.length > HISTORY_ERROR_PREVIEW_CHARS
+    );
+  };
+
+  const toggleHistoryError = (recordKey: string) => {
+    setExpandedHistoryErrors((prev) => {
+      const next = new Set(prev);
+      if (next.has(recordKey)) {
+        next.delete(recordKey);
+      } else {
+        next.add(recordKey);
+      }
+      return next;
+    });
+  };
 
   const getRunAtInUserTimezone = (job: OneTimeCronJob) => {
     const runAt = job.schedule.run_at;
@@ -537,6 +589,88 @@ function CronJobsPage() {
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
       />
+
+      <Modal
+        visible={historyModalOpen}
+        title={t("cronJobs.historyTitle", { name: historyJobName })}
+        footer={null}
+        onCancel={() => setHistoryModalOpen(false)}
+      >
+        <div className={styles.historyList}>
+          {historyLoading ? (
+            <div className={styles.historyEmpty}>{t("common.loading")}</div>
+          ) : historyRecords.length === 0 ? (
+            <div className={styles.historyEmpty}>
+              {t("cronJobs.historyEmpty")}
+            </div>
+          ) : (
+            historyRecords.map((record, index) => (
+              <div
+                key={`${record.run_at}-${index}`}
+                className={styles.historyItem}
+              >
+                <div className={styles.historyItemMain}>
+                  <span className={styles.historyItemTime}>
+                    {dayjs(record.run_at)
+                      .tz(userTimezone)
+                      .format("YYYY-MM-DD HH:mm:ss")}
+                  </span>
+                  <span
+                    className={`${styles.historyItemStatus} ${
+                      record.status === "success"
+                        ? styles.historyItemStatusSuccess
+                        : styles.historyItemStatusError
+                    }`}
+                  >
+                    {record.status === "success"
+                      ? t("cronJobs.historyStatusSuccess")
+                      : record.status === "running"
+                      ? t("cronJobs.historyStatusRunning")
+                      : record.status === "cancelled"
+                      ? t("cronJobs.historyStatusCancelled")
+                      : t("cronJobs.historyStatusFailed")}
+                  </span>
+                </div>
+                <div className={styles.historyItemMeta}>
+                  {record.trigger === "manual"
+                    ? t("cronJobs.historyTriggerManual")
+                    : t("cronJobs.historyTriggerScheduled")}
+                </div>
+                {record.error &&
+                  (() => {
+                    const recordKey = `${record.run_at}-${index}`;
+                    const expanded = expandedHistoryErrors.has(recordKey);
+                    const showToggle = shouldShowErrorToggle(record.error);
+                    return (
+                      <div>
+                        <div
+                          className={`${styles.historyItemError} ${
+                            !expanded && showToggle
+                              ? styles.historyItemErrorCollapsed
+                              : ""
+                          }`}
+                        >
+                          {record.error}
+                        </div>
+                        {showToggle && (
+                          <button
+                            type="button"
+                            className={styles.historyItemErrorToggle}
+                            onClick={() => toggleHistoryError(recordKey)}
+                          >
+                            {expanded
+                              ? t("cronJobs.historyCollapse")
+                              : t("cronJobs.historyExpand")}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+              </div>
+            ))
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }
