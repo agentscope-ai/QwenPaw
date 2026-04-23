@@ -163,8 +163,9 @@ export function ApprovalCard({
           <div className={styles.summaryBox}>
             <Text className={styles.summaryText}>{findingsSummary}</Text>
             <button
-              className={`${styles.copyButton} ${copiedField === "summary" ? styles.copied : ""
-                }`}
+              className={`${styles.copyButton} ${
+                copiedField === "summary" ? styles.copied : ""
+              }`}
               onClick={() => handleCopy(findingsSummary, "summary")}
               title={t("common.copy", "Copy")}
             >
@@ -183,8 +184,9 @@ export function ApprovalCard({
                 {JSON.stringify(toolParams, null, 2)}
               </pre>
               <button
-                className={`${styles.copyButton} ${copiedField === "params" ? styles.copied : ""
-                  }`}
+                className={`${styles.copyButton} ${
+                  copiedField === "params" ? styles.copied : ""
+                }`}
                 onClick={() =>
                   handleCopy(JSON.stringify(toolParams, null, 2), "params")
                 }
