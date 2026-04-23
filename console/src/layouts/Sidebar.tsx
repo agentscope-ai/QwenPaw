@@ -241,12 +241,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.tokenUsage"),
     },
     {
-      key: "agent-stats",
-      icon: <SparkBarChartLine size={18} />,
-      path: "/agent-stats",
-      label: t("nav.agentStats"),
-    },
-    {
       key: "backups",
       icon: <SparkSaveLine size={18} />,
       path: "/backups",
@@ -341,6 +335,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           label: collapsed ? null : t("nav.agentConfig"),
           icon: <SparkModifyLine size={16} />,
         },
+        {
+          key: "agent-stats",
+          label: collapsed ? null : t("nav.agentStats"),
+          icon: <SparkBarChartLine size={16} />,
+        },
       ],
     },
   ];
@@ -381,11 +380,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           key: "token-usage",
           label: collapsed ? null : t("nav.tokenUsage"),
           icon: <SparkDataLine size={16} />,
-        },
-        {
-          key: "agent-stats",
-          label: collapsed ? null : t("nav.agentStats"),
-          icon: <SparkBarChartLine size={16} />,
         },
         {
           key: "backups",
