@@ -631,6 +631,7 @@ docker run -e QWENPAW_AUTH_ENABLED=true \
   -p 127.0.0.1:8088:8088 \
   -v qwenpaw-data:/app/working \
   -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
   agentscope/qwenpaw:latest
 ```
 
@@ -651,6 +652,7 @@ services:
     volumes:
       - qwenpaw-data:/app/working
       - qwenpaw-secrets:/app/working.secret
+      - qwenpaw-backups:/app/working.backups
 ```
 
 #### Environment file (.env)
@@ -675,7 +677,7 @@ unset QWENPAW_AUTH_ENABLED
 qwenpaw app
 
 # Docker — simply remove the -e flag. The example below includes volumes for persistence.
-docker run -p 127.0.0.1:8088:8088 -v qwenpaw-data:/app/working -v qwenpaw-secrets:/app/working.secret agentscope/qwenpaw:latest
+docker run -p 127.0.0.1:8088:8088 -v qwenpaw-data:/app/working -v qwenpaw-secrets:/app/working.secret -v qwenpaw-backups:/app/working.backups agentscope/qwenpaw:latest
 ```
 
 ### Password reset
