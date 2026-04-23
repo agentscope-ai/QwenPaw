@@ -109,8 +109,29 @@ BUILT_APP="console/src-tauri/target/release/bundle/macos/qwenpaw-console.app"
 if [ ! -d "${BUILT_APP}" ]; then
     echo "WARNING: ${BUILT_APP} not found, searching alternatives..."
     BUILT_APP=$(find console/src-tauri/target/release/bundle -name "*.app" -maxdepth 2 2>/dev/null | head -1)
-    if [ -z "${BUILT_APP}" ]; then
-        echo "ERROR: Built app not found"
+fi
+
+# DMG bundling cleans up the .app — extract from DMG if needed
+if [ -z "${BUILT_APP}" ] || [ ! -d "${BUILT_APP}" ]; then
+    BUILT_DMG=$(find console/src-tauri/target/release/bundle/dmg -name "*.dmg" -maxdepth 1 2>/dev/null | head -1)
+    if [ -n "${BUILT_DMG}" ]; then
+        echo "Extracting .app from ${BUILT_DMG}..."
+        MOUNT_DIR=$(mktemp -d)
+        hdiutil attach "${BUILT_DMG}" -mountpoint "${MOUNT_DIR}" -quiet
+        BUILT_APP=$(find "${MOUNT_DIR}" -name "*.app" -maxdepth 1 | head -1)
+        if [ -z "${BUILT_APP}" ]; then
+            hdiutil detach "${MOUNT_DIR}" -quiet
+            echo "ERROR: No .app found inside DMG"
+            exit 1
+        fi
+        # Copy .app out before unmounting
+        EXTRACTED_APP="console/src-tauri/target/release/bundle/macos/$(basename "${BUILT_APP}")"
+        mkdir -p "$(dirname "${EXTRACTED_APP}")"
+        cp -R "${BUILT_APP}" "${EXTRACTED_APP}"
+        hdiutil detach "${MOUNT_DIR}" -quiet
+        BUILT_APP="${EXTRACTED_APP}"
+    else
+        echo "ERROR: Built app not found (no .app or .dmg)"
         exit 1
     fi
 fi
