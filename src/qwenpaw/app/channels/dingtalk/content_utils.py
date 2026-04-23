@@ -119,11 +119,48 @@ def conversation_type_from_chatbot_message(incoming_message: Any) -> str:
 
 
 def short_session_id_from_conversation_id(conversation_id: str) -> str:
-    """Use last N chars of conversation_id as session_id."""
-    n = DINGTALK_SESSION_ID_SUFFIX_LEN
-    return (
-        conversation_id[-n:] if len(conversation_id) >= n else conversation_id
-    )
+    """
+    Generate session_id from conversation_id for webhook_key storage and lookup.
+
+    Important fix notes (2026-04-23):
+    --------------------------------
+    Original logic: Extract the last 8 characters of conversation_id as session_id
+    Problem: Different users' conversation_ids may share the same suffix, causing session_id conflicts
+
+    Real-world example (extracted from logs):
+    - User A: conversation_id=cidbOVgM0IrDkoLyYK0vdsPLhT3rgGZWloQFsEoD2th61w=
+              session_id=D2th61w=
+    - User B: conversation_id=cidk75igsKv5sUa43sGJ98eQxT3rgGZWloQFsEoD2th61w=
+              session_id=D2th61w=  # Conflict!
+    - User C: conversation_id=cidRW2UjvvnnoKjzmL9qazQmBT3rgGZWloQFsEoD2th61w=
+              session_id=D2th61w=  # Conflict!
+
+    Consequences:
+    1. Different users share the same webhook_key (e.g., dingtalk:sw:D2th61w=)
+    2. Later messages overwrite earlier webhook storage
+    3. Messages may be sent to the wrong user (cross-talk)
+    4. Serious information leakage risk
+
+    Fix:
+    Use the full conversation_id as session_id to ensure uniqueness.
+    The conversation_id is a globally unique identifier assigned by DingTalk,
+    never duplicated across different users/groups.
+
+    Impact assessment:
+    - session_id length: increased from 8 chars to ~50 chars
+    - Log readability: slightly reduced, but acceptable
+    - Storage overhead: slightly increased, but negligible
+    - Compatibility: requires rebuilding webhook mapping (done automatically after restart)
+
+    """
+    # Fix: Use full conversation_id to avoid conflicts caused by truncation
+    # Original code (problematic):
+    #   n = DINGTALK_SESSION_ID_SUFFIX_LEN  # = 8
+    #   return conversation_id[-n:] if len(conversation_id) >= n else conversation_id
+    #
+    # New code (fixed):
+    #   Return the complete conversation_id to ensure each user/group has a unique session_id
+    return conversation_id
 
 
 def session_param_from_webhook_url(url: str) -> Optional[str]:
