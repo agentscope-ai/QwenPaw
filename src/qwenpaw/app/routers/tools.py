@@ -14,10 +14,12 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 
+from ...config.config import BuiltinToolConfig
 from ..utils import schedule_agent_reload
 from ...config import load_config
 
 router = APIRouter(prefix="/tools", tags=["tools"])
+DEFAULT_TOOL_ICON = "🔧"
 
 
 class ToolInfo(BaseModel):
@@ -30,7 +32,21 @@ class ToolInfo(BaseModel):
         default=False,
         description="Whether to execute the tool asynchronously in background",
     )
-    icon: str = Field(default="🔧", description="Emoji icon for the tool")
+    icon: str = Field(
+        default=DEFAULT_TOOL_ICON,
+        description="Emoji icon for the tool",
+    )
+
+
+def _build_tool_info(tool_config: BuiltinToolConfig) -> ToolInfo:
+    """Normalize tool config into a stable API response."""
+    return ToolInfo(
+        name=tool_config.name,
+        enabled=tool_config.enabled,
+        description=tool_config.description,
+        async_execution=tool_config.async_execution,
+        icon=tool_config.icon or DEFAULT_TOOL_ICON,
+    )
 
 
 @router.get("", response_model=List[ToolInfo])
@@ -61,15 +77,7 @@ async def list_tools(
 
     tools_list = []
     for tool_config in builtin_tools.values():
-        tools_list.append(
-            ToolInfo(
-                name=tool_config.name,
-                enabled=tool_config.enabled,
-                description=tool_config.description,
-                async_execution=tool_config.async_execution,
-                icon=tool_config.icon,
-            ),
-        )
+        tools_list.append(_build_tool_info(tool_config))
 
     return tools_list
 
@@ -117,13 +125,7 @@ async def toggle_tool(
     schedule_agent_reload(request, workspace.agent_id)
 
     # Return immediately (optimistic update)
-    return ToolInfo(
-        name=tool_config.name,
-        enabled=tool_config.enabled,
-        description=tool_config.description,
-        async_execution=tool_config.async_execution,
-        icon=tool_config.icon,
-    )
+    return _build_tool_info(tool_config)
 
 
 @router.patch("/{tool_name}/async-execution", response_model=ToolInfo)
@@ -171,10 +173,4 @@ async def update_tool_async_execution(
     schedule_agent_reload(request, workspace.agent_id)
 
     # Return immediately (optimistic update)
-    return ToolInfo(
-        name=tool_config.name,
-        enabled=tool_config.enabled,
-        description=tool_config.description,
-        async_execution=tool_config.async_execution,
-        icon=tool_config.icon,
-    )
+    return _build_tool_info(tool_config)
