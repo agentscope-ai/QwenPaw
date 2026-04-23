@@ -461,6 +461,15 @@ async def _upload_media_async(
             body,
         )
         return response.get("file_info")
+    except QQApiError as e:
+        source = url or "file_data"
+        logger.error(
+            "Failed to upload media: %s | Status: %s | Data: %s",
+            source,
+            e.status,
+            e.data,
+        )
+        return None
     except Exception:
         source = url or "file_data"
         logger.exception("Failed to upload media: %s", source)

@@ -708,3 +708,25 @@ class ChannelManager:
             [TextContent(type=ContentType.TEXT, text=text)],
             merged_meta,
         )
+
+    async def send_content(
+        self,
+        *,
+        channel: str,
+        user_id: str,
+        session_id: str,
+        content_parts: List[Any],
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Send multi-modal content (text, images, files)."""
+        ch = await self.get_channel(channel.lower())
+        if not ch:
+            raise KeyError(f"channel not found: {channel}")
+        to_handle = ch.to_handle_from_target(user_id=user_id, session_id=session_id)
+        merged_meta = dict(meta or {})
+        bot_prefix = getattr(ch, "bot_prefix", None)
+        if bot_prefix and "bot_prefix" not in merged_meta:
+            merged_meta["bot_prefix"] = bot_prefix
+        merged_meta["session_id"] = session_id
+        merged_meta["user_id"] = user_id
+        await ch.send_content_parts(to_handle, content_parts, merged_meta)
