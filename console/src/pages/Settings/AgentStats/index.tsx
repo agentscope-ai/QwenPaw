@@ -5,18 +5,7 @@ import { DatePicker } from "antd";
 import type { Dayjs } from "dayjs";
 import dayjs from "dayjs";
 import { useTranslation } from "react-i18next";
-
-// Conditional import for @ant-design/plots (may not be installed)
-let Column: any = null;
-let Pie: any = null;
-try {
-  // @ts-ignore
-  const plots = require("@ant-design/plots");
-  Column = plots.Column;
-  Pie = plots.Pie;
-} catch {
-  // Plots not available
-}
+import { Column, Pie } from "@ant-design/plots";
 import api from "../../../api";
 import type { AgentStatsSummary } from "../../../api/types/agentStats";
 import { PageHeader } from "@/components/PageHeader";
