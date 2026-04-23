@@ -46,7 +46,11 @@ echo "Python: $("$PYTHON_BIN" --version)"
 echo "== Installing PyInstaller =="
 if ! "$PYTHON_BIN" -c "import PyInstaller" 2> /dev/null; then
     echo "Installing PyInstaller..."
-    "$PYTHON_BIN" -m pip install "pyinstaller>=6.0.0"
+    if command -v uv &>/dev/null; then
+        uv pip install "pyinstaller>=6.0.0"
+    else
+        "$PYTHON_BIN" -m pip install "pyinstaller>=6.0.0"
+    fi
 fi
 echo "PyInstaller installed"
 echo ""
