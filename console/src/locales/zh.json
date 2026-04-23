@@ -1263,6 +1263,7 @@
     "embeddingMaxBatchSizeTooltip": "单次批量向量化请求的最大条目数",
     "embeddingMaxBatchSizeRequired": "最大批处理大小为必填项",
     "embeddingRestartWarning": "向量模型配置不支持热更新，保存后需要重启服务才能生效",
+    "toolExecutionLevelTitle": "工具执行安全",
     "toolExecutionLevel": {
       "title": "工具执行安全",
       "alertMessage": "配置工具调用的审批策略，控制智能体执行工具时的安全级别",

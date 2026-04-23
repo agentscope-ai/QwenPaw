@@ -47,7 +47,10 @@ export default defineConfig(({ mode }) => {
       sourcemap: mode !== "production",
       chunkSizeWarningLimit: 1000,
       rolldownOptions: {
-        onwarn(warning, defaultHandler) {
+        onwarn(
+          warning: { code?: string; message: string },
+          defaultHandler: (warning: { code?: string; message: string }) => void,
+        ) {
           if (warning.code === "INEFFECTIVE_DYNAMIC_IMPORT") return;
           defaultHandler(warning);
         },

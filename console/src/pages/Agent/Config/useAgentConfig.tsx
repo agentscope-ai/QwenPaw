@@ -1,17 +1,22 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Form, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
+import { agentsApi } from "../../../api/modules/agents";
 import type { AgentsRunningConfig } from "../../../api/types";
+import type { AgentProfileConfig } from "../../../api/types/agents";
 import { useAppMessage } from "../../../hooks/useAppMessage";
+import { useAgentStore } from "../../../stores/agentStore";
 import {
   CONTEXT_MANAGER_BACKEND_MAPPINGS,
   MEMORY_MANAGER_BACKEND_MAPPINGS,
 } from "../../../constants/backendMappings";
+import type { ToolExecutionLevel } from "./components/ToolExecutionLevelCard";
 
 export function useAgentConfig() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
+  const { selectedAgent } = useAgentStore();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -20,16 +25,27 @@ export function useAgentConfig() {
   const [savingLang, setSavingLang] = useState(false);
   const [timezone, setTimezone] = useState<string>("UTC");
   const [savingTimezone, setSavingTimezone] = useState(false);
+  const [approvalLevel, setApprovalLevel] =
+    useState<ToolExecutionLevel>("AUTO");
+  const initialApprovalLevelRef = useRef<ToolExecutionLevel>("AUTO");
+  const agentProfileRef = useRef<AgentProfileConfig | null>(null);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [config, langResp, tzResp] = await Promise.all([
+      const [config, langResp, tzResp, agentProfile] = await Promise.all([
         api.getAgentRunningConfig(),
         api.getAgentLanguage(),
         api.getUserTimezone(),
+        agentsApi.getAgent(selectedAgent),
       ]);
+      agentProfileRef.current = agentProfile;
+      const loadedLevel = (
+        agentProfile?.approval_level || "AUTO"
+      ).toUpperCase() as ToolExecutionLevel;
+      setApprovalLevel(loadedLevel);
+      initialApprovalLevelRef.current = loadedLevel;
       const contextBackend =
         config.context_manager_backend in CONTEXT_MANAGER_BACKEND_MAPPINGS
           ? config.context_manager_backend
@@ -66,7 +82,7 @@ export function useAgentConfig() {
     } finally {
       setLoading(false);
     }
-  }, [form, t]);
+  }, [form, t, selectedAgent]);
 
   useEffect(() => {
     fetchConfig();
@@ -76,7 +92,21 @@ export function useAgentConfig() {
     try {
       const values = await form.validateFields();
       setSaving(true);
-      await api.updateAgentRunningConfig(values as AgentsRunningConfig);
+      const approvalLevelChanged =
+        approvalLevel !== initialApprovalLevelRef.current;
+      await Promise.all([
+        api.updateAgentRunningConfig(values as AgentsRunningConfig),
+        approvalLevelChanged && agentProfileRef.current
+          ? agentsApi.updateAgent(selectedAgent, {
+              ...agentProfileRef.current,
+              approval_level: approvalLevel,
+            })
+          : Promise.resolve(),
+      ]);
+      if (approvalLevelChanged && agentProfileRef.current) {
+        agentProfileRef.current.approval_level = approvalLevel;
+        initialApprovalLevelRef.current = approvalLevel;
+      }
       message.success(t("agentConfig.saveSuccess"));
     } catch (err) {
       if (err instanceof Error && "errorFields" in err) return;
@@ -86,7 +116,7 @@ export function useAgentConfig() {
     } finally {
       setSaving(false);
     }
-  }, [form, t]);
+  }, [form, t, selectedAgent, approvalLevel]);
 
   const handleLanguageChange = useCallback(
     (value: string): void => {
@@ -159,6 +189,8 @@ export function useAgentConfig() {
     savingLang,
     timezone,
     savingTimezone,
+    approvalLevel,
+    setApprovalLevel,
     fetchConfig,
     handleSave,
     handleLanguageChange,

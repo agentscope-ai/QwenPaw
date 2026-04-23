@@ -1400,6 +1400,7 @@
     "embeddingMaxBatchSizeTooltip": "Maximum number of items in a single batch embedding request",
     "embeddingMaxBatchSizeRequired": "Max batch size is required",
     "embeddingRestartWarning": "Embedding model config does not support hot reload. Save and restart the service for changes to take effect.",
+    "toolExecutionLevelTitle": "Tool Execution Security",
     "toolExecutionLevel": {
       "title": "Tool Execution Security",
       "alertMessage": "Configure tool call approval policy to control the security level when agents execute tools",

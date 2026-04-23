@@ -1,15 +1,11 @@
-import { useState, useEffect } from "react";
 import { Card, Radio, Alert, Space, Typography } from "antd";
 import { Shield, CheckCircle, AlertTriangle, Ban } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useAppMessage } from "../../../../hooks/useAppMessage";
-import { agentsApi } from "../../../../api/modules/agents";
-import { useAgentStore } from "../../../../stores/agentStore";
 import styles from "../index.module.less";
 
 const { Text, Paragraph } = Typography;
 
-type ToolExecutionLevel = "STRICT" | "SMART" | "AUTO" | "OFF";
+export type ToolExecutionLevel = "STRICT" | "SMART" | "AUTO" | "OFF";
 
 interface LevelOption {
   value: ToolExecutionLevel;
@@ -19,54 +15,18 @@ interface LevelOption {
   color: string;
 }
 
-export function ToolExecutionLevelCard() {
+interface ToolExecutionLevelCardProps {
+  value: ToolExecutionLevel;
+  onChange: (level: ToolExecutionLevel) => void;
+  disabled?: boolean;
+}
+
+export function ToolExecutionLevelCard({
+  value: level,
+  onChange,
+  disabled = false,
+}: ToolExecutionLevelCardProps) {
   const { t } = useTranslation();
-  const { message } = useAppMessage();
-  const { selectedAgent } = useAgentStore();
-  const [level, setLevel] = useState<ToolExecutionLevel>("AUTO");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    loadLevel();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAgent]);
-
-  const loadLevel = async () => {
-    setLoading(true);
-    try {
-      const config = await agentsApi.getAgent(selectedAgent);
-      const currentLevel = (
-        config?.approval_level || "AUTO"
-      ).toUpperCase() as ToolExecutionLevel;
-      setLevel(currentLevel);
-    } catch (error) {
-      console.error("Failed to load tool execution level:", error);
-      message.error(t("agentConfig.loadFailed"));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleChange = async (newLevel: ToolExecutionLevel) => {
-    setSaving(true);
-    try {
-      // Get current config first
-      const config = await agentsApi.getAgent(selectedAgent);
-      // Update with new approval_level
-      await agentsApi.updateAgent(selectedAgent, {
-        ...config,
-        approval_level: newLevel,
-      });
-      setLevel(newLevel);
-      message.success(t("agentConfig.saveLevelSuccess"));
-    } catch (error) {
-      console.error("Failed to save tool execution level:", error);
-      message.error(t("agentConfig.saveLevelFailed"));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const levelOptions: LevelOption[] = [
     {
@@ -118,8 +78,8 @@ export function ToolExecutionLevelCard() {
 
       <Radio.Group
         value={level}
-        onChange={(e) => handleChange(e.target.value as ToolExecutionLevel)}
-        disabled={loading || saving}
+        onChange={(e) => onChange(e.target.value as ToolExecutionLevel)}
+        disabled={disabled}
         style={{ width: "100%" }}
       >
         <Space direction="vertical" size={16} style={{ width: "100%" }}>
@@ -133,7 +93,7 @@ export function ToolExecutionLevelCard() {
                 cursor: "pointer",
                 transition: "all 0.3s",
               }}
-              onClick={() => !loading && !saving && handleChange(option.value)}
+              onClick={() => !disabled && onChange(option.value)}
               hoverable
             >
               <Radio value={option.value} style={{ width: "100%" }}>

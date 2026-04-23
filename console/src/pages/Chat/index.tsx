@@ -27,7 +27,7 @@ import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
-import { ApprovalCard } from "../../components/ApprovalCard";
+import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { planApi } from "../../api/modules/plan";

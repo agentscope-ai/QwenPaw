@@ -1211,7 +1211,22 @@
     "rebuildMemoryIndexOnStartTooltip": "エージェント起動時に記憶検索インデックスをクリアして再構築します。無効にすると再インデックス化をスキップし、新しいファイルの変更のみを監視します（起動が速くなりますが、インデックスが同期しなくなる可能性があります）",
     "toolResultCompactRecentGtOld": "最新メッセージの閾値は古いメッセージの閾値以上である必要があります",
     "lightContextTitle": "コンテキスト管理",
-    "remeLightMemoryTitle": "長期記憶"
+    "remeLightMemoryTitle": "長期記憶",
+    "toolExecutionLevelTitle": "ツール実行セキュリティ",
+    "toolExecutionLevel": {
+      "title": "ツール実行セキュリティ",
+      "alertMessage": "ツール呼び出しの承認ポリシーを設定し、エージェントがツールを実行する際のセキュリティレベルを制御します",
+      "strict": "厳格モード",
+      "strictDesc": "すべてのツール呼び出しに承認が必要、最高セキュリティレベル",
+      "smart": "スマートモード",
+      "smartDesc": "低リスクツールは自動承認、中〜高リスクツールは承認が必要",
+      "auto": "自動モード",
+      "autoDesc": "承認が必要と明示的にマークされたツールのみ承認を要求（デフォルト）",
+      "off": "オフモード",
+      "offDesc": "すべてのツール承認を無効化、すべてのツールが自動実行"
+    },
+    "saveLevelSuccess": "ツール実行セキュリティレベルを保存しました",
+    "saveLevelFailed": "ツール実行セキュリティレベルの保存に失敗しました"
   },
   "tools": {
     "title": "ビルトインツール",
