@@ -55,19 +55,8 @@ if [ ${#missing[@]} -gt 0 ]; then
 fi
 echo ""
 
-# Step 1: Build PyInstaller backend
-echo "== Step 1: Building PyInstaller Backend =="
-bash scripts/pack-tauri/build_pyinstaller.sh
-
-if [ $? -ne 0 ]; then
-    echo "ERROR: PyInstaller build failed"
-    exit 1
-fi
-echo "PyInstaller backend ready"
-echo ""
-
-# Step 2: Build console frontend and copy to Python package
-echo "== Step 2: Building Console Frontend =="
+# Step 1: Build console frontend
+echo "== Step 1: Building Console Frontend =="
 cd console
 
 # if [ ! -d "node_modules" ]; then
@@ -86,19 +75,19 @@ cd ..
 # cp -R console/dist/. src/qwenpaw/console/
 # echo ""
 
-# Step 3: Rebuild PyInstaller with embedded frontend
-echo "== Step 3: Rebuilding PyInstaller with embedded frontend =="
+# Step 2: Build PyInstaller backend with embedded frontend
+echo "== Step 2: Building PyInstaller Backend with embedded frontend =="
 bash scripts/pack-tauri/build_pyinstaller.sh
 
 if [ $? -ne 0 ]; then
     echo "ERROR: PyInstaller rebuild failed"
     exit 1
 fi
-echo "PyInstaller backend rebuilt with frontend"
+echo "PyInstaller backend built with frontend"
 echo ""
 
-# Step 4: Build Tauri app
-echo "== Step 4: Building Tauri App =="
+# Step 3: Build Tauri app
+echo "== Step 3: Building Tauri App =="
 cd console
 
 echo "Building for macOS..."
@@ -113,8 +102,8 @@ cd ..
 echo "Tauri app built"
 echo ""
 
-# Step 5: Create distribution
-echo "== Step 5: Creating Distribution =="
+# Step 4: Create distribution
+echo "== Step 4: Creating Distribution =="
 
 BUILT_APP="console/src-tauri/target/release/bundle/macos/qwenpaw-console.app"
 if [ ! -d "${BUILT_APP}" ]; then
