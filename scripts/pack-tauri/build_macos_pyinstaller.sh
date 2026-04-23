@@ -39,6 +39,14 @@ else
     missing+=("rustc")
 fi
 
+if command -v uv &>/dev/null; then
+    echo "  [OK] uv ($(uv --version))"
+else
+    echo "  [MISSING] uv"
+    echo "    Install: https://docs.astral.sh/uv/getting-started/installation/"
+    missing+=("uv")
+fi
+
 if [ ${#missing[@]} -gt 0 ]; then
     echo ""
     echo "Missing prerequisites: ${missing[*]}"
