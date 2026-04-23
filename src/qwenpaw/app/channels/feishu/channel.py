@@ -2150,6 +2150,34 @@ class FeishuChannel(BaseChannel):
         # Final cleanup signal
         self._stop_event.set()
 
+    async def health_check(self) -> Dict[str, Any]:
+        """Check Feishu WebSocket and SDK client status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "Feishu channel is disabled.",
+            }
+        issues = []
+        if self._client is None:
+            issues.append("Feishu SDK client not initialized")
+        ws_thread_alive = (
+            self._ws_thread is not None and self._ws_thread.is_alive()
+        )
+        if not ws_thread_alive:
+            issues.append("WebSocket thread is not running")
+        if issues:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "; ".join(issues),
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "Feishu SDK client and WebSocket are active.",
+        }
+
     async def start(self) -> None:
         if not self.enabled:
             logger.debug("feishu channel disabled")

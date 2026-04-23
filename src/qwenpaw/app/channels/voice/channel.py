@@ -78,6 +78,35 @@ class VoiceChannel(BaseChannel):
         # Tunnel driver is created lazily on start()
         return instance
 
+    async def health_check(self) -> Dict[str, Any]:
+        """Check Voice channel tunnel and Twilio status."""
+        if not self._enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "Voice channel is disabled.",
+            }
+        issues = []
+        if self.twilio_mgr is None:
+            issues.append("Twilio credentials not configured")
+        if self.tunnel_mgr is None:
+            issues.append("Cloudflare tunnel not started")
+        if issues:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "; ".join(issues),
+            }
+        active_sessions = len(list(self.session_mgr.active_sessions()))
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": (
+                f"Voice channel is running with "
+                f"{active_sessions} active call session(s)."
+            ),
+        }
+
     async def start(self) -> None:
         """Start the voice channel: tunnel + Twilio webhook."""
         if not self._enabled:

@@ -6,11 +6,12 @@ QwenPaw 提供了插件系统，允许用户扩展 QwenPaw 的功能。
 
 插件系统支持以下扩展能力：
 
-- **自定义 Provider**：添加新的 LLM Provider 和模型
-- **生命周期钩子**：在应用启动/关闭时执行自定义代码
-- **魔法命令**：注册自定义的 `/command` 命令
-- **前端页面**：向侧边栏添加自定义页面
-- **工具渲染器**：自定义工具调用结果的展示方式
+- **Provider 插件**：添加新的 LLM Provider 和模型
+- **Hook 插件**：在应用启动/关闭时执行自定义代码
+- **Command 插件**：注册自定义的 `/command` 魔法命令
+- **前端页面插件**：向侧边栏添加自定义页面
+- **对话工具渲染插件**：自定义对话工具调用结果的展示方式
+- **修改组件行为**：通过模块注册表修改前端已有组件行为
 
 ## 插件管理
 
@@ -64,114 +65,6 @@ qwenpaw plugin info <plugin-id>
 
 ```bash
 qwenpaw plugin uninstall <plugin-id>
-```
-
-## 插件类型
-
-### 1. Provider 插件
-
-添加自定义 LLM Provider，支持新的模型服务。
-
-**示例场景**：
-
-- 接入企业内部的 LLM 服务
-- 支持特定的模型 API
-- 添加自定义的模型配置
-
-**核心 API**：
-
-```python
-api.register_provider(
-    provider_id="my-provider",
-    provider_class=MyProvider,
-    label="My Provider",
-    base_url="https://api.example.com/v1",
-    metadata={},
-)
-```
-
-### 2. Hook 插件
-
-在应用生命周期的特定时刻执行自定义代码。
-
-**示例场景**：
-
-- 初始化第三方服务（如监控、日志）
-- 加载自定义配置
-- 执行启动检查
-
-**核心 API**：
-
-```python
-# 启动钩子
-api.register_startup_hook(
-    hook_name="my_startup",
-    callback=startup_callback,
-    priority=100,  # 越低越先执行
-)
-
-# 关闭钩子
-api.register_shutdown_hook(
-    hook_name="my_shutdown",
-    callback=shutdown_callback,
-    priority=100,
-)
-```
-
-### 3. Command 插件
-
-注册自定义的魔法命令（如 `/feedback`）。
-
-**示例场景**：
-
-- 添加快捷命令
-- 实现特定工作流
-- 集成外部工具
-
-**实现方式**：
-
-通过 monkey patch 改写用户输入，将命令转换为 Agent 可理解的 prompt。
-
-### 4. 前端页面插件
-
-向 QwenPaw 控制台侧边栏添加自定义页面，构建全新的 UI 界面。
-
-**示例场景**：
-
-- 展示日志、监控数据等可视化内容
-- 提供插件自身的配置管理界面
-- 集成第三方工具的嵌入页面
-
-**核心 API**：
-
-```ts
-window.QwenPaw.registerRoutes?.(pluginId, [
-  {
-    path: "/plugin/my-plugin/page",
-    component: MyPage,
-    label: "My Page",
-    icon: "📊",
-    priority: 10, // 越小越靠上，默认 0
-  },
-]);
-```
-
-### 5. 工具渲染插件
-
-自定义 Agent 工具调用结果在聊天界面中的展示方式，替代默认的纯文本展示。
-
-**示例场景**：
-
-- 将图片路径渲染为 `<img>` 预览
-- 将结构化数据渲染为表格或卡片
-- 为特定工具输出添加交互操作按钮
-
-**核心 API**：
-
-```ts
-window.QwenPaw.registerToolRender?.(pluginId, {
-  my_tool_name: MyToolCard, // key = Agent 返回的工具名称
-});
 ```
 
 ## 插件开发
@@ -244,119 +137,84 @@ plugin = MyPlugin()
 
 ### 前端插件
 
-前端插件可以向 QwenPaw 侧边栏添加自定义页面，也可以自定义工具调用结果的渲染方式 —— 全部打包为一个 JavaScript 文件，运行时动态加载。
+#### 基本结构
 
-#### 工作原理
-
-1. 插件打包为 **ES 模块**（`dist/index.js`）。
-2. QwenPaw 启动时通过 Blob URL 和 `import()` 加载该文件。
-3. 插件调用 `window.QwenPaw.registerRoutes` / `window.QwenPaw.registerToolRender` 完成注册。
-4. 宿主应用通过 `window.QwenPaw.host` 暴露共享库（React、antd 等），无需打包进插件。
-
-#### 宿主 API（`window.QwenPaw.host`）
-
-| 名称              | 类型                       | 说明              |
-| ----------------- | -------------------------- | ----------------- |
-| `React`           | `typeof React`             | React 运行时      |
-| `antd`            | `typeof antd`              | Ant Design 组件库 |
-| `getApiUrl(path)` | `(path: string) => string` | 构造完整 API URL  |
-| `getApiToken()`   | `() => string`             | 当前认证 Token    |
-
-#### 注册 API
-
-##### `window.QwenPaw.registerRoutes(pluginId, routes)`
-
-向侧边栏添加页面。
-
-```ts
-window.QwenPaw.registerRoutes?.(pluginId, [
-  {
-    path: "/plugin/my-plugin/page", // 唯一 URL 路径
-    component: MyPageComponent, // React 组件
-    label: "My Page", // 侧边栏显示名称
-    icon: "📊", // 图标（Emoji）
-    priority: 10, // 越小越靠上（默认 0）
-  },
-]);
-```
-
-##### `window.QwenPaw.registerToolRender(pluginId, renderers)`
-
-自定义工具调用结果在聊天中的展示方式。
-
-```ts
-window.QwenPaw.registerToolRender?.(pluginId, {
-  my_tool_name: MyToolCard, // key = Agent 返回的工具名称
-});
-```
-
-#### 最简示例："Welcome to QwenPaw"
-
-这是最简单的前端插件 —— 只有一个页面，无需调用 API。使用 TSX 编写，JSX 语法更清晰易读。
-
-##### 文件结构
+每个前端插件至少需要以下文件：
 
 ```
-welcome-plugin/
-├── plugin.json
+my-plugin/
+├── plugin.json      # 插件清单（必需）
 ├── src/
-│   └── index.tsx
-├── package.json
-├── tsconfig.json
-└── vite.config.ts
+│   └── index.tsx    # 入口点（前端必需）
+├── package.json     # 依赖声明
+├── tsconfig.json    # TypeScript 配置
+└── vite.config.ts   # 构建配置
 ```
 
-##### plugin.json
+#### plugin.json
 
 ```json
 {
-  "id": "welcome-plugin",
-  "name": "Welcome Plugin",
+  "id": "my-plugin",
+  "name": "My Plugin",
   "version": "1.0.0",
-  "description": "最简前端页面插件",
   "author": "Your Name",
-  "entry": {
-    "frontend": "dist/index.js"
-  }
+  "entry": { "frontend": "dist/index.js" }
 }
 ```
 
-##### src/index.tsx
+#### src/index.tsx
 
 ```tsx
 const { React, antd } = (window as any).QwenPaw.host;
-const { Typography, Card } = antd;
-const { Title, Paragraph } = Typography;
 
-function WelcomePage() {
-  return (
-    <Card style={{ maxWidth: 480, margin: "40px auto" }}>
-      <Title level={2}>Welcome to QwenPaw 👋</Title>
-      <Paragraph>插件系统运行正常！</Paragraph>
-    </Card>
-  );
-}
-
-class WelcomePlugin {
-  readonly id = "welcome-plugin";
+class MyPlugin {
+  readonly id = "my-plugin";
 
   setup(): void {
-    (window as any).QwenPaw.registerRoutes?.(this.id, [
-      {
-        path: "/plugin/welcome-plugin/home",
-        component: WelcomePage,
-        label: "Welcome",
-        icon: "👋",
-        priority: 5,
-      },
-    ]);
+    // 注册侧边栏页面
+    // (window as any).QwenPaw.registerRoutes?.(this.id, [...]);
+    // 注册工具调用渲染器
+    // (window as any).QwenPaw.registerToolRender?.(this.id, {...});
+    // 访问并修改应用内部模块
+    // const mod = (window as any).QwenPaw?.modules?.['xxxx'];
   }
 }
 
-new WelcomePlugin().setup();
+new MyPlugin().setup();
 ```
 
-##### vite.config.ts
+#### package.json
+
+```json
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "scripts": { "build": "vite build" },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "typescript": "^5.0.0",
+    "@vitejs/plugin-react": "^4.0.0"
+  }
+}
+```
+
+#### tsconfig.json
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react",
+    "strict": false,
+    "skipLibCheck": true
+  }
+}
+```
+
+#### vite.config.ts
 
 ```ts
 import { defineConfig } from "vite";
@@ -370,90 +228,36 @@ export default defineConfig({
       formats: ["es"],
       fileName: () => "index.js",
     },
-    rollupOptions: {
-      external: ["react", "react-dom"],
-    },
+    rollupOptions: { external: ["react", "react-dom"] },
   },
 });
 ```
 
-> **为什么用 `jsxRuntime: "classic"`？** classic 运行时将 `<Card>` 编译为 `React.createElement(Card, ...)`，使用模块顶层声明的 `React` 变量（来自 `window.QwenPaw.host`）。若使用 automatic 运行时，编译器会尝试从 `react/jsx-runtime` 导入，而插件环境中该模块不存在。
-
-##### tsconfig.json
-
-```json
-{
-  "compilerOptions": {
-    "target": "ES2020",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "jsx": "react",
-    "strict": false,
-    "noImplicitAny": false,
-    "skipLibCheck": true
-  },
-  "include": ["src"]
-}
-```
-
-##### package.json
-
-```json
-{
-  "name": "welcome-plugin",
-  "version": "1.0.0",
-  "scripts": {
-    "build": "vite build"
-  },
-  "devDependencies": {
-    "vite": "^5.0.0",
-    "typescript": "^5.0.0",
-    "@vitejs/plugin-react": "^4.0.0"
-  }
-}
-```
-
-##### 构建与安装
+#### 构建和安装
 
 ```bash
-npm install
-npm run build
-# dist/index.js 构建完成
-
-# 将插件复制到 QwenPaw 插件目录
-cp -r . ~/.qwenpaw/plugins/welcome-plugin/
-
-# 重启 QwenPaw，侧边栏将出现 "Welcome" 页面
+npm install && npm run build
+cp -r . ~/.qwenpaw/plugins/my-plugin/
 qwenpaw app
 ```
 
-#### 路由优先级
+**说明**：`window.QwenPaw.host` 提供以下共享库，插件无需自行打包：
 
-`priority` 字段控制所有插件的侧边栏排列顺序：
+| 名称              | 类型                       | 说明               |
+| ----------------- | -------------------------- | ------------------ |
+| `React`           | `typeof React`             | React 运行时       |
+| `antd`            | `typeof antd`              | Ant Design 组件库  |
+| `getApiUrl(path)` | `(path: string) => string` | 构造完整 API URL   |
+| `getApiToken()`   | `() => string`             | 获取当前认证 Token |
 
-- **值越小，位置越靠上**
-- 默认值为 `0`
-- 优先级相同时保持注册顺序
+**构建说明**：
 
-```ts
-// 排在最前面
-{ ..., priority: 0 }
+- `jsxRuntime: "classic"` — 将 JSX 编译为 `React.createElement`，使用宿主提供的 `React`，无需在插件中引入
+- `external: ["react", "react-dom"]` — 不打包 React，使用应用已加载的版本
 
-// 排在 priority=0 之后
-{ ..., priority: 10 }
+**`window.QwenPaw.modules`**：应用启动时会将 `src/pages/` 下的所有模块自动注册到此对象，插件可通过模块键名访问并替换内部导出
 
-// 排在最后
-{ ..., priority: 100 }
-```
-
-#### 前端插件最佳实践
-
-1. **始终使用 `window.QwenPaw.host`** 获取 React 和 antd —— 不要打包进插件。
-2. **使用 `getApiUrl(path)`** 发起所有 API 请求，自动处理 base URL 和认证。
-3. **使用 `getApiToken()`** 在手动 `fetch` 时附加 Bearer Token。
-4. **使用 TSX 编写组件** —— 配合 `@vitejs/plugin-react` 的 `jsxRuntime: "classic"`，JSX 会编译为 `React.createElement`，使用 host 提供的 `React`。
-5. **使用类模式**，通过 `setup()` 方法完成注册，结构清晰易维护。
-6. **设置 `priority`** 控制页面在侧边栏中的排列位置。
+> ⚠️ **注意**：`modules` 中的模块结构未作为公开 API 维护，可能随版本变化而调整，使用前请确认兼容性。
 
 ## 使用示例
 
@@ -828,6 +632,252 @@ qwenpaw app
 
 # 使用命令
 /status
+```
+
+### 示例 4：添加自定义前端页面
+
+向侧边栏添加一个欢迎页面。
+
+#### 1. 创建插件目录
+
+```bash
+mkdir welcome-plugin && cd welcome-plugin
+```
+
+#### 2. 创建 plugin.json
+
+```json
+{
+  "id": "welcome-plugin",
+  "name": "Welcome Plugin",
+  "version": "1.0.0",
+  "description": "Welcome page plugin",
+  "author": "Your Name",
+  "entry": { "frontend": "dist/index.js" }
+}
+```
+
+#### 3. 创建 src/index.tsx
+
+```tsx
+const { React, antd } = (window as any).QwenPaw.host;
+const { Typography, Card } = antd;
+const { Title, Paragraph } = Typography;
+
+function WelcomePage() {
+  return (
+    <Card style={{ maxWidth: 480, margin: "40px auto" }}>
+      <Title level={2}>Welcome to QwenPaw 👋</Title>
+      <Paragraph>插件系统运行正常！</Paragraph>
+    </Card>
+  );
+}
+
+class WelcomePlugin {
+  readonly id = "welcome-plugin";
+
+  setup(): void {
+    (window as any).QwenPaw.registerRoutes?.(this.id, [
+      {
+        path: "/plugin/welcome-plugin/home",
+        component: WelcomePage,
+        label: "Welcome",
+        icon: "👋",
+        priority: 5,
+      },
+    ]);
+  }
+}
+
+new WelcomePlugin().setup();
+```
+
+#### 4. 创建 package.json
+
+```json
+{
+  "name": "welcome-plugin",
+  "version": "1.0.0",
+  "scripts": { "build": "vite build" },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "typescript": "^5.0.0",
+    "@vitejs/plugin-react": "^4.0.0"
+  }
+}
+```
+
+#### 5. 创建 tsconfig.json
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react",
+    "strict": false,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}
+```
+
+#### 6. 创建 vite.config.ts
+
+```ts
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react({ jsxRuntime: "classic" })],
+  build: {
+    lib: {
+      entry: "src/index.tsx",
+      formats: ["es"],
+      fileName: () => "index.js",
+    },
+    rollupOptions: { external: ["react", "react-dom"] },
+  },
+});
+```
+
+#### 7. 构建和安装
+
+```bash
+npm install && npm run build
+cp -r . ~/.qwenpaw/plugins/welcome-plugin/
+qwenpaw app
+```
+
+### 示例 5：自定义工具调用渲染
+
+自定义 Agent 工具调用结果的展示方式。
+
+#### 1. 创建插件目录
+
+```bash
+mkdir tool-render-plugin && cd tool-render-plugin
+```
+
+#### 2. 创建 plugin.json
+
+```json
+{
+  "id": "tool-render-plugin",
+  "name": "Tool Render Plugin",
+  "version": "1.0.0",
+  "description": "Custom tool result renderer",
+  "author": "Your Name",
+  "entry": { "frontend": "dist/index.js" }
+}
+```
+
+#### 3. 创建 src/index.tsx
+
+```tsx
+const { React, antd } = (window as any).QwenPaw.host;
+const { Card } = antd;
+
+function MyToolCard({ result }) {
+  return (
+    <Card style={{ marginTop: 8 }}>
+      <pre>{JSON.stringify(result, null, 2)}</pre>
+    </Card>
+  );
+}
+
+class ToolRenderPlugin {
+  readonly id = "tool-render-plugin";
+
+  setup(): void {
+    (window as any).QwenPaw.registerToolRender?.(this.id, {
+      my_tool_name: MyToolCard, // key = tool name returned by Agent
+    });
+  }
+}
+
+new ToolRenderPlugin().setup();
+```
+
+#### 4. 其他文件
+
+复用示例 4 中的 `package.json`、`tsconfig.json`、`vite.config.ts`，将 `name` 改为 `tool-render-plugin`。
+
+#### 5. 构建和安装
+
+```bash
+npm install && npm run build
+cp -r . ~/.qwenpaw/plugins/tool-render-plugin/
+qwenpaw app
+```
+
+### 示例 6：修改组件行为
+
+我们定制一个对话页面欢迎语
+
+#### 1. 创建插件目录
+
+```bash
+mkdir custom-greeting-plugin && cd custom-greeting-plugin
+```
+
+#### 2. 创建 plugin.json
+
+```json
+{
+  "id": "custom-greeting-plugin",
+  "name": "Custom Greeting",
+  "version": "1.0.0",
+  "description": "Customize chat greeting",
+  "author": "Your Name",
+  "entry": { "frontend": "dist/index.js" }
+}
+```
+
+#### 3. 创建 src/index.tsx
+
+```tsx
+class CustomGreetingPlugin {
+  readonly id = "custom-greeting-plugin";
+
+  setup(): void {
+    const mod = (window as any).QwenPaw?.modules?.[
+      "Chat/OptionsPanel/defaultConfig"
+    ];
+    if (!mod?.configProvider) {
+      console.warn("configProvider not found");
+      return;
+    }
+
+    // 替换聊天欢迎语
+    mod.configProvider.getGreeting = () => "你好！我是定制版 QwenPaw 👋";
+
+    // 替换聊天描述
+    mod.configProvider.getDescription = () => "这是一个定制化的聊天助手";
+
+    // 替换提示词列表
+    mod.configProvider.getPrompts = (t: any) => [
+      { value: "帮我分析这段代码" },
+      { value: "写一个单元测试" },
+      { value: "优化这段逻辑" },
+    ];
+  }
+}
+
+new CustomGreetingPlugin().setup();
+```
+
+#### 4. 其他文件
+
+复用示例 4 中的 `package.json`、`tsconfig.json`、`vite.config.ts`，将 `name` 改为 `custom-greeting-plugin`。
+
+#### 5. 构建和安装
+
+```bash
+npm install && npm run build
+cp -r . ~/.qwenpaw/plugins/custom-greeting-plugin/
+qwenpaw app
 ```
 
 ## 依赖管理

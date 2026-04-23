@@ -55,6 +55,7 @@ class DaemonContext:
     working_dir: Path = WORKING_DIR
     load_config_fn: Callable[[], Any] = load_config
     memory_manager: Optional[Any] = None
+    context_manager: Optional[Any] = None
     # For /daemon restart: manager and agent_id for zero-downtime reload
     manager: Optional["MultiAgentManager"] = None
     agent_id: Optional[str] = None
@@ -123,6 +124,10 @@ def run_daemon_status(context: DaemonContext) -> str:
         parts.append("- Memory manager: running")
     else:
         parts.append("- Memory manager: not attached")
+    if context.context_manager is not None:
+        parts.append("- Context manager: running")
+    else:
+        parts.append("- Context manager: not attached")
     return "\n".join(parts)
 
 

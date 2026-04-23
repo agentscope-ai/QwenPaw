@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && git rev-parse --short HEAD > dist/.build_hash",
     "build:prod": "tsc -b && vite build --mode production",
     "build:test": "tsc -b && vite build --mode test",
     "format": "tsc -b --noEmit && prettier --write --cache .",
@@ -43,6 +43,10 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",
+    "@types/babel__core": "^7.20.5",
+    "@types/babel__generator": "^7.27.0",
+    "@types/babel__template": "^7.4.4",
+    "@types/babel__traverse": "^7.28.0",
     "@types/i18next": "^12.1.0",
     "@types/node": "^25.0.3",
     "@types/react": "^18",

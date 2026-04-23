@@ -13,6 +13,7 @@ from agentscope_runtime.engine.schemas.exception import (
     ConfigurationException,
 )
 
+from .memory.base_memory_manager import BaseMemoryManager
 from .utils.file_handling import read_text_file_with_encoding_fallback
 
 logger = logging.getLogger(__name__)
@@ -58,7 +59,8 @@ class PromptBuilder:
         working_dir: Path,
         enabled_files: list[str] | None = None,
         heartbeat_enabled: bool = False,
-        memory_prompt_enabled: bool = True,
+        language: str = "zh",
+        memory_manager: BaseMemoryManager | None = None,
     ):
         """Initialize prompt builder.
 
@@ -66,12 +68,14 @@ class PromptBuilder:
             working_dir: Directory containing markdown configuration files
             enabled_files: List of filenames to load (if None, uses default order)
             heartbeat_enabled: Whether heartbeat is enabled, affects AGENTS.md content
-            memory_prompt_enabled: Whether to include the memory guidance section
+            language: Language code used to select the memory prompt.
+            memory_manager: Memory manager instance for generating memory prompts.
         """
         self.working_dir = working_dir
         self.enabled_files = enabled_files
         self.heartbeat_enabled = heartbeat_enabled
-        self.memory_prompt_enabled = memory_prompt_enabled
+        self.language = language
+        self.memory_manager = memory_manager
         self.prompt_parts = []
         self.loaded_count = 0
 
@@ -163,26 +167,32 @@ class PromptBuilder:
     def _process_memory_section(self, content: str) -> str:
         """Process memory section in AGENTS.md content.
 
-        - If memory markers not found: keep content unchanged (backward compatibility)
-        - If memory_prompt_enabled is True: keep the content but remove the markers
-        - If memory_prompt_enabled is False: remove the entire section
+        - If memory markers are found: remove the entire section.
+        - Always append the canonical memory prompt at the end.
 
         Args:
             content: Original AGENTS.md content
 
         Returns:
-            Processed content
+            Processed content with memory prompt appended.
         """
-        if "<!-- memory:start -->" not in content:
-            return content
+        # Remove existing memory section if markers exist
+        if "<!-- memory:start -->" in content:
+            content = self.MEMORY_PATTERN.sub("", content).strip()
 
-        if self.memory_prompt_enabled:
-            content = content.replace("<!-- memory:start -->", "")
-            content = content.replace("<!-- memory:end -->", "")
-            return content.strip()
+        # Get memory prompt from manager or fallback
+        if self.memory_manager:
+            memory_section = self.memory_manager.get_memory_prompt(
+                self.language,
+            )
         else:
-            filtered = self.MEMORY_PATTERN.sub("", content)
-            return filtered.strip()
+            memory_section = ""
+
+        return (
+            (content + "\n\n" + memory_section).strip()
+            if content
+            else memory_section
+        )
 
     def build(self) -> str:
         """Build the system prompt from markdown files.
@@ -224,7 +234,8 @@ def build_system_prompt_from_working_dir(
     enabled_files: list[str] | None = None,
     agent_id: str | None = None,
     heartbeat_enabled: bool = False,
-    memory_prompt_enabled: bool = True,
+    language: str = "zh",
+    memory_manager: BaseMemoryManager | None = None,
 ) -> str:
     """
     Build system prompt by reading markdown files from working directory.
@@ -250,9 +261,10 @@ def build_system_prompt_from_working_dir(
         agent_id: Agent identifier to include in system prompt (optional)
         heartbeat_enabled: Whether heartbeat is enabled. When False, filters
             heartbeat section from AGENTS.md to avoid confusing instructions.
-        memory_prompt_enabled: Whether to include the memory guidance section.
-            When False, removes the <!-- memory:start/end --> block from
-            AGENTS.md to save tokens.
+        language: Language code (``"zh"`` or ``"en"``) for memory prompt.
+        memory_manager: Memory manager instance for generating memory prompts.
+            If provided, uses its ``get_memory_prompt()`` method instead of
+            the standalone function.
 
     Returns:
         str: Constructed system prompt from markdown files.
@@ -291,7 +303,8 @@ def build_system_prompt_from_working_dir(
         working_dir=working_dir,
         enabled_files=enabled_files,
         heartbeat_enabled=heartbeat_enabled,
-        memory_prompt_enabled=memory_prompt_enabled,
+        language=language,
+        memory_manager=memory_manager,
     )
     prompt = builder.build()
 

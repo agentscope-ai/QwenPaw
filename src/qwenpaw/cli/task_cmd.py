@@ -105,7 +105,6 @@ async def _run_task(
     with _isolated_skills_workspace(skills_dir, base_workspace) as workspace:
         agent = QwenPawAgent(
             agent_config=agent_config,
-            enable_memory_manager=False,
             request_context=request_context,
             workspace_dir=workspace,
         )

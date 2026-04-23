@@ -10,7 +10,7 @@ import tempfile
 from collections import deque
 from pathlib import Path
 from urllib.parse import urlparse
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import aiohttp
 from agentscope_runtime.engine.schemas.agent_schemas import (
@@ -637,6 +637,41 @@ class DiscordChannel(BaseChannel):
         if not self.enabled or not self.token or not self._client:
             return
         await self._client.start(self.token, reconnect=True)
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Check Discord gateway connection status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "Discord channel is disabled.",
+            }
+        if not self._client:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "Discord client not initialized.",
+            }
+        if not self._client.is_ready():
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": (
+                    "Discord client is not ready" " (gateway not connected)."
+                ),
+            }
+        task_alive = self._task is not None and not self._task.done()
+        if not task_alive:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "Discord gateway task is not running.",
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "Discord gateway is connected and ready.",
+        }
 
     async def start(self) -> None:
         if not self.enabled:

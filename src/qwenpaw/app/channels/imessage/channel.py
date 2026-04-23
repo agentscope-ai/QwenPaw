@@ -341,6 +341,32 @@ ORDER BY m.ROWID ASC
         """Send error via imessage _send_sync (sync API)."""
         await asyncio.to_thread(self._send_sync, to_handle, err_text)
 
+    async def health_check(self) -> Dict[str, Any]:
+        """Check iMessage watcher thread status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "iMessage channel is disabled.",
+            }
+        issues = []
+        if self._imsg_path is None:
+            issues.append("imsg binary path not set")
+        thread_alive = self._thread is not None and self._thread.is_alive()
+        if not thread_alive:
+            issues.append("Watcher thread is not running")
+        if issues:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "; ".join(issues),
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "iMessage watcher is running.",
+        }
+
     async def start(self) -> None:
         if not self.enabled:
             logger.debug("disabled by env IMESSAGE_ENABLED=0")

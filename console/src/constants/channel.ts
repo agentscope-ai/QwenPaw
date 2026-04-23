@@ -10,6 +10,7 @@ export const CHANNELS = {
   console: "console",
   matrix: "matrix",
   voice: "voice",
+  sip: "sip",
   wecom: "wecom",
   xiaoyi: "xiaoyi",
 };
@@ -26,6 +27,7 @@ export const CHANNEL_COLORS: Record<string, string> = {
   console: "green",
   matrix: "red",
   voice: "geekblue",
+  sip: "cyan",
   wecom: "olive",
   xiaoyi: "cyan",
 };

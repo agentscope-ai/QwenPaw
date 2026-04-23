@@ -7,11 +7,10 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Coroutine
 
 import frontmatter as fm
 from agentscope.message import Msg, TextBlock
-from agentscope.pipeline import stream_printing_messages
 from agentscope_runtime.engine.runner import Runner
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from agentscope_runtime.engine.schemas.exception import (
@@ -48,6 +47,7 @@ from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
 
 if TYPE_CHECKING:
     from ...agents.memory import BaseMemoryManager
+    from ...agents.context import BaseContextManager
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,63 @@ _APPROVE_EXACT = frozenset(
         "/daemon approve",
     },
 )
+
+_PRINT_END_SIGNAL = "[END]"
+
+
+async def _cancel_streaming_agent_task(task: asyncio.Task) -> None:
+    if task.done():
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        logger.debug(
+            "Streaming agent task finished with error during cancellation",
+            exc_info=True,
+        )
+
+
+async def _stream_printing_messages_interruptible(
+    *,
+    agents: list[Any],
+    coroutine_task: Coroutine[Any, Any, Msg],
+) -> AsyncGenerator[tuple[Msg, bool], None]:
+    """Like agentscope.stream_printing_messages, but cancel the agent task
+    promptly when the outer stream is stopped or closed.
+    """
+
+    queue: asyncio.Queue = asyncio.Queue()
+    for agent in agents:
+        agent.set_msg_queue_enabled(True, queue)
+
+    task = asyncio.create_task(coroutine_task)
+    if task.done():
+        await queue.put(_PRINT_END_SIGNAL)
+    else:
+        task.add_done_callback(lambda _: queue.put_nowait(_PRINT_END_SIGNAL))
+
+    try:
+        while True:
+            printing_msg = await queue.get()
+            if (
+                isinstance(printing_msg, str)
+                and printing_msg == _PRINT_END_SIGNAL
+            ):
+                break
+            msg, last, _ = printing_msg
+            yield msg, last
+
+        exception = task.exception()
+        if exception is not None:
+            raise exception from None
+    except asyncio.CancelledError:
+        await _cancel_streaming_agent_task(task)
+        raise
+    finally:
+        await _cancel_streaming_agent_task(task)
 
 
 def _is_approval(text: str) -> bool:
@@ -88,6 +145,7 @@ class AgentRunner(Runner):
         self._mcp_manager = None  # MCP client manager for hot-reload
         self._workspace: Any = None  # Workspace instance for control commands
         self.memory_manager: BaseMemoryManager | None = None
+        self.context_manager: BaseContextManager | None = None
         self._task_tracker = task_tracker  # Task tracker for background tasks
 
     def set_chat_manager(self, chat_manager):
@@ -540,6 +598,7 @@ class AgentRunner(Runner):
                 env_context=env_context,
                 mcp_clients=mcp_clients,
                 memory_manager=self.memory_manager,
+                context_manager=self.context_manager,
                 request_context=base_request_context,
                 workspace_dir=self.workspace_dir,
                 task_tracker=self._task_tracker,
@@ -648,7 +707,7 @@ class AgentRunner(Runner):
                     ):
                         yield msg, last
             else:
-                async for msg, last in stream_printing_messages(
+                async for msg, last in _stream_printing_messages_interruptible(
                     agents=[agent],
                     coroutine_task=agent(msgs),
                 ):

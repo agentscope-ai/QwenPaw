@@ -45,6 +45,7 @@ const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
   mqtt: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#MQTT",
   mattermost: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Mattermost",
   matrix: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Matrix",
+  sip: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#SIP",
   wecom:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=en#WeCom-WeChat-Work",
   weixin:
@@ -67,6 +68,7 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
   mqtt: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#MQTT",
   mattermost: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Mattermost",
   matrix: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Matrix",
+  sip: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#SIP",
   wecom: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#企业微信",
   weixin: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#微信个人iLink",
   xiaoyi:
@@ -743,6 +745,164 @@ export function ChannelDrawer({
               label={t("channels.welcomeGreeting")}
             >
               <Input.TextArea rows={2} />
+            </Form.Item>
+          </>
+        );
+
+      case "sip":
+        return (
+          <>
+            <ConfigProvider prefixCls="ant">
+              <Alert
+                type="info"
+                showIcon
+                message={t("channels.sipSetupGuide")}
+                style={{ marginBottom: 16 }}
+              />
+            </ConfigProvider>
+            <Form.Item
+              name="sip_mode"
+              label={t("channels.sipMode")}
+              tooltip={t("channels.sipModeTooltip")}
+              initialValue="dev"
+            >
+              <Select
+                options={[
+                  { value: "dev", label: "Dev (pyVoIP)" },
+                  { value: "livekit", label: "Production (LiveKit)" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
+              shouldUpdate={(
+                prev: Record<string, unknown>,
+                cur: Record<string, unknown>,
+              ) => prev.sip_mode !== cur.sip_mode}
+              noStyle
+            >
+              {({
+                getFieldValue,
+              }: {
+                getFieldValue: (name: string) => unknown;
+              }) => (
+                <Form.Item name="sip_server" label={t("channels.sipServer")}>
+                  <Input
+                    placeholder={
+                      getFieldValue("sip_mode") === "livekit"
+                        ? t("channels.sipServerPlaceholderLivekit")
+                        : t("channels.sipServerPlaceholder")
+                    }
+                  />
+                </Form.Item>
+              )}
+            </Form.Item>
+            <Form.Item name="sip_username" label={t("channels.sipUsername")}>
+              <Input placeholder="1001" />
+            </Form.Item>
+            <Form.Item name="sip_password" label={t("channels.sipPassword")}>
+              <Input.Password />
+            </Form.Item>
+            <Form.Item
+              name="sip_port"
+              label={t("channels.sipPort")}
+              rules={[
+                {
+                  type: "number",
+                  min: 1,
+                  max: 65535,
+                },
+              ]}
+            >
+              <InputNumber
+                min={1}
+                max={65535}
+                style={{ width: "100%" }}
+                placeholder="5061"
+              />
+            </Form.Item>
+            <Form.Item
+              name="sip_transport"
+              label={t("channels.sipTransport")}
+              initialValue="UDP"
+            >
+              <Select
+                options={[
+                  { value: "UDP", label: "UDP" },
+                  { value: "TCP", label: "TCP" },
+                  { value: "TLS", label: "TLS" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
+              name="dashscope_api_key"
+              label={t("channels.sipDashscopeApiKey")}
+              tooltip={t("channels.sipDashscopeApiKeyTooltip")}
+            >
+              <Input.Password placeholder="sk-..." />
+            </Form.Item>
+            <Form.Item name="tts_provider" label={t("channels.ttsProvider")}>
+              <Input placeholder="aliyun" />
+            </Form.Item>
+            <Form.Item name="tts_voice" label={t("channels.ttsVoice")}>
+              <Input placeholder="longxiaochun" />
+            </Form.Item>
+            <Form.Item name="stt_provider" label={t("channels.sttProvider")}>
+              <Input placeholder="aliyun" />
+            </Form.Item>
+            <Form.Item name="language" label={t("channels.language")}>
+              <Input placeholder="zh-CN" />
+            </Form.Item>
+            <Form.Item
+              name="welcome_greeting"
+              label={t("channels.welcomeGreeting")}
+            >
+              <Input.TextArea rows={2} />
+            </Form.Item>
+            <Form.Item
+              noStyle
+              shouldUpdate={(prev, cur) => prev.sip_mode !== cur.sip_mode}
+            >
+              {({ getFieldValue }) => {
+                if (getFieldValue("sip_mode") !== "livekit") return null;
+                return (
+                  <>
+                    <Form.Item
+                      name="livekit_url"
+                      label={t("channels.livekitUrl")}
+                      rules={[{ required: true }]}
+                    >
+                      <Input placeholder="ws://localhost:7880" />
+                    </Form.Item>
+                    <Form.Item
+                      name="livekit_api_key"
+                      label={t("channels.livekitApiKey")}
+                      rules={[{ required: true }]}
+                    >
+                      <Input />
+                    </Form.Item>
+                    <Form.Item
+                      name="livekit_api_secret"
+                      label={t("channels.livekitApiSecret")}
+                      rules={[{ required: true }]}
+                    >
+                      <Input.Password />
+                    </Form.Item>
+                    <Form.Item
+                      name="livekit_sip_trunk_id"
+                      label={t("channels.livekitSipTrunkId")}
+                    >
+                      <Input placeholder="ST_xxxx" />
+                    </Form.Item>
+                    <Form.Item
+                      name="livekit_room_name"
+                      label={t("channels.livekitRoomName")}
+                      tooltip={t("channels.livekitRoomNameTooltip")}
+                    >
+                      <Input placeholder="sip-inbound" />
+                    </Form.Item>
+                  </>
+                );
+              }}
             </Form.Item>
           </>
         );

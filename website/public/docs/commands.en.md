@@ -90,13 +90,14 @@ User requested help building a user authentication system, login endpoint implem
 
 Commands for viewing and managing conversation history.
 
-| Command         | Response Content              |
-| --------------- | ----------------------------- |
-| `/history`      | 📋 Message list + Token stats |
-| `/message`      | 📄 Specified message details  |
-| `/compact_str`  | 📝 Compressed summary content |
-| `/dump_history` | 📁 Exported history file path |
-| `/load_history` | ✅ History load result        |
+| Command             | Response Content              |
+| ------------------- | ----------------------------- |
+| `/history`          | 📋 Message list + Token stats |
+| `/message`          | 📄 Specified message details  |
+| `/compact_str`      | 📝 Compressed summary content |
+| `/summarize_status` | 📊 Summary task status        |
+| `/dump_history`     | 📁 Exported history file path |
+| `/load_history`     | ✅ History load result        |
 
 ---
 
@@ -203,6 +204,33 @@ User requested help building a user authentication system, login endpoint implem
 - No summary has been generated yet
 - Use /compact or wait for auto-compaction
 ```
+
+---
+
+### /summarize_status - View Summary Task Status
+
+Display the running status of all background summary tasks, including task ID, start time, and execution results.
+
+```
+/summarize_status
+```
+
+**Example response:**
+
+```
+**Summary Task Status**
+
+- **task-001**
+  - Start: 2024-01-15 10:30:00
+  - Status: completed
+  - Result: User requested help building a user authentication system...
+- **task-002**
+  - Start: 2024-01-15 10:35:00
+  - Status: failed
+  - Error: Summary generation timeout
+```
+
+> 💡 Using `/compact` or `/new` automatically starts a summary task in the background. Use this command to check its execution status.
 
 ---
 
@@ -882,6 +910,7 @@ Proactive Mode is an intelligent feature that allows the AI agent to actively an
 
 ```bash
 /proactive
+/proactive on
 /proactive <minutes>
 ```
 
@@ -889,6 +918,7 @@ Proactive Mode is an intelligent feature that allows the AI agent to actively an
 
 ```bash
 /proactive      # Default 30 minutes, trigger proactive notification after 30 minutes of inactivity
+/proactive on   # Same as above, default 30 minutes
 /proactive 60   # Trigger proactive notification after 60 minutes
 ```
 

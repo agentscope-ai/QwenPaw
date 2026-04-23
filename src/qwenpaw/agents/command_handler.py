@@ -17,15 +17,21 @@ from ..exceptions import SystemCommandException
 
 if TYPE_CHECKING:
     from .memory import BaseMemoryManager
+    from .context import AgentContext, BaseContextManager
 
 logger = logging.getLogger(__name__)
+
+
+def _fmt_tokens(n: int) -> str:
+    """Format token count as e.g. '82.3k' or '450'."""
+    return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
 
 
 class ConversationCommandHandlerMixin:
     """Mixin for conversation (system) commands: /compact, /new, /clear, etc.
 
     Expects self to have: agent_name, memory, formatter, memory_manager,
-    _enable_memory_manager.
+    context_manager.
     """
 
     # Supported conversation commands (unchanged set)
@@ -36,11 +42,10 @@ class ConversationCommandHandlerMixin:
             "clear",
             "history",
             "compact_str",
-            "await_summary",
+            "summarize_status",
             "message",
             "dump_history",
             "load_history",
-            "long_term_memory",
             "proactive",
         },
     )
@@ -67,22 +72,22 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def __init__(
         self,
         agent_name: str,
-        memory,
+        memory: "AgentContext",
         memory_manager: "BaseMemoryManager | None" = None,
-        enable_memory_manager: bool = True,
+        context_manager: "BaseContextManager | None" = None,
     ):
         """Initialize command handler.
 
         Args:
             agent_name: Name of the agent for message creation
-            memory: Agent's in-memory memory instance
+            memory: Agent's context instance (AgentContext)
             memory_manager: Optional memory manager instance
-            enable_memory_manager: Whether memory manager is enabled
+            context_manager: Optional context manager instance
         """
         self.agent_name = agent_name
-        self.memory = memory
-        self.memory_manager = memory_manager
-        self._enable_memory_manager = enable_memory_manager
+        self.memory: "AgentContext" = memory
+        self.memory_manager: "BaseMemoryManager" = memory_manager
+        self.context_manager: "BaseContextManager" = context_manager
 
     def _get_agent_config(self):
         """Get hot-reloaded agent config.
@@ -119,7 +124,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
     def _has_memory_manager(self) -> bool:
         """Check if memory manager is available."""
-        return self._enable_memory_manager and self.memory_manager is not None
+        return self.memory_manager is not None
+
+    def _has_context_manager(self) -> bool:
+        """Check if context manager is available."""
+        return self.context_manager is not None
 
     async def _process_compact(
         self,
@@ -130,39 +139,57 @@ class CommandHandler(ConversationCommandHandlerMixin):
         extra_instruction = args.strip()
         if not messages:
             return await self._make_system_msg(
-                "**No messages to compact.**\n\n"
+                "📭 **No messages to compact.**\n\n"
                 "- Current memory is empty\n"
                 "- No action taken",
             )
-        if not self._has_memory_manager():
+        if not self._has_memory_manager() or not self._has_context_manager():
             return await self._make_system_msg(
-                "**Memory Manager Disabled**\n\n"
+                "🚫 **Memory/Context Manager Disabled**\n\n"
                 "- Memory compaction is not available\n"
-                "- Enable memory manager to use this feature",
+                "- Enable memory and context manager to use this feature",
             )
 
-        self.memory_manager.add_async_summary_task(messages=messages)
-        compact_content = await self.memory_manager.compact_memory(
+        self.memory_manager.add_summarize_task(messages=messages)
+        result = await self.context_manager.compact_context(
             messages=messages,
             previous_summary=self.memory.get_compressed_summary(),
             extra_instruction=extra_instruction,
         )
 
-        if not compact_content:
+        if not result.get("success"):
+            reason = result.get("reason", "unknown")
+            before = result.get("before_tokens", 0)
+            max_len = self._get_agent_config().running.max_input_length
+            before_pct = (
+                f"{before / max_len * 100:.0f}%" if max_len > 0 else "N/A"
+            )
             return await self._make_system_msg(
-                "**Compact Failed!**\n\n"
-                "- Memory compaction returned empty result\n"
-                "- Please check the logs for details\n"
-                "- If context exceeds max length, "
-                "please use `/new` or `/clear` to clear the context",
+                f"❌ **Compact Failed!**\n\n"
+                f"- Reason: {reason}\n"
+                f"- Messages: {len(messages)}, "
+                f"Tokens: {_fmt_tokens(before)}/"
+                f"{_fmt_tokens(max_len)} ({before_pct})\n"
+                f"- Please check the logs for details\n"
+                f"- If context exceeds max length, "
+                f"please use `/new` or `/clear` to clear the context",
             )
 
+        compact_content = result.get("history_compact", "")
         await self.memory.update_compressed_summary(compact_content)
-        updated_count = len(messages)
-        self.memory.clear_content()
+        before = result.get("before_tokens", 0)
+        after = result.get("after_tokens", 0)
+        max_len = self._get_agent_config().running.max_input_length
+        await self.memory.clear_content()
+        before_pct = f"{before / max_len * 100:.0f}%" if max_len > 0 else "N/A"
+        after_pct = f"{after / max_len * 100:.0f}%" if max_len > 0 else "N/A"
         return await self._make_system_msg(
-            f"**Compact Complete!**\n\n"
-            f"- Messages compacted: {updated_count}\n"
+            f"✅ **Compact Complete!**\n\n"
+            f"- Messages compacted: {len(messages)}\n"
+            f"- Tokens: {_fmt_tokens(before)}/"
+            f"{_fmt_tokens(max_len)}({before_pct}) -> "
+            f"{_fmt_tokens(after)}/"
+            f"{_fmt_tokens(max_len)}({after_pct})\n"
             f"**Compressed Summary:**\n{compact_content}\n"
             f"- Summary task started in background\n",
         )
@@ -184,10 +211,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- Enable memory manager to use this feature",
             )
 
-        self.memory_manager.add_async_summary_task(messages=messages)
+        self.memory_manager.add_summarize_task(messages=messages)
         self.memory.clear_compressed_summary()
 
-        self.memory.clear_content()
+        await self.memory.clear_content()
         return await self._make_system_msg(
             "**New Conversation Started!**\n\n"
             "- Summary task started in background\n"
@@ -200,7 +227,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _args: str = "",
     ) -> Msg:
         """Process /clear command."""
-        self.memory.clear_content()
+        await self.memory.clear_content()
         self.memory.clear_compressed_summary()
         return await self._make_system_msg(
             "**History Cleared!**\n\n"
@@ -253,33 +280,39 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         return await self._make_system_msg(history_str)
 
-    async def _process_await_summary(
+    async def _process_summarize_status(
         self,
         _messages: list[Msg],
         _args: str = "",
     ) -> Msg:
-        """Process /await_summary command to wait for all summary tasks."""
+        """Process /summarize_status command to show all status."""
         if not self._has_memory_manager():
             return await self._make_system_msg(
                 "**Memory Manager Disabled**\n\n"
-                "- Cannot await summary tasks\n"
+                "- Cannot list summary task status\n"
                 "- Enable memory manager to use this feature",
             )
 
-        task_count = len(self.memory_manager.summary_tasks)
-        if task_count == 0:
+        task_list = self.memory_manager.list_summarize_status()
+        if not task_list:
             return await self._make_system_msg(
                 "**No Summary Tasks**\n\n"
-                "- No pending summary tasks to wait for",
+                "- No summary tasks have been started",
             )
 
-        result = await self.memory_manager.await_summary_tasks()
-        return await self._make_system_msg(
-            f"**Summary Tasks Complete**\n\n"
-            f"- Waited for {task_count} summary task(s)\n"
-            f"- {result}"
-            f"- All tasks have finished",
-        )
+        status_lines = ["**Summary Task Status**\n\n"]
+        for info in task_list:
+            status_lines.append(
+                f"- **{info['task_id']}**\n"
+                f"  - Start: {info['start_time']}\n"
+                f"  - Status: {info['status']}\n",
+            )
+            if info["status"] == "completed" and info["result"]:
+                status_lines.append(f"  - Result: {info['result'][:200]}...\n")
+            elif info["status"] == "failed" and info["error"]:
+                status_lines.append(f"  - Error: {info['error']}\n")
+
+        return await self._make_system_msg("".join(status_lines))
 
     async def _process_message(
         self,
@@ -480,30 +513,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
             return await self._make_system_msg(
                 f"**Load Failed**\n\n" f"- Error: {e}",
             )
-
-    async def _process_long_term_memory(
-        self,
-        _messages: list[Msg],
-        _args: str = "",
-    ) -> Msg:
-        """Process /long_term_memory to display the long-term memory."""
-        long_term_memory = getattr(self.memory, "_long_term_memory", None)
-        if long_term_memory is None:
-            return await self._make_system_msg(
-                "**Long-Term Memory Not Available**\n\n"
-                "- `_long_term_memory` attribute does not exist "
-                "on this memory instance\n"
-                "- This feature requires a ReMeInMemoryMemory-compatible"
-                " memory backend",
-            )
-        if not long_term_memory:
-            return await self._make_system_msg(
-                "**Long-Term Memory Empty**\n\n"
-                "- `_long_term_memory` exists but contains no content yet",
-            )
-        return await self._make_system_msg(
-            f"**Long-Term Memory**\n\n{long_term_memory}",
-        )
 
     async def handle_conversation_command(self, query: str) -> Msg:
         """Process conversation system commands.

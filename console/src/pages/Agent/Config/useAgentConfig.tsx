@@ -4,6 +4,10 @@ import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import type { AgentsRunningConfig } from "../../../api/types";
 import { useAppMessage } from "../../../hooks/useAppMessage";
+import {
+  CONTEXT_MANAGER_BACKEND_MAPPINGS,
+  MEMORY_MANAGER_BACKEND_MAPPINGS,
+} from "../../../constants/backendMappings";
 
 export function useAgentConfig() {
   const { t } = useTranslation();
@@ -26,9 +30,32 @@ export function useAgentConfig() {
         api.getAgentLanguage(),
         api.getUserTimezone(),
       ]);
+      const contextBackend =
+        config.context_manager_backend in CONTEXT_MANAGER_BACKEND_MAPPINGS
+          ? config.context_manager_backend
+          : "light";
+      const memoryBackend =
+        config.memory_manager_backend in MEMORY_MANAGER_BACKEND_MAPPINGS
+          ? config.memory_manager_backend
+          : "remelight";
       form.setFieldsValue({
-        ...config,
+        max_iters: config.max_iters,
         auto_continue_on_text_only: config.auto_continue_on_text_only ?? false,
+        llm_retry_enabled: config.llm_retry_enabled,
+        llm_max_retries: config.llm_max_retries,
+        llm_backoff_base: config.llm_backoff_base,
+        llm_backoff_cap: config.llm_backoff_cap,
+        llm_max_concurrent: config.llm_max_concurrent,
+        llm_max_qpm: config.llm_max_qpm,
+        llm_rate_limit_pause: config.llm_rate_limit_pause,
+        llm_rate_limit_jitter: config.llm_rate_limit_jitter,
+        llm_acquire_timeout: config.llm_acquire_timeout,
+        max_input_length: config.max_input_length,
+        history_max_length: config.history_max_length,
+        context_manager_backend: contextBackend,
+        light_context_config: config.light_context_config,
+        memory_manager_backend: memoryBackend,
+        reme_light_memory_config: config.reme_light_memory_config,
       });
       setLanguage(langResp.language);
       setTimezone(tzResp.timezone || "UTC");

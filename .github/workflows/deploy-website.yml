@@ -17,6 +17,8 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Only deploy on full releases, skip pre-releases
+    if: github.event.release.prerelease == false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
