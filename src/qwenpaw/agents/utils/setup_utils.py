@@ -17,6 +17,27 @@ _TEMPLATE_OVERRIDE_FILENAMES = {
     "SOUL.md",
 }
 
+_MD_FILES_ROOT = Path(__file__).resolve().parent.parent / "md_files"
+
+
+def get_supported_agent_languages() -> set[str]:
+    """Return the set of languages that have agent MD file directories."""
+    if not _MD_FILES_ROOT.is_dir():
+        return {"en"}
+    return {
+        d.name
+        for d in _MD_FILES_ROOT.iterdir()
+        if d.is_dir() and not d.name.startswith(".") and any(d.glob("*.md"))
+    }
+
+
+def normalize_agent_language(language: str) -> str:
+    """Map *language* to a supported agent language"""
+    supported = get_supported_agent_languages()
+    if language in supported:
+        return language
+    return "en"
+
 
 def copy_md_files(
     language: str,

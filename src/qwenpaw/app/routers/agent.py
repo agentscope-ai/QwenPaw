@@ -13,7 +13,10 @@ from ...config import (
 from ...config.config import load_agent_config, save_agent_config
 from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.templates import get_workspace_md_template_id
-from ...agents.utils import copy_workspace_md_files
+from ...agents.utils import (
+    copy_workspace_md_files,
+    get_supported_agent_languages,
+)
 from ...constant import BUILTIN_QA_AGENT_ID
 from ..agent_context import get_agent_for_request
 
@@ -218,7 +221,7 @@ async def put_agent_language(
     Update agent language and optionally re-copy MD files to agent workspace.
     """
     language = (body.get("language") or "").strip().lower()
-    valid = {"zh", "en", "ru"}
+    valid = get_supported_agent_languages()
     if language not in valid:
         raise HTTPException(
             status_code=400,

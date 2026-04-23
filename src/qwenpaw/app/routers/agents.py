@@ -29,7 +29,7 @@ from ...config.config import (
 )
 from ...config.utils import load_config, save_config
 from ...agents.memory.agent_md_manager import AgentMdManager
-from ...agents.utils import copy_workspace_md_files
+from ...agents.utils import copy_workspace_md_files, normalize_agent_language
 from ...agents.skills_manager import SkillPoolService, get_workspace_skills_dir
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
@@ -74,7 +74,7 @@ class CreateAgentRequest(BaseModel):
     name: str
     description: str = ""
     workspace_dir: str | None = None
-    language: str = "en"
+    language: str | None = None
     skill_names: list[str] | None = None
     active_model: ModelSlotConfig | None = None
 
@@ -329,12 +329,16 @@ async def create_agent(
         ToolsConfig,
     )
 
+    language = normalize_agent_language(
+        request.language or config.agents.language or "en",
+    )
+
     agent_config = AgentProfileConfig(
         id=new_id,
         name=request.name,
         description=request.description,
         workspace_dir=str(workspace_dir),
-        language=request.language,
+        language=language,
         channels=ChannelConfig(),
         mcp=MCPConfig(),
         heartbeat=HeartbeatConfig(),
@@ -347,7 +351,7 @@ async def create_agent(
         skill_names=(
             request.skill_names if request.skill_names is not None else []
         ),
-        language=request.language,
+        language=language,
     )
 
     agent_ref = AgentProfileRef(
