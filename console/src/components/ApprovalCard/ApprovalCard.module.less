@@ -1,0 +1,516 @@
+.approvalCard {
+  background: #ffffff;
+  border: 1px solid #e8ecf1;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Fade in + slide up animation */
+  animation: fadeInSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+
+  &:hover {
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.1);
+  }
+
+  :global(.ant-card-body) {
+    padding: 16px 20px;
+  }
+}
+
+@keyframes fadeInSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Fade out animation for removal */
+.approvalCardExit {
+  animation: fadeOutSlideDown 0.3s cubic-bezier(0.4, 0, 0.6, 1) forwards;
+}
+
+@keyframes fadeOutSlideDown {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+}
+
+.header {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0f2f5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  .titleRow {
+    flex: 1;
+    display: flex;
+    align-items: center;
+  }
+
+  .icon {
+    color: #f97316;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1a1a1a;
+  }
+
+  .timer {
+    background: #f7f8fa;
+    border-radius: 14px;
+    padding: 2px 10px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+
+    .timerIcon {
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .timerText {
+      font-size: 12px;
+      font-weight: 500;
+      color: #64748b;
+      font-family: "SF Mono", "Monaco", "Consolas", monospace;
+    }
+  }
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.infoRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.label {
+  font-size: 12px;
+  color: #8c8c8c;
+  font-weight: 400;
+  min-width: 56px;
+  flex-shrink: 0;
+}
+
+.value {
+  font-size: 13px;
+  color: #1a1a1a;
+  font-weight: 500;
+
+  &:global(.ant-typography) code {
+    background: #f5f7fa;
+    border: 1px solid #e8ecf1;
+    border-radius: 4px;
+    padding: 1px 8px;
+    font-size: 12px;
+    color: #333;
+    font-family: "SF Mono", "Monaco", "Consolas", monospace;
+  }
+}
+
+.severityTag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 4px;
+  border: none;
+  letter-spacing: 0.02em;
+  line-height: 20px;
+}
+
+.crossSessionTag {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: 4px;
+  border: none;
+  letter-spacing: 0.02em;
+  line-height: 20px;
+}
+
+.summaryBox {
+  background: #fafbfc;
+  border-left: 2px solid #d4d9e1;
+  padding: 10px 14px;
+  border-radius: 0 6px 6px 0;
+  margin-top: 4px;
+  position: relative;
+
+  .summaryText {
+    font-size: 12px;
+    color: #555;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding-right: 28px;
+  }
+}
+
+.copyButton {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #888;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: #ccc;
+    color: #555;
+  }
+
+  &.copied {
+    color: #52c41a;
+    border-color: #b7eb8f;
+  }
+}
+
+.paramsCodeWrapper {
+  position: relative;
+}
+
+.paramsDetails {
+  background: #fafbfc;
+  border: 1px solid #eef0f3;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin-top: 4px;
+  cursor: pointer;
+
+  summary {
+    font-size: 12px;
+    font-weight: 500;
+    color: #666;
+    user-select: none;
+    outline: none;
+    transition: color 0.2s;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    &::before {
+      content: "▶";
+      font-size: 8px;
+      color: #999;
+      transition: transform 0.2s ease;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+
+    // Hide default marker in Safari/WebKit
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    &:hover {
+      color: #333;
+    }
+  }
+
+  &[open] summary {
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #eef0f3;
+    color: #333;
+
+    &::before {
+      transform: rotate(90deg);
+    }
+  }
+}
+
+.paramsSummary {
+  list-style: none;
+}
+
+.paramsCode {
+  margin: 0;
+  padding: 10px 12px;
+  background: #ffffff;
+  border: 1px solid #eef0f3;
+  border-radius: 4px;
+  color: #444;
+  font-family: "SF Mono", "Monaco", "Consolas", monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+  max-height: 200px;
+  overflow-y: auto;
+
+  &::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: #f5f5f5;
+    border-radius: 2px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: #d4d4d4;
+    border-radius: 2px;
+
+    &:hover {
+      background: #aaa;
+    }
+  }
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 8px;
+  border-top: 1px solid #f0f2f5;
+
+  button {
+    min-width: 88px;
+    height: 32px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    transition: all 0.2s ease;
+  }
+
+  .denyButton {
+    background: #ffffff;
+    border: 1px solid #e0e0e0;
+    color: #666;
+
+    &:hover:not(:disabled) {
+      background: #fafafa;
+      border-color: #ccc;
+      color: #333;
+    }
+  }
+
+  .approveButton {
+    background: #f97316;
+    border: none;
+    color: #ffffff;
+    box-shadow: 0 1px 4px rgba(249, 115, 22, 0.2);
+
+    &:hover:not(:disabled) {
+      background: #ea6c0e;
+      box-shadow: 0 2px 8px rgba(249, 115, 22, 0.3);
+    }
+  }
+}
+
+/* ─── Dark Mode ──────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .approvalCard {
+    background: #1e1e1e;
+    border-color: #333;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+
+    &:hover {
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+  }
+
+  .header {
+    border-bottom-color: #2d2d2d;
+
+    .icon {
+      color: #f97316;
+    }
+
+    .title {
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    .timer {
+      background: #2a2a2a;
+
+      .timerIcon {
+        color: #666;
+      }
+
+      .timerText {
+        color: #999;
+      }
+    }
+  }
+
+  .label {
+    color: #888;
+  }
+
+  .value {
+    color: rgba(255, 255, 255, 0.85);
+
+    &:global(.ant-typography) code {
+      background: #2a2a2a;
+      border-color: #3a3a3a;
+      color: #ccc;
+    }
+  }
+
+  .summaryBox {
+    background: #252525;
+    border-left-color: #555;
+
+    .summaryText {
+      color: #bbb;
+    }
+  }
+
+  .copyButton {
+    color: #777;
+    border-color: #444;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: #555;
+      color: #bbb;
+    }
+
+    &.copied {
+      color: #52c41a;
+      border-color: #3a6b1e;
+    }
+  }
+
+  .paramsDetails {
+    background: #252525;
+    border-color: #333;
+
+    summary {
+      color: #999;
+
+      &::before {
+        color: #666;
+      }
+
+      &:hover {
+        color: #ccc;
+      }
+    }
+
+    &[open] summary {
+      border-bottom-color: #333;
+      color: #ccc;
+    }
+  }
+
+  .paramsCode {
+    background: #1a1a1a;
+    border-color: #333;
+    color: #bbb;
+
+    &::-webkit-scrollbar-track {
+      background: #222;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background: #444;
+
+      &:hover {
+        background: #555;
+      }
+    }
+  }
+
+  .actions {
+    border-top-color: #2d2d2d;
+
+    .denyButton {
+      background: #2a2a2a;
+      border-color: #444;
+      color: #bbb;
+
+      &:hover:not(:disabled) {
+        background: #333;
+        border-color: #555;
+        color: #ddd;
+      }
+    }
+
+    .approveButton {
+      background: #f97316;
+      color: #ffffff;
+      box-shadow: 0 1px 4px rgba(249, 115, 22, 0.3);
+
+      &:hover:not(:disabled) {
+        background: #ea6c0e;
+        box-shadow: 0 2px 8px rgba(249, 115, 22, 0.4);
+      }
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  .approvalCard {
+    border-radius: 10px;
+
+    :global(.ant-card-body) {
+      padding: 14px 16px;
+    }
+  }
+
+  .header {
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+  }
+
+  .content {
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+
+  .label {
+    min-width: 48px;
+  }
+
+  .actions {
+    flex-direction: column;
+    gap: 6px;
+
+    button {
+      width: 100%;
+      min-width: auto;
+    }
+  }
+}

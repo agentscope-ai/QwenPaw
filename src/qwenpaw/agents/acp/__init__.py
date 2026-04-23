@@ -1,30 +1,33 @@
 # -*- coding: utf-8 -*-
-"""Minimal ACP exports."""
+"""ACP client and server exports."""
 
 from .core import (
-    ACPAgentConfig,
-    ACPConfig,
     ACPConfigurationError,
     ACPProtocolError,
     ACPSessionError,
     ACPTransportError,
     ACPErrors,
-    PermissionResolution,
     SuspendedPermission,
 )
-from .service import ACPService, get_acp_service, init_acp_service
+from .server import QwenPawACPAgent, run_qwenpaw_agent
+from .service import (
+    ACPService,
+    close_acp_service,
+    get_acp_service,
+    init_acp_service,
+)
 
 __all__ = [
-    "ACPAgentConfig",
-    "ACPConfig",
     "ACPErrors",
     "ACPConfigurationError",
     "ACPProtocolError",
     "ACPSessionError",
     "ACPTransportError",
     "ACPService",
+    "QwenPawACPAgent",
+    "close_acp_service",
     "get_acp_service",
     "init_acp_service",
-    "PermissionResolution",
+    "run_qwenpaw_agent",
     "SuspendedPermission",
 ]

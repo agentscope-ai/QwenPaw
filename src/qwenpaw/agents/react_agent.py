@@ -5,6 +5,8 @@ This module provides the main QwenPawAgent class built on ReActAgent,
 with integrated tools, skills, and memory management.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
@@ -21,7 +23,7 @@ from pydantic import BaseModel
 
 from ..app.mcp import HttpStatefulClient, StdIOStatefulClient
 from .command_handler import CommandHandler
-from .hooks import BootstrapHook, MemoryCompactionHook
+from .hooks import BootstrapHook
 from .model_factory import create_model_and_formatter
 from .prompt import (
     build_multimodal_hint,
@@ -55,17 +57,18 @@ from .tools import (
     view_image,
     view_video,
     write_file,
-    create_memory_search_tool,
 )
 from .utils import process_file_and_media_blocks_in_message
 from ..constant import (
     MEDIA_UNSUPPORTED_PLACEHOLDER,
     WORKING_DIR,
 )
-from ..agents.memory import BaseMemoryManager
 
 if TYPE_CHECKING:
+    from ..agents.memory import BaseMemoryManager
+    from ..agents.context import BaseContextManager
     from ..config.config import AgentProfileConfig
+    from .context import AgentContext
 
 logger = logging.getLogger(__name__)
 
@@ -97,13 +100,14 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         self,
         agent_config: "AgentProfileConfig",
         env_context: Optional[str] = None,
-        enable_memory_manager: bool = True,
         mcp_clients: Optional[List[Any]] = None,
-        memory_manager: "BaseMemoryManager | None" = None,
+        memory_manager: BaseMemoryManager | None = None,
+        context_manager: BaseContextManager | None = None,
         request_context: Optional[dict[str, str]] = None,
         namesake_strategy: NamesakeStrategy = "skip",
         workspace_dir: Path | None = None,
         task_tracker: Any | None = None,
+        plan_notebook: Any | None = None,
     ):
         """Initialize QwenPawAgent.
 
@@ -113,10 +117,11 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 memory_compact_threshold, etc.) and language setting.
             env_context: Optional environment context to prepend to
                 system prompt
-            enable_memory_manager: Whether to enable memory manager
             mcp_clients: Optional list of MCP clients for tool
                 integration
-            memory_manager: Optional memory manager instance
+            memory_manager: Optional memory manager instance. Pass ``None``
+                to disable the memory manager entirely.
+            context_manager: Optional context manager instance
             request_context: Optional request context with session_id,
                 user_id, channel, agent_id
             namesake_strategy: Strategy to handle namesake tool functions.
@@ -143,6 +148,11 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         # Load and register skills
         self._register_skills(toolkit)
 
+        # Initialize memory_manager and context_manager for use
+        # in _build_sys_prompt
+        self.memory_manager = memory_manager
+        self.context_manager = context_manager
+
         # Build system prompt
         sys_prompt = self._build_sys_prompt()
 
@@ -159,29 +169,45 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             f"{model_info} (class: {model.__class__.__name__})",
         )
         # Initialize parent ReActAgent
-        super().__init__(
-            name="Friday",
-            model=model,
-            sys_prompt=sys_prompt,
-            toolkit=toolkit,
-            memory=InMemoryMemory(),
-            formatter=formatter,
-            max_iters=running_config.max_iters,
-        )
+        init_kwargs: dict[str, Any] = {
+            "name": "Friday",
+            "model": model,
+            "sys_prompt": sys_prompt,
+            "toolkit": toolkit,
+            "memory": InMemoryMemory(),
+            "formatter": formatter,
+            "max_iters": running_config.max_iters,
+        }
+        if plan_notebook is not None:
+            init_kwargs["plan_notebook"] = plan_notebook
+        super().__init__(**init_kwargs)
 
-        # Setup memory manager
-        self._setup_memory_manager(
-            enable_memory_manager,
-            memory_manager,
-            namesake_strategy,
-        )
+        # Register memory tools provided by the memory manager
+        if self.memory_manager is not None:
+            memory_tools = self.memory_manager.list_memory_tools()
+            for tool_fn in memory_tools:
+                self.toolkit.register_tool_function(
+                    tool_fn,
+                    namesake_strategy=self._namesake_strategy,
+                )
+            logger.debug(
+                "Registered memory tools: %s",
+                [fn.__name__ for fn in memory_tools],
+            )
+
+        # Configure context manager memory if available
+        if self.context_manager is not None:
+            self.memory: "AgentContext" = (
+                self.context_manager.get_agent_context()
+            )
+            logger.debug("Context manager configured")
 
         # Setup command handler
         self.command_handler = CommandHandler(
             agent_name=self.name,
             memory=self.memory,
             memory_manager=self.memory_manager,
-            enable_memory_manager=self._enable_memory_manager,
+            context_manager=self.context_manager,
         )
 
         # Register hooks
@@ -252,20 +278,11 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             "check_agent_task": check_agent_task,
         }
 
-        multimodal = get_active_model_supports_multimodal()
-
         # Register only enabled tools
         for tool_name, tool_func in tool_functions.items():
             # If tool not in config, enable by default (backward compatibility)
             if not enabled_tools.get(tool_name, True):
                 logger.debug("Skipped disabled tool: %s", tool_name)
-                continue
-
-            if tool_name in ("view_image", "view_video") and not multimodal:
-                logger.debug(
-                    "Skipped %s — model does not support multimodal",
-                    tool_name,
-                )
                 continue
 
             # Get async_execution setting (default to False for backward
@@ -372,20 +389,12 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         ):
             heartbeat_enabled = self._agent_config.heartbeat.enabled
 
-        # Check if memory prompt is enabled in agent config
-        memory_prompt_enabled = True
-        try:
-            memory_prompt_enabled = (
-                self._agent_config.running.memory_summary.memory_prompt_enabled
-            )
-        except AttributeError:
-            pass
-
         sys_prompt = build_system_prompt_from_working_dir(
             working_dir=self._workspace_dir,
             agent_id=agent_id,
             heartbeat_enabled=heartbeat_enabled,
-            memory_prompt_enabled=memory_prompt_enabled,
+            language=self._language,
+            memory_manager=self.memory_manager,
         )
         logger.debug("System prompt:\n%s...", sys_prompt[:100])
 
@@ -398,41 +407,6 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             sys_prompt = sys_prompt + "\n\n" + self._env_context
 
         return sys_prompt
-
-    def _setup_memory_manager(
-        self,
-        enable_memory_manager: bool,
-        memory_manager: BaseMemoryManager | None,
-        namesake_strategy: NamesakeStrategy,
-    ) -> None:
-        """Setup memory manager and register memory search tool if enabled.
-
-        Args:
-            enable_memory_manager: Whether to enable memory manager
-            memory_manager: Optional memory manager instance
-            namesake_strategy: Strategy to handle namesake tool functions
-        """
-        # Check env var: if ENABLE_MEMORY_MANAGER=false, disable memory manager
-        env_enable_mm = os.getenv("ENABLE_MEMORY_MANAGER", "")
-        if env_enable_mm.lower() == "false":
-            enable_memory_manager = False
-
-        self._enable_memory_manager: bool = enable_memory_manager
-        self.memory_manager = memory_manager
-
-        # Register memory_search tool if enabled and available
-        if self._enable_memory_manager and self.memory_manager is not None:
-            # update memory manager
-            self.memory = self.memory_manager.get_in_memory_memory()
-            self.memory_manager.chat_model = self.model
-            self.memory_manager.formatter = self.formatter
-
-            # Register memory_search as a tool function
-            self.toolkit.register_tool_function(
-                create_memory_search_tool(self.memory_manager),
-                namesake_strategy=namesake_strategy,
-            )
-            logger.debug("Registered memory_search tool")
 
     def _register_hooks(self) -> None:
         """Register pre-reasoning and pre-acting hooks."""
@@ -452,17 +426,30 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         )
         logger.debug("Registered bootstrap hook")
 
-        # Memory compaction hook - auto-compact when context is full
-        if self._enable_memory_manager and self.memory_manager is not None:
-            memory_compact_hook = MemoryCompactionHook(
-                memory_manager=self.memory_manager,
+        # Context manager hooks - delegate compaction / tool-result pruning
+        # to the context manager's lifecycle methods
+        if self.context_manager is not None:
+            self.register_instance_hook(
+                hook_type="pre_reply",
+                hook_name="context_pre_reply",
+                hook=self.context_manager.pre_reply,
             )
             self.register_instance_hook(
                 hook_type="pre_reasoning",
-                hook_name="memory_compact_hook",
-                hook=memory_compact_hook.__call__,
+                hook_name="context_pre_reasoning",
+                hook=self.context_manager.pre_reasoning,
             )
-            logger.debug("Registered memory compaction hook")
+            self.register_instance_hook(
+                hook_type="post_acting",
+                hook_name="context_post_acting",
+                hook=self.context_manager.post_acting,
+            )
+            self.register_instance_hook(
+                hook_type="post_reply",
+                hook_name="context_post_reply",
+                hook=self.context_manager.post_reply,
+            )
+            logger.debug("Registered context manager hooks")
 
     def rebuild_sys_prompt(self) -> None:
         """Rebuild and replace the system prompt.
@@ -676,6 +663,80 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
     _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
 
+    # ------------------------------------------------------------------
+    # Plan gate: block non-create_plan tools when /plan gate is active
+    # ------------------------------------------------------------------
+
+    _PLAN_TOOLS_WITH_JSON_ARGS = frozenset(
+        {
+            "create_plan",
+            "revise_current_plan",
+        },
+    )
+    _PLAN_JSON_KEYS = ("subtask", "subtasks")
+
+    @staticmethod
+    def _fix_stringified_json_args(tool_call) -> None:
+        """Parse JSON-string arguments that models sometimes produce for
+        nested objects (e.g. ``subtask``).  Modifies *tool_call* in place."""
+        import json as _json
+
+        inp = tool_call.get("input")
+        if not isinstance(inp, dict):
+            return
+        for key in QwenPawAgent._PLAN_JSON_KEYS:
+            val = inp.get(key)
+            if isinstance(val, str):
+                try:
+                    inp[key] = _json.loads(val)
+                except (ValueError, TypeError):
+                    pass
+            elif isinstance(val, list):
+                for i, item in enumerate(val):
+                    if isinstance(item, str):
+                        try:
+                            val[i] = _json.loads(item)
+                        except (ValueError, TypeError):
+                            pass
+
+    async def _acting(self, tool_call) -> dict | None:
+        """Check plan tool gate before delegating to ToolGuardMixin."""
+        from ..plan.hints import check_plan_tool_gate
+
+        tool_name = str(tool_call.get("name", ""))
+
+        if tool_name in self._PLAN_TOOLS_WITH_JSON_ARGS:
+            self._fix_stringified_json_args(tool_call)
+
+        nb = getattr(self, "plan_notebook", None)
+        if nb is not None:
+            err = check_plan_tool_gate(nb, tool_name)
+            if err:
+                from agentscope.message import ToolResultBlock
+
+                tool_res_msg = Msg(
+                    "system",
+                    [
+                        ToolResultBlock(
+                            type="tool_result",
+                            id=tool_call["id"],
+                            name=tool_name,
+                            output=[{"type": "text", "text": err}],
+                        ),
+                    ],
+                    "system",
+                )
+                await self.print(tool_res_msg, True)
+                await self.memory.add(tool_res_msg)
+                return None
+
+        result = await super()._acting(tool_call)
+
+        if nb is not None and tool_name == "revise_current_plan":
+            nb._plan_just_mutated = True  # pylint: disable=protected-access
+
+        return result
+
     _AUTO_CONTINUE_MAX_EXTRA = 2
     _AUTO_CONTINUE_TAIL_CHARS = 600
 
@@ -732,6 +793,12 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         If an extra pass still returns text-only, keep the prior response to
         avoid repeated duplicated answers.
         """
+        from ..plan.hints import should_skip_auto_continue
+
+        nb = getattr(self, "plan_notebook", None)
+        if should_skip_auto_continue(nb):
+            return msg
+
         running = self._agent_config.running
         if not running.auto_continue_on_text_only:
             return msg
@@ -1157,11 +1224,17 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         from ..config.context import (
             set_current_workspace_dir,
             set_current_recent_max_bytes,
+            set_current_shell_command_timeout,
         )
 
         set_current_workspace_dir(self._workspace_dir)
+        light_ctx = self._agent_config.running.light_context_config
+        pruning_config = light_ctx.tool_result_pruning_config
         set_current_recent_max_bytes(
-            self._agent_config.running.tool_result_compact.recent_max_bytes,
+            pruning_config.pruning_recent_msg_max_bytes,
+        )
+        set_current_shell_command_timeout(
+            self._agent_config.running.shell_command_timeout,
         )
 
         # Process file and media blocks in messages
@@ -1182,37 +1255,6 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
         # Normal message processing
         logger.info("QwenPawAgent.reply: max_iters=%s", self.max_iters)
-
-        if hasattr(self.memory, "_long_term_memory"):
-            running = self._agent_config.running
-            ms = running.memory_summary
-            if (
-                ms.force_memory_search
-                and self.memory_manager is not None
-                and query
-            ):
-                try:
-                    result = await asyncio.wait_for(
-                        self.memory_manager.memory_search(
-                            query=query[:100],
-                            max_results=ms.force_max_results,
-                            min_score=ms.force_min_score,
-                        ),
-                        timeout=ms.force_memory_search_timeout,
-                    )
-                    self.memory._long_term_memory = "\n".join(
-                        block["text"]
-                        for block in (result.content or [])
-                        if isinstance(block, dict) and block.get("text")
-                    )
-                except BaseException as e:
-                    logger.warning(
-                        "force_memory_search failed or timed out,"
-                        f" skipping e={e}",
-                    )
-                    self.memory._long_term_memory = ""
-            else:
-                self.memory._long_term_memory = ""
 
         request_context = getattr(self, "_request_context", {}) or {}
         channel_name = request_context.get("channel", "console")

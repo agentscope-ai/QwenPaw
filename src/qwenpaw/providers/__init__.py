@@ -2,10 +2,9 @@
 """Provider management — models, registry + persistent store."""
 
 from .provider import Provider, ProviderInfo, ModelInfo
-from .provider_manager import ProviderManager, ActiveModelsInfo
+from .provider_manager import ProviderManager
 
 __all__ = [
-    "ActiveModelsInfo",
     "ModelInfo",
     "Provider",
     "ProviderManager",

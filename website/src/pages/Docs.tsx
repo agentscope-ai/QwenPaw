@@ -186,6 +186,7 @@ const DOC_GROUPS: DocGroup[] = [
     children: [
       { slug: "models", titleKey: "docs.models" },
       { slug: "security", titleKey: "docs.security" },
+      { slug: "backup", titleKey: "docs.backup" },
       { slug: "cli", titleKey: "docs.cli" },
       { slug: "plugins", titleKey: "docs.plugins" },
     ],
@@ -195,6 +196,7 @@ const DOC_GROUPS: DocGroup[] = [
     children: [
       { slug: "faq", titleKey: "docs.faq" },
       { slug: "api-tutorial", titleKey: "docs.apiTutorial" },
+      { slug: "acp-integration", titleKey: "docs.acpServer" },
       { slug: "community", titleKey: "docs.community" },
       { slug: "contributing", titleKey: "docs.contributing" },
       { slug: "roadmap", titleKey: "docs.roadmap" },

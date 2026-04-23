@@ -6,13 +6,15 @@ import type { ToolGuardRule } from "../../../../api/modules/security";
 const SEVERITY_OPTIONS = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"];
 const CATEGORY_OPTIONS = [
   "command_injection",
+  "code_execution",
   "data_exfiltration",
   "path_traversal",
   "sensitive_file_access",
   "network_abuse",
   "credential_exposure",
   "resource_abuse",
-  "code_execution",
+  "privilege_escalation",
+  "prompt_injection",
 ];
 const BUILTIN_TOOLS = [
   "execute_shell_command",
@@ -133,7 +135,10 @@ export function RuleModal({
         </Form.Item>
         <Form.Item label={t("security.rules.categoryLabel")} name="category">
           <Select
-            options={CATEGORY_OPTIONS.map((c) => ({ label: c, value: c }))}
+            options={CATEGORY_OPTIONS.map((c) => ({
+              label: t(`security.rules.categories.${c}`, { defaultValue: c }),
+              value: c,
+            }))}
           />
         </Form.Item>
         <Form.Item

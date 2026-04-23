@@ -7,7 +7,7 @@ import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import styles from "../../index.module.less";
-import { providerIcon } from "../providerIcon";
+import { ProviderIcon } from "../ProviderIconComponent";
 
 interface RemoteProviderCardProps {
   provider: ProviderInfo;
@@ -97,11 +97,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
     <Card hoverable className={styles.providerCard}>
       {/* Card Header with Icon and Status */}
       <div className={styles.cardHeaderRow}>
-        <img
-          src={providerIcon(provider.id)}
-          alt={provider.name}
-          className={styles.providerIcon}
-        />
+        <ProviderIcon providerId={provider.id} size={32} />
         <div className={styles.cardStatusHeader}>
           <span
             className={styles.statusDot}

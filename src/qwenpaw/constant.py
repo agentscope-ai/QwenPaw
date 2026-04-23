@@ -87,18 +87,18 @@ class EnvVarLoader:
 
 
 # WORKING_DIR priority:
-# 1. ~/.copaw exists (legacy installation) → use it as-is
-# 2. QWENPAW_WORKING_DIR / COPAW_WORKING_DIR env var is set → use it
+# 1. QWENPAW_WORKING_DIR / COPAW_WORKING_DIR env var is set → use it
+# 2. ~/.copaw exists (legacy installation) → use it as-is
 # 3. Default → ~/.qwenpaw
-_legacy_copaw_dir = Path("~/.copaw").expanduser()
-if _legacy_copaw_dir.exists():
-    WORKING_DIR = _legacy_copaw_dir.resolve()
+_explicit_working_dir = _get_env("QWENPAW_WORKING_DIR")
+if _explicit_working_dir:
+    WORKING_DIR = Path(_explicit_working_dir).expanduser().resolve()
 else:
-    WORKING_DIR = (
-        Path(_get_env("QWENPAW_WORKING_DIR", "~/.qwenpaw"))
-        .expanduser()
-        .resolve()
-    )
+    _legacy_copaw_dir = Path("~/.copaw").expanduser()
+    if _legacy_copaw_dir.exists():
+        WORKING_DIR = _legacy_copaw_dir.resolve()
+    else:
+        WORKING_DIR = Path("~/.qwenpaw").expanduser().resolve()
 SECRET_DIR = (
     Path(
         EnvVarLoader.get_str(
@@ -122,8 +122,26 @@ JOBS_FILE = EnvVarLoader.get_str("QWENPAW_JOBS_FILE", "jobs.json")
 
 CHATS_FILE = EnvVarLoader.get_str("QWENPAW_CHATS_FILE", "chats.json")
 
+
 # Builtin Q&A helper profile.  agent_id keeps "QwenPaw" prefix for existing
 # workspaces and agent.json; do not rename.
+def _discover_agent_languages() -> frozenset[str]:
+    md_root = Path(__file__).resolve().parent / "agents" / "md_files"
+    if md_root.is_dir():
+        langs = {
+            d.name
+            for d in md_root.iterdir()
+            if d.is_dir()
+            and not d.name.startswith(".")
+            and any(d.glob("*.md"))
+        }
+        if langs:
+            return frozenset(langs)
+    return frozenset({"en", "zh", "ru"})
+
+
+SUPPORTED_AGENT_LANGUAGES: frozenset[str] = _discover_agent_languages()
+
 BUILTIN_QA_AGENT_ID = "QwenPaw_QA_Agent_0.2"
 BUILTIN_QA_AGENT_NAME = "QA Agent"
 # Default skills when the builtin QA workspace is first created only.
@@ -182,6 +200,18 @@ DOCS_ENABLED = EnvVarLoader.get_bool("QWENPAW_OPENAPI_DOCS", False)
 
 # Memory directory
 MEMORY_DIR = WORKING_DIR / "memory"
+
+# Backup directory
+BACKUP_DIR = (
+    Path(
+        EnvVarLoader.get_str(
+            "QWENPAW_BACKUP_DIR",
+            f"{WORKING_DIR}.backups",
+        ),
+    )
+    .expanduser()
+    .resolve()
+)
 
 # Custom channel modules (installed via `qwenpaw channels install`); manager
 # loads BaseChannel subclasses from here.
@@ -285,12 +315,25 @@ LLM_ACQUIRE_TIMEOUT = EnvVarLoader.get_float(
 try:
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = max(
         float(
-            _get_env("QWENPAW_TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS", "600"),
+            _get_env("QWENPAW_TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS", "300"),
         ),
         1.0,
     )
 except (TypeError, ValueError):
-    TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = 600.0
+    TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = 300.0
+
+# Tool guard approval heartbeat interval (seconds).
+# Sends periodic heartbeat messages during approval wait to keep SSE
+# connection alive. Should be less than browser/proxy timeout (30-60s).
+try:
+    TOOL_GUARD_APPROVAL_HEARTBEAT_INTERVAL = max(
+        float(
+            _get_env("QWENPAW_TOOL_GUARD_APPROVAL_HEARTBEAT_INTERVAL", "15"),
+        ),
+        5.0,
+    )
+except (TypeError, ValueError):
+    TOOL_GUARD_APPROVAL_HEARTBEAT_INTERVAL = 15.0
 
 # Marker prepended to every truncation notice.
 # Format:

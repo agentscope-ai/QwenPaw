@@ -1,0 +1,90 @@
+.agentsRowHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 0;
+}
+
+.agentSummaryText {
+  font-size: 12px;
+  margin-left: 6px;
+  font-weight: 400;
+}
+
+.expandToggle {
+  cursor: pointer;
+  color: var(--ant-color-text-tertiary);
+  display: flex;
+  align-items: center;
+  padding: 2px 4px;
+  user-select: none;
+}
+
+.expandIcon {
+  font-size: 10px;
+  transition: transform 0.2s;
+
+  &.open {
+    transform: rotate(90deg);
+  }
+}
+
+.agentsContent {
+  margin-left: 24px;
+  padding-left: 12px;
+  border-left: 2px solid var(--ant-color-split);
+  margin-bottom: 6px;
+}
+
+.agentsLoading {
+  text-align: center;
+  padding: 24px 0;
+  border: 1px solid var(--ant-color-border);
+  border-radius: 6px;
+}
+
+.agentsLoadingText {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
+
+.agentSearchToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.agentSearchInput {
+  flex: 1;
+}
+
+.selectAllCount {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.agentTable {
+  border: 1px solid var(--ant-color-border);
+  border-radius: 6px;
+}
+
+.agentName {
+  font-size: 13px;
+}
+
+.agentId {
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+.agentActionTag {
+  margin-left: 8px;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.agentWorkspaceText {
+  font-size: 12px;
+}

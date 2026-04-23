@@ -14,13 +14,47 @@ import asyncio
 import json as _json
 import logging
 import uuid as _uuid
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from agentscope.message import Msg
 
-from ..security.tool_guard.models import TOOL_GUARD_DENIED_MARK
+from ..security.tool_guard.models import (
+    GuardSeverity,
+    GuardThreatCategory,
+    ToolGuardResult,
+    GuardFinding,
+)
+from ..security.tool_guard.execution_level import ToolExecutionLevel
+from ..security.tool_guard.i18n import _TOOL_GUARD_I18N
+from ..constant import (
+    TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+    TOOL_GUARD_APPROVAL_HEARTBEAT_INTERVAL,
+)
+
+if TYPE_CHECKING:
+    from qwenpaw.app.approvals.models import PendingApproval
+    from qwenpaw.security.tool_guard.approval import ApprovalDecision
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_tool_guard_ui_lang(raw: Any) -> str:
+    """Map language code to tool-guard UI bundle (en/zh/ru/ja)."""
+    if not isinstance(raw, str) or not raw.strip():
+        return "en"
+    s = raw.strip().lower()
+    if s in ("zh", "en", "ru", "ja"):
+        return s
+    for prefix in ("zh", "ru", "ja", "en"):
+        if s.startswith(prefix):
+            return prefix
+    return "en"
+
+
+def _tool_guard_t(lang: str, key: str) -> str:
+    """Localized string for tool-guard user messages."""
+    blob = _TOOL_GUARD_I18N.get(lang) or _TOOL_GUARD_I18N["en"]
+    return blob.get(key) or _TOOL_GUARD_I18N["en"].get(key, key)
 
 
 class _GuardAction:
@@ -76,183 +110,26 @@ class ToolGuardMixin:
         """``True`` when a ``session_id`` is available for approval."""
         return bool(self._request_context.get("session_id"))
 
-    def _last_tool_response_is_denied(self) -> bool:
-        """Check if the last message is a guard-denied tool result."""
-        if not self.memory.content:
-            return False
-        msg, marks = self.memory.content[-1]
-        return TOOL_GUARD_DENIED_MARK in marks and msg.role == "system"
+    def _get_tool_execution_level(self) -> ToolExecutionLevel:
+        """Get current agent's tool execution level from config."""
+        agent_config = getattr(self, "_agent_config", None)
+        if agent_config is None:
+            return ToolExecutionLevel.AUTO
 
-    def _extract_sibling_tool_calls(self) -> list[dict[str, Any]]:
-        """Extract all tool_use blocks from the last assistant message."""
-        for msg, _ in reversed(self.memory.content):
-            if msg.role == "assistant":
-                return [
-                    {
-                        "id": b.get("id", ""),
-                        "name": b.get("name", ""),
-                        "input": b.get("input", {}),
-                    }
-                    for b in msg.get_content_blocks("tool_use")
-                ]
-        return []
-
-    def _tool_result_exists_in_memory(self, tool_use_id: str) -> bool:
-        """``True`` when a non-denied tool_result for *tool_use_id* exists."""
-        for msg, marks in self.memory.content:
-            if msg.role != "system" or TOOL_GUARD_DENIED_MARK in marks:
-                continue
-            for block in msg.get_content_blocks("tool_result"):
-                if block.get("id") == tool_use_id:
-                    return True
-        return False
-
-    def _pop_forced_tool_call(  # pylint: disable=too-many-branches
-        self,
-    ) -> dict[str, Any] | None:
-        """Pop and validate a forced tool call injected by the runner."""
-        raw = self._request_context.pop("forced_tool_call_json", "")
-        if not raw:
-            return None
-
-        try:
-            tool_call = _json.loads(str(raw))
-        except Exception:
-            logger.warning(
-                "Tool guard: invalid forced tool call payload",
-                exc_info=True,
-            )
-            return None
-
-        if not isinstance(tool_call, dict):
-            logger.warning(
-                "Tool guard: forced tool call payload is not a dict",
-            )
-            return None
-
-        tool_name = tool_call.get("name")
-        if not isinstance(tool_name, str) or not tool_name:
-            logger.warning(
-                "Tool guard: forced tool call missing valid name",
-            )
-            return None
-
-        tool_input = tool_call.get("input", {})
-        if not isinstance(tool_input, dict):
-            logger.warning(
-                "Tool guard: forced tool call input is not a dict",
-            )
-            return None
-
-        tool_id = tool_call.get("id")
-        if not isinstance(tool_id, str) or not tool_id:
-            tool_id = f"approved-{_uuid.uuid4().hex[:12]}"
-
-        siblings = tool_call.pop("_sibling_tool_calls", None)
-        remaining = tool_call.pop("_remaining_queue", None)
-        thinking_blocks = tool_call.pop("_thinking_blocks", None)
-
-        if remaining is not None and isinstance(remaining, list):
-            self._tool_guard_replay_queue = remaining
-        elif siblings is not None and isinstance(siblings, list):
-            found = False
-            queue: list[dict[str, Any]] = []
-            for s in siblings:
-                if not found and s.get("id") == tool_id:
-                    found = True
-                    continue
-                if found:
-                    queue.append(s)
-            self._tool_guard_replay_queue = queue
+        # Handle both dict and Pydantic model
+        if isinstance(agent_config, dict):
+            level_str = agent_config.get("approval_level", "AUTO")
         else:
-            self._tool_guard_replay_queue = []
+            level_str = getattr(agent_config, "approval_level", "AUTO")
 
-        result = {
-            "id": tool_id,
-            "name": tool_name,
-            "input": tool_input,
-        }
+        return ToolExecutionLevel.from_config(level_str)
 
-        # Preserve thinking blocks for models that require reasoning_content
-        if thinking_blocks is not None and isinstance(thinking_blocks, list):
-            result["_thinking_blocks"] = thinking_blocks
-
-        return result
-
-    async def _get_pending_info_for_display(self) -> dict[str, Any]:
-        """Return pending tool info aligned with approval queue head."""
-        fallback = getattr(self, "_tool_guard_pending_info", None) or {}
-        session_id = str(self._request_context.get("session_id") or "")
-        if not session_id:
-            return fallback
-
-        try:
-            pending = (
-                await self._tool_guard_approval_service.get_pending_by_session(
-                    session_id,
-                )
-            )
-        except Exception:
-            logger.warning(
-                "Tool guard: failed to read pending queue head",
-                exc_info=True,
-            )
-            return fallback
-
-        if pending is None:
-            return fallback
-
-        tool_input: dict[str, Any] = {}
-        extra = pending.extra if isinstance(pending.extra, dict) else {}
-        tool_call = extra.get("tool_call") if isinstance(extra, dict) else {}
-        if isinstance(tool_call, dict) and isinstance(
-            tool_call.get("input"),
-            dict,
-        ):
-            tool_input = tool_call["input"]
-
-        return {
-            "tool_name": pending.tool_name
-            or fallback.get("tool_name", "unknown"),
-            "tool_input": tool_input or fallback.get("tool_input", {}),
-            "guardians": fallback.get("guardians", []),
-            "guard_result": fallback.get("guard_result"),
-        }
-
-    async def _cleanup_tool_guard_denied_messages(
-        self,
-        include_denial_response: bool = True,
-    ) -> None:
-        """Remove tool-guard denied messages from memory.
-
-        Finds messages marked with ``TOOL_GUARD_DENIED_MARK`` and
-        removes them.  When *include_denial_response* is ``True``,
-        also removes the assistant message immediately following the
-        last marked message (the LLM's denial explanation).
-        """
-        ids_to_delete: list[str] = []
-        last_marked_idx = -1
-
-        for i, (msg, marks) in enumerate(self.memory.content):
-            if TOOL_GUARD_DENIED_MARK in marks:
-                ids_to_delete.append(msg.id)
-                last_marked_idx = i
-
-        if (
-            include_denial_response
-            and last_marked_idx >= 0
-            and last_marked_idx + 1 < len(self.memory.content)
-        ):
-            next_msg, _ = self.memory.content[last_marked_idx + 1]
-            if next_msg.role == "assistant":
-                ids_to_delete.append(next_msg.id)
-
-        if ids_to_delete:
-            removed = await self.memory.delete(ids_to_delete)
-            logger.info(
-                "Tool guard: cleaned up %d denied message(s)",
-                removed,
-            )
+    def _tool_guard_ui_lang(self) -> str:
+        """Locale for tool-guard alerts from agent language."""
+        raw = getattr(self, "_language", None)
+        if isinstance(raw, str) and raw.strip():
+            return _normalize_tool_guard_ui_lang(raw)
+        return "en"
 
     # ------------------------------------------------------------------
     # _acting override
@@ -276,6 +153,7 @@ class ToolGuardMixin:
         true parallelism.
         """
         ctx = getattr(self, "_request_context", None) or {}
+        # TODO: remove this
         if ctx.get("_headless_tool_guard", "true").lower() == "false":
             return await super()._acting(tool_call)  # type: ignore[misc]
 
@@ -295,29 +173,14 @@ class ToolGuardMixin:
         if action is not None:
             return await self._execute_guard_action(action, tool_call)
 
-        result = await super()._acting(tool_call)  # type: ignore[misc]
+        return await super()._acting(tool_call)  # type: ignore[misc]
 
-        if getattr(self, "_tool_guard_forced_replay_active", False):
-            tool_name = str(tool_call.get("name", ""))
-            tool_input = tool_call.get("input", {})
-            self._tool_guard_forced_replay_active = False
-            self._tool_guard_replay_done = {
-                "tool_name": tool_name,
-                "tool_input": tool_input,
-                "remaining_queue": getattr(
-                    self,
-                    "_tool_guard_replay_queue",
-                    [],
-                ),
-            }
-
-        return result
-
+    # pylint: disable=too-many-return-statements
     async def _decide_guard_action(
         self,
         tool_call: dict[str, Any],
     ) -> "_GuardAction | None":
-        """Decide what guard action to take (runs under lock).
+        """Decide what guard action to take with execution level support.
 
         Returns a ``_GuardAction`` describing what to do, or ``None``
         to fall through to the default ``super()._acting`` path.
@@ -326,12 +189,25 @@ class ToolGuardMixin:
         engine = self._tool_guard_engine
         tool_name = str(tool_call.get("name", ""))
         tool_input = tool_call.get("input", {})
+
         if not tool_name or not engine.enabled:
             return None
 
+        # Get tool execution level
+        exec_level = self._get_tool_execution_level()
+
+        # OFF mode: completely bypass guard
+        if exec_level.is_disabled():
+            logger.debug(
+                "Tool guard: OFF mode, allowing tool '%s' without checks",
+                tool_name,
+            )
+            return None
+
+        # Check denied list (applies to all modes)
         if engine.is_denied(tool_name):
             logger.warning(
-                "Tool guard: tool '%s' is in the denied set, auto-denying",
+                "Tool guard: tool '%s' is in denied set, auto-denying",
                 tool_name,
             )
             denied_result = engine.guard(tool_name, tool_input)
@@ -342,32 +218,98 @@ class ToolGuardMixin:
                 guard_result=denied_result,
             )
 
-        guarded = engine.is_guarded(tool_name)
-
-        if guarded and await self._consume_preapproval(tool_name, tool_input):
-            self._tool_guard_pending_info = None
-            await self._cleanup_tool_guard_denied_messages(
-                include_denial_response=True,
-            )
-            return _GuardAction("preapproved", tool_name, tool_input)
-
-        guard_result = engine.guard(
-            tool_name,
-            tool_input,
-            only_always_run=not guarded,
-        )
-        if guard_result is not None and guard_result.findings:
-            from qwenpaw.security.tool_guard.utils import log_findings
-
-            log_findings(tool_name, guard_result)
+        # STRICT mode: all tools need approval
+        if exec_level.requires_approval_for_all_tools():
             if self._should_require_approval():
+                # Run guard checks
+                guard_result = engine.guard(
+                    tool_name,
+                    tool_input,
+                    only_always_run=False,
+                )
+                # If no findings, create INFO-level finding for STRICT mode
+                if guard_result is None or not guard_result.findings:
+                    guard_result = self._create_info_guard_result(
+                        tool_name,
+                        tool_input,
+                    )
                 return _GuardAction(
                     "needs_approval",
                     tool_name,
                     tool_input,
                     guard_result=guard_result,
                 )
+            return None
+
+        # Run guard checks for AUTO/SMART modes
+        guarded = engine.is_guarded(tool_name)
+        guard_result = engine.guard(
+            tool_name,
+            tool_input,
+            only_always_run=not guarded,
+        )
+
+        if guard_result is None or not guard_result.findings:
+            return None
+
+        from qwenpaw.security.tool_guard.utils import log_findings
+
+        log_findings(tool_name, guard_result)
+
+        # SMART mode: auto-allow low-risk findings
+        if exec_level.is_smart_mode():
+            max_sev = guard_result.max_severity
+            if max_sev in (GuardSeverity.INFO, GuardSeverity.LOW):
+                logger.info(
+                    "Tool guard: SMART mode auto-allowing low-risk tool '%s' "
+                    "(severity: %s)",
+                    tool_name,
+                    max_sev.value,
+                )
+                return None  # Allow
+
+        # AUTO/SMART modes: medium+ risk needs approval
+        if self._should_require_approval():
+            return _GuardAction(
+                "needs_approval",
+                tool_name,
+                tool_input,
+                guard_result=guard_result,
+            )
+
         return None
+
+    def _create_info_guard_result(
+        self,
+        tool_name: str,
+        tool_input: dict[str, Any],  # noqa: ARG002
+    ) -> ToolGuardResult:
+        """Create INFO-level guard result for STRICT mode."""
+        finding = GuardFinding(
+            id=str(_uuid.uuid4())[:8],
+            rule_id="strict_mode",
+            category=GuardThreatCategory.RESOURCE_ABUSE,
+            severity=GuardSeverity.INFO,
+            title="STRICT Mode Approval",
+            description=(
+                f"Tool '{tool_name}' requires approval in STRICT mode"
+            ),
+            tool_name=tool_name,
+            param_name=None,
+            matched_value=None,
+            matched_pattern=None,
+            snippet=None,
+            remediation="Approve or deny this tool call",
+            guardian="strict_mode",
+            metadata={"reason": "strict_mode_enabled"},
+        )
+
+        return ToolGuardResult(
+            tool_name=tool_name,
+            params=tool_input,
+            findings=[finding],
+            guardians_used=["strict_mode"],
+        )
 
     async def _execute_guard_action(
         self,
@@ -381,12 +323,6 @@ class ToolGuardMixin:
                 action.tool_name,
                 action.guard_result,
             )
-        if action.kind == "preapproved":
-            return await self._run_approved_tool_call(
-                tool_call,
-                action.tool_name,
-                action.tool_input,
-            )
         if action.kind == "needs_approval":
             return await self._acting_with_approval(
                 tool_call,
@@ -394,51 +330,6 @@ class ToolGuardMixin:
                 action.guard_result,
             )
         return None
-
-    async def _consume_preapproval(
-        self,
-        tool_name: str,
-        tool_input: dict[str, Any],
-    ) -> bool:
-        """Consume one matching approval token if present."""
-        session_id = str(self._request_context.get("session_id") or "")
-        if not session_id:
-            return False
-
-        svc = self._tool_guard_approval_service
-        consumed = await svc.consume_approval(
-            session_id,
-            tool_name,
-            tool_params=tool_input,
-        )
-        if consumed:
-            logger.info(
-                "Tool guard: pre-approved '%s' (session %s), skipping",
-                tool_name,
-                session_id[:8],
-            )
-        return bool(consumed)
-
-    async def _run_approved_tool_call(
-        self,
-        tool_call: dict[str, Any],
-        tool_name: str,
-        tool_input: dict[str, Any],
-    ) -> dict | None:
-        """Execute approved call and persist replay state."""
-        result = await super()._acting(tool_call)  # type: ignore[misc]
-        if getattr(self, "_tool_guard_forced_replay_active", False):
-            self._tool_guard_forced_replay_active = False
-            self._tool_guard_replay_done = {
-                "tool_name": tool_name,
-                "tool_input": tool_input,
-                "remaining_queue": getattr(
-                    self,
-                    "_tool_guard_replay_queue",
-                    [],
-                ),
-            }
-        return result
 
     # ------------------------------------------------------------------
     # Denied / Approval responses
@@ -456,23 +347,27 @@ class ToolGuardMixin:
             format_findings_summary,
         )
 
+        lang = self._tool_guard_ui_lang()
+
+        def tg(key: str) -> str:
+            return _tool_guard_t(lang, key)
+
         if guard_result is not None and guard_result.findings:
             findings_text = format_findings_summary(guard_result)
             severity = guard_result.max_severity.value
             count = str(guard_result.findings_count)
         else:
-            findings_text = "- Tool is in the denied list / 工具在禁止列表中"
-            severity = "DENIED"
-            count = "N/A"
+            findings_text = f"- {tg('denied_list_msg')}"
+            severity = tg("severity_denied")
+            count = tg("na_count")
 
         denied_text = (
-            f"⛔ **Tool Blocked / 工具已拦截**\n\n"
-            f"- Tool / 工具: `{tool_name}`\n"
-            f"- Severity / 严重性: `{severity}`\n"
-            f"- Findings / 发现: `{count}`\n\n"
+            f"{tg('tool_blocked')}\n\n"
+            f"- {tg('tool')}: `{tool_name}`\n"
+            f"- {tg('severity')}: `{severity}`\n"
+            f"- {tg('findings')}: `{count}`\n\n"
             f"{findings_text}\n\n"
-            f"This tool is blocked and cannot be approved.\n"
-            f"该工具已被禁止，无法批准执行。"
+            f"{tg('blocked_footer')}"
         )
 
         tool_res_msg = Msg(
@@ -500,96 +395,291 @@ class ToolGuardMixin:
         tool_name: str,
         guard_result,
     ) -> dict | None:
-        """Deny the tool call and record a pending approval."""
+        """Block and wait for user approval with heartbeat keep-alive.
+
+        This method creates a Future, sends an approval request message to
+        the user, then blocks waiting for the Future to be resolved by
+        /approval approve or /approval deny command. During the wait,
+        periodic heartbeat messages are sent to keep SSE connection alive.
+        """
+        from qwenpaw.security.tool_guard.approval import ApprovalDecision
+
+        session_id = str(self._request_context.get("session_id") or "")
+        user_id = str(self._request_context.get("user_id") or "")
+        channel = str(self._request_context.get("channel") or "")
+        agent_id = str(self._request_context.get("agent_id", "unknown"))
+
+        # Get root_session_id for cross-session approval routing
+        root_session_id = str(
+            self._request_context.get("root_session_id") or session_id,
+        )
+
+        svc = self._tool_guard_approval_service
+        tool_call_id = tool_call.get("id", "")
+
+        # Cancel any stale pending approvals for this tool call
+        if session_id and tool_call_id:
+            await svc.cancel_stale_pending_for_tool_call(
+                session_id,
+                tool_call_id,
+            )
+
+        # Create pending approval with Future
+        extra: dict[str, Any] = {"tool_call": tool_call}
+        pending = await svc.create_pending(
+            session_id=session_id,
+            root_session_id=root_session_id,
+            user_id=user_id,
+            channel=channel,
+            agent_id=agent_id,
+            tool_name=tool_name,
+            result=guard_result,
+            timeout_seconds=TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+            extra=extra,
+        )
+
+        # Send approval request message to user (with frontend metadata)
+        await self._emit_waiting_for_approval_blocking(pending, guard_result)
+
+        # **Block and wait** for approval decision with heartbeat
+        try:
+            decision = await self._wait_for_approval_with_heartbeat(
+                pending.request_id,
+                pending.future,
+                timeout_seconds=TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            logger.error(
+                "Wait for approval failed: %s",
+                exc,
+                exc_info=True,
+            )
+            decision = ApprovalDecision.TIMEOUT
+
+        # Execute or deny based on decision
+        if decision == ApprovalDecision.APPROVED:
+            logger.info(
+                "Tool '%s' approved by user, executing...",
+                tool_name,
+            )
+            # Execute the tool
+            return await super()._acting(tool_call)  # type: ignore[misc]
+        elif decision == ApprovalDecision.DENIED:
+            logger.info(
+                "Tool '%s' denied by user",
+                tool_name,
+            )
+            return await self._acting_denied(
+                tool_call,
+                tool_name,
+                guard_result,
+            )
+        else:  # TIMEOUT
+            logger.warning(
+                "Tool '%s' approval timeout (%ds)",
+                tool_name,
+                TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+            )
+            return await self._acting_timeout(
+                tool_call,
+                tool_name,
+                guard_result,
+            )
+
+    # pylint: disable=unused-argument
+    async def _wait_for_approval_with_heartbeat(
+        self,
+        request_id: str,
+        future: "asyncio.Future[ApprovalDecision]",
+        timeout_seconds: float,
+        heartbeat_interval: float = (TOOL_GUARD_APPROVAL_HEARTBEAT_INTERVAL),
+    ) -> "ApprovalDecision":
+        """Wait for approval decision with timeout and cancellation support.
+
+        Waits for approval Future while also listening for task cancellation.
+        If the outer task is cancelled (e.g., user /stop), immediately
+        auto-denies the approval and re-raises CancelledError.
+
+        Args:
+            request_id: Approval request ID
+            future: Future to wait for
+            timeout_seconds: Total timeout in seconds
+            heartbeat_interval: Unused (kept for API compatibility)
+
+        Returns:
+            ApprovalDecision (APPROVED/DENIED/TIMEOUT)
+        """
+        from qwenpaw.security.tool_guard.approval import (
+            ApprovalDecision,
+        )
+
+        logger.debug(
+            "[APPROVAL WAIT] Waiting for approval: request_id=%s "
+            "timeout=%.0fs",
+            request_id[:8],
+            timeout_seconds,
+        )
+
+        # Create a wrapper task that can be cancelled
+        async def wait_for_future():
+            logger.debug(
+                "[APPROVAL WAIT] wait_for_future started for request_id=%s",
+                request_id[:8],
+            )
+            result = await future
+            logger.debug(
+                "[APPROVAL WAIT] wait_for_future completed for request_id=%s",
+                request_id[:8],
+            )
+            return result
+
+        wait_task = asyncio.create_task(wait_for_future())
+        logger.debug(
+            "[APPROVAL WAIT] Created wait_task for request_id=%s",
+            request_id[:8],
+        )
+
+        try:
+            logger.debug(
+                "[APPROVAL WAIT] Calling asyncio.wait_for for request_id=%s",
+                request_id[:8],
+            )
+            decision = await asyncio.wait_for(
+                wait_task,
+                timeout=timeout_seconds,
+            )
+            logger.debug(
+                "[APPROVAL WAIT] asyncio.wait_for completed for request_id=%s "
+                "decision=%s",
+                request_id[:8],
+                decision.value if hasattr(decision, "value") else decision,
+            )
+            return decision
+        except asyncio.TimeoutError:
+            logger.debug(
+                "[APPROVAL WAIT] Timeout for request_id=%s after %.0fs",
+                request_id[:8],
+                timeout_seconds,
+            )
+            wait_task.cancel()
+            return ApprovalDecision.TIMEOUT
+        except asyncio.CancelledError:
+            # Task cancelled (e.g., user /stop or SSE disconnect)
+            # Cancel the wait task and auto-deny the pending approval
+            logger.debug(
+                "[APPROVAL WAIT] CancelledError caught for request_id=%s, "
+                "cancelling wait_task and auto-denying",
+                request_id[:8],
+            )
+            wait_task.cancel()
+            svc = self._tool_guard_approval_service
+            await svc.resolve_request(
+                request_id,
+                ApprovalDecision.DENIED,
+            )
+            logger.debug(
+                "[APPROVAL WAIT] Auto-denied request_id=%s, re-raising "
+                "CancelledError",
+                request_id[:8],
+            )
+            # Re-raise to propagate cancellation
+            raise
+
+    async def _emit_waiting_for_approval_blocking(
+        self,
+        pending: "PendingApproval",
+        guard_result: ToolGuardResult,
+    ) -> None:
+        """Emit approval request message with frontend metadata.
+
+        The frontend will render this as an ApprovalCard with
+        approve/deny buttons based on metadata.message_type.
+        """
+        from agentscope.message import TextBlock
+
+        lang = self._tool_guard_ui_lang()
+        tool_input = pending.extra.get("tool_call", {}).get("input", {})
+
+        def tg(key: str) -> str:
+            return _tool_guard_t(lang, key)
+
+        # Format message text
+        from qwenpaw.security.tool_guard.approval import (
+            format_findings_summary,
+        )
+
+        findings_text = format_findings_summary(guard_result)
+        max_sev = guard_result.max_severity
+        sev_emoji, sev_name = self._severity_emoji_and_localized_name(
+            max_sev,
+            lang,
+        )
+
+        params_text = _json.dumps(tool_input, ensure_ascii=False, indent=2)
+
+        message_text = (
+            f"🛡️ **{tg('wait_title')}**\n\n"
+            f"- {tg('tool')}: `{pending.tool_name}`\n"
+            f"- {sev_emoji} {tg('severity')}: `{max_sev.value}` ({sev_name})\n"
+            f"- {tg('findings')}: `{guard_result.findings_count}`\n"
+            f"- {tg('risk_summary')}:\n{findings_text}\n\n"
+            f"- {tg('parameters')}:\n```json\n{params_text}\n```\n\n"
+            f"💡 **Actions**\n"
+            f"- Approve: `/approval approve`\n"
+            f"- Deny: `/approval deny`\n"
+            f"- List: `/approval list`"
+        )
+
+        # Create message with special metadata for frontend rendering
+        msg = Msg(
+            self.name,
+            [TextBlock(type="text", text=message_text)],
+            "assistant",
+            metadata={
+                # Frontend detection marker
+                "message_type": "tool_guard_approval",
+                "approval_request_id": pending.request_id,
+                "session_id": pending.session_id,
+                "agent_id": pending.agent_id,
+                "tool_name": pending.tool_name,
+                "severity": pending.severity,
+                "findings_count": pending.findings_count,
+                "findings_summary": pending.result_summary,
+                "tool_params": tool_input,
+                "created_at": pending.created_at,
+            },
+        )
+
+        # Print to user but DO NOT add to memory
+        # This is a temporary UI prompt, not part of conversation history
+        await self.print(msg, True)
+
+    async def _acting_denied(
+        self,
+        tool_call: dict[str, Any],
+        tool_name: str,
+        guard_result,
+    ) -> dict | None:
+        """Handle user denial of tool execution."""
         from agentscope.message import ToolResultBlock
         from qwenpaw.security.tool_guard.approval import (
             format_findings_summary,
         )
 
-        channel = str(self._request_context.get("channel") or "")
+        lang = self._tool_guard_ui_lang()
 
-        # Find the original assistant message and extract thinking blocks
-        original_msg = None
-        for msg, marks in reversed(self.memory.content):
-            if msg.role == "assistant":
-                if TOOL_GUARD_DENIED_MARK not in marks:
-                    marks.append(TOOL_GUARD_DENIED_MARK)
-                original_msg = msg
-                break
+        def tg(key: str) -> str:
+            return _tool_guard_t(lang, key)
 
-        extra: dict[str, Any] = {"tool_call": tool_call}
-
-        # Preserve thinking blocks from the original message
-        if original_msg is not None:
-            thinking_blocks = [
-                b
-                for b in original_msg.get_content_blocks()
-                if isinstance(b, dict) and b.get("type") == "thinking"
-            ]
-            if thinking_blocks:
-                extra["thinking_blocks"] = thinking_blocks
-
-        replay_queue = getattr(self, "_tool_guard_replay_queue", None)
-        if replay_queue is not None:
-            extra["remaining_queue"] = list(replay_queue)
-            self._tool_guard_replay_queue = None
-        else:
-            siblings = self._extract_sibling_tool_calls()
-            if siblings:
-                extra["sibling_tool_calls"] = siblings
-
-        session_id = str(
-            self._request_context.get("session_id") or "",
-        )
-        tool_call_id = tool_call.get("id", "")
-        svc = self._tool_guard_approval_service
-        if session_id:
-            if tool_call_id:
-                await svc.cancel_stale_pending_for_tool_call(
-                    session_id,
-                    tool_call_id,
-                )
-            for queued in extra.get("remaining_queue", []):
-                qid = queued.get("id", "")
-                if qid:
-                    await svc.cancel_stale_pending_for_tool_call(
-                        session_id,
-                        qid,
-                    )
-
-        await svc.create_pending(
-            session_id=session_id,
-            user_id=str(
-                self._request_context.get("user_id") or "",
-            ),
-            channel=channel,
-            tool_name=tool_name,
-            result=guard_result,
-            extra=extra,
+        findings_text = (
+            format_findings_summary(guard_result) if guard_result else ""
         )
 
-        guardians = list(
-            {f.guardian for f in guard_result.findings if f.guardian},
-        )
-        self._tool_guard_pending_info = {
-            "tool_name": tool_name,
-            "tool_input": tool_call.get("input", {}),
-            "guardians": guardians,
-            "guard_result": guard_result,
-        }
-
-        findings_text = format_findings_summary(guard_result)
         denied_text = (
-            f"⚠️ **Risk Detected / 检测到风险**\n\n"
-            f"- Tool / 工具: `{tool_name}`\n"
-            f"- Severity / 严重性: "
-            f"`{guard_result.max_severity.value}`\n"
-            f"- Findings / 发现: "
-            f"`{guard_result.findings_count}`\n\n"
-            f"{findings_text}\n\n"
-            f"Type `/approve` to approve, "
-            f"or send any message to deny.\n"
-            f"输入 `/approve` 批准执行，或发送任意消息拒绝。"
+            f"🚫 **{tg('tool_blocked')}**\n\n"
+            f"- {tg('tool')}: `{tool_name}`\n"
+            f"- {tg('reason')}: {tg('reason_denied')}\n\n"
+            f"{findings_text}"
         )
 
         tool_res_msg = Msg(
@@ -599,19 +689,64 @@ class ToolGuardMixin:
                     type="tool_result",
                     id=tool_call["id"],
                     name=tool_name,
-                    output=[
-                        {"type": "text", "text": denied_text},
-                    ],
+                    output=[{"type": "text", "text": denied_text}],
                 ),
             ],
             "system",
         )
 
         await self.print(tool_res_msg, True)
-        await self.memory.add(
-            tool_res_msg,
-            marks=TOOL_GUARD_DENIED_MARK,
+        await self.memory.add(tool_res_msg)
+        return None
+
+    async def _acting_timeout(
+        self,
+        tool_call: dict[str, Any],
+        tool_name: str,
+        guard_result,
+    ) -> dict | None:
+        """Handle approval timeout (auto-deny)."""
+        from agentscope.message import ToolResultBlock
+        from qwenpaw.security.tool_guard.approval import (
+            format_findings_summary,
         )
+
+        lang = self._tool_guard_ui_lang()
+
+        def tg(key: str) -> str:
+            return _tool_guard_t(lang, key)
+
+        findings_text = (
+            format_findings_summary(guard_result) if guard_result else ""
+        )
+
+        reason_text = tg("reason_timeout").replace(
+            "{timeout}",
+            str(TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS),
+        )
+
+        timeout_text = (
+            f"{tg('timeout_title')}\n\n"
+            f"- {tg('tool')}: `{tool_name}`\n"
+            f"- {tg('reason')}: {reason_text}\n\n"
+            f"{findings_text}"
+        )
+
+        tool_res_msg = Msg(
+            "system",
+            [
+                ToolResultBlock(
+                    type="tool_result",
+                    id=tool_call["id"],
+                    name=tool_name,
+                    output=[{"type": "text", "text": timeout_text}],
+                ),
+            ],
+            "system",
+        )
+
+        await self.print(tool_res_msg, True)
+        await self.memory.add(tool_res_msg)
         return None
 
     # ------------------------------------------------------------------
@@ -622,231 +757,23 @@ class ToolGuardMixin:
         self,
         tool_choice: Literal["auto", "none", "required"] | None = None,
     ) -> Msg:
-        """Short-circuit reasoning when awaiting guard approval.
+        """Delegate to parent ReActAgent reasoning.
 
-        After a forced approved replay completes its ``_acting`` cycle,
-        this method either continues with the next queued sibling tool
-        call (returning a ``tool_use`` message) or returns a text-only
-        completion message so the ``ReActAgent.reply`` loop exits
-        naturally.
+        Tool guard approval is now handled synchronously in
+        _acting_with_approval, so no special reasoning logic is needed.
         """
-        replay_msg = await self._reason_about_replay_done()
-        if replay_msg is not None:
-            return replay_msg
-
-        forced_tool_call = self._pop_forced_tool_call()
-        if forced_tool_call is not None:
-            replay_msg = await self._emit_forced_tool_use(forced_tool_call)
-            if replay_msg is not None:
-                return replay_msg
-
-        if self._last_tool_response_is_denied():
-            return await self._emit_waiting_for_approval()
-
         return await super()._reasoning(  # type: ignore[misc]
             tool_choice=tool_choice,
         )
 
-    async def _reason_about_replay_done(self) -> Msg | None:
-        """Emit replay continuation or completion message.
-
-        When the replay queue is exhausted, all synthetic replay
-        messages are cleaned from memory and ``None`` is returned so
-        that ``_reasoning`` falls through to ``super()._reasoning()``.
-        This lets the LLM respond naturally based on the actual tool
-        results without leaving any approval-process artifacts in the
-        conversation.
-        """
-        replay_info = getattr(self, "_tool_guard_replay_done", None)
-        if not replay_info:
-            return None
-
-        self._tool_guard_replay_done = None
-        remaining_queue = self._filter_pending_replay_queue(
-            replay_info.get("remaining_queue") or [],
-        )
-        if not remaining_queue:
-            return None
-        return await self._emit_next_replay_tool_call(remaining_queue)
-
-    def _filter_pending_replay_queue(
-        self,
-        queue: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        """Drop replayed tool calls that already have tool results."""
-        filtered: list[dict[str, Any]] = []
-        for tool_call in list(queue):
-            tc_id = tool_call.get("id", "")
-            if self._tool_result_exists_in_memory(tc_id):
-                continue
-            filtered.append(tool_call)
-        return filtered
-
-    async def _emit_next_replay_tool_call(
-        self,
-        remaining_queue: list[dict[str, Any]],
-    ) -> Msg:
-        """Emit assistant message that chains to the next replayed call.
-
-        Only the ``ToolUseBlock`` is included — no approval-process
-        text is added so that the conversation history stays clean
-        after the full replay sequence completes.
-        """
-        from agentscope.message import ToolUseBlock
-
-        next_tc = remaining_queue[0]
-        self._tool_guard_replay_queue = remaining_queue[1:]
-        next_id = next_tc.get("id") or f"queued-{_uuid.uuid4().hex[:12]}"
-        self._tool_guard_forced_replay_active = True
-        msg = Msg(
-            self.name,
-            [
-                ToolUseBlock(
-                    type="tool_use",
-                    id=next_id,
-                    name=next_tc.get("name", "unknown"),
-                    input=next_tc.get("input", {}),
-                ),
-            ],
-            "assistant",
-        )
-        await self.print(msg, True)
-        await self.memory.add(msg)
-        return msg
-
-    async def _emit_assistant_msg(self, content: str) -> Msg:
-        """Print and persist a plain assistant text message."""
-        msg = Msg(self.name, content, "assistant")
-        await self.print(msg, True)
-        await self.memory.add(msg)
-        return msg
-
-    async def _emit_forced_tool_use(
-        self,
-        forced_tool_call: dict[str, Any],
-    ) -> Msg | None:
-        """Emit a forced tool_use replay block, or ``None`` on failure."""
-        try:
-            from agentscope.message import ToolUseBlock
-
-            self._tool_guard_forced_replay_active = True
-
-            # Extract thinking blocks if present
-            thinking_blocks = forced_tool_call.pop("_thinking_blocks", None)
-
-            # Build content blocks
-            content_blocks = []
-
-            # Add thinking blocks first (if present)
-            if thinking_blocks is not None and isinstance(
-                thinking_blocks,
-                list,
-            ):
-                content_blocks.extend(thinking_blocks)
-
-            # Add tool use block
-            content_blocks.append(
-                ToolUseBlock(
-                    type="tool_use",
-                    id=forced_tool_call["id"],
-                    name=forced_tool_call["name"],
-                    input=forced_tool_call["input"],
-                ),
-            )
-
-            msg = Msg(
-                self.name,
-                content_blocks,
-                "assistant",
-            )
-            await self.print(msg, True)
-            await self.memory.add(msg)
-            return msg
-        except Exception as exc:
-            self._tool_guard_forced_replay_active = False
-            logger.warning(
-                "Tool guard: forced tool replay failed, "
-                "falling back to normal reasoning: %s",
-                exc,
-                exc_info=True,
-            )
-            return None
-
     @staticmethod
-    def _guardian_trigger_hint(guardians: list[str]) -> tuple[str, str]:
-        """Return (trigger_label, settings_hint) for the guardian(s)."""
-        has_file = "file_path_tool_guardian" in guardians
-        has_tool = "rule_based_tool_guardian" in guardians
-        if has_file and has_tool:
-            label = "Tool Guard & File Guard / 工具护栏 & 文件护栏"
-            hint_en = (
-                "Triggered by tool guardrails "
-                "(configurable in Security → Tool Guard / File Guard settings)"
-            )
-            hint_zh = "触发工具护栏 & 文件护栏（在安全-工具护栏 / 文件护栏页面可以更改设置）"
-        elif has_file:
-            label = "File Guard / 文件护栏"
-            hint_en = (
-                "Triggered by file guardrails "
-                "(configurable in Security → File Guard settings)"
-            )
-            hint_zh = "触发文件护栏（在安全-文件护栏页面可以更改设置）"
-        else:
-            label = "Tool Guard / 工具护栏"
-            hint_en = (
-                "Triggered by tool guardrails "
-                "(configurable in Security → Tool Guard settings)"
-            )
-            hint_zh = "触发工具护栏（在安全-工具护栏页面可以更改设置）"
-        return label, f"💡 {hint_en}\n💡 {hint_zh}"
-
-    async def _emit_waiting_for_approval(self) -> Msg:
-        """Emit waiting-for-approval guidance when call is blocked."""
-        pending = await self._get_pending_info_for_display()
-        tool_name = pending.get("tool_name", "unknown")
-        tool_input = pending.get("tool_input", {})
-        guardians: list[str] = pending.get("guardians", [])
-        guard_result = pending.get("guard_result")
-
-        params_text = _json.dumps(
-            tool_input,
-            ensure_ascii=False,
-            indent=2,
-        )
-        trigger_label, settings_hint = self._guardian_trigger_hint(guardians)
-
-        # Extract remediation hint from guard result if available
-        remediation_hint = ""
-        if guard_result and guard_result.findings:
-            try:
-                finding = guard_result.findings[0]
-                # Use structured metadata for custom hints
-                if finding.metadata and "custom_hint" in finding.metadata:
-                    custom_hint = finding.metadata["custom_hint"]
-                    if (
-                        isinstance(custom_hint, dict)
-                        and "messages" in custom_hint
-                    ):
-                        messages = custom_hint["messages"]
-                        if isinstance(messages, list) and all(
-                            isinstance(m, str) for m in messages
-                        ):
-                            remediation_hint = "\n\n" + "\n".join(messages)
-            except (KeyError, TypeError, AttributeError) as e:
-                logger.debug(
-                    "Failed to extract remediation hint from metadata: %s",
-                    e,
-                )
-
-        return await self._emit_assistant_msg(
-            "⏳ Waiting for approval / 等待审批\n\n"
-            f"- Tool / 工具: `{tool_name}`\n"
-            f"- Triggered by / 触发来源: `{trigger_label}`\n"
-            f"- Parameters / 参数:\n"
-            f"```json\n{params_text}\n```\n\n"
-            f"{settings_hint}\n\n"
-            "Type `/approve` to approve, "
-            "or send any message to deny.\n"
-            "输入 `/approve` 批准执行，"
-            f"或发送任意消息拒绝。{remediation_hint}",
-        )
+    def _severity_emoji_and_localized_name(
+        severity: GuardSeverity,
+        lang: str,
+    ) -> tuple[str, str]:
+        """Return (emoji, localized severity name) for the UI language."""
+        high = (GuardSeverity.CRITICAL, GuardSeverity.HIGH)
+        emoji = "🔴" if severity in high else "🟡"
+        key = f"sev_{severity.value}"
+        name = _tool_guard_t(lang, key)
+        return emoji, name

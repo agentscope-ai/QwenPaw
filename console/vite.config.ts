@@ -63,6 +63,15 @@ export default defineConfig(({ mode }) => {
       cssCodeSplit: true,
       sourcemap: mode !== "production",
       chunkSizeWarningLimit: 1000,
+      rolldownOptions: {
+        onwarn(
+          warning: { code?: string; message: string },
+          defaultHandler: (warning: { code?: string; message: string }) => void,
+        ) {
+          if (warning.code === "INEFFECTIVE_DYNAMIC_IMPORT") return;
+          defaultHandler(warning);
+        },
+      },
       rollupOptions: {
         output: {
           manualChunks(id) {

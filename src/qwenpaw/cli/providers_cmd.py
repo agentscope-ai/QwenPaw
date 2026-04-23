@@ -174,18 +174,16 @@ def configure_provider_api_key_interactive(
             ),
         )
         raise SystemExit(1)
-    if not defn.require_api_key:
-        click.echo(
-            f"{defn.name} does not require API key configuration. Skipping.",
-        )
-        return provider_id
 
     current_base, current_key = defn.base_url, defn.api_key
 
     base_url: Optional[str] = None
-    # Prompt for base_url if the provider is custom or has no default URL
-    # (e.g. Azure OpenAI requires user to provide their endpoint).
-    if defn.is_custom or provider_id == "azure-openai" or not current_base:
+    if defn.freeze_url:
+        # URL is fixed for this provider — show it but skip the prompt.
+        if current_base:
+            click.echo(f"Base URL: {current_base} (fixed, not editable)")
+    else:
+        # Prompt for base_url whenever it is editable (freeze_url is False).
         azure_hint = (
             "Azure endpoint "
             "(e.g. https://<resource>.openai.azure.com/openai/v1)"
@@ -200,9 +198,18 @@ def configure_provider_api_key_interactive(
             default=current_base or "",
             show_default=bool(current_base),
         ).strip()
-        if not base_url:
+        if not base_url and (defn.is_custom or not current_base):
             click.echo(click.style("Error: base_url is required.", fg="red"))
             raise SystemExit(1)
+        # Treat empty input as "keep existing" for built-in providers
+        if not base_url:
+            base_url = None
+
+    if not defn.require_api_key:
+        click.echo(
+            f"{defn.name} does not require API key configuration. Skipping.",
+        )
+        return provider_id
 
     hint = (
         f"prefix: {defn.api_key_prefix}" if defn.api_key_prefix else "optional"
@@ -441,7 +448,7 @@ def configure_providers_interactive(*, use_defaults: bool = False) -> None:
     while True:
         pid = configure_provider_api_key_interactive()
 
-        # For local providers (llamacpp, mlx, ollama),
+        # For local providers
         # skip to model activation directly
         manager = _manager()
         defn = manager.get_provider(pid)

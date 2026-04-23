@@ -58,12 +58,15 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-[2026-04-14] We've released v1.1.1! See the full [v1.1.1 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+- [2026-04-22] We've released **v1.1.3**! See the full [v1.1.3 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
-- [v1.1.1] Added: OpenRouter and OpenCode model providers; model ID autocomplete when adding models, with model discovery enabled by default for all providers; built-in `list_agents` and `chat_with_agent` agent collaboration tools; Matrix channel rewrite with E2EE, mention handling, and message history; Feishu quoted message handling; DingTalk QR authentication; extended shell command guard rules; RESTful API tutorial documentation.
-- [v1.1.1] Changed: DingTalk migrated to the official Alibaba Cloud SDK; unified multimodal probing; media memory preserved when switching models; default browser start strategy changed to managed CDP; model management redesign; agent config tabs; skill selection improvements.
-- [v1.1.1] Fixed: QQ channel `stop()` no longer blocks for 8 seconds; Windows local model download failure; vLLM `tool_choice` compatibility.
-- [v1.1.1] Contributors: Welcome new contributors: @maplefeng-a, @lhpqaq, @jilin6627-spec.
+  - **[v1.1.3] Added**: Backup & Restore system; QwenPaw as ACP Server; proactive agent messaging; Console Plugin System; Agent Statistics page; builtin skill language switch; Shell Evasion Guard.
+  - **[v1.1.3] Changed**: Debug page restructured under Settings; unified channel media directory; startup performance optimization.
+  - **[v1.1.3] New Contributors**: @daliu858, @xuanrui-L, @pxdawn, @mailmrcai, @linhuang0405, @imrewce, @zealonexp, @Prince-liu.
+
+- [2026-04-17] We've released **v1.1.2**! See the full [v1.1.2 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+
+- [2026-04-14] We've released **v1.1.1**! See the full [v1.1.1 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
 [2026-04-12] **CoPaw is Officially Rebranding to QwenPaw**: This rebranding marks an important step forward into our next phase of open-source development.
 
@@ -134,18 +137,6 @@ No Python setup required, one command installs everything. The script will autom
 
 ```bash
 curl -fsSL https://qwenpaw.agentscope.io/install.sh | bash
-```
-
-To install with Ollama support:
-
-```bash
-curl -fsSL https://qwenpaw.agentscope.io/install.sh | bash -s -- --extras ollama
-```
-
-To install with multiple extras (e.g., Ollama + local):
-
-```bash
-curl -fsSL https://qwenpaw.agentscope.io/install.sh | bash -s -- --extras ollama,local
 ```
 
 **Windows (CMD):**
@@ -243,12 +234,13 @@ docker pull agentscope/qwenpaw:latest
 docker run -p 127.0.0.1:8088:8088 \
   -v qwenpaw-data:/app/working \
   -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
   agentscope/qwenpaw:latest
 ```
 
 Also available on Alibaba Cloud Container Registry (ACR) for users in China: `agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw` (same tags).
 
-Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills are stored in the `qwenpaw-data` volume; model provider settings and API keys are in the `qwenpaw-secrets` volume. To pass API keys (e.g. `DASHSCOPE_API_KEY`), add `-e VAR=value` or `--env-file .env` to `docker run`.
+Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills are stored in the `qwenpaw-data` volume; model provider settings and API keys are in the `qwenpaw-secrets` volume; backup archives are stored in the `qwenpaw-backups` volume. To pass API keys (e.g. `DASHSCOPE_API_KEY`), add `-e VAR=value` or `--env-file .env` to `docker run`.
 
 > **Connecting to Ollama or other services on the host machine**
 >
@@ -260,6 +252,7 @@ Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills
 >   --add-host=host.docker.internal:host-gateway \
 >   -v qwenpaw-data:/app/working \
 >   -v qwenpaw-secrets:/app/working.secret \
+>   -v qwenpaw-backups:/app/working.backups \
 >   agentscope/qwenpaw:latest
 > ```
 > Then in QwenPaw **Settings → Models**, change the Base URL to `http://host.docker.internal:<port>` — for example, `http://host.docker.internal:11434` for Ollama, or `http://host.docker.internal:1234/v1` for LM Studio.
@@ -269,6 +262,7 @@ Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills
 > docker run --network=host \
 >   -v qwenpaw-data:/app/working \
 >   -v qwenpaw-secrets:/app/working.secret \
+>   -v qwenpaw-backups:/app/working.backups \
 >   agentscope/qwenpaw:latest
 > ```
 > No port mapping (`-p`) is needed; the container shares the host network directly. Note that all container ports are exposed on the host, which may cause conflicts if the port is already in use.
@@ -422,17 +416,22 @@ Star QwenPaw on GitHub and be instantly notified of new releases.
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- |
 | **Horizontal Expansion**              | More channels, models, skills, MCPs — **community contributions welcome**                                                                        | Seeking Contributors |
 | **Existing Feature Extension**        | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome**                                     | Seeking Contributors |
-| **Console Web UI**                    | Expose more info/config in the Console                                                                                                           | In Progress          |
-| **Multi-agent**                      | Agentic Ralph Loop                                                                                  | In Progress          |
-| **Multimodal**                        | Voice/video calls and real-time interaction                                                                                                      | In Progress          |
-| **Small + Large Model Collaboration** | Multi-model routing; different models for different tasks                                                                                          | In Progress          |
-| **Memory System**                     | Experience distillation & skill extraction                                                                                                       | In Progress          |
-|                                       | Memory mechanism switching                                                                                                                       | In Progress             |
-|                                       | Multimodal memory fusion                                                                                                                         | Planned              |
-|                                       | Context-aware proactive delivery                                                                                                                 | Planned              |
-| **Sandbox**                           | Deeper integration with AgentScope Runtime sandboxes                                                                                             | In Progress          |
-| **Cloud-native**                      | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, tools, and skills                                                         | In Progress              |
-| **Skills Hub**                        | Enrich the [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) repository and improve discoverability of high-quality skills | Planned              |
+| **Multi-agent**                       | HiClaw integration: multi-tenant, cross-domain collaboration                                                                                     | In Progress          |
+|                                       | Agent Swarm / Team                                                                                                                               | Planned              |
+| **Small + Large Model Collaboration** | Intelligent switching between on-device and cloud models                                                                                         | In Progress          |
+| **QwenPaw Custom Models**             | Multimodal model support                                                                                                                           | Planned              |
+| **Memory System**                     | Context-aware proactive delivery                                                                                                                   | In Progress          |
+| **Context Management**                | Abstract design                                                                                                                                  | In Progress          |
+|                                       | Intelligent context compression                                                                                                                  | Planned              |
+|                                       | User-selectable compression (fine-grained control)                                                                                                 | Planned              |
+| **Versioning & Migration**            | One-click packaging; multi-version / multi-device migration                                                                                        | In Progress          |
+|                                       | Agent protocol: QwenPaw → QwenPaw                                                                                                                | In Progress          |
+|                                       | Agent protocol: OpenClaw → QwenPaw                                                                                                               | Planned              |
+|                                       | File area / chat rollback                                                                                                                        | In Progress          |
+| **Reliability & Self-operations**     | Self-update                                                                                                                                      | Planned              |
+|                                       | Failure rollback                                                                                                                                 | Planned              |
+| **Security**                          | Fine-grained security controls (rule-based)                                                                                                      | In Progress          |
+|                                       | LLM-based security controls                                                                                                                        | In Progress          |
 
 
 _Status:_ **In Progress** — actively being worked on; **Planned** — queued or under design, also welcome contributions; **Seeking Contributors** — we strongly encourage community contributions.

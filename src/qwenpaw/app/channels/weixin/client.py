@@ -38,6 +38,9 @@ _CHANNEL_VERSION = "2.0.1"
 # Long-poll hold time is up to 35 seconds (server-controlled)
 _GETUPDATES_TIMEOUT = 45.0
 _DEFAULT_TIMEOUT = 15.0
+# iLink holds QR-status polls up to ~30s; use a dedicated longer timeout
+# so wait_for_login governs total wait time, not the transport.
+_QRCODE_STATUS_TIMEOUT = 60.0
 
 
 class ILinkClient:
@@ -81,7 +84,13 @@ class ILinkClient:
         path = path.lstrip("/")
         return f"{self.base_url}/{path}"
 
-    async def _get(self, path: str, params: Dict[str, Any] = None) -> Any:
+    async def _get(
+        self,
+        path: str,
+        params: Dict[str, Any] = None,
+        *,
+        timeout: float = _DEFAULT_TIMEOUT,
+    ) -> Any:
         if self._client is None:
             raise ChannelError(
                 channel_name="weixin",
@@ -92,7 +101,7 @@ class ILinkClient:
             self._url(path),
             params=params or {},
             headers=headers,
-            timeout=_DEFAULT_TIMEOUT,
+            timeout=timeout,
         )
         resp.raise_for_status()
         return resp.json()
@@ -142,6 +151,7 @@ class ILinkClient:
         return await self._get(
             "ilink/bot/get_qrcode_status",
             {"qrcode": qrcode},
+            timeout=_QRCODE_STATUS_TIMEOUT,
         )
 
     async def wait_for_login(
@@ -166,7 +176,14 @@ class ILinkClient:
         """
         elapsed = 0.0
         while elapsed < max_wait:
-            data = await self.get_qrcode_status(qrcode)
+            try:
+                data = await self.get_qrcode_status(qrcode)
+            except httpx.ReadTimeout:
+                logger.warning(
+                    "weixin: QR status poll timed out, retrying…",
+                )
+                elapsed += poll_interval
+                continue
             status = data.get("status", "")
             if status == "confirmed":
                 token = data.get("bot_token", "")

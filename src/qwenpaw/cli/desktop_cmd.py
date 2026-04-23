@@ -27,13 +27,62 @@ logger = logging.getLogger(__name__)
 
 
 class WebViewAPI:
-    """API exposed to the webview for handling external links."""
+    """API exposed to the webview for external links and file downloads."""
 
     def open_external_link(self, url: str) -> None:
         """Open URL in system's default browser."""
         if not url.startswith(("http://", "https://")):
             return
         webbrowser.open(url)
+
+    def save_file(self, url: str, filename: str) -> bool:
+        """Download a file from *url* and save it via a native save dialog.
+
+        Shows the OS "Save As" dialog so the user can pick a destination,
+        then downloads the file and writes it there.  This is the desktop
+        equivalent of the browser's ``<a download>`` click pattern which
+        pywebview/WebView2 does not support.
+
+        Args:
+            url: Full HTTP(S) URL of the file to download.
+            filename: Default filename shown in the save dialog.
+
+        Returns:
+            True if the file was saved successfully, False if the user
+            cancelled the dialog or an error occurred.
+        """
+        import re
+        import shutil
+        import urllib.request
+
+        if not url.startswith(("http://", "https://")):
+            return False
+
+        # Sanitize filename: remove characters illegal on Windows
+        # (< > : " / \ | ? *) and trim leading/trailing whitespace/dots.
+        # Colons are common in backup names like "Backup 2026-04-22 17:36".
+        safe_name = re.sub(r'[<>:"/\\|?*]', "_", filename).strip(" .")
+
+        try:
+            # Show native OS save dialog via pywebview
+            result = webview.windows[0].create_file_dialog(
+                webview.SAVE_DIALOG,
+                save_filename=safe_name,
+            )
+            if not result:
+                return False  # user cancelled
+
+            dest_path = result if isinstance(result, str) else result[0]
+
+            # Download from the local backend and write to chosen path
+            with urllib.request.urlopen(url) as response:
+                with open(dest_path, "wb") as f:
+                    shutil.copyfileobj(response, f)
+
+            return True
+        except Exception:
+            logger.exception("save_file failed")
+            return False
 
 
 def _find_free_port(host: str = "127.0.0.1") -> int:

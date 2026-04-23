@@ -3,11 +3,26 @@
 Agent utilities package.
 
 This package provides utilities for agent operations:
+- audio_transcription: Audio file transcription
+- estimate_token_counter: Estimated token counting
 - file_handling: File download and management
 - message_processing: Message content manipulation and validation
+- message_request_normalizer: Normalize messages for model requests
+- registry: Generic registry for implementations
 - tool_message_utils: Tool message validation and sanitization
 - setup_utils: Setup and initialization utilities
 """
+
+# Audio transcription
+from .audio_transcription import (
+    check_local_whisper_available,
+    get_configured_transcription_provider_id,
+    list_transcription_providers,
+    transcribe_audio,
+)
+
+# Estimated token counter
+from .estimate_token_counter import EstimatedTokenCounter
 
 # File handling
 from .file_handling import (
@@ -22,12 +37,19 @@ from .message_processing import (
     process_file_and_media_blocks_in_message,
 )
 
+# Message request normalizer
+from .message_request_normalizer import normalize_messages_for_model_request
+
+# Registry
+from .registry import Registry
+
 # Setup utilities
 from .setup_utils import (
     copy_builtin_qa_md_files,
     copy_md_files,
     copy_template_md_files,
     copy_workspace_md_files,
+    normalize_agent_language,
 )
 
 # Token counting
@@ -44,6 +66,13 @@ from .tool_message_utils import (
 )
 
 __all__ = [
+    # Audio transcription
+    "check_local_whisper_available",
+    "get_configured_transcription_provider_id",
+    "list_transcription_providers",
+    "transcribe_audio",
+    # Estimated token counter
+    "EstimatedTokenCounter",
     # File handling
     "download_file_from_base64",
     "download_file_from_url",
@@ -51,11 +80,17 @@ __all__ = [
     "process_file_and_media_blocks_in_message",
     "is_first_user_interaction",
     "prepend_to_message_content",
+    # Message request normalizer
+    "normalize_messages_for_model_request",
+    # Registry
+    "Registry",
     # Setup utilities
     "copy_builtin_qa_md_files",
     "copy_md_files",
     "copy_template_md_files",
     "copy_workspace_md_files",
+    # Setup utilities
+    "normalize_agent_language",
     # Token counting
     "get_token_counter",
     # Tool message utilities

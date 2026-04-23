@@ -7,6 +7,14 @@ from pathlib import Path
 
 
 @dataclass
+class PluginEntryPoints:
+    """Plugin entry points for frontend and backend."""
+
+    frontend: Optional[str] = None
+    backend: Optional[str] = None
+
+
+@dataclass
 class PluginManifest:
     """Plugin manifest definition."""
 
@@ -15,7 +23,7 @@ class PluginManifest:
     version: str
     description: str = ""
     author: str = ""
-    entry_point: str = "plugin.py"
+    entry: PluginEntryPoints = field(default_factory=PluginEntryPoints)
     dependencies: List[str] = field(default_factory=list)
     min_version: str = "0.1.0"
     meta: Dict[str, Any] = field(default_factory=dict)
@@ -30,13 +38,20 @@ class PluginManifest:
         Returns:
             PluginManifest instance
         """
+        entry_data = data.get("entry", {})
+        legacy_entry_point = data.get("entry_point", "plugin.py")
+        entry = PluginEntryPoints(
+            frontend=entry_data.get("frontend"),
+            backend=entry_data.get("backend") or legacy_entry_point,
+        )
+
         return cls(
             id=data["id"],
             name=data["name"],
             version=data["version"],
             description=data.get("description", ""),
             author=data.get("author", ""),
-            entry_point=data.get("entry_point", "plugin.py"),
+            entry=entry,
             dependencies=data.get("dependencies", []),
             min_version=data.get("min_version", "0.1.0"),
             meta=data.get("meta", {}),

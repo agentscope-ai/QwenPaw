@@ -623,14 +623,6 @@ class ExpectedCapabilityRegistry:
         # 15. LM Studio — no predefined models (dynamic discovery)
         # ---------------------------------------------------------------
 
-        # ---------------------------------------------------------------
-        # 16. llama.cpp — models discovered via local scan
-        # ---------------------------------------------------------------
-
-        # ---------------------------------------------------------------
-        # 17. MLX (Apple Silicon) — models discovered via local scan
-        # ---------------------------------------------------------------
-
 
 def compare_probe_result(
     expected: ExpectedCapability,

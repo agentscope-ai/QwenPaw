@@ -18,7 +18,7 @@ from qwenpaw.constant import (
     LLM_BACKOFF_CAP,
     LLM_MAX_RETRIES,
 )
-from qwenpaw.providers.models import ModelSlotConfig
+from qwenpaw.config.config import ModelSlotConfig
 
 
 @pytest.fixture
