@@ -407,13 +407,29 @@ export function ChannelDrawer({
               />
             </Form.Item>
             <Form.Item
+              name="cron_message_type"
+              label="Cron Message Type"
+              tooltip="Message type for cron/scheduled task sends. Independent from the chat message type above."
+            >
+              <Select
+                options={[
+                  { label: "markdown", value: "markdown" },
+                  { label: "card", value: "card" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
               noStyle
               shouldUpdate={(prev, cur) =>
-                prev.message_type !== cur.message_type
+                prev.message_type !== cur.message_type ||
+                prev.cron_message_type !== cur.cron_message_type
               }
             >
               {({ getFieldValue }) => {
-                if (getFieldValue("message_type") !== "card") return null;
+                const needsCard =
+                  getFieldValue("message_type") === "card" ||
+                  getFieldValue("cron_message_type") === "card";
+                if (!needsCard) return null;
                 return (
                   <>
                     <Form.Item
