@@ -307,7 +307,7 @@ def _format_anthropic_output_items(
     seen_media: set[str] | None = None,
 ) -> list:
     """Format a list of tool_result output blocks for Anthropic API,
-    converting image and video blocks as needed.
+    converting image, video, and file blocks as needed.
 
     When *seen_media* is provided, media blocks whose source has already
     been encoded in a preceding top-level block are replaced with a
@@ -315,7 +315,30 @@ def _format_anthropic_output_items(
     """
     result: list[dict] = []
     for item in output:
-        if item.get("type") not in ("image", "video"):
+        item_type = item.get("type")
+
+        if item_type == "file":
+            # Anthropic tool_result content only supports 'text' and 'image';
+            # convert file blocks to a readable text placeholder so the
+            # conversation history stays intact without triggering a 400 error.
+            source = item.get("source", {})
+            file_url = source.get("url", "")
+            filename = (
+                item.get("filename")
+                or file_url.rsplit("/", 1)[-1]
+                or "unknown"
+            )
+            readable_path = file_url.removeprefix("file://")
+            result.append(
+                {
+                    "type": "text",
+                    "text": f"File '{filename}' is available at:"
+                    f" {readable_path}",
+                },
+            )
+            continue
+
+        if item_type not in ("image", "video"):
             result.append(item)
             continue
 
@@ -386,7 +409,7 @@ def _format_anthropic_messages(  # pylint: disable=too-many-branches
                 output = block.get("output")
                 if output is None:
                     content_value: list = [
-                        {"type": "text", "text": None},
+                        {"type": "text", "text": ""},
                     ]
                 elif isinstance(output, list):
                     content_value = _format_anthropic_output_items(
@@ -417,7 +440,7 @@ def _format_anthropic_messages(  # pylint: disable=too-many-branches
 
         msg_anthropic: dict = {
             "role": role,
-            "content": content_blocks or None,
+            "content": content_blocks or "",
         }
 
         if msg_anthropic["content"] or msg_anthropic.get(
