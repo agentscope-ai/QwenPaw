@@ -209,7 +209,7 @@ QwenPaw 的安全系统由三个核心安全层组成:
 | ------------------------ | ---------------------------------- | ------------------------- |
 | `TOOL_CMD_REVERSE_SHELL` | `/dev/tcp`、`nc -e`、`socat EXEC:` | 建立反向 Shell 或网络隧道 |
 
-#### Shell 规避守卫
+### Shell 命令绕过守卫
 
 引擎还会对 `execute_shell_command` 运行 **`ShellEvasionGuardian`**。它维护引号状态,弥补仅靠行级或纯正则易漏的混淆(例如单引号外的命令替换、`` ` ``、`$()`、Zsh 形式、`$'...'`/`$"..."` 技巧、反斜杠转义的空白或 shell 操作符——对常见 `find ... -exec ... {} \;` 有例外——可能拆分命令的裸换行或 `\r` 且跳过 heredoc、`#` 注释与引号状态不同步、引号内换行后接看似注释的行等)。上报的规则 ID(严重级别均为 **HIGH**):
 
@@ -649,6 +649,7 @@ docker run -e QWENPAW_AUTH_ENABLED=true \
   -p 127.0.0.1:8088:8088 \
   -v qwenpaw-data:/app/working \
   -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
   agentscope/qwenpaw:latest
 ```
 
@@ -669,6 +670,7 @@ services:
     volumes:
       - qwenpaw-data:/app/working
       - qwenpaw-secrets:/app/working.secret
+      - qwenpaw-backups:/app/working.backups
 ```
 
 #### 环境文件 (.env)
@@ -693,7 +695,7 @@ unset QWENPAW_AUTH_ENABLED
 qwenpaw app
 
 # Docker — 移除 -e 参数即可。以下示例包含用于持久化的卷。
-docker run -p 127.0.0.1:8088:8088 -v qwenpaw-data:/app/working -v qwenpaw-secrets:/app/working.secret agentscope/qwenpaw:latest
+docker run -p 127.0.0.1:8088:8088 -v qwenpaw-data:/app/working -v qwenpaw-secrets:/app/working.secret -v qwenpaw-backups:/app/working.backups agentscope/qwenpaw:latest
 ```
 
 ### 重置密码

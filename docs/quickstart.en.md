@@ -206,12 +206,13 @@ docker pull agentscope/qwenpaw:latest
 docker run -p 127.0.0.1:8088:8088 \
   -v qwenpaw-data:/app/working \
   -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
   agentscope/qwenpaw:latest
 ```
 
 Then open **http://127.0.0.1:8088/** in your browser for the Console. Config,
 memory, and skills are stored in the `qwenpaw-data` volume; model configurations
-and API keys are stored in the `qwenpaw-secrets` volume. To pass API keys, add
+and API keys are stored in the `qwenpaw-secrets` volume; backup archives are stored in the `qwenpaw-backups` volume. To pass API keys, add
 `-e DASHSCOPE_API_KEY=xxx` or `--env-file .env` to `docker run`.
 
 ---

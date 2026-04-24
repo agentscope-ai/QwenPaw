@@ -319,7 +319,7 @@ cards. Click **Save** at the bottom (**Reset** reloads from the server).
 - **Context management** — Max input length, etc.
 - **Context compaction** — Compaction threshold ratio, etc.
 - **Tool result compaction** — Recent tool result window, etc.
-- **Memory summarization** — Max forced-search results, etc.
+- **Memory summarization** — Max auto-search results, etc.
 - **Embedding model** — Whether to enable embedding cache, etc.
 
 For mechanics, see [Context](./context) and [Config & working directory](./config).

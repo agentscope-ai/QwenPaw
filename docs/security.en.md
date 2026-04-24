@@ -211,7 +211,7 @@ Tool Guard includes the following built-in detection rules (for `execute_shell_c
 | ------------------------ | ---------------------------------- | --------------------------------------------- |
 | `TOOL_CMD_REVERSE_SHELL` | `/dev/tcp`, `nc -e`, `socat EXEC:` | Establishes reverse shells or network tunnels |
 
-#### Shell evasion guardian
+### Shell evasion guardian
 
 The engine also runs **`ShellEvasionGuardian`** on `execute_shell_command`. It tracks quoting state to catch obfuscation that pure line- or regex-only checks can miss (for example command substitution outside single quotes, `$'...'` / `$"..."` tricks, backslash-escaped whitespace or shell operators—with a carve-out for common `find ... -exec ... {} \;`—raw newlines or `\r` that split commands while skipping heredocs, `#` comment / quote desync, and quoted newlines followed by `#`-looking lines). Reported rule IDs (severity **HIGH**):
 
@@ -654,6 +654,7 @@ docker run -e QWENPAW_AUTH_ENABLED=true \
   -p 127.0.0.1:8088:8088 \
   -v qwenpaw-data:/app/working \
   -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
   agentscope/qwenpaw:latest
 ```
 
@@ -674,6 +675,7 @@ services:
     volumes:
       - qwenpaw-data:/app/working
       - qwenpaw-secrets:/app/working.secret
+      - qwenpaw-backups:/app/working.backups
 ```
 
 #### Environment file (.env)
@@ -698,7 +700,7 @@ unset QWENPAW_AUTH_ENABLED
 qwenpaw app
 
 # Docker — simply remove the -e flag. The example below includes volumes for persistence.
-docker run -p 127.0.0.1:8088:8088 -v qwenpaw-data:/app/working -v qwenpaw-secrets:/app/working.secret agentscope/qwenpaw:latest
+docker run -p 127.0.0.1:8088:8088 -v qwenpaw-data:/app/working -v qwenpaw-secrets:/app/working.secret -v qwenpaw-backups:/app/working.backups agentscope/qwenpaw:latest
 ```
 
 ### Password reset
