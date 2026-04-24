@@ -70,6 +70,19 @@ try {
     Write-Host "PyInstaller installed" -ForegroundColor Green
 }
 
+# Install python-dotenv if not present (required by PyInstaller collect_submodules)
+try {
+    & $PYTHON_BIN -c "import dotenv" 2>&1 | Out-Null
+    Write-Host "python-dotenv already installed" -ForegroundColor Green
+} catch {
+    Write-Host "Installing python-dotenv..."
+    & $PYTHON_BIN -m pip install python-dotenv
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install python-dotenv"
+    }
+    Write-Host "python-dotenv installed" -ForegroundColor Green
+}
+
 Write-Host ""
 
 # Install project dependencies (ensures ALL runtime deps are importable)

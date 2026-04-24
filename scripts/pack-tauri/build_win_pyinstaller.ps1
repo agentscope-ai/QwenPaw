@@ -86,26 +86,6 @@ if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
     Write-Host "  [OK] makensis (NSIS $nsisInfo)" -ForegroundColor Green
 }
 
-# python-dotenv (required by PyInstaller collect_submodules)
-$PYTHON_BIN = Join-Path $REPO_ROOT ".venv\Scripts\python.exe"
-if (-not (Test-Path $PYTHON_BIN)) {
-    $PYTHON_BIN = (Get-Command python -ErrorAction SilentlyContinue).Source
-}
-if ($PYTHON_BIN) {
-    & $PYTHON_BIN -c "import dotenv" 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  [INSTALL] python-dotenv" -ForegroundColor Yellow
-        & $PYTHON_BIN -m pip install python-dotenv | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            $missing += "python-dotenv"
-        }
-    } else {
-        Write-Host "  [OK] python-dotenv" -ForegroundColor Green
-    }
-} else {
-    $missing += "python"
-}
-
 if ($missing.Count -gt 0) {
     Write-Host ""
     Write-Host "Missing prerequisites: $($missing -join ', ')" -ForegroundColor Red
@@ -125,48 +105,10 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "PyInstaller backend ready" -ForegroundColor Green
 Write-Host ""
 
-# Step 2: Build console frontend and copy to Python package
-Write-Host "== Step 2: Building Console Frontend ==" -ForegroundColor Yellow
-Set-Location console
-
-#if (-not (Test-Path "node_modules")) {
-#    Write-Host "Installing frontend dependencies..."
-#    bun install
-#    if ($LASTEXITCODE -ne 0) {
-#        throw "bun install failed"
-#    }
-#}
-
-Write-Host "Installing frontend dependencies..."
-bun install
-if ($LASTEXITCODE -ne 0) {
-    throw "bun install failed"
-}
-
-Write-Host "Building frontend..."
-bun run build:prod
-if ($LASTEXITCODE -ne 0) {
-    throw "Frontend build failed"
-}
-
-Write-Host "Frontend built" -ForegroundColor Green
-Set-Location $REPO_ROOT
-Write-Host ""
-
-# Step 3: Rebuild PyInstaller with embedded frontend
-Write-Host "== Step 3: Rebuilding PyInstaller with embedded frontend ==" -ForegroundColor Yellow
-& powershell -ExecutionPolicy Bypass -File $PYINSTALLER_SCRIPT
-
-if ($LASTEXITCODE -ne 0) {
-    throw "PyInstaller rebuild failed"
-}
-Write-Host "PyInstaller backend rebuilt with frontend" -ForegroundColor Green
-Write-Host ""
-
-# Step 4: Build Tauri app
+# Step 2: Build Tauri app
 # Note: Tauri caches NSIS/Wix tools in target/.tauri/ via useLocalToolsDir
 # in tauri.conf.json — no LOCALAPPDATA redirect needed.
-Write-Host "== Step 4: Building Tauri App ==" -ForegroundColor Yellow
+Write-Host "== Step 2: Building Tauri App ==" -ForegroundColor Yellow
 Set-Location console
 
 Write-Host "Building for Windows..."
@@ -181,8 +123,8 @@ Set-Location $REPO_ROOT
 Write-Host "Tauri app built" -ForegroundColor Green
 Write-Host ""
 
-# Step 5: Create distribution
-Write-Host "== Step 5: Creating Distribution ==" -ForegroundColor Yellow
+# Step 3: Create distribution
+Write-Host "== Step 3: Creating Distribution ==" -ForegroundColor Yellow
 
 $BUNDLE_DIR = "console\src-tauri\target\release\bundle"
 $MSI_PATH = $null
