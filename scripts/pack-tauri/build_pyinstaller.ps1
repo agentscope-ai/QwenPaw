@@ -72,30 +72,26 @@ try {
 
 Write-Host ""
 
-# Install agent-client-protocol if not present (needed by spec collect_submodules)
+# Install project dependencies (ensures ALL runtime deps are importable)
+Write-Host "== Installing project dependencies ==" -ForegroundColor Yellow
+& $PYTHON_BIN -m pip install -e .
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to install project dependencies"
+}
+Write-Host "Project dependencies installed" -ForegroundColor Green
+
+# Fix agent-client-protocol namespace collision
+# PyPI has an empty 'acp' stub that shadows the real package
 try {
     & $PYTHON_BIN -c "from acp import Agent" 2>&1 | Out-Null
 } catch {
-    Write-Host "Installing agent-client-protocol..."
-    # Uninstall wrong 'acp' stub if present (empty package on PyPI)
+    Write-Host "Fixing agent-client-protocol namespace..."
     & $PYTHON_BIN -m pip uninstall -y acp 2>$null
     & $PYTHON_BIN -m pip install agent-client-protocol
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to install agent-client-protocol"
     }
     Write-Host "agent-client-protocol installed" -ForegroundColor Green
-}
-
-# Install python-dotenv if not present (core dependency)
-try {
-    & $PYTHON_BIN -c "import dotenv" 2>&1 | Out-Null
-} catch {
-    Write-Host "Installing python-dotenv..."
-    & $PYTHON_BIN -m pip install python-dotenv
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to install python-dotenv"
-    }
-    Write-Host "python-dotenv installed" -ForegroundColor Green
 }
 
 # Run PyInstaller
