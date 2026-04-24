@@ -440,12 +440,9 @@ async def test_add_model_to_provider_duplicate_id_raises(
 
     assert reloaded_provider is not None
     assert reloaded_provider.extra_models is not None
-    assert (
-        [m.id for m in reloaded_provider.extra_models].count(
-            "custom-duplicate",
-        )
-        == 1
-    )
+    assert [m.id for m in reloaded_provider.extra_models].count(
+        "custom-duplicate",
+    ) == 1
 
 
 def test_save_provider_skip_if_exists_does_not_overwrite(
