@@ -88,7 +88,7 @@ COPY src ./src
 # Inject console dist from build stage (repo does not commit dist).
 COPY --from=console-builder /app/console/dist/ ./src/qwenpaw/console/
 # Speed up Python package installation with uv.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+COPY --from=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/uv:latest /uv /bin/uv
 RUN uv pip install --no-cache-dir .
 
 
