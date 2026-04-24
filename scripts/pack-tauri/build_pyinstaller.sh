@@ -53,6 +53,18 @@ if ! "$PYTHON_BIN" -c "import PyInstaller" 2> /dev/null; then
     fi
 fi
 echo "PyInstaller installed"
+
+# Install agent-client-protocol if not present (needed by spec collect_submodules)
+if ! "$PYTHON_BIN" -c "from acp import Agent" 2> /dev/null; then
+    echo "Installing agent-client-protocol..."
+    # Uninstall wrong 'acp' stub if present (empty package on PyPI)
+    "$PYTHON_BIN" -m pip uninstall -y acp 2>/dev/null || true
+    if command -v uv &>/dev/null; then
+        uv pip install agent-client-protocol
+    else
+        "$PYTHON_BIN" -m pip install agent-client-protocol
+    fi
+fi
 echo ""
 
 # Run PyInstaller
