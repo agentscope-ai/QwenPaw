@@ -72,6 +72,20 @@ try {
 
 Write-Host ""
 
+# Install agent-client-protocol if not present (needed by spec collect_submodules)
+try {
+    & $PYTHON_BIN -c "from acp import Agent" 2>&1 | Out-Null
+} catch {
+    Write-Host "Installing agent-client-protocol..."
+    # Uninstall wrong 'acp' stub if present (empty package on PyPI)
+    & $PYTHON_BIN -m pip uninstall -y acp 2>$null
+    & $PYTHON_BIN -m pip install agent-client-protocol
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install agent-client-protocol"
+    }
+    Write-Host "agent-client-protocol installed" -ForegroundColor Green
+}
+
 # Run PyInstaller
 Write-Host "== Running PyInstaller ==" -ForegroundColor Yellow
 Write-Host "Building standalone executable..."

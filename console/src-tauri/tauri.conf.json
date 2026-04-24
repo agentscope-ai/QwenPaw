@@ -32,7 +32,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "nsis"],
+    "targets": ["dmg", "app", "nsis"],
     "useLocalToolsDir": true,
     "icon": [
       "icons/32x32.png",

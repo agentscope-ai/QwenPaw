@@ -83,7 +83,7 @@ export default function BackendLoadingPage({
               isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"
             }
             gapPosition="bottom"
-            format={() => elapsed + "s"}
+            format={() => <div style={{ color: textColor }}>{`${elapsed}s`}</div>}
             size={160}
             strokeWidth={8}
           />
