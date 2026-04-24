@@ -211,6 +211,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.agentConfig"),
     },
     {
+      key: "agent-stats",
+      icon: <SparkBarChartLine size={18} />,
+      path: "/agent-stats",
+      label: t("nav.agentStats"),
+    },
+    {
       key: "agents",
       icon: <SparkAgentLine size={18} />,
       path: "/agents",
