@@ -80,7 +80,7 @@ Stores backups of MEMORY.md created before each Auto-Dream optimization.
 - **Purpose**: Automatic backup before each Auto-Dream execution, enabling historical version recovery
 - **Naming format**: `memory_backup_YYYYMMDD_HHMMSS.md`
 
-> For a complete walkthrough of Auto-Memory, Auto-Dream, Auto-Memory-Search, and Proactive, see [Self-Evolving & Proactive Interaction](./self-evolving-and-proactive.en.md). The sections below cover technical implementation details and configuration only.
+> For a complete walkthrough of Auto-Memory, Auto-Dream, Auto-Memory-Search, and Proactive, see [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive.en.md). The sections below cover technical implementation details and configuration only.
 
 ---
 
@@ -302,7 +302,7 @@ Configure the memory storage backend via the `MEMORY_STORE_BACKEND` environment 
 
 ## Related Pages
 
-- [Self-Evolving & Proactive Interaction](./self-evolving-and-proactive.en.md) — Auto-Memory, Auto-Dream, Auto-Memory-Search, Proactive complete workflow
+- [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive.en.md) — Auto-Memory, Auto-Dream, Auto-Memory-Search, Proactive complete workflow
 - [Introduction](./intro.en.md) — What this project can do
 - [Console](./console.en.md) — Manage memory and configuration in the console
 - [Skills](./skills.en.md) — Built-in and custom capabilities

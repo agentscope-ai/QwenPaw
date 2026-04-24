@@ -40,7 +40,7 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 >
 > **Every channel** — DingTalk, Feishu, WeChat, Discord, Telegram, and more. One QwenPaw, connect as needed.
 >
-> **Self-evolving & proactive** — Agent learns from interactions, reflects on experience, and proactively serves you. Gets smarter the more you use it.
+> **Memory-evolving & proactive** — Agent learns from interactions, reflects on experience, and proactively serves you. Gets smarter the more you use it.
 >
 > <details>
 > <summary><b>What you can do with QwenPaw</b></summary>
@@ -370,7 +370,7 @@ QwenPaw can run LLMs entirely on your machine — no API keys or cloud services 
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)                      | Extend and customize capabilities               |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                            | Manage MCP clients                               |
 | [Memory](https://qwenpaw.agentscope.io/docs/memory)                     | Long-term memory                     |
-| [Self-Evolving & Proactive](https://qwenpaw.agentscope.io/docs/self-evolving-and-proactive) | Agent self-evolution and proactive interaction |
+| [Memory-Evolving & Proactive](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | Agent memory evolution and proactive interaction |
 | [Context](https://qwenpaw.agentscope.io/docs/context)                   | Context management mechanism                     |
 | [Magic commands](https://qwenpaw.agentscope.io/docs/commands)           | Control conversation state without waiting for the AI |
 | [Heartbeat](https://qwenpaw.agentscope.io/docs/heartbeat)                | Scheduled check-in and digest                    |

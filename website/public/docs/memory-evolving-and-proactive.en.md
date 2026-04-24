@@ -1,6 +1,6 @@
-# Agent Self-Evolving & Proactive Interaction (Beta)
+# Agent Memory-Evolving & Proactive Interaction (Beta)
 
-> **Beta Feature**: Agent Self-Evolving & Proactive Interaction is an experimental capability available in QwenPaw versions after 1.1.4beta1. We have been exploring "memory-driven experience loops" and this feature is still under active iteration. If you have any ideas or suggestions, please share them on [GitHub](https://github.com/agentscope-ai/QwenPaw/issues) to help us improve.
+> **Beta Feature**: Agent Memory-Evolving & Proactive Interaction is an experimental capability available in QwenPaw versions after 1.1.4beta1. We have been exploring "memory-driven experience loops" and this feature is still under active iteration. If you have any ideas or suggestions, please share them on [GitHub](https://github.com/agentscope-ai/QwenPaw/issues) to help us improve.
 
 QwenPaw agents achieve continuous evolution without model fine-tuning—through a **memory-driven experience loop**, they get smarter the more they use. The core idea: let the Agent accumulate experience from each interaction, periodically reflect and distill, proactively retrieve and reuse, and ultimately build personalized service capabilities—moving from passive response to proactive service.
 
@@ -8,7 +8,7 @@ QwenPaw agents achieve continuous evolution without model fine-tuning—through 
 
 ## The Evolution Loop
 
-Self-evolution is not a single feature, but a loop formed by four modules working together:
+Memory evolution is not a single feature, but a loop formed by four modules working together:
 
 ```mermaid
 graph LR
@@ -46,7 +46,7 @@ Recommended configuration for the complete evolution pipeline:
 
 ## Step 1: Experience Accumulation (Auto-Memory)
 
-Auto-Memory is the starting point of evolution. It enables the Agent to produce comprehensive summaries—not just remembering what happened, but **reflecting on how to do better next time**. This is the core of self-evolution: every interaction is a learning opportunity.
+Auto-Memory is the starting point of evolution. It enables the Agent to produce comprehensive summaries—not just remembering what happened, but **reflecting on how to do better next time**. This is the core of memory evolution: every interaction is a learning opportunity.
 
 ### What to Record
 
@@ -55,7 +55,7 @@ Auto-Memory is the starting point of evolution. It enables the Agent to produce 
 | **Factual Memory**        | Objective facts, user profile updates, project states, important events                                                                           | "User prefers Chinese communication", "Project uses PostgreSQL", "Merged PR #3466 today"                                           |
 | **Experience Reflection** | Reusable thinking logic from user feedback, successful problem-solving strategies, pitfalls to avoid, actionable insights for future interactions | "Sina Finance API is most reliable for stock prices", "Don't skip tests", "Confirm requirements before starting this type of task" |
 
-Experience reflection is the key to self-evolution—its core goal is to **build reusable cognitive frameworks to improve future task execution**. The Agent distills "what I did" into "how I do it", evolving from "I did this" to "I'll do this better next time".
+Experience reflection is the key to memory evolution—its core goal is to **build reusable cognitive frameworks to improve future task execution**. The Agent distills "what I did" into "how I do it", evolving from "I did this" to "I'll do this better next time".
 
 ### How to Record
 
@@ -203,17 +203,17 @@ Push messages are prefixed with `[PROACTIVE]` and sent to a dedicated session.
 
 ## Roadmap
 
-Current self-evolution capabilities are built on [ReMe](https://github.com/agentscope-ai/ReMe)'s ReMeLight implementation. ReMe is undergoing a major code refactoring that will bring qualitative improvements to self-evolution:
+Current memory evolution capabilities are built on [ReMe](https://github.com/agentscope-ai/ReMe)'s ReMeLight implementation. ReMe is undergoing a major code refactoring that will bring qualitative improvements to memory evolution:
 
 ### Finer-Grained Memory Classification
 
 Memory is no longer a simple "facts vs. reflections" dichotomy—it's split into three types:
 
-| Memory Type    | Description                                                  | Evolution Value               |
-| -------------- | ------------------------------------------------------------ | ----------------------------- |
-| **Personal**   | User preferences, habits, personal information               | Personalization               |
-| **Procedural** | Methods, workflows, lessons learned                          | Core driver of self-evolution |
-| **Knowledge**  | Domain knowledge, project documentation, technical solutions | Knowledge base building       |
+| Memory Type    | Description                                                  | Evolution Value                 |
+| -------------- | ------------------------------------------------------------ | ------------------------------- |
+| **Personal**   | User preferences, habits, personal information               | Personalization                 |
+| **Procedural** | Methods, workflows, lessons learned                          | Core driver of memory evolution |
+| **Knowledge**  | Domain knowledge, project documentation, technical solutions | Knowledge base building         |
 
 ### Differentiated Creation & Update Strategies
 
@@ -225,7 +225,7 @@ Different memory types have different lifecycles and update logic. After refacto
 | **Procedural** | Created when a new method is discovered             | Self-updates when existing method is verified better or issues exposed, forming a "create → verify → update" evolution cycle |
 | **Knowledge**  | Created when new domain knowledge is encountered    | Incrementally updated as knowledge evolves, maintaining consistency through graph associations                               |
 
-This differentiated strategy ensures each memory type grows and evolves in the most appropriate way, rather than applying a one-size-fits-all approach. Procedural memory will have its own dedicated Summarizer, specifically focused on distilling "how to do better" experience—this is the core driver of self-evolution.
+This differentiated strategy ensures each memory type grows and evolves in the most appropriate way, rather than applying a one-size-fits-all approach. Procedural memory will have its own dedicated Summarizer, specifically focused on distilling "how to do better" experience—this is the core driver of memory evolution.
 
 ### Knowledge Graph
 
