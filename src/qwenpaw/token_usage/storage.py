@@ -13,13 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 async def load_data(path: Path) -> dict:
-    """Load token usage data from *path*.
-
-    Returns a dict with the full schema (daily, sessions, agents, monthly)
-    if the file does not exist or is unreadable / corrupt.
-    """
+    """Load token usage data from *path*."""
     if not path.exists():
-        return {"daily": {}, "sessions": {}, "agents": {}, "monthly": {}}
+        return {}
 
     try:
         async with aiofiles.open(path, mode="r", encoding="utf-8") as f:
@@ -31,13 +27,7 @@ async def load_data(path: Path) -> dict:
             path,
             exc,
         )
-        return {"daily": {}, "sessions": {}, "agents": {}, "monthly": {}}
-
-    # Ensure all required sections exist
-    data.setdefault("daily", {})
-    data.setdefault("sessions", {})
-    data.setdefault("agents", {})
-    data.setdefault("monthly", {})
+        return {}
 
     return data
 
