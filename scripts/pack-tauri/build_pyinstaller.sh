@@ -54,25 +54,23 @@ if ! "$PYTHON_BIN" -c "import PyInstaller" 2> /dev/null; then
 fi
 echo "PyInstaller installed"
 
-# Install agent-client-protocol if not present (needed by spec collect_submodules)
+# Install project dependencies (ensures ALL runtime deps are importable)
+echo "== Installing project dependencies =="
+if command -v uv &>/dev/null; then
+    uv pip install -e .
+else
+    "$PYTHON_BIN" -m pip install -e .
+fi
+
+# Fix agent-client-protocol namespace collision
+# PyPI has an empty 'acp' stub that shadows the real package
 if ! "$PYTHON_BIN" -c "from acp import Agent" 2> /dev/null; then
-    echo "Installing agent-client-protocol..."
-    # Uninstall wrong 'acp' stub if present (empty package on PyPI)
+    echo "Fixing agent-client-protocol namespace..."
     "$PYTHON_BIN" -m pip uninstall -y acp 2>/dev/null || true
     if command -v uv &>/dev/null; then
         uv pip install agent-client-protocol
     else
         "$PYTHON_BIN" -m pip install agent-client-protocol
-    fi
-fi
-
-# Install python-dotenv if not present (core dependency)
-if ! "$PYTHON_BIN" -c "import dotenv" 2> /dev/null; then
-    echo "Installing python-dotenv..."
-    if command -v uv &>/dev/null; then
-        uv pip install python-dotenv
-    else
-        "$PYTHON_BIN" -m pip install python-dotenv
     fi
 fi
 echo ""
