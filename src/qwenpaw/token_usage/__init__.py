@@ -9,6 +9,7 @@ from .manager import (
     get_token_usage_manager,
 )
 from .model_wrapper import TokenRecordingModelWrapper
+from .buffer import _UsageEvent
 
 __all__ = [
     "TokenUsageByModel",
@@ -17,4 +18,5 @@ __all__ = [
     "TokenUsageSummary",
     "get_token_usage_manager",
     "TokenRecordingModelWrapper",
+    "_UsageEvent",
 ]

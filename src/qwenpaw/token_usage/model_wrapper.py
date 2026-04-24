@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Model wrapper that records token usage from LLM responses."""
 
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any, AsyncGenerator, Literal, Type
 
 from agentscope.model import ChatModelBase
@@ -9,6 +9,7 @@ from agentscope.model._model_response import ChatResponse
 from agentscope.model._model_usage import ChatUsage
 from pydantic import BaseModel
 
+from .buffer import _UsageEvent
 from .manager import get_token_usage_manager
 
 
@@ -25,27 +26,36 @@ class TokenRecordingModelWrapper(ChatModelBase):
         self._model = model
         self._provider_id = provider_id
 
-    async def _record_usage(self, usage: ChatUsage | None) -> None:
+    def _record_usage(self, usage: ChatUsage | None) -> None:
+        """Enqueue a usage event synchronously — never blocks the caller."""
         if usage is None:
             return
         pt = getattr(usage, "input_tokens", 0) or 0
         ct = getattr(usage, "output_tokens", 0) or 0
-        if pt > 0 or ct > 0:
-            await get_token_usage_manager().record(
-                provider_id=self._provider_id,
-                model_name=self.model_name,
-                prompt_tokens=pt,
-                completion_tokens=ct,
-                at_date=date.today(),
-            )
-            usage_data = {
-                "provider_id": self._provider_id,
-                "model_name": self.model_name,
-                "prompt_tokens": pt,
-                "completion_tokens": ct,
-                "total_tokens": pt + ct,
-            }
-            self._store_usage(usage_data)
+        if pt <= 0 and ct <= 0:
+            return
+
+        event = _UsageEvent(
+            provider_id=self._provider_id,
+            model_name=self.model_name,
+            prompt_tokens=pt,
+            completion_tokens=ct,
+            date_str=date.today().isoformat(),
+            now_iso=datetime.now(tz=timezone.utc).isoformat(
+                timespec="seconds",
+            ),
+        )
+        # Fire-and-forget: synchronous put_nowait, ~100 ns, no await needed.
+        get_token_usage_manager().enqueue(event)
+
+        usage_data = {
+            "provider_id": self._provider_id,
+            "model_name": self.model_name,
+            "prompt_tokens": pt,
+            "completion_tokens": ct,
+            "total_tokens": pt + ct,
+        }
+        self._store_usage(usage_data)
 
     @classmethod
     def pop_usage_for_session(cls, session_id: str) -> dict[str, Any] | None:
@@ -84,7 +94,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
 
         if isinstance(result, AsyncGenerator):
             return self._wrap_stream(result)
-        await self._record_usage(getattr(result, "usage", None))
+        self._record_usage(getattr(result, "usage", None))
         return result
 
     async def _wrap_stream(
@@ -96,4 +106,4 @@ class TokenRecordingModelWrapper(ChatModelBase):
             if getattr(chunk, "usage", None) is not None:
                 last_usage = chunk.usage
             yield chunk
-        await self._record_usage(last_usage)
+        self._record_usage(last_usage)

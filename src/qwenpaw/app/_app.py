@@ -261,6 +261,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     provider_manager = ProviderManager.get_instance()
     local_model_manager = LocalModelManager.get_instance()
 
+    # Start token usage manager background tasks
+    logger.debug("Starting TokenUsageManager background tasks...")
+    from ..token_usage import get_token_usage_manager
+
+    token_usage_manager = get_token_usage_manager()
+    token_usage_manager.start(flush_interval=10)
+
     # Expose to endpoints (must be set before first request arrives)
     app.state.multi_agent_manager = multi_agent_manager
     app.state.provider_manager = provider_manager
@@ -510,6 +517,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 await multi_agent_mgr.stop_all()
             except Exception as e:
                 logger.error(f"Error stopping MultiAgentManager: {e}")
+
+        # Stop token usage manager (drain queue and final flush)
+        logger.info("Stopping TokenUsageManager...")
+        try:
+            await token_usage_manager.stop()
+        except Exception as e:
+            logger.error(f"Error stopping TokenUsageManager: {e}")
 
         logger.info("Application shutdown complete")
 
