@@ -5,7 +5,7 @@ Shared spec for both macOS and Windows — builds a single onefile binary.
 """
 
 from pathlib import Path
-from PyInstaller.utils.hooks import copy_metadata, collect_submodules
+from PyInstaller.utils.hooks import copy_metadata, collect_submodules, collect_data_files
 
 REPO_ROOT = Path(SPECPATH).parent.parent
 
@@ -23,13 +23,8 @@ _data_dirs = [
 ]
 datas = [(str(SRC / src), dst) for src, dst in _data_dirs if (SRC / src).is_dir()]
 
-# Include reme package config/data files for memory manager
-import glob as _glob
-_site = str(REPO_ROOT / '.venv' / 'lib' / 'python3.12' / 'site-packages')
-for _pattern in ['reme/config/*.yaml', 'reme/core/tools/*.yaml', 'reme/core/tools/search/*.yaml']:
-    for _f in _glob.glob(str(Path(_site) / _pattern)):
-        _rel = Path(_f).relative_to(_site)
-        datas.append((str(_f), str(_rel.parent)))
+# Include reme package data files (configs, tool yamls, etc.)
+datas += collect_data_files('reme')
 
 # Collect package metadata for packages that use importlib.metadata at runtime
 _metadata_pkgs = [
