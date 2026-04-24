@@ -2,6 +2,7 @@
 """Console APIs: push messages, chat, and file upload for chat."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -15,6 +16,7 @@ from starlette.responses import StreamingResponse
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from ...utils.logging import LOG_FILE_PATH
 from ..agent_context import get_agent_for_request
+from ..runner.title_generator import generate_and_update_title
 
 
 logger = logging.getLogger(__name__)
@@ -124,15 +126,20 @@ async def post_console_chat(
         channel_meta=native_payload["meta"],
     )
     name = "New Chat"
+    first_text = ""
     if len(native_payload["content_parts"]) > 0:
         content = native_payload["content_parts"][0]
         if content:
             if isinstance(content, str):
-                name = content[:10]
+                first_text = content
             elif hasattr(content, "text"):
-                name = content.text[:10]
+                first_text = content.text or ""
             else:
-                name = str(content)[:10]
+                first_text = str(content)
+            if first_text:
+                name = first_text[:10]
+            else:
+                name = "Media Message"
         else:
             name = "Media Message"
     chat = await workspace.chat_manager.get_or_create_chat(
@@ -142,6 +149,19 @@ async def post_console_chat(
         name=name,
     )
     tracker = workspace.task_tracker
+
+    # Kick off an LLM-backed title generation in the background when the chat
+    # was just created with the truncated placeholder. This runs detached so
+    # the streaming response is never blocked by title generation latency.
+    if first_text and chat.name == name:
+        asyncio.create_task(
+            generate_and_update_title(
+                workspace=workspace,
+                chat_id=chat.id,
+                user_message=first_text,
+                placeholder_name=name,
+            ),
+        )
 
     is_reconnect = False
     if isinstance(request_data, dict):
