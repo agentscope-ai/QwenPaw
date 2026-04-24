@@ -26,6 +26,7 @@ import api from "../../../api";
 import {
   createColumns,
   JobDrawer,
+  TemplatePickerModal,
   useCronJobs,
   DEFAULT_FORM_VALUES,
 } from "./components";
@@ -69,6 +70,7 @@ function CronJobsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
   const [saving, setSaving] = useState(false);
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState<CronViewMode>("list");
   const [scheduleTypeFilter, setScheduleTypeFilter] =
     useState<ScheduleTypeFilter>("all");
@@ -114,6 +116,25 @@ function CronJobsPage() {
         ...DEFAULT_FORM_VALUES.schedule,
         timezone: userTimezoneRef.current,
       },
+    });
+    setDrawerOpen(true);
+  };
+
+  const handleOpenTemplateModal = () => {
+    setTemplateModalOpen(true);
+  };
+
+  const handleUseTemplate = (templateValues: Record<string, unknown>) => {
+    setTemplateModalOpen(false);
+    setEditingJob(null);
+    form.resetFields();
+    form.setFieldsValue({
+      ...DEFAULT_FORM_VALUES,
+      schedule: {
+        ...DEFAULT_FORM_VALUES.schedule,
+        timezone: userTimezoneRef.current,
+      },
+      ...templateValues,
     });
     setDrawerOpen(true);
   };
@@ -529,6 +550,9 @@ function CronJobsPage() {
             <Button type="primary" onClick={handleCreate}>
               + {t("cronJobs.createJob")}
             </Button>
+            <Button onClick={handleOpenTemplateModal}>
+              {t("cronJobs.createFromTemplate")}
+            </Button>
           </div>
         }
       />
@@ -680,6 +704,13 @@ function CronJobsPage() {
         saving={saving}
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
+      />
+
+      <TemplatePickerModal
+        open={templateModalOpen}
+        timezone={userTimezoneRef.current}
+        onCancel={() => setTemplateModalOpen(false)}
+        onUseTemplate={handleUseTemplate}
       />
 
       <Modal

@@ -495,7 +495,16 @@
     "title": "定时任务",
     "description": "创建和管理在指定时间自动执行的定时任务。",
     "createJob": "创建任务",
+    "createFromTemplate": "从模板创建",
     "editJob": "编辑任务",
+    "templateModalTitle": "选择定时任务模板",
+    "templateModalDescription": "先选内置模板，再在抽屉里微调关键参数后保存。",
+    "useTemplate": "使用模板",
+    "templateTagPersonal": "个人",
+    "templateTagTeam": "团队",
+    "templateTagReminder": "提醒",
+    "templateTagCalendar": "日历",
+    "templateTagCalendarRecommended": "推荐上日历",
     "confirmDelete": "确认删除",
     "deleteConfirm": "确定要删除此定时任务吗？",
     "okText": "确定",
@@ -620,7 +629,64 @@
     "historyTriggerScheduled": "定时触发",
     "historyTriggerManual": "手动触发",
     "historyExpand": "展开全文",
-    "historyCollapse": "收起"
+    "historyCollapse": "收起",
+    "templates": {
+      "dailyTechNewsBrief": {
+        "title": "工作日科技新闻早报",
+        "description": "工作日 9:30 自动整理当日热门科技资讯并推送简报。",
+        "frequency": "工作日 09:30（30 9 * * 1-5）"
+      },
+      "dailyEveningReflection": {
+        "title": "每日收尾复盘",
+        "description": "工作日 20:00 提醒回顾当日完成事项与待改进点。",
+        "frequency": "工作日 20:00（0 20 * * 1-5）"
+      },
+      "weekendRelaxationReminder": {
+        "title": "周末电影推荐",
+        "description": "周末上午推送近期热门电影推荐。",
+        "frequency": "周末 10:00（0 10 * * 6,0）"
+      },
+      "pomodoroBreakReminder": {
+        "title": "休息提醒",
+        "description": "工作时段每 25 分钟提醒起身喝水或远眺，减少疲劳。",
+        "frequency": "工作日 9:00-17:59 每 25 分钟（*/25 9-17 * * 1-5）"
+      },
+      "petCareReminder": {
+        "title": "宠物驱虫/疫苗提醒",
+        "description": "每月 15 日晚提醒给宠物做体外驱虫。",
+        "frequency": "每月 15 日 20:00（0 20 15 * *）"
+      },
+      "oneTimeReminder": {
+        "title": "一次性提醒",
+        "description": "在指定日期时间执行一次提醒。",
+        "frequency": "在所选时间执行 1 次"
+      },
+      "nDayCheckin": {
+        "title": "连续 N 天打卡",
+        "description": "按天重复，并在指定次数后结束。",
+        "frequency": "每 1 天，限定次数"
+      },
+      "dailyUntilDeadline": {
+        "title": "截止日前每日提醒",
+        "description": "按天重复，并在截止时间自动结束。",
+        "frequency": "每 1 天，终止于某天"
+      },
+      "releaseCountdown": {
+        "title": "发布倒计时提醒",
+        "description": "发布前按天提醒，直到截止时间。",
+        "frequency": "每 1 天，终止于某天"
+      },
+      "trainingCycle": {
+        "title": "培训周期提醒",
+        "description": "按周期提醒，并在指定次数后结束。",
+        "frequency": "每 7 天，限定次数"
+      },
+      "sprintCadence": {
+        "title": "冲刺节奏提醒",
+        "description": "按冲刺节奏提醒，固定次数后结束。",
+        "frequency": "每 2 天，限定次数"
+      }
+    }
   },
   "channels": {
     "title": "频道",

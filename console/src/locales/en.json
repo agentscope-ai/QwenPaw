@@ -641,7 +641,16 @@
     "title": "Cron Jobs",
     "description": "Create and manage scheduled tasks that automatically execute at specified times. ",
     "createJob": "Create Job",
+    "createFromTemplate": "Create From Template",
     "editJob": "Edit Job",
+    "templateModalTitle": "Choose a Task Template",
+    "templateModalDescription": "Pick a built-in template and tweak key parameters in the drawer before saving.",
+    "useTemplate": "Use Template",
+    "templateTagPersonal": "Personal",
+    "templateTagTeam": "Team",
+    "templateTagReminder": "Reminder",
+    "templateTagCalendar": "Calendar",
+    "templateTagCalendarRecommended": "Calendar Recommended",
     "confirmDelete": "Confirm Delete",
     "deleteConfirm": "Are you sure you want to delete this Cron Job?",
     "okText": "OK",
@@ -766,7 +775,64 @@
     "historyTriggerScheduled": "Triggered by schedule",
     "historyTriggerManual": "Triggered manually",
     "historyExpand": "Expand",
-    "historyCollapse": "Collapse"
+    "historyCollapse": "Collapse",
+    "templates": {
+      "dailyTechNewsBrief": {
+        "title": "Daily Tech News Brief",
+        "description": "At 09:30 on weekdays, compile trending tech headlines into a short digest.",
+        "frequency": "Weekdays 09:30 (30 9 * * 1-5)"
+      },
+      "dailyEveningReflection": {
+        "title": "Daily Evening Reflection",
+        "description": "At 20:00 on weekdays, prompt a quick reflection on work completed today.",
+        "frequency": "Weekdays 20:00 (0 20 * * 1-5)"
+      },
+      "weekendRelaxationReminder": {
+        "title": "Weekend Relaxation Reminder",
+        "description": "On weekend mornings, push curated hot movie picks for a lighter break.",
+        "frequency": "Weekends 10:00 (0 10 * * 6,0)"
+      },
+      "pomodoroBreakReminder": {
+        "title": "Pomodoro Break Reminder",
+        "description": "During work hours, remind every 25 minutes to hydrate or rest your eyes.",
+        "frequency": "Weekdays 09:00-17:59 every 25 min (*/25 9-17 * * 1-5)"
+      },
+      "petCareReminder": {
+        "title": "Pet Deworming/Vaccine Reminder",
+        "description": "On the 15th each month at night, remind pet deworming or vaccine follow-up.",
+        "frequency": "Monthly on the 15th at 20:00 (0 20 15 * *)"
+      },
+      "oneTimeReminder": {
+        "title": "One-time Reminder",
+        "description": "Single reminder at a specific date and time.",
+        "frequency": "Run once at selected time"
+      },
+      "nDayCheckin": {
+        "title": "N-day Check-in",
+        "description": "Daily check-in reminder for a fixed number of runs.",
+        "frequency": "Every 1 day, limited count"
+      },
+      "dailyUntilDeadline": {
+        "title": "Daily Until Deadline",
+        "description": "Daily reminder that stops at a deadline.",
+        "frequency": "Every 1 day, end on date"
+      },
+      "releaseCountdown": {
+        "title": "Release Countdown",
+        "description": "Countdown reminder before release date.",
+        "frequency": "Every 1 day, end on date"
+      },
+      "trainingCycle": {
+        "title": "Training Cycle",
+        "description": "Periodic training reminder with limited runs.",
+        "frequency": "Every 7 days, limited count"
+      },
+      "sprintCadence": {
+        "title": "Sprint Cadence",
+        "description": "Sprint rhythm reminder for fixed iterations.",
+        "frequency": "Every 2 days, limited count"
+      }
+    }
   },
   "channels": {
     "title": "Channels",

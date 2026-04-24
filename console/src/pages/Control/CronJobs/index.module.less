@@ -309,6 +309,78 @@
   color: rgba(20, 20, 19, 0.88);
 }
 
+.templateModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.templateModalDesc {
+  color: rgba(20, 20, 19, 0.6);
+  font-size: 13px;
+}
+
+.templateGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.templateCard {
+  border: 1px solid #eaeaea;
+  border-radius: 10px;
+  padding: 14px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.templateTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(20, 20, 19, 0.88);
+}
+
+.templateDesc {
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.65);
+}
+
+.templateMeta {
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.templateTags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.templateTag {
+  font-size: 11px;
+  color: rgba(20, 20, 19, 0.65);
+  background: #f2f4f7;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.templateTagRecommended {
+  font-size: 11px;
+  color: #1677ff;
+  background: #e6f4ff;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.templateActions {
+  margin-top: 4px;
+}
+
 .historyList {
   max-height: 420px;
   overflow-y: auto;
@@ -373,6 +445,7 @@
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
+  line-clamp: 4;
   overflow: hidden;
 }
 
@@ -636,6 +709,30 @@
   .historyItemStatusError,
   .historyItemError {
     color: #ff7875;
+  }
+
+  .templateModalDesc,
+  .templateMeta,
+  .templateTag {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .templateCard {
+    background: #262626;
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .templateTitle {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .templateTag {
+    background: #303030;
+  }
+
+  .templateTagRecommended {
+    color: #69b1ff;
+    background: rgba(105, 177, 255, 0.16);
   }
 
   .historyItemErrorToggle {
