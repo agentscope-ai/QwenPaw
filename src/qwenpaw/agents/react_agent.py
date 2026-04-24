@@ -472,7 +472,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         for msg, _marks in self.memory.content:
             if msg.role == "system":
                 msg.content = self.sys_prompt
-            break
+                break
 
     async def register_mcp_clients(
         self,
