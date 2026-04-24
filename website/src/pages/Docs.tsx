@@ -169,8 +169,8 @@ const DOC_GROUPS: DocGroup[] = [
       { slug: "heartbeat", titleKey: "docs.heartbeat" },
       { slug: "memory", titleKey: "docs.memory" },
       {
-        slug: "self-evolving-and-proactive",
-        titleKey: "docs.selfEvolvingAndProactive",
+        slug: "memory-evolving-and-proactive",
+        titleKey: "docs.memoryEvolvingAndProactive",
       },
     ],
   },
