@@ -593,7 +593,11 @@ class BaseChannel(ABC):
         if isinstance(value, dict):
             out: Dict[Any, Any] = {}
             for k, v in value.items():
-                nk = cls._sanitize_surrogate_text(k) if isinstance(k, str) else k
+                nk = (
+                    cls._sanitize_surrogate_text(k)
+                    if isinstance(k, str)
+                    else k
+                )
                 out[nk] = cls._sanitize_for_json(v)
             return out
         return value

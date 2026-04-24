@@ -16,7 +16,6 @@ import copy
 import logging
 import os
 import sys
-import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
@@ -329,73 +328,6 @@ class ConsoleChannel(BaseChannel):
         usage = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
         logger.info("Usage for session %s (cleaned up): %s", session_id, usage)
         return usage
-
-    @staticmethod
-    def _sanitize_surrogate_text(text: str) -> str:
-        try:
-            text.encode("utf-8")
-            return text
-        except UnicodeEncodeError:
-            return text.encode("utf-8", errors="replace").decode(
-                "utf-8",
-                errors="replace",
-            )
-
-    @classmethod
-    def _sanitize_for_json(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            return cls._sanitize_surrogate_text(value)
-        if isinstance(value, list):
-            return [cls._sanitize_for_json(v) for v in value]
-        if isinstance(value, dict):
-            out: Dict[Any, Any] = {}
-            for k, v in value.items():
-                nk = (
-                    cls._sanitize_surrogate_text(k)
-                    if isinstance(k, str)
-                    else k
-                )
-                out[nk] = cls._sanitize_for_json(v)
-            return out
-        return value
-
-    def _serialize_event_for_sse(self, event: Any) -> str:
-        try:
-            if hasattr(event, "model_dump_json"):
-                data = event.model_dump_json()
-            elif hasattr(event, "json"):
-                data = event.json()
-            else:
-                data = json.dumps({"text": str(event)}, ensure_ascii=True)
-
-            return self._sanitize_surrogate_text(data)
-
-        except Exception as err:
-            logger.warning(
-                "Event JSON serialization failed; using safe fallback: %s",
-                err,
-            )
-            try:
-                if hasattr(event, "model_dump"):
-                    payload = event.model_dump(mode="python")
-                elif hasattr(event, "dict"):
-                    payload = event.dict()
-                else:
-                    payload = {"text": str(event)}
-
-                payload = self._sanitize_for_json(payload)
-                return json.dumps(payload, ensure_ascii=True, default=str)
-            except Exception as fallback_err:
-                logger.error(
-                    "Fallback event serialization failed: %s",
-                    fallback_err,
-                )
-                return json.dumps(
-                    {
-                        "text": self._sanitize_surrogate_text(str(event)),
-                    },
-                    ensure_ascii=True,
-                )
 
     async def stream_one(self, payload: Any) -> AsyncGenerator[str, None]:
         """Process one payload and yield SSE-formatted events"""
