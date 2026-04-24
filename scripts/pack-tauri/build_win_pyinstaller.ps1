@@ -111,6 +111,12 @@ Write-Host ""
 Write-Host "== Step 2: Building Tauri App ==" -ForegroundColor Yellow
 Set-Location console
 
+Write-Host "Installing frontend dependencies..."
+bun install
+if ($LASTEXITCODE -ne 0) {
+    throw "bun install failed"
+}
+
 Write-Host "Building for Windows..."
 bun tauri build
 $tauriExit = $LASTEXITCODE
