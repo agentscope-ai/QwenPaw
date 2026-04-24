@@ -69,6 +69,12 @@ echo ""
 echo "== Step 2: Building Tauri App =="
 cd console
 
+bun install
+if [ $? -ne 0 ]; then
+    echo "ERROR: bun install failed"
+    exit 1
+fi
+
 echo "Building for macOS..."
 bun tauri build
 
