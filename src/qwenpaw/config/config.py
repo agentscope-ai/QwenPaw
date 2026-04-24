@@ -1334,12 +1334,22 @@ class ToolsConfig(BaseModel):
 
     @model_validator(mode="after")
     def _merge_default_tools(self):
-        """Ensure new code-defined tools are present in saved configs."""
-        for name, tc in _default_builtin_tools().items():
+        """Ensure new code-defined tools are present in saved configs.
+
+        Also normalises legacy entries whose ``icon`` is ``None`` so that
+        downstream serialisation (e.g. ``ToolInfo``) never receives a null
+        icon value.
+        """
+        defaults = _default_builtin_tools()
+        for name, tc in defaults.items():
             if name not in self.builtin_tools:
                 self.builtin_tools[name] = tc
             elif self.builtin_tools[name].icon is None:
                 self.builtin_tools[name].icon = tc.icon
+        # Normalise legacy/stale entries not in the current defaults
+        for name, tc in self.builtin_tools.items():
+            if name not in defaults and tc.icon is None:
+                tc.icon = ""
         return self
 
 

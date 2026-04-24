@@ -77,7 +77,7 @@ export default function CreateBackupModal({
           ? { style: { display: "none" } }
           : { disabled: !name.trim() }
       }
-      cancelText={runner.loading ? t("common.cancel") : undefined}
+      cancelText={t("common.cancel")}
       okText={t("common.confirm")}
       destroyOnHidden
       afterOpenChange={handleAfterOpenChange}

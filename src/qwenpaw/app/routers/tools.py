@@ -67,7 +67,7 @@ async def list_tools(
                 enabled=tool_config.enabled,
                 description=tool_config.description,
                 async_execution=tool_config.async_execution,
-                icon=tool_config.icon,
+                icon=tool_config.icon or "",
             ),
         )
 
