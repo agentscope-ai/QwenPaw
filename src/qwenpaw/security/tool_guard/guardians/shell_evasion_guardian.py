@@ -517,7 +517,7 @@ _CHECK_NAMES: frozenset[str] = frozenset(name for name, _ in _CHECKS)
 def _load_check_enabled_map() -> dict[str, bool]:
     """Load per-check enabled config from ``security.tool_guard``.
 
-    Unknown keys are ignored. Missing keys default to enabled.
+    Unknown keys are ignored. Missing keys default to disabled.
     """
     try:
         from qwenpaw.config import load_config
@@ -569,7 +569,7 @@ class ShellEvasionGuardian(BaseToolGuardian):
 
         findings: list[GuardFinding] = []
         for check_name, check in _CHECKS:
-            if not self._check_enabled.get(check_name, True):
+            if not self._check_enabled.get(check_name, False):
                 continue
             # Checks that need unquoted content have 2-arg signature;
             # others take only the raw command.

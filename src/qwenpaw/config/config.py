@@ -1406,6 +1406,19 @@ class ToolGuardRuleConfig(BaseModel):
     remediation: str = ""
 
 
+def _default_shell_evasion_checks() -> Dict[str, bool]:
+    """Return default shell-evasion checks (all disabled at startup)."""
+    return {
+        "command_substitution": False,
+        "obfuscated_flags": False,
+        "backslash_escaped_whitespace": False,
+        "backslash_escaped_operators": False,
+        "newlines": False,
+        "comment_quote_desync": False,
+        "quoted_newline": False,
+    }
+
+
 class ToolGuardConfig(BaseModel):
     """Tool guard settings under ``security.tool_guard``.
 
@@ -1418,7 +1431,9 @@ class ToolGuardConfig(BaseModel):
     denied_tools: List[str] = Field(default_factory=list)
     custom_rules: List[ToolGuardRuleConfig] = Field(default_factory=list)
     disabled_rules: List[str] = Field(default_factory=list)
-    shell_evasion_checks: Dict[str, bool] = Field(default_factory=dict)
+    shell_evasion_checks: Dict[str, bool] = Field(
+        default_factory=_default_shell_evasion_checks,
+    )
 
 
 class FileGuardConfig(BaseModel):
