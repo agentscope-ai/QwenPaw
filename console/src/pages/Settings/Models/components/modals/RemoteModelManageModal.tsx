@@ -316,7 +316,7 @@ export function RemoteModelManageModal({
       const modelAlreadyExists = [
         ...(provider.models ?? []),
         ...(provider.extra_models ?? []),
-      ].some((model) => model.id === id);
+      ].some((model) => model.id.trim() === id);
 
       if (modelAlreadyExists) {
         message.warning(t("models.modelAlreadyExists", { id }));

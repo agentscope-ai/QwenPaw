@@ -170,9 +170,11 @@ class Provider(ProviderInfo, ABC):
         timeout: float = 10,  # pylint: disable=unused-argument
     ) -> tuple[bool, str]:
         """Add a model to the provider's model list."""
-        if model_info.id in {
-            model.id for model in self.models + self.extra_models
-        }:
+        model_info.id = model_info.id.strip()
+        if any(
+            model.id.strip() == model_info.id
+            for model in self.models + self.extra_models
+        ):
             return False, f"Model '{model_info.id}' already exists"
         if target == "extra_models":
             self.extra_models.append(model_info)
@@ -188,8 +190,11 @@ class Provider(ProviderInfo, ABC):
         timeout: float = 10,  # pylint: disable=unused-argument
     ) -> tuple[bool, str]:
         """Delete a model from the provider's model list."""
+        model_id = model_id.strip()
         self.extra_models = [
-            model for model in self.extra_models if model.id != model_id
+            model
+            for model in self.extra_models
+            if model.id.strip() != model_id
         ]
         return True, ""
 
