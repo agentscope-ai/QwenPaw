@@ -1421,6 +1421,13 @@
       "userMessage": "用户",
       "assistantMessage": "助手",
       "titleMatch": "标题"
+    },
+    "contextMenu": {
+      "open": "打开",
+      "rename": "重命名",
+      "pin": "置顶",
+      "unpin": "取消置顶",
+      "delete": "删除"
     }
   },
   "security": {

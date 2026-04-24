@@ -1354,6 +1354,13 @@
       "userMessage": "Пользователь",
       "assistantMessage": "Ассистент",
       "titleMatch": "Название"
+    },
+    "contextMenu": {
+      "open": "Открыть",
+      "rename": "Переименовать",
+      "pin": "Закрепить",
+      "unpin": "Открепить",
+      "delete": "Удалить"
     }
   },
   "security": {

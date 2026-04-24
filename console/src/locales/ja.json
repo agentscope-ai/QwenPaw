@@ -1339,6 +1339,13 @@
       "userMessage": "ユーザー",
       "assistantMessage": "アシスタント",
       "titleMatch": "タイトル"
+    },
+    "contextMenu": {
+      "open": "開く",
+      "rename": "名前を変更",
+      "pin": "ピン留め",
+      "unpin": "ピン留め解除",
+      "delete": "削除"
     }
   },
   "security": {
