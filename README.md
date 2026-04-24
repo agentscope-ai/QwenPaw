@@ -34,6 +34,8 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 >
 > **Skills extension** — Built-in scheduling, PDF/Office processing, news digest, and more; custom skills auto-loaded, no lock-in. Skills determine what QwenPaw can do.
 >
+> **Agent runtime audit** — The built-in `agent_audit` skill helps diagnose wrapper regressions, stale memory contamination, hidden repair layers, and tool-discipline issues with evidence-first structured reports.
+>
 > **Multi-agent collaboration** — Create multiple independent agents, each with their own role; enable collaboration skills for inter-agent communication to tackle complex tasks together.
 >
 > **Multi-layer security** — Tool guard, file access control, skill security scanning to ensure safe operation.
