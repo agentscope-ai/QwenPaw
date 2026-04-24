@@ -196,15 +196,15 @@ class Provider(ProviderInfo, ABC):
     def update_config(self, config: Dict) -> None:
         """Update provider configuration with the given dictionary."""
         if "name" in config and config["name"] is not None:
-            self.name = str(config["name"])
+            self.name = str(config["name"]).strip()
         if (
             not self.freeze_url
             and "base_url" in config
             and config["base_url"] is not None
         ):
-            self.base_url = str(config["base_url"])
+            self.base_url = str(config["base_url"]).strip()
         if "api_key" in config and config["api_key"] is not None:
-            self.api_key = str(config["api_key"])
+            self.api_key = str(config["api_key"]).strip()
         if (
             self.is_custom
             and "chat_model" in config
