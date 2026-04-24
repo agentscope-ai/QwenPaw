@@ -33,10 +33,19 @@ _TOOL_FILE_PARAMS: dict[str, tuple[str, ...]] = {
 _SECRET_DIR_CURRENT_NAME = ".qwenpaw.secret"
 _SECRET_DIR_LEGACY_NAME = ".copaw.secret"
 
+
+def _with_platform_trailing_sep(path: str | Path) -> str:
+    """Return path string with a trailing separator for current platform."""
+    raw = str(path)
+    if raw.endswith(("/", "\\")):
+        return raw
+    return raw + ("\\" if os.name == "nt" else "/")
+
+
 _COMPAT_SECRET_DIRS: tuple[str, ...] = (
-    str(SECRET_DIR) + "/",
-    str(Path.home() / _SECRET_DIR_LEGACY_NAME) + "/",
-    str(Path.home() / _SECRET_DIR_CURRENT_NAME) + "/",
+    _with_platform_trailing_sep(SECRET_DIR),
+    _with_platform_trailing_sep(Path.home() / _SECRET_DIR_LEGACY_NAME),
+    _with_platform_trailing_sep(Path.home() / _SECRET_DIR_CURRENT_NAME),
 )
 
 
@@ -211,6 +220,18 @@ def _strip_surrounding_quotes(token: str) -> str:
     return token
 
 
+def _sanitize_path_candidate(raw: str) -> str:
+    """Normalize shell/param quoting artifacts around a path candidate."""
+    candidate = raw.strip()
+    # Handle escaped boundary quotes such as: \"C:\\Users\\x\"
+    if len(candidate) >= 4 and (
+        (candidate.startswith('\\"') and candidate.endswith('\\"'))
+        or (candidate.startswith("\\'") and candidate.endswith("\\'"))
+    ):
+        candidate = candidate[2:-2]
+    return _strip_surrounding_quotes(candidate)
+
+
 def _extract_attached_redirect_path(token: str) -> str | None:
     """Return redirected path for attached forms like ``2>err.log``."""
     for op in _REDIRECT_OPS_BY_LEN:
@@ -243,12 +264,13 @@ def _extract_paths_from_shell_command(command: str) -> list[str]:
     candidates: list[str] = []
     i = 0
     while i < len(tokens):
-        token = tokens[i]
+        token = _sanitize_path_candidate(tokens[i])
 
         # Handle separated redirection operators: `cat a > out.txt`
         if token in _SHELL_REDIRECT_OPERATORS:
             if i + 1 < len(tokens):
                 next_token = tokens[i + 1]
+                next_token = _sanitize_path_candidate(next_token)
                 if _looks_like_path_token(next_token):
                     candidates.append(next_token)
             i += 1
@@ -257,7 +279,7 @@ def _extract_paths_from_shell_command(command: str) -> list[str]:
         # Handle attached redirection: `>out.txt`, `2>err.log`, `<in.txt`
         attached_path = _extract_attached_redirect_path(token)
         if attached_path is not None:
-            candidates.append(attached_path)
+            candidates.append(_sanitize_path_candidate(attached_path))
             i += 1
             continue
 
@@ -411,7 +433,8 @@ class FilePathToolGuardian(BaseToolGuardian):
         snippet: str | None = None,
     ) -> None:
         """Check a single string value against sensitive paths."""
-        abs_path = _normalize_path(raw_value)
+        normalized_input = _sanitize_path_candidate(raw_value)
+        abs_path = _normalize_path(normalized_input)
         if self._is_sensitive(abs_path):
             findings.append(
                 self._make_finding(
