@@ -313,6 +313,15 @@ export function RemoteModelManageModal({
       const values = await form.validateFields();
       const id = values.id.trim();
       const name = values.name?.trim() || id;
+      const modelAlreadyExists = [
+        ...(provider.models ?? []),
+        ...(provider.extra_models ?? []),
+      ].some((model) => model.id === id);
+
+      if (modelAlreadyExists) {
+        message.warning(t("models.modelAlreadyExists", { id }));
+        return;
+      }
 
       // Step 1: Test the model connection first
       setSaving(true);

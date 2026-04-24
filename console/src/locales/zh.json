@@ -922,6 +922,7 @@
     "modelNamePlaceholder": "例如 GPT-4o, Gemini 2.0 Flash",
     "modelAdded": "模型 \"{{name}}\" 已添加",
     "modelAddFailed": "添加模型失败",
+    "modelAlreadyExists": "模型 ID \"{{id}}\" 已存在",
     "autoDiscoverModelsSuccess": "自动发现完成，新增 {{count}} 个模型",
     "autoDiscoverModelsNoNew": "自动发现完成，未新增模型",
     "autoDiscoverModelsFailed": "自动发现模型失败",

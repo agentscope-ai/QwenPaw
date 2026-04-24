@@ -1048,7 +1048,15 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        await provider.add_model(model_info)
+        added, error_message = await provider.add_model(model_info)
+        if not added:
+            raise ProviderError(
+                message=error_message,
+                details={
+                    "provider_id": provider_id,
+                    "model_id": model_info.id,
+                },
+            )
 
         # Save provider config to appropriate location
         is_plugin = provider_id in self.plugin_providers

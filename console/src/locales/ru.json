@@ -872,6 +872,7 @@
     "modelNamePlaceholder": "например: GPT-4o, Gemini 2.0 Flash",
     "modelAdded": "Модель «{{name}}» добавлена",
     "modelAddFailed": "Не удалось добавить модель",
+    "modelAlreadyExists": "Модель с ID \"{{id}}\" уже существует",
     "autoDiscoverModelsSuccess": "Автообнаружение завершено. Добавлено моделей: {{count}}",
     "autoDiscoverModelsNoNew": "Автообнаружение завершено. Новых моделей не найдено",
     "autoDiscoverModelsFailed": "Не удалось автоматически обнаружить модели",
