@@ -65,6 +65,16 @@ if ! "$PYTHON_BIN" -c "from acp import Agent" 2> /dev/null; then
         "$PYTHON_BIN" -m pip install agent-client-protocol
     fi
 fi
+
+# Install python-dotenv if not present (core dependency)
+if ! "$PYTHON_BIN" -c "import dotenv" 2> /dev/null; then
+    echo "Installing python-dotenv..."
+    if command -v uv &>/dev/null; then
+        uv pip install python-dotenv
+    else
+        "$PYTHON_BIN" -m pip install python-dotenv
+    fi
+fi
 echo ""
 
 # Run PyInstaller

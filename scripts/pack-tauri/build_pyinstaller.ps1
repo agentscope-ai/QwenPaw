@@ -86,6 +86,18 @@ try {
     Write-Host "agent-client-protocol installed" -ForegroundColor Green
 }
 
+# Install python-dotenv if not present (core dependency)
+try {
+    & $PYTHON_BIN -c "import dotenv" 2>&1 | Out-Null
+} catch {
+    Write-Host "Installing python-dotenv..."
+    & $PYTHON_BIN -m pip install python-dotenv
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install python-dotenv"
+    }
+    Write-Host "python-dotenv installed" -ForegroundColor Green
+}
+
 # Run PyInstaller
 Write-Host "== Running PyInstaller ==" -ForegroundColor Yellow
 Write-Host "Building standalone executable..."
