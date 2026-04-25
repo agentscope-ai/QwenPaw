@@ -907,7 +907,9 @@
     "add": "Добавить",
     "noRemoteModels": "Нет доступных удаленных моделей",
     "addAllModelsConfirmTitle": "Подтверждение добавления моделей",
+    "addSelectedModelsConfirmTitle": "Добавить выбранные модели?",
     "addAllModelsConfirmContent": "Добавить {{count}} моделей в {{provider}}.",
+
 
     "addAll": "Добавить все",
     "allModelsAdded": "Успешно добавлено {{count}} моделей",

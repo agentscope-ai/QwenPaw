@@ -456,15 +456,21 @@ export function RemoteModelManageModal({
       (model) => !existingModelIds.has(model.id),
     );
 
-    const targetModels =
-      selectedRemoteModelIds.size > 0
-        ? unaddedModels.filter((m) => selectedRemoteModelIds.has(m.id))
-        : unaddedModels;
+    const selectedUnadded = unaddedModels.filter((m) =>
+      selectedRemoteModelIds.has(m.id),
+    );
+    const hasSelection = selectedUnadded.length > 0;
+    const targetModels = hasSelection ? selectedUnadded : unaddedModels;
 
     if (targetModels.length === 0) return;
 
     Modal.confirm({
-      title: t("models.addAllModelsConfirmTitle", "Add all available models?"),
+      title: t(
+        hasSelection
+          ? "models.addSelectedModelsConfirmTitle"
+          : "models.addAllModelsConfirmTitle",
+        hasSelection ? "Add selected models?" : "Add all available models?",
+      ),
       content: t("models.addAllModelsConfirmContent", {
         count: targetModels.length,
         provider: provider.name,
@@ -497,6 +503,7 @@ export function RemoteModelManageModal({
         } else {
           message.warning(
             t("models.partialModelsAdded", {
+              count: targetModels.length,
               success: successCount,
               failed: failureCount,
             }),
@@ -996,6 +1003,8 @@ export function RemoteModelManageModal({
                     size="small"
                     onClick={() => {
                       setAdding(false);
+                      setSelectedRemoteModelIds(new Set());
+                      setRemoteModelSearchQuery("");
                       form.resetFields();
                     }}
                   >

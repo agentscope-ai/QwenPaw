@@ -889,7 +889,9 @@
     "add": "追加",
     "noRemoteModels": "利用可能なリモートモデルはありません",
     "addAllModelsConfirmTitle": "モデル追加の確認",
+    "addSelectedModelsConfirmTitle": "選択したモデルを追加しますか？",
     "addAllModelsConfirmContent": "{{provider}} に {{count}} 件のモデルを追加します。",
+
 
     "addAll": "すべて追加",
     "allModelsAdded": "{{count}} 件のモデルをすべて追加しました",

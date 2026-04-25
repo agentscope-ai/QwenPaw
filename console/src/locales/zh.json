@@ -957,7 +957,9 @@
     "add": "添加",
     "noRemoteModels": "暂无远程可用模型",
     "addAllModelsConfirmTitle": "确认添加模型",
+    "addSelectedModelsConfirmTitle": "添加所选模型？",
     "addAllModelsConfirmContent": "向 {{provider}} 添加 {{count}} 个模型。",
+
     "addAll": "全部添加",
     "allModelsAdded": "成功添加 {{count}} 个模型",
     "partialModelsAdded": "已添加 {{success}} / {{count}} 个模型，{{failed}} 个失败",

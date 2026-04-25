@@ -1094,6 +1094,7 @@
     "add": "Add",
     "noRemoteModels": "No remote models available",
     "addAllModelsConfirmTitle": "Confirm Model Addition",
+    "addSelectedModelsConfirmTitle": "Add Selected Models?",
     "addAllModelsConfirmContent": "Add {{count}} model(s) to {{provider}}.",
     "addAll": "Add All",
     "allModelsAdded": "All {{count}} models added successfully",
