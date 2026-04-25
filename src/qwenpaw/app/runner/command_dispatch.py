@@ -100,11 +100,21 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
         (Msg, bool) compatible with query_handler stream
     """
     query = _get_last_user_text(msgs)
+    logger.debug(
+        f"run_command_path: "
+        f"query={query!r} msgs_len={len(msgs) if msgs else 0}",
+    )
     if not query:
+        logger.debug("run_command_path: empty query, returning")
         return
 
     session_id = getattr(request, "session_id", "") or ""
     user_id = getattr(request, "user_id", "") or ""
+    logger.debug(
+        f"run_command_path: "
+        f"session={session_id[:16] if session_id else 'None'} "
+        f"user={user_id[:16] if user_id else 'None'}",
+    )
 
     # Daemon path
     parsed = parse_daemon_query(query)
@@ -149,6 +159,10 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
 
     # Control command path (e.g. /stop, /approval)
     if _is_control_command(query):
+        logger.debug(
+            f"run_command_path: handling control command: {query} "
+            f"session={session_id} user={user_id}",
+        )
         workspace = runner._workspace  # pylint: disable=protected-access
         if workspace is None:
             logger.error(
@@ -175,10 +189,17 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
         channel_id = getattr(request, "channel", "")
         channel = None
 
+        logger.debug(
+            f"run_command_path: getting channel: {channel_id}",
+        )
+
         # Get channel_manager from workspace
         channel_manager = workspace.channel_manager
         if channel_manager is not None:
             channel = await channel_manager.get_channel(channel_id)
+            logger.debug(
+                f"run_command_path: channel found: {channel is not None}",
+            )
 
         if channel is None:
             logger.error(
@@ -201,20 +222,32 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
         user_id = getattr(request, "user_id", "")
 
         # Build control context
+        logger.debug(
+            f"run_command_path: building control context: "
+            f"agent_id={runner.agent_id} session={session_id}",
+        )
         control_ctx = control_commands.ControlContext(
             workspace=workspace,
             payload=request,
             channel=channel,
             session_id=session_id,
             user_id=user_id,
+            agent_id=runner.agent_id,
             args={},
         )
 
         # Handle control command
         try:
+            logger.debug(
+                f"run_command_path: calling handle_control_command: {query}",
+            )
             response_text = await control_commands.handle_control_command(
                 query,
                 control_ctx,
+            )
+            logger.debug(
+                f"run_command_path: control command response: "
+                f"{response_text[:100]}",
             )
             response_msg = Msg(
                 name="Friday",

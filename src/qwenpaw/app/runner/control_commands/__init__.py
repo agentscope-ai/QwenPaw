@@ -182,22 +182,31 @@ async def handle_control_command(
         ValueError: If command not found (should not happen
                     if is_control_command() was checked first)
     """
+    logger.debug(f"handle_control_command called: query={query}")
     token = _extract_command_token(query)
     if token is None:
+        logger.error(f"Failed to extract command token from: {query}")
         raise ValueError(f"Unknown control command: {query}")
+
+    logger.debug(f"Extracted command token: {token}")
     handler = _COMMAND_REGISTRY.get(token)
     if handler is None:
+        logger.error(f"No handler found for token: {token}")
         raise ValueError(f"Unknown control command: {query}")
 
     args = parse_args(query, token)
     context.args = args
 
     logger.info(
-        f"Handling control command: {token} args={args}",
+        f"Handling control command: {token} args={args} "
+        f"agent_id={context.agent_id} session={context.session_id[:16]}",
     )
 
     try:
-        return await handler.handle(context)
+        logger.debug(f"Calling handler.handle for: {token}")
+        result = await handler.handle(context)
+        logger.debug(f"Handler.handle completed for: {token}")
+        return result
     except Exception as e:
         logger.exception(
             f"Control command failed: {token}",
