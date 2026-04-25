@@ -1,4 +1,10 @@
-import { useState, useEffect, useMemo, useCallback, useDeferredValue } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useDeferredValue,
+} from "react";
 import {
   Button,
   Form,
@@ -228,7 +234,9 @@ function RemoteModelListItem({
 
   return (
     <div
-      className={`${styles.remoteModelListItem}${isAdded ? ` ${styles.remoteModelListItemAdded}` : ""}`}
+      className={`${styles.remoteModelListItem}${
+        isAdded ? ` ${styles.remoteModelListItemAdded}` : ""
+      }`}
     >
       <Checkbox
         disabled={isAdded || isAdding || isBatchAdding}
@@ -362,9 +370,13 @@ export function RemoteModelManageModal({
   const [loadingFilters, setLoadingFilters] = useState(false);
 
   const [loadingDiscoveredModels, setLoadingDiscoveredModels] = useState(false);
-  const [addingRemoteModelId, setAddingRemoteModelId] = useState<string | null>(null);
+  const [addingRemoteModelId, setAddingRemoteModelId] = useState<string | null>(
+    null,
+  );
   const [batchAdding, setBatchAdding] = useState(false);
-  const [selectedRemoteModelIds, setSelectedRemoteModelIds] = useState<Set<string>>(new Set());
+  const [selectedRemoteModelIds, setSelectedRemoteModelIds] = useState<
+    Set<string>
+  >(new Set());
   const [remoteModelSearchQuery, setRemoteModelSearchQuery] = useState("");
 
   // For custom providers ALL models are deletable.
@@ -481,9 +493,7 @@ export function RemoteModelManageModal({
         await onSaved();
 
         if (failureCount === 0) {
-          message.success(
-            t("models.allModelsAdded", { count: successCount }),
-          );
+          message.success(t("models.allModelsAdded", { count: successCount }));
         } else {
           message.warning(
             t("models.partialModelsAdded", {
@@ -1007,64 +1017,67 @@ export function RemoteModelManageModal({
             {supportsAutoDiscover && (
               <div className={styles.modelCard}>
                 <div className={styles.remoteModelList}>
-                <div className={styles.remoteModelListHeader}>
-                  <span className={styles.remoteModelListTitle}>
-                    {t("models.availableModels", "Available Models")}
-                  </span>
-                  <div className={styles.remoteModelListActions}>
-                    <Input
-                      size="small"
-                      placeholder={t("models.searchModels", "Search models...")}
-                      value={remoteModelSearchQuery}
-                      onChange={(e) =>
-                        setRemoteModelSearchQuery(e.target.value)
-                      }
-                      className={styles.remoteModelSearchInput}
-                      prefix={<SearchOutlined />}
-                      allowClear
-                    />
-                    <Button
-                      size="small"
-                      disabled={remoteListStats.unaddedCount === 0 || batchAdding}
-                      loading={batchAdding}
-                      onClick={handleBatchAddRemoteModels}
-                    >
-                      {t("models.addModels", "Add Models")}
-                      {remoteListStats.targetCount > 0 && ` (${remoteListStats.targetCount})`}
-                    </Button>
-                  </div>
-                </div>
-
-                {loadingDiscoveredModels ? (
-                  <div className={styles.remoteModelListLoading}>
-                    {t("common.loading")}
-                  </div>
-                ) : discoveredModels.length === 0 ? (
-                  <div className={styles.remoteModelListEmpty}>
-                    {t(
-                      "models.noRemoteModels",
-                      "No remote models available",
-                    )}
-                  </div>
-                ) : (
-                  <div className={styles.remoteModelListContainer}>
-                    {filteredRemoteModels.map((model) => (
-                      <RemoteModelListItem
-                        key={model.id}
-                        model={model}
-                        isAdded={existingModelIds.has(model.id)}
-                        isSelected={selectedRemoteModelIds.has(model.id)}
-                        isAdding={addingRemoteModelId === model.id}
-                        isBatchAdding={batchAdding}
-                        onToggleSelect={handleToggleSelect}
-                        onAdd={handleAddRemoteModel}
-                        userAddedColors={colors.userAdded}
+                  <div className={styles.remoteModelListHeader}>
+                    <span className={styles.remoteModelListTitle}>
+                      {t("models.availableModels", "Available Models")}
+                    </span>
+                    <div className={styles.remoteModelListActions}>
+                      <Input
+                        size="small"
+                        placeholder={t(
+                          "models.searchModels",
+                          "Search models...",
+                        )}
+                        value={remoteModelSearchQuery}
+                        onChange={(e) =>
+                          setRemoteModelSearchQuery(e.target.value)
+                        }
+                        className={styles.remoteModelSearchInput}
+                        prefix={<SearchOutlined />}
+                        allowClear
                       />
-                    ))}
+                      <Button
+                        size="small"
+                        disabled={
+                          remoteListStats.unaddedCount === 0 || batchAdding
+                        }
+                        loading={batchAdding}
+                        onClick={handleBatchAddRemoteModels}
+                      >
+                        {t("models.addModels", "Add Models")}
+                        {remoteListStats.targetCount > 0 &&
+                          ` (${remoteListStats.targetCount})`}
+                      </Button>
+                    </div>
                   </div>
-                )}
+
+                  {loadingDiscoveredModels ? (
+                    <div className={styles.remoteModelListLoading}>
+                      {t("common.loading")}
+                    </div>
+                  ) : discoveredModels.length === 0 ? (
+                    <div className={styles.remoteModelListEmpty}>
+                      {t("models.noRemoteModels", "No remote models available")}
+                    </div>
+                  ) : (
+                    <div className={styles.remoteModelListContainer}>
+                      {filteredRemoteModels.map((model) => (
+                        <RemoteModelListItem
+                          key={model.id}
+                          model={model}
+                          isAdded={existingModelIds.has(model.id)}
+                          isSelected={selectedRemoteModelIds.has(model.id)}
+                          isAdding={addingRemoteModelId === model.id}
+                          isBatchAdding={batchAdding}
+                          onToggleSelect={handleToggleSelect}
+                          onAdd={handleAddRemoteModel}
+                          userAddedColors={colors.userAdded}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
             )}
           </div>
         ) : (
