@@ -42,6 +42,13 @@ vi.mock("../../hooks/useAppMessage", () => ({
   }),
 }));
 
+vi.mock("../../contexts/ApprovalContext", () => ({
+  useApprovalContext: () => ({
+    approvals: [] as any[],
+    setApprovals: vi.fn(),
+  }),
+}));
+
 vi.mock("../../plugins/PluginContext", () => ({
   usePlugins: () => ({
     plugins: [],
