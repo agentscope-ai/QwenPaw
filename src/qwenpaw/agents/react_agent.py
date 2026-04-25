@@ -483,7 +483,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         Returns a list of dicts with 'name' and 'description' keys.
         Only re-reads from disk when a skill directory's mtime changes.
         """
-        from ..agents.skills_manager import _read_frontmatter_safe
+        from .skills_manager import _read_frontmatter_safe
 
         cache = QwenPawAgent._skill_meta_cache
         metas = []
@@ -496,7 +496,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             except OSError:
                 mtime = 0.0
 
-            cached = cache.get(name)
+            cached = cache.get(f"{skills_dir}:{name}")
             if cached is not None and cached[0] == mtime:
                 metas.append(cached[1])
                 continue
@@ -506,7 +506,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 "name": name,
                 "description": str(post.get("description", "") or ""),
             }
-            cache[name] = (mtime, meta)
+            cache[f"{skills_dir}:{name}"] = (mtime, meta)
             metas.append(meta)
         return metas
 

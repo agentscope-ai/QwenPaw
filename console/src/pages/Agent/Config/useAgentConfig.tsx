@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import { agentsApi } from "../../../api/modules/agents";
 import type { AgentsRunningConfig } from "../../../api/types";
+import type { SemanticRoutingConfig } from "../../../api/types/semanticRouting";
 import type { AgentProfileConfig } from "../../../api/types/agents";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
@@ -34,12 +35,14 @@ export function useAgentConfig() {
     setLoading(true);
     setError(null);
     try {
-      const [config, langResp, tzResp, agentProfile] = await Promise.all([
-        api.getAgentRunningConfig(),
-        api.getAgentLanguage(),
-        api.getUserTimezone(),
-        agentsApi.getAgent(selectedAgent),
-      ]);
+      const [config, langResp, tzResp, agentProfile, srConfig] =
+        await Promise.all([
+          api.getAgentRunningConfig(),
+          api.getAgentLanguage(),
+          api.getUserTimezone(),
+          agentsApi.getAgent(selectedAgent),
+          api.getSemanticRoutingConfig(),
+        ]);
       agentProfileRef.current = agentProfile;
       const loadedLevel = (
         agentProfile?.approval_level || "AUTO"
@@ -73,6 +76,7 @@ export function useAgentConfig() {
         light_context_config: config.light_context_config,
         memory_manager_backend: memoryBackend,
         reme_light_memory_config: config.reme_light_memory_config,
+        semantic_routing: srConfig,
       });
       setLanguage(langResp.language);
       setTimezone(tzResp.timezone || "UTC");
@@ -93,10 +97,12 @@ export function useAgentConfig() {
     try {
       const values = await form.validateFields();
       setSaving(true);
+      const { semantic_routing: srValues, ...runningValues } = values;
       const approvalLevelChanged =
         approvalLevel !== initialApprovalLevelRef.current;
       await Promise.all([
-        api.updateAgentRunningConfig(values as AgentsRunningConfig),
+        api.updateAgentRunningConfig(runningValues as AgentsRunningConfig),
+        api.updateSemanticRoutingConfig(srValues as SemanticRoutingConfig),
         approvalLevelChanged && agentProfileRef.current
           ? agentsApi.updateAgent(selectedAgent, {
               ...agentProfileRef.current,

@@ -1,6 +1,6 @@
 import { Form, Card, Switch, Alert } from "@agentscope-ai/design";
-import { Slider } from "antd";
 import { useTranslation } from "react-i18next";
+import { SliderWithValue } from "./SliderWithValue";
 import styles from "../index.module.less";
 
 export function SemanticRoutingCard() {
@@ -36,7 +36,7 @@ export function SemanticRoutingCard() {
             name={["semantic_routing", "top_k"]}
             tooltip={t("agentConfig.semanticRoutingTopKTooltip")}
           >
-            <Slider min={1} max={50} />
+            <SliderWithValue min={1} max={50} />
           </Form.Item>
 
           <Form.Item
@@ -44,7 +44,7 @@ export function SemanticRoutingCard() {
             name={["semantic_routing", "min_score"]}
             tooltip={t("agentConfig.semanticRoutingMinScoreTooltip")}
           >
-            <Slider min={0} max={1} step={0.05} />
+            <SliderWithValue min={0} max={1} step={0.05} />
           </Form.Item>
         </>
       )}

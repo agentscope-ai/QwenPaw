@@ -10,10 +10,6 @@ When neither backend is available and the feature is enabled,
 QwenPaw falls back to its original skill selection logic.
 """
 
-import logging
-
-logger = logging.getLogger(__name__)
-
 # Check if local deps are available
 _LOCAL_AVAILABLE = False
 try:
@@ -45,7 +41,12 @@ def is_routing_available() -> bool:
 
 
 def __getattr__(name: str):
-    """Lazy import to avoid loading heavy deps at module import time."""
+    """Lazy import for public API.
+
+    Allows ``from qwenpaw.routing import SkillRouter`` etc.
+    without loading heavy dependencies at module import time.
+    Internal code uses direct sub-module imports instead.
+    """
     if name == "SemanticRoutingConfig":
         from .config import SemanticRoutingConfig
 

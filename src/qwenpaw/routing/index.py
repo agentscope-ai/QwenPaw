@@ -30,6 +30,8 @@ from .models import IndexItem, SearchHit
 
 logger = logging.getLogger(__name__)
 
+_EMBEDDING_API_TIMEOUT_SECONDS = 60.0
+
 
 def _content_hash(items: list[IndexItem]) -> str:
     """Compute a deterministic SHA-256 hash over (id, name, description)."""
@@ -60,7 +62,7 @@ def _get_embedding_config() -> dict[str, Any] | None:
         config = load_config()
         agent_id = config.agents.active_agent or "default"
         agent_cfg = load_agent_config(agent_id)
-        emb = agent_cfg.running.embedding_config
+        emb = agent_cfg.running.reme_light_memory_config.embedding_model_config
         if emb.base_url.strip() and emb.model_name.strip():
             return {
                 "base_url": emb.base_url.strip(),
@@ -68,8 +70,8 @@ def _get_embedding_config() -> dict[str, Any] | None:
                 "model_name": emb.model_name.strip(),
                 "max_batch_size": getattr(emb, "max_batch_size", 10),
             }
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to load embedding config: %s", exc)
     return None
 
 
@@ -96,7 +98,12 @@ def _embed_via_api(
         batch = texts[i : i + batch_size]
         payload = {"input": batch, "model": model_name}
 
-        resp = httpx.post(url, json=payload, headers=headers, timeout=60.0)
+        resp = httpx.post(
+            url,
+            json=payload,
+            headers=headers,
+            timeout=_EMBEDDING_API_TIMEOUT_SECONDS,
+        )
         resp.raise_for_status()
         data = resp.json()
 
@@ -108,20 +115,19 @@ def _embed_via_api(
 
 
 def _apply_hf_mirror_if_needed() -> None:
-    """Ensure HF_ENDPOINT is set when QwenPaw's mirror config is on."""
+    """Set ``HF_ENDPOINT`` for local model downloads if needed.
+
+    Users who need a HuggingFace mirror (e.g. behind a firewall)
+    should set the ``HF_ENDPOINT`` environment variable directly::
+
+        export HF_ENDPOINT=https://hf-mirror.com
+    """
     if os.environ.get("HF_ENDPOINT"):
+        logger.debug(
+            "HF_ENDPOINT already set: %s",
+            os.environ["HF_ENDPOINT"],
+        )
         return
-    try:
-        config = load_config()
-        agent_id = config.agents.active_agent or "default"
-        agent_cfg = load_agent_config(agent_id)
-        cc = agent_cfg.running.context_compact
-        if cc.token_count_use_mirror:
-            mirror = "https://hf-mirror.com"
-            os.environ["HF_ENDPOINT"] = mirror
-            logger.info("Using HuggingFace mirror: %s", mirror)
-    except Exception:
-        pass
 
 
 # ------------------------------------------------------------------
@@ -357,6 +363,9 @@ class SemanticIndex:
                 exc,
             )
             self._cleanup_persist()
+            self._vectors = None
+            self._items = []
+            self._hash = ""
             return False
 
     # ------------------------------------------------------------------

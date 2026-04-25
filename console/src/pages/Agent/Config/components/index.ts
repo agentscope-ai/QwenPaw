@@ -5,5 +5,4 @@ export { LlmRateLimiterCard } from "./LlmRateLimiterCard";
 export { LightContextCard } from "./LightContextCard";
 export { ReMeLightMemoryCard } from "./ReMeLightMemoryCard";
 export { ToolExecutionLevelCard } from "./ToolExecutionLevelCard";
-export { EmbeddingConfigCard } from "./EmbeddingConfigCard";
 export { SemanticRoutingCard } from "./SemanticRoutingCard";

@@ -1563,7 +1563,7 @@ class Config(BaseModel):
     semantic_routing: "SemanticRoutingConfig" = Field(
         default_factory=_default_semantic_routing_config,
         description="Semantic skill routing configuration. "
-        "Requires optional deps: sentence-transformers, faiss-cpu.",
+        "Requires optional dep: sentence-transformers.",
     )
 
 

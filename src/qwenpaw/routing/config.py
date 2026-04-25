@@ -7,8 +7,6 @@ No heavy dependencies — safe to import unconditionally.
 
 from __future__ import annotations
 
-from typing import List
-
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -33,20 +31,6 @@ class SemanticRoutingConfig(BaseModel):
         default=10,
         ge=1,
         description="Number of skills to retrieve per query",
-    )
-    max_tools: int = Field(
-        default=20,
-        ge=1,
-        description="Maximum MCP tools to expose after filtering",
-    )
-    token_budget: int = Field(
-        default=8000,
-        ge=100,
-        description="Token budget for filtered tool descriptions",
-    )
-    mandatory_tools: List[str] = Field(
-        default_factory=list,
-        description="Tool names that are always included in filtering",
     )
     min_score: float = Field(
         default=0.0,

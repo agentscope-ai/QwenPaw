@@ -27,7 +27,7 @@ class SkillRouter:
     config:
         Routing configuration (top_k, encoder, etc.).
     persist_dir:
-        Optional directory for FAISS index persistence.
+        Optional directory for index persistence.
     """
 
     def __init__(
