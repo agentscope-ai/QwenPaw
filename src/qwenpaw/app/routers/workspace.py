@@ -511,6 +511,82 @@ async def put_agents_running_config(
     return running_config
 
 
+class EmbeddingTestRequest(BaseModel):
+    backend: str = "openai"
+    api_key: str = ""
+    base_url: str = ""
+    model_name: str = ""
+    dimensions: int = 1024
+
+
+class EmbeddingTestResponse(BaseModel):
+    success: bool
+    message: str
+    latency_ms: float | None = None
+    embedding_dimensions: int | None = None
+
+
+@router.post(
+    "/embedding-test",
+    response_model=EmbeddingTestResponse,
+    summary="Test embedding configuration",
+    description=(
+        "Test if the embedding configuration is valid by making a test request"
+    ),
+)
+async def test_embedding_config(
+    config: EmbeddingTestRequest = Body(...),
+) -> EmbeddingTestResponse:
+    """Test embedding configuration by sending a request to the API."""
+    import time
+
+    if not config.base_url or not config.model_name:
+        return EmbeddingTestResponse(
+            success=False,
+            message="base_url and model_name are required",
+        )
+
+    if not config.api_key:
+        return EmbeddingTestResponse(
+            success=False,
+            message="API key is required for connection test",
+        )
+
+    try:
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(
+            api_key=config.api_key,
+            base_url=config.base_url,
+            timeout=10.0,
+        )
+
+        start_time = time.time()
+        response = await client.embeddings.create(
+            model=config.model_name,
+            input=["test"],
+            dimensions=config.dimensions if config.dimensions > 0 else None,
+        )
+        latency_ms = (time.time() - start_time) * 1000
+
+        embedding_dimensions = len(response.data[0].embedding)
+
+        return EmbeddingTestResponse(
+            success=True,
+            message=(
+                f"Embedding API connected successfully. "
+                f"Model: {config.model_name}"
+            ),
+            latency_ms=round(latency_ms, 2),
+            embedding_dimensions=embedding_dimensions,
+        )
+    except Exception as e:
+        return EmbeddingTestResponse(
+            success=False,
+            message=f"Failed to connect: {str(e)}",
+        )
+
+
 @router.get(
     "/system-prompt-files",
     response_model=list[str],
