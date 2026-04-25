@@ -1610,6 +1610,7 @@ def build_fallback_agent_profile_config(
             and config.agents.system_prompt_files
             else ["AGENTS.md", "SOUL.md", "PROFILE.md"]
         ),
+        acp=(config.acp if hasattr(config, "acp") and config.acp else None),
     )
 
 
