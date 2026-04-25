@@ -4,6 +4,8 @@ import type {
   ProviderConfigRequest,
   ActiveModelsInfo,
   GetActiveModelsRequest,
+  GetRoutingConfigRequest,
+  RoutingConfig,
   ModelSlotRequest,
   CreateCustomProviderRequest,
   AddModelRequest,
@@ -38,6 +40,16 @@ function buildActiveModelQuery(params?: GetActiveModelsRequest): string {
   return `/models/active?${searchParams.toString()}`;
 }
 
+function buildRoutingQuery(params?: GetRoutingConfigRequest): string {
+  if (!params?.agent_id) {
+    return "/config/agents/llm-routing";
+  }
+
+  const searchParams = new URLSearchParams();
+  searchParams.set("agent_id", params.agent_id);
+  return `/config/agents/llm-routing?${searchParams.toString()}`;
+}
+
 export const providerApi = {
   listProviders: () => request<ProviderInfo[]>("/models"),
 
@@ -52,6 +64,15 @@ export const providerApi = {
 
   setActiveLlm: (body: ModelSlotRequest) =>
     request<ActiveModelsInfo>("/models/active", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  getRoutingConfig: (params?: GetRoutingConfigRequest) =>
+    request<RoutingConfig>(buildRoutingQuery(params)),
+
+  setRoutingConfig: (body: RoutingConfig, params?: GetRoutingConfigRequest) =>
+    request<RoutingConfig>(buildRoutingQuery(params), {
       method: "PUT",
       body: JSON.stringify(body),
     }),
