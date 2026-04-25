@@ -14,9 +14,23 @@ vi.mock("@agentscope-ai/design", () => ({
   }) => <button onClick={onClick}>{icon}</button>,
 }));
 
-// mock getChannelIconUrl to avoid network requests
+// mock getChannelIconUrl and ChannelIcon to avoid network requests
 vi.mock("../../../Control/Channels/components", () => ({
   getChannelIconUrl: (key: string) => `/icons/${key}.png`,
+  ChannelIcon: ({
+    channelKey,
+    size,
+  }: {
+    channelKey: string;
+    size?: number;
+  }) => (
+    <img
+      src={`/icons/${channelKey}.png`}
+      alt={channelKey}
+      width={size}
+      height={size}
+    />
+  ),
 }));
 
 const baseProps = {
