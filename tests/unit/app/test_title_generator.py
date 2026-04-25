@@ -16,7 +16,7 @@ from qwenpaw.app.runner.repo.json_repo import JsonChatRepository
 from qwenpaw.app.runner.title_generator import (
     MAX_TITLE_CHARS,
     _clean_title,
-    _extract_text,
+    _extract_text_from_response,
     generate_and_update_title,
 )
 
@@ -68,53 +68,53 @@ class TestCleanTitle:
         assert _clean_title("hello, world!") == "hello, world"
 
 
-class TestExtractText:
-    """Best-effort extraction of plain text from model responses."""
+class TestExtractTextFromResponse:
+    """Same shape as skills_stream._extract_text_from_response: prefer .text,
+    fall back to .content (string or list-of-text-blocks), else empty."""
 
-    def test_extracts_from_plain_string(self) -> None:
-        assert _extract_text("hello world") == "hello world"
+    def test_plain_string(self) -> None:
+        assert _extract_text_from_response("plain") == "plain"
 
-    def test_extracts_from_text_attribute(self) -> None:
+    def test_none(self) -> None:
+        assert _extract_text_from_response(None) == ""
+
+    def test_text_attribute_wins(self) -> None:
         response = MagicMock()
-        response.text = "from .text"
-        # Don't let .content shadow .text
-        response.content = None
-        assert _extract_text(response) == "from .text"
+        response.text = "from text"
+        response.content = "from content"
+        assert _extract_text_from_response(response) == "from text"
 
-    def test_extracts_from_string_content(self) -> None:
+    def test_falls_back_to_string_content(self) -> None:
         response = MagicMock()
         response.text = None
-        response.content = "from .content"
-        assert _extract_text(response) == "from .content"
+        response.content = "from content"
+        assert _extract_text_from_response(response) == "from content"
 
-    def test_extracts_from_list_of_dicts(self) -> None:
+    def test_returns_first_text_dict_in_list(self) -> None:
         response = MagicMock()
         response.text = None
         response.content = [
+            {"type": "image"},  # skipped
             {"text": "first"},
-            {"text": " second"},
-            {"type": "image"},  # ignored
+            {"text": "second"},  # not concatenated, matches skills_stream
         ]
-        assert _extract_text(response) == "first second"
+        assert _extract_text_from_response(response) == "first"
 
-    def test_extracts_from_list_of_objects(self) -> None:
+    def test_returns_first_text_object_in_list(self) -> None:
         class Item:
             def __init__(self, t: str) -> None:
                 self.text = t
 
         response = MagicMock()
         response.text = None
-        response.content = [Item("a"), Item("b")]
-        assert _extract_text(response) == "ab"
+        response.content = [Item("alpha"), Item("beta")]
+        assert _extract_text_from_response(response) == "alpha"
 
-    def test_handles_none(self) -> None:
-        assert _extract_text(None) == ""
-
-    def test_handles_unknown_shape(self) -> None:
+    def test_unknown_shape_returns_empty(self) -> None:
         response = MagicMock()
         response.text = None
-        response.content = 12345  # unsupported type
-        assert _extract_text(response) == ""
+        response.content = 12345
+        assert _extract_text_from_response(response) == ""
 
 
 # ---------------------------------------------------------------------------
@@ -161,13 +161,16 @@ async def _seed_chat(
     return await chat_manager.create_chat(spec)
 
 
-def _patch_model_factory(model: AsyncMock | MagicMock | None = None):
+def _patch_model_factory(
+    model: AsyncMock | MagicMock | None = None,
+    factory_error: BaseException | None = None,
+):
     """Patch ``create_model_and_formatter`` at the source module level so the
     function-local import inside :mod:`title_generator` picks up the mock."""
-    if model is None:
+    if factory_error is not None:
         return patch(
             "qwenpaw.agents.model_factory.create_model_and_formatter",
-            side_effect=RuntimeError("no model"),
+            side_effect=factory_error,
         )
     return patch(
         "qwenpaw.agents.model_factory.create_model_and_formatter",
@@ -314,10 +317,14 @@ async def test_skips_when_model_unavailable(
     chat_manager: ChatManager,
     workspace: MagicMock,
 ) -> None:
-    """No active model configured must not raise — just skip the update."""
+    """No active model configured must not raise — just skip the update.
+
+    Mirrors the ``(ValueError, AppBaseException)`` shape that
+    ``skills_stream.get_model`` swallows when the provider is missing.
+    """
     chat = await _seed_chat(chat_manager)
 
-    with _patch_model_factory(None):  # raises RuntimeError("no model")
+    with _patch_model_factory(factory_error=ValueError("no provider")):
         await generate_and_update_title(
             workspace=workspace,
             chat_id=chat.id,

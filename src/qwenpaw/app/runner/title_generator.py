@@ -7,12 +7,18 @@ we spawn :func:`generate_and_update_title` as an ``asyncio`` task that asks
 the active chat model for a concise title and persists it via
 ``ChatManager.patch_chat``. Failures are logged and swallowed so title
 generation never affects the user-facing request.
+
+The LLM call mirrors ``app/routers/skills_stream.py``: build raw
+role/content dicts, await ``model(messages)`` directly without a formatter,
+and tolerate the same ``(ValueError, AppBaseException)`` factory failures.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
+
+from agentscope_runtime.engine.schemas.exception import AppBaseException
 
 from .models import ChatUpdate
 
@@ -34,8 +40,23 @@ MAX_TITLE_CHARS = 60
 TITLE_TIMEOUT_SECONDS = 30.0
 
 
-def _extract_text(response: Any) -> str:
-    """Best-effort extraction of plain text from a ChatResponse-like object."""
+def _first_text_in_list(items: list) -> str:
+    """Return the first text fragment from a list-of-blocks ``content``."""
+    for item in items:
+        if isinstance(item, dict) and isinstance(item.get("text"), str):
+            return item["text"]
+        inner = getattr(item, "text", None)
+        if isinstance(inner, str):
+            return inner
+    return ""
+
+
+def _extract_text_from_response(response: Any) -> str:
+    """Pull text out of a non-streaming ``ChatResponse``-like object.
+
+    Same shape as ``skills_stream._extract_text_from_response`` plus a
+    fallback for the list-of-text-blocks shape returned by some providers.
+    """
     if response is None:
         return ""
     if isinstance(response, str):
@@ -47,18 +68,7 @@ def _extract_text(response: Any) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, dict):
-                value = item.get("text")
-                if isinstance(value, str):
-                    parts.append(value)
-            else:
-                value = getattr(item, "text", None)
-                if isinstance(value, str):
-                    parts.append(value)
-        if parts:
-            return "".join(parts)
+        return _first_text_in_list(content)
     return ""
 
 
@@ -82,8 +92,8 @@ async def generate_and_update_title(
     """Generate a chat title via the active LLM and persist it.
 
     Skips the update if the chat has already been renamed (either by the
-    user or a previous task) so concurrent message submissions cannot clobber
-    a user-chosen name.
+    user or a previous task) so concurrent message submissions cannot
+    clobber a user-chosen name.
     """
     message = (user_message or "").strip()
     if not message:
@@ -92,11 +102,17 @@ async def generate_and_update_title(
         message = message[:MAX_INPUT_CHARS]
 
     try:
+        # Local import keeps module import cheap and avoids a circular
+        # dependency between routers and the agents package.
         from ...agents.model_factory import create_model_and_formatter
 
         try:
-            model, _ = create_model_and_formatter(agent_id=workspace.agent_id)
-        except Exception as exc:
+            model, _ = create_model_and_formatter(
+                agent_id=workspace.agent_id,
+            )
+        except (ValueError, AppBaseException) as exc:
+            # Same exception shape as ``skills_stream.get_model``: missing
+            # or misconfigured providers raise these and are non-fatal.
             logger.debug(
                 "Title generation skipped: no model available (%s)",
                 exc,
@@ -112,7 +128,7 @@ async def generate_and_update_title(
             model(messages),
             timeout=TITLE_TIMEOUT_SECONDS,
         )
-        title = _clean_title(_extract_text(response))
+        title = _clean_title(_extract_text_from_response(response))
         if not title:
             logger.debug(
                 "Title generation produced empty output for %s",
