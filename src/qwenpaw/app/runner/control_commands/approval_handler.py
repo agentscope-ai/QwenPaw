@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint:disable=protected-access
 """Handler for /approval command.
 
 Manages tool guard approval requests through unified control commands.
@@ -314,3 +315,86 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             "/approval approve abc123   # 批准指定工具\n"
             "```"
         )
+
+
+class ApproveCommandHandler(BaseControlCommandHandler):
+    """Handler for /approve shorthand command.
+
+    Provides convenient shortcut: /approve [request_id]
+    Equivalent to: /approval approve [request_id]
+    """
+
+    command_name = "/approve"
+
+    def __init__(self):
+        """Initialize with shared approval handler."""
+        self._approval_handler = ApprovalCommandHandler()
+
+    async def handle(self, context: ControlContext) -> str:
+        """Handle /approve command by delegating to approval handler.
+
+        Args:
+            context: Control command context
+
+        Returns:
+            Response text from approval handler
+        """
+        logger.debug(
+            "ApproveCommandHandler: delegating to ApprovalCommandHandler",
+        )
+
+        # Transform args: set action to approve
+        context.args = {
+            **context.args,
+            "action": "approve",
+        }
+
+        # Delegate to approval handler
+        return await self._approval_handler._handle_approve(context)
+
+
+class DenyCommandHandler(BaseControlCommandHandler):
+    """Handler for /deny shorthand command.
+
+    Provides convenient shortcut: /deny [request_id] [reason]
+    Equivalent to: /approval deny [request_id] [reason]
+    """
+
+    command_name = "/deny"
+
+    def __init__(self):
+        """Initialize with shared approval handler."""
+        self._approval_handler = ApprovalCommandHandler()
+
+    async def handle(self, context: ControlContext) -> str:
+        """Handle /deny command by delegating to approval handler.
+
+        Args:
+            context: Control command context
+
+        Returns:
+            Response text from approval handler
+        """
+        logger.debug(
+            "DenyCommandHandler: delegating to ApprovalCommandHandler",
+        )
+
+        # Parse args for /deny command
+        # Format: /deny [request_id] [reason...]
+        raw_args = context.args.get("_raw_args", "").strip()
+        parts = raw_args.split(maxsplit=1)
+
+        new_args = {"action": "deny"}
+
+        if parts:
+            # First part is request_id (optional)
+            new_args["request_id"] = parts[0]
+
+        if len(parts) > 1:
+            # Remaining parts are reason
+            new_args["reason"] = parts[1]
+
+        context.args = new_args
+
+        # Delegate to approval handler
+        return await self._approval_handler._handle_deny(context)
