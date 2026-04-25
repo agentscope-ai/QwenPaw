@@ -58,34 +58,19 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
 
     async def _handle_approve(self, context: ControlContext) -> str:
         """Approve a pending tool execution (supports cross-session)."""
-        logger.debug(
-            f"_handle_approve called: session={context.session_id[:16]} "
-            f"agent={context.agent_id}",
-        )
         svc = get_approval_service()
         request_id = context.args.get("request_id")
-        logger.debug(f"_handle_approve: request_id from args: {request_id}")
 
         # If no request_id provided, get queue head (FIFO)
         if not request_id:
-            logger.debug(
-                f"_handle_approve: no request_id, getting queue head for "
-                f"session={context.session_id[:16]}",
-            )
             pending = await svc.get_pending_by_session(context.session_id)
             if pending is None:
-                logger.debug("_handle_approve: no pending approvals found")
                 return "❌ **无待审批工具**\n\n" "当前会话没有需要审批的工具调用。"
             request_id = pending.request_id
-            logger.debug(f"_handle_approve: got queue head: {request_id[:16]}")
 
         # Get pending by request_id (supports cross-session)
-        logger.debug(f"_handle_approve: getting request: {request_id[:16]}")
         pending = await svc.get_request(request_id)
         if pending is None:
-            logger.warning(
-                f"_handle_approve: request not found: {request_id[:16]}",
-            )
             return (
                 f"❌ **审批请求不存在**\n\n"
                 f"请求 ID: `{request_id[:16]}`\n\n"
@@ -93,17 +78,7 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             )
 
         # Permission check: can only approve own agent's requests
-        logger.debug(
-            f"_handle_approve: permission check: "
-            f"pending.agent_id={pending.agent_id} "
-            f"context.agent_id={context.agent_id}",
-        )
         if pending.agent_id != context.agent_id:
-            logger.warning(
-                f"_handle_approve: permission denied: "
-                f"pending.agent_id={pending.agent_id} "
-                f"!= context.agent_id={context.agent_id}",
-            )
             return (
                 f"❌ **权限不足**\n\n"
                 f"无法审批其他Agent的工具请求。\n"
@@ -112,14 +87,9 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             )
 
         # Resolve the Future to unblock waiting agent
-        logger.debug(f"_handle_approve: resolving request: {request_id[:16]}")
         resolved = await svc.resolve_request(
             request_id,
             ApprovalDecision.APPROVED,
-        )
-        logger.info(
-            f"_handle_approve: approved tool={resolved.tool_name} "
-            f"request={request_id[:16]}",
         )
 
         # Show cross-session hint if applicable
@@ -339,10 +309,6 @@ class ApproveCommandHandler(BaseControlCommandHandler):
         Returns:
             Response text from approval handler
         """
-        logger.debug(
-            "ApproveCommandHandler: delegating to ApprovalCommandHandler",
-        )
-
         # Transform args: set action to approve
         context.args = {
             **context.args,
@@ -375,10 +341,6 @@ class DenyCommandHandler(BaseControlCommandHandler):
         Returns:
             Response text from approval handler
         """
-        logger.debug(
-            "DenyCommandHandler: delegating to ApprovalCommandHandler",
-        )
-
         # Parse args for /deny command
         # Format: /deny [request_id] [reason...]
         raw_args = context.args.get("_raw_args", "").strip()

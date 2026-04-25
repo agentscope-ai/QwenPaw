@@ -300,25 +300,11 @@ class AgentRunner(Runner):
         session_id = getattr(request, "session_id", "") or ""
 
         # Check if query is a command (including /approval)
-        logger.debug(
-            f"Query: {query!r}, is_command: {_is_command(query)} "
-            f"session={session_id[:16] if session_id else 'None'}",
-        )
+        logger.debug(f"Query: {query!r}, is_command: {_is_command(query)}")
         if query and _is_command(query):
-            logger.info(
-                "Command path: %s session=%s",
-                query.strip()[:50],
-                session_id[:16] if session_id else "None",
-            )
+            logger.info("Command path: %s", query.strip()[:50])
             async for msg, last in run_command_path(request, msgs, self):
-                logger.debug(
-                    f"Command path yielding: msg_role={msg.role} last={last}",
-                )
                 yield msg, last
-            logger.info(
-                "Command path completed: %s",
-                query.strip()[:50],
-            )
             return
 
         logger.debug(

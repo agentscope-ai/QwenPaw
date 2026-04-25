@@ -38,10 +38,6 @@ _CHANNEL_QUEUE_MAXSIZE = 1000
 
 async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
     """Merge if needed and process one payload (native or request)."""
-    logger.debug(
-        f"_process_batch: channel={ch.channel} batch_len={len(batch)} "
-        f"first_type={type(batch[0]).__name__ if batch else 'None'}",
-    )
     if ch.channel == "dingtalk" and batch and ch._is_native_payload(batch[0]):
         first = batch[0] if isinstance(batch[0], dict) else {}
         logger.info(
@@ -50,33 +46,23 @@ async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
             bool(first.get("session_webhook")),
         )
     if len(batch) > 1 and ch._is_native_payload(batch[0]):
-        logger.debug("_process_batch: merging native items")
         merged = ch.merge_native_items(batch)
         if ch.channel == "dingtalk" and isinstance(merged, dict):
             logger.info(
                 "manager _process_batch dingtalk merged: has_sw=%s",
                 bool(merged.get("session_webhook")),
             )
-        logger.debug("_process_batch: calling _consume_one_request (merged)")
         await ch._consume_one_request(merged)
     elif len(batch) > 1:
-        logger.debug("_process_batch: merging requests")
         merged = ch.merge_requests(batch)
         if merged is not None:
-            logger.debug(
-                "_process_batch: calling _consume_one_request (merged req)",
-            )
             await ch._consume_one_request(merged)
         else:
-            logger.debug("_process_batch: calling consume_one (no merge)")
             await ch.consume_one(batch[0])
     elif ch._is_native_payload(batch[0]):
-        logger.debug("_process_batch: calling _consume_one_request (native)")
         await ch._consume_one_request(batch[0])
     else:
-        logger.debug("_process_batch: calling consume_one (request)")
         await ch.consume_one(batch[0])
-    logger.debug(f"_process_batch: completed for channel={ch.channel}")
 
 
 class ChannelManager:
@@ -405,16 +391,7 @@ class ChannelManager:
         while True:
             try:
                 # Get first payload
-                logger.debug(
-                    f"Consumer waiting for payload: "
-                    f"channel={channel_id} session={session_id[:30]}",
-                )
                 payload = await queue.get()
-                logger.debug(
-                    f"Consumer got payload: channel={channel_id} "
-                    f"session={session_id[:30]} "
-                    f"payload_type={type(payload).__name__}",
-                )
 
                 # Re-fetch channel each iteration so replace_channel()
                 # swaps are picked up automatically.
@@ -423,10 +400,6 @@ class ChannelManager:
                     # Channel may be temporarily absent during a
                     # replace_channel() swap.  Retry a few times before
                     # giving up so we don't silently drop the payload.
-                    logger.warning(
-                        f"Consumer: channel not found, retrying: "
-                        f"channel_id={channel_id}",
-                    )
                     for _retry in range(3):
                         await asyncio.sleep(0.5)
                         ch = await self.get_channel(channel_id)
@@ -452,11 +425,6 @@ class ChannelManager:
                         batch.append(next_payload)
                     except asyncio.QueueEmpty:
                         break
-
-                logger.debug(
-                    f"Consumer processing batch: channel={channel_id} "
-                    f"session={session_id[:30]} batch_size={len(batch)}",
-                )
 
                 # Process batch (with merge logic)
                 await _process_batch(ch, batch)
