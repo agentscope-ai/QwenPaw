@@ -97,7 +97,10 @@ async def generate_and_update_title(
         try:
             model, _ = create_model_and_formatter(agent_id=workspace.agent_id)
         except Exception as exc:
-            logger.debug("Title generation skipped: no model available (%s)", exc)
+            logger.debug(
+                "Title generation skipped: no model available (%s)",
+                exc,
+            )
             return
 
         messages = [
@@ -111,7 +114,10 @@ async def generate_and_update_title(
         )
         title = _clean_title(_extract_text(response))
         if not title:
-            logger.debug("Title generation produced empty output for %s", chat_id)
+            logger.debug(
+                "Title generation produced empty output for %s",
+                chat_id,
+            )
             return
 
         current = await workspace.chat_manager.get_chat(chat_id)
@@ -126,7 +132,7 @@ async def generate_and_update_title(
             ChatUpdate(name=title),
         )
         logger.debug("Updated chat %s title to %r", chat_id, title)
-    except asyncio.CancelledError:
-        raise
     except Exception:
+        # asyncio.CancelledError inherits from BaseException on 3.8+ so it
+        # bypasses this handler and propagates as task cancellation expects.
         logger.exception("Title generation failed for chat %s", chat_id)

@@ -33,6 +33,28 @@ def _safe_filename(name: str) -> str:
     return re.sub(r"[^\w.\-]", "_", base)[:200] or "file"
 
 
+def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
+    """Return ``(placeholder_name, first_user_text)`` for a new chat.
+
+    The placeholder name shows up in the session drawer immediately while a
+    background task asks the model for a real title.
+    """
+    if not content_parts:
+        return "New Chat", ""
+    content = content_parts[0]
+    if not content:
+        return "Media Message", ""
+    if isinstance(content, str):
+        first_text = content
+    elif hasattr(content, "text"):
+        first_text = content.text or ""
+    else:
+        first_text = str(content)
+    if not first_text:
+        return "Media Message", ""
+    return first_text[:10], first_text
+
+
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     """Extract run_key (ChatSpec.id), session_id, and native payload.
 
@@ -125,23 +147,9 @@ async def post_console_chat(
         sender_id=native_payload["sender_id"],
         channel_meta=native_payload["meta"],
     )
-    name = "New Chat"
-    first_text = ""
-    if len(native_payload["content_parts"]) > 0:
-        content = native_payload["content_parts"][0]
-        if content:
-            if isinstance(content, str):
-                first_text = content
-            elif hasattr(content, "text"):
-                first_text = content.text or ""
-            else:
-                first_text = str(content)
-            if first_text:
-                name = first_text[:10]
-            else:
-                name = "Media Message"
-        else:
-            name = "Media Message"
+    name, first_text = _extract_placeholder_name(
+        native_payload["content_parts"],
+    )
     chat = await workspace.chat_manager.get_or_create_chat(
         session_id,
         native_payload["sender_id"],

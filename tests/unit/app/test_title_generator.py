@@ -183,7 +183,9 @@ async def test_updates_chat_name_with_cleaned_title(
     chat = await _seed_chat(chat_manager)
     placeholder = chat.name
 
-    model = AsyncMock(return_value=_make_response('"Trip Planning Assistant."'))
+    model = AsyncMock(
+        return_value=_make_response('"Trip Planning Assistant."'),
+    )
     with _patch_model_factory(model):
         await generate_and_update_title(
             workspace=workspace,
@@ -202,7 +204,7 @@ async def test_passes_concise_title_prompt_to_model(
     chat_manager: ChatManager,
     workspace: MagicMock,
 ) -> None:
-    """The model receives the system prompt and the (truncated) user message."""
+    """Model receives the system prompt and (truncated) user message."""
     chat = await _seed_chat(chat_manager)
 
     model = AsyncMock(return_value=_make_response("Title"))
@@ -261,7 +263,7 @@ async def test_skips_when_chat_was_renamed(
             workspace=workspace,
             chat_id=chat.id,
             user_message="What is the weather today?",
-            placeholder_name=chat.name,  # original placeholder no longer matches
+            placeholder_name=chat.name,  # original placeholder is stale
         )
 
     saved = await chat_manager.get_chat(chat.id)
@@ -291,7 +293,7 @@ async def test_skips_when_model_returns_empty(
     chat_manager: ChatManager,
     workspace: MagicMock,
 ) -> None:
-    """Empty / whitespace-only model output must not overwrite the placeholder."""
+    """Empty/whitespace model output must not overwrite the placeholder."""
     chat = await _seed_chat(chat_manager)
 
     model = AsyncMock(return_value=_make_response("   \n   "))
