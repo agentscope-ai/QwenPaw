@@ -892,7 +892,6 @@
     "addSelectedModelsConfirmTitle": "選択したモデルを追加しますか？",
     "addAllModelsConfirmContent": "{{provider}} に {{count}} 件のモデルを追加します。",
 
-
     "addAll": "すべて追加",
     "allModelsAdded": "{{count}} 件のモデルをすべて追加しました",
     "partialModelsAdded": "{{count}} 件中 {{success}} 件のモデルを追加しました。{{failed}} 件が失敗しました。",

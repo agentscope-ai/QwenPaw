@@ -910,7 +910,6 @@
     "addSelectedModelsConfirmTitle": "Добавить выбранные модели?",
     "addAllModelsConfirmContent": "Добавить {{count}} моделей в {{provider}}.",
 
-
     "addAll": "Добавить все",
     "allModelsAdded": "Успешно добавлено {{count}} моделей",
     "partialModelsAdded": "Добавлено {{success}} из {{count}} моделей. {{failed}} не удалось.",
