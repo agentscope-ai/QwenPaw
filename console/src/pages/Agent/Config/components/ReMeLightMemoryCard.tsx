@@ -6,13 +6,17 @@ import {
   Input,
   Collapse,
   Alert,
+  Button,
+  message,
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { SliderWithValue } from "./SliderWithValue";
+import { agentApi } from "../../../../api/modules/agent";
 import styles from "../index.module.less";
 
 export function ReMeLightMemoryCard() {
   const { t } = useTranslation();
+  const form = Form.useFormInstance();
 
   const baseUrl = Form.useWatch([
     "reme_light_memory_config",
@@ -311,6 +315,54 @@ export function ReMeLightMemoryCard() {
                     step={1}
                     disabled={!embeddingEnabled}
                   />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.embeddingTest")}
+                  name={["reme_light_memory_config", "embedding_test"]}
+                >
+                  <Button
+                    disabled={!embeddingEnabled}
+                    onClick={async () => {
+                      const values = form.getFieldsValue();
+                      const embConfig =
+                        values.reme_light_memory_config?.embedding_model_config || {};
+                      try {
+                        const response = await agentApi.testEmbeddingConfig({
+                          backend: embConfig.backend || "openai",
+                          api_key: embConfig.api_key || "",
+                          base_url: embConfig.base_url || "",
+                          model_name: embConfig.model_name || "",
+                          dimensions: embConfig.dimensions || 1024,
+                        });
+                        if (response.success) {
+                          message.success(
+                            `${t("agentConfig.embeddingTestSuccess")}${
+                              response.latency_ms
+                                ? ` (${response.latency_ms}ms)`
+                                : ""
+                            }${
+                              response.embedding_dimensions
+                                ? `, ${t(
+                                    "agentConfig.embeddingDimensions",
+                                  )}: ${response.embedding_dimensions}`
+                                : ""
+                            }`,
+                          );
+                        } else {
+                          message.error(
+                            `${t("agentConfig.embeddingTestFailed")}: ${response.message}`,
+                          );
+                        }
+                      } catch (err) {
+                        message.error(
+                          `${t("agentConfig.embeddingTestFailed")}: ${err}`,
+                        );
+                      }
+                    }}
+                  >
+                    {t("agentConfig.embeddingTestButton")}
+                  </Button>
                 </Form.Item>
               </>
             ),

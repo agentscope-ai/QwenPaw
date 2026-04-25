@@ -1,6 +1,21 @@
 import { request } from "../request";
 import type { AgentRequest, AgentsRunningConfig } from "../types";
 
+export interface EmbeddingTestResponse {
+  success: boolean;
+  message: string;
+  latency_ms?: number;
+  embedding_dimensions?: number;
+}
+
+export interface EmbeddingTestConfig {
+  backend?: string;
+  api_key?: string;
+  base_url?: string;
+  model_name?: string;
+  dimensions?: number;
+}
+
 // Agent API
 export const agentApi = {
   agentRoot: () => request<unknown>("/agent/"),
@@ -85,4 +100,10 @@ export const agentApi = {
       ffmpeg_installed: boolean;
       whisper_installed: boolean;
     }>("/workspace/local-whisper-status"),
+
+  testEmbeddingConfig: (config: EmbeddingTestConfig) =>
+    request<EmbeddingTestResponse>("/workspace/embedding-test", {
+      method: "POST",
+      body: JSON.stringify(config),
+    }),
 };
