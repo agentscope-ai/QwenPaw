@@ -136,19 +136,28 @@ async def generate_and_update_title(
             )
             return
 
-        current = await workspace.chat_manager.get_chat(chat_id)
-        if current is None:
-            return
-        if current.name != placeholder_name:
-            # User or another task already renamed it; leave it alone.
-            return
-
-        await workspace.chat_manager.patch_chat(
+        # Compare-and-set on the chat name in a single locked critical
+        # section so a concurrent user rename cannot slip in between a
+        # name check and our write.
+        updated = await workspace.chat_manager.patch_chat_if_name_matches(
             chat_id,
+            placeholder_name,
             ChatUpdate(name=title),
         )
+        if updated is None:
+            logger.debug(
+                "Chat %s no longer has placeholder name; "
+                "title update skipped",
+                chat_id,
+            )
+            return
         logger.debug("Updated chat %s title to %r", chat_id, title)
     except Exception:
-        # asyncio.CancelledError inherits from BaseException on 3.8+ so it
-        # bypasses this handler and propagates as task cancellation expects.
+        # asyncio.CancelledError has inherited from BaseException since
+        # Python 3.8 (https://docs.python.org/3/library/asyncio-exceptions
+        # .html#asyncio.CancelledError) and the project requires
+        # Python >= 3.10, so this ``except Exception`` deliberately does
+        # not catch task cancellation. There is a regression test in
+        # ``tests/unit/app/test_title_generator.py`` that asserts this
+        # invariant directly.
         logger.exception("Title generation failed for chat %s", chat_id)

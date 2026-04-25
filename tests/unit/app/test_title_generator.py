@@ -406,3 +406,51 @@ async def test_cancellation_propagates(
                 user_message="hello",
                 placeholder_name=chat.name,
             )
+
+
+def test_cancelled_error_does_not_inherit_from_exception() -> None:
+    """Pin the language-level invariant the cancellation handling relies on.
+
+    ``except Exception`` in :func:`generate_and_update_title` deliberately
+    does not catch ``asyncio.CancelledError``; this only works because
+    ``CancelledError`` has inherited from ``BaseException`` since
+    Python 3.8 (the project requires Python >= 3.10). If a future Python
+    version reverts that, this test fails loudly so the cancellation
+    handling can be revisited.
+    """
+    assert not issubclass(asyncio.CancelledError, Exception)
+    assert issubclass(asyncio.CancelledError, BaseException)
+
+
+async def test_does_not_overwrite_concurrent_rename(
+    chat_manager: ChatManager,
+    workspace: MagicMock,
+) -> None:
+    """A rename that lands while the model call is in flight must win.
+
+    Regression test for the TOCTOU window between reading the chat name
+    and writing the generated title. The fake model patches the chat
+    name *during* its own ``await``, mimicking a user rename that arrives
+    before the patch step but after the read step.
+    """
+    chat = await _seed_chat(chat_manager)
+
+    async def _model_then_rename(_messages):
+        await chat_manager.patch_chat(
+            chat.id,
+            ChatUpdate(name="User Pick"),
+        )
+        return _make_response("Auto Title")
+
+    model = AsyncMock(side_effect=_model_then_rename)
+    with _patch_model_factory(model):
+        await generate_and_update_title(
+            workspace=workspace,
+            chat_id=chat.id,
+            user_message="What is the weather?",
+            placeholder_name=chat.name,
+        )
+
+    saved = await chat_manager.get_chat(chat.id)
+    assert saved is not None
+    assert saved.name == "User Pick"

@@ -37,7 +37,11 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
     """Return ``(placeholder_name, first_user_text)`` for a new chat.
 
     The placeholder name shows up in the session drawer immediately while a
-    background task asks the model for a real title.
+    background task asks the model for a real title. Content shapes match
+    ``channels/base.py::_extract_chat_name``: dict blocks like
+    ``{"type": "text", "text": "..."}``, raw strings, and objects with a
+    ``.text`` attribute. Anything else (audio/image/file blocks) is treated
+    as media and gets the generic "Media Message" placeholder.
     """
     if not content_parts:
         return "New Chat", ""
@@ -46,10 +50,13 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
         return "Media Message", ""
     if isinstance(content, str):
         first_text = content
+    elif isinstance(content, dict):
+        text = content.get("text", "")
+        first_text = text if isinstance(text, str) else ""
     elif hasattr(content, "text"):
         first_text = content.text or ""
     else:
-        first_text = str(content)
+        first_text = ""
     if not first_text:
         return "Media Message", ""
     return first_text[:10], first_text
