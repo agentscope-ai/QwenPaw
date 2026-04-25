@@ -326,7 +326,8 @@ export function ReMeLightMemoryCard() {
                     onClick={async () => {
                       const values = form.getFieldsValue();
                       const embConfig =
-                        values.reme_light_memory_config?.embedding_model_config || {};
+                        values.reme_light_memory_config
+                          ?.embedding_model_config || {};
                       try {
                         const response = await agentApi.testEmbeddingConfig({
                           backend: embConfig.backend || "openai",
@@ -343,15 +344,17 @@ export function ReMeLightMemoryCard() {
                                 : ""
                             }${
                               response.embedding_dimensions
-                                ? `, ${t(
-                                    "agentConfig.embeddingDimensions",
-                                  )}: ${response.embedding_dimensions}`
+                                ? `, ${t("agentConfig.embeddingDimensions")}: ${
+                                    response.embedding_dimensions
+                                  }`
                                 : ""
                             }`,
                           );
                         } else {
                           message.error(
-                            `${t("agentConfig.embeddingTestFailed")}: ${response.message}`,
+                            `${t("agentConfig.embeddingTestFailed")}: ${
+                              response.message
+                            }`,
                           );
                         }
                       } catch (err) {

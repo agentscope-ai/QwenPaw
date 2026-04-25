@@ -530,11 +530,12 @@ class EmbeddingTestResponse(BaseModel):
     "/embedding-test",
     response_model=EmbeddingTestResponse,
     summary="Test embedding configuration",
-    description="Test if the embedding configuration is valid by making a test request",
+    description=(
+        "Test if the embedding configuration is valid by making a test request"
+    ),
 )
 async def test_embedding_config(
     config: EmbeddingTestRequest = Body(...),
-    request: Request = None,
 ) -> EmbeddingTestResponse:
     """Test embedding configuration by sending a request to the embedding API."""
     import time
@@ -572,7 +573,10 @@ async def test_embedding_config(
 
         return EmbeddingTestResponse(
             success=True,
-            message=f"Embedding API connected successfully. Model: {config.model_name}",
+            message=(
+                f"Embedding API connected successfully. "
+                f"Model: {config.model_name}"
+            ),
             latency_ms=round(latency_ms, 2),
             embedding_dimensions=embedding_dimensions,
         )
