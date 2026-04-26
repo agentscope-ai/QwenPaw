@@ -228,7 +228,9 @@ class Provider(ProviderInfo, ABC):
         """
         model_id = model_id.strip()
         self.extra_models = [
-            model for model in self.extra_models if model.id.strip() != model_id
+            model
+            for model in self.extra_models
+            if model.id.strip() != model_id
         ]
         if self.is_custom:
             self.models = [
@@ -268,7 +270,9 @@ class Provider(ProviderInfo, ABC):
             builtin_ids = {m.id.strip() for m in self.models}
             self.extra_models = [
                 ModelInfo.model_validate(
-                    model.model_dump() if isinstance(model, BaseModel) else model,
+                    model.model_dump()
+                    if isinstance(model, BaseModel)
+                    else model,
                 )
                 for model in config["extra_models"]
             ]
@@ -348,7 +352,9 @@ class Provider(ProviderInfo, ABC):
 
     def has_model(self, model_id: str) -> bool:
         """Check if the provider has a model with the given ID."""
-        return any(model.id == model_id for model in self.models + self.extra_models)
+        return any(
+            model.id == model_id for model in self.models + self.extra_models
+        )
 
     @abstractmethod
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """GitHub Copilot built-in provider.
 
 This provider authenticates the user via the GitHub OAuth device-code

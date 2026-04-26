@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=redefined-outer-name,unused-argument
 """Unit tests for CopilotTokenStore (encrypted on-disk persistence)."""
 from __future__ import annotations
 

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """API routes for LLM providers and models."""
 
 from __future__ import annotations
@@ -936,6 +937,7 @@ async def filter_openrouter_models(
 # GitHub Copilot OAuth device-code endpoints
 # ---------------------------------------------------------------------------
 
+# pylint: disable=wrong-import-position
 from ...providers.github_copilot_provider import (  # noqa: E402
     GitHubCopilotProvider,
 )
@@ -943,6 +945,8 @@ from ...providers.oauth import (  # noqa: E402
     DeviceCodeStart,
     OAuthStatus,
 )
+
+# pylint: enable=wrong-import-position
 
 
 def _get_oauth_provider(

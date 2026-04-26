@@ -401,8 +401,6 @@ class CopilotOAuthService:
             logger.warning(
                 "GitHub device-code expired before user authorization",
             )
-        except asyncio.CancelledError:
-            raise
         except Exception:  # pylint: disable=broad-except
             logger.exception(
                 "Unexpected error in GitHub Copilot OAuth polling loop",
@@ -621,11 +619,8 @@ class CopilotOAuthService:
         return 600.0
 
     async def _delayed_refresh(self, delay: float) -> None:
-        try:
-            await asyncio.sleep(delay)
-            await self._refresh_copilot_token_safe()
-        except asyncio.CancelledError:
-            raise
+        await asyncio.sleep(delay)
+        await self._refresh_copilot_token_safe()
 
     async def _cancel_polling(self) -> None:
         task = self._poll_task

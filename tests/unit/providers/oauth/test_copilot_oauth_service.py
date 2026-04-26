@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=redefined-outer-name,unused-argument,protected-access
 """Unit tests for CopilotOAuthService — device flow, polling, refresh.
 
 Network is fully mocked via a fake ``httpx.AsyncClient`` factory so the

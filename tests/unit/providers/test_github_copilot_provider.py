@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Unit tests for GitHubCopilotProvider."""
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -116,7 +116,7 @@ async def test_get_chat_model_instance_injects_copilot_headers(
             captured.update(kwargs)
 
     monkeypatch.setattr(
-        "qwenpaw.providers.openai_chat_model_compat." "OpenAIChatModelCompat",
+        "qwenpaw.providers.openai_chat_model_compat.OpenAIChatModelCompat",
         _StubChatModel,
     )
     instance = provider.get_chat_model_instance("gpt-4o")
