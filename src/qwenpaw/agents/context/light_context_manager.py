@@ -2,11 +2,14 @@
 # pylint: disable=too-many-nested-blocks,too-many-branches
 # pylint: disable=too-many-return-statements,too-many-statements
 """Context manager for agents with compaction support."""
+import asyncio
 import logging
 import os
 import sys
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Set
 
@@ -42,6 +45,30 @@ logger = logging.getLogger(__name__)
 def _fmt_tokens(n: int) -> str:
     """Format token count as e.g. '82.3k' or '450'."""
     return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+
+
+class CompactionState(str, Enum):
+    """Lifecycle states for fallback-aware context compaction."""
+
+    CONTEXT_OK = "context_ok"
+    COMPACT_NEEDED = "compact_needed"
+    COMPACT_OK = "compact_ok"
+    COMPACT_FAILED_RETRYABLE = "compact_failed_retryable"
+    MIN_CONTEXT_MODE = "min_context_mode"
+    REQUIRE_USER_ACTION = "require_user_action"
+
+
+@dataclass
+class CompactionPlan:
+    """A compaction decision that has not yet been committed to memory."""
+
+    state: CompactionState
+    messages_to_compact: list[Msg]
+    messages_to_keep: list[Msg]
+    summary: str = ""
+    reason: str = ""
+    before_tokens: int = 0
+    after_tokens: int = 0
 
 
 @context_registry.register("light")
@@ -196,6 +223,327 @@ class LightContextManager(BaseContextManager):
             max_bytes=max_bytes,
             file_path=saved_path,
             encoding=encoding,
+        )
+
+    @staticmethod
+    def _current_task_cancel_requested() -> bool:
+        """Return True when the current task is being cancelled."""
+        task = asyncio.current_task()
+        if task is None:
+            return False
+        cancelling = getattr(task, "cancelling", None)
+        if callable(cancelling):
+            return cancelling() > 0
+        return task.cancelled()
+
+    @staticmethod
+    def _trim_text(text: str, max_chars: int = 1200) -> str:
+        """Trim long text snippets for fallback summaries."""
+        cleaned = (text or "").strip()
+        if len(cleaned) <= max_chars:
+            return cleaned
+        head = int(max_chars * 0.7)
+        tail = max_chars - head
+        return (
+            cleaned[:head].rstrip()
+            + "\n...[truncated for fallback]...\n"
+            + cleaned[-tail:].lstrip()
+        )
+
+    @staticmethod
+    def _collect_text_blocks(message: Msg) -> list[str]:
+        """Collect human-readable text fragments from a message."""
+        if isinstance(message.content, str):
+            return [message.content]
+        texts: list[str] = []
+        if not isinstance(message.content, list):
+            return texts
+        for block in message.content:
+            if not isinstance(block, dict):
+                continue
+            block_type = block.get("type")
+            if block_type == "text":
+                texts.append(block.get("text", ""))
+            elif block_type == "thinking":
+                texts.append(block.get("thinking", ""))
+            elif block_type == "tool_result":
+                output = block.get("output", "")
+                if isinstance(output, str):
+                    texts.append(output)
+                elif isinstance(output, list):
+                    for item in output:
+                        if (
+                            isinstance(item, dict)
+                            and item.get("type") == "text"
+                        ):
+                            texts.append(item.get("text", ""))
+        return [t for t in texts if t]
+
+    def _latest_role_snippet(
+        self,
+        messages: list[Msg],
+        role: str,
+        max_chars: int = 800,
+    ) -> str:
+        """Return the latest text snippet for a given role."""
+        for msg in reversed(messages):
+            if msg.role != role:
+                continue
+            texts = self._collect_text_blocks(msg)
+            if texts:
+                return self._trim_text("\n".join(texts), max_chars=max_chars)
+        return ""
+
+    def _recent_tool_signal_lines(
+        self,
+        messages: list[Msg],
+        limit: int = 3,
+    ) -> list[str]:
+        """Return compact recent tool-result signal lines."""
+        lines: list[str] = []
+        for msg in reversed(messages):
+            if not isinstance(msg.content, list):
+                continue
+            for block in msg.content:
+                if (
+                    not isinstance(block, dict)
+                    or block.get("type") != "tool_result"
+                ):
+                    continue
+                tool_name = block.get("name", "tool")
+                output = block.get("output", "")
+                snippet = ""
+                if isinstance(output, str):
+                    snippet = output
+                elif isinstance(output, list):
+                    text_parts = [
+                        item.get("text", "")
+                        for item in output
+                        if isinstance(item, dict)
+                        and item.get("type") == "text"
+                    ]
+                    snippet = "\n".join(text_parts)
+                snippet = self._trim_text(snippet, max_chars=240)
+                if snippet:
+                    lines.append(f"- {tool_name}: {snippet}")
+                if len(lines) >= limit:
+                    return lines
+        return lines
+
+    async def _estimate_total_tokens(
+        self,
+        token_counter: EstimatedTokenCounter,
+        system_prompt: str,
+        summary: str,
+        messages: list[Msg],
+    ) -> int:
+        """Estimate total prompt tokens for the prompt, summary,
+        and messages."""
+        summary_tokens = await token_counter.count(
+            messages=[],
+            text=(system_prompt or "") + (summary or ""),
+        )
+        msg_handler = AsMsgHandler(token_counter)
+        message_tokens = await msg_handler.count_msgs_token(messages)
+        return summary_tokens + message_tokens
+
+    def _build_emergency_summary(
+        self,
+        previous_summary: str,
+        messages_to_compact: list[Msg],
+        messages_to_keep: list[Msg],
+        failure_reason: str,
+    ) -> str:
+        """Build a deterministic fallback summary when LLM compaction fails."""
+        latest_user = self._latest_role_snippet(messages_to_keep, "user")
+        if not latest_user:
+            latest_user = self._latest_role_snippet(
+                messages_to_compact,
+                "user",
+            )
+
+        latest_assistant = self._latest_role_snippet(
+            messages_to_keep,
+            "assistant",
+        )
+        if not latest_assistant:
+            latest_assistant = self._latest_role_snippet(
+                messages_to_compact,
+                "assistant",
+            )
+
+        summary_lines = [
+            "## Context Fallback Mode",
+            (
+                "Automatic compaction could not produce a validated summary, "
+                "so QwenPaw synthesized a minimal continuity summary to keep "
+                "the active task anchored."
+            ),
+            "",
+            "## Failure Reason",
+            failure_reason or "unknown",
+            "",
+            "## Existing Summary Anchor",
+            self._trim_text(previous_summary, max_chars=1800)
+            if previous_summary
+            else "No previous compressed summary was available.",
+            "",
+            "## Latest User Ask",
+            latest_user or "Latest user ask unavailable.",
+            "",
+            "## Recent Assistant State",
+            latest_assistant or "Recent assistant state unavailable.",
+        ]
+
+        tool_lines = self._recent_tool_signal_lines(messages_to_keep)
+        if tool_lines:
+            summary_lines.extend(["", "## Recent Tool Signals", *tool_lines])
+
+        summary_lines.extend(
+            [
+                "",
+                "## Fallback Notes",
+                (
+                    "- Earlier raw turns were preserved to dialog archive "
+                    "during fallback compaction."
+                ),
+                (
+                    "- Review the recent kept messages before taking "
+                    "irreversible actions."
+                ),
+            ],
+        )
+        return "\n".join(summary_lines).strip()
+
+    def _strip_thinking_blocks_in_place(
+        self,
+        messages: list[Msg],
+        preserve_recent_messages: int = 2,
+    ) -> int:
+        """Strip thinking blocks from older messages in-place."""
+        stripped = 0
+        keep_from = max(0, len(messages) - max(preserve_recent_messages, 0))
+        for idx, msg in enumerate(messages):
+            if idx >= keep_from or not isinstance(msg.content, list):
+                continue
+            new_content = []
+            for block in msg.content:
+                if isinstance(block, dict) and block.get("type") == "thinking":
+                    stripped += 1
+                    continue
+                new_content.append(block)
+            msg.content = new_content
+        return stripped
+
+    def _truncate_tool_result_inline(
+        self,
+        content: str,
+        max_bytes: int,
+        encoding: str = "utf-8",
+    ) -> str:
+        """Truncate tool output in memory without offloading to files."""
+        return truncate_text_output(
+            content,
+            max_bytes=max_bytes,
+            encoding=encoding,
+        )
+
+    def _prune_output_inline(
+        self,
+        output: str | list[dict],
+        max_bytes: int,
+        encoding: str = "utf-8",
+    ) -> str | list[dict]:
+        """Prune output inline for fallback reduction without file writes."""
+        if isinstance(output, str):
+            return self._truncate_tool_result_inline(
+                output,
+                max_bytes,
+                encoding,
+            )
+        if isinstance(output, list):
+            for block in output:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    block["text"] = self._truncate_tool_result_inline(
+                        block.get("text", ""),
+                        max_bytes,
+                        encoding,
+                    )
+        return output
+
+    def _aggressive_reduce_messages_in_place(
+        self,
+        messages: list[Msg],
+        recent_n: int = 2,
+        old_max_bytes: int = 1500,
+        recent_max_bytes: int = 8000,
+    ) -> dict[str, int]:
+        """Apply non-destructive emergency reductions in-place."""
+        thinking_removed = self._strip_thinking_blocks_in_place(
+            messages,
+            preserve_recent_messages=recent_n,
+        )
+
+        recent_count = 0
+        for msg in reversed(messages):
+            if not isinstance(msg.content, list) or not any(
+                isinstance(block, dict) and block.get("type") == "tool_result"
+                for block in msg.content
+            ):
+                break
+            recent_count += 1
+        split_index = max(0, len(messages) - max(recent_count, recent_n))
+        tool_results_truncated = 0
+
+        for idx, msg in enumerate(messages):
+            if not isinstance(msg.content, list):
+                continue
+            is_recent = idx >= split_index
+            max_bytes = recent_max_bytes if is_recent else old_max_bytes
+            for block in msg.content:
+                if (
+                    not isinstance(block, dict)
+                    or block.get("type") != "tool_result"
+                ):
+                    continue
+                output = block.get("output")
+                if not output:
+                    continue
+                block["output"] = self._prune_output_inline(output, max_bytes)
+                tool_results_truncated += 1
+
+        return {
+            "thinking_removed": thinking_removed,
+            "tool_results_truncated": tool_results_truncated,
+        }
+
+    async def _build_compaction_plan(
+        self,
+        *,
+        state: CompactionState,
+        summary: str,
+        reason: str,
+        messages_to_compact: list[Msg],
+        messages_to_keep: list[Msg],
+        before_tokens: int,
+        token_counter: EstimatedTokenCounter,
+        system_prompt: str,
+    ) -> CompactionPlan:
+        """Build a compaction plan and estimate the post-commit prompt size."""
+        after_tokens = await self._estimate_total_tokens(
+            token_counter=token_counter,
+            system_prompt=system_prompt,
+            summary=summary,
+            messages=messages_to_keep,
+        )
+        return CompactionPlan(
+            state=state,
+            messages_to_compact=messages_to_compact,
+            messages_to_keep=messages_to_keep,
+            summary=summary,
+            reason=reason,
+            before_tokens=before_tokens,
+            after_tokens=after_tokens,
         )
 
     def _prune_output(
@@ -729,7 +1077,7 @@ class LightContextManager(BaseContextManager):
                 messages_to_keep,
                 is_valid,
                 ctx_total_tokens,
-                ctx_keep_tokens,
+                _ctx_keep_tokens,
             ) = await self._check_context(
                 messages=messages,
                 context_compact_threshold=left_compact_threshold,
@@ -767,7 +1115,6 @@ class LightContextManager(BaseContextManager):
                 # Token counts are no longer accurate after fallback,
                 # invalidate them.
                 ctx_total_tokens = 0
-                ctx_keep_tokens = 0
 
             if not messages_to_compact:
                 return None
@@ -787,8 +1134,6 @@ class LightContextManager(BaseContextManager):
             total_tokens = (
                 str_token_count + ctx_total_tokens if has_token_info else 0
             )
-            keep_tokens = ctx_keep_tokens if has_token_info else 0
-
             if has_token_info:
                 pct = total_tokens / max_len * 100 if max_len > 0 else 0
                 token_line = (
@@ -811,81 +1156,209 @@ class LightContextManager(BaseContextManager):
             )
 
             ccc = running_config.light_context_config.context_compact_config
-            if ccc.enabled:
-                try:
-                    result = await self._compact_context(
-                        messages=messages_to_compact,
-                        previous_summary=memory.get_compressed_summary(),
-                        as_llm=agent.model,
-                        as_llm_formatter=agent.formatter,
-                        as_token_counter=token_counter,
-                        language=agent_config.language,
-                        max_input_length=running_config.max_input_length,
-                        compact_ratio=ccc.compact_threshold_ratio,
-                        add_thinking_block=ccc.compact_with_thinking_block,
-                    )
-                except Exception as e:
-                    logger.exception(
-                        "Context compaction LLM call failed: %s",
-                        e,
-                    )
-                    await self._print_status_message(
-                        agent,
-                        f"{status_prefix}\n\n"
-                        f"  ❌ Context compaction failed "
-                        f"(LLM error: {e}).",
-                    )
-                    return None
+            confirmation_mode = getattr(
+                ccc,
+                "fallback_confirmation_mode",
+                "risk_only",
+            )
+            safe_context_limit = max_len - context_compact_reserve
+            if safe_context_limit <= 0:
+                safe_context_limit = max_len
 
-                compact_content = (
-                    result.get("history_compact", "")
-                    if result.get("success")
-                    else ""
-                )
-                if not result.get("success"):
-                    reason = result.get("reason", "unknown")
-                    await self._print_status_message(
-                        agent,
-                        f"{status_prefix}\n\n"
-                        f"  ❌ Context compaction failed "
-                        f"({reason}).",
-                    )
-                else:
-                    if has_token_info:
-                        after_total = str_token_count + keep_tokens
-                        after_pct = (
-                            after_total / max_len * 100 if max_len > 0 else 0
-                        )
-                        after_token_line = (
-                            f"  📝 Tokens: {_fmt_tokens(after_total)} / "
-                            f"{_fmt_tokens(max_len)} ({after_pct:.0f}%)"
-                        )
-                    else:
-                        after_token_line = (
-                            f"  📝 Tokens: ? / {_fmt_tokens(max_len)}"
-                        )
-                    await self._print_status_message(
-                        agent,
-                        f"📊 Context Status:\n\n"
-                        f"{after_token_line}\n\n"
-                        f"  💬 {keep_count} msgs\n\n"
-                        "  ✅ Context compaction completed",
-                    )
-            else:
-                compact_content = ""
+            if not ccc.enabled:
                 await self._print_status_message(
                     agent,
                     f"{status_prefix}\n\n"
                     "  ⏭️ Context compaction skipped "
                     "(disabled in config).",
                 )
+                return None
+
+            try:
+                if self._current_task_cancel_requested():
+                    raise asyncio.CancelledError()
+                result = await self._compact_context(
+                    messages=messages_to_compact,
+                    previous_summary=memory.get_compressed_summary(),
+                    as_llm=agent.model,
+                    as_llm_formatter=agent.formatter,
+                    as_token_counter=token_counter,
+                    language=agent_config.language,
+                    max_input_length=running_config.max_input_length,
+                    compact_ratio=ccc.compact_threshold_ratio,
+                    add_thinking_block=ccc.compact_with_thinking_block,
+                )
+            except asyncio.CancelledError:
+                logger.info("Context compaction cancelled before commit")
+                await self._print_status_message(
+                    agent,
+                    f"{status_prefix}\n\n"
+                    "  ⏹️ Context compaction cancelled; history preserved.",
+                )
+                raise
+            except Exception as e:
+                logger.exception(
+                    "Context compaction LLM call failed: %s",
+                    e,
+                )
+                result = {
+                    "success": False,
+                    "reason": f"LLM error: {e}",
+                    "history_compact": "",
+                    "before_tokens": total_tokens if has_token_info else 0,
+                    "after_tokens": 0,
+                }
+
+            compaction_state = CompactionState.COMPACT_NEEDED
+            compaction_plan: CompactionPlan | None = None
+            compact_content = result.get("history_compact", "")
+
+            if result.get("success") and compact_content:
+                compaction_plan = await self._build_compaction_plan(
+                    state=CompactionState.COMPACT_OK,
+                    summary=compact_content,
+                    reason="",
+                    messages_to_compact=messages_to_compact,
+                    messages_to_keep=messages_to_keep,
+                    before_tokens=total_tokens if has_token_info else 0,
+                    token_counter=token_counter,
+                    system_prompt=system_prompt or "",
+                )
+                if compaction_plan.after_tokens > safe_context_limit:
+                    compaction_plan = None
+                    compact_content = ""
+                    result["success"] = False
+                    result[
+                        "reason"
+                    ] = "post-compaction context still exceeds safe budget"
+                else:
+                    compaction_state = CompactionState.COMPACT_OK
+
+            if compaction_plan is None:
+                reason = result.get("reason", "unknown")
+                compaction_state = CompactionState.COMPACT_FAILED_RETRYABLE
+                reductions = self._aggressive_reduce_messages_in_place(
+                    messages_to_keep,
+                )
+                reduced_after_total = await self._estimate_total_tokens(
+                    token_counter=token_counter,
+                    system_prompt=system_prompt or "",
+                    summary=compressed_summary or "",
+                    messages=messages,
+                )
+                if reduced_after_total <= safe_context_limit:
+                    await self._print_status_message(
+                        agent,
+                        f"{status_prefix}\n\n"
+                        f"  ⚠️ Context compaction failed ({reason}).\n"
+                        "  🩹 Applied non-destructive fallback reductions:\n"
+                        "    - thinking removed: "
+                        f"{reductions['thinking_removed']}\n"
+                        "    - tool results reduced: "
+                        f"{reductions['tool_results_truncated']}\n"
+                        "  ✅ History preserved; continuing without "
+                        "destructive compaction.",
+                    )
+                    return None
+
+                fallback_summary = self._build_emergency_summary(
+                    previous_summary=compressed_summary,
+                    messages_to_compact=messages_to_compact,
+                    messages_to_keep=messages_to_keep,
+                    failure_reason=reason,
+                )
+                fallback_plan = await self._build_compaction_plan(
+                    state=CompactionState.MIN_CONTEXT_MODE,
+                    summary=fallback_summary,
+                    reason=reason,
+                    messages_to_compact=messages_to_compact,
+                    messages_to_keep=messages_to_keep,
+                    before_tokens=total_tokens if has_token_info else 0,
+                    token_counter=token_counter,
+                    system_prompt=system_prompt or "",
+                )
+
+                if fallback_plan.after_tokens <= safe_context_limit:
+                    if confirmation_mode == "always":
+                        await self._print_status_message(
+                            agent,
+                            f"{status_prefix}\n\n"
+                            f"  ⚠️ Context compaction failed ({reason}).\n"
+                            "  👀 Confirmation mode is `always`, so "
+                            "QwenPaw preserved history and skipped "
+                            "high-risk fallback compaction.",
+                        )
+                        return None
+                    compaction_plan = fallback_plan
+                    compaction_state = CompactionState.MIN_CONTEXT_MODE
+                else:
+                    compaction_state = CompactionState.REQUIRE_USER_ACTION
+                    message = (
+                        f"{status_prefix}\n\n"
+                        f"  ❌ Context compaction failed ({reason}).\n"
+                        "  🛑 Automatic recovery could not produce a safe "
+                        "prompt window.\n"
+                        "  📝 History preserved; please choose the next step:\n"
+                        "    - `/compact` to retry with manual instruction\n"
+                        "    - `/new` to start a new conversation with "
+                        "summary\n"
+                        "    - `/clear` to reset context\n"
+                    )
+                    if confirmation_mode == "never":
+                        message += (
+                            "\n  ⚠️ Confirmation mode is `never`, but even "
+                            "emergency fallback could not reach a safe "
+                            "context budget."
+                        )
+                    else:
+                        message += (
+                            "\n  👀 Confirmation is only requested for "
+                            "high-risk fallback states; this turn was "
+                            "left untouched."
+                        )
+                    await self._print_status_message(agent, message)
+                    return None
+
+            if self._current_task_cancel_requested():
+                await self._print_status_message(
+                    agent,
+                    f"{status_prefix}\n\n"
+                    "  ⏹️ Context compaction cancelled before commit; "
+                    "history preserved.",
+                )
+                return None
 
             updated_count = await memory.mark_messages_compressed(
-                messages_to_compact,
+                compaction_plan.messages_to_compact,
             )
-            logger.info(f"Marked {updated_count} messages as compacted")
+            logger.info(
+                "Marked %s messages as compacted in state=%s",
+                updated_count,
+                compaction_state.value,
+            )
+            await memory.update_compressed_summary(compaction_plan.summary)
 
-            await memory.update_compressed_summary(compact_content)
+            after_pct = (
+                compaction_plan.after_tokens / max_len * 100
+                if max_len > 0
+                else 0
+            )
+            after_token_line = (
+                f"  📝 Tokens: {_fmt_tokens(compaction_plan.after_tokens)} / "
+                f"{_fmt_tokens(max_len)} ({after_pct:.0f}%)"
+            )
+            completion_note = (
+                "  ✅ Context compaction completed"
+                if compaction_state == CompactionState.COMPACT_OK
+                else "  🩹 Entered minimum-context fallback mode"
+            )
+            await self._print_status_message(
+                agent,
+                f"📊 Context Status:\n\n"
+                f"{after_token_line}\n\n"
+                f"  💬 {len(compaction_plan.messages_to_keep)} msgs\n\n"
+                f"{completion_note}",
+            )
 
         except Exception as e:
             logger.exception(
