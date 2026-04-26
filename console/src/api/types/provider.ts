@@ -31,6 +31,34 @@ export interface ProviderInfo {
   api_key: string;
   base_url: string;
   generate_kwargs: Record<string, unknown>;
+  /** Authentication mode: "api_key" (default) or "oauth_device_code". */
+  auth_type?: string;
+  /** Whether the provider currently has valid credentials. */
+  is_authenticated?: boolean;
+  /** GitHub login (for OAuth providers, after sign-in). */
+  oauth_user_login?: string;
+}
+
+/* ---- OAuth (GitHub Copilot etc.) ---- */
+
+export interface DeviceCodeStart {
+  user_code: string;
+  verification_uri: string;
+  expires_in: number;
+  interval: number;
+}
+
+export type OAuthStatusValue =
+  | "not_started"
+  | "pending"
+  | "authorized"
+  | "error";
+
+export interface OAuthStatus {
+  status: OAuthStatusValue;
+  message: string;
+  is_authenticated: boolean;
+  login: string;
 }
 
 export interface ProviderConfigRequest {

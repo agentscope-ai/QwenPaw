@@ -21,6 +21,10 @@ from ..config.config import ModelSlotConfig
 from ..exceptions import ProviderError
 from .anthropic_provider import AnthropicProvider
 from .gemini_provider import GeminiProvider
+from .github_copilot_provider import (
+    PROVIDER_GITHUB_COPILOT,
+    GitHubCopilotProvider,
+)
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
 from .lmstudio_provider import LMStudioProvider
@@ -796,17 +800,14 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_ZHIPU_INTL_CODINGPLAN)
         self._add_builtin(PROVIDER_SILICONFLOW_CN)
         self._add_builtin(PROVIDER_SILICONFLOW_INTL)
+        self._add_builtin(PROVIDER_GITHUB_COPILOT)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider
 
     async def list_provider_info(self) -> List[ProviderInfo]:
-        tasks = [
-            provider.get_info() for provider in self.builtin_providers.values()
-        ]
-        tasks += [
-            provider.get_info() for provider in self.custom_providers.values()
-        ]
+        tasks = [provider.get_info() for provider in self.builtin_providers.values()]
+        tasks += [provider.get_info() for provider in self.custom_providers.values()]
         # Add plugin providers - directly return their ProviderInfo
         for plugin_provider in self.plugin_providers.values():
             provider_info = plugin_provider["info"]
@@ -933,7 +934,19 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         try:
             models = await provider.fetch_models()
             if save:
-                provider.extra_models = models
+                # Exclude models already present in built-in `models` to
+                # avoid duplicates between defaults and auto-discovered,
+                # and also dedupe within the discovered list itself.
+                builtin_ids = {m.id.strip() for m in provider.models}
+                seen: set = set()
+                deduped: list = []
+                for m in models:
+                    mid = m.id.strip()
+                    if mid in builtin_ids or mid in seen:
+                        continue
+                    seen.add(mid)
+                    deduped.append(m)
+                provider.extra_models = deduped
                 # Save provider config to appropriate location
                 is_plugin = provider_id in self.plugin_providers
                 if is_plugin:
@@ -1339,6 +1352,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         provider_id = str(data.get("id", ""))
         chat_model = str(data.get("chat_model", ""))
 
+        if provider_id == "github-copilot":
+            return GitHubCopilotProvider.model_validate(data)
         if provider_id == "openrouter":
             return OpenRouterProvider.model_validate(data)
         if provider_id == "anthropic" or chat_model == "AnthropicChatModel":
@@ -1375,10 +1390,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         # Normalize provider ID for backward compatibility
         if provider_id is not None:
             provider_id = self._normalize_provider_id(provider_id)
-        if (
-            provider_id is not None
-            and self.active_model.provider_id != provider_id
-        ):
+        if provider_id is not None and self.active_model.provider_id != provider_id:
             return False
 
         self.active_model = None
@@ -1404,10 +1416,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     def _migrate_copaw_config(self) -> None:
         """Migrate copaw-local provider config to qwenpaw-local."""
         # 1. Migrate active model configuration (only provider_id)
-        if (
-            self.active_model
-            and self.active_model.provider_id == "copaw-local"
-        ):
+        if self.active_model and self.active_model.provider_id == "copaw-local":
             self.active_model.provider_id = "qwenpaw-local"
             self.save_active_model(self.active_model)
             logger.info(
@@ -1495,8 +1504,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if "models" in data:
                     # migrate models to extra_models field
                     custom_provider.extra_models = [
-                        ModelInfo.model_validate(model)
-                        for model in data["models"]
+                        ModelInfo.model_validate(model) for model in data["models"]
                     ]
                 if "chat_model" in data:
                     custom_provider.chat_model = data["chat_model"]
@@ -1533,11 +1541,14 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if not builtin.freeze_url:
                     builtin.base_url = provider.base_url
                 builtin.api_key = provider.api_key
+                # Restore OAuth credentials for OAuth-based providers.
+                if getattr(provider, "oauth_access_token", ""):
+                    builtin.oauth_access_token = provider.oauth_access_token
+                if getattr(provider, "oauth_user_login", ""):
+                    builtin.oauth_user_login = provider.oauth_user_login
                 builtin_model_ids = {m.id for m in builtin.models}
                 builtin.extra_models = [
-                    m
-                    for m in provider.extra_models
-                    if m.id not in builtin_model_ids
+                    m for m in provider.extra_models if m.id not in builtin_model_ids
                 ]
                 builtin.generate_kwargs.update(provider.generate_kwargs)
                 # Restore per-model generate_kwargs for built-in models.
@@ -1557,9 +1568,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if stored_model_kwargs:
                     for model in builtin.models:
                         if model.id in stored_model_kwargs:
-                            model.generate_kwargs = stored_model_kwargs[
-                                model.id
-                            ]
+                            model.generate_kwargs = stored_model_kwargs[model.id]
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)
@@ -1591,10 +1600,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     continue
 
                 # Static annotations present → compute derived flag only
-                if (
-                    model.supports_image is not None
-                    or model.supports_video is not None
-                ):
+                if model.supports_image is not None or model.supports_video is not None:
                     model.supports_multimodal = bool(
                         model.supports_image or model.supports_video,
                     )
@@ -1630,16 +1636,14 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         installed, _ = local_manager.check_llamacpp_installation()
         if not installed:
             logger.info(
-                "Skipping local model restore because"
-                " llama.cpp is not installed.",
+                "Skipping local model restore because" " llama.cpp is not installed.",
             )
             _clear_local_provider()
             return
 
         if not local_manager.is_model_downloaded(model_id):
             logger.warning(
-                "Skipping local model restore because"
-                " model is not downloaded: %s",
+                "Skipping local model restore because" " model is not downloaded: %s",
                 model_id,
             )
             _clear_local_provider()
@@ -1724,9 +1728,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if "base_url" in saved_config:
                     provider_info.base_url = saved_config["base_url"]
                 if "generate_kwargs" in saved_config:
-                    provider_info.generate_kwargs = saved_config[
-                        "generate_kwargs"
-                    ]
+                    provider_info.generate_kwargs = saved_config["generate_kwargs"]
                 # Load extra_models from saved config
                 if "extra_models" in saved_config:
                     provider_info.extra_models = [

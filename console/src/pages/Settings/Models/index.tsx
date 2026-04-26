@@ -43,6 +43,8 @@ function ModelsPage() {
         isConfigured = true;
       } else if (provider.is_custom && provider.base_url) {
         isConfigured = true;
+      } else if (provider.auth_type === "oauth_device_code") {
+        isConfigured = Boolean(provider.is_authenticated);
       } else if (provider.require_api_key === false) {
         isConfigured = true;
       } else if (provider.require_api_key && provider.api_key) {

@@ -20,6 +20,8 @@ import type {
   DiscoverExtendedResponse,
   FilterModelsRequest,
   FilterModelsResponse,
+  DeviceCodeStart,
+  OAuthStatus,
 } from "../types";
 
 function buildActiveModelQuery(params?: GetActiveModelsRequest): string {
@@ -169,4 +171,23 @@ export const providerApi = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  /* ---- OAuth Device Code (GitHub Copilot etc.) ---- */
+
+  startProviderOAuth: (providerId: string) =>
+    request<DeviceCodeStart>(
+      `/models/${encodeURIComponent(providerId)}/oauth/device-code`,
+      { method: "POST" },
+    ),
+
+  getProviderOAuthStatus: (providerId: string) =>
+    request<OAuthStatus>(
+      `/models/${encodeURIComponent(providerId)}/oauth/status`,
+    ),
+
+  logoutProviderOAuth: (providerId: string) =>
+    request<OAuthStatus>(
+      `/models/${encodeURIComponent(providerId)}/oauth/logout`,
+      { method: "POST" },
+    ),
 };
