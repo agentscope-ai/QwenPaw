@@ -565,3 +565,291 @@ class TestConsoleMediaHandling:
         result = media_channel.media_dir
 
         assert isinstance(result, Path)
+
+
+# =============================================================================
+# P2: Filtering behaviour (filter_thinking / filter_tool_messages)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestConsoleStreamingFilters:
+    """
+    Unit tests for filter_thinking and filter_tool_messages in stream_one.
+
+    Covers:
+    - Reasoning messages suppressed when filter_thinking is on.
+    - Tool-call messages suppressed when filter_tool_messages is on.
+    - Tool-output messages with no media suppressed when
+      filter_tool_messages is on.
+    - Media from tool-output messages is still surfaced (via
+      _extract_media_message) even when the original event is filtered.
+    """
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _make_payload(self):
+        """Minimal dict payload that bypasses the debounce logic."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            TextContent,
+            ContentType,
+        )
+
+        return {
+            "sender_id": "user1",
+            "content_parts": [
+                TextContent(type=ContentType.TEXT, text="hi"),
+            ],
+            "meta": {},
+        }
+
+    def _make_channel(self, **kwargs):
+        from qwenpaw.app.channels.console.channel import ConsoleChannel
+
+        return ConsoleChannel(
+            process=AsyncMock(),
+            enabled=True,
+            bot_prefix="",
+            **kwargs,
+        )
+
+    # ------------------------------------------------------------------
+    # filter_thinking
+    # ------------------------------------------------------------------
+
+    async def test_filter_thinking_suppresses_reasoning_message(self):
+        """Reasoning messages must not be yielded when filter_thinking=True."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            RunStatus,
+            Message,
+            MessageType,
+            Role,
+            TextContent,
+            ContentType,
+        )
+
+        reasoning_msg = Message(
+            object="message",
+            type=MessageType.REASONING,
+            status=RunStatus.Completed,
+            role=Role.ASSISTANT,
+            content=[TextContent(type=ContentType.TEXT, text="thinking...")],
+        )
+
+        channel = self._make_channel(filter_thinking=True)
+
+        async def mock_process(_request):
+            yield reasoning_msg
+
+        channel._process = mock_process
+
+        events = []
+        async for evt in channel.stream_one(self._make_payload()):
+            events.append(evt)
+
+        # No SSE data events should have been emitted for the reasoning message
+        assert not any("data:" in e for e in events)
+
+    async def test_filter_thinking_passes_normal_message(self):
+        """Non-reasoning messages must still be yielded when
+        filter_thinking=True."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            RunStatus,
+            Message,
+            MessageType,
+            Role,
+            TextContent,
+            ContentType,
+        )
+
+        normal_msg = Message(
+            object="message",
+            type=MessageType.MESSAGE,
+            status=RunStatus.Completed,
+            role=Role.ASSISTANT,
+            content=[TextContent(type=ContentType.TEXT, text="hello")],
+        )
+
+        channel = self._make_channel(filter_thinking=True)
+
+        async def mock_process(_request):
+            yield normal_msg
+
+        channel._process = mock_process
+
+        events = []
+        async for evt in channel.stream_one(self._make_payload()):
+            events.append(evt)
+
+        assert any("data:" in e for e in events)
+
+    # ------------------------------------------------------------------
+    # filter_tool_messages – tool call (FUNCTION_CALL etc.)
+    # ------------------------------------------------------------------
+
+    async def test_filter_tool_messages_suppresses_tool_call(self):
+        """FUNCTION_CALL messages must not be yielded when
+        filter_tool_messages=True."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            RunStatus,
+            Message,
+            MessageType,
+            Role,
+            DataContent,
+        )
+
+        tool_call_msg = Message(
+            object="message",
+            type=MessageType.FUNCTION_CALL,
+            status=RunStatus.Completed,
+            role=Role.ASSISTANT,
+            content=[
+                DataContent(
+                    delta=False,
+                    index=None,
+                    data={
+                        "name": "my_tool",
+                        "arguments": "{}",
+                        "call_id": "c1",
+                    },
+                ),
+            ],
+        )
+
+        channel = self._make_channel(filter_tool_messages=True)
+
+        async def mock_process(_request):
+            yield tool_call_msg
+
+        channel._process = mock_process
+
+        events = []
+        async for evt in channel.stream_one(self._make_payload()):
+            events.append(evt)
+
+        assert not any("data:" in e for e in events)
+
+    async def test_filter_tool_messages_suppresses_tool_output_without_media(
+        self,
+    ):
+        """FUNCTION_CALL_OUTPUT messages with no media content must be
+        suppressed when filter_tool_messages=True."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            RunStatus,
+            Message,
+            MessageType,
+            Role,
+            DataContent,
+        )
+
+        tool_output_msg = Message(
+            object="message",
+            type=MessageType.FUNCTION_CALL_OUTPUT,
+            status=RunStatus.Completed,
+            role=Role.ASSISTANT,
+            content=[
+                DataContent(
+                    delta=False,
+                    index=None,
+                    data={
+                        "name": "my_tool",
+                        "output": "plain text result",
+                        "call_id": "c1",
+                    },
+                ),
+            ],
+        )
+
+        channel = self._make_channel(filter_tool_messages=True)
+
+        async def mock_process(_request):
+            yield tool_output_msg
+
+        channel._process = mock_process
+
+        events = []
+        async for evt in channel.stream_one(self._make_payload()):
+            events.append(evt)
+
+        assert not any("data:" in e for e in events)
+
+    # ------------------------------------------------------------------
+    # filter_tool_messages – tool output WITH media (core regression test)
+    # ------------------------------------------------------------------
+
+    async def test_filter_tool_messages_surfaces_media_from_tool_output(self):
+        """When filter_tool_messages=True and a tool-output message has
+        media content, _extract_media_message must still be called so that
+        the synthesised media message is surfaced to the user."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            RunStatus,
+            Message,
+            MessageType,
+            Role,
+            DataContent,
+        )
+        from unittest.mock import patch, AsyncMock
+        import json
+
+        media_output = json.dumps(
+            [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "url",
+                        "url": "http://example.com/image.jpg",
+                    },
+                },
+            ],
+        )
+        tool_output_msg = Message(
+            object="message",
+            type=MessageType.FUNCTION_CALL_OUTPUT,
+            status=RunStatus.Completed,
+            role=Role.ASSISTANT,
+            content=[
+                DataContent(
+                    delta=False,
+                    index=None,
+                    data={
+                        "name": "image_tool",
+                        "output": media_output,
+                        "call_id": "c2",
+                    },
+                ),
+            ],
+        )
+
+        channel = self._make_channel(filter_tool_messages=True)
+
+        async def mock_process(_request):
+            yield tool_output_msg
+
+        channel._process = mock_process
+
+        # Synthesised media message returned by _extract_media_message
+        synthesised = Message(
+            object="message",
+            type=MessageType.MESSAGE,
+            status=RunStatus.Completed,
+            role=Role.ASSISTANT,
+        )
+
+        with patch.object(
+            channel,
+            "_extract_media_message",
+            new=AsyncMock(return_value=synthesised),
+        ):
+            events = []
+            async for evt in channel.stream_one(self._make_payload()):
+                events.append(evt)
+
+            # _extract_media_message must have been called despite filtering
+            channel._extract_media_message.assert_called_once_with(
+                tool_output_msg,
+            )
+
+            # The synthesised media message must appear in the SSE stream
+            assert any("data:" in e for e in events)

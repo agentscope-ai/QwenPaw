@@ -400,21 +400,61 @@ class ConsoleChannel(BaseChannel):
                     if usage_data and hasattr(event, "usage"):
                         setattr(event, "usage", usage_data)
 
-                if hasattr(event, "model_dump_json"):
-                    data = event.model_dump_json()
-                elif hasattr(event, "json"):
-                    data = event.json()
-                else:
-                    data = json.dumps({"text": str(event)})
-                yield f"data: {data}\n\n"
+                # Check if we should filter this event
+                should_yield = True
+
+                if obj == "message" and (
+                    self._filter_thinking or self._filter_tool_messages
+                ):
+                    # Use renderer to check if this message is filtered
+                    parts = self._message_to_content_parts(event)
+                    # If parts is empty, renderer filtered out this message
+                    if not parts:
+                        should_yield = False
+
+                # Check if it's a reasoning message when filter_thinking is on
+                if self._filter_thinking and obj == "message":
+                    msg_type = getattr(event, "type", None)
+                    if msg_type == MessageType.REASONING:
+                        should_yield = False
+
+                # Check if it's a tool CALL message when
+                # filter_tool_messages is on.  Tool *output* messages
+                # are handled solely by the renderer parts-emptiness
+                # check above: when filtered, the renderer returns only
+                # media parts (if any), so the event is suppressed only
+                # when it would produce no user-visible content.
+                if self._filter_tool_messages and obj == "message":
+                    msg_type = getattr(event, "type", None)
+                    if msg_type in [
+                        MessageType.FUNCTION_CALL,
+                        MessageType.PLUGIN_CALL,
+                        MessageType.MCP_TOOL_CALL,
+                    ]:
+                        should_yield = False
+
+                # Only yield the event if it passes all filters
+                if should_yield:
+                    if hasattr(event, "model_dump_json"):
+                        data = event.model_dump_json()
+                    elif hasattr(event, "json"):
+                        data = event.json()
+                    else:
+                        data = json.dumps({"text": str(event)})
+                    yield f"data: {data}\n\n"
 
                 if obj == "message" and status == RunStatus.Completed:
+                    # Always attempt media extraction so that images/files
+                    # from tool-output messages are surfaced to users even
+                    # when the original tool message event is filtered by
+                    # filter_tool_messages.
                     media_message = await self._extract_media_message(event)
                     if media_message:
                         yield f"data: {media_message.model_dump_json()}\n\n"
 
-                    parts = self._message_to_content_parts(event)
-                    self._print_parts(parts, ev_type)
+                    if should_yield:
+                        parts = self._message_to_content_parts(event)
+                        self._print_parts(parts, ev_type)
 
                 elif obj == "response":
                     last_response = event
