@@ -431,6 +431,20 @@ DEEPSEEK_MODELS: List[ModelInfo] = [
         supports_video=False,
         probe_source="documentation",
     ),
+    ModelInfo(
+        id="deepseek-v4-flash",
+        name="DeepSeek V4 Flash",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-v4-pro",
+        name="DeepSeek V4 Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
 ]
 
 ANTHROPIC_MODELS: List[ModelInfo] = []
@@ -1048,7 +1062,15 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        await provider.add_model(model_info)
+        added, error_message = await provider.add_model(model_info)
+        if not added:
+            raise ProviderError(
+                message=error_message,
+                details={
+                    "provider_id": provider_id,
+                    "model_id": model_info.id,
+                },
+            )
 
         # Save provider config to appropriate location
         is_plugin = provider_id in self.plugin_providers
@@ -1511,14 +1533,27 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if not builtin.freeze_url:
                     builtin.base_url = provider.base_url
                 builtin.api_key = provider.api_key
-                builtin.extra_models = provider.extra_models
+                builtin_model_ids = {m.id for m in builtin.models}
+                builtin.extra_models = [
+                    m
+                    for m in provider.extra_models
+                    if m.id not in builtin_model_ids
+                ]
                 builtin.generate_kwargs.update(provider.generate_kwargs)
-                # Restore per-model generate_kwargs for built-in models
-                stored_model_kwargs = {
-                    m.id: m.generate_kwargs
-                    for m in provider.models
-                    if m.generate_kwargs
-                }
+                # Restore per-model generate_kwargs for built-in models.
+                # Collect from both stored built-in models and promoted
+                # extra_models (models that were user-added but are now
+                # part of the built-in list).
+                stored_model_kwargs: dict = {}
+                for m in provider.models:
+                    if m.generate_kwargs:
+                        stored_model_kwargs[m.id] = m.generate_kwargs
+                for m in provider.extra_models:
+                    if m.id in builtin_model_ids and m.generate_kwargs:
+                        stored_model_kwargs.setdefault(
+                            m.id,
+                            m.generate_kwargs,
+                        )
                 if stored_model_kwargs:
                     for model in builtin.models:
                         if model.id in stored_model_kwargs:

@@ -170,9 +170,11 @@ class Provider(ProviderInfo, ABC):
         timeout: float = 10,  # pylint: disable=unused-argument
     ) -> tuple[bool, str]:
         """Add a model to the provider's model list."""
-        if model_info.id in {
-            model.id for model in self.models + self.extra_models
-        }:
+        model_info.id = model_info.id.strip()
+        if any(
+            model.id.strip() == model_info.id
+            for model in self.models + self.extra_models
+        ):
             return False, f"Model '{model_info.id}' already exists"
         if target == "extra_models":
             self.extra_models.append(model_info)
@@ -188,23 +190,26 @@ class Provider(ProviderInfo, ABC):
         timeout: float = 10,  # pylint: disable=unused-argument
     ) -> tuple[bool, str]:
         """Delete a model from the provider's model list."""
+        model_id = model_id.strip()
         self.extra_models = [
-            model for model in self.extra_models if model.id != model_id
+            model
+            for model in self.extra_models
+            if model.id.strip() != model_id
         ]
         return True, ""
 
     def update_config(self, config: Dict) -> None:
         """Update provider configuration with the given dictionary."""
         if "name" in config and config["name"] is not None:
-            self.name = str(config["name"])
+            self.name = str(config["name"]).strip()
         if (
             not self.freeze_url
             and "base_url" in config
             and config["base_url"] is not None
         ):
-            self.base_url = str(config["base_url"])
+            self.base_url = str(config["base_url"]).strip()
         if "api_key" in config and config["api_key"] is not None:
-            self.api_key = str(config["api_key"])
+            self.api_key = str(config["api_key"]).strip()
         if (
             self.is_custom
             and "chat_model" in config

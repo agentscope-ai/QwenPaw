@@ -8,7 +8,7 @@ export function buildAuthHeaders(): Record<string, string> {
     headers.Authorization = `Bearer ${token}`;
   }
   try {
-    const agentStorage = sessionStorage.getItem("qwenpaw-agent-storage");
+    const agentStorage = localStorage.getItem("qwenpaw-agent-storage");
     if (agentStorage) {
       const parsed = JSON.parse(agentStorage);
       const selectedAgent = parsed?.state?.selectedAgent;

@@ -159,6 +159,51 @@ def _is_rate_limit(exc: Exception) -> bool:
     return getattr(exc, "status_code", None) == 429
 
 
+def _is_missing_reasoning_content_error(exc: Exception) -> bool:
+    """Return *True* if *exc* is a 400 about missing ``reasoning_content``.
+
+    DeepSeek (and compatible providers) require every assistant message to
+    carry ``reasoning_content`` when thinking mode is active.  When the
+    conversation history was produced by a non-reasoning model, these
+    fields are absent and the API rejects the request with a 400.
+    """
+    if getattr(exc, "status_code", None) != 400:
+        return False
+    return "reasoning_content" in str(exc)
+
+
+def _inject_reasoning_content(
+    args: tuple,
+    kwargs: dict[str, Any],
+) -> bool:
+    """Add ``reasoning_content = " "`` to assistant messages that lack it.
+
+    Modifies the formatted message dicts **in-place** so the subsequent
+    retry sees the updated values.  Returns *True* when at least one
+    message was patched.
+    """
+    messages: list[dict] | None = kwargs.get("messages")
+    if messages is None and args:
+        candidate = args[0]
+        if isinstance(candidate, list):
+            messages = candidate
+
+    if not messages:
+        return False
+
+    modified = False
+    for msg in messages:
+        if (
+            isinstance(msg, dict)
+            and msg.get("role") == "assistant"
+            and "reasoning_content" not in msg
+        ):
+            msg["reasoning_content"] = " "
+            modified = True
+
+    return modified
+
+
 def _extract_retry_after(exc: Exception) -> float | None:
     """Parse the Retry-After header value (in seconds) from an exception.
 
@@ -329,7 +374,20 @@ class RetryChatModel(ChatModelBase):
                         },
                     ) from exc
 
-                result = await self._inner(*args, **kwargs)
+                try:
+                    result = await self._inner(*args, **kwargs)
+                except Exception as inner_exc:
+                    if not (
+                        _is_missing_reasoning_content_error(inner_exc)
+                        and _inject_reasoning_content(args, kwargs)
+                    ):
+                        raise
+                    logger.warning(
+                        "Thinking-mode model requires reasoning_content "
+                        "on every assistant message. Injecting empty "
+                        "values and retrying.",
+                    )
+                    result = await self._inner(*args, **kwargs)
 
                 if isinstance(result, AsyncGenerator):
                     # Transfer semaphore ownership to _wrap_stream, which uses

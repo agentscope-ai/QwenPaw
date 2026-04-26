@@ -522,6 +522,26 @@ class ExpectedCapabilityRegistry:
                 note="DeepSeek-R1 reasoning model: no multimodal",
             ),
         )
+        self._register(
+            ExpectedCapability(
+                provider_id="deepseek",
+                model_id="deepseek-v4-flash",
+                expected_image=False,
+                expected_video=False,
+                doc_url=_ds_api_doc,
+                note="DeepSeek-V4 Flash: text-only",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="deepseek",
+                model_id="deepseek-v4-pro",
+                expected_image=False,
+                expected_video=False,
+                doc_url=_ds_api_doc,
+                note="DeepSeek-V4 Pro reasoning model: no multimodal",
+            ),
+        )
 
         # ---------------------------------------------------------------
         # 9. Anthropic

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Input } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import {
@@ -9,6 +9,11 @@ import {
 } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import { ChannelIcon } from "../../../Control/Channels/components";
+import {
+  ContextMenu,
+  useContextMenu,
+  type ContextMenuItem,
+} from "../../../../components/ContextMenu";
 import type { ChatStatus } from "../../../../api/types/chat";
 import styles from "./index.module.less";
 
@@ -50,12 +55,43 @@ interface ChatSessionItemProps {
 
 const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
   const { t } = useTranslation();
+  const contextMenu = useContextMenu();
 
   const inProgress =
     props.generating === true || props.chatStatus === "running";
   const statusAriaLabel = inProgress
     ? t("chat.statusInProgress")
     : t("chat.statusIdle");
+
+  const contextMenuItems: ContextMenuItem[] = useMemo(
+    () => [
+      {
+        key: "open",
+        label: t("chat.contextMenu.open", "Open"),
+        onClick: props.onClick,
+      },
+      {
+        key: "rename",
+        label: t("chat.contextMenu.rename", "Rename"),
+        onClick: props.onEdit,
+      },
+      {
+        key: "pin",
+        label: props.pinned
+          ? t("chat.contextMenu.unpin", "Unpin")
+          : t("chat.contextMenu.pin", "Pin"),
+        onClick: props.onPin,
+      },
+      { key: "divider-1", label: "", divider: true },
+      {
+        key: "delete",
+        label: t("chat.contextMenu.delete", "Delete"),
+        danger: true,
+        onClick: props.onDelete,
+      },
+    ],
+    [t, props.onClick, props.onEdit, props.onPin, props.onDelete, props.pinned],
+  );
 
   const className = [
     styles.chatSessionItem,
@@ -71,6 +107,7 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
     <div
       className={className}
       onClick={props.editing ? undefined : props.onClick}
+      onContextMenu={props.editing ? undefined : contextMenu.show}
     >
       {/* Timeline indicator placeholder */}
       <div className={styles.iconPlaceholder} />
@@ -158,6 +195,13 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
           />
         </div>
       )}
+      <ContextMenu
+        visible={contextMenu.visible}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        items={contextMenuItems}
+        onClose={contextMenu.hide}
+      />
     </div>
   );
 };

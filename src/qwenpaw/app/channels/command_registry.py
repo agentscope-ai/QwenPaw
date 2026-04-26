@@ -83,6 +83,10 @@ class CommandRegistry:
         self.register_command("/version", priority_level=10)
         self.register_command("/logs", priority_level=10)
         self.register_command("/approve", priority_level=10)
+        self.register_command("/deny", priority_level=10)
+
+        # Approval commands (control commands, not daemon commands)
+        self.register_command("/approval", priority_level=10)
 
         # Note: Conversation commands (/compact, /new) remain at
         # default level (20) and do not need explicit registration

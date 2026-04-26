@@ -63,24 +63,24 @@ export const useAgentStore = create<AgentStore>()(
       storage: {
         getItem: (name) => {
           try {
-            const value = sessionStorage.getItem(name);
+            const value = localStorage.getItem(name);
             return value ? JSON.parse(value) : null;
           } catch (error) {
             console.error(`Failed to parse agent storage "${name}":`, error);
             // Remove corrupted data to prevent repeated errors
-            sessionStorage.removeItem(name);
+            localStorage.removeItem(name);
             return null;
           }
         },
         setItem: (name, value) => {
           try {
-            sessionStorage.setItem(name, JSON.stringify(value));
+            localStorage.setItem(name, JSON.stringify(value));
           } catch (error) {
             console.error(`Failed to save agent storage "${name}":`, error);
           }
         },
         removeItem: (name) => {
-          sessionStorage.removeItem(name);
+          localStorage.removeItem(name);
         },
       },
     },

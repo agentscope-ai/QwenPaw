@@ -7,6 +7,7 @@ import {
   PreviewModal,
   SkillScannerSection,
   FileGuardSection,
+  AllowNoAuthHostsTab,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
@@ -43,6 +44,8 @@ function SecurityPage() {
     setPreviewRule,
     fileGuardHandlers,
     onFileGuardHandlersReady,
+    allowNoAuthHostsHandlers,
+    onAllowNoAuthHostsHandlersReady,
     loading,
     error,
     fetchAll,
@@ -147,6 +150,17 @@ function SecurityPage() {
                 </div>
               ),
             },
+            {
+              key: "allowNoAuthHosts",
+              label: (
+                <span className={styles.tabLabel}>
+                  {t("security.allowNoAuthHosts.title")}
+                </span>
+              ),
+              children: (
+                <AllowNoAuthHostsTab onSave={onAllowNoAuthHostsHandlersReady} />
+              ),
+            },
           ]}
         />
       </div>
@@ -179,6 +193,25 @@ function SecurityPage() {
             type="primary"
             onClick={fileGuardHandlers.save}
             loading={fileGuardHandlers.saving}
+          >
+            {t("common.save")}
+          </Button>
+        </div>
+      )}
+
+      {activeTab === "allowNoAuthHosts" && allowNoAuthHostsHandlers && (
+        <div className={styles.footerButtons}>
+          <Button
+            onClick={allowNoAuthHostsHandlers.reset}
+            disabled={allowNoAuthHostsHandlers.saving}
+            style={{ marginRight: 8 }}
+          >
+            {t("common.reset")}
+          </Button>
+          <Button
+            type="primary"
+            onClick={allowNoAuthHostsHandlers.save}
+            loading={allowNoAuthHostsHandlers.saving}
           >
             {t("common.save")}
           </Button>

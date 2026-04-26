@@ -1059,6 +1059,7 @@
     "modelNamePlaceholder": "e.g. GPT-4o, Gemini 2.0 Flash",
     "modelAdded": "Model \"{{name}}\" added",
     "modelAddFailed": "Failed to add model",
+    "modelAlreadyExists": "Model ID \"{{id}}\" already exists",
     "autoDiscoverModelsSuccess": "Auto discovery complete. Added {{count}} models",
     "autoDiscoverModelsNoNew": "Auto discovery complete. No new models were added",
     "autoDiscoverModelsFailed": "Failed to auto discover models",
@@ -1558,6 +1559,13 @@
       "userMessage": "User",
       "assistantMessage": "Assistant",
       "titleMatch": "Title"
+    },
+    "contextMenu": {
+      "open": "Open",
+      "rename": "Rename",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "delete": "Delete"
     }
   },
   "security": {
@@ -1697,6 +1705,23 @@
       "saveSuccess": "File guard settings saved",
       "saveFailed": "Failed to save file guard settings",
       "loadFailed": "Failed to load file guard settings"
+    },
+    "allowNoAuthHosts": {
+      "title": "Allow No Auth Hosts",
+      "warningTitle": "Security Warning",
+      "warningDescription": "IP addresses in this list can access API endpoints without authentication. By default, localhost (127.0.0.1 and ::1) are allowed for CLI access. Only add trusted IP addresses. WARNING: Adding untrusted IPs poses a serious security risk.",
+      "ipAddress": "IP Address",
+      "actions": "Actions",
+      "add": "Add",
+      "inputPlaceholder": "Enter IP address (e.g., 192.168.1.100 or ::1)",
+      "empty": "No IP addresses configured",
+      "default": "Default",
+      "removeConfirm": "Remove this IP address from the whitelist?",
+      "duplicate": "This IP address is already in the list",
+      "invalidIP": "Invalid IP address format",
+      "saveSuccess": "Allow no auth hosts settings saved",
+      "saveFailed": "Failed to save allow no auth hosts settings",
+      "loadFailed": "Failed to load allow no auth hosts settings"
     },
     "skillScanner": {
       "title": "Skill Scanner",

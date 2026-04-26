@@ -45,6 +45,24 @@ export function useSecurityPage() {
     [],
   );
 
+  // AllowNoAuthHosts handlers exposed from child component
+  const [allowNoAuthHostsHandlers, setAllowNoAuthHostsHandlers] = useState<{
+    save: () => Promise<void>;
+    reset: () => void;
+    saving: boolean;
+  } | null>(null);
+
+  const onAllowNoAuthHostsHandlersReady = useCallback(
+    (handlers: {
+      save: () => Promise<void>;
+      reset: () => void;
+      saving: boolean;
+    }) => {
+      setAllowNoAuthHostsHandlers(handlers);
+    },
+    [],
+  );
+
   const {
     config,
     customRules,
@@ -230,6 +248,10 @@ export function useSecurityPage() {
     // FileGuard
     fileGuardHandlers,
     onFileGuardHandlersReady,
+
+    // AllowNoAuthHosts
+    allowNoAuthHostsHandlers,
+    onAllowNoAuthHostsHandlersReady,
 
     // Loading / Error
     loading,

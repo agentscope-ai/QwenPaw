@@ -12,6 +12,41 @@ import type { ToolInfo } from "../../../api/modules/tools";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
+/** Stable background colours for the initial-letter fallback icon. */
+const ICON_PALETTE = [
+  "#f56a00",
+  "#7265e6",
+  "#ffbf00",
+  "#00a2ae",
+  "#87d068",
+  "#1890ff",
+  "#eb2f96",
+  "#722ed1",
+];
+
+function hashStringToIndex(value: string, mod: number): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) % mod;
+}
+
+/** Renders the emoji icon or a coloured initial-letter badge as fallback. */
+function ToolIcon({ icon, name }: { icon: string; name: string }) {
+  if (icon) {
+    return <span>{icon}</span>;
+  }
+  const letter = name.charAt(0).toUpperCase();
+  const backgroundColor =
+    ICON_PALETTE[hashStringToIndex(name, ICON_PALETTE.length)];
+  return (
+    <span className={styles.toolIconFallback} style={{ backgroundColor }}>
+      {letter}
+    </span>
+  );
+}
+
 export default function ToolsPage() {
   const { t } = useTranslation();
   const {
@@ -70,7 +105,7 @@ export default function ToolsPage() {
               >
                 <div className={styles.cardHeader}>
                   <h3 className={styles.toolName}>
-                    {tool.icon} {tool.name}
+                    <ToolIcon icon={tool.icon} name={tool.name} /> {tool.name}
                   </h3>
                   <div className={styles.statusContainer}>
                     <span className={styles.statusDot} />

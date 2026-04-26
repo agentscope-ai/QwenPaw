@@ -52,7 +52,7 @@
     "@types/node": "^25.0.3",
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "@vitejs/plugin-react": "^6.0.1",
+    "@vitejs/plugin-react": "^4.4.1",
     "esbuild": "^0.28.0",
     "eslint": "^9.25.0",
     "eslint-plugin-react-hooks": "^5.2.0",
@@ -62,7 +62,7 @@
     "prettier": "3.0.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
-    "vite": "^8.0.9"
+    "vite": "^6.3.5"
   },
   "repository": "https://github.com/agentscope-ai/agentscope-runtime.git"
 }

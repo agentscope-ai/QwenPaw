@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..utils import schedule_agent_reload
 from ...config import (
@@ -863,3 +863,97 @@ async def remove_from_whitelist(
         )
     save_config(config)
     return {"removed": True, "skill_name": skill_name}
+
+
+# ── Security / Allow No Auth Hosts ────────────────────────────────────
+
+
+class AllowNoAuthHostsResponse(BaseModel):
+    """Response model for allow_no_auth_hosts configuration."""
+
+    hosts: List[str] = Field(
+        description="List of IP addresses allowed without authentication",
+    )
+
+
+class AllowNoAuthHostsUpdateBody(BaseModel):
+    """Request body for updating allow_no_auth_hosts configuration."""
+
+    hosts: List[str] = Field(
+        description="List of IP addresses allowed without authentication",
+    )
+
+
+@router.get(
+    "/security/allow-no-auth-hosts",
+    response_model=AllowNoAuthHostsResponse,
+    summary="Get allow no auth hosts configuration",
+)
+async def get_allow_no_auth_hosts() -> AllowNoAuthHostsResponse:
+    """Get the list of IP addresses allowed without authentication."""
+    config = load_config()
+    return AllowNoAuthHostsResponse(
+        hosts=config.security.allow_no_auth_hosts,
+    )
+
+
+@router.put(
+    "/security/allow-no-auth-hosts",
+    response_model=AllowNoAuthHostsResponse,
+    summary="Update allow no auth hosts configuration",
+)
+async def put_allow_no_auth_hosts(
+    body: AllowNoAuthHostsUpdateBody = Body(...),
+) -> AllowNoAuthHostsResponse:
+    """Update the list of IP addresses allowed without authentication.
+
+    Validates and normalizes each IP address:
+    - Strips whitespace
+    - Removes empty strings
+    - Deduplicates entries
+    - Validates as literal IPv4/IPv6 using ipaddress module
+    - Returns 400 on invalid IP addresses
+    """
+    import ipaddress
+
+    # Normalize and validate IP addresses
+    normalized_hosts = []
+    seen = set()
+    invalid_ips = []
+
+    for host in body.hosts:
+        # Strip whitespace
+        host = host.strip()
+
+        # Skip empty strings
+        if not host:
+            continue
+
+        # Validate IP address format
+        try:
+            # This validates and normalizes the IP address
+            ip_obj = ipaddress.ip_address(host)
+            # Use the compressed string representation
+            normalized_ip = str(ip_obj)
+
+            # Deduplicate
+            if normalized_ip not in seen:
+                seen.add(normalized_ip)
+                normalized_hosts.append(normalized_ip)
+        except ValueError:
+            invalid_ips.append(host)
+
+    # Return 400 if any invalid IP addresses were provided
+    if invalid_ips:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid IP address(es): {', '.join(invalid_ips)}. "
+                "Only literal IPv4/IPv6 addresses are allowed."
+            ),
+        )
+
+    config = load_config()
+    config.security.allow_no_auth_hosts = normalized_hosts
+    save_config(config)
+    return AllowNoAuthHostsResponse(hosts=normalized_hosts)

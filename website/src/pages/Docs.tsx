@@ -168,6 +168,10 @@ const DOC_GROUPS: DocGroup[] = [
       { slug: "commands", titleKey: "docs.commands" },
       { slug: "heartbeat", titleKey: "docs.heartbeat" },
       { slug: "memory", titleKey: "docs.memory" },
+      {
+        slug: "memory-evolving-and-proactive",
+        titleKey: "docs.memoryEvolvingAndProactive",
+      },
     ],
   },
   {
@@ -192,6 +196,12 @@ const DOC_GROUPS: DocGroup[] = [
     ],
   },
   {
+    titleKey: "docs.groupPractice",
+    children: [
+      { slug: "practice-agent-team", titleKey: "docs.practiceAgentTeam" },
+    ],
+  },
+  {
     titleKey: "docs.groupOthers",
     children: [
       { slug: "faq", titleKey: "docs.faq" },
@@ -207,6 +217,7 @@ const DOC_GROUPS: DocGroup[] = [
 const ALL_SLUGS = [
   ...DOC_GROUPS.flatMap((g) => g.children.map((d) => d.slug)),
   "comparison", // Hidden page, accessible only via FAQ link
+  "practice-agent-team", // Practice section
 ];
 
 const DOC_TITLE_BANNERS = [

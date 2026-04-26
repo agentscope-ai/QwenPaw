@@ -872,6 +872,7 @@
     "modelNamePlaceholder": "例: GPT-4o, Gemini 2.0 Flash",
     "modelAdded": "モデル \"{{name}}\" を追加しました",
     "modelAddFailed": "モデルの追加に失敗しました",
+    "modelAlreadyExists": "モデル ID \"{{id}}\" は既に存在します",
     "autoDiscoverModelsSuccess": "自動検出が完了しました。{{count}} 件のモデルを追加しました",
     "autoDiscoverModelsNoNew": "自動検出が完了しました。新しいモデルは追加されませんでした",
     "autoDiscoverModelsFailed": "モデルの自動検出に失敗しました",
@@ -1339,6 +1340,13 @@
       "userMessage": "ユーザー",
       "assistantMessage": "アシスタント",
       "titleMatch": "タイトル"
+    },
+    "contextMenu": {
+      "open": "開く",
+      "rename": "名前を変更",
+      "pin": "ピン留め",
+      "unpin": "ピン留め解除",
+      "delete": "削除"
     }
   },
   "security": {
@@ -1444,6 +1452,23 @@
       "saveSuccess": "ファイルガード設定を保存しました",
       "saveFailed": "ファイルガード設定の保存に失敗しました",
       "loadFailed": "ファイルガード設定の読み込みに失敗しました"
+    },
+    "allowNoAuthHosts": {
+      "title": "認証不要ホスト",
+      "warningTitle": "セキュリティ警告",
+      "warningDescription": "このリストのIPアドレスは認証なしでAPIエンドポイントにアクセスできます。デフォルトでは、ローカルホスト（127.0.0.1と::1）がCLIアクセスのために許可されています。信頼できるIPアドレスのみを追加してください。警告：信頼できないIPを追加すると、深刻なセキュリティリスクが生じます。",
+      "ipAddress": "IPアドレス",
+      "actions": "操作",
+      "add": "追加",
+      "inputPlaceholder": "IPアドレスを入力（例：192.168.1.100 または ::1）",
+      "empty": "IPアドレスが設定されていません",
+      "default": "デフォルト",
+      "removeConfirm": "このIPアドレスをホワイトリストから削除しますか？",
+      "duplicate": "このIPアドレスは既にリストに存在します",
+      "invalidIP": "無効なIPアドレス形式",
+      "saveSuccess": "認証不要ホスト設定を保存しました",
+      "saveFailed": "認証不要ホスト設定の保存に失敗しました",
+      "loadFailed": "認証不要ホスト設定の読み込みに失敗しました"
     },
     "skillScanner": {
       "title": "スキルスキャナー",

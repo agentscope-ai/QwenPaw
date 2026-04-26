@@ -44,7 +44,7 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
-from ..utils import split_text
+from ..utils import file_url_to_local_path, split_text
 
 if TYPE_CHECKING:
     import concurrent.futures
@@ -1837,7 +1837,7 @@ class QQChannel(BaseChannel):
 
         # file:// protocol → treat as local file
         if raw.startswith("file://"):
-            resolved = raw[7:]  # strip "file://"
+            resolved = file_url_to_local_path(raw) or raw
             if os.path.isfile(resolved):
                 local_path = resolved
             else:
