@@ -13,7 +13,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "preview:prod": "vite preview --mode production",
-    "preview:test": "vite preview --mode test"
+    "preview:test": "vite preview --mode test",
+    "test": "vitest",
+    "test:run": "NODE_OPTIONS=--max-old-space-size=4096 vitest run",
+    "test:coverage": "NODE_OPTIONS=--max-old-space-size=4096 vitest run --coverage"
   },
   "dependencies": {
     "@agentscope-ai/chat": "^1.1.59",
@@ -43,6 +46,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/babel__core": "^7.20.5",
     "@types/babel__generator": "^7.27.0",
     "@types/babel__template": "^7.4.4",
@@ -56,11 +62,13 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^16.0.0",
+    "jsdom": "^29.0.2",
     "less": "^4.5.1",
     "prettier": "3.0.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^4.1.4"
   },
   "repository": "https://github.com/agentscope-ai/agentscope-runtime.git"
 }
