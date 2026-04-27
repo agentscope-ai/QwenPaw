@@ -28,13 +28,15 @@ const socialLinks: SocialLink[] = [
     href: "https://x.com/agentscope_ai",
     ariaLabel: "footer.social.x",
     icon: <XIcon className="block" />,
-    qrCode: "https://img.alicdn.com/imgextra/i1/O1CN01sWPF3o1Fp523692rJ_!!6000000000535-2-tps-400-400.png",
+    qrCode:
+      "https://img.alicdn.com/imgextra/i1/O1CN01sWPF3o1Fp523692rJ_!!6000000000535-2-tps-400-400.png",
   },
   {
     href: "https://github.com/agentscope-ai/QwenPaw",
     ariaLabel: "footer.social.github",
     icon: <GitHubIcon size={20} className="block text-orange-400" />,
-    qrCode: "https://img.alicdn.com/imgextra/i1/O1CN014U6Tgn1u8OMZ3rzTo_!!6000000005992-2-tps-400-400.png",
+    qrCode:
+      "https://img.alicdn.com/imgextra/i1/O1CN014U6Tgn1u8OMZ3rzTo_!!6000000005992-2-tps-400-400.png",
   },
   {
     href: "https://discord.com/invite/eYMpfnkG8h",
@@ -198,7 +200,8 @@ export function Footer() {
         </div>
       </div>
 
-      {hoveredLink && hoveredLinkData?.qrCode &&
+      {hoveredLink &&
+        hoveredLinkData?.qrCode &&
         createPortal(
           <div
             className="fixed z-50 pointer-events-none"
@@ -227,7 +230,7 @@ export function Footer() {
               />
             </div>
           </div>,
-          document.body
+          document.body,
         )}
     </footer>
   );
