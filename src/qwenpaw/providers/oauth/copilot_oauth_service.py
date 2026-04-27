@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from typing import Any, Awaitable, Callable, Dict, Optional
 
@@ -96,6 +97,15 @@ class CopilotOAuthService:
         self._oauth_access_token: Optional[str] = None
         self._github_login: str = ""
         self._copilot_token: Optional[CopilotApiToken] = None
+
+        # Lazily-created shared httpx.AsyncClient reused by the
+        # provider for chat / discovery requests.  Owning a single
+        # long-lived client avoids leaking connections / file
+        # descriptors across repeated check_connection / fetch_models
+        # / chat invocations (which would otherwise each construct
+        # and forget their own AsyncClient).
+        self._shared_http_client: Optional[httpx.AsyncClient] = None
+        self._shared_http_client_lock = threading.Lock()
 
         # Pending device-code session
         self._pending_device_code: Optional[str] = None
@@ -208,14 +218,15 @@ class CopilotOAuthService:
         payload = self.token_store.load()
         if not payload:
             return False
-        self._oauth_access_token = payload["oauth_access_token"]
-        self._github_login = payload.get("github_login", "")
-        self._last_status = OAuthStatus(
-            status="authorized",
-            message="Restored from persisted token",
-            is_authenticated=True,
-            login=self._github_login,
-        )
+        async with self._lock:
+            self._oauth_access_token = payload["oauth_access_token"]
+            self._github_login = payload.get("github_login", "")
+            self._last_status = OAuthStatus(
+                status="authorized",
+                message="Restored from persisted token",
+                is_authenticated=True,
+                login=self._github_login,
+            )
         # Kick off a background Copilot-token fetch; do not block.
         try:
             loop = asyncio.get_running_loop()
@@ -244,16 +255,19 @@ class CopilotOAuthService:
             )
 
         async with self._http_client_factory() as client:
+            # GitHub's OAuth device-code endpoints expect
+            # ``application/x-www-form-urlencoded`` per RFC 8628.
+            # Sending JSON works today but is not spec-compliant and
+            # has been observed to break under stricter API gateways.
             resp = await client.post(
                 GITHUB_DEVICE_CODE_URL,
                 headers={
                     "Accept": "application/json",
-                    "Content-Type": "application/json",
                     "User-Agent": self.user_agent,
                     "Editor-Version": self.editor_version,
                     "Editor-Plugin-Version": self.plugin_version,
                 },
-                json={"client_id": self.client_id, "scope": "read:user"},
+                data={"client_id": self.client_id, "scope": "read:user"},
             )
             resp.raise_for_status()
             data = resp.json()
@@ -313,6 +327,9 @@ class CopilotOAuthService:
                 status="not_started",
                 message="Logged out",
             )
+        # Drop the shared http client so the next sign-in gets a fresh
+        # one bound to the new credentials, and to release sockets.
+        await self.aclose_http_client()
         self.token_store.delete()
         if self._on_logout is not None:
             try:
@@ -326,6 +343,79 @@ class CopilotOAuthService:
                     exc_info=True,
                 )
         logger.info("GitHub Copilot OAuth session cleared")
+
+    # ------------------------------------------------------------------
+    # Pre-publish session seeding (used by the provider factory to
+    # rehydrate a freshly-created service from on-disk state without
+    # taking the asyncio lock — safe because callers invoke this
+    # before the service is published in the global registry).
+    # ------------------------------------------------------------------
+
+    def seed_session(
+        self,
+        oauth_access_token: str,
+        github_login: str = "",
+    ) -> None:
+        """Synchronously seed a new (unpublished) service with a token.
+
+        Intended for use by ``get_oauth_service``'s factory closure
+        before the service object is exposed to other coroutines.
+        Does not acquire :attr:`_lock`; callers must guarantee no other
+        coroutine has a reference to this instance yet.
+        """
+        if not oauth_access_token:
+            return
+        self._oauth_access_token = oauth_access_token
+        self._github_login = github_login or ""
+        self._last_status = OAuthStatus(
+            status="authorized",
+            message="Restored from persisted token",
+            is_authenticated=True,
+            login=self._github_login,
+        )
+
+    # ------------------------------------------------------------------
+    # Shared httpx.AsyncClient lifecycle
+    # ------------------------------------------------------------------
+
+    def get_or_create_http_client(self) -> httpx.AsyncClient:
+        """Return a shared :class:`httpx.AsyncClient` for chat / discovery.
+
+        The client carries :class:`CopilotAuth` and the chat headers so
+        every request uses a fresh OAuth bearer.  It is created lazily
+        and reused for the lifetime of this service to avoid leaking
+        sockets/file-descriptors across repeated calls.  Closed via
+        :meth:`aclose_http_client` (e.g. on logout).
+        """
+        # Lazy import to avoid a circular dependency between
+        # ``oauth.copilot_oauth_service`` and ``oauth.copilot_auth``.
+        from .copilot_auth import CopilotAuth
+
+        with self._shared_http_client_lock:
+            client = self._shared_http_client
+            if client is not None and not client.is_closed:
+                return client
+            client = httpx.AsyncClient(
+                auth=CopilotAuth(self),
+                headers=self.chat_headers(),
+                timeout=httpx.Timeout(60.0, read=300.0),
+            )
+            self._shared_http_client = client
+            return client
+
+    async def aclose_http_client(self) -> None:
+        """Close and clear the shared :class:`httpx.AsyncClient`."""
+        with self._shared_http_client_lock:
+            client = self._shared_http_client
+            self._shared_http_client = None
+        if client is not None and not client.is_closed:
+            try:
+                await client.aclose()
+            except Exception:  # pylint: disable=broad-except
+                logger.debug(
+                    "Error while closing shared Copilot http client",
+                    exc_info=True,
+                )
 
     # ------------------------------------------------------------------
     # Headers used by chat / api calls
@@ -417,16 +507,16 @@ class CopilotOAuthService:
         ``'pending'``, ``'slow_down'``, ``'authorized'``, ``'error'``.
         """
         async with self._http_client_factory() as client:
+            # Form-encoded per RFC 8628; see comment in start_device_flow.
             resp = await client.post(
                 GITHUB_TOKEN_URL,
                 headers={
                     "Accept": "application/json",
-                    "Content-Type": "application/json",
                     "User-Agent": self.user_agent,
                     "Editor-Version": self.editor_version,
                     "Editor-Plugin-Version": self.plugin_version,
                 },
-                json={
+                data={
                     "client_id": self.client_id,
                     "device_code": device_code,
                     "grant_type": GRANT_TYPE_DEVICE_CODE,
@@ -648,7 +738,7 @@ class CopilotOAuthService:
 # ---------------------------------------------------------------------------
 
 _services: Dict[str, CopilotOAuthService] = {}
-_services_lock = asyncio.Lock()
+_services_lock = threading.Lock()
 
 
 def get_oauth_service(
@@ -658,16 +748,22 @@ def get_oauth_service(
 ) -> CopilotOAuthService:
     """Return the (singleton) :class:`CopilotOAuthService` for *provider_id*.
 
-    Thread-safe under asyncio (creation is idempotent).  When
-    *factory* is provided it is used to construct the service on first
-    access; otherwise a default :class:`CopilotOAuthService` is created.
+    Thread-safe: a :class:`threading.Lock` guards the check-then-set so
+    two concurrent callers cannot create competing service instances
+    for the same ``provider_id``.  When *factory* is provided it is
+    used to construct (and seed) the service on first access.
     """
     service = _services.get(provider_id)
     if service is not None:
         return service
-    service = factory() if factory else CopilotOAuthService(provider_id)
-    _services[provider_id] = service
-    return service
+    with _services_lock:
+        # Re-check under the lock — another caller may have raced us.
+        service = _services.get(provider_id)
+        if service is not None:
+            return service
+        service = factory() if factory else CopilotOAuthService(provider_id)
+        _services[provider_id] = service
+        return service
 
 
 def reset_oauth_services_for_test() -> None:

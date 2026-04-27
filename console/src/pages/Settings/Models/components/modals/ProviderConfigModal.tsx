@@ -530,16 +530,21 @@ export function ProviderConfigModal({
           </div>
           <div className={styles.modalFooterRight}>
             <Button onClick={onClose}>{t("models.cancel")}</Button>
-            {!isOAuthProvider && (
-              <Button
-                type="primary"
-                loading={saving}
-                disabled={!formDirty}
-                onClick={handleSubmit}
-              >
-                {t("models.save")}
-              </Button>
-            )}
+            {/*
+              Save is shown for OAuth providers as well so that the user
+              can persist non-credential fields (e.g. base_url overrides
+              and ``generate_kwargs``).  The backend explicitly ignores
+              ``api_key`` updates for OAuth providers, so re-enabling
+              Save here cannot leak or override the OAuth credential.
+            */}
+            <Button
+              type="primary"
+              loading={saving}
+              disabled={!formDirty}
+              onClick={handleSubmit}
+            >
+              {t("models.save")}
+            </Button>
           </div>
         </div>
       }

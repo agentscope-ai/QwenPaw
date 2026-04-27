@@ -128,3 +128,70 @@ async def test_get_chat_model_instance_injects_copilot_headers(
     assert http_client.headers.get("editor-version") is not None
     assert http_client.headers.get("copilot-integration-id") == "vscode-chat"
     assert http_client.headers.get("openai-intent") == "conversation-panel"
+
+
+async def test_service_factory_seeds_from_token_store_first() -> None:
+    """``_service()`` should prefer the encrypted ``CopilotTokenStore``
+    over the (legacy) provider-config ``oauth_access_token`` field so
+    the token store remains the single source of truth.
+    """
+    from qwenpaw.providers.oauth.copilot_token_store import CopilotTokenStore
+
+    # Plant a credential in the encrypted store before the service exists.
+    CopilotTokenStore("github-copilot").save("gho_from_store", "store-user")
+
+    provider = _make_provider()
+    # Provider-config field intentionally diverges to prove precedence.
+    provider.oauth_access_token = "gho_from_config"
+    provider.oauth_user_login = "config-user"
+
+    service = provider._service()  # noqa: SLF001
+    assert service.is_authenticated
+    assert service.oauth_access_token == "gho_from_store"
+    assert service.github_login == "store-user"
+
+
+async def test_service_factory_falls_back_to_provider_config() -> None:
+    """When the token store is empty (e.g. installs upgraded from an
+    earlier release), the factory must still rehydrate the service
+    from the legacy provider-config fields for backwards compatibility.
+    """
+    provider = _make_provider()
+    provider.oauth_access_token = "gho_legacy"
+    provider.oauth_user_login = "legacy-user"
+
+    service = provider._service()  # noqa: SLF001
+    assert service.is_authenticated
+    assert service.oauth_access_token == "gho_legacy"
+    assert service.github_login == "legacy-user"
+
+
+async def test_service_factory_runs_only_once_per_provider() -> None:
+    """The process-global registry must hand back the *same* service
+    instance for repeated calls so the shared httpx client and OAuth
+    state are not duplicated.
+    """
+    provider = _make_provider()
+    s1 = provider._service()  # noqa: SLF001
+    s2 = provider._service()  # noqa: SLF001
+    assert s1 is s2
+
+
+async def test_client_reuses_shared_http_client() -> None:
+    """Repeated ``_client()`` calls must reuse the OAuth service's
+    shared ``httpx.AsyncClient`` so we never leak sockets across
+    discovery / connection-check invocations.
+    """
+    provider = _make_provider()
+    provider.oauth_access_token = "gho_x"
+    service = provider._service()  # noqa: SLF001
+    service._oauth_access_token = "gho_x"  # noqa: SLF001
+
+    client_a = provider._client()  # noqa: SLF001
+    client_b = provider._client()  # noqa: SLF001
+    # AsyncOpenAI exposes its underlying httpx client as ``_client``.
+    assert client_a._client is client_b._client  # noqa: SLF001
+    assert (
+        client_a._client is service.get_or_create_http_client()
+    )  # noqa: SLF001
+    await service.aclose_http_client()

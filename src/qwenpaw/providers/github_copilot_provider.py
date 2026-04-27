@@ -26,13 +26,11 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, List
 
-import httpx
 from openai import APIError, AsyncOpenAI
 
 from .openai_provider import OpenAIProvider
 from .provider import ModelInfo
 from .oauth import (
-    CopilotAuth,
     CopilotOAuthService,
     get_oauth_service,
 )
@@ -161,19 +159,26 @@ class GitHubCopilotProvider(OpenAIProvider):
                 "user_agent",
                 f"QwenPaw/{_get_qwenpaw_version()}",
             )
-            return CopilotOAuthService(provider_id=self.id, **kwargs)
+            service = CopilotOAuthService(provider_id=self.id, **kwargs)
 
-        service = get_oauth_service(self.id, factory=_factory)
+            # Prefer the encrypted CopilotTokenStore as the durable
+            # source of truth.  Fall back to the legacy provider-config
+            # field for backwards compatibility with installs created
+            # before the token store became the single writer.
+            persisted = service.token_store.load()
+            if persisted and persisted.get("oauth_access_token"):
+                service.seed_session(
+                    persisted["oauth_access_token"],
+                    persisted.get("github_login", ""),
+                )
+            elif self.oauth_access_token:
+                service.seed_session(
+                    self.oauth_access_token,
+                    self.oauth_user_login,
+                )
+            return service
 
-        # If the provider was rehydrated from disk before the service
-        # existed, copy the OAuth token into the service so it can refresh.
-        if self.oauth_access_token and not service.is_authenticated:
-            # Bypass the lock — initialization is single-threaded.
-            service._oauth_access_token = (
-                self.oauth_access_token
-            )  # noqa: SLF001
-            service._github_login = self.oauth_user_login  # noqa: SLF001
-        return service
+        return get_oauth_service(self.id, factory=_factory)
 
     # ------------------------------------------------------------------
     # Provider overrides
@@ -197,11 +202,12 @@ class GitHubCopilotProvider(OpenAIProvider):
             or self.base_url
             or "https://api.githubcopilot.com"
         )
-        http_client = httpx.AsyncClient(
-            auth=CopilotAuth(service),
-            timeout=timeout,
-            headers=service.chat_headers(),
-        )
+        # Reuse a single shared httpx.AsyncClient owned by the OAuth
+        # service so repeated check_connection / fetch_models calls do
+        # not leak sockets/file-descriptors.  Per-request timeouts
+        # passed to OpenAI methods (e.g. ``models.list(timeout=...)``)
+        # still take precedence over the client default.
+        http_client = service.get_or_create_http_client()
         # AsyncOpenAI accepts an http_client kwarg; api_key is required
         # but unused (auth is applied per-request by CopilotAuth).
         return AsyncOpenAI(
@@ -329,12 +335,10 @@ class GitHubCopilotProvider(OpenAIProvider):
             or "https://api.githubcopilot.com"
         )
 
-        # Build an httpx.AsyncClient that injects OAuth on every request.
-        http_client = httpx.AsyncClient(
-            auth=CopilotAuth(service),
-            headers=service.chat_headers(),
-            timeout=httpx.Timeout(60.0, read=300.0),
-        )
+        # Reuse the shared httpx.AsyncClient owned by the OAuth service
+        # so chat sessions don't each open (and forget to close) their
+        # own socket pool.
+        http_client = service.get_or_create_http_client()
         client_kwargs: dict[str, Any] = {
             "base_url": base_url,
             "http_client": http_client,

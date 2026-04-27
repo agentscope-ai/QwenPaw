@@ -984,11 +984,17 @@ def _persist_oauth_token_factory(
     """
 
     async def _callback(oauth_access_token: str, github_login: str) -> None:
-        provider.oauth_access_token = oauth_access_token
+        # The long-lived OAuth access token is persisted exclusively
+        # by ``CopilotTokenStore`` (encrypted under SECRET_DIR) so that
+        # the provider config file remains free of long-lived secrets.
+        # We still persist the GitHub login here because it is
+        # non-secret display metadata that drives UI labels like
+        # "GitHub: <login>".
+        del oauth_access_token  # intentionally not persisted in config
         provider.oauth_user_login = github_login
         manager._save_provider(provider, is_builtin=True)  # noqa: SLF001
         logger.info(
-            "Persisted OAuth credentials for provider '%s' (login=%s)",
+            "Persisted OAuth login for provider '%s' (login=%s)",
             provider.id,
             github_login or "<unknown>",
         )
@@ -1001,6 +1007,8 @@ def _logout_factory(
     provider: GitHubCopilotProvider,
 ):
     async def _callback() -> None:
+        # Clear both the legacy token field (for installs upgraded from
+        # an earlier release that did persist it) and the login label.
         provider.oauth_access_token = ""
         provider.oauth_user_login = ""
         manager._save_provider(provider, is_builtin=True)  # noqa: SLF001
