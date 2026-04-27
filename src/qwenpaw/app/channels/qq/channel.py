@@ -1856,8 +1856,24 @@ class QQChannel(BaseChannel):
     @staticmethod
     def _content_type_to_media_type(
         content_type: Any,
+        source_path: str = "",
     ) -> Optional[int]:
-        """Map ContentType to QQ rich-media file_type integer."""
+        """Map ContentType to QQ rich-media file_type integer.
+
+        Distinguishes between voice messages and regular files based on
+        file extension:
+        - Voice messages (.amr, .silk, .slk) -> _MEDIA_TYPE_AUDIO (3)
+        - Regular audio files (.mp3, .wav, .m4a, etc.) -> _MEDIA_TYPE_FILE (4)
+        - Other files -> _MEDIA_TYPE_FILE (4)
+        """
+        # QQ voice message formats
+        _VOICE_EXTS = {".amr", ".silk", ".slk"}
+
+        if source_path:
+            ext = Path(source_path).suffix.lower()
+            if ext in _VOICE_EXTS:
+                return _MEDIA_TYPE_AUDIO
+
         mapping = {
             ContentType.IMAGE: _MEDIA_TYPE_IMAGE,
             ContentType.VIDEO: _MEDIA_TYPE_VIDEO,
@@ -2035,7 +2051,7 @@ class QQChannel(BaseChannel):
         token: str,
     ) -> None:
         """Upload + send rich media for c2c or group scenarios."""
-        media_type = self._content_type_to_media_type(content_type)
+        media_type = self._content_type_to_media_type(content_type, source_path=url or local_path or "")
         if media_type is None:
             logger.warning(
                 "qq _send_media_c2c_or_group: unknown content_type=%s",
