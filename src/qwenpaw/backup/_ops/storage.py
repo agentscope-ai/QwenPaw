@@ -105,7 +105,8 @@ def _detail_sync(backup_id: str) -> BackupDetail | None:
                         stats[aid]["name"] = name
                 except Exception as exc:
                     logger.debug(
-                        "Failed to read agent name from %s in backup %s: %s: %s",
+                        "Failed to read agent name from %s"
+                        " in backup %s: %s: %s",
                         json_path,
                         backup_id,
                         type(exc).__name__,

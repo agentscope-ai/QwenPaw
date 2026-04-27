@@ -321,7 +321,7 @@ def _commit_and_finalize(
             commit_tmp(d)
             committed.append(d)
             logger.info("Committed restore for %s", d)
-    except Exception as exc:
+    except Exception:
         remaining = [d for d in staged_dirs if d not in set(committed)]
         for d in remaining:
             discard_tmp(d)

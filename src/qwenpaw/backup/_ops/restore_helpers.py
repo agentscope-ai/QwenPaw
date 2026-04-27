@@ -100,7 +100,8 @@ def rewrite_agent_workspace_dir(dst: Path, aid: str) -> None:
     except Exception as exc:
         tmp_path.unlink(missing_ok=True)
         logger.warning(
-            "Failed to rewrite workspace_dir in agent.json for agent '%s': %s: %s",
+            "Failed to rewrite workspace_dir in agent.json"
+            " for agent '%s': %s: %s",
             aid,
             type(exc).__name__,
             exc,
