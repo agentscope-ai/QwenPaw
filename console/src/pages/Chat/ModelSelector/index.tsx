@@ -267,10 +267,7 @@ export default function ModelSelector() {
                       styles.modelItem,
                       isActive ? styles.modelItemActive : "",
                     ].join(" ")}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleSelect(provider.id, model.id);
-                    }}
+                    onClick={() => handleSelect(provider.id, model.id)}
                   >
                     <span className={styles.modelName}>
                       {model.name || model.id}
