@@ -71,6 +71,7 @@ RECONNECT_DELAYS = [1, 2, 5, 10, 30, 60]
 RATE_LIMIT_DELAY = 60
 QUICK_DISCONNECT_THRESHOLD = 5
 MAX_QUICK_DISCONNECT_COUNT = 3
+_RECOVERABLE_WS_WINERRORS = frozenset({10053, 10054, 10060})
 
 DEFAULT_API_BASE = "https://api.sgroup.qq.com"
 TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken"
@@ -203,6 +204,22 @@ class QQApiError(RuntimeError):
         self.status = status
         self.data = data
         super().__init__(f"API {path} {status}: {data}")
+
+
+def _is_recoverable_ws_os_error(exc: OSError) -> bool:
+    """Return True for socket errors that should trigger reconnect.
+
+    On Windows, transient remote/local disconnects often surface as plain
+    ``OSError`` subclasses such as ``ConnectionAbortedError`` with WinError
+    10053, which should be treated the same as a closed WebSocket.
+    """
+
+    if isinstance(
+        exc,
+        (ConnectionAbortedError, ConnectionResetError, BrokenPipeError),
+    ):
+        return True
+    return getattr(exc, "winerror", None) in _RECOVERABLE_WS_WINERRORS
 
 
 def _sanitize_qq_text(text: str) -> tuple[str, bool]:
@@ -1667,8 +1684,12 @@ class QQChannel(BaseChannel):
                     break
         except websocket.WebSocketConnectionClosedException:
             pass
-        except OSError:
-            if not self._stop_event.is_set():
+        except OSError as e:
+            if self._stop_event.is_set():
+                pass
+            elif _is_recoverable_ws_os_error(e):
+                logger.warning("qq ws connection lost, reconnecting: %s", e)
+            else:
                 raise
         except Exception as e:
             logger.exception("qq ws loop: %s", e)

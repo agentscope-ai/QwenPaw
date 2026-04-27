@@ -1777,6 +1777,32 @@ class TestWSConnectOnce:
 
         assert result is False
 
+    def test_recoverable_os_error_reconnects(self, qq_channel):
+        """Should reconnect on recoverable socket aborts like WinError 10053."""
+        from qwenpaw.app.channels.qq.channel import _WSState
+
+        qq_channel._get_access_token_sync = MagicMock(return_value="token123")
+
+        state = _WSState()
+
+        err = ConnectionAbortedError(10053, "Software caused connection abort")
+        mock_ws = MagicMock()
+        mock_ws.recv.side_effect = err
+
+        mock_websocket = MagicMock()
+        mock_websocket.create_connection.return_value = mock_ws
+        mock_websocket.WebSocketConnectionClosedException = Exception
+
+        with patch(
+            "qwenpaw.app.channels.qq.channel._get_channel_url_sync",
+            return_value="wss://gateway",
+        ):
+            result = qq_channel._ws_connect_once(state, mock_websocket)
+
+        assert result is True
+        assert state.reconnect_attempts == 1
+        mock_ws.close.assert_called_once()
+
 
 class TestDownloadQQFile:
     """Tests for _download_qq_file function."""
