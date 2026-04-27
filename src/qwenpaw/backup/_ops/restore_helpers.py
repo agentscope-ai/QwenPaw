@@ -97,11 +97,13 @@ def rewrite_agent_workspace_dir(dst: Path, aid: str) -> None:
             json.dump(agent_data, f, ensure_ascii=False, indent=2)
         os.replace(tmp_path, agent_json_path)
         logger.debug("Rewrote workspace_dir in agent.json for agent '%s'", aid)
-    except Exception:
+    except Exception as exc:
         tmp_path.unlink(missing_ok=True)
         logger.warning(
-            "Failed to rewrite workspace_dir in agent.json for agent '%s'",
+            "Failed to rewrite workspace_dir in agent.json for agent '%s': %s: %s",
             aid,
+            type(exc).__name__,
+            exc,
         )
 
 
@@ -148,9 +150,8 @@ def handle_master_key_conflict(
         bak_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(current_master_key, bak)
         return bak
-    except OSError as exc:
-        logger.error(
-            "Failed to back up current master_key before restore: %s",
-            exc,
+    except OSError:
+        logger.exception(
+            "Failed to back up current master_key before restore",
         )
         return None

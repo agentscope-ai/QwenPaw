@@ -98,12 +98,11 @@ def _cleanup_stale_restore_artifacts_locked(base_dir: Path) -> None:
                 base_dir,
                 _RESTORE_OLD_SUFFIX,
             )
-        except OSError as exc:
-            logger.error(
-                "Failed to recover %s from %s: %s",
+        except OSError:
+            logger.exception(
+                "Failed to recover %s from %s",
                 base_dir,
                 _RESTORE_OLD_SUFFIX,
-                exc,
             )
             # Keep .restore_old intact to avoid data loss; abort cleanup.
             return
@@ -117,12 +116,11 @@ def _cleanup_stale_restore_artifacts_locked(base_dir: Path) -> None:
                 _RESTORE_TMP_SUFFIX,
                 tmp,
             )
-        except OSError as exc:
-            logger.error(
-                "Failed to remove stale %s %s: %s",
+        except OSError:
+            logger.exception(
+                "Failed to remove stale %s %s",
                 _RESTORE_TMP_SUFFIX,
                 tmp,
-                exc,
             )
 
     # Scenario 3: interrupted cleanup.
@@ -134,12 +132,11 @@ def _cleanup_stale_restore_artifacts_locked(base_dir: Path) -> None:
                 _RESTORE_OLD_SUFFIX,
                 old,
             )
-        except OSError as exc:
-            logger.error(
-                "Failed to remove stale %s %s: %s",
+        except OSError:
+            logger.exception(
+                "Failed to remove stale %s %s",
                 _RESTORE_OLD_SUFFIX,
                 old,
-                exc,
             )
 
 
@@ -203,11 +200,10 @@ def _swap_directories(dst: Path, tmp_dst: Path, old_dst: Path) -> None:
                     dst,
                     old_dst,
                 )
-            except OSError as rollback_exc:
-                logger.error(
-                    "Rollback of %s failed: %s — original data is in %s",
+            except OSError:
+                logger.exception(
+                    "Rollback of %s failed — original data is in %s",
                     dst,
-                    rollback_exc,
                     old_dst,
                 )
         raise
@@ -280,9 +276,8 @@ def discard_tmp(dst: Path) -> None:
         if tmp_dst.exists():
             try:
                 shutil.rmtree(tmp_dst)
-            except OSError as exc:
-                logger.error(
-                    "Failed to discard staging directory %s: %s",
+            except OSError:
+                logger.exception(
+                    "Failed to discard staging directory %s",
                     tmp_dst,
-                    exc,
                 )

@@ -325,12 +325,11 @@ def _commit_and_finalize(
         remaining = [d for d in staged_dirs if d not in set(committed)]
         for d in remaining:
             discard_tmp(d)
-        logger.error(
-            "Phase 2 commit failed after committing %d/%d dirs: %s. "
+        logger.exception(
+            "Phase 2 commit failed after committing %d/%d dirs. "
             "Committed (already live): %s. Discarded (rolled back): %s.",
             len(committed),
             len(staged_dirs),
-            exc,
             committed,
             remaining,
         )
