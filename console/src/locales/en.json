@@ -1279,6 +1279,8 @@
     "maxItersMin": "Max iterations must be at least 1",
     "autoContinueOnTextOnly": "Auto-continue on text-only step",
     "autoContinueOnTextOnlyTooltip": "If the model ends a reasoning step with only text (no tool calls), inject a hint and run one extra reasoning pass with the same tool policy so multi-step tasks are less likely to stop silently. Turn off to match legacy behavior. May increase token usage when enabled.",
+    "autoGenerateSessionTitle": "Auto-generate session titles",
+    "autoGenerateSessionTitleTooltip": "After the first user message in a new chat, run a short background LLM call to replace the truncated placeholder with a concise title. Costs one extra short LLM call per new chat. Turn off to keep the placeholder and skip the spend.",
     "shellCommandTimeout": "Shell Command Timeout (s)",
     "shellCommandTimeoutTooltip": "Default timeout in seconds for the execute_shell_command tool. The LLM can still override this per-call via the timeout parameter. Useful for long-running tasks like compilation or data processing.",
     "shellCommandTimeoutPlaceholder": "Enter timeout",

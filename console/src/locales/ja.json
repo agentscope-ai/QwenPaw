@@ -1077,6 +1077,8 @@
     "maxItersMin": "最大反復回数は1以上である必要があります",
     "autoContinueOnTextOnly": "テキストのみのステップで自動継続",
     "autoContinueOnTextOnlyTooltip": "推論ステップがツール呼び出しなしのテキストのみで終わった場合、ヒントを挿入し同じツール方針でもう1回推論します。多段階タスクの途中停止を減らします。オフにすると従来どおりです。有効時はトークン消費が増える場合があります。",
+    "autoGenerateSessionTitle": "セッションタイトルを自動生成",
+    "autoGenerateSessionTitleTooltip": "新しいチャットの最初のユーザーメッセージ後、バックグラウンドで短いLLM呼び出しを実行し、切り詰められたプレースホルダを簡潔なタイトルに置き換えます。新しいチャットごとに短いLLM呼び出しが1回追加されます。オフにするとプレースホルダのままで、その追加コストは発生しません。",
     "shellCommandTimeout": "Shellコマンドタイムアウト（秒）",
     "shellCommandTimeoutTooltip": "execute_shell_commandツールのデフォルトタイムアウト（秒）。LLMはtimeoutパラメータで呼び出しごとにこの値を上書きできます。コンパイルやデータ処理などの長時間タスクに便利です。",
     "shellCommandTimeoutPlaceholder": "タイムアウトを入力",
