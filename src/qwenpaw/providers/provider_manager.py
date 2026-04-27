@@ -660,6 +660,7 @@ PROVIDER_DEEPSEEK = OpenAIProvider(
     api_key_prefix="sk-",
     models=DEEPSEEK_MODELS,
     freeze_url=True,
+    support_model_discovery=True,
 )
 
 PROVIDER_ANTHROPIC = AnthropicProvider(
