@@ -1778,7 +1778,10 @@ class TestWSConnectOnce:
         assert result is False
 
     def test_recoverable_os_error_reconnects(self, qq_channel):
-        """Should reconnect on recoverable socket aborts like WinError 10053."""
+        """Should reconnect on recoverable socket aborts.
+
+        Covers Windows-style WinError 10053 disconnects.
+        """
         from qwenpaw.app.channels.qq.channel import _WSState
 
         qq_channel._get_access_token_sync = MagicMock(return_value="token123")
