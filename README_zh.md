@@ -60,11 +60,13 @@
 
 ## 新闻
 
-- [2026-04-22] 我们发布了 **v1.1.3**！完整更新说明见 [v1.1.3 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+- [2026-04-24] 我们发布了 **v1.1.4**！完整更新说明见 [v1.1.4 发布说明](https://qwenpaw.agentscope.io/release-notes)。
 
-  - **[v1.1.3] 新增**：备份与恢复系统；将QwenPaw作为ACP Server；主动消息推送功能；控制台插件系统；新增Agent 统计页面；内置技能多语言切换；Shell 混淆防护。
-  - **[v1.1.3] 变更**：调试页面重构至设置模块；统一频道媒体目录；启动速度优化。
-  - **[v1.1.3] 感谢新贡献者**：@daliu858、@xuanrui-L、@pxdawn、@mailmrcai、@linhuang0405、@imrewce、@zealonexp、@Prince-liu。
+  - **[v1.1.4] 新增**：记忆与上下文架构重构；计划执行模式；Shell 绕过检测可配置化；免认证主机白名单；SIP 语音频道；会话右键菜单；浏览器启动参数与 Shell 命令超时配置； 内置DeepSeek V4 模型。
+  - **[v1.1.4] 变更**：工具守卫审批系统；Docker 构建优化；动态插件注册。
+  - **[v1.1.4] 感谢新贡献者**：@shadowabi、@shaohuaxi、@vincentyzhj、@hlgone、@twz915、@Nioolek。
+
+- [2026-04-22] 我们发布了 **v1.1.3**！完整更新说明见 [v1.1.3 发布说明](https://qwenpaw.agentscope.io/release-notes)。
 
 - [2026-04-17] 我们发布了 **v1.1.2**！完整更新说明见 [v1.1.2 发布说明](https://qwenpaw.agentscope.io/release-notes)。
 

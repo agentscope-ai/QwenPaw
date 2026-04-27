@@ -8,14 +8,62 @@ utils.py.  Uses only the standard library; always returns a valid string
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+logger = logging.getLogger(__name__)
+
+_NON_STANDARD_ALIASES: dict[str, str] = {
+    "Asia/Beijing": "Asia/Shanghai",
+    "Asia/Calcutta": "Asia/Kolkata",
+    "Asia/Saigon": "Asia/Ho_Chi_Minh",
+    "Asia/Katmandu": "Asia/Kathmandu",
+    "Asia/Rangoon": "Asia/Yangon",
+    "Asia/Thimbu": "Asia/Thimphu",
+    "Asia/Ujung_Pandang": "Asia/Makassar",
+    "Asia/Ulan_Bator": "Asia/Ulaanbaatar",
+    "Pacific/Samoa": "Pacific/Pago_Pago",
+    "Pacific/Ponape": "Pacific/Pohnpei",
+    "Pacific/Truk": "Pacific/Chuuk",
+    "Atlantic/Faeroe": "Atlantic/Faroe",
+    "Europe/Kiev": "Europe/Kyiv",
+    "PRC": "Asia/Shanghai",
+}
 
 
 def _is_iana(name: Optional[str]) -> bool:
     """Return True if *name* looks like an IANA tz id."""
     return bool(name and "/" in name)
+
+
+def normalize_tz(name: str) -> Optional[str]:
+    """Validate and normalize a timezone name.
+
+    Returns a valid IANA name, or ``None`` if *name* cannot be resolved.
+    Handles IANA backward-compatible links (via ``ZoneInfo``) as well as
+    non-standard names used by certain Linux distributions.
+    """
+    if not name:
+        return None
+    # Prefer our alias table first so that deprecated / non-standard
+    # names (even those accepted by ZoneInfo backward links) are
+    # mapped to canonical modern identifiers.
+    alias = _NON_STANDARD_ALIASES.get(name)
+    if alias:
+        try:
+            ZoneInfo(alias)
+            return alias
+        except (ZoneInfoNotFoundError, KeyError, ValueError):
+            pass
+    try:
+        ZoneInfo(name)
+        return name
+    except (ZoneInfoNotFoundError, KeyError, ValueError):
+        pass
+    return None
 
 
 def detect_system_timezone() -> str:
@@ -42,9 +90,21 @@ def _detect_system_timezone_inner() -> str:  # noqa: R0911
             _probe_timedatectl,
         ]
     for probe in probes:
-        result = probe()
-        if result is not None:
-            return result
+        raw = probe()
+        if raw is not None:
+            normalized = normalize_tz(raw)
+            if normalized is not None:
+                if normalized != raw:
+                    logger.info(
+                        "Mapped non-standard timezone %r → %r",
+                        raw,
+                        normalized,
+                    )
+                return normalized
+            logger.debug(
+                "Probe returned invalid timezone %r, skipping",
+                raw,
+            )
     return "UTC"
 
 

@@ -1606,6 +1606,7 @@
     "agentKey": "Agent Key",
     "agentKeyRequired": "Agent Key を入力してください",
     "agentKeyInvalid": "Agent Key には英字、数字、アンダースコア、ハイフンのみ使用できます",
+    "agentKeyExists": "この Agent Key は既に存在します",
     "enabled": "有効",
     "command": "コマンド",
     "commandRequired": "コマンドを入力してください",
@@ -1625,7 +1626,11 @@
     "docsHelp": "ACP 統合ドキュメントを開き、「How to configure external runners」セクションへ移動します",
     "notSet": "未設定",
     "configSaved": "ACP 設定を保存しました",
-    "configFailed": "ACP 設定の保存に失敗しました"
+    "configFailed": "ACP 設定の保存に失敗しました",
+    "deleteTitle": "{{name}} を削除",
+    "deleteConfirm": "この ACP Agent を削除しますか？この操作は元に戻せません。",
+    "deleteSuccess": "ACP Agent を削除しました",
+    "deleteFailed": "ACP Agent の削除に失敗しました"
   },
   "backup": {
     "title": "バックアップ",

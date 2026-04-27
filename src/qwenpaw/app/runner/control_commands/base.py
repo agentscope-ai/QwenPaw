@@ -26,6 +26,7 @@ class ControlContext:
         channel: Channel instance
         session_id: Normalized session ID (e.g. "console:user1")
         user_id: User ID from request
+        agent_id: Agent ID for permission checks
         args: Parsed command arguments (command-specific)
     """
 
@@ -34,6 +35,7 @@ class ControlContext:
     channel: "BaseChannel"
     session_id: str
     user_id: str
+    agent_id: str
     args: Dict[str, Any]
 
 

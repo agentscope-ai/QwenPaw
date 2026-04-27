@@ -100,6 +100,7 @@
     "agentKey": "Agent Key",
     "agentKeyRequired": "Please enter an agent key",
     "agentKeyInvalid": "Agent key can only contain letters, numbers, underscores, and hyphens",
+    "agentKeyExists": "This agent key already exists",
     "enabled": "Enabled",
     "command": "Command",
     "commandRequired": "Please enter a command",
@@ -119,7 +120,11 @@
     "docsHelp": "Open the ACP integration docs and jump to the \"How to configure external runners\" section",
     "notSet": "Not set",
     "configSaved": "ACP configuration saved",
-    "configFailed": "Failed to save ACP configuration"
+    "configFailed": "Failed to save ACP configuration",
+    "deleteTitle": "Delete {{name}}",
+    "deleteConfirm": "Delete this ACP agent? This action cannot be undone.",
+    "deleteSuccess": "ACP agent deleted",
+    "deleteFailed": "Failed to delete ACP agent"
   },
   "voiceTranscription": {
     "title": "Voice Transcription",

@@ -207,6 +207,7 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
             channel=channel,
             session_id=session_id,
             user_id=user_id,
+            agent_id=runner.agent_id,
             args={},
         )
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Form } from "@agentscope-ai/design";
+import { Button, Form, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
 import api from "../../../api";
@@ -100,6 +100,7 @@ function ACPPage() {
     setDrawerOpen(true);
     form.setFieldsValue({
       ...config,
+      agentKey: key,
       argsText: stringifyArgs(config?.args),
       envText: stringifyEnv(config?.env),
       stdio_buffer_limit_bytes:
@@ -133,12 +134,15 @@ function ACPPage() {
   };
 
   const handleSubmit = async (values: Record<string, unknown>) => {
-    const targetKey = isCreateMode
-      ? String(values.agentKey || "").trim()
-      : activeKey;
+    const targetKey = String(values.agentKey || activeKey || "").trim();
     if (!targetKey) return;
     const existingConfig: Partial<ACPAgentConfig> =
       (!isCreateMode && activeKey ? agents[activeKey] : undefined) || {};
+
+    if ((isCreateMode || targetKey !== activeKey) && agents[targetKey]) {
+      message.error(t("acp.agentKeyExists"));
+      return;
+    }
 
     const updatedConfig: ACPAgentConfig = {
       ...existingConfig,
@@ -158,7 +162,16 @@ function ACPPage() {
 
     setSaving(true);
     try {
-      await api.updateACPAgentConfig(targetKey, updatedConfig);
+      if (isCreateMode || targetKey !== activeKey) {
+        const nextAgents = { ...agents };
+        if (!isCreateMode && activeKey) {
+          delete nextAgents[activeKey];
+        }
+        nextAgents[targetKey] = updatedConfig;
+        await api.updateACPConfig({ agents: nextAgents });
+      } else {
+        await api.updateACPAgentConfig(targetKey, updatedConfig);
+      }
       await fetchACP();
       setDrawerOpen(false);
       message.success(
@@ -170,6 +183,32 @@ function ACPPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleDelete = () => {
+    if (!activeKey || isBuiltinACPAgent(activeKey)) return;
+
+    Modal.confirm({
+      title: t("acp.deleteTitle", { name: activeKey }),
+      content: t("acp.deleteConfirm"),
+      okText: t("common.delete"),
+      cancelText: t("common.cancel"),
+      okButtonProps: { danger: true },
+      async onOk() {
+        try {
+          const nextAgents = { ...agents };
+          delete nextAgents[activeKey];
+          await api.updateACPConfig({ agents: nextAgents });
+          await fetchACP();
+          handleClose();
+          message.success(t("acp.deleteSuccess"));
+        } catch (error) {
+          console.error("❌ Failed to delete ACP config:", error);
+          message.error(t("acp.deleteFailed"));
+          throw error;
+        }
+      },
+    });
   };
 
   const FILTER_TABS: { key: FilterType; label: string }[] = [
@@ -229,8 +268,11 @@ function ACPPage() {
         form={form}
         saving={saving}
         initialValues={activeKey ? agents[activeKey] : undefined}
+        canEditKey={isCreateMode || !isBuiltinACPAgent(activeKey || "")}
+        canDelete={!isCreateMode && !isBuiltinACPAgent(activeKey || "")}
         onClose={handleClose}
         onSubmit={handleSubmit}
+        onDelete={handleDelete}
       />
     </div>
   );

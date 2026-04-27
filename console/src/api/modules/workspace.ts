@@ -5,7 +5,10 @@ import type { MdFileInfo, MdFileContent, DailyMemoryFile } from "../types";
 
 function getSelectedAgentId(): string {
   try {
-    const agentStorage = localStorage.getItem("qwenpaw-agent-storage");
+    // Read from sessionStorage first (per-tab agent), fall back to localStorage
+    const agentStorage =
+      sessionStorage.getItem("qwenpaw-agent-storage") ||
+      localStorage.getItem("qwenpaw-agent-storage");
     if (agentStorage) {
       const parsed = JSON.parse(agentStorage);
       const selectedAgent = parsed?.state?.selectedAgent;

@@ -25,8 +25,11 @@ interface ACPDrawerProps {
   form: FormInstance<Record<string, unknown>>;
   saving: boolean;
   initialValues?: ACPAgentConfig;
+  canEditKey?: boolean;
+  canDelete?: boolean;
   onClose: () => void;
   onSubmit: (values: Record<string, unknown>) => void;
+  onDelete?: () => void;
 }
 
 const TOOL_PARSE_MODE_OPTIONS: { value: ACPToolParseMode; label: string }[] = [
@@ -102,8 +105,11 @@ export function ACPDrawer({
   form,
   saving,
   initialValues,
+  canEditKey = false,
+  canDelete = false,
   onClose,
   onSubmit,
+  onDelete,
 }: ACPDrawerProps) {
   const { t, i18n } = useTranslation();
 
@@ -120,11 +126,24 @@ export function ACPDrawer({
       onClose={onClose}
       width={520}
       footer={
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <Button onClick={onClose}>{t("common.cancel")}</Button>
-          <Button type="primary" loading={saving} onClick={() => form.submit()}>
-            {t("common.save")}
-          </Button>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <div>
+            {canDelete ? (
+              <Button danger onClick={onDelete}>
+                {t("common.delete")}
+              </Button>
+            ) : null}
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <Button onClick={onClose}>{t("common.cancel")}</Button>
+            <Button
+              type="primary"
+              loading={saving}
+              onClick={() => form.submit()}
+            >
+              {t("common.save")}
+            </Button>
+          </div>
         </div>
       }
       destroyOnClose
@@ -138,20 +157,15 @@ export function ACPDrawer({
         <Form.Item
           name="agentKey"
           label={t("acp.agentKey")}
-          hidden={!isCreateMode}
-          rules={
-            isCreateMode
-              ? [
-                  { required: true, message: t("acp.agentKeyRequired") },
-                  {
-                    pattern: /^[A-Za-z0-9_-]+$/,
-                    message: t("acp.agentKeyInvalid"),
-                  },
-                ]
-              : []
-          }
+          rules={[
+            { required: true, message: t("acp.agentKeyRequired") },
+            {
+              pattern: /^[A-Za-z0-9_-]+$/,
+              message: t("acp.agentKeyInvalid"),
+            },
+          ]}
         >
-          <Input placeholder="my_custom_runner" />
+          <Input placeholder="my_custom_runner" disabled={!canEditKey} />
         </Form.Item>
 
         <Form.Item

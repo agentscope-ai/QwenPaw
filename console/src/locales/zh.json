@@ -195,6 +195,7 @@
     "agentKey": "Agent Key",
     "agentKeyRequired": "请输入 Agent Key",
     "agentKeyInvalid": "Agent Key 只能包含字母、数字、下划线和连字符",
+    "agentKeyExists": "该 Agent Key 已存在",
     "enabled": "启用",
     "command": "命令",
     "commandRequired": "请输入命令",
@@ -214,7 +215,11 @@
     "docsHelp": "打开 ACP 集成文档，并跳转到“如何配置外部 runner”章节",
     "notSet": "未设置",
     "configSaved": "ACP 配置已保存",
-    "configFailed": "ACP 配置保存失败"
+    "configFailed": "ACP 配置保存失败",
+    "deleteTitle": "删除 {{name}}",
+    "deleteConfirm": "确定删除该 ACP Agent 吗？此操作不可撤销。",
+    "deleteSuccess": "ACP Agent 已删除",
+    "deleteFailed": "ACP Agent 删除失败"
   },
   "skills": {
     "title": "技能",
