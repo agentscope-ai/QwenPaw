@@ -720,6 +720,38 @@ class LightContextConfig(BaseModel):
     )
 
 
+class AutoTitleConfig(BaseModel):
+    """Async chat-title generation configuration.
+
+    The console handler creates each new chat with a 10-character
+    placeholder name and spawns a background task that asks the active
+    LLM for a concise title. Each new chat costs one short extra LLM
+    call; flip ``enabled`` to ``False`` to keep the placeholder and
+    avoid the spend.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "Generate a chat title via the active LLM after the first "
+            "user message. Disable to keep the truncated placeholder "
+            "and skip the extra per-chat LLM call."
+        ),
+    )
+
+    timeout_seconds: float = Field(
+        default=30.0,
+        ge=1.0,
+        description=(
+            "Hard timeout for the title-generation LLM call. The "
+            "background task is swallowed if this fires, leaving the "
+            "placeholder name in place."
+        ),
+    )
+
+
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
 
@@ -858,6 +890,14 @@ class AgentsRunningConfig(BaseModel):
 
     light_context_config: LightContextConfig = Field(
         default_factory=LightContextConfig,
+    )
+
+    auto_title_config: AutoTitleConfig = Field(
+        default_factory=AutoTitleConfig,
+        description=(
+            "Async chat-title generation toggle and timeout. See "
+            "AutoTitleConfig."
+        ),
     )
 
     memory_manager_backend: str = Field(default="remelight")
