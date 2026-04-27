@@ -5,7 +5,10 @@ import type { MdFileInfo, MdFileContent, DailyMemoryFile } from "../types";
 
 function getSelectedAgentId(): string {
   try {
-    const agentStorage = sessionStorage.getItem("qwenpaw-agent-storage");
+    // Read from sessionStorage first (per-tab agent), fall back to localStorage
+    const agentStorage =
+      sessionStorage.getItem("qwenpaw-agent-storage") ||
+      localStorage.getItem("qwenpaw-agent-storage");
     if (agentStorage) {
       const parsed = JSON.parse(agentStorage);
       const selectedAgent = parsed?.state?.selectedAgent;
@@ -38,7 +41,7 @@ export interface WorkspaceDownloadResult {
 
 export const workspaceApi = {
   listFiles: () =>
-    request<MdFileInfo[]>("/agent/files").then((files) =>
+    request<MdFileInfo[]>("/workspace/files").then((files) =>
       files.map((file) => ({
         ...file,
         updated_at: new Date(file.modified_time).getTime(),
@@ -46,11 +49,11 @@ export const workspaceApi = {
     ),
 
   loadFile: (fileName: string) =>
-    request<MdFileContent>(`/agent/files/${encodeURIComponent(fileName)}`),
+    request<MdFileContent>(`/workspace/files/${encodeURIComponent(fileName)}`),
 
   saveFile: (fileName: string, content: string) =>
     request<Record<string, unknown>>(
-      `/agent/files/${encodeURIComponent(fileName)}`,
+      `/workspace/files/${encodeURIComponent(fileName)}`,
       {
         method: "PUT",
         body: JSON.stringify({ content }),
@@ -114,7 +117,7 @@ export const workspaceApi = {
   },
 
   listDailyMemory: () =>
-    request<MdFileInfo[]>("/agent/memory").then((files) =>
+    request<MdFileInfo[]>("/workspace/memory").then((files) =>
       files.map((file) => {
         const date = file.filename.replace(".md", "");
         return {
@@ -126,11 +129,11 @@ export const workspaceApi = {
     ),
 
   loadDailyMemory: (date: string) =>
-    request<MdFileContent>(`/agent/memory/${encodeURIComponent(date)}.md`),
+    request<MdFileContent>(`/workspace/memory/${encodeURIComponent(date)}.md`),
 
   saveDailyMemory: (date: string, content: string) =>
     request<Record<string, unknown>>(
-      `/agent/memory/${encodeURIComponent(date)}.md`,
+      `/workspace/memory/${encodeURIComponent(date)}.md`,
       {
         method: "PUT",
         body: JSON.stringify({ content }),
@@ -138,10 +141,11 @@ export const workspaceApi = {
     ),
 
   // System prompt files management
-  getSystemPromptFiles: () => request<string[]>("/agent/system-prompt-files"),
+  getSystemPromptFiles: () =>
+    request<string[]>("/workspace/system-prompt-files"),
 
   setSystemPromptFiles: (files: string[]) =>
-    request<string[]>("/agent/system-prompt-files", {
+    request<string[]>("/workspace/system-prompt-files", {
       method: "PUT",
       body: JSON.stringify(files),
     }),

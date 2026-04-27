@@ -27,6 +27,8 @@ function AgentConfigPage() {
     savingLang,
     timezone,
     savingTimezone,
+    approvalLevel,
+    setApprovalLevel,
     fetchConfig,
     handleSave,
     handleLanguageChange,
@@ -136,7 +138,11 @@ function AgentConfigPage() {
       ),
       children: (
         <div className={styles.tabContent}>
-          <ToolExecutionLevelCard />
+          <ToolExecutionLevelCard
+            value={approvalLevel}
+            onChange={setApprovalLevel}
+            disabled={saving}
+          />
         </div>
       ),
     });
@@ -154,6 +160,9 @@ function AgentConfigPage() {
     maxInputLength,
     contextBackend,
     memoryBackend,
+    approvalLevel,
+    setApprovalLevel,
+    saving,
   ]);
 
   useEffect(() => {
@@ -197,6 +206,7 @@ function AgentConfigPage() {
             activeKey={activeTab}
             onChange={setActiveTab}
             items={dynamicTabs}
+            destroyInactiveTabPane={false}
           />
         </Form>
       </div>

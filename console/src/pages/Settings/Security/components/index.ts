@@ -5,3 +5,4 @@ export * from "./SkillScannerSection";
 export * from "./FileGuardSection";
 export * from "./ShellEvasionSection";
 export * from "./ToolGuardTab";
+export * from "./AllowNoAuthHostsTab";

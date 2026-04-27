@@ -195,6 +195,7 @@
     "agentKey": "Agent Key",
     "agentKeyRequired": "请输入 Agent Key",
     "agentKeyInvalid": "Agent Key 只能包含字母、数字、下划线和连字符",
+    "agentKeyExists": "该 Agent Key 已存在",
     "enabled": "启用",
     "command": "命令",
     "commandRequired": "请输入命令",
@@ -210,9 +211,15 @@
     "stdioBufferLimitHelp": "ACP 子进程 stdio 单行读取缓冲的最大字节数。",
     "stdioBufferLimitRequired": "请输入 stdio 缓冲上限",
     "stdioBufferLimitMin": "stdio 缓冲上限至少为 1 字节",
+    "docs": "配置文档",
+    "docsHelp": "打开 ACP 集成文档，并跳转到“如何配置外部 runner”章节",
     "notSet": "未设置",
     "configSaved": "ACP 配置已保存",
-    "configFailed": "ACP 配置保存失败"
+    "configFailed": "ACP 配置保存失败",
+    "deleteTitle": "删除 {{name}}",
+    "deleteConfirm": "确定删除该 ACP Agent 吗？此操作不可撤销。",
+    "deleteSuccess": "ACP Agent 已删除",
+    "deleteFailed": "ACP Agent 删除失败"
   },
   "skills": {
     "title": "技能",
@@ -920,6 +927,7 @@
     "modelNamePlaceholder": "例如 GPT-4o, Gemini 2.0 Flash",
     "modelAdded": "模型 \"{{name}}\" 已添加",
     "modelAddFailed": "添加模型失败",
+    "modelAlreadyExists": "模型 ID \"{{id}}\" 已存在",
     "autoDiscoverModelsSuccess": "自动发现完成，新增 {{count}} 个模型",
     "autoDiscoverModelsNoNew": "自动发现完成，未新增模型",
     "autoDiscoverModelsFailed": "自动发现模型失败",
@@ -1268,6 +1276,7 @@
     "embeddingMaxBatchSizeTooltip": "单次批量向量化请求的最大条目数",
     "embeddingMaxBatchSizeRequired": "最大批处理大小为必填项",
     "embeddingRestartWarning": "向量模型配置不支持热更新，保存后需要重启服务才能生效",
+    "toolExecutionLevelTitle": "工具执行安全",
     "toolExecutionLevel": {
       "title": "工具执行安全",
       "alertMessage": "配置工具调用的审批策略，控制智能体执行工具时的安全级别",
@@ -1418,6 +1427,13 @@
       "userMessage": "用户",
       "assistantMessage": "助手",
       "titleMatch": "标题"
+    },
+    "contextMenu": {
+      "open": "打开",
+      "rename": "重命名",
+      "pin": "置顶",
+      "unpin": "取消置顶",
+      "delete": "删除"
     }
   },
   "security": {
@@ -1557,6 +1573,23 @@
       "saveSuccess": "文件防护设置已保存",
       "saveFailed": "保存文件防护设置失败",
       "loadFailed": "加载文件防护设置失败"
+    },
+    "allowNoAuthHosts": {
+      "title": "免认证主机白名单",
+      "warningTitle": "安全警告",
+      "warningDescription": "此列表中的 IP 地址可以无需认证访问 API 端点。默认情况下，本地主机（127.0.0.1 和 ::1）允许 CLI 访问。仅添加可信任的 IP 地址。警告：添加不受信任的 IP 会带来严重的安全风险。",
+      "ipAddress": "IP 地址",
+      "actions": "操作",
+      "add": "添加",
+      "inputPlaceholder": "输入 IP 地址（例如：192.168.1.100 或 ::1）",
+      "empty": "未配置 IP 地址",
+      "default": "默认",
+      "removeConfirm": "从白名单中移除该 IP 地址？",
+      "duplicate": "该 IP 地址已存在",
+      "invalidIP": "无效的 IP 地址格式",
+      "saveSuccess": "免认证主机白名单设置已保存",
+      "saveFailed": "保存免认证主机白名单设置失败",
+      "loadFailed": "加载免认证主机白名单设置失败"
     },
     "skillScanner": {
       "title": "技能扫描器",

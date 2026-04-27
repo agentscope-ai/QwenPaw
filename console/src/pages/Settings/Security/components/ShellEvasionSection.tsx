@@ -33,7 +33,7 @@ export function ShellEvasionSection({
     <div className={styles.shellEvasionSection}>
       <div className={styles.shellEvasionGrid}>
         {SHELL_EVASION_CHECK_KEYS.map((checkKey) => {
-          const isEnabled = checks[checkKey] !== false;
+          const isEnabled = checks[checkKey] === true;
           const nameKey = `security.shellEvasion.checks.${checkKey}.name`;
           const descKey = `security.shellEvasion.checks.${checkKey}.description`;
           const displayName =

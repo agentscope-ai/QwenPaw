@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button, Card, Tag, Typography, Space } from "antd";
-import { Shield, Check, X, Clock } from "lucide-react";
+import { Shield, Check, X, Clock, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import styles from "./ApprovalCard.module.less";
 
@@ -40,6 +40,17 @@ export function ApprovalCard({
   const { t } = useTranslation();
   const [loading, setLoading] = useState<"approve" | "deny" | null>(null);
   const [remaining, setRemaining] = useState<number>(timeoutSeconds);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const handleCopy = useCallback(async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 1500);
+    } catch {
+      /* clipboard not available */
+    }
+  }, []);
 
   // Check if this is a cross-session approval
   const isCrossSession =
@@ -151,6 +162,15 @@ export function ApprovalCard({
         {findingsSummary && (
           <div className={styles.summaryBox}>
             <Text className={styles.summaryText}>{findingsSummary}</Text>
+            <button
+              className={`${styles.copyButton} ${
+                copiedField === "summary" ? styles.copied : ""
+              }`}
+              onClick={() => handleCopy(findingsSummary, "summary")}
+              title={t("common.copy", "Copy")}
+            >
+              <Copy size={12} />
+            </button>
           </div>
         )}
 
@@ -159,38 +179,30 @@ export function ApprovalCard({
             <summary className={styles.paramsSummary}>
               {t("approval.parameters", "Parameters")}
             </summary>
-            <pre className={styles.paramsCode}>
-              {JSON.stringify(toolParams, null, 2)}
-            </pre>
+            <div className={styles.paramsCodeWrapper}>
+              <pre className={styles.paramsCode}>
+                {JSON.stringify(toolParams, null, 2)}
+              </pre>
+              <button
+                className={`${styles.copyButton} ${
+                  copiedField === "params" ? styles.copied : ""
+                }`}
+                onClick={() =>
+                  handleCopy(JSON.stringify(toolParams, null, 2), "params")
+                }
+                title={t("common.copy", "Copy")}
+              >
+                <Copy size={12} />
+              </button>
+            </div>
           </details>
         )}
       </div>
 
       <div className={styles.actions}>
-        <Button
-          type="default"
-          icon={<X size={14} />}
-          onClick={handleDeny}
-          loading={loading === "deny"}
-          disabled={loading !== null}
-          className={styles.denyButton}
-        >
-          {t("approval.deny", "Deny")}
-        </Button>
-        <Button
-          type="primary"
-          icon={<Check size={14} />}
-          onClick={handleApprove}
-          loading={loading === "approve"}
-          disabled={loading !== null}
-          className={styles.approveButton}
-        >
-          {t("approval.approve", "Approve")}
-        </Button>
         {onCancel && (
           <Button
             type="default"
-            danger
             onClick={() => {
               console.log("[ApprovalCard] Cancel task button clicked");
               onCancel();
@@ -200,6 +212,24 @@ export function ApprovalCard({
             {t("approval.cancelTask", "Cancel Task")}
           </Button>
         )}
+        <Button
+          danger
+          icon={<X size={14} />}
+          onClick={handleDeny}
+          loading={loading === "deny"}
+          disabled={loading !== null}
+        >
+          {t("approval.deny", "Deny")}
+        </Button>
+        <Button
+          type="primary"
+          icon={<Check size={14} />}
+          onClick={handleApprove}
+          loading={loading === "approve"}
+          disabled={loading !== null}
+        >
+          {t("approval.approve", "Approve")}
+        </Button>
       </div>
     </Card>
   );

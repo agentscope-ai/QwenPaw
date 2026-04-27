@@ -80,96 +80,7 @@ Stores backups of MEMORY.md created before each Auto-Dream optimization.
 - **Purpose**: Automatic backup before each Auto-Dream execution, enabling historical version recovery
 - **Naming format**: `memory_backup_YYYYMMDD_HHMMSS.md`
 
----
-
-## Memory Management Workflow
-
-The memory management system follows a three-phase automated workflow, where different types of memory information are automatically written at the appropriate stage:
-
-| Information Type                                               | Write Target           | Writing Timing                   | Processing Method                                                                                                                                             |
-| -------------------------------------------------------------- | ---------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Daily notes, runtime context                                   | `memory/YYYY-MM-DD.md` | **Accumulation Phase (Daytime)** | Auto-Memory automatically appends to daily logs                                                                                                               |
-| Decisions, preferences, persistent facts, reusable experiences | `MEMORY.md`            | **Integration Phase (Night)**    | Auto-Dream crystallizes using five core principles, strictly limited to: core business decisions, confirmed user preferences, high-value reusable experiences |
-| User says "remember this"                                      | `memory/YYYY-MM-DD.md` | **Accumulation Phase (Daytime)** | Immediately writes to daily log, processed by Auto-Dream later                                                                                                |
-
-Recommended workflow: Enable Auto-Memory during the day to accumulate memories → Auto-Dream at night to integrate and optimize → Auto-Memory-Search the next day for precise retrieval.
-
-### Accumulation Phase - Auto-Memory
-
-Auto-Memory automatically persists important information from conversations into memory files at specific times, helping the agent accumulate knowledge and experience across multiple turns.
-
-**Memory Content Categories**
-
-- **Persistent memories**: Objective facts, user preferences, project status, important events
-- **Experience reflections**: Reusable reasoning logic, successful strategies, pitfalls to avoid — enabling agent self-evolution
-
-**Trigger Methods**
-
-| Trigger Method     | Config                   | Description                                                 | Default |
-| ------------------ | ------------------------ | ----------------------------------------------------------- | ------- |
-| Periodic trigger   | `auto_memory_interval`   | Auto-summarize every N user messages. `null` to disable     | `null`  |
-| Compaction trigger | `summarize_when_compact` | Summarize before context compaction when threshold exceeded | `true`  |
-
-- **Input**: User conversations, Agent tool call results, explicit "remember this" commands
-- **Output**: Date-organized raw log files `memory/YYYY-MM-DD.md`. Multiple summaries on the same day are intelligently merged to avoid duplication
-- **Characteristics**: Preserves all details without filtering or optimization
-
-### Integration Phase - Auto-Dream
-
-Auto-Dream is an intelligent memory integration system that automatically optimizes MEMORY.md during quiet periods. Think of it as your AI assistant "dreaming" — reflecting on what's truly worth remembering.
-
-- **Trigger time**: Default 11 PM nightly (Cron expression `"0 23 * * *"`), customizable via Cron expression or disableable
-- **Input source**: Reads today's and historical logs from the `memory/` directory
-- **Manual trigger**: Can be executed manually via API or command `dream()`
-
-**Five Optimization Principles**
-
-| Principle                    | Description                                                                                                         |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **Noise Removal**            | Eliminates temporary details, bug fixes, and one-time tasks                                                         |
-| **Essence Preservation**     | Retains only core business decisions, confirmed user preferences, and reusable insights                             |
-| **Contradiction Resolution** | Automatically updates outdated information with the latest state                                                    |
-| **Structure Creation**       | Organizes fragmented notes into coherent, universal principles                                                      |
-| **Backup Protection**        | Automatically creates backups to `backup/` directory before each optimization, enabling historical version rollback |
-
-- **Output**: Generates high-quality crystallized knowledge updated to `MEMORY.md`
-- **Content guidelines**: Strictly limited to three types of high-value information: core business decisions, confirmed user preferences, high-value reusable experiences
-
-### Retrieval Phase - Auto-Memory-Search
-
-Auto-Memory-Search automatically retrieves relevant memories and injects them into context before each conversation turn, helping the agent recall previously accumulated knowledge and experience.
-
-**Core Mechanism**
-
-- **Trigger timing**: Automatically executes after each user message, before Agent reasoning
-- **Search sources**: `MEMORY.md` + `memory/*.md` (all memory files)
-- **Injection method**: Search results are injected into message history as "completed tool calls"
-- **Difference from traditional RAG**: Maintains KVCache integrity, improving token efficiency
-
-**Retrieval Flow**
-
-```
-User sends message → pre_reply hook
-    ↓
-Extract latest message text as query (max 100 chars)
-    ↓
-Call memory_search(query, max_results, min_score)
-    ↓
-Construct tool call message and inject into history:
-    [User message] + [Assistant: Searching memory...] + [System: search results]
-    ↓
-Agent reasons with context containing memory results
-```
-
-**Effectiveness**
-
-With Auto-Memory-Search enabled, the agent can:
-
-- **Auto-recall user preferences**: User says "help me write code" → automatically retrieves "user prefers Chinese communication"
-- **Reuse historical decisions**: User asks "how to do the auth module" → automatically retrieves previous solution records
-- **Avoid repeated mistakes**: Agent automatically avoids pitfalls based on "should skip tests" in memory
-
-In practice, without it the agent may need 16 steps to find a result; with it enabled, only 4 steps based on historical experience.
+> For a complete walkthrough of Auto-Memory, Auto-Dream, Auto-Memory-Search, and Proactive, see [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive.en.md). The sections below cover technical implementation details and configuration only.
 
 ---
 
@@ -259,51 +170,6 @@ graph LR
 
 > **Summary**: Using any single search method alone has blind spots. Hybrid search lets the two signals complement each
 > other, delivering reliable recall whether you're asking in natural language or searching for exact terms.
-
----
-
-## Proactive Mode
-
-Proactive is QwenPaw's proactive service capability, allowing the agent to push information, suggestions, or reminders to the user under specific conditions to assist with current or potential tasks.
-
-### Purpose
-
-- Built on existing memory (context management + long-term memory) capabilities
-- Supports the following typical scenarios:
-  - Push latest updates on topics the user cares about (e.g., "today's stock market")
-  - Retry unfinished user needs from historical sessions
-  - Supplement information for ongoing work (e.g., additional research on related academic topics)
-- Differs from Claude Code Proactive: only provides "information/suggestions/reminders", does not directly execute high-risk operations (e.g., modifying files, sending network requests)
-
-### Usage
-
-- **Disabled by default** (to control token consumption)
-- Enable: type the shortcut command `/proactive` in any session
-  - Only affects the current Agent
-  - Configurable inactivity timeout (in minutes)
-  - System returns a confirmation message on success
-- After the configured idle time, the Agent pushes predicted helpful information in a dedicated session (ID format: `proactive_mode:{agent_id}`)
-  - If the session doesn't exist, it is created automatically
-  - All proactive messages are prefixed with: `[PROACTIVE]`
-- Users can disable at any time via `/proactive off`
-
-### Core Mechanism
-
-Overall structure: Trigger condition check → ReActAgent executes Proactive information response
-
-- Creates a dedicated Proactive ReActAgent instance based on the current Agent's workspace, responsible for reasoning about "generating proactive message content"
-- For stability, the Beta version uses a predefined workflow rather than fully autonomous agent decision-making
-
-Workflow steps:
-
-1. **Session memory aggregation** — Extract recent conversations, user interest points, unfinished tasks, etc.
-2. **User need prediction** — Infer potential needs from context, e.g., "user asked about a stock yesterday, may want updates today"
-3. **Query execution and response** — Call tools or retrieve latest information, generate concise and valuable proactive messages
-
-### Anti-disturbance Strategy
-
-- After a proactive message is sent, if the user continues to be inactive, the system **does not repeatedly trigger the same content**
-- Avoids unnecessary token consumption from frequent pushes
 
 ---
 
@@ -436,6 +302,7 @@ Configure the memory storage backend via the `MEMORY_STORE_BACKEND` environment 
 
 ## Related Pages
 
+- [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive.en.md) — Auto-Memory, Auto-Dream, Auto-Memory-Search, Proactive complete workflow
 - [Introduction](./intro.en.md) — What this project can do
 - [Console](./console.en.md) — Manage memory and configuration in the console
 - [Skills](./skills.en.md) — Built-in and custom capabilities

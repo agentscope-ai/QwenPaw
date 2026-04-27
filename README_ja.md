@@ -58,11 +58,13 @@
 
 ## ニュース
 
-- [2026-04-22] **v1.1.3** をリリースしました！詳細は [v1.1.3 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
+- [2026-04-24] **v1.1.4** をリリースしました！詳細は [v1.1.4 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
 
-  - **[v1.1.3] 新機能**：バックアップ＆リストアシステム；QwenPaw を ACP Server として公開；プロアクティブメッセージ送信；コンソールプラグインシステム；エージェント統計ページ；組み込みスキルの多言語切替；Shell 難読化ガード。
-  - **[v1.1.3] 変更**：デバッグページを設定モジュールに移設；チャネルメディアディレクトリの統一；起動速度の最適化。
-  - **[v1.1.3] 新規コントリビューター**：@daliu858、@xuanrui-L、@pxdawn、@mailmrcai、@linhuang0405、@imrewce、@zealonexp、@Prince-liu の皆さん、ありがとうございます。
+  - **[v1.1.4] 新機能**：メモリ＆コンテキストアーキテクチャの再構築；プランモード；Shell 回避チェックの個別設定；認証バイパスホストのホワイトリスト；SIP 音声チャネル；セッション右クリックメニュー；ブラウザ起動パラメータと Shell コマンドタイムアウト設定；DeepSeek V4 モデル。
+  - **[v1.1.4] 変更**：ツールガード承認システム；Docker ビルドの改善；動的プラグイン登録。
+  - **[v1.1.4] 新規コントリビューター**：@shadowabi、@shaohuaxi、@vincentyzhj、@hlgone、@twz915、@Nioolek の皆さん、ありがとうございます。
+
+- [2026-04-22] **v1.1.3** をリリースしました！詳細は [v1.1.3 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
 
 - [2026-04-17] **v1.1.2** をリリースしました！詳細は [v1.1.2 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
 
@@ -384,6 +386,7 @@ qwenpaw app    # サービスを起動
 | [スキル](https://qwenpaw.agentscope.io/docs/skills)                          | 機能の拡張とカスタマイズ                             |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                                | MCPクライアントの管理                               |
 | [メモリ](https://qwenpaw.agentscope.io/docs/memory)                          | 長期記憶                              |
+| [記憶進化＆プロアクティブ](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | エージェントの記憶進化とプロアクティブインタラクション |
 | [コンテキスト](https://qwenpaw.agentscope.io/docs/context)                  | コンテキスト管理メカニズム                          |
 | [魔法コマンド](https://qwenpaw.agentscope.io/docs/commands)                 | AIの応答を待たずに会話状態を制御                     |
 | [ハートビート](https://qwenpaw.agentscope.io/docs/heartbeat)                 | スケジュールされたチェックインとダイジェスト        |

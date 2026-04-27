@@ -27,6 +27,7 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
+from ..utils import file_url_to_local_path
 
 logger = logging.getLogger(__name__)
 
@@ -977,8 +978,7 @@ class MattermostChannel(BaseChannel):
 
         if not local_path:
             return
-        if local_path.startswith("file://"):
-            local_path = local_path[len("file://") :]
+        local_path = file_url_to_local_path(local_path) or local_path
 
         file_id = await self._upload_file(mm_channel_id, local_path)
         if file_id:

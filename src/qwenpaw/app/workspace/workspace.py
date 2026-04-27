@@ -14,6 +14,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from qwenpaw.config.timezone import normalize_tz
 from qwenpaw.config.utils import load_config
 
 from .service_manager import ServiceDescriptor, ServiceManager
@@ -119,8 +120,7 @@ class Workspace:
     @property
     def config(self):
         """Get agent configuration."""
-        if self._config is None:
-            self._config = load_agent_config(self.agent_id)
+        self._config = load_agent_config(self.agent_id)
         return self._config
 
     def set_manager(self, manager) -> None:
@@ -276,7 +276,10 @@ class Workspace:
                     "channel_manager": ws._service_manager.services.get(
                         "channel_manager",
                     ),
-                    "timezone": load_config().user_timezone or "UTC",
+                    "timezone": normalize_tz(
+                        load_config().user_timezone or "UTC",
+                    )
+                    or "UTC",
                     "agent_id": ws.agent_id,
                 },
                 start_method="start",

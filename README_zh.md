@@ -40,6 +40,8 @@
 >
 > **全域触达** — 钉钉、飞书、微信、Discord、Telegram 等频道，一个 QwenPaw 按需连接。
 >
+> **记忆进化与主动交互** — 智能体从交互中学习、反思经验、主动服务，越用越聪明。
+>
 > <details>
 > <summary><b>你可以用 QwenPaw 做什么</b></summary>
 >
@@ -58,11 +60,13 @@
 
 ## 新闻
 
-- [2026-04-22] 我们发布了 **v1.1.3**！完整更新说明见 [v1.1.3 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+- [2026-04-24] 我们发布了 **v1.1.4**！完整更新说明见 [v1.1.4 发布说明](https://qwenpaw.agentscope.io/release-notes)。
 
-  - **[v1.1.3] 新增**：备份与恢复系统；将QwenPaw作为ACP Server；主动消息推送功能；控制台插件系统；新增Agent 统计页面；内置技能多语言切换；Shell 混淆防护。
-  - **[v1.1.3] 变更**：调试页面重构至设置模块；统一频道媒体目录；启动速度优化。
-  - **[v1.1.3] 感谢新贡献者**：@daliu858、@xuanrui-L、@pxdawn、@mailmrcai、@linhuang0405、@imrewce、@zealonexp、@Prince-liu。
+  - **[v1.1.4] 新增**：记忆与上下文架构重构；计划执行模式；Shell 绕过检测可配置化；免认证主机白名单；SIP 语音频道；会话右键菜单；浏览器启动参数与 Shell 命令超时配置； 内置DeepSeek V4 模型。
+  - **[v1.1.4] 变更**：工具守卫审批系统；Docker 构建优化；动态插件注册。
+  - **[v1.1.4] 感谢新贡献者**：@shadowabi、@shaohuaxi、@vincentyzhj、@hlgone、@twz915、@Nioolek。
+
+- [2026-04-22] 我们发布了 **v1.1.3**！完整更新说明见 [v1.1.3 发布说明](https://qwenpaw.agentscope.io/release-notes)。
 
 - [2026-04-17] 我们发布了 **v1.1.2**！完整更新说明见 [v1.1.2 发布说明](https://qwenpaw.agentscope.io/release-notes)。
 
@@ -123,7 +127,7 @@ qwenpaw init --defaults
 qwenpaw app
 ```
 
-然后在浏览器中打开控制台：**http://127.0.0.1:8088/**，配置模型后即可开始对话。
+然后在浏览器中打开控制台：**http://127.0.0.1:8088/** ，配置模型后即可开始对话。
 若要在钉钉、飞书、微信等 app 内对话，请参考 [频道配置](https://qwenpaw.agentscope.io/docs/channels) 文档。
 
 ![Console](https://img.alicdn.com/imgextra/i1/O1CN01ikrU3k1TRdNESHtzV_!!6000000002379-2-tps-3822-2070.png)
@@ -242,7 +246,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 国内用户也可选用阿里云容器镜像服务 (ACR)：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw`（tag 相同）。
 
-然后在浏览器中打开控制台：**http://127.0.0.1:8088/**。配置、记忆与 Skills 保存在 `qwenpaw-data` 卷中；模型配置与 API Key 保存在 `qwenpaw-secrets` 卷中；备份归档保存在 `qwenpaw-backups` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
+然后在浏览器中打开控制台：**http://127.0.0.1:8088/** 。配置、记忆与 Skills 保存在 `qwenpaw-data` 卷中；模型配置与 API Key 保存在 `qwenpaw-secrets` 卷中；备份归档保存在 `qwenpaw-backups` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
 
 > **从容器内连接宿主机上的 Ollama 或其他模型服务**
 >
@@ -353,7 +357,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 国内用户也可选用阿里云容器镜像服务 (ACR)：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw`（tag 相同）。
 
-然后在浏览器中打开控制台：**http://127.0.0.1:8088/**。配置、记忆与 Skills 保存在 `qwenpaw-data` 卷中；模型配置与 API Key 保存在 `qwenpaw-secrets` 卷中；备份归档保存在 `qwenpaw-backups` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
+然后在浏览器中打开控制台：**http://127.0.0.1:8088/** 。配置、记忆与 Skills 保存在 `qwenpaw-data` 卷中；模型配置与 API Key 保存在 `qwenpaw-secrets` 卷中；备份归档保存在 `qwenpaw-backups` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
 
 > **从容器内连接宿主机上的 Ollama 或其他模型服务**
 >
@@ -433,6 +437,7 @@ QwenPaw 可在本机完全本地运行大模型，无需 API Key 或云端服务
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)         | 扩展与自定义能力                     |
 | [MCP和工具](https://qwenpaw.agentscope.io/docs/mcp)         | 管理 MCP 客户端和工具                |
 | [记忆](https://qwenpaw.agentscope.io/docs/memory)           | 长期记忆机制                         |
+| [记忆进化与主动交互](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | 智能体记忆进化与主动交互               |
 | [上下文](https://qwenpaw.agentscope.io/docs/context)        | 上下文管理机制                       |
 | [魔法命令](https://qwenpaw.agentscope.io/docs/commands)     | 控制对话状态，无需等待 AI 理解       |
 | [安全](https://qwenpaw.agentscope.io/docs/security)         | 工具防护、文件防护、技能安全扫描     |

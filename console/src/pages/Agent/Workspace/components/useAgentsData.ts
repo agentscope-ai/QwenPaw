@@ -4,7 +4,6 @@ import { useTranslation } from "react-i18next";
 import api from "../../../../api";
 import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
 import { workspaceApi } from "../../../../api/modules/workspace";
-import { agentsApi } from "../../../../api/modules/agents";
 import { useAgentStore } from "../../../../stores/agentStore";
 
 // Returns the parent directory of a file path, supporting both '/' and '\' separators.
@@ -38,7 +37,7 @@ export const useAgentsData = () => {
       setExpandedMemory(false);
 
       const enabled = await fetchEnabledFiles();
-      const fileList = await agentsApi.listAgentFiles(selectedAgent);
+      const fileList = await workspaceApi.listFiles();
       const sortedFiles = sortFilesByEnabled(
         fileList as unknown as MarkdownFile[],
         enabled,
@@ -128,8 +127,7 @@ export const useAgentsData = () => {
       const enabled = Array.isArray(latestEnabledFiles)
         ? latestEnabledFiles
         : await fetchEnabledFiles();
-      // Use agent-specific API
-      const fileList = await agentsApi.listAgentFiles(selectedAgent);
+      const fileList = await workspaceApi.listFiles();
       const sortedFiles = sortFilesByEnabled(
         fileList as unknown as MarkdownFile[],
         enabled,
@@ -171,8 +169,7 @@ export const useAgentsData = () => {
     setSelectedFile(file);
     setLoading(true);
     try {
-      // Use agent-specific API
-      const data = await agentsApi.readAgentFile(selectedAgent, file.filename);
+      const data = await workspaceApi.loadFile(file.filename);
       setFileContent(data.content);
       setOriginalContent(data.content);
     } catch (error) {

@@ -872,6 +872,7 @@
     "modelNamePlaceholder": "例: GPT-4o, Gemini 2.0 Flash",
     "modelAdded": "モデル \"{{name}}\" を追加しました",
     "modelAddFailed": "モデルの追加に失敗しました",
+    "modelAlreadyExists": "モデル ID \"{{id}}\" は既に存在します",
     "autoDiscoverModelsSuccess": "自動検出が完了しました。{{count}} 件のモデルを追加しました",
     "autoDiscoverModelsNoNew": "自動検出が完了しました。新しいモデルは追加されませんでした",
     "autoDiscoverModelsFailed": "モデルの自動検出に失敗しました",
@@ -1216,7 +1217,22 @@
     "rebuildMemoryIndexOnStartTooltip": "エージェント起動時に記憶検索インデックスをクリアして再構築します。無効にすると再インデックス化をスキップし、新しいファイルの変更のみを監視します（起動が速くなりますが、インデックスが同期しなくなる可能性があります）",
     "toolResultCompactRecentGtOld": "最新メッセージの閾値は古いメッセージの閾値以上である必要があります",
     "lightContextTitle": "コンテキスト管理",
-    "remeLightMemoryTitle": "長期記憶"
+    "remeLightMemoryTitle": "長期記憶",
+    "toolExecutionLevelTitle": "ツール実行セキュリティ",
+    "toolExecutionLevel": {
+      "title": "ツール実行セキュリティ",
+      "alertMessage": "ツール呼び出しの承認ポリシーを設定し、エージェントがツールを実行する際のセキュリティレベルを制御します",
+      "strict": "厳格モード",
+      "strictDesc": "すべてのツール呼び出しに承認が必要、最高セキュリティレベル",
+      "smart": "スマートモード",
+      "smartDesc": "低リスクツールは自動承認、中〜高リスクツールは承認が必要",
+      "auto": "自動モード",
+      "autoDesc": "承認が必要と明示的にマークされたツールのみ承認を要求（デフォルト）",
+      "off": "オフモード",
+      "offDesc": "すべてのツール承認を無効化、すべてのツールが自動実行"
+    },
+    "saveLevelSuccess": "ツール実行セキュリティレベルを保存しました",
+    "saveLevelFailed": "ツール実行セキュリティレベルの保存に失敗しました"
   },
   "tools": {
     "title": "ビルトインツール",
@@ -1324,6 +1340,13 @@
       "userMessage": "ユーザー",
       "assistantMessage": "アシスタント",
       "titleMatch": "タイトル"
+    },
+    "contextMenu": {
+      "open": "開く",
+      "rename": "名前を変更",
+      "pin": "ピン留め",
+      "unpin": "ピン留め解除",
+      "delete": "削除"
     }
   },
   "security": {
@@ -1429,6 +1452,23 @@
       "saveSuccess": "ファイルガード設定を保存しました",
       "saveFailed": "ファイルガード設定の保存に失敗しました",
       "loadFailed": "ファイルガード設定の読み込みに失敗しました"
+    },
+    "allowNoAuthHosts": {
+      "title": "認証不要ホスト",
+      "warningTitle": "セキュリティ警告",
+      "warningDescription": "このリストのIPアドレスは認証なしでAPIエンドポイントにアクセスできます。デフォルトでは、ローカルホスト（127.0.0.1と::1）がCLIアクセスのために許可されています。信頼できるIPアドレスのみを追加してください。警告：信頼できないIPを追加すると、深刻なセキュリティリスクが生じます。",
+      "ipAddress": "IPアドレス",
+      "actions": "操作",
+      "add": "追加",
+      "inputPlaceholder": "IPアドレスを入力（例：192.168.1.100 または ::1）",
+      "empty": "IPアドレスが設定されていません",
+      "default": "デフォルト",
+      "removeConfirm": "このIPアドレスをホワイトリストから削除しますか？",
+      "duplicate": "このIPアドレスは既にリストに存在します",
+      "invalidIP": "無効なIPアドレス形式",
+      "saveSuccess": "認証不要ホスト設定を保存しました",
+      "saveFailed": "認証不要ホスト設定の保存に失敗しました",
+      "loadFailed": "認証不要ホスト設定の読み込みに失敗しました"
     },
     "skillScanner": {
       "title": "スキルスキャナー",
@@ -1566,6 +1606,7 @@
     "agentKey": "Agent Key",
     "agentKeyRequired": "Agent Key を入力してください",
     "agentKeyInvalid": "Agent Key には英字、数字、アンダースコア、ハイフンのみ使用できます",
+    "agentKeyExists": "この Agent Key は既に存在します",
     "enabled": "有効",
     "command": "コマンド",
     "commandRequired": "コマンドを入力してください",
@@ -1581,9 +1622,15 @@
     "stdioBufferLimitHelp": "ACP サブプロセスの stdio 1 行読み取りバッファの最大バイト数です。",
     "stdioBufferLimitRequired": "stdio バッファ上限を入力してください",
     "stdioBufferLimitMin": "stdio バッファ上限は 1 バイト以上である必要があります",
+    "docs": "設定ドキュメント",
+    "docsHelp": "ACP 統合ドキュメントを開き、「How to configure external runners」セクションへ移動します",
     "notSet": "未設定",
     "configSaved": "ACP 設定を保存しました",
-    "configFailed": "ACP 設定の保存に失敗しました"
+    "configFailed": "ACP 設定の保存に失敗しました",
+    "deleteTitle": "{{name}} を削除",
+    "deleteConfirm": "この ACP Agent を削除しますか？この操作は元に戻せません。",
+    "deleteSuccess": "ACP Agent を削除しました",
+    "deleteFailed": "ACP Agent の削除に失敗しました"
   },
   "backup": {
     "title": "バックアップ",

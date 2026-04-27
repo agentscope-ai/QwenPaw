@@ -222,6 +222,7 @@ class DingTalkConfig(BaseChannelConfig):
     client_id: str = ""
     client_secret: str = ""
     message_type: str = "markdown"
+    cron_message_type: str = "markdown"
     card_template_id: str = ""
     card_template_key: str = "content"
     robot_code: str = ""
@@ -1334,12 +1335,22 @@ class ToolsConfig(BaseModel):
 
     @model_validator(mode="after")
     def _merge_default_tools(self):
-        """Ensure new code-defined tools are present in saved configs."""
-        for name, tc in _default_builtin_tools().items():
+        """Ensure new code-defined tools are present in saved configs.
+
+        Also normalises legacy entries whose ``icon`` is ``None`` so that
+        downstream serialisation (e.g. ``ToolInfo``) never receives a null
+        icon value.
+        """
+        defaults = _default_builtin_tools()
+        for name, tc in defaults.items():
             if name not in self.builtin_tools:
                 self.builtin_tools[name] = tc
             elif self.builtin_tools[name].icon is None:
                 self.builtin_tools[name].icon = tc.icon
+        # Normalise legacy/stale entries not in the current defaults
+        for name, tc in self.builtin_tools.items():
+            if name not in defaults and tc.icon is None:
+                tc.icon = ""
         return self
 
 
@@ -1406,6 +1417,19 @@ class ToolGuardRuleConfig(BaseModel):
     remediation: str = ""
 
 
+def _default_shell_evasion_checks() -> Dict[str, bool]:
+    """Return default shell-evasion checks (all disabled at startup)."""
+    return {
+        "command_substitution": False,
+        "obfuscated_flags": False,
+        "backslash_escaped_whitespace": False,
+        "backslash_escaped_operators": False,
+        "newlines": False,
+        "comment_quote_desync": False,
+        "quoted_newline": False,
+    }
+
+
 class ToolGuardConfig(BaseModel):
     """Tool guard settings under ``security.tool_guard``.
 
@@ -1418,7 +1442,9 @@ class ToolGuardConfig(BaseModel):
     denied_tools: List[str] = Field(default_factory=list)
     custom_rules: List[ToolGuardRuleConfig] = Field(default_factory=list)
     disabled_rules: List[str] = Field(default_factory=list)
-    shell_evasion_checks: Dict[str, bool] = Field(default_factory=dict)
+    shell_evasion_checks: Dict[str, bool] = Field(
+        default_factory=_default_shell_evasion_checks,
+    )
 
 
 class FileGuardConfig(BaseModel):
@@ -1475,6 +1501,15 @@ class SecurityConfig(BaseModel):
     file_guard: FileGuardConfig = Field(default_factory=FileGuardConfig)
     skill_scanner: SkillScannerConfig = Field(
         default_factory=SkillScannerConfig,
+    )
+    allow_no_auth_hosts: List[str] = Field(
+        default_factory=lambda: ["127.0.0.1", "::1"],
+        description=(
+            "List of client IP addresses that can access API endpoints "
+            "without authentication. By default, localhost addresses "
+            "(127.0.0.1 for IPv4, ::1 for IPv6) are allowed. "
+            "WARNING: Only add trusted IP addresses to this list."
+        ),
     )
 
 
@@ -1579,7 +1614,10 @@ def build_fallback_agent_profile_config(
 
 
 def load_agent_config(agent_id: str) -> AgentProfileConfig:
-    """Load agent's complete configuration from workspace/agent.json.
+    """Load agent's complete configuration from workspace/agent.json with
+    mtime-based caching.
+
+    Uses file modification time to avoid unnecessary disk reads.
 
     Args:
         agent_id: Agent ID to load
@@ -1590,7 +1628,11 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
     Raises:
         ValueError: If agent ID not found in root config
     """
-    from .utils import load_config
+    from .utils import (
+        load_config,
+        _agent_config_cache,
+        _agent_config_lock,
+    )
 
     config = load_config()
 
@@ -1610,27 +1652,48 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
         save_agent_config(agent_id, fallback_config)
         return fallback_config
 
-    with open(agent_config_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
-    # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json
-    # contains older hard-coded paths like "~/.copaw/media".
+    # Check mtime to see if we can use cached config
     try:
-        from .utils import _normalize_working_dir_bound_paths
+        current_mtime = agent_config_path.stat().st_mtime
+    except OSError:
+        fallback_config = build_fallback_agent_profile_config(agent_id, config)
+        save_agent_config(agent_id, fallback_config)
+        return fallback_config
 
-        data = _normalize_working_dir_bound_paths(data)
-    except Exception:
-        pass
+    with _agent_config_lock:
+        # Return cached config if mtime hasn't changed
+        if agent_id in _agent_config_cache:
+            cached_config, cached_mtime = _agent_config_cache[agent_id]
+            if cached_mtime == current_mtime:
+                return cached_config
 
-    return AgentProfileConfig(**data)
+        # Need to reload config from disk
+        with open(agent_config_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
+        # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json
+        # contains older hard-coded paths like "~/.copaw/media".
+        try:
+            from .utils import _normalize_working_dir_bound_paths
+
+            data = _normalize_working_dir_bound_paths(data)
+        except Exception:
+            pass
+
+        agent_config = AgentProfileConfig(**data)
+
+        # Cache the config with its mtime
+        _agent_config_cache[agent_id] = (agent_config, current_mtime)
+
+        return agent_config
 
 
 def save_agent_config(
     agent_id: str,
     agent_config: AgentProfileConfig,
 ) -> None:
-    """Save agent configuration to workspace/agent.json.
+    """Save agent configuration to workspace/agent.json and invalidate cache.
 
     Args:
         agent_id: Agent ID
@@ -1639,7 +1702,11 @@ def save_agent_config(
     Raises:
         ValueError: If agent ID not found in root config
     """
-    from .utils import load_config
+    from .utils import (
+        load_config,
+        _agent_config_cache,
+        _agent_config_lock,
+    )
 
     config = load_config()
 
@@ -1662,6 +1729,11 @@ def save_agent_config(
             ensure_ascii=False,
             indent=2,
         )
+
+    # Invalidate cache after saving
+    with _agent_config_lock:
+        if agent_id in _agent_config_cache:
+            del _agent_config_cache[agent_id]
 
 
 def migrate_legacy_config_to_multi_agent() -> bool:

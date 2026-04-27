@@ -4,7 +4,7 @@ import logging
 import platform
 from datetime import datetime, timezone
 from typing import List, Optional, Union
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import Msg
@@ -118,12 +118,15 @@ def _is_local_file_url(url: str) -> bool:
 
 
 def _abspath_from_url(url: str) -> str:
-    """Extract absolute path from file:// URL."""
+    """Extract absolute path from file:// URL.
+
+    Percent-decodes the path so non-ASCII filenames resolve correctly.
+    """
     s = url.strip()
     if s.lower().startswith("file:"):
         s = s[5:]
     s = "/" + s.lstrip("/")
-    return s
+    return unquote(s)
 
 
 def _resolve_content_url(url: str) -> str:

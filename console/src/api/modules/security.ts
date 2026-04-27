@@ -75,6 +75,16 @@ export interface SecurityScanErrorResponse {
   findings: BlockedSkillFinding[];
 }
 
+// ── Allow No Auth Hosts types ──────────────────────────────────────
+
+export interface AllowNoAuthHostsResponse {
+  hosts: string[];
+}
+
+export interface AllowNoAuthHostsUpdateBody {
+  hosts: string[];
+}
+
 export const securityApi = {
   // ── Tool Guard ──────────────────────────────────────────────────
 
@@ -146,4 +156,15 @@ export const securityApi = {
       )}`,
       { method: "DELETE" },
     ),
+
+  // ── Allow No Auth Hosts ─────────────────────────────────────────
+
+  getAllowNoAuthHosts: () =>
+    request<AllowNoAuthHostsResponse>("/config/security/allow-no-auth-hosts"),
+
+  updateAllowNoAuthHosts: (body: AllowNoAuthHostsUpdateBody) =>
+    request<AllowNoAuthHostsResponse>("/config/security/allow-no-auth-hosts", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
 };

@@ -73,9 +73,12 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
     if (open) {
       const backendSid = getBackendSessionId();
       if (backendSid !== prevBackendSidRef.current) {
-        ssePlanRef.current = null;
         prevBackendSidRef.current = backendSid;
       }
+      // Drop any SSE snapshot from a previous open: while the drawer was
+      // closed we were unsubscribed, so ssePlanRef may be stale while
+      // GET /plan/current correctly returns null or a newer plan.
+      ssePlanRef.current = null;
       fetchPlan();
     }
   }, [open, fetchPlan]);

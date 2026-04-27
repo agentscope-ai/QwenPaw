@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { formatCompact } from "../../../utils/formatNumber";
 import { useTheme } from "../../../contexts/ThemeContext";
+import { useAgentStore } from "../../../stores/agentStore";
 import { SummaryCard } from "./SummaryCard";
 import styles from "./index.module.less";
 
@@ -90,6 +91,7 @@ function AgentStatsPage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark: isDarkMode } = useTheme();
+  const { selectedAgent } = useAgentStore();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<AgentStatsSummary | null>(null);
@@ -118,7 +120,7 @@ function AgentStatsPage() {
 
   useEffect(() => {
     fetchData(startDate, endDate);
-  }, []);
+  }, [selectedAgent]);
 
   const handleDateChange = (dates: [Dayjs | null, Dayjs | null] | null) => {
     const newStart = dates?.[0] || startDate;

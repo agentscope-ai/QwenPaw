@@ -163,6 +163,22 @@
 
 ---
 
+## Docker 用户注意事项
+
+Docker 容器内备份目录为 `/app/working.backups`。如果你使用 Docker 部署，需要挂载该目录以确保备份数据持久化，否则容器重建后所有备份将丢失。
+
+在 `docker run` 中添加 `-v qwenpaw-backups:/app/working.backups`：
+
+```bash
+docker run -p 127.0.0.1:8088:8088 \
+  -v qwenpaw-data:/app/working \
+  -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
+  agentscope/qwenpaw:latest
+```
+
+---
+
 ## 常见问题
 
 **Q：备份会包含本地下载的模型吗？**

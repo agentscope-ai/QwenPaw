@@ -27,7 +27,7 @@ import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
-import { ApprovalCard } from "../../components/ApprovalCard";
+import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { planApi } from "../../api/modules/plan";
@@ -153,11 +153,13 @@ function useIMEComposition(isChatActive: () => boolean) {
 
     const handleCompositionEnd = () => {
       if (!isChatActive()) return;
-      // Use a slightly longer delay for Safari on macOS, which fires keydown
-      // after compositionend within the same event loop tick.
+      // Small delay for Safari on macOS, which fires keydown after
+      // compositionend within the same event loop tick.  Keep this as
+      // short as possible so fast typists who hit Space+Enter in quick
+      // succession are not blocked.
       setTimeout(() => {
         isComposingRef.current = false;
-      }, 200);
+      }, 50);
     };
 
     const suppressImeEnter = (e: KeyboardEvent) => {
