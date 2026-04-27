@@ -1152,6 +1152,8 @@
     "maxItersMin": "最大迭代次数必须大于等于 1",
     "autoContinueOnTextOnly": "纯文本步骤自动续跑",
     "autoContinueOnTextOnlyTooltip": "当某轮推理只输出文字、未调用任何工具时，注入提示并额外进行一轮推理（工具策略与当前步相同），减少多步任务「无声中断」。关闭则与旧版行为一致。开启后可能增加 token 消耗。",
+    "autoGenerateSessionTitle": "自动生成会话标题",
+    "autoGenerateSessionTitleTooltip": "新会话首条用户消息发送后，后台触发一次轻量 LLM 调用，把截断的占位标题替换为更贴切的短标题。每个新会话会多一次 LLM 调用；关闭后保留占位标题、不产生该开销。",
     "shellCommandTimeout": "Shell 命令超时（秒）",
     "shellCommandTimeoutTooltip": "execute_shell_command 工具的默认超时时间（秒）。LLM 在单次调用时仍可通过 timeout 参数覆盖此值。适用于编译、数据处理等耗时任务。",
     "shellCommandTimeoutPlaceholder": "请输入超时时间",
