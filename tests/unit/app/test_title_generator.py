@@ -178,6 +178,30 @@ def _patch_model_factory(
     )
 
 
+def _stub_agent_config(
+    *,
+    enabled: bool = True,
+    timeout_seconds: float = 30.0,
+) -> MagicMock:
+    """Return a stub agent config exposing ``running.auto_title_config``."""
+    cfg = MagicMock()
+    cfg.running.auto_title_config.enabled = enabled
+    cfg.running.auto_title_config.timeout_seconds = timeout_seconds
+    return cfg
+
+
+@pytest.fixture(autouse=True)
+def _stub_load_agent_config():
+    """Replace :func:`load_agent_config` with a stub returning a default
+    enabled ``AutoTitleConfig`` so tests do not have to set up a real
+    workspace on disk."""
+    with patch(
+        "qwenpaw.config.config.load_agent_config",
+        return_value=_stub_agent_config(),
+    ) as mocked:
+        yield mocked
+
+
 async def test_updates_chat_name_with_cleaned_title(
     chat_manager: ChatManager,
     workspace: MagicMock,
@@ -361,13 +385,15 @@ async def test_swallows_model_exceptions(
 async def test_swallows_model_timeout(
     chat_manager: ChatManager,
     workspace: MagicMock,
-    monkeypatch: pytest.MonkeyPatch,
+    _stub_load_agent_config,
 ) -> None:
-    """Slow models hit the timeout and are swallowed cleanly."""
+    """Slow models hit the configured timeout and are swallowed cleanly."""
     chat = await _seed_chat(chat_manager)
 
-    # Force the timeout to fire immediately.
-    monkeypatch.setattr(title_generator, "TITLE_TIMEOUT_SECONDS", 0.01)
+    # Force the timeout from config to fire immediately.
+    _stub_load_agent_config.return_value = _stub_agent_config(
+        timeout_seconds=0.01,
+    )
 
     async def _slow(_messages):
         await asyncio.sleep(1.0)
@@ -382,6 +408,55 @@ async def test_swallows_model_timeout(
             placeholder_name=chat.name,
         )
 
+    saved = await chat_manager.get_chat(chat.id)
+    assert saved is not None
+    assert saved.name == chat.name
+
+
+async def test_skips_when_auto_title_disabled_by_config(
+    chat_manager: ChatManager,
+    workspace: MagicMock,
+    _stub_load_agent_config,
+) -> None:
+    """``auto_title_config.enabled = False`` short-circuits before any LLM
+    call so users can opt out of the per-chat token cost."""
+    chat = await _seed_chat(chat_manager)
+    _stub_load_agent_config.return_value = _stub_agent_config(enabled=False)
+
+    model = AsyncMock(return_value=_make_response("Should Not Run"))
+    with _patch_model_factory(model):
+        await generate_and_update_title(
+            workspace=workspace,
+            chat_id=chat.id,
+            user_message="hello",
+            placeholder_name=chat.name,
+        )
+
+    model.assert_not_called()
+    saved = await chat_manager.get_chat(chat.id)
+    assert saved is not None
+    assert saved.name == chat.name
+
+
+async def test_skips_when_agent_config_unavailable(
+    chat_manager: ChatManager,
+    workspace: MagicMock,
+    _stub_load_agent_config,
+) -> None:
+    """A misconfigured / missing agent must not raise, just no-op."""
+    chat = await _seed_chat(chat_manager)
+    _stub_load_agent_config.side_effect = ValueError("agent not found")
+
+    model = AsyncMock(return_value=_make_response("Anything"))
+    with _patch_model_factory(model):
+        await generate_and_update_title(
+            workspace=workspace,
+            chat_id=chat.id,
+            user_message="hello",
+            placeholder_name=chat.name,
+        )
+
+    model.assert_not_called()
     saved = await chat_manager.get_chat(chat.id)
     assert saved is not None
     assert saved.name == chat.name
