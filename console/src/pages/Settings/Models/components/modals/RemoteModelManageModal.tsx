@@ -1,4 +1,10 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useDeferredValue,
+} from "react";
 import {
   Button,
   Form,
@@ -6,6 +12,7 @@ import {
   Modal,
   Tag,
   Tooltip,
+  Checkbox,
 } from "@agentscope-ai/design";
 import { AutoComplete } from "antd";
 import {
@@ -24,6 +31,7 @@ import {
   DatabaseOutlined,
   UserOutlined,
   GiftOutlined,
+  CheckOutlined,
 } from "@ant-design/icons";
 import type {
   ProviderInfo,
@@ -203,6 +211,74 @@ const tagColors = (isDark: boolean) => ({
   },
 });
 
+function RemoteModelListItem({
+  model,
+  isAdded,
+  isSelected,
+  isAdding,
+  isBatchAdding,
+  onToggleSelect,
+  onAdd,
+  userAddedColors,
+}: {
+  model: ExtendedModelInfo;
+  isAdded: boolean;
+  isSelected: boolean;
+  isAdding: boolean;
+  isBatchAdding: boolean;
+  onToggleSelect: (modelId: string, checked: boolean) => void;
+  onAdd: (model: ExtendedModelInfo) => void;
+  userAddedColors: Record<string, string>;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div
+      className={`${styles.remoteModelListItem}${
+        isAdded ? ` ${styles.remoteModelListItemAdded}` : ""
+      }`}
+    >
+      <Checkbox
+        disabled={isAdded || isAdding || isBatchAdding}
+        checked={!isAdded && isSelected}
+        onChange={(e) => onToggleSelect(model.id, e.target.checked)}
+        style={{ marginRight: 8, flexShrink: 0 }}
+      />
+      <div className={styles.remoteModelListItemInfo}>
+        <div className={styles.remoteModelListItemId}>{model.id}</div>
+      </div>
+      <div className={styles.remoteModelListItemActions}>
+        {isAdded ? (
+          <Tag
+            style={{
+              fontSize: 11,
+              marginRight: 4,
+              ...userAddedColors,
+            }}
+          >
+            <CheckOutlined
+              style={{
+                fontSize: 10,
+                marginRight: 3,
+              }}
+            />
+            {t("models.added", "Added")}
+          </Tag>
+        ) : (
+          <Button
+            size="small"
+            icon={<PlusOutlined />}
+            loading={isAdding}
+            onClick={() => onAdd(model)}
+          >
+            {t("models.add", "Add")}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface RemoteModelManageModalProps {
   provider: ProviderInfo;
   open: boolean;
@@ -272,7 +348,6 @@ export function RemoteModelManageModal({
   const supportsAutoDiscover = provider.support_model_discovery;
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [discoveringModels, setDiscoveringModels] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [probingModelId, setProbingModelId] = useState<string | null>(null);
   const [configOpenModelId, setConfigOpenModelId] = useState<string | null>(
@@ -295,10 +370,37 @@ export function RemoteModelManageModal({
   const [loadingFilters, setLoadingFilters] = useState(false);
 
   const [loadingDiscoveredModels, setLoadingDiscoveredModels] = useState(false);
+  const [addingRemoteModelId, setAddingRemoteModelId] = useState<string | null>(
+    null,
+  );
+  const [batchAdding, setBatchAdding] = useState(false);
+  const [selectedRemoteModelIds, setSelectedRemoteModelIds] = useState<
+    Set<string>
+  >(new Set());
+  const [remoteModelSearchQuery, setRemoteModelSearchQuery] = useState("");
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
   const extraModelIds = new Set((provider.extra_models || []).map((m) => m.id));
+
+  const existingModelIds = useMemo(
+    () =>
+      new Set([
+        ...(provider.models ?? []).map((m) => m.id),
+        ...(provider.extra_models ?? []).map((m) => m.id),
+      ]),
+    [provider.models, provider.extra_models],
+  );
+
+  const deferredSearchQuery = useDeferredValue(remoteModelSearchQuery);
+
+  const filteredRemoteModels = useMemo(() => {
+    const query = deferredSearchQuery.trim().toLowerCase();
+    if (!query) return discoveredModels;
+    return discoveredModels.filter((model) =>
+      model.id.toLowerCase().includes(query),
+    );
+  }, [discoveredModels, deferredSearchQuery]);
 
   const doAddModel = async (id: string, name: string) => {
     await api.addModel(provider.id, { id, name });
@@ -306,6 +408,109 @@ export function RemoteModelManageModal({
     form.resetFields();
     setAdding(false);
     onSaved();
+  };
+
+  const remoteListStats = useMemo(() => {
+    let unaddedCount = 0;
+    let selectedCount = 0;
+    for (const model of filteredRemoteModels) {
+      if (existingModelIds.has(model.id)) continue;
+      unaddedCount++;
+      if (selectedRemoteModelIds.has(model.id)) selectedCount++;
+    }
+    return {
+      unaddedCount,
+      targetCount: selectedCount > 0 ? selectedCount : unaddedCount,
+    };
+  }, [filteredRemoteModels, existingModelIds, selectedRemoteModelIds]);
+
+  const handleToggleSelect = (modelId: string, checked: boolean) => {
+    setSelectedRemoteModelIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(modelId);
+      else next.delete(modelId);
+      return next;
+    });
+  };
+
+  const handleAddRemoteModel = async (model: ExtendedModelInfo) => {
+    setAddingRemoteModelId(model.id);
+    try {
+      await api.addModel(provider.id, {
+        id: model.id,
+        name: model.name,
+      });
+      message.success(t("models.modelAdded", { name: model.name }));
+      await onSaved();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error ? error.message : t("models.modelAddFailed");
+      message.error(errMsg);
+    } finally {
+      setAddingRemoteModelId(null);
+    }
+  };
+
+  const handleBatchAddRemoteModels = async () => {
+    const unaddedModels = filteredRemoteModels.filter(
+      (model) => !existingModelIds.has(model.id),
+    );
+
+    const selectedUnadded = unaddedModels.filter((m) =>
+      selectedRemoteModelIds.has(m.id),
+    );
+    const hasSelection = selectedUnadded.length > 0;
+    const targetModels = hasSelection ? selectedUnadded : unaddedModels;
+
+    if (targetModels.length === 0) return;
+
+    Modal.confirm({
+      title: t(
+        hasSelection
+          ? "models.addSelectedModelsConfirmTitle"
+          : "models.addAllModelsConfirmTitle",
+        hasSelection ? "Add selected models?" : "Add all available models?",
+      ),
+      content: t("models.addAllModelsConfirmContent", {
+        count: targetModels.length,
+        provider: provider.name,
+      }),
+      okText: t("models.addAll", "Add All"),
+      cancelText: t("models.cancel"),
+      onOk: async () => {
+        setBatchAdding(true);
+        let successCount = 0;
+        let failureCount = 0;
+
+        for (const model of targetModels) {
+          try {
+            await api.addModel(provider.id, {
+              id: model.id,
+              name: model.name,
+            });
+            successCount++;
+          } catch {
+            failureCount++;
+          }
+        }
+
+        setBatchAdding(false);
+        setSelectedRemoteModelIds(new Set());
+        await onSaved();
+
+        if (failureCount === 0) {
+          message.success(t("models.allModelsAdded", { count: successCount }));
+        } else {
+          message.warning(
+            t("models.partialModelsAdded", {
+              count: targetModels.length,
+              success: successCount,
+              failed: failureCount,
+            }),
+          );
+        }
+      },
+    });
   };
 
   const handleAddModel = async () => {
@@ -453,6 +658,7 @@ export function RemoteModelManageModal({
     setAdding(false);
     setConfigOpenModelId(null);
     setModelSearchQuery("");
+    setSelectedRemoteModelIds(new Set());
     form.resetFields();
     onClose();
   };
@@ -533,44 +739,6 @@ export function RemoteModelManageModal({
       message.error(t("models.modelAddFailed"));
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleAutoDiscoverModels = async () => {
-    setDiscoveringModels(true);
-    try {
-      const result = await api.discoverModels(provider.id, undefined, true);
-
-      if (!result.success) {
-        message.error(result.message || t("models.autoDiscoverModelsFailed"));
-        return;
-      }
-
-      await onSaved();
-
-      if (result.added_count > 0) {
-        message.success(
-          t("models.autoDiscoverModelsSuccess", {
-            count: result.added_count,
-          }),
-        );
-        return;
-      }
-
-      message.info(
-        result.message ||
-          t("models.autoDiscoverModelsNoNew", {
-            count: result.models.length,
-          }),
-      );
-    } catch (error) {
-      const errMsg =
-        error instanceof Error
-          ? error.message
-          : t("models.autoDiscoverModelsFailed");
-      message.error(errMsg);
-    } finally {
-      setDiscoveringModels(false);
     }
   };
 
@@ -787,78 +955,142 @@ export function RemoteModelManageModal({
       {!isOpenRouter &&
         (adding ? (
           <div className={styles.modelAddForm}>
-            <Form form={form} layout="vertical" style={{ marginBottom: 0 }}>
-              <Form.Item
-                name="id"
-                label={t("models.modelIdLabel")}
-                rules={[{ required: true, message: t("models.modelIdLabel") }]}
-                style={{ marginBottom: 12 }}
-              >
-                <AutoComplete
-                  placeholder={t("models.modelIdPlaceholder")}
-                  options={discoveredModels.map((model) => ({
-                    value: model.id,
-                    label: model.id,
-                  }))}
-                  filterOption={(
-                    inputValue: string,
-                    option?: { value?: string },
-                  ) =>
-                    option?.value
-                      ?.toLowerCase()
-                      .includes(inputValue.toLowerCase()) ?? false
-                  }
-                  notFoundContent={
-                    loadingDiscoveredModels
-                      ? t("common.loading")
-                      : t("models.modelDiscoveryUnavailableHint")
-                  }
-                >
-                  <Input />
-                </AutoComplete>
-              </Form.Item>
-              <Form.Item
-                name="name"
-                label={t("models.modelNameLabel")}
-                style={{ marginBottom: 12 }}
-              >
-                <Input placeholder={t("models.modelNamePlaceholder")} />
-              </Form.Item>
-              <div
-                style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}
-              >
-                <Button
-                  size="small"
-                  onClick={() => {
-                    setAdding(false);
-                    form.resetFields();
-                  }}
-                >
-                  {t("models.cancel")}
-                </Button>
-                <Button
-                  type="primary"
-                  size="small"
-                  loading={saving}
-                  onClick={handleAddModel}
-                >
-                  {t("models.addModel")}
-                </Button>
+            {/* Manual input card */}
+            <div className={styles.modelCard}>
+              <Form form={form} layout="vertical" style={{ marginBottom: 0 }}>
+                <div className={styles.modelAddFormRow}>
+                  <Form.Item
+                    name="id"
+                    label={t("models.modelIdLabel")}
+                    rules={[
+                      { required: true, message: t("models.modelIdLabel") },
+                    ]}
+                    className={styles.modelAddFormField}
+                  >
+                    <AutoComplete
+                      placeholder={t("models.modelIdPlaceholder")}
+                      options={discoveredModels.map((model) => ({
+                        value: model.id,
+                        label: model.id,
+                      }))}
+                      filterOption={(
+                        inputValue: string,
+                        option?: { value?: string },
+                      ) =>
+                        option?.value
+                          ?.toLowerCase()
+                          .includes(inputValue.toLowerCase()) ?? false
+                      }
+                      notFoundContent={
+                        loadingDiscoveredModels
+                          ? t("common.loading")
+                          : t("models.modelDiscoveryUnavailableHint")
+                      }
+                    >
+                      <Input />
+                    </AutoComplete>
+                  </Form.Item>
+                  <Form.Item
+                    name="name"
+                    label={t("models.modelNameLabel")}
+                    className={styles.modelAddFormField}
+                  >
+                    <Input placeholder={t("models.modelNamePlaceholder")} />
+                  </Form.Item>
+                </div>
+                <div className={styles.modelAddFormActions}>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setAdding(false);
+                      setSelectedRemoteModelIds(new Set());
+                      setRemoteModelSearchQuery("");
+                      form.resetFields();
+                    }}
+                  >
+                    {t("models.cancel")}
+                  </Button>
+                  <Button
+                    type="primary"
+                    size="small"
+                    loading={saving}
+                    onClick={handleAddModel}
+                  >
+                    {t("models.addModel")}
+                  </Button>
+                </div>
+              </Form>
+            </div>
+
+            {/* Remote model list for discovery-enabled providers */}
+            {supportsAutoDiscover && (
+              <div className={styles.modelCard}>
+                <div className={styles.remoteModelList}>
+                  <div className={styles.remoteModelListHeader}>
+                    <span className={styles.remoteModelListTitle}>
+                      {t("models.availableModels", "Available Models")}
+                    </span>
+                    <div className={styles.remoteModelListActions}>
+                      <Input
+                        size="small"
+                        placeholder={t(
+                          "models.searchModels",
+                          "Search models...",
+                        )}
+                        value={remoteModelSearchQuery}
+                        onChange={(e) =>
+                          setRemoteModelSearchQuery(e.target.value)
+                        }
+                        className={styles.remoteModelSearchInput}
+                        prefix={<SearchOutlined />}
+                        allowClear
+                      />
+                      <Button
+                        size="small"
+                        disabled={
+                          remoteListStats.unaddedCount === 0 || batchAdding
+                        }
+                        loading={batchAdding}
+                        onClick={handleBatchAddRemoteModels}
+                      >
+                        {t("models.addModels", "Add Models")}
+                        {remoteListStats.targetCount > 0 &&
+                          ` (${remoteListStats.targetCount})`}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {loadingDiscoveredModels ? (
+                    <div className={styles.remoteModelListLoading}>
+                      {t("common.loading")}
+                    </div>
+                  ) : discoveredModels.length === 0 ? (
+                    <div className={styles.remoteModelListEmpty}>
+                      {t("models.noRemoteModels", "No remote models available")}
+                    </div>
+                  ) : (
+                    <div className={styles.remoteModelListContainer}>
+                      {filteredRemoteModels.map((model) => (
+                        <RemoteModelListItem
+                          key={model.id}
+                          model={model}
+                          isAdded={existingModelIds.has(model.id)}
+                          isSelected={selectedRemoteModelIds.has(model.id)}
+                          isAdding={addingRemoteModelId === model.id}
+                          isBatchAdding={batchAdding}
+                          onToggleSelect={handleToggleSelect}
+                          onAdd={handleAddRemoteModel}
+                          userAddedColors={colors.userAdded}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </Form>
+            )}
           </div>
         ) : (
           <div className={styles.modalActionRow}>
-            {supportsAutoDiscover && (
-              <Button
-                icon={<SearchOutlined />}
-                loading={discoveringModels}
-                onClick={handleAutoDiscoverModels}
-                style={{ flex: 1 }}
-              >
-                {t("models.autoDiscoverModels")}
-              </Button>
-            )}
             <Button
               type="dashed"
               icon={<PlusOutlined />}

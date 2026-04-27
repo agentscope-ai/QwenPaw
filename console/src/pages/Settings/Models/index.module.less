@@ -1116,10 +1116,39 @@
 
 .modelAddForm {
   margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modelCard {
   padding: 16px;
   background: #fafafa;
   border-radius: 8px;
   border: 1px dashed #d9d9d9;
+}
+
+.modelCardTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 12px;
+}
+
+.modelAddFormRow {
+  display: flex;
+  gap: 16px;
+}
+
+.modelAddFormField {
+  flex: 1;
+  margin-bottom: 12px;
+}
+
+.modelAddFormActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .modalActionRow {
@@ -1127,6 +1156,98 @@
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+}
+
+/* ---- Remote Model List ---- */
+
+.remoteModelList {
+  margin-top: 0;
+}
+
+.remoteModelListHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 12px;
+}
+
+.remoteModelListTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+  flex-shrink: 0;
+}
+
+.remoteModelListActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.remoteModelSearchInput {
+  max-width: 200px;
+}
+
+.remoteModelListLoading,
+.remoteModelListEmpty {
+  padding: 24px;
+  text-align: center;
+  color: #999;
+}
+
+.remoteModelListContainer {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+}
+
+.remoteModelListItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid #f5f5f5;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.remoteModelListItemAdded {
+  opacity: 0.6;
+  background: #fafafa;
+}
+
+.remoteModelListItemInfo {
+  min-width: 0;
+  flex: 1;
+}
+
+.remoteModelListItemName {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1a1a1a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remoteModelListItemId {
+  font-size: 14px;
+  color: #555;
+  font-family: "SF Mono", "Menlo", monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remoteModelListItemActions {
+  margin-left: 8px;
+  flex-shrink: 0;
 }
 
 .localStatusCard {
@@ -1553,8 +1674,51 @@
   }
 
   .modelAddForm {
-    background: rgba(255, 255, 255, 0.03);
-    border-color: rgba(255, 255, 255, 0.12);
+    background: transparent;
+    border: none;
+  }
+
+  .modelCard {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .modelCardTitle {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .remoteModelListTitle {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .remoteModelSearchInput {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .remoteModelListLoading,
+  .remoteModelListEmpty {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .remoteModelListContainer {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .remoteModelListItem {
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .remoteModelListItemAdded {
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .remoteModelListItemName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .remoteModelListItemId {
+    color: rgba(255, 255, 255, 0.55);
   }
 
   /* Provider cards */
