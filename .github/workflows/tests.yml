@@ -145,7 +145,7 @@ jobs:
         id: check-integrated
         shell: bash
         run: |
-          if [ -d "tests/integrated" ] && compgen -G "tests/integrated/*.py" > /dev/null; then
+          if [ -d "tests/integration" ] && compgen -G "tests/integration/*.py" > /dev/null; then
             echo "has_tests=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_tests=false" >> "$GITHUB_OUTPUT"
@@ -155,7 +155,7 @@ jobs:
         if: steps.check-integrated.outputs.has_tests == 'true'
         shell: bash
         run: |
-          pytest tests/integrated -v
+          pytest tests/integration -v
 
   coverage-report:
     name: Coverage Report
