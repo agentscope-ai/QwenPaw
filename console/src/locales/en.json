@@ -901,7 +901,11 @@
   "modelSelector": {
     "selectModel": "Select model",
     "noConfiguredModels": "No configured models",
-    "switchFailed": "Failed to switch model"
+    "switchFailed": "Failed to switch model",
+    "searchModels": "Search models...",
+    "noModelsFound": "No matching models found",
+    "free": "Free",
+    "vision": "Vision"
   },
   "tokenUsage": {
     "title": "Token Usage",

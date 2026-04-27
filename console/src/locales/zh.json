@@ -819,7 +819,11 @@
   "modelSelector": {
     "selectModel": "选择模型",
     "noConfiguredModels": "暂无已配置模型",
-    "switchFailed": "切换模型失败"
+    "switchFailed": "切换模型失败",
+    "searchModels": "搜索模型...",
+    "noModelsFound": "未找到匹配的模型",
+    "free": "免费",
+    "vision": "视觉"
   },
   "models": {
     "llmConfiguration": "LLM 配置",
