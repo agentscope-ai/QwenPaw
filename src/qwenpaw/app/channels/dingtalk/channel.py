@@ -2377,13 +2377,7 @@ class DingTalkChannel(BaseChannel):
                 to_handle=to_handle,
             )
             async for event in core_iter:
-                # SSE serialization
-                if hasattr(event, "model_dump_json"):
-                    data = event.model_dump_json()
-                elif hasattr(event, "json"):
-                    data = event.json()
-                else:
-                    data = json.dumps({"text": str(event)})
+                data = self._serialize_event_for_sse(event)
                 yield f"data: {data}\n\n"
 
                 obj = getattr(event, "object", None)
