@@ -127,7 +127,7 @@ qwenpaw init --defaults
 qwenpaw app
 ```
 
-然后在浏览器中打开控制台：**http://127.0.0.1:8088/**，配置模型后即可开始对话。
+然后在浏览器中打开控制台：**http://127.0.0.1:8088/** ，配置模型后即可开始对话。
 若要在钉钉、飞书、微信等 app 内对话，请参考 [频道配置](https://qwenpaw.agentscope.io/docs/channels) 文档。
 
 ![Console](https://img.alicdn.com/imgextra/i1/O1CN01ikrU3k1TRdNESHtzV_!!6000000002379-2-tps-3822-2070.png)
@@ -246,7 +246,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 国内用户也可选用阿里云容器镜像服务 (ACR)：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw`（tag 相同）。
 
-然后在浏览器中打开控制台：**http://127.0.0.1:8088/**。配置、记忆与 Skills 保存在 `qwenpaw-data` 卷中；模型配置与 API Key 保存在 `qwenpaw-secrets` 卷中；备份归档保存在 `qwenpaw-backups` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
+然后在浏览器中打开控制台：**http://127.0.0.1:8088/** 。配置、记忆与 Skills 保存在 `qwenpaw-data` 卷中；模型配置与 API Key 保存在 `qwenpaw-secrets` 卷中；备份归档保存在 `qwenpaw-backups` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
 
 > **从容器内连接宿主机上的 Ollama 或其他模型服务**
 >
@@ -357,7 +357,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 国内用户也可选用阿里云容器镜像服务 (ACR)：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw`（tag 相同）。
 
-然后在浏览器中打开控制台：**http://127.0.0.1:8088/**。配置、记忆与 Skills 保存在 `qwenpaw-data` 卷中；模型配置与 API Key 保存在 `qwenpaw-secrets` 卷中；备份归档保存在 `qwenpaw-backups` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
+然后在浏览器中打开控制台：**http://127.0.0.1:8088/** 。配置、记忆与 Skills 保存在 `qwenpaw-data` 卷中；模型配置与 API Key 保存在 `qwenpaw-secrets` 卷中；备份归档保存在 `qwenpaw-backups` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
 
 > **从容器内连接宿主机上的 Ollama 或其他模型服务**
 >
