@@ -102,9 +102,10 @@ export default function ModelSelector() {
     }));
 
   // Filter providers/models by search query
+  const trimmedSearch = searchQuery.trim();
   const filteredProviders = (() => {
-    if (!searchQuery.trim()) return eligibleProviders;
-    const query = searchQuery.toLowerCase();
+    if (!trimmedSearch) return eligibleProviders;
+    const query = trimmedSearch.toLowerCase();
     return eligibleProviders
       .map((p) => ({
         ...p,
@@ -242,7 +243,7 @@ export default function ModelSelector() {
           </div>
         ) : filteredProviders.length === 0 ? (
           <div className={styles.emptyTip}>
-            {searchQuery
+            {trimmedSearch
               ? t("modelSelector.noModelsFound")
               : t("modelSelector.noConfiguredModels")}
           </div>
