@@ -37,7 +37,6 @@ TITLE_PROMPT = (
 
 MAX_INPUT_CHARS = 500
 MAX_TITLE_CHARS = 60
-TITLE_TIMEOUT_SECONDS = 30.0
 
 
 def _first_text_in_list(items: list) -> str:
@@ -102,9 +101,28 @@ async def generate_and_update_title(
         message = message[:MAX_INPUT_CHARS]
 
     try:
-        # Local import keeps module import cheap and avoids a circular
-        # dependency between routers and the agents package.
+        # Local imports keep this module's import cost low and avoid a
+        # circular dependency between routers and the agents package.
         from ...agents.model_factory import create_model_and_formatter
+        from ...config.config import load_agent_config
+
+        try:
+            cfg = load_agent_config(workspace.agent_id).running
+        except (ValueError, AppBaseException) as exc:
+            logger.debug(
+                "Title generation skipped: agent config unavailable (%s)",
+                exc,
+            )
+            return
+
+        title_cfg = cfg.auto_title_config
+        if not title_cfg.enabled:
+            logger.debug(
+                "Title generation disabled by config for chat %s",
+                chat_id,
+            )
+            return
+        timeout = title_cfg.timeout_seconds
 
         try:
             model, _ = create_model_and_formatter(
@@ -126,7 +144,7 @@ async def generate_and_update_title(
 
         response = await asyncio.wait_for(
             model(messages),
-            timeout=TITLE_TIMEOUT_SECONDS,
+            timeout=timeout,
         )
         title = _clean_title(_extract_text_from_response(response))
         if not title:
