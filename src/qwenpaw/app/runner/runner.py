@@ -537,6 +537,30 @@ class AgentRunner(Runner):
                         "broadcast",
                         _on_plan_change,
                     )
+
+                    # Progress-observing hook for plan_change type
+                    po_cfg = getattr(
+                        agent_config, "progress_observing", None
+                    )
+                    if (
+                        po_cfg is not None
+                        and po_cfg.hook_type == "plan_change"
+                    ):
+                        from ...agents.tools.task_detail import (
+                            ProgressObservingHook,
+                        )
+
+                        po_hook = ProgressObservingHook(
+                            agent_id=self.agent_id,
+                            hook_type="plan_change",
+                        )
+                        plan_notebook.register_plan_change_hook(
+                            "progress_observing",
+                            po_hook.on_plan_change,
+                        )
+                        logger.debug(
+                            "Registered progress_observing plan_change hook"
+                        )
                 except Exception:
                     logger.warning(
                         "Failed to create PlanNotebook",

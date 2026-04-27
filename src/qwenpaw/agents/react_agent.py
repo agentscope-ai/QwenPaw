@@ -452,6 +452,26 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             )
             logger.debug("Registered context manager hooks")
 
+        # Progress-observing hook (instance hook types only)
+        po_cfg = getattr(self._agent_config, "progress_observing", None)
+        if po_cfg is not None and po_cfg.hook_type != "plan_change":
+            from .tools.task_detail import ProgressObservingHook
+
+            po_hook = ProgressObservingHook(
+                agent_id=self._agent_config.id,
+                hook_type=po_cfg.hook_type,
+            )
+            self.register_instance_hook(
+                hook_type=po_cfg.hook_type,
+                hook_name="progress_observing",
+                hook=po_hook.__call__,
+            )
+            logger.info(
+                "Registered progress_observing hook: agent=%r type=%s",
+                self._agent_config.id,
+                po_cfg.hook_type,
+            )
+
     def rebuild_sys_prompt(self) -> None:
         """Rebuild and replace the system prompt.
 

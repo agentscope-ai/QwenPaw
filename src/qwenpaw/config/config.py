@@ -926,6 +926,29 @@ class PlanConfig(BaseModel):
     )
 
 
+class ProgressObservingConfig(BaseModel):
+    """Configuration for the progress-observing hook.
+
+    When set, a ``ProgressObservingHook`` is registered on the agent so
+    that ``check_agent_task(detail=True)`` can report what the agent is
+    doing while a background task is running.
+
+    Not set by default — omitting this field disables the feature.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    hook_type: str = Field(
+        default="post_acting",
+        description=(
+            "Hook type to observe. "
+            "Instance hooks: pre_reply, post_reply, pre_reasoning, "
+            "post_reasoning, pre_acting, post_acting. "
+            "PlanNotebook hook: plan_change (requires plan.enabled=true)."
+        ),
+    )
+
+
 class AgentProfileConfig(BaseModel):
     """Complete Agent Profile configuration (stored in workspace/agent.json).
 
@@ -1006,6 +1029,14 @@ class AgentProfileConfig(BaseModel):
     plan: PlanConfig = Field(
         default_factory=PlanConfig,
         description="Plan mode configuration for this agent",
+    )
+    progress_observing: Optional[ProgressObservingConfig] = Field(
+        default=None,
+        description=(
+            "Progress-observing hook configuration. "
+            "When set, snapshots agent progress into ProgressStore so that "
+            "check_agent_task(detail=True) can return live status."
+        ),
     )
 
 
