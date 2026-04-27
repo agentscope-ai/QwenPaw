@@ -62,9 +62,7 @@ class _ProgressStore:
         if not session_id:
             # Fall back to the most-recently updated entry for this agent
             candidates = [
-                (k, v)
-                for k, v in self._store.items()
-                if k[0] == agent_id
+                (k, v) for k, v in self._store.items() if k[0] == agent_id
             ]
             if not candidates:
                 return None

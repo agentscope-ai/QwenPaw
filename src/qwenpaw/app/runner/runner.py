@@ -540,7 +540,9 @@ class AgentRunner(Runner):
 
                     # Progress-observing hook for plan_change type
                     po_cfg = getattr(
-                        agent_config, "progress_observing", None
+                        agent_config,
+                        "progress_observing",
+                        None,
                     )
                     if (
                         po_cfg is not None
@@ -559,7 +561,7 @@ class AgentRunner(Runner):
                             po_hook.on_plan_change,
                         )
                         logger.debug(
-                            "Registered progress_observing plan_change hook"
+                            "Registered progress_observing plan_change hook",
                         )
                 except Exception:
                     logger.warning(

@@ -641,10 +641,14 @@ async def check_agent_task(
         lookup_session_id = normalize_id(session_id) or None
         live = progress_store.get(lookup_agent_id, lookup_session_id)
         if live:
-            import json as _json
-
-            text = text + "\n\n[LIVE_STATUS]\n" + _json.dumps(
-                live, ensure_ascii=False, indent=2
+            text = (
+                text
+                + "\n\n[LIVE_STATUS]\n"
+                + json.dumps(
+                    live,
+                    ensure_ascii=False,
+                    indent=2,
+                )
             )
 
     return _tool_text_response(text)
