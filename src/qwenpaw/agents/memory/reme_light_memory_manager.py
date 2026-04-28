@@ -342,11 +342,53 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         return tokens[:max_tokens]
 
+    async def _rewrite_query(self, query: str) -> str:
+        """Rewrite the query using LLM to improve retrieval recall.
+
+        Expands the original query with related keywords and clarifies
+        the intent for better semantic and keyword matching.
+        """
+        if not query or len(query) < 4:
+            return query
+
+        try:
+            from ..model_factory import create_model_and_formatter
+
+            chat_model, formatter = create_model_and_formatter(self.agent_id)
+            agent_config = load_agent_config(self.agent_id)
+            language = getattr(agent_config, "language", "zh")
+
+            rewrite_prompt = (
+                "You are a search query optimizer. "
+                f"Rewrite the following user query to improve retrieval recall. "
+                f"Extract key entities and expand with relevant technical terms or synonyms. "
+                f"Output ONLY the optimized query string, no explanations.\n\n"
+                f"Original query: {query}\n"
+                f"Language: {language}\n"
+                f"Optimized query:"
+            )
+
+            from agentscope.message import Msg, TextBlock
+
+            response = await chat_model(
+                [Msg(name="user", role="user", content=[TextBlock(type="text", text=rewrite_prompt)])]
+            )
+
+            optimized = response.content[0].get("text", "").strip() if isinstance(response.content, list) else str(response.content).strip()
+            if optimized:
+                logger.info(f"Query rewritten: '{query}' -> '{optimized}'")
+                return optimized
+        except Exception as e:
+            logger.warning(f"Query rewrite failed, using original: {e}")
+
+        return query
+
     async def memory_search(
         self,
         query: str,
         max_results: int = 5,
         min_score: float = 0.1,
+        rewrite: bool = True,
     ) -> ToolResponse:
         """
         Search MEMORY.md and memory/*.md files semantically.
@@ -362,6 +404,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 Maximum number of search results to return. Defaults to 5.
             min_score (`float`, optional):
                 Minimum similarity score for results. Defaults to 0.1.
+            rewrite (`bool`, optional):
+                Whether to rewrite the query for better recall. Defaults to True.
 
         Returns:
             `ToolResponse`:
@@ -380,6 +424,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             )
 
         try:
+            if rewrite:
+                query = await self._rewrite_query(query)
             query_final = " ".join(self.tokenize_query(query))
             logger.info(f"Tokenized query: {query_final}")
         except Exception as e:
@@ -596,6 +642,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 query=query,
                 max_results=max_results,
                 min_score=min_score,
+                rewrite=False,  # Already processed query from conversation context
             )
             content_blocks = result.content
 
