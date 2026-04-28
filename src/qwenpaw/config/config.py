@@ -628,6 +628,21 @@ class ContextCompactConfig(BaseModel):
         description="Whether to include thinking blocks when compacting",
     )
 
+    fallback_confirmation_mode: Literal[
+        "never",
+        "risk_only",
+        "always",
+    ] = Field(
+        default="risk_only",
+        description=(
+            "How fallback compaction should ask for user action. "
+            "'never' auto-applies emergency fallback when safe, "
+            "'risk_only' only asks when automatic recovery cannot produce a "
+            "safe prompt window, "
+            "'always' stops before applying high-risk fallback compaction."
+        ),
+    )
+
 
 class ToolResultPruningConfig(BaseModel):
     """Tool result pruning configuration."""
