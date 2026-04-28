@@ -764,7 +764,11 @@
   "modelSelector": {
     "selectModel": "Выбрать модель",
     "noConfiguredModels": "Нет настроенных моделей",
-    "switchFailed": "Не удалось переключить модель"
+    "switchFailed": "Не удалось переключить модель",
+    "searchModels": "Поиск моделей...",
+    "noModelsFound": "Подходящие модели не найдены",
+    "free": "Бесплатно",
+    "vision": "Видение"
   },
   "models": {
     "llmConfiguration": "Конфигурация LLM",
