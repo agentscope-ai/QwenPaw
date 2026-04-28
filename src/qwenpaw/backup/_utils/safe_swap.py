@@ -45,6 +45,12 @@ import threading
 import zipfile
 from pathlib import Path
 
+from ._mount_swap import (
+    prepare_destination_for_swap,
+    recover_mount_point_swap,
+    should_skip_zip_member,
+)
+
 logger = logging.getLogger(__name__)
 
 _RESTORE_TMP_SUFFIX = ".restore_tmp"
@@ -142,6 +148,8 @@ def _cleanup_stale_restore_artifacts_locked(base_dir: Path) -> None:
                 exc,
             )
 
+    recover_mount_point_swap(base_dir, _RESTORE_TMP_SUFFIX)
+
 
 def _extract_zip_to(
     zf: zipfile.ZipFile,
@@ -158,6 +166,9 @@ def _extract_zip_to(
         if info.is_dir() or not info.filename.startswith(prefix):
             continue
         rel = info.filename[len(prefix) :]
+
+        if should_skip_zip_member(info.filename, prefix):
+            continue
 
         # Zip Slip guard: validate the *logical* destination path.
         if not (base_resolved / rel).resolve().is_relative_to(base_resolved):
@@ -185,10 +196,13 @@ def _swap_directories(dst: Path, tmp_dst: Path, old_dst: Path) -> None:
             f"commit_tmp called without a valid staging directory: {tmp_dst}",
         )
 
-    renamed_to_old = False
-    if dst.exists():
-        dst.rename(old_dst)
-        renamed_to_old = True
+    handled, renamed_to_old = prepare_destination_for_swap(
+        dst,
+        tmp_dst,
+        old_dst,
+    )
+    if handled:
+        return
 
     try:
         tmp_dst.rename(dst)
