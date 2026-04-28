@@ -77,11 +77,22 @@ class TestAsMsgHandlerToolAlignment:
             context_compact_reserve=100,
         )
 
-        msgs_to_compact, msgs_to_keep, tools_aligned, _, _ = result
+        msgs_to_compact, msgs_to_keep, total_tokens, keep_tokens = result
 
-        assert tools_aligned is True
         # Both tool_use and tool_result should be in keep (last 2 messages)
         assert len(msgs_to_keep) >= 2
+
+        # Verify tool_use and tool_result ids are aligned in kept messages
+        tool_use_ids = set()
+        tool_result_ids = set()
+        for msg in msgs_to_keep:
+            for block in msg.get_content_blocks("tool_use"):
+                if tid := block.get("id"):
+                    tool_use_ids.add(tid)
+            for block in msg.get_content_blocks("tool_result"):
+                if tid := block.get("id"):
+                    tool_result_ids.add(tid)
+        assert tool_use_ids == tool_result_ids
 
     @pytest.mark.asyncio
     async def test_tool_use_result_pair_excluded_when_result_too_large(self):
@@ -185,17 +196,9 @@ class TestAsMsgHandlerToolAlignment:
         (
             msgs_to_compact,
             msgs_to_keep,
-            tools_aligned,
             total_tokens,
             keep_tokens,
         ) = result
-
-        # After fix: tools_aligned should be True
-        # Either both tool_use and tool_result are kept together,
-        # or both are excluded together
-        assert (
-            tools_aligned is True
-        ), f"Expected tools_aligned=True, got False. msgs_to_keep: {len(msgs_to_keep)}"
 
         # Verify: if tool_use is in keep, corresponding tool_result must also be in keep
         tool_use_ids_in_keep = set()
@@ -265,12 +268,23 @@ class TestAsMsgHandlerToolAlignment:
             context_compact_reserve=700,  # Should fit tool_use + tool_result
         )
 
-        msgs_to_compact, msgs_to_keep, tools_aligned, _, _ = result
+        msgs_to_compact, msgs_to_keep, total_tokens, keep_tokens = result
 
-        assert tools_aligned is True
         # All messages should be kept since they fit within reserve
         # The exact count depends on token calculation, but alignment must be True
         assert len(msgs_to_keep) >= 2
+
+        # Verify tool_use and tool_result ids are aligned in kept messages
+        tool_use_ids = set()
+        tool_result_ids = set()
+        for msg in msgs_to_keep:
+            for block in msg.get_content_blocks("tool_use"):
+                if tid := block.get("id"):
+                    tool_use_ids.add(tid)
+            for block in msg.get_content_blocks("tool_result"):
+                if tid := block.get("id"):
+                    tool_result_ids.add(tid)
+        assert tool_use_ids == tool_result_ids
 
     @pytest.mark.asyncio
     async def test_multiple_tool_pairs_in_same_message(self):
@@ -344,9 +358,8 @@ class TestAsMsgHandlerToolAlignment:
             context_compact_reserve=400,
         )
 
-        msgs_to_compact, msgs_to_keep, tools_aligned, _, _ = result
+        msgs_to_compact, msgs_to_keep, total_tokens, keep_tokens = result
 
-        assert tools_aligned is True
         # Either all 3 messages are kept, or none of them
         if len(msgs_to_keep) > 0:
             assert (
@@ -437,12 +450,7 @@ class TestAsMsgHandlerToolAlignment:
             context_compact_reserve=50,  # Very small reserve
         )
 
-        msgs_to_compact, msgs_to_keep, tools_aligned, _, _ = result
-
-        # The fix ensures tools_aligned is always True
-        assert (
-            tools_aligned is True
-        ), f"Expected tools_aligned=True, got False. msgs_to_keep: {len(msgs_to_keep)}"
+        msgs_to_compact, msgs_to_keep, total_tokens, keep_tokens = result
 
         # Verify tool_use and tool_result ids match in kept messages
         tool_use_ids_in_keep = set()
