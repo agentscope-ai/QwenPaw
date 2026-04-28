@@ -45,10 +45,12 @@ MEMORY_GUIDANCE_ZH = """\
 
 **关键原则：** 不要总是等用户说"记住这个"。如果信息对未来有价值，主动记录。先记录，再回答 — 这样即使会话中断，信息也不会丢失。
 
-### 🔍 检索工具
+### 🔍 检索与管理工具
 回答关于过往工作、决策、日期、人员、偏好或待办的问题前：
 1. 对 MEMORY.md 和 memory/*.md 运行 `memory_search`
 2. 如需阅读每日笔记 `memory/YYYY-MM-DD.md`，直接用 `read_file`
+3. 对于重要的知识条目，优先使用 `add_memory` 保存到向量索引中，确保未来可检索
+4. 发现记忆过时或错误时，使用 `update_memory` 或 `delete_memory` 维护索引质量
 """
 
 MEMORY_GUIDANCE_EN = """\
@@ -92,10 +94,12 @@ When you discover valuable information during a conversation, **record it first,
 
 **Key principle:** Don't always wait for the user to say "remember this." If information is valuable for the future, record it proactively. Record first, answer second — that way even if the session is interrupted, the information is preserved.
 
-### 🔍 Retrieval Tool
+### 🔍 Retrieval & Management Tools
 Before answering questions about past work, decisions, dates, people, preferences, or to-do items:
 1. Run memory_search on MEMORY.md and files in memory/*.md.
-2. If you need to read daily notes from memory/YYYY-MM-DD.md, you can directly access them using `read_file`."""
+2. If you need to read daily notes from memory/YYYY-MM-DD.md, you can directly access them using `read_file`.
+3. For important knowledge entries, prefer using `add_memory` to save them into the vector index for future retrieval.
+4. When memories become outdated or incorrect, use `update_memory` or `delete_memory` to maintain index quality."""
 
 # Dream optimization prompts - instructs agent to consolidate memories
 DREAM_OPTIMIZATION_ZH = """\

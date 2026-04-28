@@ -274,7 +274,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
     def list_memory_tools(self):
         """Return memory tool functions to register with the agent toolkit."""
-        return [self.memory_search]
+        return [
+            self.memory_search,
+            self.add_memory,
+            self.delete_memory,
+            self.update_memory,
+        ]
 
     @staticmethod
     def _is_cjk(char: str) -> bool:
@@ -386,6 +391,133 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             max_results=max_results,
             min_score=min_score,
         )
+
+    async def add_memory(
+        self,
+        content: str,
+        when_to_use: str = "",
+        score: float = 0.5,
+    ) -> ToolResponse:
+        """Add a new memory entry to the vector store.
+
+        Use this tool to save important decisions, user preferences,
+        project context, or lessons learned. This automatically indexes
+        the content for future semantic search.
+
+        Args:
+            content (`str`): The memory content to store.
+            when_to_use (`str`, optional): When this memory should be used.
+            score (`float`, optional): Importance score (0.0-1.0). Defaults to 0.5.
+
+        Returns:
+            `ToolResponse`: Confirmation with the new memory ID.
+        """
+        self._warn_if_version_mismatch()
+        if self._reme is None or not getattr(self._reme, "_started", False):
+            return ToolResponse(
+                content=[TextBlock(type="text", text="ReMe is not started.")],
+            )
+        try:
+            node = await self._reme.add_memory(
+                memory_content=content,
+                when_to_use=when_to_use,
+                score=score,
+            )
+            memory_id = getattr(node, "memory_id", "unknown")
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Memory added successfully. ID: {memory_id}",
+                    ),
+                ],
+            )
+        except Exception as e:
+            logger.exception(f"add_memory failed: {e}")
+            return ToolResponse(
+                content=[TextBlock(type="text", text=f"Failed to add memory: {e}")],
+            )
+
+    async def delete_memory(self, memory_id: str) -> ToolResponse:
+        """Delete a memory entry by its ID.
+
+        Use this to remove outdated or incorrect memories from the store.
+
+        Args:
+            memory_id (`str`): The ID of the memory to delete.
+
+        Returns:
+            `ToolResponse`: Confirmation of deletion.
+        """
+        self._warn_if_version_mismatch()
+        if self._reme is None or not getattr(self._reme, "_started", False):
+            return ToolResponse(
+                content=[TextBlock(type="text", text="ReMe is not started.")],
+            )
+        try:
+            await self._reme.delete_memory(memory_id)
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Memory {memory_id} deleted successfully.",
+                    ),
+                ],
+            )
+        except Exception as e:
+            logger.exception(f"delete_memory failed: {e}")
+            return ToolResponse(
+                content=[TextBlock(type="text", text=f"Failed to delete memory: {e}")],
+            )
+
+    async def update_memory(
+        self,
+        memory_id: str,
+        content: str | None = None,
+        when_to_use: str | None = None,
+        score: float | None = None,
+    ) -> ToolResponse:
+        """Update an existing memory entry.
+
+        Use this to correct or expand previously stored memories.
+        Only provide fields you want to change.
+
+        Args:
+            memory_id (`str`): The ID of the memory to update.
+            content (`str`, optional): New memory content.
+            when_to_use (`str`, optional): New usage description.
+            score (`float`, optional): New importance score.
+
+        Returns:
+            `ToolResponse`: Confirmation of update.
+        """
+        self._warn_if_version_mismatch()
+        if self._reme is None or not getattr(self._reme, "_started", False):
+            return ToolResponse(
+                content=[TextBlock(type="text", text="ReMe is not started.")],
+            )
+        try:
+            await self._reme.update_memory(
+                memory_id=memory_id,
+                memory_content=content,
+                when_to_use=when_to_use,
+                score=score,
+            )
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Memory {memory_id} updated successfully.",
+                    ),
+                ],
+            )
+        except Exception as e:
+            logger.exception(f"update_memory failed: {e}")
+            return ToolResponse(
+                content=[
+                    TextBlock(type="text", text=f"Failed to update memory: {e}"),
+                ],
+            )
 
     async def summarize(self, messages: list[Msg], **_kwargs) -> str:
         """Generate a summary of the given messages and persist to memory."""
