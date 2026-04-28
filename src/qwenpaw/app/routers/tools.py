@@ -346,9 +346,39 @@ async def update_tool_config(
     workspace = await get_agent_for_request(request)
     registry = PluginRegistry()
 
+    # Get plugin manifest to check for password fields
+    plugin_id = registry.get_plugin_id_for_tool(tool_name)
+    config_to_save = dict(body.config)
+
+    if plugin_id:
+        manifest = registry.get_plugin_manifest(plugin_id)
+        if manifest and "meta" in manifest:
+            config_fields = manifest["meta"].get("config_fields", [])
+
+            # Get existing config
+            existing_config = (
+                registry.get_tool_config(
+                    tool_name,
+                    workspace.agent_id,
+                )
+                or {}
+            )
+
+            # Preserve existing password values if user sent masked value
+            for field in config_fields:
+                if field.get("type") == "password":
+                    field_name = field["name"]
+                    new_value = config_to_save.get(field_name)
+
+                    # If value is "***" (masked), keep existing value
+                    if new_value == "***" and field_name in existing_config:
+                        config_to_save[field_name] = existing_config[
+                            field_name
+                        ]
+
     # Save tool config for this agent
     try:
-        registry.set_tool_config(tool_name, workspace.agent_id, body.config)
+        registry.set_tool_config(tool_name, workspace.agent_id, config_to_save)
 
         # Hot reload config to apply changes without full restart
         schedule_agent_reload(request, workspace.agent_id)

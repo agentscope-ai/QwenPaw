@@ -80,10 +80,11 @@ function ToolConfigModal({
       const values = await form.validateFields();
       setSaving(true);
       await onSave(values);
-      antdMessage.success(t("tools.configSaved"));
+      // Success message is shown in useTools.saveToolConfig
       onClose();
     } catch (error) {
       console.error("Failed to save config:", error);
+      // Error is already handled and shown in useTools
     } finally {
       setSaving(false);
     }

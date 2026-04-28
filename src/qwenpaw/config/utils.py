@@ -758,19 +758,26 @@ def get_plugins_dir() -> Path:
 
 
 def get_agent_dirs() -> list[Path]:
-    """Return list of all agent directories.
+    """Return list of all agent directories from config.
+
+    Returns canonical workspace dirs from config.agents.profiles,
+    not by scanning filesystem (which can miss custom paths or
+    include stale directories).
 
     Returns:
-        List of Path objects for each agent directory in the workspaces folder
+        List of Path objects for each agent's workspace directory
     """
-    workspaces_dir = WORKING_DIR / "workspaces"
-    if not workspaces_dir.exists():
-        return []
+    config = load_config()
 
     agent_dirs = []
-    for item in workspaces_dir.iterdir():
-        if item.is_dir() and (item / "agent.json").exists():
-            agent_dirs.append(item)
+    if config.agents and config.agents.profiles:
+        for profile in config.agents.profiles.values():
+            workspace_dir = Path(profile.workspace_dir)
+            if (
+                workspace_dir.exists()
+                and (workspace_dir / "agent.json").exists()
+            ):
+                agent_dirs.append(workspace_dir)
 
     return agent_dirs
 

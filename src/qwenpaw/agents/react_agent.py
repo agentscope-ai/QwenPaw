@@ -288,14 +288,23 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 if callable(tool_func):
                     tool_functions[tool_name] = tool_func
                     logger.debug(
-                        "Loaded plugin tool: %s",
+                        "Discovered plugin tool: %s",
                         tool_name,
                     )
 
         # Register only enabled tools
         for tool_name, tool_func in tool_functions.items():
-            # If tool not in config, enable by default (backward compatibility)
-            if not enabled_tools.get(tool_name, True):
+            # Check if tool is in config
+            if tool_name not in enabled_tools:
+                # If not in config, skip (don't auto-enable for security)
+                logger.debug(
+                    "Skipped unconfigured tool: %s",
+                    tool_name,
+                )
+                continue
+
+            # Check if tool is enabled
+            if not enabled_tools[tool_name]:
                 logger.debug("Skipped disabled tool: %s", tool_name)
                 continue
 
