@@ -279,6 +279,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             self.add_memory,
             self.delete_memory,
             self.update_memory,
+            self.decay_memories,
         ]
 
     @staticmethod
@@ -702,9 +703,97 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             logger.exception(f"memory_search failed: {e}")
             return None
 
+    async def decay_memories(
+        self,
+        decay_factor: float = 0.95,
+        archive_threshold: float = 0.1,
+        delete_threshold: float = 0.05,
+    ) -> ToolResponse:
+        """Apply decay to memory scores and archive/delete stale entries.
+
+        Memories are scored based on importance and recency. Over time,
+        unused memories lose relevance. This method reduces scores by
+        ``decay_factor``, archives low-scoring memories, and deletes
+        effectively irrelevant ones.
+
+        Args:
+            decay_factor (`float`): Multiplier for existing scores (0.0-1.0).
+            archive_threshold (`float`): Score below which to archive.
+            delete_threshold (`float`): Score below which to delete.
+
+        Returns:
+            `ToolResponse`: Summary of decay operation.
+        """
+        self._warn_if_version_mismatch()
+        if self._reme is None or not getattr(self._reme, "_started", False):
+            return ToolResponse(
+                content=[TextBlock(type="text", text="ReMe is not started.")],
+            )
+
+        try:
+            archived = 0
+            deleted = 0
+            updated = 0
+
+            # Query all memories
+            all_memories = await self._reme.memory_search(
+                query="*", max_results=10000, min_score=0.0
+            )
+
+            for block in all_memories.content:
+                if not isinstance(block, dict):
+                    continue
+                memory_id = block.get("id") or block.get("memory_id")
+                score = float(block.get("score", 0.5))
+
+                if not memory_id:
+                    continue
+
+                new_score = score * decay_factor
+
+                if new_score < delete_threshold:
+                    await self._reme.delete_memory(memory_id)
+                    deleted += 1
+                elif new_score < archive_threshold:
+                    await self._reme.update_memory(
+                        memory_id=memory_id, score=new_score
+                    )
+                    archived += 1
+                else:
+                    await self._reme.update_memory(
+                        memory_id=memory_id, score=new_score
+                    )
+                    updated += 1
+
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"Memory decay complete. Updated: {updated}, "
+                            f"Archived (low score): {archived}, "
+                            f"Deleted (stale): {deleted}"
+                        ),
+                    ),
+                ],
+            )
+        except Exception as e:
+            logger.exception(f"decay_memories failed: {e}")
+            return ToolResponse(
+                content=[TextBlock(type="text", text=f"Memory decay failed: {e}")],
+            )
+
     async def dream(self, **kwargs) -> None:
-        """Run one dream-based memory optimization pass."""
+        """Run one dream-based memory optimization pass with automatic decay."""
         logger.info("running dream-based memory optimization")
+
+        # Apply memory decay before optimization to clear stale entries
+        try:
+            decay_result = await self.decay_memories()
+            decay_text = decay_result.content[0].get("text", "") if decay_result.content else ""
+            logger.info(f"Pre-dream decay: {decay_text}")
+        except Exception as e:
+            logger.warning(f"Pre-dream decay skipped: {e}")
 
         agent_config = load_agent_config(self.agent_id)
         light_ctx = agent_config.running.light_context_config
