@@ -71,6 +71,13 @@ export const providerApi = {
     request<ActiveModelsInfo>("/models/active", {
       method: "PUT",
       body: JSON.stringify(body),
+    }).then((result) => {
+      const key = buildActiveModelQuery({
+        scope: body.scope,
+        agent_id: body.agent_id,
+      });
+      activeModelPromises.delete(key);
+      return result;
     }),
 
   /* ---- Custom provider CRUD ---- */
