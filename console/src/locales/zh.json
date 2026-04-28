@@ -775,7 +775,8 @@
     "date": "日期",
     "refresh": "刷新",
     "loadFailed": "加载 Token 消耗数据失败",
-    "noData": "所选时间段内暂无 Token 消耗数据"
+    "noData": "所选时间段内暂无 Token 消耗数据",
+    "filterByModel": "按模型筛选"
   },
   "agentStats": {
     "title": "智能体统计",

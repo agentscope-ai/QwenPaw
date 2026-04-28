@@ -917,7 +917,8 @@
     "date": "Date",
     "refresh": "Refresh",
     "loadFailed": "Failed to load token usage",
-    "noData": "No token usage data in the selected period"
+    "noData": "No token usage data in the selected period",
+    "filterByModel": "Filter by Model"
   },
   "agentStats": {
     "title": "Agent Statistics",

@@ -720,7 +720,8 @@
     "date": "日付",
     "refresh": "更新",
     "loadFailed": "Token 使用量の読み込みに失敗しました",
-    "noData": "選択期間に Token 使用データがありません"
+    "noData": "選択期間に Token 使用データがありません",
+    "filterByModel": "モデルでフィルタ"
   },
   "agentStats": {
     "title": "エージェント統計",

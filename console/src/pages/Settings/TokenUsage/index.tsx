@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Card, Table } from "@agentscope-ai/design";
+import { Button, Card, Select, Table } from "@agentscope-ai/design";
 import type { ColumnsType } from "antd/es/table";
 import { DatePicker } from "antd";
 import { useTranslation } from "react-i18next";
@@ -28,6 +28,10 @@ function TokenUsagePage() {
     dayjs().subtract(30, "day"),
   );
   const [endDate, setEndDate] = useState<Dayjs>(dayjs());
+  const [selectedModel, setSelectedModel] = useState<string | undefined>(
+    undefined,
+  );
+  const [allModels, setAllModels] = useState<string[]>([]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -36,8 +40,17 @@ function TokenUsagePage() {
       const summary = await api.getTokenUsage({
         start_date: startDate.format("YYYY-MM-DD"),
         end_date: endDate.format("YYYY-MM-DD"),
+        model: selectedModel,
       });
       setData(summary);
+      // If no model filter is applied, update the complete model list
+      if (!selectedModel && summary?.by_model) {
+        const models = Object.values(summary.by_model)
+          .map((stats) => stats.model)
+          .filter((m): m is string => !!m)
+          .sort();
+        setAllModels([...new Set(models)]);
+      }
     } catch (e) {
       console.error("Failed to load token usage:", e);
       const msg = t("tokenUsage.loadFailed");
@@ -50,6 +63,7 @@ function TokenUsagePage() {
   };
 
   useEffect(() => {
+    // Initial load without model filter to get all models
     fetchData();
   }, []);
 
@@ -65,6 +79,11 @@ function TokenUsagePage() {
       key,
     }));
   }, [data?.by_model]);
+
+  const modelOptions = useMemo(() => {
+    // Use the cached allModels list instead of extracting from filtered data
+    return allModels;
+  }, [allModels]);
 
   const byDateDataSource: ByDateRow[] = useMemo(() => {
     if (!data?.by_date) return [];
@@ -155,6 +174,17 @@ function TokenUsagePage() {
                 value={[startDate, endDate]}
                 onChange={handleDateChange}
                 className={styles.datePicker}
+              />
+              <Select
+                value={selectedModel}
+                onChange={(value) => setSelectedModel(value || undefined)}
+                placeholder={t("tokenUsage.filterByModel")}
+                allowClear
+                className={styles.modelFilter}
+                options={modelOptions.map((model) => ({
+                  label: model,
+                  value: model,
+                }))}
               />
               <Button type="primary" onClick={fetchData} loading={loading}>
                 {t("tokenUsage.refresh")}
