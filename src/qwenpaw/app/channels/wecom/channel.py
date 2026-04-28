@@ -18,6 +18,7 @@ import base64
 import hashlib
 import logging
 import os
+import re
 import sys
 import threading
 from collections import OrderedDict
@@ -375,6 +376,22 @@ class WecomChannel(BaseChannel):
             if msgtype == "text":
                 text = (body.get("text") or {}).get("content", "").strip()
                 if text:
+                    # In group chat, strip leading/trailing @mention
+                    if chat_type == "group":
+                        text = re.sub(
+                            r"^@\S+\s*",
+                            "",
+                            text,
+                        ).strip()
+                        text = re.sub(
+                            r"\s*@\S+$",
+                            "",
+                            text,
+                        ).strip()
+                        # If stripping @mention left nothing (bare @bot),
+                        # keep a placeholder so the message isn't dropped.
+                        if not text:
+                            text = "@"
                     text_parts.append(text)
 
             elif msgtype == "image":
