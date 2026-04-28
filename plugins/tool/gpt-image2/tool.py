@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 async def generate_image_gpt(
     prompt: str,
     size: str = "1024x1024",
-    quality: str = "standard",
+    quality: str = "auto",
 ) -> ToolResponse:
     """Generate an image using OpenAI GPT Image 2 model.
 
@@ -30,8 +30,11 @@ async def generate_image_gpt(
             Output image size. Options: "1024x1024", "1024x1792",
             "1792x1024". Defaults to "1024x1024".
         quality (str, optional):
-            Image quality level. Options: "standard", "hd".
-            Defaults to "standard".
+            Image quality level. Options: "low", "medium", "high", "auto".
+            - low: Faster generation, lower quality
+            - medium: Balanced quality and speed
+            - high: Best quality, slower generation
+            - auto: Automatically choose based on prompt (default)
 
     Returns:
         ToolResponse:
@@ -75,7 +78,9 @@ async def generate_image_gpt(
                 ],
             )
 
-        valid_quality = {"standard", "hd"}
+        # Validate quality parameter
+        # GPT Image 2 supports: low, medium, high, auto
+        valid_quality = {"low", "medium", "high", "auto"}
         if quality not in valid_quality:
             return ToolResponse(
                 content=[
@@ -83,7 +88,8 @@ async def generate_image_gpt(
                         type="text",
                         text=(
                             f"Error: Invalid quality '{quality}'. "
-                            f"Must be one of: {', '.join(valid_quality)}"
+                            f"Must be one of: "
+                            f"{', '.join(sorted(valid_quality))}"
                         ),
                     ),
                 ],
