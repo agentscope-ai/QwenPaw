@@ -9,6 +9,7 @@ import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg, TextBlock, ToolResultBlock, ToolUseBlock
@@ -91,7 +92,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         self._reme = None
 
         # Cached for query rewrite — lazy-init on first use (#5 fix)
-        self._rewrite_model = None
+        self._rewrite_model: Any = None
         self._rewrite_language: str = "zh"
 
         logger.info(
@@ -114,7 +115,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         }
         logger.info(
             f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}, "
-            f"backend={memory_manager_backend}"
+            f"backend={memory_manager_backend}",
         )
 
         fts_enabled = EnvVarLoader.get_bool("FTS_ENABLED", True)
@@ -370,11 +371,15 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         try:
             # Lazy-init cached model (#5 fix)
             if self._rewrite_model is None:
-                from ..model_factory import create_model_and_formatter
-
                 agent_config = load_agent_config(self.agent_id)
-                self._rewrite_language = getattr(agent_config, "language", "zh")
-                self._rewrite_model, _ = create_model_and_formatter(self.agent_id)
+                self._rewrite_language = getattr(
+                    agent_config,
+                    "language",
+                    "zh",
+                )
+                self._rewrite_model, _ = create_model_and_formatter(
+                    self.agent_id,
+                )
 
             chat_model = self._rewrite_model
             language = self._rewrite_language
@@ -382,7 +387,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             # Language-aware prompt (#8 fix)
             if language == "zh":
                 rewrite_prompt = (
-                    f"你是一个搜索查询优化器。请重写以下查询以提高检索召回率。\n"
+                    f"你是一个搜索查询优化器。"
+                    f"请重写以下查询以提高检索召回率。\n"
                     f"提取关键实体，扩展相关的技术术语或同义词。\n"
                     f"只输出优化后的查询字符串，不要输出任何解释。\n\n"
                     f"原始查询: {query}\n"
@@ -391,20 +397,31 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             else:
                 rewrite_prompt = (
                     "You are a search query optimizer. "
-                    f"Rewrite the following user query to improve retrieval recall. "
-                    f"Extract key entities and expand with relevant technical terms or synonyms. "
-                    f"Output ONLY the optimized query string, no explanations.\n\n"
+                    "Rewrite the following user query to improve "
+                    "retrieval recall. "
+                    "Extract key entities and expand with relevant "
+                    "technical terms or synonyms. "
+                    "Output ONLY the optimized query string, no "
+                    "explanations.\n\n"
                     f"Original query: {query}\n"
                     f"Optimized query:"
                 )
 
-            from agentscope.message import Msg, TextBlock
-
             response = await chat_model(
-                [Msg(name="user", role="user", content=[TextBlock(type="text", text=rewrite_prompt)])]
+                [
+                    Msg(
+                        name="user",
+                        role="user",
+                        content=[TextBlock(type="text", text=rewrite_prompt)],
+                    ),
+                ],
             )
 
-            optimized = response.content[0].get("text", "").strip() if isinstance(response.content, list) else str(response.content).strip()
+            optimized = (
+                response.content[0].get("text", "").strip()
+                if isinstance(response.content, list)
+                else str(response.content).strip()
+            )
             if optimized:
                 logger.info(f"Query rewritten: '{query}' -> '{optimized}'")
                 return optimized
@@ -435,7 +452,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             min_score (`float`, optional):
                 Minimum similarity score for results. Defaults to 0.1.
             rewrite (`bool`, optional):
-                Whether to rewrite the query for better recall. Defaults to True.
+                Whether to rewrite the query for better recall.
+                Defaults to True.
 
         Returns:
             `ToolResponse`:
@@ -483,7 +501,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         Args:
             content (`str`): The memory content to store.
             when_to_use (`str`, optional): When this memory should be used.
-            score (`float`, optional): Importance score (0.0-1.0). Defaults to 0.5.
+            score (`float`, optional): Importance score (0.0-1.0).
+                Defaults to 0.5.
 
         Returns:
             `ToolResponse`: Confirmation with the new memory ID.
@@ -499,7 +518,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 when_to_use=when_to_use,
                 score=score,
             )
-            memory_id = getattr(node, "memory_id", None) or getattr(node, "id", None)
+            memory_id = getattr(node, "memory_id", None) or getattr(
+                node,
+                "id",
+                None,
+            )
             if not memory_id:
                 # Try dict-style access as fallback
                 if isinstance(node, dict):
@@ -532,7 +555,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         except Exception as e:
             logger.exception(f"add_memory failed: {e}")
             return ToolResponse(
-                content=[TextBlock(type="text", text=f"Failed to add memory: {e}")],
+                content=[
+                    TextBlock(type="text", text=f"Failed to add memory: {e}"),
+                ],
             )
 
     async def delete_memory(self, memory_id: str) -> ToolResponse:
@@ -564,7 +589,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         except Exception as e:
             logger.exception(f"delete_memory failed: {e}")
             return ToolResponse(
-                content=[TextBlock(type="text", text=f"Failed to delete memory: {e}")],
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Failed to delete memory: {e}",
+                    ),
+                ],
             )
 
     async def update_memory(
@@ -612,7 +642,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             logger.exception(f"update_memory failed: {e}")
             return ToolResponse(
                 content=[
-                    TextBlock(type="text", text=f"Failed to update memory: {e}"),
+                    TextBlock(
+                        type="text",
+                        text=f"Failed to update memory: {e}",
+                    ),
                 ],
             )
 
@@ -693,7 +726,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 query=query,
                 max_results=max_results,
                 min_score=min_score,
-                rewrite=False,  # Already processed query from conversation context
+                rewrite=False,
             )
             content_blocks = result.content
 
@@ -790,11 +823,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             archived = 0
             deleted = 0
 
-            # Use list_memory to get actual nodes with stored scores (#3 #4 fix)
+            # Use list_memory() to get actual nodes with stored scores
             all_nodes = await self._reme.list_memory(limit=10000)
 
             for node in all_nodes:
-                # Access actual stored importance score from MemoryNode (#4 fix)
+                # Get stored importance score from MemoryNode
                 stored_score = float(getattr(node, "score", 0.5))
                 memory_id = getattr(node, "memory_id", None)
 
@@ -807,13 +840,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                     await self._reme.delete_memory(memory_id)
                     deleted += 1
                 elif new_score < archive_threshold:
-                    # Archive via metadata — does NOT modify when_to_use or
-                    # trigger vector re-embedding. The is_archived flag is
-                    # stored in the node's metadata dict via kwargs passthrough.
+                    # Archive via metadata — does NOT modify when_to_use
+                    # or trigger vector re-embedding. The is_archived flag
+                    # is stored in the node's metadata dict via kwargs.
                     # NOTE: Archived memories still appear in memory_search
                     # results because the upstream memory_search API does not
-                    # expose a filter parameter. Filtering requires upstream
-                    # changes to add filter support to the vector search layer.
+                    # expose a filter parameter.
                     await self._reme.update_memory(
                         memory_id=memory_id,
                         score=new_score,
@@ -832,9 +864,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                     TextBlock(
                         type="text",
                         text=(
-                            f"Memory decay complete. Updated: {updated}, "
-                            f"Archived (score<{archive_threshold}): {archived}, "
-                            f"Deleted (score<{delete_threshold}): {deleted}"
+                            "Memory decay complete. "
+                            f"Updated: {updated}, "
+                            f"Archived (score<{archive_threshold}): "
+                            f"{archived}, "
+                            f"Deleted (score<{delete_threshold}): "
+                            f"{deleted}"
                         ),
                     ),
                 ],
@@ -842,17 +877,26 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         except Exception as e:
             logger.exception(f"decay_memories failed: {e}")
             return ToolResponse(
-                content=[TextBlock(type="text", text=f"Memory decay failed: {e}")],
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Memory decay failed: {e}",
+                    ),
+                ],
             )
 
     async def dream(self, **kwargs) -> None:
-        """Run one dream-based memory optimization pass with automatic decay."""
+        """Run dream-based memory optimization pass with automatic decay."""
         logger.info("running dream-based memory optimization")
 
         # Apply memory decay before optimization to clear stale entries
         try:
             decay_result = await self.decay_memories()
-            decay_text = decay_result.content[0].get("text", "") if decay_result.content else ""
+            decay_text = (
+                decay_result.content[0].get("text", "")
+                if decay_result.content
+                else ""
+            )
             logger.info(f"Pre-dream decay: {decay_text}")
         except Exception as e:
             logger.warning(f"Pre-dream decay skipped: {e}")

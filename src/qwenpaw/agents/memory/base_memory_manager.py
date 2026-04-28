@@ -135,9 +135,10 @@ class BaseMemoryManager(ABC):
 
     def set_summarize_threshold(self, tokens: int) -> None:
         """Set the token threshold for batch summarization.
-        
+
         Args:
-            tokens: Number of tokens to accumulate before triggering summarization.
+            tokens: Number of tokens to accumulate before triggering
+                summarization.
         """
         self._summarize_threshold = tokens
 
@@ -176,15 +177,17 @@ class BaseMemoryManager(ABC):
 
         self._task_queue.put_nowait((task_id, batch, {}))
         logger.info(
-            f"Flushed {len(batch)} pending messages as task {task_id} on close"
+            "Flushed %d pending messages as task %s on close",
+            len(batch),
+            task_id,
         )
 
     async def add_summarize_task(self, messages: list[Msg], **kwargs):
         """Schedule a background summarization task with batch accumulation.
-        
+
         Messages are accumulated until the token threshold is reached,
         then a single summarization task is triggered to reduce API calls.
-        
+
         Args:
             messages: Messages to accumulate.
             **kwargs: Forwarded to ``summarize()``.
@@ -200,7 +203,9 @@ class BaseMemoryManager(ABC):
 
             if self._pending_token_count < self._summarize_threshold:
                 logger.debug(
-                    f"Accumulating messages: {self._pending_token_count}/{self._summarize_threshold} tokens"
+                    "Accumulating messages: %d/%d tokens",
+                    self._pending_token_count,
+                    self._summarize_threshold,
                 )
                 return
 
@@ -211,7 +216,9 @@ class BaseMemoryManager(ABC):
 
             # Also create worker task inside the lock to prevent race
             if self._worker_task is None or self._worker_task.done():
-                self._worker_task = asyncio.create_task(self._summarize_worker())
+                self._worker_task = asyncio.create_task(
+                    self._summarize_worker(),
+                )
 
             self._task_counter += 1
             task_id = f"task_{self._task_counter}"
@@ -227,7 +234,11 @@ class BaseMemoryManager(ABC):
 
         # Enqueue outside the lock — _task_queue is thread-safe
         self._task_queue.put_nowait((task_id, batch_messages, kwargs))
-        logger.info(f"Batch summarize task {task_id} enqueued ({len(batch_messages)} messages)")
+        logger.info(
+            "Batch summarize task %s enqueued (%d messages)",
+            task_id,
+            len(batch_messages),
+        )
 
     def _update_task_statuses(self) -> None:
         """Update status for pending/running tasks if worker was cancelled."""
