@@ -39,6 +39,12 @@ class BaseMemoryManager(ABC):
         ] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
 
+        # Batch summarization: accumulate messages until threshold
+        self._pending_messages: list[Msg] = []
+        self._pending_token_count: int = 0
+        self._summarize_threshold: int = 4000  # Default token threshold
+        self._pending_lock = asyncio.Lock()
+
     @abstractmethod
     async def start(self) -> None:
         """Initialize the storage backend. Called once after instantiation."""
@@ -127,6 +133,83 @@ class BaseMemoryManager(ABC):
         """
         return None
 
+    def set_summarize_threshold(self, tokens: int) -> None:
+        """Set the token threshold for batch summarization.
+        
+        Args:
+            tokens: Number of tokens to accumulate before triggering summarization.
+        """
+        self._summarize_threshold = tokens
+
+    async def add_summarize_task(self, messages: list[Msg], **kwargs):
+        """Schedule a background summarization task with batch accumulation.
+        
+        Messages are accumulated until the token threshold is reached,
+        then a single summarization task is triggered to reduce API calls.
+        
+        Args:
+            messages: Messages to accumulate.
+            **kwargs: Forwarded to ``summarize()``.
+        """
+        async with self._pending_lock:
+            self._pending_messages.extend(messages)
+            # Rough token estimation: ~4 chars per token for CJK/English mix
+            for msg in messages:
+                text = msg.get_text_content() or ""
+                self._pending_token_count += len(text) // 4 + 1
+
+            if self._pending_token_count < self._summarize_threshold:
+                logger.debug(
+                    f"Accumulating messages: {self._pending_token_count}/{self._summarize_threshold} tokens"
+                )
+                return
+
+            # Threshold reached, trigger summarization
+            batch_messages = self._pending_messages.copy()
+            self._pending_messages.clear()
+            self._pending_token_count = 0
+
+        # Execute outside the lock
+        if self._worker_task is None or self._worker_task.done():
+            self._worker_task = asyncio.create_task(self._summarize_worker())
+
+        self._task_counter += 1
+        task_id = f"task_{self._task_counter}"
+
+        self._summary_task_info[task_id] = {
+            "task_id": task_id,
+            "task": self._worker_task,
+            "start_time": datetime.now(),
+            "status": "pending",
+            "result": None,
+            "error": None,
+        }
+
+        self._task_queue.put_nowait((task_id, batch_messages, kwargs))
+        logger.info(f"Batch summarize task {task_id} enqueued ({len(batch_messages)} messages)")
+
+    def _update_task_statuses(self) -> None:
+        """Update status for pending/running tasks if worker was cancelled."""
+        if self._worker_task is None:
+            return
+        if not self._worker_task.done():
+            return
+
+        # Worker finished - update any running tasks
+        for task_id, info in self._summary_task_info.items():
+            if info["status"] == "running":
+                if self._worker_task.cancelled():
+                    info["status"] = "cancelled"
+                    logger.info(
+                        f"Summary task {task_id} cancelled (worker stopped)",
+                    )
+                else:
+                    exc = self._worker_task.exception()
+                    if exc is not None:
+                        info["status"] = "failed"
+                        info["error"] = str(exc)
+                        logger.error(f"Summary task {task_id} failed: {exc}")
+
     async def _summarize_worker(self) -> None:
         """Background worker that processes summarize tasks serially."""
         while True:
@@ -150,57 +233,6 @@ class BaseMemoryManager(ABC):
                 info["status"] = "failed"
                 info["error"] = str(e)
                 logger.error(f"Summary task {task_id} failed: {e}")
-
-    def add_summarize_task(self, messages: list[Msg], **kwargs):
-        """Schedule a background summarization task without blocking.
-
-        Tasks are executed serially in FIFO order. If no task is running,
-        execution starts immediately; otherwise the task queues.
-
-        Args:
-            messages: Messages to pass to ``summarize()``.
-            **kwargs: Forwarded to ``summarize()``.
-        """
-        # Ensure worker is running
-        if self._worker_task is None or self._worker_task.done():
-            self._worker_task = asyncio.create_task(self._summarize_worker())
-
-        self._task_counter += 1
-        task_id = f"task_{self._task_counter}"
-
-        self._summary_task_info[task_id] = {
-            "task_id": task_id,
-            "task": self._worker_task,  # Reference to the worker task
-            "start_time": datetime.now(),
-            "status": "pending",
-            "result": None,
-            "error": None,
-        }
-
-        # Enqueue for serial execution
-        self._task_queue.put_nowait((task_id, messages, kwargs))
-
-    def _update_task_statuses(self) -> None:
-        """Update status for pending/running tasks if worker was cancelled."""
-        if self._worker_task is None:
-            return
-        if not self._worker_task.done():
-            return
-
-        # Worker finished - update any running tasks
-        for task_id, info in self._summary_task_info.items():
-            if info["status"] == "running":
-                if self._worker_task.cancelled():
-                    info["status"] = "cancelled"
-                    logger.info(
-                        f"Summary task {task_id} cancelled (worker stopped)",
-                    )
-                else:
-                    exc = self._worker_task.exception()
-                    if exc is not None:
-                        info["status"] = "failed"
-                        info["error"] = str(exc)
-                        logger.error(f"Summary task {task_id} failed: {exc}")
 
     def list_summarize_status(self) -> list[dict]:
         """Return status of all summary tasks as list of dicts.
