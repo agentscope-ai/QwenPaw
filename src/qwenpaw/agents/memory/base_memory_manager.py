@@ -143,10 +143,12 @@ class BaseMemoryManager(ABC):
 
     async def _flush_pending(self) -> None:
         """Flush any accumulated but un-summarized messages.
-        
+
         Call this from close() to ensure partial batches are not lost
         on session end.
         """
+        batch = None
+
         async with self._pending_lock:
             if not self._pending_messages:
                 return
@@ -155,9 +157,7 @@ class BaseMemoryManager(ABC):
             self._pending_messages.clear()
             self._pending_token_count = 0
 
-        if not batch:
-            return
-
+        # batch is guaranteed non-None here (we returned early if empty)
         # Ensure worker is running
         if self._worker_task is None or self._worker_task.done():
             self._worker_task = asyncio.create_task(self._summarize_worker())

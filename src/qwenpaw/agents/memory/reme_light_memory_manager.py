@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """ReMeLight-backed memory manager for agents."""
+import hashlib
 import importlib.metadata
 import json
 import logging
@@ -514,7 +515,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                     ],
                 )
             # Node returned but no ID — log warning and provide content hash
-            import hashlib
             content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
             logger.warning("add_memory returned node without memory_id")
             return ToolResponse(
@@ -765,6 +765,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         with their stored importance scores (not similarity scores from
         vector search). Memories below thresholds are marked or removed.
 
+        NOTE: ``list_memory()`` loads full MemoryNode objects including
+        vector embeddings into memory. For large stores (10k+ entries) this
+        can consume 30-60 MB. The upstream ``list_memory`` API does not yet
+        support an ``include_vector=False`` parameter — this is a known
+        upstream concern to address in reme-ai.
+
         Args:
             decay_factor (`float`): Multiplier for existing scores (0.0-1.0).
             archive_threshold (`float`): Score below which to mark as archived.
@@ -801,17 +807,17 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                     await self._reme.delete_memory(memory_id)
                     deleted += 1
                 elif new_score < archive_threshold:
-                    # Mark as archived by appending tag to when_to_use (#2 fix)
-                    original_when = getattr(node, "when_to_use", "") or ""
-                    archived_tag = "[archived]"
-                    if archived_tag not in original_when:
-                        new_when = f"{archived_tag} {original_when}".strip()
-                    else:
-                        new_when = original_when
+                    # Archive via metadata — does NOT modify when_to_use or
+                    # trigger vector re-embedding. The is_archived flag is
+                    # stored in the node's metadata dict via kwargs passthrough.
+                    # NOTE: Archived memories still appear in memory_search
+                    # results because the upstream memory_search API does not
+                    # expose a filter parameter. Filtering requires upstream
+                    # changes to add filter support to the vector search layer.
                     await self._reme.update_memory(
                         memory_id=memory_id,
                         score=new_score,
-                        when_to_use=new_when,
+                        is_archived=True,  # Stored in metadata via **kwargs
                     )
                     archived += 1
                 else:
