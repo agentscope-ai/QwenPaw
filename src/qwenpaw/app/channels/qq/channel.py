@@ -1228,28 +1228,37 @@ class QQChannel(BaseChannel):
         for att in attachments:
             url = att.get("url", "")
             file_name = att.get("filename", "")
-            
+
             # QQ Voice Message ASR Support
             # Check if attachment is a voice message and has ASR text.
             att_type = att.get("content_type", att.get("type", ""))
             file_ext = Path(file_name).suffix.lower()
-            is_voice = (
-                att_type == "voice"
-                or file_ext in {".amr", ".silk", ".slk"}
-            )
-            
+            is_voice = att_type == "voice" or file_ext in {
+                ".amr",
+                ".silk",
+                ".slk",
+            }
+
             if is_voice:
                 asr_text = att.get("asr_refer_text", "")
                 if asr_text:
-                    # Use platform-side ASR text directly, skipping audio download.
+                    # Use platform-side ASR text directly,
+                    # skipping audio download.
                     parts.append(
-                        TextContent(type=ContentType.TEXT, text=asr_text)
+                        TextContent(type=ContentType.TEXT, text=asr_text),
                     )
                     continue
+                # No ASR text available: prefer the pre-converted WAV URL so
+                # the transcription pipeline can process it without needing
+                # SILK decoding.  Fall back to the original AMR/SILK URL.
+                voice_wav_url = att.get("voice_wav_url", "")
+                if voice_wav_url:
+                    url = voice_wav_url
+                    file_name = file_name.rsplit(".", 1)[0] + ".wav"
 
             if not url:
                 continue
-            
+
             resolved = self._resolve_attachment_type(
                 att_type,
                 file_name,
@@ -2067,7 +2076,10 @@ class QQChannel(BaseChannel):
         token: str,
     ) -> None:
         """Upload + send rich media for c2c or group scenarios."""
-        media_type = self._content_type_to_media_type(content_type, source_path=url or local_path or "")
+        media_type = self._content_type_to_media_type(
+            content_type,
+            source_path=url or local_path or "",
+        )
         if media_type is None:
             logger.warning(
                 "qq _send_media_c2c_or_group: unknown content_type=%s",
