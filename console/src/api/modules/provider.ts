@@ -72,11 +72,7 @@ export const providerApi = {
       method: "PUT",
       body: JSON.stringify(body),
     }).then((result) => {
-      const key = buildActiveModelQuery({
-        scope: body.scope,
-        agent_id: body.agent_id,
-      });
-      activeModelPromises.delete(key);
+      activeModelPromises.clear();
       return result;
     }),
 
