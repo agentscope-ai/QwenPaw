@@ -340,14 +340,14 @@ class AsMsgHandler:
                 stat.total_tokens for stat in msg_stats[-keep_count:]
             )
 
-            if keep_tokens > context_compact_reserve:
-                # Exceeds reserve limit, stop expanding
-                break
-
             if self.validate_tool_ids_alignment(messages[-keep_count:]):
                 # Valid slice, update best (keeps maximum valid)
                 best_keep_count = keep_count
                 best_keep_tokens = keep_tokens
+
+            if keep_tokens > context_compact_reserve:
+                # Exceeds reserve limit, stop expanding
+                break
 
         # Build final split based on best_keep_count
         messages_to_keep = (
