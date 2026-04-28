@@ -89,6 +89,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         self._reme_version_ok: bool = self._check_reme_version()
         self._reme = None
 
+        # Cached for query rewrite — lazy-init on first use (#5 fix)
+        self._rewrite_model = None
+        self._rewrite_language: str = "zh"
+
         logger.info(
             f"ReMeLightMemoryManager init: "
             f"agent_id={agent_id}, working_dir={working_dir}",
@@ -261,6 +265,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         logger.info(
             f"ReMeLightMemoryManager closing: agent_id={self.agent_id}",
         )
+        # Flush any pending batch summarization before closing
+        try:
+            await self._flush_pending()
+        except Exception as e:
+            logger.warning(f"Failed to flush pending summaries on close: {e}")
+
         if self._reme is None:
             return True
         result = await self._reme.close()
@@ -351,26 +361,41 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         Expands the original query with related keywords and clarifies
         the intent for better semantic and keyword matching.
+        Uses cached model to avoid per-call initialization overhead.
         """
         if not query or len(query) < 4:
             return query
 
         try:
-            from ..model_factory import create_model_and_formatter
+            # Lazy-init cached model (#5 fix)
+            if self._rewrite_model is None:
+                from ..model_factory import create_model_and_formatter
 
-            chat_model, formatter = create_model_and_formatter(self.agent_id)
-            agent_config = load_agent_config(self.agent_id)
-            language = getattr(agent_config, "language", "zh")
+                agent_config = load_agent_config(self.agent_id)
+                self._rewrite_language = getattr(agent_config, "language", "zh")
+                self._rewrite_model, _ = create_model_and_formatter(self.agent_id)
 
-            rewrite_prompt = (
-                "You are a search query optimizer. "
-                f"Rewrite the following user query to improve retrieval recall. "
-                f"Extract key entities and expand with relevant technical terms or synonyms. "
-                f"Output ONLY the optimized query string, no explanations.\n\n"
-                f"Original query: {query}\n"
-                f"Language: {language}\n"
-                f"Optimized query:"
-            )
+            chat_model = self._rewrite_model
+            language = self._rewrite_language
+
+            # Language-aware prompt (#8 fix)
+            if language == "zh":
+                rewrite_prompt = (
+                    f"你是一个搜索查询优化器。请重写以下查询以提高检索召回率。\n"
+                    f"提取关键实体，扩展相关的技术术语或同义词。\n"
+                    f"只输出优化后的查询字符串，不要输出任何解释。\n\n"
+                    f"原始查询: {query}\n"
+                    f"优化后的查询:"
+                )
+            else:
+                rewrite_prompt = (
+                    "You are a search query optimizer. "
+                    f"Rewrite the following user query to improve retrieval recall. "
+                    f"Extract key entities and expand with relevant technical terms or synonyms. "
+                    f"Output ONLY the optimized query string, no explanations.\n\n"
+                    f"Original query: {query}\n"
+                    f"Optimized query:"
+                )
 
             from agentscope.message import Msg, TextBlock
 
@@ -473,12 +498,34 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 when_to_use=when_to_use,
                 score=score,
             )
-            memory_id = getattr(node, "memory_id", "unknown")
+            memory_id = getattr(node, "memory_id", None) or getattr(node, "id", None)
+            if not memory_id:
+                # Try dict-style access as fallback
+                if isinstance(node, dict):
+                    memory_id = node.get("memory_id") or node.get("id")
+
+            if memory_id:
+                return ToolResponse(
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=f"Memory added successfully. ID: {memory_id}",
+                        ),
+                    ],
+                )
+            # Node returned but no ID — log warning and provide content hash
+            import hashlib
+            content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
+            logger.warning("add_memory returned node without memory_id")
             return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
-                        text=f"Memory added successfully. ID: {memory_id}",
+                        text=(
+                            f"Memory added (ID unavailable). "
+                            f"Content hash: {content_hash}. "
+                            f"Use memory_search to find it."
+                        ),
                     ),
                 ],
             )
@@ -714,15 +761,14 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     ) -> ToolResponse:
         """Apply decay to memory scores and archive/delete stale entries.
 
-        Memories are scored based on importance and recency. Over time,
-        unused memories lose relevance. This method reduces scores by
-        ``decay_factor``, archives low-scoring memories, and deletes
-        effectively irrelevant ones.
+        Uses ``ReMe.list_memory()`` to retrieve actual MemoryNode objects
+        with their stored importance scores (not similarity scores from
+        vector search). Memories below thresholds are marked or removed.
 
         Args:
             decay_factor (`float`): Multiplier for existing scores (0.0-1.0).
-            archive_threshold (`float`): Score below which to archive.
-            delete_threshold (`float`): Score below which to delete.
+            archive_threshold (`float`): Score below which to mark as archived.
+            delete_threshold (`float`): Score below which to delete entirely.
 
         Returns:
             `ToolResponse`: Summary of decay operation.
@@ -734,37 +780,44 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             )
 
         try:
+            updated = 0
             archived = 0
             deleted = 0
-            updated = 0
 
-            # Query all memories
-            all_memories = await self._reme.memory_search(
-                query="*", max_results=10000, min_score=0.0
-            )
+            # Use list_memory to get actual nodes with stored scores (#3 #4 fix)
+            all_nodes = await self._reme.list_memory(limit=10000)
 
-            for block in all_memories.content:
-                if not isinstance(block, dict):
-                    continue
-                memory_id = block.get("id") or block.get("memory_id")
-                score = float(block.get("score", 0.5))
+            for node in all_nodes:
+                # Access actual stored importance score from MemoryNode (#4 fix)
+                stored_score = float(getattr(node, "score", 0.5))
+                memory_id = getattr(node, "memory_id", None)
 
                 if not memory_id:
                     continue
 
-                new_score = score * decay_factor
+                new_score = stored_score * decay_factor
 
                 if new_score < delete_threshold:
                     await self._reme.delete_memory(memory_id)
                     deleted += 1
                 elif new_score < archive_threshold:
+                    # Mark as archived by appending tag to when_to_use (#2 fix)
+                    original_when = getattr(node, "when_to_use", "") or ""
+                    archived_tag = "[archived]"
+                    if archived_tag not in original_when:
+                        new_when = f"{archived_tag} {original_when}".strip()
+                    else:
+                        new_when = original_when
                     await self._reme.update_memory(
-                        memory_id=memory_id, score=new_score
+                        memory_id=memory_id,
+                        score=new_score,
+                        when_to_use=new_when,
                     )
                     archived += 1
                 else:
                     await self._reme.update_memory(
-                        memory_id=memory_id, score=new_score
+                        memory_id=memory_id,
+                        score=new_score,
                     )
                     updated += 1
 
@@ -774,8 +827,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                         type="text",
                         text=(
                             f"Memory decay complete. Updated: {updated}, "
-                            f"Archived (low score): {archived}, "
-                            f"Deleted (stale): {deleted}"
+                            f"Archived (score<{archive_threshold}): {archived}, "
+                            f"Deleted (score<{delete_threshold}): {deleted}"
                         ),
                     ),
                 ],

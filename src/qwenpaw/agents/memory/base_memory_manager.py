@@ -141,35 +141,24 @@ class BaseMemoryManager(ABC):
         """
         self._summarize_threshold = tokens
 
-    async def add_summarize_task(self, messages: list[Msg], **kwargs):
-        """Schedule a background summarization task with batch accumulation.
+    async def _flush_pending(self) -> None:
+        """Flush any accumulated but un-summarized messages.
         
-        Messages are accumulated until the token threshold is reached,
-        then a single summarization task is triggered to reduce API calls.
-        
-        Args:
-            messages: Messages to accumulate.
-            **kwargs: Forwarded to ``summarize()``.
+        Call this from close() to ensure partial batches are not lost
+        on session end.
         """
         async with self._pending_lock:
-            self._pending_messages.extend(messages)
-            # Rough token estimation: ~4 chars per token for CJK/English mix
-            for msg in messages:
-                text = msg.get_text_content() or ""
-                self._pending_token_count += len(text) // 4 + 1
-
-            if self._pending_token_count < self._summarize_threshold:
-                logger.debug(
-                    f"Accumulating messages: {self._pending_token_count}/{self._summarize_threshold} tokens"
-                )
+            if not self._pending_messages:
                 return
 
-            # Threshold reached, trigger summarization
-            batch_messages = self._pending_messages.copy()
+            batch = self._pending_messages.copy()
             self._pending_messages.clear()
             self._pending_token_count = 0
 
-        # Execute outside the lock
+        if not batch:
+            return
+
+        # Ensure worker is running
         if self._worker_task is None or self._worker_task.done():
             self._worker_task = asyncio.create_task(self._summarize_worker())
 
@@ -185,6 +174,58 @@ class BaseMemoryManager(ABC):
             "error": None,
         }
 
+        self._task_queue.put_nowait((task_id, batch, {}))
+        logger.info(
+            f"Flushed {len(batch)} pending messages as task {task_id} on close"
+        )
+
+    async def add_summarize_task(self, messages: list[Msg], **kwargs):
+        """Schedule a background summarization task with batch accumulation.
+        
+        Messages are accumulated until the token threshold is reached,
+        then a single summarization task is triggered to reduce API calls.
+        
+        Args:
+            messages: Messages to accumulate.
+            **kwargs: Forwarded to ``summarize()``.
+        """
+        batch_messages = None
+
+        async with self._pending_lock:
+            self._pending_messages.extend(messages)
+            # Rough token estimation: ~4 chars per token for CJK/English mix
+            for msg in messages:
+                text = msg.get_text_content() or ""
+                self._pending_token_count += len(text) // 4 + 1
+
+            if self._pending_token_count < self._summarize_threshold:
+                logger.debug(
+                    f"Accumulating messages: {self._pending_token_count}/{self._summarize_threshold} tokens"
+                )
+                return
+
+            # Threshold reached, prepare batch inside the lock
+            batch_messages = self._pending_messages.copy()
+            self._pending_messages.clear()
+            self._pending_token_count = 0
+
+            # Also create worker task inside the lock to prevent race
+            if self._worker_task is None or self._worker_task.done():
+                self._worker_task = asyncio.create_task(self._summarize_worker())
+
+            self._task_counter += 1
+            task_id = f"task_{self._task_counter}"
+
+            self._summary_task_info[task_id] = {
+                "task_id": task_id,
+                "task": self._worker_task,
+                "start_time": datetime.now(),
+                "status": "pending",
+                "result": None,
+                "error": None,
+            }
+
+        # Enqueue outside the lock — _task_queue is thread-safe
         self._task_queue.put_nowait((task_id, batch_messages, kwargs))
         logger.info(f"Batch summarize task {task_id} enqueued ({len(batch_messages)} messages)")
 
