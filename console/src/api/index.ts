@@ -25,6 +25,7 @@ import { securityApi } from "./modules/security";
 import { userTimezoneApi } from "./modules/userTimezone";
 import { languageApi } from "./modules/language";
 import { backupApi } from "./modules/backup";
+import { semanticRoutingApi } from "./modules/semanticRouting";
 
 export const api = {
   // Root
@@ -87,6 +88,9 @@ export const api = {
 
   // Backups
   ...backupApi,
+
+  // Semantic Routing
+  ...semanticRoutingApi,
 };
 
 export default api;

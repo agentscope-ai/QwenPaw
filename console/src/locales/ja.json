@@ -1237,7 +1237,15 @@
       "offDesc": "すべてのツール承認を無効化、すべてのツールが自動実行"
     },
     "saveLevelSuccess": "ツール実行セキュリティレベルを保存しました",
-    "saveLevelFailed": "ツール実行セキュリティレベルの保存に失敗しました"
+    "saveLevelFailed": "ツール実行セキュリティレベルの保存に失敗しました",
+    "semanticRoutingTitle": "セマンティックスキルルーティング",
+    "semanticRoutingHint": "Embeddingを使用してクエリごとに最も関連性の高いスキルを推薦し、エージェントがより正確にツールを選択できるようにします。ツールリストは変更しません（KVキャッシュフレンドリー）。上記でEmbedding APIが設定されている場合は自動的に使用し、そうでない場合はローカルモデルにフォールバックします（pip install qwenpaw[semantic]）。",
+    "semanticRoutingEnabled": "有効化",
+    "semanticRoutingEnabledTooltip": "有効にすると、各クエリにTop-Kの最も関連性の高いスキルのヒントが含まれ、エージェントが一致するツールを優先的に選択するよう誘導します。",
+    "semanticRoutingTopK": "Top-K スキル数",
+    "semanticRoutingTopKTooltip": "クエリごとに推薦するスキルの最大数。関連スキルが見逃される場合は増やしてください。",
+    "semanticRoutingMinScore": "最低スコア閾値",
+    "semanticRoutingMinScoreTooltip": "類似度スコアがこの閾値を下回るスキルはヒントから除外されます。0に設定すると無効になります。"
   },
   "tools": {
     "title": "ビルトインツール",
