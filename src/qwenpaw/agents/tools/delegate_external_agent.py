@@ -433,7 +433,7 @@ async def delegate_external_agent(
     runner: str,
     message: str = "",
     cwd: str = "",
-    max_runtime: Optional[float] = None,
+    max_runtime: float = 60.0,  # Default timeout to prevent infinite hangs
 ) -> ToolResponse | AsyncGenerator[ToolResponse, None]:
     # pylint: disable=too-many-return-statements
     """
@@ -474,13 +474,13 @@ async def delegate_external_agent(
             is empty, a default `hi` is sent.
         cwd (`str`):
             Working directory for the agent. Defaults to the current workspace.
-        max_runtime (`float | None`):
-            Optional max runtime in seconds for a single ACP turn. `None`
-            means no timeout is applied. When the limit is reached, the tool
-            sends ACP cancel for the current turn but keeps the ACP session
-            open, so you can continue later with
-            `delegate_external_agent(action="message", runner=..., `
-            `message="continue")`.
+        max_runtime (`float`, default=60.0):
+            **Maximum runtime in seconds for a single ACP turn.** 
+            This parameter prevents infinite hangs if the external agent fails to respond.
+            Default is 60.0 seconds. Increase this value for complex tasks that require more time.
+            When the limit is reached, the tool sends an ACP cancel signal but keeps the session open,
+            allowing continuation with `delegate_external_agent(action="message", runner=..., message="continue")`.
+            **Note: Always ensure a reasonable timeout is set to avoid indefinite waiting.**
 
     Returns:
         `AsyncGenerator[ToolResponse, None]`:
@@ -494,9 +494,12 @@ async def delegate_external_agent(
     runner_name = str(runner or "").strip()
     message_text = str(message or "")
     try:
-        timeout_seconds = None if max_runtime is None else float(max_runtime)
+        timeout_seconds = float(max_runtime)
     except (TypeError, ValueError):
         return response_text("Error: max_runtime must be a number in seconds.")
+
+    if timeout_seconds <= 0:
+        return response_text("Error: max_runtime must be greater than 0.")
 
     validation_error = _validate_action_inputs(
         action_name=action_name,
@@ -505,8 +508,6 @@ async def delegate_external_agent(
     )
     if validation_error:
         return response_text(validation_error)
-    if timeout_seconds is not None and timeout_seconds <= 0:
-        return response_text("Error: max_runtime must be greater than 0.")
 
     if action_name == "close":
         try:
