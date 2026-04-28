@@ -1255,7 +1255,12 @@
     "allDisabled": "すべてのツールは既に無効です",
     "asyncExecution": "非同期実行",
     "asyncExecutionEnabled": "非同期実行が有効です",
-    "asyncExecutionDisabled": "非同期実行が無効です"
+    "asyncExecutionDisabled": "非同期実行が無効です",
+    "configure": "設定",
+    "configured": "設定済み",
+    "requiresConfig": "設定が必要です",
+    "configSaved": "設定を保存しました",
+    "configSaveError": "設定の保存に失敗しました"
   },
   "modelConfig": {
     "promptTitle": "LLMモデルが必要です — 設定後にChatページで選択",
@@ -1598,29 +1603,6 @@
     "transcriptionInfoTitle": "文字起こしの仕組み",
     "transcriptionInfoDesc": "Whisper API 文字起こしは OpenAI 互換の /v1/audio/transcriptions エンドポイントを使用します。Whisper 対応エンドポイントを持つプロバイダー（例: OpenAI）の設定が必要です。上記で具体的なプロバイダーを選択して文字起こしを有効にしてください。",
     "transcriptionInfoDescLocal": "ローカル Whisper 文字起こしは、お使いのマシン上で直接 openai-whisper ライブラリを実行します。ffmpeg（音声デコード用）と openai-whisper Python パッケージの両方のインストールが必要です。API キーやネットワーク接続は不要です。インストール：uv pip install 'qwenpaw[whisper]'。"
-  },
-  "tools": {
-    "title": "組み込みツール",
-    "description": "組み込みツールとその有効状態を管理します。無効化されたツールはエージェントに提供されません。",
-    "emptyState": "ツールが設定されていません",
-    "loadError": "ツールの読み込みに失敗しました",
-    "enableSuccess": "ツールを有効化しました",
-    "disableSuccess": "ツールを無効化しました",
-    "toggleError": "ツールの状態切り替えに失敗しました",
-    "enableAll": "すべて有効化",
-    "disableAll": "すべて無効化",
-    "enableAllSuccess": "すべてのツールを有効化しました",
-    "disableAllSuccess": "すべてのツールを無効化しました",
-    "allEnabled": "すべてのツールはすでに有効化されています",
-    "allDisabled": "すべてのツールはすでに無効化されています",
-    "asyncExecution": "非同期実行",
-    "asyncExecutionEnabled": "非同期実行を有効化しました",
-    "asyncExecutionDisabled": "非同期実行を無効化しました",
-    "configure": "設定",
-    "configured": "設定済み",
-    "requiresConfig": "設定が必要です",
-    "configSaved": "設定を保存しました",
-    "configSaveError": "設定の保存に失敗しました"
   },
   "acp": {
     "title": "ACP",

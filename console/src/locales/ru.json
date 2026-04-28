@@ -1270,7 +1270,12 @@
     "allDisabled": "Все инструменты уже отключены",
     "asyncExecution": "Асинхронное выполнение",
     "asyncExecutionEnabled": "Асинхронное выполнение включено",
-    "asyncExecutionDisabled": "Асинхронное выполнение отключено"
+    "asyncExecutionDisabled": "Асинхронное выполнение отключено",
+    "configure": "Настроить",
+    "configured": "Настроено",
+    "requiresConfig": "Требуется настройка",
+    "configSaved": "Конфигурация сохранена",
+    "configSaveError": "Не удалось сохранить конфигурацию"
   },
   "modelConfig": {
     "promptTitle": "Требуется LLM-модель — выберите в Chat после настройки",
@@ -1613,29 +1618,6 @@
     "transcriptionInfoTitle": "Как работает транскрипция",
     "transcriptionInfoDesc": "Whisper API транскрипция использует OpenAI-совместимый эндпоинт /v1/audio/transcriptions. Необходим провайдер с поддержкой Whisper (например, OpenAI). Выберите конкретного провайдера выше для включения транскрипции.",
     "transcriptionInfoDescLocal": "Локальная Whisper транскрипция запускает библиотеку openai-whisper непосредственно на вашем устройстве. Требуются ffmpeg (для декодирования аудио) и пакет openai-whisper. API-ключ и подключение к интернету не нужны. Установка: uv pip install 'qwenpaw[whisper]'."
-  },
-  "tools": {
-    "title": "Встроенные инструменты",
-    "description": "Управление встроенными инструментами и их состоянием. Отключенные инструменты не будут доступны агенту.",
-    "emptyState": "Инструменты не настроены",
-    "loadError": "Не удалось загрузить инструменты",
-    "enableSuccess": "Инструмент успешно включён",
-    "disableSuccess": "Инструмент успешно отключён",
-    "toggleError": "Не удалось переключить состояние инструмента",
-    "enableAll": "Включить все",
-    "disableAll": "Отключить все",
-    "enableAllSuccess": "Все инструменты включены",
-    "disableAllSuccess": "Все инструменты отключены",
-    "allEnabled": "Все инструменты уже включены",
-    "allDisabled": "Все инструменты уже отключены",
-    "asyncExecution": "Асинхронное выполнение",
-    "asyncExecutionEnabled": "Асинхронное выполнение включено",
-    "asyncExecutionDisabled": "Асинхронное выполнение отключено",
-    "configure": "Настроить",
-    "configured": "Настроено",
-    "requiresConfig": "Требуется настройка",
-    "configSaved": "Конфигурация сохранена",
-    "configSaveError": "Не удалось сохранить конфигурацию"
   },
   "acp": {
     "title": "ACP",
