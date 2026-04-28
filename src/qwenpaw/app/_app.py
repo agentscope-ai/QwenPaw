@@ -25,6 +25,7 @@ from ..constant import (
     DOCS_ENABLED,
     LOG_LEVEL_ENV,
     CORS_ORIGINS,
+    SECRET_DIR,
     WORKING_DIR,
     PROJECT_NAME,
 )
@@ -247,6 +248,16 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         logger.debug(
             "Telemetry collection skipped due to error",
             exc_info=True,
+        )
+
+    try:
+        from ..backup._utils.safe_swap import cleanup_stale_restore_artifacts
+
+        cleanup_stale_restore_artifacts(SECRET_DIR)
+    except Exception:
+        logger.exception(
+            "Failed to clean up stale restore artifacts in %s",
+            SECRET_DIR,
         )
 
     logger.debug("Checking for legacy config migration...")
