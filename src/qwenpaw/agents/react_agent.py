@@ -256,7 +256,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 "all tools will be disabled",
             )
 
-        # Map of tool functions
+        # Map of tool functions (hardcoded builtin tools)
         tool_functions = {
             "execute_shell_command": execute_shell_command,
             "read_file": read_file,
@@ -278,6 +278,19 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             "submit_to_agent": submit_to_agent,
             "check_agent_task": check_agent_task,
         }
+
+        # Dynamically load plugin-registered tools
+        from . import tools as tools_module
+
+        for tool_name in getattr(tools_module, "__all__", []):
+            if tool_name not in tool_functions:
+                tool_func = getattr(tools_module, tool_name, None)
+                if callable(tool_func):
+                    tool_functions[tool_name] = tool_func
+                    logger.debug(
+                        "Loaded plugin tool: %s",
+                        tool_name,
+                    )
 
         # Register only enabled tools
         for tool_name, tool_func in tool_functions.items():
