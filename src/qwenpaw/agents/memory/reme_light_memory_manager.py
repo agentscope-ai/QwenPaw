@@ -44,11 +44,13 @@ def _detect_memory_manager_backend() -> str:
     Resolves ``MEMORY_STORE_BACKEND`` with the following priority:
     - ``local``: always used on Windows
     - ``chroma``: used when ``chromadb`` is importable (non-Windows)
+    - ``milvus``: used when ``MEMORY_STORE_BACKEND=milvus`` is set
+    - ``qdrant``: used when ``MEMORY_STORE_BACKEND=qdrant`` is set
     - falls back to ``local`` when ``chromadb`` is unavailable
 
     Returns:
-        Backend name string: ``"local"``, ``"chroma"``, or any explicitly
-        configured value.
+        Backend name string: ``"local"``, ``"chroma"``, ``"milvus"``,
+        ``"qdrant"``, or any explicitly configured value.
     """
     backend_env = EnvVarLoader.get_str("MEMORY_STORE_BACKEND", "auto")
     if backend_env != "auto":
@@ -106,7 +108,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             "api_key": self._mask_key(emb_config["api_key"]),
         }
         logger.info(
-            f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}",
+            f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}, "
+            f"backend={memory_manager_backend}"
         )
 
         fts_enabled = EnvVarLoader.get_bool("FTS_ENABLED", True)
