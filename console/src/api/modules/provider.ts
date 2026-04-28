@@ -38,8 +38,17 @@ function buildActiveModelQuery(params?: GetActiveModelsRequest): string {
   return `/models/active?${searchParams.toString()}`;
 }
 
+let listProvidersPromise: Promise<ProviderInfo[]> | null = null;
+const activeModelPromises = new Map<string, Promise<ActiveModelsInfo>>();
+
 export const providerApi = {
-  listProviders: () => request<ProviderInfo[]>("/models"),
+  listProviders: () => {
+    if (listProvidersPromise) return listProvidersPromise;
+    listProvidersPromise = request<ProviderInfo[]>("/models").finally(() => {
+      listProvidersPromise = null;
+    });
+    return listProvidersPromise;
+  },
 
   configureProvider: (providerId: string, body: ProviderConfigRequest) =>
     request<ProviderInfo>(`/models/${encodeURIComponent(providerId)}/config`, {
@@ -47,8 +56,16 @@ export const providerApi = {
       body: JSON.stringify(body),
     }),
 
-  getActiveModels: (params?: GetActiveModelsRequest) =>
-    request<ActiveModelsInfo>(buildActiveModelQuery(params)),
+  getActiveModels: (params?: GetActiveModelsRequest) => {
+    const key = buildActiveModelQuery(params);
+    const cached = activeModelPromises.get(key);
+    if (cached) return cached;
+    const promise = request<ActiveModelsInfo>(key).finally(() => {
+      activeModelPromises.delete(key);
+    });
+    activeModelPromises.set(key, promise);
+    return promise;
+  },
 
   setActiveLlm: (body: ModelSlotRequest) =>
     request<ActiveModelsInfo>("/models/active", {
