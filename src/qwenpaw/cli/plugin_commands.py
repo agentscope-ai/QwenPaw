@@ -57,6 +57,133 @@ def _safe_extract_zip(zip_ref: zipfile.ZipFile, extract_path: Path):
     zip_ref.extractall(extract_path)
 
 
+def _sync_tool_plugin_to_agents(manifest: dict):
+    """Add tool plugin to all existing agents.
+
+    Args:
+        manifest: Plugin manifest dictionary
+    """
+    meta = manifest.get("meta", {})
+    tool_name = meta.get("tool_name")
+
+    # Only process if this is a tool plugin
+    if not tool_name:
+        return
+
+    click.echo(f"🔄 Syncing tool '{tool_name}' to all agents...")
+
+    from ..config.utils import get_agent_dirs
+
+    agent_dirs = get_agent_dirs()
+    if not agent_dirs:
+        click.echo("   No agents found, skipping sync")
+        return
+
+    synced_count = 0
+    for agent_dir in agent_dirs:
+        agent_json_path = agent_dir / "agent.json"
+        if not agent_json_path.exists():
+            continue
+
+        try:
+            # Read agent config
+            with open(agent_json_path, encoding="utf-8") as f:
+                config = json.load(f)
+
+            # Check if tool already exists
+            builtin_tools = config.get("tools", {}).get("builtin_tools", {})
+
+            if tool_name in builtin_tools:
+                continue
+
+            # Add tool with default disabled state
+            if "tools" not in config:
+                config["tools"] = {}
+            if "builtin_tools" not in config["tools"]:
+                config["tools"]["builtin_tools"] = {}
+
+            config["tools"]["builtin_tools"][tool_name] = {
+                "name": tool_name,
+                "enabled": False,
+                "config": {},
+            }
+
+            # Save updated config
+            with open(agent_json_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+
+            synced_count += 1
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to sync tool to {agent_dir.name}: {e}",
+            )
+
+    if synced_count > 0:
+        click.echo(f"✓ Synced tool to {synced_count} agent(s)")
+    else:
+        click.echo("   All agents already have this tool")
+
+
+def _remove_tool_plugin_from_agents(manifest: dict):
+    """Remove tool plugin from all agents.
+
+    Args:
+        manifest: Plugin manifest dictionary
+    """
+    meta = manifest.get("meta", {})
+    tool_name = meta.get("tool_name")
+
+    # Only process if this is a tool plugin
+    if not tool_name:
+        return
+
+    click.echo(f"🔄 Removing tool '{tool_name}' from all agents...")
+
+    from ..config.utils import get_agent_dirs
+
+    agent_dirs = get_agent_dirs()
+    if not agent_dirs:
+        click.echo("   No agents found, skipping cleanup")
+        return
+
+    removed_count = 0
+    for agent_dir in agent_dirs:
+        agent_json_path = agent_dir / "agent.json"
+        if not agent_json_path.exists():
+            continue
+
+        try:
+            # Read agent config
+            with open(agent_json_path, encoding="utf-8") as f:
+                config = json.load(f)
+
+            # Check if tool exists
+            builtin_tools = config.get("tools", {}).get("builtin_tools", {})
+
+            if tool_name not in builtin_tools:
+                continue
+
+            # Remove tool
+            del config["tools"]["builtin_tools"][tool_name]
+
+            # Save updated config
+            with open(agent_json_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+
+            removed_count += 1
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to remove tool from {agent_dir.name}: {e}",
+            )
+
+    if removed_count > 0:
+        click.echo(f"✓ Removed tool from {removed_count} agent(s)")
+    else:
+        click.echo("   No agents had this tool")
+
+
 def _download_plugin_from_url(url: str) -> tuple[Path, Path]:
     """Download and extract plugin from URL.
 
@@ -234,6 +361,9 @@ def install(source: str, force: bool):
     click.echo(f"\n✅ Plugin '{plugin_name}' installed successfully!")
     click.echo(f"📍 Location: {target_dir}")
 
+    # Sync tool plugins to all agents
+    _sync_tool_plugin_to_agents(manifest)
+
     # Clean up temporary directory if source was downloaded
     if is_url and temp_dir:
         try:
@@ -351,12 +481,26 @@ def uninstall(plugin_id: str):
         click.echo(f"❌ Plugin '{plugin_id}' not found", err=True)
         return
 
+    # Read manifest before deletion for tool cleanup
+    manifest_path = plugin_dir / "plugin.json"
+    manifest = None
+    if manifest_path.exists():
+        try:
+            with open(manifest_path, encoding="utf-8") as f:
+                manifest = json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to read plugin manifest: {e}")
+
     # Confirm
     if not click.confirm(
         f"Are you sure you want to uninstall '{plugin_id}'?",
     ):
         click.echo("Cancelled.")
         return
+
+    # Remove tool from all agents if this is a tool plugin
+    if manifest:
+        _remove_tool_plugin_from_agents(manifest)
 
     # Delete directory
     try:

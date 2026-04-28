@@ -757,6 +757,24 @@ def get_plugins_dir() -> Path:
     return PLUGINS_DIR
 
 
+def get_agent_dirs() -> list[Path]:
+    """Return list of all agent directories.
+
+    Returns:
+        List of Path objects for each agent directory in the workspaces folder
+    """
+    workspaces_dir = WORKING_DIR / "workspaces"
+    if not workspaces_dir.exists():
+        return []
+
+    agent_dirs = []
+    for item in workspaces_dir.iterdir():
+        if item.is_dir() and (item / "agent.json").exists():
+            agent_dirs.append(item)
+
+    return agent_dirs
+
+
 def is_qwenpaw_running() -> bool:
     """Check if QwenPaw is currently running by checking API availability.
 

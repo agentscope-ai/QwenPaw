@@ -1342,7 +1342,12 @@
     "allDisabled": "所有工具已处于禁用状态",
     "asyncExecution": "异步执行",
     "asyncExecutionEnabled": "异步执行已启用",
-    "asyncExecutionDisabled": "异步执行已禁用"
+    "asyncExecutionDisabled": "异步执行已禁用",
+    "configure": "配置",
+    "configured": "已配置",
+    "requiresConfig": "需要配置",
+    "configSaved": "配置已保存",
+    "configSaveError": "配置保存失败"
   },
   "modelConfig": {
     "promptTitle": "需要配置 LLM 模型，配置模型后在 Chat 页面选择",

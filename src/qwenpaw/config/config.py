@@ -1210,11 +1210,19 @@ class BuiltinToolConfig(BaseModel):
         default=None,
         description="Emoji icon for the tool",
     )
+    config: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Tool-specific configuration (e.g., API keys)",
+    )
 
 
 def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
-    """Return a fresh copy of the canonical built-in tool definitions."""
-    return {
+    """Return a fresh copy of the canonical built-in tool definitions.
+
+    This includes both hardcoded tools and dynamically registered tools
+    from plugins.
+    """
+    tools = {
         "execute_shell_command": BuiltinToolConfig(
             name="execute_shell_command",
             enabled=True,
@@ -1335,6 +1343,35 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             icon="⏳",
         ),
     }
+
+    # Merge dynamically registered tools from plugins
+    try:
+        from ..plugins.registry import PluginRegistry
+
+        registry = PluginRegistry()
+        # Access manifests via public method
+        all_manifests = registry.get_all_plugin_manifests()
+        for plugin_id, manifest in all_manifests.items():
+            meta = manifest.get("meta", {})
+            if meta.get("tool_name"):
+                tool_name = meta["tool_name"]
+                if tool_name not in tools:
+                    tools[tool_name] = BuiltinToolConfig(
+                        name=tool_name,
+                        enabled=False,
+                        description=meta.get(
+                            "tool_description",
+                            f"Tool from plugin {plugin_id}",
+                        ),
+                        display_to_user=True,
+                        async_execution=False,
+                        icon=meta.get("tool_icon", "🔧"),
+                    )
+    except Exception:
+        # Plugins not loaded yet, return hardcoded tools only
+        pass
+
+    return tools
 
 
 class ToolsConfig(BaseModel):
