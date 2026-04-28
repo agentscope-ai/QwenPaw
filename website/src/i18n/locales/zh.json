@@ -265,6 +265,7 @@
     "memoryEvolvingAndProactive": "记忆进化与主动交互",
     "context": "上下文",
     "commands": "魔法命令",
+    "plan": "计划模式",
     "heartbeat": "心跳",
     "config": "配置与工作目录",
     "security": "安全",

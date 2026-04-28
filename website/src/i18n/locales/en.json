@@ -265,6 +265,7 @@
     "memoryEvolvingAndProactive": "Memory-Evolving & Proactive",
     "context": "Context",
     "commands": "Magic commands",
+    "plan": "Plan mode",
     "heartbeat": "Heartbeat",
     "config": "Config & working dir",
     "security": "Security",
