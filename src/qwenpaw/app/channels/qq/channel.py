@@ -1228,12 +1228,28 @@ class QQChannel(BaseChannel):
         for att in attachments:
             url = att.get("url", "")
             file_name = att.get("filename", "")
+            
+            # QQ Voice Message ASR Support
+            # Check if attachment is a voice message and has ASR text.
+            att_type = att.get("content_type", att.get("type", ""))
+            file_ext = Path(file_name).suffix.lower()
+            is_voice = (
+                att_type == "voice"
+                or file_ext in {".amr", ".silk", ".slk"}
+            )
+            
+            if is_voice:
+                asr_text = att.get("asr_refer_text", "")
+                if asr_text:
+                    # Use platform-side ASR text directly, skipping audio download.
+                    parts.append(
+                        TextContent(type=ContentType.TEXT, text=asr_text)
+                    )
+                    continue
+
             if not url:
                 continue
-            att_type = att.get(
-                "content_type",
-                att.get("type", ""),
-            )
+            
             resolved = self._resolve_attachment_type(
                 att_type,
                 file_name,

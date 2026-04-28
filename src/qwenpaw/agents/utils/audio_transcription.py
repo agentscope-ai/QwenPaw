@@ -10,16 +10,10 @@ Transcription is only attempted when explicitly enabled via the
 """
 
 import asyncio
-import io
 import logging
-import os
 import shutil
-import tempfile
 import threading
-import wave
 from typing import List, Optional, Tuple
-
-import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -154,77 +148,6 @@ def check_local_whisper_available() -> dict:
 
 
 # ------------------------------------------------------------------
-# SILK format detection and conversion for QQ voice messages
-# ------------------------------------------------------------------
-
-
-def _is_silk_file(file_path: str) -> bool:
-    """Check if a file is in QQ SILK voice format.
-
-    QQ voice messages start with the bytes ``\\x02#!SILK_V3``.
-    The leading ``\\x02`` byte is part of the QQ protocol header and
-    must be included in the check.
-    """
-    try:
-        with open(file_path, "rb") as f:
-            header = f.read(10)
-        return header[:10] == b"\x02#!SILK_V3"
-    except Exception:
-        return False
-
-
-def _convert_silk_to_wav(silk_path: str) -> Optional[str]:
-    """Decode a QQ SILK voice file to a 16 kHz WAV file.
-
-    Returns the path to the temporary WAV file, or ``None`` on failure.
-    The caller is responsible for cleaning up the returned file.
-    """
-    try:
-        import pysilk as silk
-        from scipy.signal import resample_poly
-
-        # Decode SILK to PCM at 24 kHz
-        pcm_buffer = io.BytesIO()
-        with open(silk_path, "rb") as in_file:
-            silk.decode(in_file, pcm_buffer, 24000)
-
-        pcm_data = pcm_buffer.getvalue()
-        if not pcm_data:
-            logger.warning("SILK decode returned empty data for %s", silk_path)
-            return None
-
-        # Convert PCM bytes to numpy array (16-bit signed integers)
-        pcm_array = np.frombuffer(pcm_data, dtype=np.int16)
-
-        # Resample 24 kHz -> 16 kHz (ratio 24/16 = 3/2)
-        resampled = resample_poly(pcm_array, 2, 3)
-
-        # Write to temporary WAV file at 16 kHz
-        temp_wav = tempfile.NamedTemporaryFile(
-            suffix=".wav", delete=False
-        )
-        with wave.open(temp_wav.name, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)  # 16-bit
-            wf.setframerate(16000)
-            wf.writeframes(resampled.astype(np.int16).tobytes())
-
-        logger.debug("Converted SILK %s -> WAV %s", silk_path, temp_wav.name)
-        return temp_wav.name
-
-    except ImportError:
-        logger.warning(
-            "pysilk or scipy not installed; cannot decode SILK file %s. "
-            "Install with: pip install pysilk scipy numpy",
-            silk_path,
-        )
-        return None
-    except Exception:
-        logger.exception("Failed to convert SILK to WAV for %s", silk_path)
-        return None
-
-
-# ------------------------------------------------------------------
 # Transcription backends
 # ------------------------------------------------------------------
 
@@ -233,24 +156,8 @@ async def _transcribe_local_whisper(file_path: str) -> Optional[str]:
     """Transcribe using the locally installed ``openai-whisper`` library.
 
     Requires both ``ffmpeg`` and ``openai-whisper`` to be installed.
-    If the input file is in QQ SILK format, it is automatically decoded
-    to WAV before transcription.
     Returns the transcribed text, or ``None`` on failure.
     """
-    # Auto-detect and convert QQ SILK voice format
-    wav_path = None
-    if _is_silk_file(file_path):
-        logger.debug("Detected QQ SILK format, converting to WAV...")
-        wav_path = _convert_silk_to_wav(file_path)
-        if wav_path is None:
-            logger.warning(
-                "SILK conversion failed for %s; "
-                "attempting transcription with original file anyway.",
-                file_path,
-            )
-        else:
-            file_path = wav_path
-
     status = check_local_whisper_available()
     if not status["available"]:
         missing = []
@@ -263,8 +170,6 @@ async def _transcribe_local_whisper(file_path: str) -> Optional[str]:
             "Install the missing dependencies to use local transcription.",
             ", ".join(missing),
         )
-        if wav_path and os.path.exists(wav_path):
-            os.unlink(wav_path)
         return None
 
     def _run():
@@ -293,13 +198,6 @@ async def _transcribe_local_whisper(file_path: str) -> Optional[str]:
             exc_info=True,
         )
         return None
-    finally:
-        # Clean up temporary WAV file created from SILK conversion
-        if wav_path and os.path.exists(wav_path):
-            try:
-                os.unlink(wav_path)
-            except Exception:
-                pass
 
 
 def _get_configured_provider_creds() -> Optional[Tuple[str, str]]:
