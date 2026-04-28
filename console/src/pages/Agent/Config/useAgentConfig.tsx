@@ -2,9 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Form, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
-import { agentsApi } from "../../../api/modules/agents";
 import type { AgentsRunningConfig } from "../../../api/types";
-import type { AgentProfileConfig } from "../../../api/types/agents";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
 import {
@@ -28,21 +26,18 @@ export function useAgentConfig() {
   const [approvalLevel, setApprovalLevel] =
     useState<ToolExecutionLevel>("AUTO");
   const initialApprovalLevelRef = useRef<ToolExecutionLevel>("AUTO");
-  const agentProfileRef = useRef<AgentProfileConfig | null>(null);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [config, langResp, tzResp, agentProfile] = await Promise.all([
+      const [config, langResp, tzResp] = await Promise.all([
         api.getAgentRunningConfig(),
         api.getAgentLanguage(),
         api.getUserTimezone(),
-        agentsApi.getAgent(selectedAgent),
       ]);
-      agentProfileRef.current = agentProfile;
       const loadedLevel = (
-        agentProfile?.approval_level || "AUTO"
+        config.approval_level || "AUTO"
       ).toUpperCase() as ToolExecutionLevel;
       setApprovalLevel(loadedLevel);
       initialApprovalLevelRef.current = loadedLevel;
@@ -93,21 +88,12 @@ export function useAgentConfig() {
     try {
       const values = await form.validateFields();
       setSaving(true);
-      const approvalLevelChanged =
-        approvalLevel !== initialApprovalLevelRef.current;
-      await Promise.all([
-        api.updateAgentRunningConfig(values as AgentsRunningConfig),
-        approvalLevelChanged && agentProfileRef.current
-          ? agentsApi.updateAgent(selectedAgent, {
-              ...agentProfileRef.current,
-              approval_level: approvalLevel,
-            })
-          : Promise.resolve(),
-      ]);
-      if (approvalLevelChanged && agentProfileRef.current) {
-        agentProfileRef.current.approval_level = approvalLevel;
-        initialApprovalLevelRef.current = approvalLevel;
-      }
+      const configToSave: AgentsRunningConfig = {
+        ...(values as AgentsRunningConfig),
+        approval_level: approvalLevel,
+      };
+      await api.updateAgentRunningConfig(configToSave);
+      initialApprovalLevelRef.current = approvalLevel;
       message.success(t("agentConfig.saveSuccess"));
     } catch (err) {
       if (err instanceof Error && "errorFields" in err) return;

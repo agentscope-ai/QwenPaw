@@ -78,4 +78,5 @@ export interface AgentsRunningConfig {
   light_context_config: LightContextConfig;
   memory_manager_backend: string;
   reme_light_memory_config: ReMeLightMemoryConfig;
+  approval_level?: string;
 }

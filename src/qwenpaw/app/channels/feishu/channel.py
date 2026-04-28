@@ -1998,6 +1998,12 @@ class FeishuChannel(BaseChannel):
                     .register_p2_im_message_receive_v1(
                         self._on_message_sync,
                     )
+                    .register_p2_im_message_reaction_created_v1(
+                        lambda _evt: None,
+                    )
+                    .register_p2_im_message_reaction_deleted_v1(
+                        lambda _evt: None,
+                    )
                     .build()
                 )
                 self._ws_client = lark.ws.Client(

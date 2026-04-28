@@ -18,6 +18,7 @@ import base64
 import hashlib
 import logging
 import os
+import re
 import sys
 import threading
 from collections import OrderedDict
@@ -375,6 +376,24 @@ class WecomChannel(BaseChannel):
             if msgtype == "text":
                 text = (body.get("text") or {}).get("content", "").strip()
                 if text:
+                    # In group chat, strip @mention only when it wraps a
+                    # slash command, to preserve normal conversation text.
+                    if chat_type == "group":
+                        text = re.sub(
+                            r"^@\S+\s+(?=/)",
+                            "",
+                            text,
+                        ).strip()
+                        text = (
+                            re.sub(
+                                r"@\S+$",
+                                "",
+                                text,
+                            )
+                            if text.startswith("/")
+                            else text
+                        )
+                        text = text.strip()
                     text_parts.append(text)
 
             elif msgtype == "image":
