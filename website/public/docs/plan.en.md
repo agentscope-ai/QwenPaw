@@ -12,12 +12,12 @@ If you haven't read [Introduction](./intro) yet, skim the notes there on agents 
 
 ## What plan mode provides
 
-| Capability | Description |
-| ---------- | ----------- |
+| Capability                   | Description                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | **Structured decomposition** | Splits the user request into ordered subtasks, each with a name, description, and measurable expected outcome |
-| **Human-in-the-loop** | After creating or revising a plan, the agent presents it and waits before executing subtasks |
-| **State tracking** | Both the overall plan and each subtask have states (todo / in_progress / done / abandoned) |
-| **Visualization** | When enabled, the chat page can open a **Plan** drawer for live plan and subtask progress |
+| **Human-in-the-loop**        | After creating or revising a plan, the agent presents it and waits before executing subtasks                  |
+| **State tracking**           | Both the overall plan and each subtask have states (todo / in_progress / done / abandoned)                    |
+| **Visualization**            | When enabled, the chat page can open a **Plan** drawer for live plan and subtask progress                     |
 
 ---
 
@@ -97,12 +97,12 @@ Notes:
 
 Plans and subtasks share the same state values:
 
-| State | Meaning |
-| ----- | ------- |
-| **todo** | Not started |
+| State           | Meaning                  |
+| --------------- | ------------------------ |
+| **todo**        | Not started              |
 | **in_progress** | Currently being executed |
-| **done** | Completed successfully |
-| **abandoned** | Stopped / discarded |
+| **done**        | Completed successfully   |
+| **abandoned**   | Stopped / discarded      |
 
 The Plan drawer's progress bar counts both **done** and **abandoned** subtasks toward the numerator.
 
@@ -129,10 +129,10 @@ The drawer receives plan changes via **SSE (server-sent events)** in real time, 
 
 ## Compared with regular chat
 
-| Scenario | Behavior |
-| -------- | -------- |
-| Plan mode on, no `/plan` prefix | Normal chat — no forced "must plan first" for every message |
-| User sends `/plan ...` | "Plan first" flow: plan must be created and confirmed before execution |
+| Scenario                              | Behavior                                                                                            |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Plan mode on, no `/plan` prefix       | Normal chat — no forced "must plan first" for every message                                         |
+| User sends `/plan ...`                | "Plan first" flow: plan must be created and confirmed before execution                              |
 | A plan just finished or was cancelled | The agent responds to the **latest user message** directly, or starts a new plan if you ask for one |
 
 This means the same agent works for both occasional structured tasks and everyday quick questions.
