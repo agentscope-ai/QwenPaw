@@ -173,8 +173,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
                   role: msg.role || "",
                   roleLabel: getRoleLabel(msg.role || "", t),
                   text: "",
-                  matchedText:
-                    start > 0 ? `...${matchedText}` : matchedText,
+                  matchedText: start > 0 ? `...${matchedText}` : matchedText,
                   timestamp: chatTimestamp,
                 });
               }
@@ -314,10 +313,10 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
                   progress: searchProgress,
                 })
               : loading
-                ? t("chat.search.loading")
-                : t("chat.search.resultsCount", {
-                    count: searchResults.length,
-                  })}
+              ? t("chat.search.loading")
+              : t("chat.search.resultsCount", {
+                  count: searchResults.length,
+                })}
           </Typography.Text>
         </div>
       )}

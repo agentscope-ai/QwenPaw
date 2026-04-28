@@ -287,10 +287,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         key: "rename",
         label: t("chat.contextMenu.rename", "Rename"),
         onClick: () =>
-          handleEditStart(
-            contextMenuSessionId,
-            session?.name || "New Chat",
-          ),
+          handleEditStart(contextMenuSessionId, session?.name || "New Chat"),
       },
       {
         key: "pin",
