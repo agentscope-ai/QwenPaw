@@ -90,8 +90,10 @@ async def create_channel_service(ws: "Workspace", _):
             agent_id=ws.agent_id,
         )
 
+    process = _make_agent_aware_process(runner, ws)
+
     cm = ChannelManager.from_config(
-        process=make_process_from_runner(runner),
+        process=process,
         config=temp_config,
         on_last_dispatch=on_last_dispatch,
         workspace_dir=ws.workspace_dir,
@@ -106,6 +108,42 @@ async def create_channel_service(ws: "Workspace", _):
 
     return cm
     # pylint: enable=protected-access
+
+
+def _make_agent_aware_process(runner, workspace):
+    """Wrap runner.stream_query with agent routing support.
+
+    If a channel has target_agent set, messages are dispatched to that
+    agent's runner instead of the local one.  When target_agent is empty
+    or equals the current agent, the local runner is used (default behaviour).
+    """
+    from ..channels.utils import make_process_from_runner
+
+    local_process = make_process_from_runner(runner)
+
+    async def process(request):
+        target = getattr(request, "channel_meta", None)
+        target_agent = getattr(target, "_target_agent", None) if target else None
+        if target_agent and target_agent != workspace.agent_id:
+            try:
+                manager = workspace._manager
+                if manager is None:
+                    return await local_process(request)
+                target_ws = await manager.get_agent(target_agent)
+                target_runner = target_ws.runner
+                if target_runner:
+                    return await make_process_from_runner(target_runner)(
+                        request
+                    )
+            except Exception:
+                logger.warning(
+                    "Failed to route to agent '%s', using local",
+                    target_agent,
+                    exc_info=True,
+                )
+        return await local_process(request)
+
+    return process
 
 
 async def create_agent_config_watcher(ws: "Workspace", _):

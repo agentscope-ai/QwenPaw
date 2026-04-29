@@ -169,10 +169,12 @@ async def _resolve_channel_manager(
 
     available = get_available_channels()
     if channel_name not in available:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Channel '{channel_name}' not available",
-        )
+        from qwenpaw.constant import CUSTOM_CHANNELS_DIR
+        if not (CUSTOM_CHANNELS_DIR / f"{channel_name}.py").exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Channel '{channel_name}' not found",
+            )
 
     agent = await get_agent_for_request(request)
     channel_manager = agent.channel_manager
@@ -389,6 +391,109 @@ async def put_channel(
     schedule_agent_reload(request, agent.agent_id)
 
     return channel_config
+
+
+@router.post(
+    "/channels/{channel_name}/duplicate",
+    summary="Duplicate a channel",
+    description="Create a copy of a built-in channel as a custom instance",
+)
+async def duplicate_channel(
+    request: Request,
+    channel_name: str = Path(
+        ...,
+        description="Name of the channel to duplicate",
+        min_length=1,
+    ),
+):
+    from ..agent_context import get_agent_for_request
+    from ...config.config import save_agent_config
+    from ..channels.proxy_generator import (
+        CHANNEL_CLASS_MAP,
+        generate_proxy,
+        list_proxy_keys,
+    )
+
+    if channel_name not in BUILTIN_CHANNEL_KEYS:
+        raise HTTPException(400, "Can only duplicate built-in channels")
+    if channel_name == "console":
+        raise HTTPException(400, "Cannot duplicate console channel")
+    if channel_name not in CHANNEL_CLASS_MAP:
+        raise HTTPException(
+            400,
+            f"Channel '{channel_name}' does not support duplication",
+        )
+
+    existing = list_proxy_keys()
+    idx = 1
+    while f"{channel_name}_copy_{idx}" in existing:
+        idx += 1
+    new_key = f"{channel_name}_copy_{idx}"
+
+    generate_proxy(channel_name, new_key)
+
+    agent = await get_agent_for_request(request)
+    if agent.config.channels is None:
+        agent.config.channels = ChannelConfig()
+
+    channels_cfg = agent.config.channels
+    all_configs = channels_cfg.model_dump()
+    extra = getattr(channels_cfg, "__pydantic_extra__", None) or {}
+    all_configs.update(extra)
+
+    src_cfg = (
+        dict(all_configs[channel_name])
+        if isinstance(all_configs.get(channel_name), dict)
+        else all_configs.get(channel_name, {})
+    )
+    if isinstance(src_cfg, dict):
+        new_cfg = {
+            **{k: v for k, v in src_cfg.items() if k != "isBuiltin"},
+            "enabled": False,
+            "duplicated_from": channel_name,
+            "target_agent": "",
+        }
+    else:
+        new_cfg = {"enabled": False, "duplicated_from": channel_name, "target_agent": ""}
+
+    setattr(agent.config.channels, new_key, new_cfg)
+    save_agent_config(agent.agent_id, agent.config)
+    schedule_agent_reload(request, agent.agent_id)
+
+    return {"key": new_key}
+
+
+@router.delete(
+    "/channels/{channel_name}",
+    summary="Delete a custom channel",
+    description="Delete a custom (duplicated) channel instance",
+)
+async def delete_custom_channel(
+    request: Request,
+    channel_name: str = Path(
+        ...,
+        description="Name of the custom channel to delete",
+        min_length=1,
+    ),
+):
+    from ..agent_context import get_agent_for_request
+    from ...config.config import save_agent_config
+    from ..channels.proxy_generator import delete_proxy
+
+    if channel_name in BUILTIN_CHANNEL_KEYS:
+        raise HTTPException(400, "Cannot delete built-in channels")
+
+    delete_proxy(channel_name)
+
+    agent = await get_agent_for_request(request)
+    if agent.config.channels is not None:
+        extra = getattr(agent.config.channels, "__pydantic_extra__", None)
+        if extra and channel_name in extra:
+            del extra[channel_name]
+            save_agent_config(agent.agent_id, agent.config)
+            schedule_agent_reload(request, agent.agent_id)
+
+    return {"deleted": channel_name}
 
 
 @router.get(
