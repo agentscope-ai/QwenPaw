@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 # Hook type that triggers via PlanNotebook.register_plan_change_hook
 PLAN_CHANGE_HOOK_TYPE = "plan_change"
 
+# Maximum character length for text fields stored in ProgressStore.
+# Prevents unbounded memory growth from large tool outputs.
+_MAX_TEXT_LENGTH = 2000
+
 
 # ---------------------------------------------------------------------------
 # ProgressStore
@@ -38,10 +42,27 @@ class _ProgressStore:
     Keyed by ``(agent_id, session_id)``.  The value is a plain dict with
     at least ``updated_at`` (Unix timestamp) plus any fields written by
     ``ProgressObservingHook``.
+
+    Entries older than ``ttl_seconds`` are automatically evicted on
+    ``set`` and ``get`` calls to prevent unbounded memory growth.
     """
 
-    def __init__(self) -> None:
+    _DEFAULT_TTL = 3600  # 1 hour
+
+    def __init__(self, ttl_seconds: float = _DEFAULT_TTL) -> None:
         self._store: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        self._ttl = ttl_seconds
+
+    def _evict_expired(self) -> None:
+        """Remove entries whose ``updated_at`` is older than TTL."""
+        now = time.time()
+        expired = [
+            k
+            for k, v in self._store.items()
+            if now - v.get("updated_at", 0) > self._ttl
+        ]
+        for k in expired:
+            del self._store[k]
 
     def set(
         self,
@@ -49,6 +70,7 @@ class _ProgressStore:
         session_id: str,
         data: Dict[str, Any],
     ) -> None:
+        self._evict_expired()
         self._store[(agent_id, session_id)] = {
             **data,
             "updated_at": time.time(),
@@ -59,6 +81,7 @@ class _ProgressStore:
         agent_id: str,
         session_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
+        self._evict_expired()
         if not session_id:
             # Fall back to the most-recently updated entry for this agent
             candidates = [
@@ -68,9 +91,6 @@ class _ProgressStore:
                 return None
             return max(candidates, key=lambda x: x[1]["updated_at"])[1]
         return self._store.get((agent_id, session_id))
-
-    def clear(self, agent_id: str, session_id: str) -> None:
-        self._store.pop((agent_id, session_id), None)
 
 
 #: Singleton used by ``ProgressObservingHook`` and ``check_agent_task``.
@@ -134,7 +154,7 @@ class ProgressObservingHook:
         """Called by agentscope on every registered instance hook event."""
         try:
             session_id = self._resolve_session_id(agent)
-            logger.info(
+            logger.debug(
                 "ProgressObservingHook fired: agent_id=%r session_id=%r",
                 self._agent_id,
                 session_id,
@@ -145,15 +165,24 @@ class ProgressObservingHook:
 
             # Capture latest tool output / model output as a summary
             if output is not None:
-                snapshot["last_output"] = _extract_text(output)
+                text_out = _extract_text(output)
+                snapshot["last_output"] = (
+                    text_out[:_MAX_TEXT_LENGTH] + "..."
+                    if len(text_out) > _MAX_TEXT_LENGTH
+                    else text_out
+                )
 
             # Capture last message in memory as current context
             last_msg = self._last_memory_msg(agent)
             if last_msg:
-                snapshot["last_message"] = last_msg
+                snapshot["last_message"] = (
+                    last_msg[:_MAX_TEXT_LENGTH] + "..."
+                    if len(last_msg) > _MAX_TEXT_LENGTH
+                    else last_msg
+                )
 
             progress_store.set(self._agent_id, session_id, snapshot)
-            logger.info(
+            logger.debug(
                 "ProgressObservingHook stored: store keys=%r",
                 list(progress_store._store.keys()),
             )
@@ -179,8 +208,8 @@ class ProgressObservingHook:
             }
             progress_store.set(self._agent_id, session_id, snapshot)
         except Exception:
-            logger.debug(
-                "ProgressObservingHook.on_plan_change failed silently",
+            logger.warning(
+                "ProgressObservingHook.on_plan_change failed",
                 exc_info=True,
             )
 
@@ -198,7 +227,12 @@ class ProgressObservingHook:
                 return sid
         except Exception:
             pass
-        return getattr(agent, "session_id", "") or ""
+        # Fallback: try agent attribute, but only if non-empty
+        if agent is not None:
+            sid = getattr(agent, "session_id", "") or ""
+            if sid:
+                return sid
+        return ""
 
     def _last_memory_msg(self, agent: Any) -> Optional[str]:
         try:

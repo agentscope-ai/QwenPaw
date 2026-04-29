@@ -466,7 +466,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 hook_name="progress_observing",
                 hook=po_hook.__call__,
             )
-            logger.info(
+            logger.debug(
                 "Registered progress_observing hook: agent=%r type=%s",
                 self._agent_config.id,
                 po_cfg.hook_type,

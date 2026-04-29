@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Optional, Union, Dict, List, Literal, Any, Set
+from typing import ClassVar, Optional, Union, Dict, List, Literal, Any, Set
 
 from pydantic import (
     BaseModel,
@@ -938,6 +938,16 @@ class ProgressObservingConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    VALID_HOOK_TYPES: ClassVar[set[str]] = {
+        "pre_reply",
+        "post_reply",
+        "pre_reasoning",
+        "post_reasoning",
+        "pre_acting",
+        "post_acting",
+        "plan_change",
+    }
+
     hook_type: str = Field(
         default="post_acting",
         description=(
@@ -947,6 +957,16 @@ class ProgressObservingConfig(BaseModel):
             "PlanNotebook hook: plan_change (requires plan.enabled=true)."
         ),
     )
+
+    @field_validator("hook_type")
+    @classmethod
+    def validate_hook_type(cls, v: str) -> str:
+        if v not in cls.VALID_HOOK_TYPES:
+            raise ValueError(
+                f"Invalid hook_type '{v}'. "
+                f"Must be one of: {sorted(cls.VALID_HOOK_TYPES)}",
+            )
+        return v
 
 
 class AgentProfileConfig(BaseModel):

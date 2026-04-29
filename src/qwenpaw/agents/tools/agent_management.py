@@ -54,10 +54,17 @@ def _json_text(data: Any) -> str:
 
 
 def normalize_id(id_to_normalize: Optional[str]) -> Optional[str]:
-    """Trim surrounding whitespace and quotes from an ID."""
+    """Trim whitespace, quotes, and trailing punctuation from an ID.
+
+    LLM-generated IDs may carry trailing commas, periods, or Chinese
+    punctuation that would cause lookup failures.
+    """
     if id_to_normalize is None:
         return None
-    return id_to_normalize.strip().strip("\"'").strip()
+    cleaned = id_to_normalize.strip().strip("\"'").strip()
+    # Strip trailing punctuation commonly added by LLMs
+    cleaned = cleaned.rstrip(",.，。、；;：:！!？?")
+    return cleaned or None
 
 
 def create_agent_api_client(
@@ -637,18 +644,19 @@ async def check_agent_task(
     if detail and result.get("status") == "running":
         from .task_detail import progress_store
 
-        lookup_agent_id = normalize_id(agent_id) or ""
+        lookup_agent_id = normalize_id(agent_id)
         lookup_session_id = normalize_id(session_id) or None
-        live = progress_store.get(lookup_agent_id, lookup_session_id)
-        if live:
-            text = (
-                text
-                + "\n\n[LIVE_STATUS]\n"
-                + json.dumps(
-                    live,
-                    ensure_ascii=False,
-                    indent=2,
+        if lookup_agent_id:
+            live = progress_store.get(lookup_agent_id, lookup_session_id)
+            if live:
+                text = (
+                    text
+                    + "\n\n[LIVE_STATUS]\n"
+                    + json.dumps(
+                        live,
+                        ensure_ascii=False,
+                        indent=2,
+                    )
                 )
-            )
 
     return _tool_text_response(text)
