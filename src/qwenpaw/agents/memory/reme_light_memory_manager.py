@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """ReMeLight-backed memory manager for agents."""
+import hashlib
 import importlib.metadata
 import json
 import logging
@@ -8,6 +9,7 @@ import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg, TextBlock, ToolResultBlock, ToolUseBlock
@@ -44,11 +46,13 @@ def _detect_memory_manager_backend() -> str:
     Resolves ``MEMORY_STORE_BACKEND`` with the following priority:
     - ``local``: always used on Windows
     - ``chroma``: used when ``chromadb`` is importable (non-Windows)
+    - ``milvus``: used when ``MEMORY_STORE_BACKEND=milvus`` is set
+    - ``qdrant``: used when ``MEMORY_STORE_BACKEND=qdrant`` is set
     - falls back to ``local`` when ``chromadb`` is unavailable
 
     Returns:
-        Backend name string: ``"local"``, ``"chroma"``, or any explicitly
-        configured value.
+        Backend name string: ``"local"``, ``"chroma"``, ``"milvus"``,
+        ``"qdrant"``, or any explicitly configured value.
     """
     backend_env = EnvVarLoader.get_str("MEMORY_STORE_BACKEND", "auto")
     if backend_env != "auto":
@@ -87,6 +91,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         self._reme_version_ok: bool = self._check_reme_version()
         self._reme = None
 
+        # Cached for query rewrite — lazy-init on first use (#5 fix)
+        self._rewrite_model: Any = None
+        self._rewrite_language: str = "zh"
+
         logger.info(
             f"ReMeLightMemoryManager init: "
             f"agent_id={agent_id}, working_dir={working_dir}",
@@ -106,7 +114,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             "api_key": self._mask_key(emb_config["api_key"]),
         }
         logger.info(
-            f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}",
+            f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}, "
+            f"backend={memory_manager_backend}",
         )
 
         fts_enabled = EnvVarLoader.get_bool("FTS_ENABLED", True)
@@ -258,6 +267,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         logger.info(
             f"ReMeLightMemoryManager closing: agent_id={self.agent_id}",
         )
+        # Flush any pending batch summarization before closing
+        try:
+            await self._flush_pending()
+        except Exception as e:
+            logger.warning(f"Failed to flush pending summaries on close: {e}")
+
         if self._reme is None:
             return True
         result = await self._reme.close()
@@ -274,7 +289,13 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
     def list_memory_tools(self):
         """Return memory tool functions to register with the agent toolkit."""
-        return [self.memory_search]
+        return [
+            self.memory_search,
+            self.add_memory,
+            self.delete_memory,
+            self.update_memory,
+            self.decay_memories,
+        ]
 
     @staticmethod
     def _is_cjk(char: str) -> bool:
@@ -337,11 +358,84 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         return tokens[:max_tokens]
 
+    async def _rewrite_query(self, query: str) -> str:
+        """Rewrite the query using LLM to improve retrieval recall.
+
+        Expands the original query with related keywords and clarifies
+        the intent for better semantic and keyword matching.
+        Uses cached model to avoid per-call initialization overhead.
+        """
+        if not query or len(query) < 4:
+            return query
+
+        try:
+            # Lazy-init cached model (#5 fix)
+            if self._rewrite_model is None:
+                agent_config = load_agent_config(self.agent_id)
+                self._rewrite_language = getattr(
+                    agent_config,
+                    "language",
+                    "zh",
+                )
+                self._rewrite_model, _ = create_model_and_formatter(
+                    self.agent_id,
+                )
+
+            chat_model = self._rewrite_model
+            language = self._rewrite_language
+
+            # Language-aware prompt (#8 fix)
+            if language == "zh":
+                rewrite_prompt = (
+                    f"你是一个搜索查询优化器。"
+                    f"请重写以下查询以提高检索召回率。\n"
+                    f"提取关键实体，扩展相关的技术术语或同义词。\n"
+                    f"只输出优化后的查询字符串，不要输出任何解释。\n\n"
+                    f"原始查询: {query}\n"
+                    f"优化后的查询:"
+                )
+            else:
+                rewrite_prompt = (
+                    "You are a search query optimizer. "
+                    "Rewrite the following user query to improve "
+                    "retrieval recall. "
+                    "Extract key entities and expand with relevant "
+                    "technical terms or synonyms. "
+                    "Output ONLY the optimized query string, no "
+                    "explanations.\n\n"
+                    f"Original query: {query}\n"
+                    f"Optimized query:"
+                )
+
+            response = await chat_model(
+                [
+                    Msg(
+                        name="user",
+                        role="user",
+                        content=[TextBlock(type="text", text=rewrite_prompt)],
+                    ),
+                ],
+            )
+
+            optimized = (
+                response.content[0].get("text", "").strip()
+                if isinstance(response.content, list)
+                else str(response.content).strip()
+            )
+            if optimized:
+                logger.info(f"Query rewritten: '{query}' -> '{optimized}'")
+                return optimized
+        except Exception as e:
+            logger.warning(f"Query rewrite failed, using original: {e}")
+
+        return query
+
     async def memory_search(
         self,
         query: str,
         max_results: int = 5,
         min_score: float = 0.1,
+        rewrite: bool = True,
     ) -> ToolResponse:
         """
         Search MEMORY.md and memory/*.md files semantically.
@@ -357,6 +451,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 Maximum number of search results to return. Defaults to 5.
             min_score (`float`, optional):
                 Minimum similarity score for results. Defaults to 0.1.
+            rewrite (`bool`, optional):
+                Whether to rewrite the query for better recall.
+                Defaults to True.
 
         Returns:
             `ToolResponse`:
@@ -375,6 +472,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             )
 
         try:
+            if rewrite:
+                query = await self._rewrite_query(query)
             query_final = " ".join(self.tokenize_query(query))
             logger.info(f"Tokenized query: {query_final}")
         except Exception as e:
@@ -386,6 +485,169 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             max_results=max_results,
             min_score=min_score,
         )
+
+    async def add_memory(
+        self,
+        content: str,
+        when_to_use: str = "",
+        score: float = 0.5,
+    ) -> ToolResponse:
+        """Add a new memory entry to the vector store.
+
+        Use this tool to save important decisions, user preferences,
+        project context, or lessons learned. This automatically indexes
+        the content for future semantic search.
+
+        Args:
+            content (`str`): The memory content to store.
+            when_to_use (`str`, optional): When this memory should be used.
+            score (`float`, optional): Importance score (0.0-1.0).
+                Defaults to 0.5.
+
+        Returns:
+            `ToolResponse`: Confirmation with the new memory ID.
+        """
+        self._warn_if_version_mismatch()
+        if self._reme is None or not getattr(self._reme, "_started", False):
+            return ToolResponse(
+                content=[TextBlock(type="text", text="ReMe is not started.")],
+            )
+        try:
+            node = await self._reme.add_memory(
+                memory_content=content,
+                when_to_use=when_to_use,
+                score=score,
+            )
+            memory_id = getattr(node, "memory_id", None) or getattr(
+                node,
+                "id",
+                None,
+            )
+            if not memory_id:
+                # Try dict-style access as fallback
+                if isinstance(node, dict):
+                    memory_id = node.get("memory_id") or node.get("id")
+
+            if memory_id:
+                return ToolResponse(
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=f"Memory added successfully. ID: {memory_id}",
+                        ),
+                    ],
+                )
+            # Node returned but no ID — log warning and provide content hash
+            content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
+            logger.warning("add_memory returned node without memory_id")
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"Memory added (ID unavailable). "
+                            f"Content hash: {content_hash}. "
+                            f"Use memory_search to find it."
+                        ),
+                    ),
+                ],
+            )
+        except Exception as e:
+            logger.exception(f"add_memory failed: {e}")
+            return ToolResponse(
+                content=[
+                    TextBlock(type="text", text=f"Failed to add memory: {e}"),
+                ],
+            )
+
+    async def delete_memory(self, memory_id: str) -> ToolResponse:
+        """Delete a memory entry by its ID.
+
+        Use this to remove outdated or incorrect memories from the store.
+
+        Args:
+            memory_id (`str`): The ID of the memory to delete.
+
+        Returns:
+            `ToolResponse`: Confirmation of deletion.
+        """
+        self._warn_if_version_mismatch()
+        if self._reme is None or not getattr(self._reme, "_started", False):
+            return ToolResponse(
+                content=[TextBlock(type="text", text="ReMe is not started.")],
+            )
+        try:
+            await self._reme.delete_memory(memory_id)
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Memory {memory_id} deleted successfully.",
+                    ),
+                ],
+            )
+        except Exception as e:
+            logger.exception(f"delete_memory failed: {e}")
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Failed to delete memory: {e}",
+                    ),
+                ],
+            )
+
+    async def update_memory(
+        self,
+        memory_id: str,
+        content: str | None = None,
+        when_to_use: str | None = None,
+        score: float | None = None,
+    ) -> ToolResponse:
+        """Update an existing memory entry.
+
+        Use this to correct or expand previously stored memories.
+        Only provide fields you want to change.
+
+        Args:
+            memory_id (`str`): The ID of the memory to update.
+            content (`str`, optional): New memory content.
+            when_to_use (`str`, optional): New usage description.
+            score (`float`, optional): New importance score.
+
+        Returns:
+            `ToolResponse`: Confirmation of update.
+        """
+        self._warn_if_version_mismatch()
+        if self._reme is None or not getattr(self._reme, "_started", False):
+            return ToolResponse(
+                content=[TextBlock(type="text", text="ReMe is not started.")],
+            )
+        try:
+            await self._reme.update_memory(
+                memory_id=memory_id,
+                memory_content=content,
+                when_to_use=when_to_use,
+                score=score,
+            )
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Memory {memory_id} updated successfully.",
+                    ),
+                ],
+            )
+        except Exception as e:
+            logger.exception(f"update_memory failed: {e}")
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Failed to update memory: {e}",
+                    ),
+                ],
+            )
 
     async def summarize(self, messages: list[Msg], **_kwargs) -> str:
         """Generate a summary of the given messages and persist to memory."""
@@ -464,6 +726,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 query=query,
                 max_results=max_results,
                 min_score=min_score,
+                rewrite=False,
             )
             content_blocks = result.content
 
@@ -523,9 +786,120 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             logger.exception(f"memory_search failed: {e}")
             return None
 
+    async def decay_memories(
+        self,
+        decay_factor: float = 0.95,
+        archive_threshold: float = 0.1,
+        delete_threshold: float = 0.05,
+    ) -> ToolResponse:
+        """Apply decay to memory scores and archive/delete stale entries.
+
+        Uses ``ReMe.list_memory()`` to retrieve actual MemoryNode objects
+        with their stored importance scores (not similarity scores from
+        vector search). Memories below thresholds are marked or removed.
+
+        NOTE: ``list_memory()`` loads full MemoryNode objects including
+        vector embeddings into memory. For large stores (10k+ entries) this
+        can consume 30-60 MB. The upstream ``list_memory`` API does not yet
+        support an ``include_vector=False`` parameter — this is a known
+        upstream concern to address in reme-ai.
+
+        Args:
+            decay_factor (`float`): Multiplier for existing scores (0.0-1.0).
+            archive_threshold (`float`): Score below which to mark as archived.
+            delete_threshold (`float`): Score below which to delete entirely.
+
+        Returns:
+            `ToolResponse`: Summary of decay operation.
+        """
+        self._warn_if_version_mismatch()
+        if self._reme is None or not getattr(self._reme, "_started", False):
+            return ToolResponse(
+                content=[TextBlock(type="text", text="ReMe is not started.")],
+            )
+
+        try:
+            updated = 0
+            archived = 0
+            deleted = 0
+
+            # Use list_memory() to get actual nodes with stored scores
+            all_nodes = await self._reme.list_memory(limit=10000)
+
+            for node in all_nodes:
+                # Get stored importance score from MemoryNode
+                stored_score = float(getattr(node, "score", 0.5))
+                memory_id = getattr(node, "memory_id", None)
+
+                if not memory_id:
+                    continue
+
+                new_score = stored_score * decay_factor
+
+                if new_score < delete_threshold:
+                    await self._reme.delete_memory(memory_id)
+                    deleted += 1
+                elif new_score < archive_threshold:
+                    # Archive via metadata — does NOT modify when_to_use
+                    # or trigger vector re-embedding. The is_archived flag
+                    # is stored in the node's metadata dict via kwargs.
+                    # NOTE: Archived memories still appear in memory_search
+                    # results because the upstream memory_search API does not
+                    # expose a filter parameter.
+                    await self._reme.update_memory(
+                        memory_id=memory_id,
+                        score=new_score,
+                        is_archived=True,  # Stored in metadata via **kwargs
+                    )
+                    archived += 1
+                else:
+                    await self._reme.update_memory(
+                        memory_id=memory_id,
+                        score=new_score,
+                    )
+                    updated += 1
+
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            "Memory decay complete. "
+                            f"Updated: {updated}, "
+                            f"Archived (score<{archive_threshold}): "
+                            f"{archived}, "
+                            f"Deleted (score<{delete_threshold}): "
+                            f"{deleted}"
+                        ),
+                    ),
+                ],
+            )
+        except Exception as e:
+            logger.exception(f"decay_memories failed: {e}")
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Memory decay failed: {e}",
+                    ),
+                ],
+            )
+
     async def dream(self, **kwargs) -> None:
-        """Run one dream-based memory optimization pass."""
+        """Run dream-based memory optimization pass with automatic decay."""
         logger.info("running dream-based memory optimization")
+
+        # Apply memory decay before optimization to clear stale entries
+        try:
+            decay_result = await self.decay_memories()
+            decay_text = (
+                decay_result.content[0].get("text", "")
+                if decay_result.content
+                else ""
+            )
+            logger.info(f"Pre-dream decay: {decay_text}")
+        except Exception as e:
+            logger.warning(f"Pre-dream decay skipped: {e}")
 
         agent_config = load_agent_config(self.agent_id)
         light_ctx = agent_config.running.light_context_config

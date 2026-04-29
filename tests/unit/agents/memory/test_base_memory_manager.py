@@ -103,10 +103,16 @@ class TestBaseMemoryManagerInit:
 class TestBaseMemoryManagerAddSummarizeTask:
     """P1: Tests for add_summarize_task."""
 
+    def _make_msg(self, text="hello"):
+        """Create a mock message with get_text_content."""
+        msg = MagicMock()
+        msg.get_text_content.return_value = text
+        return msg
+
     async def test_adds_task_info_entry(self, manager):
         """Scheduling a task creates an entry in _summary_task_info."""
-        msgs = [MagicMock()]
-        manager.add_summarize_task(msgs)
+        manager._summarize_threshold = 0
+        await manager.add_summarize_task([self._make_msg()])
         assert len(manager._summary_task_info) == 1
         if manager._worker_task:
             manager._worker_task.cancel()
@@ -117,7 +123,8 @@ class TestBaseMemoryManagerAddSummarizeTask:
 
     async def test_task_starts_as_pending(self, manager):
         """New task has status 'pending'."""
-        manager.add_summarize_task([MagicMock()])
+        manager._summarize_threshold = 0
+        await manager.add_summarize_task([self._make_msg()])
         info = list(manager._summary_task_info.values())[0]
         assert info["status"] == "pending"
         if manager._worker_task:
@@ -129,8 +136,9 @@ class TestBaseMemoryManagerAddSummarizeTask:
 
     async def test_counter_increments_per_task(self, manager):
         """Each call increments the task counter."""
-        manager.add_summarize_task([MagicMock()])
-        manager.add_summarize_task([MagicMock()])
+        manager._summarize_threshold = 0
+        await manager.add_summarize_task([self._make_msg()])
+        await manager.add_summarize_task([self._make_msg()])
         assert manager._task_counter == 2
         if manager._worker_task:
             manager._worker_task.cancel()
@@ -141,7 +149,8 @@ class TestBaseMemoryManagerAddSummarizeTask:
 
     async def test_worker_task_created(self, manager):
         """Scheduling a task starts the background worker."""
-        manager.add_summarize_task([MagicMock()])
+        manager._summarize_threshold = 0
+        await manager.add_summarize_task([self._make_msg()])
         assert manager._worker_task is not None
         if manager._worker_task:
             manager._worker_task.cancel()
@@ -159,12 +168,19 @@ class TestBaseMemoryManagerAddSummarizeTask:
 class TestBaseMemoryManagerListSummarizeStatus:
     """P1: Tests for list_summarize_status."""
 
+    def _make_msg(self, text="hello"):
+        """Create a mock message with get_text_content."""
+        msg = MagicMock()
+        msg.get_text_content.return_value = text
+        return msg
+
     def test_returns_empty_when_no_tasks(self, manager):
         result = manager.list_summarize_status()
         assert result == []
 
     async def test_returns_status_for_pending_task(self, manager):
-        manager.add_summarize_task([MagicMock()])
+        manager._summarize_threshold = 0
+        await manager.add_summarize_task([self._make_msg()])
         statuses = manager.list_summarize_status()
         assert len(statuses) == 1
         assert statuses[0]["status"] == "pending"
@@ -176,7 +192,8 @@ class TestBaseMemoryManagerListSummarizeStatus:
                 pass
 
     async def test_status_dict_has_required_keys(self, manager):
-        manager.add_summarize_task([MagicMock()])
+        manager._summarize_threshold = 0
+        await manager.add_summarize_task([self._make_msg()])
         status = manager.list_summarize_status()[0]
         for key in ("task_id", "start_time", "status", "result", "error"):
             assert key in status
