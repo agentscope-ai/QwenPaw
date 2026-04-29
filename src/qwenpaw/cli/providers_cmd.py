@@ -7,6 +7,7 @@ import time
 from typing import Optional
 
 import click
+import httpx
 
 from agentscope_runtime.engine.schemas.exception import (
     AppBaseException,
@@ -14,6 +15,7 @@ from agentscope_runtime.engine.schemas.exception import (
 
 from ..providers.provider import ModelInfo, Provider, ProviderInfo
 from ..providers.provider_manager import ProviderManager
+from .http import client as http_client, print_json, resolve_base_url
 from .utils import prompt_choice
 
 
@@ -556,6 +558,201 @@ def config_key_cmd(provider_id: str | None) -> None:
 def set_llm_cmd() -> None:
     """Interactively set the active LLM model."""
     configure_llm_slot_interactive()
+
+
+def _routing_params(agent_id: str | None) -> dict[str, str] | None:
+    if agent_id:
+        return {"agent_id": agent_id}
+    return None
+
+
+def _request_routing_config(
+    base_url: str,
+    *,
+    agent_id: str | None = None,
+) -> dict:
+    with http_client(base_url) as client:
+        response = client.get(
+            "/config/agents/llm-routing",
+            params=_routing_params(agent_id),
+        )
+    response.raise_for_status()
+    return response.json()
+
+
+def _update_routing_config(
+    base_url: str,
+    body: dict,
+    *,
+    agent_id: str | None = None,
+) -> dict:
+    with http_client(base_url) as client:
+        response = client.put(
+            "/config/agents/llm-routing",
+            params=_routing_params(agent_id),
+            json=body,
+        )
+    response.raise_for_status()
+    return response.json()
+
+
+def _print_routing_config(
+    payload: dict,
+    *,
+    agent_id: str | None,
+) -> None:
+    scope = f"agent:{agent_id}" if agent_id else "global"
+    click.echo(f"Scope   : {scope}")
+    click.echo(f"Enabled : {payload.get('enabled', False)}")
+    click.echo(f"Mode    : {payload.get('mode', 'local_first')}")
+
+    local = payload.get("local") or {}
+    cloud = payload.get("cloud") or {}
+    local_display = (
+        f"{local.get('provider_id', '')} / {local.get('model', '')}"
+        if local
+        else "(empty)"
+    )
+    cloud_display = (
+        f"{cloud.get('provider_id', '')} / {cloud.get('model', '')}"
+        if cloud
+        else "(empty)"
+    )
+    click.echo(f"Local   : {local_display}")
+    click.echo(f"Cloud   : {cloud_display}")
+
+
+@models_group.group("routing")
+def routing_group() -> None:
+    """Manage LLM routing through the running QwenPaw app."""
+
+
+@routing_group.command("get")
+@click.option("--agent-id", default=None, help="Optional agent-scoped view.")
+@click.option("--json", "json_output", is_flag=True, help="Print raw JSON.")
+@click.option("--base-url", default=None, help="Server base URL.")
+@click.pass_context
+def routing_get_cmd(
+    ctx: click.Context,
+    agent_id: str | None,
+    json_output: bool,
+    base_url: str | None,
+) -> None:
+    """Show routing settings."""
+    resolved_base_url = resolve_base_url(ctx, base_url)
+    try:
+        payload = _request_routing_config(
+            resolved_base_url,
+            agent_id=agent_id,
+        )
+    except httpx.HTTPError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if json_output:
+        print_json(payload)
+        return
+
+    _print_routing_config(payload, agent_id=agent_id)
+
+
+@routing_group.command("set")
+@click.option("--agent-id", default=None, help="Optional agent-scoped write.")
+@click.option(
+    "--mode",
+    required=True,
+    type=click.Choice(["local_first", "cloud_first"], case_sensitive=False),
+    help="Routing mode to enable.",
+)
+@click.option("--local-provider", required=True, help="Local slot provider.")
+@click.option("--local-model", required=True, help="Local slot model.")
+@click.option("--cloud-provider", default=None, help="Cloud slot provider.")
+@click.option("--cloud-model", default=None, help="Cloud slot model.")
+@click.option("--json", "json_output", is_flag=True, help="Print raw JSON.")
+@click.option("--base-url", default=None, help="Server base URL.")
+@click.pass_context
+def routing_set_cmd(
+    ctx: click.Context,
+    agent_id: str | None,
+    mode: str,
+    local_provider: str,
+    local_model: str,
+    cloud_provider: str | None,
+    cloud_model: str | None,
+    json_output: bool,
+    base_url: str | None,
+) -> None:
+    """Enable routing and update slot configuration."""
+    if bool(cloud_provider) != bool(cloud_model):
+        raise click.ClickException(
+            "Provide both --cloud-provider and --cloud-model together.",
+        )
+
+    resolved_base_url = resolve_base_url(ctx, base_url)
+    body: dict = {
+        "enabled": True,
+        "mode": mode,
+        "local": {
+            "provider_id": local_provider,
+            "model": local_model,
+        },
+        "cloud": (
+            {
+                "provider_id": cloud_provider,
+                "model": cloud_model,
+            }
+            if cloud_provider and cloud_model
+            else None
+        ),
+    }
+
+    try:
+        payload = _update_routing_config(
+            resolved_base_url,
+            body,
+            agent_id=agent_id,
+        )
+    except httpx.HTTPError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if json_output:
+        print_json(payload)
+        return
+
+    _print_routing_config(payload, agent_id=agent_id)
+
+
+@routing_group.command("disable")
+@click.option("--agent-id", default=None, help="Optional agent-scoped write.")
+@click.option("--json", "json_output", is_flag=True, help="Print raw JSON.")
+@click.option("--base-url", default=None, help="Server base URL.")
+@click.pass_context
+def routing_disable_cmd(
+    ctx: click.Context,
+    agent_id: str | None,
+    json_output: bool,
+    base_url: str | None,
+) -> None:
+    """Disable routing while preserving current slot values."""
+    resolved_base_url = resolve_base_url(ctx, base_url)
+    try:
+        current = _request_routing_config(
+            resolved_base_url,
+            agent_id=agent_id,
+        )
+        current["enabled"] = False
+        payload = _update_routing_config(
+            resolved_base_url,
+            current,
+            agent_id=agent_id,
+        )
+    except httpx.HTTPError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if json_output:
+        print_json(payload)
+        return
+
+    _print_routing_config(payload, agent_id=agent_id)
 
 
 @models_group.command("add-provider")
