@@ -23,6 +23,142 @@ try:
 except ImportError:
     webview = None  # type: ignore[assignment]
 
+
+def _find_icon_path() -> str | None:
+    """Locate the QwenPaw icon file next to ``sys.executable``.
+
+    In the packaged desktop app ``icon.ico`` sits alongside
+    ``python.exe``, placed there by the build script.
+    """
+    icon = os.path.join(os.path.dirname(sys.executable), "icon.ico")
+    return icon if os.path.isfile(icon) else None
+
+
+def _set_app_user_model_id() -> None:
+    """Set process AppUserModelID so Windows groups the window correctly."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "QwenPaw.Desktop",
+        )
+    except Exception:
+        pass
+
+
+def _find_desktop_window(user32, timeout: float = 30.0) -> int:
+    """Find the QwenPaw Desktop window handle, polling until found."""
+    hwnd: int = 0
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        hwnd = user32.FindWindowW(None, "QwenPaw Desktop")
+        if hwnd:
+            return hwnd
+        time.sleep(0.5)
+    return 0
+
+
+def _load_icon_handles(user32, icon_path: str):
+    """Load small (16px) and big (32px) icon handles from *icon_path*.
+
+    Returns ``(hicon_small, hicon_big)`` — either may be 0 on failure.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    user32.LoadImageW.restype = wintypes.HANDLE
+    user32.LoadImageW.argtypes = [
+        wintypes.HINSTANCE,
+        wintypes.LPCWSTR,
+        wintypes.UINT,
+        ctypes.c_int,
+        ctypes.c_int,
+        wintypes.UINT,
+    ]
+    IMAGE_ICON = 1
+    LR_LOADFROMFILE = 0x00000010
+
+    hicon_small = user32.LoadImageW(
+        None,
+        icon_path,
+        IMAGE_ICON,
+        16,
+        16,
+        LR_LOADFROMFILE,
+    )
+    hicon_big = user32.LoadImageW(
+        None,
+        icon_path,
+        IMAGE_ICON,
+        32,
+        32,
+        LR_LOADFROMFILE,
+    )
+    return hicon_small, hicon_big
+
+
+def _apply_window_icon(icon_path: str) -> None:
+    """Apply the QwenPaw icon to the webview window via Win32 API.
+
+    pywebview does not support setting the window icon on Windows (the
+    ``icon`` parameter of ``webview.start()`` only works on GTK/Qt).
+    This function is called in a background thread after the window is
+    shown.  It locates the window by title and sends ``WM_SETICON`` to
+    replace the default python.exe icon with the QwenPaw icon.
+
+    Also sets the process AppUserModelID so Windows treats the process
+    as a standalone application rather than grouping it under python.exe.
+    """
+    if sys.platform != "win32" or not icon_path:
+        return
+
+    import ctypes
+    from ctypes import wintypes
+
+    _set_app_user_model_id()
+
+    user32 = ctypes.windll.user32
+    user32.SendMessageW.argtypes = [
+        wintypes.HWND,
+        wintypes.UINT,
+        ctypes.c_size_t,
+        ctypes.c_ssize_t,
+    ]
+    user32.SendMessageW.restype = ctypes.c_ssize_t
+
+    hwnd = _find_desktop_window(user32)
+    if not hwnd:
+        logger.warning("Could not find QwenPaw Desktop window to set icon")
+        return
+
+    hicon_small, hicon_big = _load_icon_handles(user32, icon_path)
+    if not hicon_small and not hicon_big:
+        logger.warning(f"Failed to load icon from {icon_path}")
+        return
+
+    WM_SETICON = 0x0080
+    ICON_SMALL = 0
+    ICON_BIG = 1
+
+    user32.SetClassLongPtrW.restype = ctypes.c_ssize_t
+    user32.SetClassLongPtrW.argtypes = [
+        wintypes.HWND,
+        ctypes.c_int,
+        ctypes.c_ssize_t,
+    ]
+
+    if hicon_small:
+        user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon_small)
+        user32.SetClassLongPtrW(hwnd, -34, hicon_small)  # GCLP_HICONSM
+    if hicon_big:
+        user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon_big)
+        user32.SetClassLongPtrW(hwnd, -14, hicon_big)  # GCLP_HICON
+
+    logger.info(f"Window icon applied from {icon_path}")
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -158,6 +294,8 @@ def desktop_cmd(
     # Setup logger for desktop command (separate from backend subprocess)
     setup_logger(log_level)
 
+    icon_path = _find_icon_path()
+
     port = _find_free_port(host)
     url = f"http://{host}:{port}"
     click.echo(f"Starting QwenPaw app on {url} (port {port})")
@@ -232,9 +370,14 @@ def desktop_cmd(
                 logger.info(
                     "Calling webview.start() (blocks until closed)...",
                 )
-                webview.start(
-                    private_mode=False,
-                )  # blocks until user closes the window
+                if icon_path and is_windows:
+                    webview.start(
+                        _apply_window_icon,
+                        (icon_path,),
+                        private_mode=False,
+                    )
+                else:
+                    webview.start(private_mode=False)
                 logger.info("webview.start() returned (window closed).")
             else:
                 logger.error("Server did not become ready in time.")
