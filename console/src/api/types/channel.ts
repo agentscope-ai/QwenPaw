@@ -152,7 +152,7 @@ export interface WeChatConfig extends BaseChannelConfig {
  * unified to "WeChat"; this alias is kept for backwards compatibility with
  * existing imports and will be removed in a future release.
  */
-export type WeixinConfig = WeChatConfig
+export type WeixinConfig = WeChatConfig;
 
 export interface OneBotConfig extends BaseChannelConfig {
   ws_host: string;
