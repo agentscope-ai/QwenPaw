@@ -158,7 +158,7 @@ class WecomChannel(BaseChannel):
         self._ws_thread: Optional[threading.Thread] = None
 
         # Keepalive tasks keyed by stream_id (kept off `meta` so the
-        # payload stays JSON-serializable for tracing).
+        # payload stays JSON-serializable).
         self._keepalive_tasks: Dict[str, "asyncio.Task[None]"] = {}
 
         # message_id dedup (ordered dict, trimmed when over limit)
@@ -1091,11 +1091,9 @@ class WecomChannel(BaseChannel):
         # Format markdown tables for WeCom compatibility
         body = format_markdown_tables(body)
 
-        # Reuse processing stream_id on first chunk to overwrite the
-        # placeholder; cancel its keepalive task first to avoid racing
-        # finish=True on the same stream_id. If the task already
-        # force-finished (max_duration reached), it's gone from the
-        # dict and we should start with a fresh stream_id.
+        # Reuse placeholder stream_id on first chunk; cancel its
+        # keepalive task first to avoid racing finish=True. If task
+        # is already gone, it force-finished the stream, so start fresh.
         processing_sid = m.pop("wecom_processing_stream_id", "")
         keepalive_task = self._keepalive_tasks.pop(processing_sid, None)
         if keepalive_task is not None and not keepalive_task.done():
@@ -1105,7 +1103,6 @@ class WecomChannel(BaseChannel):
             except (asyncio.CancelledError, Exception):
                 pass
         elif keepalive_task is None and processing_sid:
-            # Task already self-finished the stream at max_duration.
             processing_sid = ""
 
         first_chunk = True
