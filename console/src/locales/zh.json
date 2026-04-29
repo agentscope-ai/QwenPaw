@@ -1861,5 +1861,14 @@
       "done": "已完成",
       "abandoned": "已放弃"
     }
+  },
+  "startup": {
+    "starting": "正在启动后端服务...",
+    "checking": "正在连接后端...",
+    "elapsed": "已用时: {{seconds}}秒",
+    "timeout": "后端服务在 {{seconds}} 秒内未能启动。",
+    "timeoutHint": "请检查应用是否有运行权限，然后重试。",
+    "error": "后端连接失败。",
+    "retry": "重试"
   }
 }

@@ -1853,5 +1853,14 @@
       "done": "Done",
       "abandoned": "Abandoned"
     }
+  },
+  "startup": {
+    "starting": "Starting backend...",
+    "checking": "Connecting to backend...",
+    "elapsed": "Elapsed: {{seconds}}s",
+    "timeout": "Backend failed to start within {{seconds}} seconds.",
+    "timeoutHint": "Please check that the application has permission to run, then try again.",
+    "error": "Backend connection failed.",
+    "retry": "Retry"
   }
 }
