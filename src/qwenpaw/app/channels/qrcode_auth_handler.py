@@ -95,7 +95,7 @@ class WeixinQRCodeAuthHandler(QRCodeAuthHandler):
                 wechat_cfg = getattr(channels, "wechat", None) or getattr(
                     channels,
                     "weixin",
-                    None
+                    None,
                 )
                 if wechat_cfg is not None:
                     return (

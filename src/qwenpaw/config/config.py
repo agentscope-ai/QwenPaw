@@ -422,6 +422,7 @@ class WeChatConfig(BaseChannelConfig):
     message_merge_enabled: bool = False
     message_merge_delay_ms: Optional[int] = 0
 
+
 # Backwards-compatible alias for code that imports WeixinConfig.
 # The canonical name is WeChatConfig.
 WeixinConfig = WeChatConfig
@@ -464,6 +465,7 @@ class ChannelConfig(BaseModel):
             if "wechat" not in data:
                 data["wechat"] = legacy
         return data
+
 
 class LastApiConfig(BaseModel):
     host: Optional[str] = None
