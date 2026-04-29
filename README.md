@@ -60,7 +60,7 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-- [2026-04-28] We've released **v1.1.5**! See the full [v1.1.5 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+- [2026-04-29] We've released **v1.1.5**! See the full [v1.1.5 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
   - **[v1.1.5] Added**: Memory search optimization; context compaction fallback; ACP agent rename & delete; QQ voice & ASR support.
   - **[v1.1.5] Performance**: Config and skill manifest loading cache; model API request deduplication; console chat virtualized rendering.
