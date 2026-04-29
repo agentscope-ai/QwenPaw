@@ -45,7 +45,8 @@ def generate_proxy(source_key: str, new_key: str) -> Path:
     CUSTOM_CHANNELS_DIR.mkdir(parents=True, exist_ok=True)
     path = CUSTOM_CHANNELS_DIR / f"{new_key}.py"
     path.write_text(
-        _TEMPLATE.format(module=module, cls=cls, key=new_key), encoding="utf-8"
+        _TEMPLATE.format(module=module, cls=cls, key=new_key),
+        encoding="utf-8",
     )
     logger.info("Generated proxy channel file: %s", path)
     return path
