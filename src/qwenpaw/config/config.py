@@ -396,7 +396,7 @@ class XiaoYiConfig(BaseChannelConfig):
     task_timeout_ms: int = 3600000  # 1 hour task timeout
 
 
-class WeixinConfig(BaseChannelConfig):
+class WeChatConfig(BaseChannelConfig):
     """WeChat (iLink Bot) personal account channel config.
 
     bot_token:              Bearer token obtained after QR code login.
@@ -423,6 +423,11 @@ class WeixinConfig(BaseChannelConfig):
     message_merge_delay_ms: Optional[int] = 0
 
 
+# Backwards-compatible alias for code that imports WeixinConfig.
+# The canonical name is WeChatConfig.
+WeixinConfig = WeChatConfig
+
+
 class ChannelConfig(BaseModel):
     """Built-in channel configs; extra keys allowed for plugin channels."""
 
@@ -442,8 +447,24 @@ class ChannelConfig(BaseModel):
     sip: SIPChannelConfig = SIPChannelConfig()
     wecom: WecomConfig = WecomConfig()
     xiaoyi: XiaoYiConfig = XiaoYiConfig()
-    weixin: WeixinConfig = WeixinConfig()
+    wechat: WeChatConfig = WeChatConfig()
     onebot: OneBotConfig = OneBotConfig()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _alias_weixin_to_wechat(cls, data: Any) -> Any:
+        """Backwards compatibility: accept legacy ``weixin`` key.
+
+        Older config.json files used ``weixin`` as the WeChat channel key.
+        We have unified the canonical key to ``wechat``. If a config still
+        carries ``weixin`` (and no ``wechat``), transparently rename it.
+        """
+        if isinstance(data, dict) and "weixin" in data:
+            data = dict(data)
+            legacy = data.pop("weixin")
+            if "wechat" not in data:
+                data["wechat"] = legacy
+        return data
 
 
 class LastApiConfig(BaseModel):

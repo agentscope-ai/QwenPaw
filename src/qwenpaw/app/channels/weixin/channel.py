@@ -1588,7 +1588,7 @@ class WeixinChannel(BaseChannel):
                 ok = await self._do_qrcode_login()
                 if not ok:
                     raise ChannelError(
-                        channel_name="weixin",
+                        channel_name="wechat",
                         message=(
                             "WeChat QR code login failed. "
                             "Please provide a valid bot_token in config"
