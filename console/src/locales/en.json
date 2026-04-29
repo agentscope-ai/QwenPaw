@@ -1479,7 +1479,12 @@
     "allDisabled": "All tools are already disabled",
     "asyncExecution": "Async Execution",
     "asyncExecutionEnabled": "Async execution enabled",
-    "asyncExecutionDisabled": "Async execution disabled"
+    "asyncExecutionDisabled": "Async execution disabled",
+    "configure": "Configure",
+    "configured": "Configured",
+    "requiresConfig": "Requires configuration",
+    "configSaved": "Configuration saved",
+    "configSaveError": "Failed to save configuration"
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",

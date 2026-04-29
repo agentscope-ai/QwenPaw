@@ -165,6 +165,20 @@ export function useTools() {
     }
   }, [tools, t, loadTools]);
 
+  const saveToolConfig = useCallback(
+    async (toolName: string, config: Record<string, any>) => {
+      try {
+        await api.updateToolConfig(toolName, config);
+        message.success(t("tools.configSaved"));
+      } catch (error) {
+        console.error("Failed to save tool config:", error);
+        message.error(t("tools.configSaveError"));
+        throw error;
+      }
+    },
+    [t],
+  );
+
   return {
     tools,
     loading,
@@ -173,5 +187,7 @@ export function useTools() {
     toggleAsyncExecution,
     enableAll,
     disableAll,
+    loadTools,
+    saveToolConfig,
   };
 }

@@ -1143,3 +1143,51 @@ A: Yes, through monkey patching or hook mechanisms. But use with caution to avoi
 ### Q: Will plugins conflict with each other?
 
 A: If multiple plugins register the same provider_id or command_name, the later one will override the earlier one. Use unique IDs.
+
+## Example Plugins
+
+### GPT Image 2 Tool Plugin
+
+A tool plugin that adds OpenAI's GPT Image 2 image generation capability to QwenPaw agents.
+
+**Requirements:**
+
+- Minimum QwenPaw version: `1.1.5`
+
+**Installation:**
+
+```bash
+# Clone the QwenPaw repository (if not already cloned)
+git clone https://github.com/agentscope-ai/QwenPaw.git
+cd QwenPaw/CoPaw
+
+# Install the plugin
+qwenpaw plugin install plugins/tool/gpt-image2
+```
+
+**Configuration:**
+
+1. After installation, restart QwenPaw
+2. Go to Agent Settings → Tools
+3. Find "generate_image_gpt" tool
+4. Click "Configure" and enter your OpenAI API Key
+5. Enable the tool
+
+**Usage:**
+
+Once configured, agents can generate images by calling the tool:
+
+```
+User: Please generate an image of a cute cat playing in a garden
+Agent: [Calls generate_image_gpt tool]
+       [Returns generated image]
+```
+
+**Features:**
+
+- Supports multiple image sizes: 1024x1024, 1024x1792, 1792x1024
+- Quality options: low, medium, high, auto
+- Automatic API key validation
+- Per-agent configuration (each agent can have its own API key)
+
+For more details, see `plugins/tool/gpt-image2/README.md`.

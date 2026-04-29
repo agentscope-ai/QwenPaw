@@ -1270,7 +1270,12 @@
     "allDisabled": "Все инструменты уже отключены",
     "asyncExecution": "Асинхронное выполнение",
     "asyncExecutionEnabled": "Асинхронное выполнение включено",
-    "asyncExecutionDisabled": "Асинхронное выполнение отключено"
+    "asyncExecutionDisabled": "Асинхронное выполнение отключено",
+    "configure": "Настроить",
+    "configured": "Настроено",
+    "requiresConfig": "Требуется настройка",
+    "configSaved": "Конфигурация сохранена",
+    "configSaveError": "Не удалось сохранить конфигурацию"
   },
   "modelConfig": {
     "promptTitle": "Требуется LLM-модель — выберите в Chat после настройки",

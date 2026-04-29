@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint:disable=too-many-nested-blocks
 """Central plugin registry."""
 
 from typing import Any, Callable, Dict, List, Optional, Type
@@ -67,6 +68,7 @@ class PluginRegistry:
         self._shutdown_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
         self._runtime_helpers = None
+        self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
 
         self._initialized = True
 
@@ -251,3 +253,123 @@ class PluginRegistry:
             List of ControlCommandRegistration
         """
         return self._control_commands.copy()
+
+    def register_plugin_manifest(
+        self,
+        plugin_id: str,
+        manifest: Dict[str, Any],
+    ):
+        """Register plugin manifest.
+
+        Args:
+            plugin_id: Plugin identifier
+            manifest: Plugin manifest dictionary
+        """
+        self._plugin_manifests[plugin_id] = manifest
+        logger.debug(f"Registered manifest for plugin '{plugin_id}'")
+
+    def get_all_plugin_manifests(self) -> Dict[str, Dict[str, Any]]:
+        """Get all plugin manifests.
+
+        Returns:
+            Dictionary of plugin_id -> manifest
+        """
+        return self._plugin_manifests.copy()
+
+    def get_plugin_manifest(
+        self,
+        plugin_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Get plugin manifest.
+
+        Args:
+            plugin_id: Plugin identifier
+
+        Returns:
+            Plugin manifest dict or None
+        """
+        return self._plugin_manifests.get(plugin_id)
+
+    def get_plugin_id_for_tool(self, tool_name: str) -> Optional[str]:
+        """Get plugin ID that provides a specific tool.
+
+        Args:
+            tool_name: Tool function name
+
+        Returns:
+            Plugin ID or None
+        """
+        for plugin_id, manifest in self._plugin_manifests.items():
+            meta = manifest.get("meta", {})
+            if meta.get("tool_name") == tool_name:
+                return plugin_id
+        return None
+
+    def get_tool_config(
+        self,
+        tool_name: str,
+        agent_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Get tool configuration for a specific agent.
+
+        Args:
+            tool_name: Tool function name
+            agent_id: Agent identifier
+
+        Returns:
+            Tool configuration dict or None
+        """
+        try:
+            from ..config.config import load_agent_config
+
+            agent_config = load_agent_config(agent_id)
+            if (
+                not agent_config.tools
+                or tool_name not in agent_config.tools.builtin_tools
+            ):
+                return None
+
+            tool_config = agent_config.tools.builtin_tools[tool_name]
+            return tool_config.config if tool_config.config else None
+        except Exception as e:
+            logger.error(f"Failed to load tool config: {e}")
+            return None
+
+    def set_tool_config(
+        self,
+        tool_name: str,
+        agent_id: str,
+        config: Dict[str, Any],
+    ) -> None:
+        """Save tool configuration for a specific agent.
+
+        Args:
+            tool_name: Tool function name
+            agent_id: Agent identifier
+            config: Configuration data
+        """
+        try:
+            from ..config.config import (
+                load_agent_config,
+                save_agent_config,
+            )
+
+            agent_config = load_agent_config(agent_id)
+            if (
+                not agent_config.tools
+                or tool_name not in agent_config.tools.builtin_tools
+            ):
+                raise ValueError(f"Tool '{tool_name}' not found in agent")
+
+            # Update tool config
+            agent_config.tools.builtin_tools[tool_name].config = config
+
+            # Save agent config
+            save_agent_config(agent_id, agent_config)
+
+            logger.info(
+                f"Saved config for tool '{tool_name}' in agent '{agent_id}'",
+            )
+        except Exception as e:
+            logger.error(f"Failed to save tool config: {e}")
+            raise

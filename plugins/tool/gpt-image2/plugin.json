@@ -1,0 +1,31 @@
+{
+  "id": "gpt-image2-tool",
+  "name": "GPT Image 2 Tool",
+  "version": "1.0.0",
+  "description": "Generate images using OpenAI GPT Image 2 model",
+  "author": "QwenPaw Team",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "dependencies": ["httpx>=0.24.0"],
+  "min_version": "1.1.5",
+  "meta": {
+    "tool_name": "generate_image_gpt",
+    "tool_description": "Generate high-quality images from text prompts using GPT Image 2",
+    "tool_icon": "🎨",
+    "api_key_url": "https://platform.openai.com/api-keys",
+    "api_key_hint": "Get your OpenAI API key from platform.openai.com",
+    "model_url": "https://developers.openai.com/api/docs/models/gpt-image-2",
+    "requires_config": true,
+    "config_fields": [
+      {
+        "name": "api_key",
+        "label": "OpenAI API Key",
+        "type": "password",
+        "required": true,
+        "placeholder": "sk-...",
+        "help": "Get your API key from platform.openai.com"
+      }
+    ]
+  }
+}

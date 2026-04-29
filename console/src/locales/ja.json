@@ -1255,7 +1255,12 @@
     "allDisabled": "すべてのツールは既に無効です",
     "asyncExecution": "非同期実行",
     "asyncExecutionEnabled": "非同期実行が有効です",
-    "asyncExecutionDisabled": "非同期実行が無効です"
+    "asyncExecutionDisabled": "非同期実行が無効です",
+    "configure": "設定",
+    "configured": "設定済み",
+    "requiresConfig": "設定が必要です",
+    "configSaved": "設定を保存しました",
+    "configSaveError": "設定の保存に失敗しました"
   },
   "modelConfig": {
     "promptTitle": "LLMモデルが必要です — 設定後にChatページで選択",

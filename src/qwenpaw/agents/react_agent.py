@@ -256,7 +256,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 "all tools will be disabled",
             )
 
-        # Map of tool functions
+        # Map of tool functions (hardcoded builtin tools)
         tool_functions = {
             "execute_shell_command": execute_shell_command,
             "read_file": read_file,
@@ -279,10 +279,44 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             "check_agent_task": check_agent_task,
         }
 
-        # Register only enabled tools
+        # Track hardcoded built-in tools for backward compatibility
+        hardcoded_builtin_tools = set(tool_functions.keys())
+
+        # Dynamically load plugin-registered tools
+        from . import tools as tools_module
+
+        plugin_tools = set()
+        for tool_name in getattr(tools_module, "__all__", []):
+            if tool_name not in tool_functions:
+                tool_func = getattr(tools_module, tool_name, None)
+                if callable(tool_func):
+                    tool_functions[tool_name] = tool_func
+                    plugin_tools.add(tool_name)
+                    logger.debug(
+                        "Discovered plugin tool: %s",
+                        tool_name,
+                    )
+
+        # Register tools with appropriate defaults
         for tool_name, tool_func in tool_functions.items():
-            # If tool not in config, enable by default (backward compatibility)
-            if not enabled_tools.get(tool_name, True):
+            # For plugin tools: skip if not in config (security)
+            # For hardcoded tools: default to enabled (backward compatibility)
+            if tool_name in plugin_tools:
+                if tool_name not in enabled_tools:
+                    logger.debug(
+                        "Skipped unconfigured plugin tool: %s",
+                        tool_name,
+                    )
+                    continue
+            else:
+                # Hardcoded built-in tool: use default-to-enabled
+                pass
+
+            # Check if tool is enabled
+            if not enabled_tools.get(
+                tool_name,
+                tool_name in hardcoded_builtin_tools,
+            ):
                 logger.debug("Skipped disabled tool: %s", tool_name)
                 continue
 

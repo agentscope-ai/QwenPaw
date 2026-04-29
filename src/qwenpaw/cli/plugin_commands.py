@@ -57,6 +57,128 @@ def _safe_extract_zip(zip_ref: zipfile.ZipFile, extract_path: Path):
     zip_ref.extractall(extract_path)
 
 
+def _sync_tool_plugin_to_agents(manifest: dict):
+    """Add tool plugin to all existing agents.
+
+    Args:
+        manifest: Plugin manifest dictionary
+    """
+    meta = manifest.get("meta", {})
+    tool_name = meta.get("tool_name")
+
+    # Only process if this is a tool plugin
+    if not tool_name:
+        return
+
+    click.echo(f"🔄 Syncing tool '{tool_name}' to all agents...")
+
+    from ..config.utils import get_agent_dirs
+
+    agent_dirs = get_agent_dirs()
+    if not agent_dirs:
+        click.echo("   No agents found, skipping sync")
+        return
+
+    from ..config.config import (
+        BuiltinToolConfig,
+        load_agent_config,
+        save_agent_config,
+    )
+
+    synced_count = 0
+    for agent_dir in agent_dirs:
+        agent_json_path = agent_dir / "agent.json"
+        if not agent_json_path.exists():
+            continue
+
+        try:
+            # Load agent config using Pydantic model
+            config = load_agent_config(str(agent_dir))
+
+            # Check if tool already exists
+            if tool_name in config.tools.builtin_tools:
+                continue
+
+            # Add tool config using Pydantic model
+            config.tools.builtin_tools[tool_name] = BuiltinToolConfig(
+                name=tool_name,
+                enabled=False,
+                config={},
+            )
+
+            # Save using config system
+            save_agent_config(str(agent_dir), config)
+
+            synced_count += 1
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to sync tool to {agent_dir.name}: {e}",
+            )
+
+    if synced_count > 0:
+        click.echo(f"✓ Synced tool to {synced_count} agent(s)")
+    else:
+        click.echo("   All agents already have this tool")
+
+
+def _remove_tool_plugin_from_agents(manifest: dict):
+    """Remove tool plugin from all agents.
+
+    Args:
+        manifest: Plugin manifest dictionary
+    """
+    meta = manifest.get("meta", {})
+    tool_name = meta.get("tool_name")
+
+    # Only process if this is a tool plugin
+    if not tool_name:
+        return
+
+    click.echo(f"🔄 Removing tool '{tool_name}' from all agents...")
+
+    from ..config.utils import get_agent_dirs
+
+    agent_dirs = get_agent_dirs()
+    if not agent_dirs:
+        click.echo("   No agents found, skipping cleanup")
+        return
+
+    from ..config.config import load_agent_config, save_agent_config
+
+    removed_count = 0
+    for agent_dir in agent_dirs:
+        agent_json_path = agent_dir / "agent.json"
+        if not agent_json_path.exists():
+            continue
+
+        try:
+            # Load agent config using Pydantic model
+            config = load_agent_config(str(agent_dir))
+
+            # Check if tool exists
+            if tool_name not in config.tools.builtin_tools:
+                continue
+
+            # Remove tool
+            del config.tools.builtin_tools[tool_name]
+
+            # Save using config system
+            save_agent_config(str(agent_dir), config)
+
+            removed_count += 1
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to remove tool from {agent_dir.name}: {e}",
+            )
+
+    if removed_count > 0:
+        click.echo(f"✓ Removed tool from {removed_count} agent(s)")
+    else:
+        click.echo("   No agents had this tool")
+
+
 def _download_plugin_from_url(url: str) -> tuple[Path, Path]:
     """Download and extract plugin from URL.
 
@@ -178,6 +300,48 @@ def install(source: str, force: bool):
         )
         return
 
+    # Validate plugin structure before installation
+    click.echo("🔍 Validating plugin structure...")
+    try:
+        # Check if backend entry point exists in source
+        backend_entry = manifest.get("entry", {}).get("backend")
+        if backend_entry:
+            backend_path = source_path / backend_entry
+            if not backend_path.exists():
+                raise FileNotFoundError(
+                    f"Backend entry point not found: {backend_entry}",
+                )
+
+            # Try to import the module to check for syntax errors
+            import importlib.util
+
+            spec = importlib.util.spec_from_file_location(
+                f"_plugin_validation_{plugin_id}",
+                backend_path,
+            )
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+
+                # Check for required plugin export (class or instance)
+                has_plugin_class = hasattr(module, "Plugin")
+                has_plugin_instance = hasattr(module, "plugin")
+
+                if not (has_plugin_class or has_plugin_instance):
+                    raise AttributeError(
+                        "Plugin module must export a 'Plugin' class or "
+                        "'plugin' instance",
+                    )
+
+        click.echo("✓ Plugin validation successful")
+    except Exception as e:
+        click.echo(f"❌ Plugin validation failed: {e}", err=True)
+        click.echo(
+            "⚠️  Plugin not installed. Fix the issues and try again.",
+            err=True,
+        )
+        return
+
     # Remove old version
     if target_dir.exists():
         click.echo("🗑️  Removing old version...")
@@ -233,6 +397,9 @@ def install(source: str, force: bool):
 
     click.echo(f"\n✅ Plugin '{plugin_name}' installed successfully!")
     click.echo(f"📍 Location: {target_dir}")
+
+    # Sync tool plugins to all agents
+    _sync_tool_plugin_to_agents(manifest)
 
     # Clean up temporary directory if source was downloaded
     if is_url and temp_dir:
@@ -351,12 +518,26 @@ def uninstall(plugin_id: str):
         click.echo(f"❌ Plugin '{plugin_id}' not found", err=True)
         return
 
+    # Read manifest before deletion for tool cleanup
+    manifest_path = plugin_dir / "plugin.json"
+    manifest = None
+    if manifest_path.exists():
+        try:
+            with open(manifest_path, encoding="utf-8") as f:
+                manifest = json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to read plugin manifest: {e}")
+
     # Confirm
     if not click.confirm(
         f"Are you sure you want to uninstall '{plugin_id}'?",
     ):
         click.echo("Cancelled.")
         return
+
+    # Remove tool from all agents if this is a tool plugin
+    if manifest:
+        _remove_tool_plugin_from_agents(manifest)
 
     # Delete directory
     try:

@@ -1127,3 +1127,51 @@ A: 可以，通过 monkey patch 或 hook 机制。但请谨慎使用，确保不
 ### Q: 插件之间会冲突吗？
 
 A: 如果多个插件注册相同的 provider_id 或 command_name，后注册的会覆盖先注册的。建议使用唯一的 ID。
+
+## 示例插件
+
+### GPT Image 2 工具插件
+
+一个为 QwenPaw agents 添加 OpenAI GPT Image 2 图片生成能力的工具插件。
+
+**系统要求：**
+
+- QwenPaw 最低版本：`1.1.5`
+
+**安装方法：**
+
+```bash
+# 克隆 QwenPaw 仓库（如果尚未克隆）
+git clone https://github.com/agentscope-ai/QwenPaw.git
+cd QwenPaw/CoPaw
+
+# 安装插件
+qwenpaw plugin install plugins/tool/gpt-image2
+```
+
+**配置步骤：**
+
+1. 安装完成后，重启 QwenPaw
+2. 进入 Agent 设置 → 工具管理
+3. 找到 "generate_image_gpt" 工具
+4. 点击"配置"按钮，输入你的 OpenAI API Key
+5. 启用该工具
+
+**使用方法：**
+
+配置完成后，agent 可以通过调用工具来生成图片：
+
+```
+用户: 请生成一张可爱的小猫在花园里玩耍的图片
+Agent: [调用 generate_image_gpt 工具]
+       [返回生成的图片]
+```
+
+**功能特性：**
+
+- 支持多种图片尺寸：1024x1024, 1024x1792, 1792x1024
+- 质量选项：low, medium, high, auto
+- 自动验证 API Key
+- Per-agent 配置（每个 agent 可以使用不同的 API Key）
+
+更多详情请参考 `plugins/tool/gpt-image2/README.md`。

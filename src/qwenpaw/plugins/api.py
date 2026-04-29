@@ -183,3 +183,34 @@ class PluginApi:
         if self._registry:
             return self._registry.get_runtime_helpers()
         return None
+
+    def get_tool_config(self, tool_name: str, agent_id: str) -> dict:
+        """Get tool configuration from registry.
+
+        Args:
+            tool_name: Tool function name
+            agent_id: Agent identifier
+
+        Returns:
+            Tool configuration dictionary (empty if not configured)
+        """
+        if self._registry:
+            config = self._registry.get_tool_config(tool_name, agent_id)
+            return config if config else {}
+        return {}
+
+    def set_tool_config(
+        self,
+        tool_name: str,
+        agent_id: str,
+        config: dict,
+    ) -> None:
+        """Save tool configuration to registry.
+
+        Args:
+            tool_name: Tool function name
+            agent_id: Agent identifier
+            config: Configuration dictionary
+        """
+        if self._registry:
+            self._registry.set_tool_config(tool_name, agent_id, config)
