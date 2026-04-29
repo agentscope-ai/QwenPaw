@@ -858,7 +858,7 @@ def enabled_channel_notes(cfg: Config) -> list[str]:
                         f"{agent_id}: xiaoyi enabled but "
                         "ak/sk/agent_id incomplete",
                     )
-            elif name == "weixin":
+            elif name == "wechat":
                 tok = (sub.bot_token or "").strip()
                 fp = (sub.bot_token_file or "").strip()
                 if tok:
@@ -867,12 +867,12 @@ def enabled_channel_notes(cfg: Config) -> list[str]:
                     p = Path(fp).expanduser()
                     if not p.is_file():
                         notes.append(
-                            f"{agent_id}: weixin enabled but "
+                            f"{agent_id}: wechat enabled but "
                             f"bot_token_file missing: {p}",
                         )
                 else:
                     notes.append(
-                        f"{agent_id}: weixin enabled but bot_token and "
+                        f"{agent_id}: wechat enabled but bot_token and "
                         "bot_token_file unset",
                     )
             elif name == "imessage":

@@ -114,7 +114,7 @@ class ILinkClient:
     ) -> Any:
         if self._client is None:
             raise ChannelError(
-                channel_name="weixin",
+                channel_name="wechat",
                 message="ILinkClient not started",
             )
         headers = make_headers(self.bot_token)
@@ -191,7 +191,7 @@ class ILinkClient:
                 return token, base_url
             if status == "expired":
                 raise ChannelError(
-                    channel_name="weixin",
+                    channel_name="wechat",
                     message="WeChat QR code expired, please retry login",
                 )
             await asyncio.sleep(poll_interval)
@@ -360,7 +360,7 @@ class ILinkClient:
         """
         if self._client is None:
             raise ChannelError(
-                channel_name="weixin",
+                channel_name="wechat",
                 message="ILinkClient not started",
             )
 
@@ -454,7 +454,7 @@ class ILinkClient:
         """
         if self._client is None:
             raise ChannelError(
-                channel_name="weixin",
+                channel_name="wechat",
                 message="ILinkClient not started",
             )
 

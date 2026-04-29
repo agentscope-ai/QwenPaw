@@ -90,10 +90,16 @@ class WeixinQRCodeAuthHandler(QRCodeAuthHandler):
             agent = await get_agent_for_request(request)
             channels = agent.config.channels
             if channels is not None:
-                weixin_cfg = getattr(channels, "weixin", None)
-                if weixin_cfg is not None:
+                # Canonical key is "wechat"; fall back to legacy "weixin"
+                # for backwards compatibility with old configs.
+                wechat_cfg = getattr(channels, "wechat", None) or getattr(
+                    channels,
+                    "weixin",
+                    None
+                )
+                if wechat_cfg is not None:
                     return (
-                        getattr(weixin_cfg, "base_url", "")
+                        getattr(wechat_cfg, "base_url", "")
                         or _DEFAULT_BASE_URL
                     )
         except Exception:
@@ -392,8 +398,13 @@ class DingtalkQRCodeAuthHandler(QRCodeAuthHandler):
 # Handler registry – add new channels here
 # ---------------------------------------------------------------------------
 
+_WECHAT_QRCODE_HANDLER = WeixinQRCodeAuthHandler()
+
 QRCODE_AUTH_HANDLERS: Dict[str, QRCodeAuthHandler] = {
-    "weixin": WeixinQRCodeAuthHandler(),
+    "wechat": _WECHAT_QRCODE_HANDLER,
+    # Legacy alias for backwards compatibility (old frontend / API callers
+    # that still pass ?channel=weixin). Maps to the same handler instance.
+    "weixin": _WECHAT_QRCODE_HANDLER,
     "wecom": WecomQRCodeAuthHandler(),
     "dingtalk": DingtalkQRCodeAuthHandler(),
 }
