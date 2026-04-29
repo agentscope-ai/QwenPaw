@@ -39,7 +39,7 @@ export function getChannelIconUrl(channelKey: string): string {
   // Legacy alias: older configs / API responses may still emit "weixin".
   // Map to the canonical "wechat" so the icon lookup always succeeds.
   if (channelKey === "weixin") {
-      channelKey = "wechat";
+    channelKey = "wechat";
   }
   return CHANNEL_ICON_URLS[channelKey] ?? CHANNEL_DEFAULT_ICON_URL;
 }
