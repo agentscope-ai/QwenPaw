@@ -139,7 +139,7 @@ export interface XiaoYiConfig extends BaseChannelConfig {
   task_timeout_ms?: number;
 }
 
-export interface WeixinConfig extends BaseChannelConfig {
+export interface WeChatConfig extends BaseChannelConfig {
   bot_token: string;
   bot_token_file: string;
   base_url: string;
@@ -147,6 +147,13 @@ export interface WeixinConfig extends BaseChannelConfig {
   message_merge_enabled?: boolean;
   message_merge_delay_ms?: number;
 }
+
+/**
+ * @deprecated Use {@link WeChatConfig}. The legacy "weixin" key has been
+ * unified to "WeChat"; this alias is kept for backwards compatibility with
+ * existing imports and will be removed in a future release.
+ */
+export type WeixinConfig = WeChatConfig
 
 export interface OneBotConfig extends BaseChannelConfig {
   ws_host: string;
@@ -170,7 +177,11 @@ export interface ChannelConfig {
   voice: VoiceChannelConfig;
   sip: SIPChannelConfig;
   xiaoyi: XiaoYiConfig;
-  weixin: WeixinConfig;
+  wechat: WeChatConfig;
+  /**
+   * @deprecated Legacy alias for `wechat`. Old config payloads may still
+   * carry this field; the backend transparently maps it to `wechat`.
+   */
   onebot: OneBotConfig;
 }
 
@@ -186,7 +197,7 @@ export type SingleChannelConfig =
   | MatrixConfig
   | MattermostConfig
   | WecomConfig
-  | WeixinConfig
+  | WeChatConfig
   | VoiceChannelConfig
   | SIPChannelConfig
   | XiaoYiConfig

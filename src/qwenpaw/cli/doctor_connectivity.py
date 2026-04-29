@@ -215,11 +215,11 @@ def _probe_weixin(
     if base:
         err = _http_get_ok(base + "/", timeout)
         if err:
-            return [f"{agent_id}: weixin: GET {base!r} — {err}"]
+            return [f"{agent_id}: wechat: GET {base!r} — {err}"]
         return []
     err = _http_get_ok("https://api.weixin.qq.com/", timeout)
     if err:
-        return [f"{agent_id}: weixin: reach api.weixin.qq.com — {err}"]
+        return [f"{agent_id}: wechat: reach api.weixin.qq.com — {err}"]
     return []
 
 
@@ -236,7 +236,7 @@ _BUILTIN_PROBES: dict[str, ChannelProbe] = {
     "wecom": _probe_wecom,
     "voice": _probe_voice,
     "xiaoyi": _probe_xiaoyi,
-    "weixin": _probe_weixin,
+    "wechat": _probe_weixin,
 }
 
 

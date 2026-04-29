@@ -27,7 +27,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "wecom",
   "mattermost",
   "matrix",
-  "weixin",
+  "wechat",
   "imessage",
   "onebot",
 ];
@@ -48,7 +48,7 @@ const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
   sip: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#SIP",
   wecom:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=en#WeCom-WeChat-Work",
-  weixin:
+  wechat:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=en#WeChat-Personal-iLink",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
@@ -70,7 +70,7 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
   matrix: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Matrix",
   sip: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#SIP",
   wecom: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#企业微信",
-  weixin: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#微信个人iLink",
+  wechat: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#微信个人iLink",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
   onebot:
@@ -122,24 +122,24 @@ export function ChannelDrawer({
   const { message } = useAppMessage();
 
   // WeChat QR code hook
-  const weixinQrcode = useChannelQrcode({
-    channel: "weixin",
+  const wechatQrcode = useChannelQrcode({
+    channel: "wechat",
     successStatus: "confirmed",
     successCredentialKey: "bot_token",
     pollInterval: 2000,
     onSuccess: useCallback(
       (credentials: Record<string, string>) => {
         form.setFieldsValue({ bot_token: credentials.bot_token });
-        message.success(t("channels.weixinLoginSuccess"));
+        message.success(t("channels.wechatLoginSuccess"));
       },
       [form, message, t],
     ),
     onError: useCallback(
       (type: "fetch" | "expired") => {
         if (type === "expired") {
-          message.warning(t("channels.weixinQrcodeExpired"));
+          message.warning(t("channels.wechatQrcodeExpired"));
         } else {
-          message.error(t("channels.weixinQrcodeFailed"));
+          message.error(t("channels.wechatQrcodeFailed"));
         }
       },
       [message, t],
@@ -1042,7 +1042,7 @@ export function ChannelDrawer({
           </>
         );
 
-      case "weixin":
+      case "wechat":
         return (
           <>
             <ConfigProvider prefixCls="ant">
@@ -1063,20 +1063,20 @@ export function ChannelDrawer({
               <Button
                 type="primary"
                 block
-                loading={weixinQrcode.loading}
-                onClick={weixinQrcode.fetchQrcode}
+                loading={wechatQrcode.loading}
+                onClick={wechatQrcode.fetchQrcode}
               >
                 {t("channels.weixinGetQrcode")}
               </Button>
-              {weixinQrcode.loading && (
+              {wechatQrcode.loading && (
                 <div style={{ textAlign: "center", marginTop: 12 }}>
                   <Spin />
                 </div>
               )}
-              {weixinQrcode.qrcodeImg && !weixinQrcode.loading && (
+              {wechatQrcode.qrcodeImg && !wechatQrcode.loading && (
                 <div style={{ textAlign: "center", marginTop: 12 }}>
                   <img
-                    src={`data:image/png;base64,${weixinQrcode.qrcodeImg}`}
+                    src={`data:image/png;base64,${wechatQrcode.qrcodeImg}`}
                     alt="WeChat QR Code"
                     style={{ width: 200, height: 200 }}
                   />

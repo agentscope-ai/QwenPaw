@@ -694,7 +694,7 @@ _ALL_CHANNEL_CONFIGURATORS = {
     "telegram": ("Telegram", configure_telegram),
     "dingtalk": ("DingTalk", configure_dingtalk),
     "feishu": ("Feishu", configure_feishu),
-    "weixin": ("WeChat (iLink Bot)", configure_weixin),
+    "wechat": ("WeChat (iLink Bot)", configure_weixin),
     "qq": ("QQ", configure_qq),
     "console": ("Console", configure_console),
     "voice": ("Twilio", configure_voice),
