@@ -36,7 +36,10 @@ class ProxyChannel({cls}):
 
 def generate_proxy(source_key: str, new_key: str) -> Path:
     if source_key not in CHANNEL_CLASS_MAP:
-        raise ValueError(f"Cannot duplicate channel '{source_key}': not in CHANNEL_CLASS_MAP")
+        raise ValueError(
+            f"Cannot duplicate channel '{source_key}': "
+            f"not in CHANNEL_CLASS_MAP",
+        )
     module, cls = CHANNEL_CLASS_MAP[source_key]
     CUSTOM_CHANNELS_DIR.mkdir(parents=True, exist_ok=True)
     path = CUSTOM_CHANNELS_DIR / f"{new_key}.py"

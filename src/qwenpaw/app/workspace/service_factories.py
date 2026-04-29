@@ -77,7 +77,6 @@ async def create_channel_service(ws: "Workspace", _):
 
     from ...config import Config, update_last_dispatch
     from ..channels.manager import ChannelManager
-    from ..channels.utils import make_process_from_runner
 
     temp_config = Config(channels=ws._config.channels)
     runner = ws._service_manager.services["runner"]
@@ -110,7 +109,7 @@ async def create_channel_service(ws: "Workspace", _):
     # pylint: enable=protected-access
 
 
-def _make_agent_aware_process(runner, workspace):
+def _make_agent_aware_process(runner, workspace):  # pylint: disable=protected-access
     """Wrap runner.stream_query with agent routing support.
 
     If a channel has target_agent set, messages are dispatched to that
