@@ -111,3 +111,8 @@ src/.hypothesis/
 
 # Worktrees
 .worktrees/
+
+.qwenpaw/
+.qwenpaw.secret/
+readme.local.md
+task.local.md
