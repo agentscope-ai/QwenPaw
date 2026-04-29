@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Optional, Union, Dict, List, Literal, Any, Set
+from typing import ClassVar, Optional, Union, Dict, List, Literal, Any, Set
 
 from pydantic import (
     BaseModel,
@@ -935,6 +935,49 @@ class PlanConfig(BaseModel):
     )
 
 
+class ProgressObservingConfig(BaseModel):
+    """Configuration for the progress-observing hook.
+
+    When set, a ``ProgressObservingHook`` is registered on the agent so
+    that ``check_agent_task(detail=True)`` can report what the agent is
+    doing while a background task is running.
+
+    Not set by default — omitting this field disables the feature.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    VALID_HOOK_TYPES: ClassVar[set[str]] = {
+        "pre_reply",
+        "post_reply",
+        "pre_reasoning",
+        "post_reasoning",
+        "pre_acting",
+        "post_acting",
+        "plan_change",
+    }
+
+    hook_type: str = Field(
+        default="post_acting",
+        description=(
+            "Hook type to observe. "
+            "Instance hooks: pre_reply, post_reply, pre_reasoning, "
+            "post_reasoning, pre_acting, post_acting. "
+            "PlanNotebook hook: plan_change (requires plan.enabled=true)."
+        ),
+    )
+
+    @field_validator("hook_type")
+    @classmethod
+    def validate_hook_type(cls, v: str) -> str:
+        if v not in cls.VALID_HOOK_TYPES:
+            raise ValueError(
+                f"Invalid hook_type '{v}'. "
+                f"Must be one of: {sorted(cls.VALID_HOOK_TYPES)}",
+            )
+        return v
+
+
 class AgentProfileConfig(BaseModel):
     """Complete Agent Profile configuration (stored in workspace/agent.json).
 
@@ -1015,6 +1058,14 @@ class AgentProfileConfig(BaseModel):
     plan: PlanConfig = Field(
         default_factory=PlanConfig,
         description="Plan mode configuration for this agent",
+    )
+    progress_observing: Optional[ProgressObservingConfig] = Field(
+        default=None,
+        description=(
+            "Progress-observing hook configuration. "
+            "When set, snapshots agent progress into ProgressStore so that "
+            "check_agent_task(detail=True) can return live status."
+        ),
     )
 
 

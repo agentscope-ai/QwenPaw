@@ -54,10 +54,17 @@ def _json_text(data: Any) -> str:
 
 
 def normalize_id(id_to_normalize: Optional[str]) -> Optional[str]:
-    """Trim surrounding whitespace and quotes from an ID."""
+    """Trim whitespace, quotes, and trailing punctuation from an ID.
+
+    LLM-generated IDs may carry trailing commas, periods, or Chinese
+    punctuation that would cause lookup failures.
+    """
     if id_to_normalize is None:
         return None
-    return id_to_normalize.strip().strip("\"'").strip()
+    cleaned = id_to_normalize.strip().strip("\"'").strip()
+    # Strip trailing punctuation commonly added by LLMs
+    cleaned = cleaned.rstrip(",.，。、；;：:！!？?")
+    return cleaned or None
 
 
 def create_agent_api_client(
@@ -586,6 +593,9 @@ async def submit_to_agent(
 
 async def check_agent_task(
     task_id: str,
+    detail: bool = False,
+    agent_id: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> ToolResponse:
     """Check the status of a background inter-agent task.
 
@@ -597,12 +607,24 @@ async def check_agent_task(
     Args:
         task_id (`str`):
             The background task ID returned by ``submit_to_agent``.
+        detail (`bool`, optional):
+            When ``True`` and the task is still **running**, also include the
+            latest progress snapshot captured by the progress-observing hook
+            (if configured).  Defaults to ``False``.
+        agent_id (`str`, optional):
+            The target agent ID that is running the task.  Required when
+            ``detail=True`` to look up the correct ``ProgressStore`` entry.
+        session_id (`str`, optional):
+            The session ID returned by ``submit_to_agent``.  Used together
+            with ``agent_id`` for a precise ``ProgressStore`` lookup when
+            ``detail=True``.
 
     Returns:
         `ToolResponse`:
             A text response containing a ``[TASK_ID: ...]`` header and current
             task status. Completed tasks also include the resolved session ID
-            and final agent text when available.
+            and final agent text when available.  When ``detail=True`` and the
+            task is running, a ``[LIVE_STATUS]`` section is appended.
     """
     normalized_task_id = normalize_id(task_id)
     if not normalized_task_id:
@@ -617,6 +639,24 @@ async def check_agent_task(
         to_agent=None,
         timeout=10,
     )
-    return _tool_text_response(
-        format_background_status_text(normalized_task_id, result),
-    )
+    text = format_background_status_text(normalized_task_id, result)
+
+    if detail and result.get("status") == "running":
+        from .task_detail import progress_store
+
+        lookup_agent_id = normalize_id(agent_id)
+        lookup_session_id = normalize_id(session_id) or None
+        if lookup_agent_id:
+            live = progress_store.get(lookup_agent_id, lookup_session_id)
+            if live:
+                text = (
+                    text
+                    + "\n\n[LIVE_STATUS]\n"
+                    + json.dumps(
+                        live,
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+
+    return _tool_text_response(text)
