@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional
 # Shared utilities
 # =====================================================================
 
+
 def _truncate(text: str, limit: int) -> str:
     if not text:
         return ""

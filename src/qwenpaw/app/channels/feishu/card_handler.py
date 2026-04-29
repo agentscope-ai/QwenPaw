@@ -83,9 +83,9 @@ HandleFn = Callable[[Any, Dict[str, Any]], "P2CardActionTriggerResponse"]
 class CardKind:
     """Describes one kind of interactive card and its handlers."""
 
-    name: str          # human-readable tag for logs
+    name: str  # human-readable tag for logs
     message_type: str  # matches ``metadata.message_type`` (outbound)
-    action_type: str   # matches button ``value.type`` (inbound)
+    action_type: str  # matches button ``value.type`` (inbound)
     render: RenderFn
     handle: HandleFn
 
@@ -103,6 +103,10 @@ class FeishuCardHandler:
     (``_send_message``, ``_get_receive_for_send``, the main event loop,
     etc.) without duplicating state.
     """
+
+    # CardHandler is intentionally coupled with its owning FeishuChannel
+    # and shares its private primitives (_send_message / _loop / ...).
+    # pylint: disable=protected-access
 
     def __init__(self, channel: "FeishuChannel") -> None:
         self._channel = channel
@@ -170,7 +174,8 @@ class FeishuCardHandler:
             return await kind.render(to_handle, event, send_meta, meta)
         except Exception:  # pragma: no cover - defensive
             logger.exception(
-                "feishu card render failed: kind=%s", kind.name,
+                "feishu card render failed: kind=%s",
+                kind.name,
             )
             return False
 
@@ -205,7 +210,8 @@ class FeishuCardHandler:
             return kind.handle(event, action_value)
         except Exception:  # pragma: no cover - defensive
             logger.exception(
-                "feishu card handle failed: kind=%s", kind.name,
+                "feishu card handle failed: kind=%s",
+                kind.name,
             )
             return P2CardActionTriggerResponse({})
 
@@ -377,7 +383,7 @@ class FeishuCardHandler:
         receive_id_type = str(session_ctx.get("receive_id_type") or "open_id")
         chat_id = str(session_ctx.get("chat_id") or "")
         chat_type = str(session_ctx.get("chat_type") or "p2p")
-        is_group = bool(session_ctx.get("is_group") or False)
+        is_group = bool(session_ctx.get("is_group"))
 
         command_text = f"/approval {action} {request_id}".strip()
         content_parts = [
@@ -440,7 +446,7 @@ class FeishuCardHandler:
         session_id = ""
         handle = (to_handle or "").strip()
         if handle.startswith("feishu:sw:"):
-            session_id = handle[len("feishu:sw:"):]
+            session_id = handle[len("feishu:sw:") :]
         return {
             "session_id": session_id,
             "sender_id": str(send_meta.get("feishu_sender_id") or ""),
@@ -448,7 +454,7 @@ class FeishuCardHandler:
             "receive_id_type": receive_id_type,
             "chat_id": str(send_meta.get("feishu_chat_id") or ""),
             "chat_type": str(send_meta.get("feishu_chat_type") or "p2p"),
-            "is_group": bool(send_meta.get("is_group") or False),
+            "is_group": bool(send_meta.get("is_group")),
         }
 
     @staticmethod
@@ -467,7 +473,7 @@ class FeishuCardHandler:
 
     @staticmethod
     def _extract_body_text(content: Any) -> str:
-        """Flatten ``Message.content`` (``List[ContentPart]``) to plain text."""
+        """Flatten ``Message.content`` to plain text."""
         if not content:
             return ""
         if isinstance(content, str):
