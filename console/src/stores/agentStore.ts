@@ -19,13 +19,22 @@ interface AgentStore {
   agents: AgentSummary[];
   /** Per-agent last active chat ID for restoring on agent switch */
   lastChatIdByAgent: Record<string, string>;
-  setSelectedAgent: (agentId: string) => void;
+  setSelectedAgent: (agentId: string) => string | undefined;
   setAgents: (agents: AgentSummary[]) => void;
   addAgent: (agent: AgentSummary) => void;
   removeAgent: (agentId: string) => void;
   updateAgent: (agentId: string, updates: Partial<AgentSummary>) => void;
   setLastChatId: (agentId: string, chatId: string) => void;
   getLastChatId: (agentId: string) => string | undefined;
+}
+
+/**
+ * Extracts the current chat ID from the URL path.
+ * Returns the chat ID if the current path is /chat/{chatId}, otherwise null.
+ */
+function getCurrentChatIdFromUrl(): string | null {
+  const match = window.location.pathname.match(/\/chat\/([^/]+)/);
+  return match ? match[1] : null;
 }
 
 /**
@@ -76,14 +85,47 @@ export const useAgentStore = create<AgentStore>()(
       agents: [],
       lastChatIdByAgent: {},
 
+      /**
+       * Switches to the specified agent.
+       * 
+       * Before switching:
+       * - Saves the current agent's chat ID to lastChatIdByAgent
+       * 
+       * After switching:
+       * - Returns the saved chat ID for the target agent (if any)
+       * - The caller should navigate to this chat ID if it's defined
+       * 
+       * @param agentId - The ID of the agent to switch to
+       * @returns The saved chat ID for the target agent, or undefined if none
+       */
       setSelectedAgent: (agentId) => {
+        const state = get();
+        const currentAgent = state.selectedAgent;
+        const currentChatId = getCurrentChatIdFromUrl();
+
+        // Save the current agent's chat ID before switching
+        if (currentChatId && currentAgent !== agentId) {
+          set((s) => ({
+            lastChatIdByAgent: {
+              ...s.lastChatIdByAgent,
+              [currentAgent]: currentChatId,
+            },
+          }));
+        }
+
+        // Update the selected agent
         set({ selectedAgent: agentId });
+
         // Persist to localStorage so new tabs inherit this choice
         try {
           localStorage.setItem(LAST_USED_AGENT_KEY, agentId);
         } catch {
           /* ignore */
         }
+
+        // Return the saved chat ID for the target agent (for navigation)
+        const savedChatId = get().lastChatIdByAgent[agentId];
+        return savedChatId;
       },
 
       setAgents: (agents) => set({ agents }),
