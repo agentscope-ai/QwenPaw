@@ -109,7 +109,10 @@ async def create_channel_service(ws: "Workspace", _):
     # pylint: enable=protected-access
 
 
-def _make_agent_aware_process(runner, workspace):  # pylint: disable=protected-access
+def _make_agent_aware_process(  # pylint: disable=protected-access
+    runner,
+    workspace,
+):
     """Wrap runner.stream_query with agent routing support.
 
     If a channel has target_agent set, messages are dispatched to that
@@ -122,22 +125,22 @@ def _make_agent_aware_process(runner, workspace):  # pylint: disable=protected-a
 
     async def process(request):
         target = getattr(request, "channel_meta", None)
-        target_agent = getattr(target, "_target_agent", None) if target else None
-        if target_agent and target_agent != workspace.agent_id:
+        ta = getattr(target, "_target_agent", None) if target else None
+        if ta and ta != workspace.agent_id:
             try:
                 manager = workspace._manager
                 if manager is None:
                     return await local_process(request)
-                target_ws = await manager.get_agent(target_agent)
+                target_ws = await manager.get_agent(ta)
                 target_runner = target_ws.runner
                 if target_runner:
                     return await make_process_from_runner(target_runner)(
-                        request
+                        request,
                     )
             except Exception:
                 logger.warning(
                     "Failed to route to agent '%s', using local",
-                    target_agent,
+                    ta,
                     exc_info=True,
                 )
         return await local_process(request)

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import logging
@@ -37,13 +38,15 @@ class ProxyChannel({cls}):
 def generate_proxy(source_key: str, new_key: str) -> Path:
     if source_key not in CHANNEL_CLASS_MAP:
         raise ValueError(
-            f"Cannot duplicate channel '{source_key}': "
-            f"not in CHANNEL_CLASS_MAP",
+            f"Cannot duplicate channel "  # noqa: E501
+            f"'{source_key}': not in CHANNEL_CLASS_MAP",
         )
     module, cls = CHANNEL_CLASS_MAP[source_key]
     CUSTOM_CHANNELS_DIR.mkdir(parents=True, exist_ok=True)
     path = CUSTOM_CHANNELS_DIR / f"{new_key}.py"
-    path.write_text(_TEMPLATE.format(module=module, cls=cls, key=new_key), encoding="utf-8")
+    path.write_text(
+        _TEMPLATE.format(module=module, cls=cls, key=new_key), encoding="utf-8"
+    )
     logger.info("Generated proxy channel file: %s", path)
     return path
 
@@ -52,7 +55,9 @@ def list_proxy_keys() -> list[str]:
     if not CUSTOM_CHANNELS_DIR.exists():
         return []
     return sorted(
-        p.stem for p in CUSTOM_CHANNELS_DIR.glob("*.py") if p.stem != "__init__"
+        p.stem
+        for p in CUSTOM_CHANNELS_DIR.glob("*.py")  # noqa: E501
+        if p.stem != "__init__"
     )
 
 

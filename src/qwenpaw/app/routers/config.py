@@ -170,6 +170,7 @@ async def _resolve_channel_manager(
     available = get_available_channels()
     if channel_name not in available:
         from qwenpaw.constant import CUSTOM_CHANNELS_DIR
+
         if not (CUSTOM_CHANNELS_DIR / f"{channel_name}.py").exists():
             raise HTTPException(
                 status_code=404,
@@ -454,7 +455,11 @@ async def duplicate_channel(
             "target_agent": "",
         }
     else:
-        new_cfg = {"enabled": False, "duplicated_from": channel_name, "target_agent": ""}
+        new_cfg = {
+            "enabled": False,
+            "duplicated_from": channel_name,
+            "target_agent": "",
+        }
 
     setattr(agent.config.channels, new_key, new_cfg)
     save_agent_config(agent.agent_id, agent.config)
