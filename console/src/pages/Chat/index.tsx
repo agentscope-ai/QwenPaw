@@ -46,6 +46,10 @@ interface ApprovalMessageData {
   timeoutSeconds: number;
 }
 
+import WhisperSpeechButton, {
+  WhisperSpeechButtonRef,
+} from "./components/WhisperSpeechButton";
+
 import {
   toDisplayUrl,
   copyText,
@@ -698,8 +702,27 @@ export default function ChatPage() {
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   const pendingClearHistoryRef = useRef(false);
+  const whisperSpeechRef = useRef<WhisperSpeechButtonRef>(null);
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
+
+  // Shortcut key for voice recording (Ctrl+Shift+M or Cmd+Shift+M on Mac)
+  useEffect(() => {
+    const handleShortcut = (e: KeyboardEvent) => {
+      if (!isChatActive()) return;
+      // Check for Ctrl+Shift+M (Windows/Linux) or Cmd+Shift+M (Mac)
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        e.key.toLowerCase() === "m"
+      ) {
+        e.preventDefault();
+        whisperSpeechRef.current?.toggleRecording();
+      }
+    };
+    document.addEventListener("keydown", handleShortcut);
+    return () => document.removeEventListener("keydown", handleShortcut);
+  }, [isChatActive]);
   chatIdRef.current = chatId;
   navigateRef.current = navigate;
 
@@ -1022,7 +1045,8 @@ export default function ChatPage() {
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
-        allowSpeech: true,
+        allowSpeech: false, // Disable default Web Speech API, use custom Whisper button
+        prefix: <WhisperSpeechButton ref={whisperSpeechRef} />,
         attachments: {
           trigger: function (props: any) {
             const tooltipKey = multimodalCaps.supportsMultimodal

@@ -1,4 +1,6 @@
 import { request } from "../request";
+import { getApiUrl } from "../config";
+import { buildAuthHeaders } from "../authHeaders";
 import type { AgentRequest, AgentsRunningConfig } from "../types";
 
 // Agent API
@@ -85,4 +87,23 @@ export const agentApi = {
       ffmpeg_installed: boolean;
       whisper_installed: boolean;
     }>("/workspace/local-whisper-status"),
+
+  transcribeAudio: async (file: File | Blob): Promise<{ text: string }> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(getApiUrl("/agent/transcribe"), {
+      method: "POST",
+      headers: buildAuthHeaders(),
+      body: formData,
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `Transcription failed: ${response.status} ${response.statusText}${
+          text ? ` - ${text}` : ""
+        }`,
+      );
+    }
+    return response.json();
+  },
 };

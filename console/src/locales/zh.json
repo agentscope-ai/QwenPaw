@@ -1423,6 +1423,14 @@
       "imageOnlyAccept": "当前模型仅支持图片文件",
       "imageOnlyWarning": "当前模型仅检测到图片支持，视频等非图片文件可能无法被正确处理"
     },
+    "speech": {
+      "startRecording": "开始语音录制 (Ctrl+Shift+M)",
+      "stopRecording": "停止录制 (Ctrl+Shift+M)",
+      "transcribing": "正在转录...",
+      "transcriptionDisabled": "语音转录已禁用。请在设置 > 语音转写中配置转录服务。",
+      "transcriptionFailed": "语音转录失败",
+      "microphoneError": "无法访问麦克风"
+    },
     "search": {
       "title": "搜索聊天",
       "tooltip": "搜索当前聊天",
