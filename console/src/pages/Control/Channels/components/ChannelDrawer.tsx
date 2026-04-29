@@ -1380,10 +1380,8 @@ export function ChannelDrawer({
           {isBuiltin
             ? renderBuiltinExtraFields(activeKey)
             : initialValues?.duplicated_from
-              ? renderBuiltinExtraFields(
-                  initialValues.duplicated_from as string,
-                )
-              : renderCustomExtraFields(initialValues)}
+            ? renderBuiltinExtraFields(initialValues.duplicated_from as string)
+            : renderCustomExtraFields(initialValues)}
 
           {(CHANNELS_WITH_ACCESS_CONTROL.includes(activeKey) ||
             CHANNELS_WITH_ACCESS_CONTROL.includes(
