@@ -21,6 +21,10 @@ from ..config.config import ModelSlotConfig
 from ..exceptions import ProviderError
 from .anthropic_provider import AnthropicProvider
 from .gemini_provider import GeminiProvider
+from .github_copilot_provider import (
+    PROVIDER_GITHUB_COPILOT,
+    GitHubCopilotProvider,
+)
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
 from .lmstudio_provider import LMStudioProvider
@@ -796,6 +800,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_ZHIPU_INTL_CODINGPLAN)
         self._add_builtin(PROVIDER_SILICONFLOW_CN)
         self._add_builtin(PROVIDER_SILICONFLOW_INTL)
+        self._add_builtin(PROVIDER_GITHUB_COPILOT)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider
@@ -933,7 +938,19 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         try:
             models = await provider.fetch_models()
             if save:
-                provider.extra_models = models
+                # Exclude models already present in built-in `models` to
+                # avoid duplicates between defaults and auto-discovered,
+                # and also dedupe within the discovered list itself.
+                builtin_ids = {m.id.strip() for m in provider.models}
+                seen: set = set()
+                deduped: list = []
+                for m in models:
+                    mid = m.id.strip()
+                    if mid in builtin_ids or mid in seen:
+                        continue
+                    seen.add(mid)
+                    deduped.append(m)
+                provider.extra_models = deduped
                 # Save provider config to appropriate location
                 is_plugin = provider_id in self.plugin_providers
                 if is_plugin:
@@ -1339,6 +1356,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         provider_id = str(data.get("id", ""))
         chat_model = str(data.get("chat_model", ""))
 
+        if provider_id == "github-copilot":
+            return GitHubCopilotProvider.model_validate(data)
         if provider_id == "openrouter":
             return OpenRouterProvider.model_validate(data)
         if provider_id == "anthropic" or chat_model == "AnthropicChatModel":
@@ -1533,6 +1552,11 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if not builtin.freeze_url:
                     builtin.base_url = provider.base_url
                 builtin.api_key = provider.api_key
+                # Restore OAuth credentials for OAuth-based providers.
+                if getattr(provider, "oauth_access_token", ""):
+                    builtin.oauth_access_token = provider.oauth_access_token
+                if getattr(provider, "oauth_user_login", ""):
+                    builtin.oauth_user_login = provider.oauth_user_login
                 builtin_model_ids = {m.id for m in builtin.models}
                 builtin.extra_models = [
                     m

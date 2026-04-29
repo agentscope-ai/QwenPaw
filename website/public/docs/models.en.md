@@ -156,8 +156,11 @@ Currently supported cloud providers include:
 - Kimi
 - MiniMax
 - Zhipu
+- GitHub Copilot
 
 > Some providers offer different base URLs for Mainland China and other regions. Please select the correct provider based on your location.
+
+> **GitHub Copilot** uses OAuth Device Code authentication instead of an API Key. See the [GitHub Copilot Configuration](#github-copilot-configuration) section below.
 
 ![Cloud Provider List](https://img.alicdn.com/imgextra/i1/O1CN01rdAXCF1ogqSRScNHI_!!6000000005255-2-tps-3826-2076.png)
 
@@ -176,6 +179,38 @@ Once the cloud provider is configured, you can further check if the models are a
 If the preset models do not meet your needs, you can also click **Add Model** on the model management page to add new models. When adding, you need to provide the **Model ID** (the identifier used by the API, usually found in the provider's documentation) and the **Model Name** (for display in the UI). Manually added models can also be tested using the **Test Connection** button.
 
 ![Add Model](https://img.alicdn.com/imgextra/i3/O1CN01gvYta11FXfyhNGE89_!!6000000000497-2-tps-1260-1692.png)
+
+## GitHub Copilot Configuration
+
+GitHub Copilot is a special cloud provider in QwenPaw: it does **not** use an API Key. Instead it uses GitHub's **OAuth Device Code** flow to authorize an active GitHub Copilot subscription (Individual, Business, or Enterprise) to be used inside QwenPaw.
+
+The provider exposes a curated set of Copilot-hosted chat models (such as `gpt-4o`, `gpt-4o-mini`, `gpt-4.1`, `o1`, `o3-mini`, `claude-3.5-sonnet`, `claude-3.7-sonnet`, `claude-sonnet-4`, and `gemini-2.0-flash-001`). The available list depends on what your Copilot plan grants.
+
+### Sign in via Device Code
+
+1. Open **Settings -> Models -> Providers** and select **GitHub Copilot**.
+2. Click **Sign in with GitHub**. QwenPaw will request a device code from GitHub and display:
+   - a short **user code** (e.g. `ABCD-1234`),
+   - a verification URL (`https://github.com/login/device`).
+3. Open the verification URL in any browser, paste the user code, and authorize the QwenPaw / Copilot device session.
+4. QwenPaw automatically polls GitHub. Once authorization succeeds, it stores an encrypted long-lived OAuth token locally and shows your GitHub login.
+5. Use **Test Connection** on a specific model to verify your Copilot subscription can answer chat requests.
+
+### How it works
+
+- The long-lived **GitHub OAuth access token** is encrypted at rest under `~/.qwenpaw.secret/providers/oauth/github-copilot.json` (Fernet).
+- A short-lived **Copilot API token** is fetched on demand from `https://api.github.com/copilot_internal/v2/token`, kept in memory only, and auto-refreshed before expiry.
+- Every chat request is signed per request via `httpx.Auth`, so token rotation is transparent.
+
+### Sign out
+
+Use **Sign out** on the provider page to revoke the local OAuth state. This deletes the encrypted token file and clears the in-memory Copilot token.
+
+### Limitations
+
+- Requires a valid, active GitHub Copilot subscription.
+- Model availability and rate limits are controlled by your Copilot plan.
+- GitHub Enterprise Server (GHES) hosts are not supported in this version.
 
 ## Custom Provider Configuration
 

@@ -53,10 +53,14 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
 
   let isConfigured = false;
 
+  const isOAuthProvider = provider.auth_type === "oauth_device_code";
+
   if (provider.id === "qwenpaw-local") {
     isConfigured = true;
   } else if (provider.is_custom && provider.base_url) {
     isConfigured = true;
+  } else if (isOAuthProvider) {
+    isConfigured = Boolean(provider.is_authenticated);
   } else if (provider.require_api_key === false) {
     isConfigured = true;
   } else if (provider.require_api_key && provider.api_key) {
@@ -140,7 +144,19 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
         </div>
         <div className={styles.infoRow}>
           <span className={styles.infoLabel}>API Key:</span>
-          {provider.api_key ? (
+          {isOAuthProvider ? (
+            provider.is_authenticated ? (
+              <span className={styles.infoValue}>
+                {provider.oauth_user_login
+                  ? `GitHub: ${provider.oauth_user_login}`
+                  : "OAuth"}
+              </span>
+            ) : (
+              <span className={styles.infoEmpty}>
+                {t("models.copilotStatusNotStarted")}
+              </span>
+            )
+          ) : provider.api_key ? (
             <span className={styles.infoValue}>{provider.api_key}</span>
           ) : (
             <span className={styles.infoEmpty}>{t("models.notSet")}</span>

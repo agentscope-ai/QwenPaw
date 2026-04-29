@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """API routes for LLM providers and models."""
 
 from __future__ import annotations
@@ -186,6 +187,21 @@ async def configure_provider(
     provider_id: str = Path(...),
     body: ProviderConfigRequest = Body(...),
 ) -> ProviderInfo:
+    # OAuth-based providers do not accept api_key updates via this route;
+    # they authenticate via /oauth/device-code instead.
+    existing = manager.get_provider(provider_id)
+    if (
+        existing is not None
+        and getattr(existing, "auth_type", "api_key") == "oauth_device_code"
+        and body.api_key is not None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Provider '{provider_id}' uses OAuth authentication; "
+                "use the /oauth/device-code endpoint instead of api_key."
+            ),
+        )
     ok = manager.update_provider(
         provider_id,
         {
@@ -915,3 +931,141 @@ async def filter_openrouter_models(
             status_code=500,
             detail=f"Failed to filter models: {str(exc)}",
         ) from exc
+
+
+# ---------------------------------------------------------------------------
+# GitHub Copilot OAuth device-code endpoints
+# ---------------------------------------------------------------------------
+
+# pylint: disable=wrong-import-position
+from ...providers.github_copilot_provider import (  # noqa: E402
+    GitHubCopilotProvider,
+)
+from ...providers.oauth import (  # noqa: E402
+    DeviceCodeStart,
+    OAuthStatus,
+)
+
+# pylint: enable=wrong-import-position
+
+
+def _get_oauth_provider(
+    manager: ProviderManager,
+    provider_id: str,
+) -> GitHubCopilotProvider:
+    """Resolve an OAuth-capable provider or raise 404/400."""
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found",
+        )
+    if not isinstance(provider, GitHubCopilotProvider):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Provider '{provider_id}' does not support OAuth "
+                "device-code authentication"
+            ),
+        )
+    return provider
+
+
+def _persist_oauth_token_factory(
+    manager: ProviderManager,
+    provider: GitHubCopilotProvider,
+):
+    """Create a callback that persists OAuth credentials exactly once.
+
+    The callback is registered with :class:`CopilotOAuthService` so the
+    long-lived OAuth token is written to disk on the *single* moment
+    authorization succeeds — never on per-poll status checks (avoiding
+    the disk-write storm noted in PR #2366).
+    """
+
+    async def _callback(oauth_access_token: str, github_login: str) -> None:
+        # The long-lived OAuth access token is persisted exclusively
+        # by ``CopilotTokenStore`` (encrypted under SECRET_DIR) so that
+        # the provider config file remains free of long-lived secrets.
+        # We still persist the GitHub login here because it is
+        # non-secret display metadata that drives UI labels like
+        # "GitHub: <login>".
+        del oauth_access_token  # intentionally not persisted in config
+        provider.oauth_user_login = github_login
+        manager._save_provider(provider, is_builtin=True)  # noqa: SLF001
+        logger.info(
+            "Persisted OAuth login for provider '%s' (login=%s)",
+            provider.id,
+            github_login or "<unknown>",
+        )
+
+    return _callback
+
+
+def _logout_factory(
+    manager: ProviderManager,
+    provider: GitHubCopilotProvider,
+):
+    async def _callback() -> None:
+        # Clear both the legacy token field (for installs upgraded from
+        # an earlier release that did persist it) and the login label.
+        provider.oauth_access_token = ""
+        provider.oauth_user_login = ""
+        manager._save_provider(provider, is_builtin=True)  # noqa: SLF001
+        logger.info("Cleared OAuth credentials for provider '%s'", provider.id)
+
+    return _callback
+
+
+@router.post(
+    "/{provider_id}/oauth/device-code",
+    response_model=DeviceCodeStart,
+    summary="Start a GitHub OAuth device-code flow",
+)
+async def start_provider_oauth_device_code(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+) -> DeviceCodeStart:
+    provider = _get_oauth_provider(manager, provider_id)
+    service = provider._service()  # noqa: SLF001
+    service.set_on_token_persisted(
+        _persist_oauth_token_factory(manager, provider),
+    )
+    service.set_on_logout(_logout_factory(manager, provider))
+    try:
+        return await service.start_device_flow()
+    except Exception as exc:  # pylint: disable=broad-except
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to start GitHub OAuth flow: {exc}",
+        ) from exc
+
+
+@router.get(
+    "/{provider_id}/oauth/status",
+    response_model=OAuthStatus,
+    summary="Get current OAuth session status",
+)
+async def get_provider_oauth_status(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+) -> OAuthStatus:
+    provider = _get_oauth_provider(manager, provider_id)
+    service = provider._service()  # noqa: SLF001
+    return await service.get_status()
+
+
+@router.post(
+    "/{provider_id}/oauth/logout",
+    response_model=OAuthStatus,
+    summary="Revoke local OAuth credentials",
+)
+async def logout_provider_oauth(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+) -> OAuthStatus:
+    provider = _get_oauth_provider(manager, provider_id)
+    service = provider._service()  # noqa: SLF001
+    service.set_on_logout(_logout_factory(manager, provider))
+    await service.logout()
+    return await service.get_status()

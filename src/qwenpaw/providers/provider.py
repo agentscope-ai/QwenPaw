@@ -142,10 +142,41 @@ class ProviderInfo(BaseModel):
         description="Additional metadata for the provider "
         "(e.g., api_key_url, api_key_hint).",
     )
+    auth_type: str = Field(
+        default="api_key",
+        description=(
+            "Authentication method: 'api_key' (default) or "
+            "'oauth_device_code' for providers that authenticate via "
+            "an interactive OAuth device-code flow."
+        ),
+    )
+    is_authenticated: bool = Field(
+        default=False,
+        description=(
+            "Whether the provider currently has valid authentication. "
+            "Computed at info-emit time; not persisted."
+        ),
+    )
+    oauth_user_login: str = Field(
+        default="",
+        description=(
+            "Display name (e.g., GitHub login) of the authenticated user, "
+            "for OAuth-based providers. Empty when not authenticated."
+        ),
+    )
 
 
 class Provider(ProviderInfo, ABC):
     """Represents a provider instance with its configuration."""
+
+    oauth_access_token: str = Field(
+        default="",
+        description=(
+            "Long-lived OAuth access token for providers that use the "
+            "device-code flow (e.g., GitHub Copilot). Encrypted on disk via "
+            "PROVIDER_SECRET_FIELDS. Empty string when not authenticated."
+        ),
+    )
 
     @abstractmethod
     async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
@@ -189,13 +220,22 @@ class Provider(ProviderInfo, ABC):
         model_id: str,
         timeout: float = 10,  # pylint: disable=unused-argument
     ) -> tuple[bool, str]:
-        """Delete a model from the provider's model list."""
+        """Delete a model from the provider's model list.
+
+        Removes the model from ``extra_models``. For custom providers it
+        is also removed from ``models`` so that user-managed entries can
+        be deleted from the UI.
+        """
         model_id = model_id.strip()
         self.extra_models = [
             model
             for model in self.extra_models
             if model.id.strip() != model_id
         ]
+        if self.is_custom:
+            self.models = [
+                model for model in self.models if model.id.strip() != model_id
+            ]
         return True, ""
 
     def update_config(self, config: Dict) -> None:
@@ -227,6 +267,7 @@ class Provider(ProviderInfo, ABC):
         if "extra_models" in config and config["extra_models"] is not None:
             # Always go through model_validate with dict data to
             # avoid class-identity issues from dual module loading.
+            builtin_ids = {m.id.strip() for m in self.models}
             self.extra_models = [
                 ModelInfo.model_validate(
                     model.model_dump()
@@ -234,6 +275,10 @@ class Provider(ProviderInfo, ABC):
                     else model,
                 )
                 for model in config["extra_models"]
+            ]
+            # Drop any extras that duplicate a built-in entry.
+            self.extra_models = [
+                m for m in self.extra_models if m.id.strip() not in builtin_ids
             ]
 
     def get_chat_model_cls(self) -> Type[ChatModelBase]:
@@ -346,6 +391,18 @@ class Provider(ProviderInfo, ABC):
             if mock_secret and self.api_key
             else self.api_key
         )
+        # Drop any extras that duplicate a built-in entry so the UI
+        # never sees the same model twice (defensive against legacy
+        # configs persisted before dedup was enforced at write time).
+        builtin_ids = {m.id.strip() for m in self.models}
+        seen_extra_ids: set[str] = set()
+        deduped_extras = []
+        for m in self.extra_models:
+            mid = m.id.strip()
+            if mid in builtin_ids or mid in seen_extra_ids:
+                continue
+            seen_extra_ids.add(mid)
+            deduped_extras.append(m)
         # Serialize models/extra_models to plain dicts so that
         # ProviderInfo constructs fresh ModelInfo instances using
         # the class in its own module scope.  This avoids pydantic
@@ -358,7 +415,7 @@ class Provider(ProviderInfo, ABC):
             api_key=api_key,
             chat_model=self.chat_model,
             models=[m.model_dump() for m in self.models],
-            extra_models=[m.model_dump() for m in self.extra_models],
+            extra_models=[m.model_dump() for m in deduped_extras],
             api_key_prefix=self.api_key_prefix,
             is_local=self.is_local,
             is_custom=self.is_custom,
@@ -369,4 +426,19 @@ class Provider(ProviderInfo, ABC):
             freeze_url=self.freeze_url,
             require_api_key=self.require_api_key,
             generate_kwargs=self.generate_kwargs,
+            meta=dict(self.meta),
+            auth_type=self.auth_type,
+            is_authenticated=await self._compute_is_authenticated(),
+            oauth_user_login=self.oauth_user_login,
         )
+
+    async def _compute_is_authenticated(self) -> bool:
+        """Whether the provider currently has valid credentials.
+
+        Default implementation returns True if the provider has an
+        ``api_key`` (or doesn't require one).  OAuth-based providers
+        should override this to inspect their token state.
+        """
+        if not self.require_api_key:
+            return True
+        return bool(self.api_key)
