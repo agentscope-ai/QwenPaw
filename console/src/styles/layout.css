@@ -1074,7 +1074,8 @@ html.dark-mode .debug-log-path strong {
 [class*="tool-call-block-content"] .cm-content,
 [class*="tool-call-block-content"] .cm-line {
   white-space: pre-wrap !important;
-  word-break: break-word !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
 }
 
 [class*="tool-call-block-content"] .cm-content {
