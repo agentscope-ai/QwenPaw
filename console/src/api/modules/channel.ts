@@ -40,4 +40,16 @@ export const channelApi = {
         channel,
       )}/qrcode/status?token=${encodeURIComponent(token)}`,
     ),
+
+  duplicateChannel: (channelName: string) =>
+    request<{ key: string }>(
+      `/config/channels/${encodeURIComponent(channelName)}/duplicate`,
+      { method: "POST" },
+    ),
+
+  deleteChannel: (channelName: string) =>
+    request<{ deleted: string }>(
+      `/config/channels/${encodeURIComponent(channelName)}`,
+      { method: "DELETE" },
+    ),
 };

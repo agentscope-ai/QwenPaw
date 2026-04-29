@@ -85,6 +85,8 @@ const BASE_FIELDS = [
   "filter_tool_messages",
   "filter_thinking",
   "isBuiltin",
+  "target_agent",
+  "duplicated_from",
 ];
 
 interface ChannelDrawerProps {
@@ -1360,11 +1362,31 @@ export function ChannelDrawer({
             </>
           )}
 
+          <Form.Item
+            name="target_agent"
+            label={t("channels.targetAgent")}
+            tooltip={t("channels.targetAgentTooltip")}
+          >
+            <Select
+              allowClear
+              placeholder={t("channels.targetAgentPlaceholder")}
+              options={agents.map((a) => ({
+                value: a.id,
+                label: a.name || a.id,
+              }))}
+            />
+          </Form.Item>
+
           {isBuiltin
             ? renderBuiltinExtraFields(activeKey)
+            : initialValues?.duplicated_from
+            ? renderBuiltinExtraFields(initialValues.duplicated_from as string)
             : renderCustomExtraFields(initialValues)}
 
-          {CHANNELS_WITH_ACCESS_CONTROL.includes(activeKey) &&
+          {(CHANNELS_WITH_ACCESS_CONTROL.includes(activeKey) ||
+            CHANNELS_WITH_ACCESS_CONTROL.includes(
+              (initialValues?.duplicated_from as string) || "",
+            )) &&
             renderAccessControlFields()}
         </Form>
       )}
