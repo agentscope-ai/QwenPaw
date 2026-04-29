@@ -1070,3 +1070,19 @@ html.dark-mode .ant-typography-secondary {
 html.dark-mode .debug-log-path strong {
   color: rgba(255, 255, 255, 0.85) !important;
 }
+
+[class*="tool-call-block-content"] .cm-content,
+[class*="tool-call-block-content"] .cm-line {
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+}
+
+[class*="tool-call-block-content"] .cm-content {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+[class*="tool-call-block-content"] {
+  max-height: 250px !important;
+  overflow-y: auto !important;
+}
