@@ -98,14 +98,12 @@ class CardKind:
 class FeishuCardHandler:
     """Registry-based dispatcher for Feishu interactive cards.
 
-    Holds a back-reference to the owning :class:`FeishuChannel` so it
-    can piggyback on the channel's existing primitives
-    (``_send_message``, ``_get_receive_for_send``, the main event loop,
-    etc.) without duplicating state.
+    Holds a back-reference to the owning :class:`FeishuChannel` and
+    piggybacks on its primitives (``_send_message`` / ``_loop`` / ...)
+    without duplicating state.
     """
 
-    # CardHandler is intentionally coupled with its owning FeishuChannel
-    # and shares its private primitives (_send_message / _loop / ...).
+    # Tightly coupled with the owning FeishuChannel by design.
     # pylint: disable=protected-access
 
     def __init__(self, channel: "FeishuChannel") -> None:
@@ -295,11 +293,9 @@ class FeishuCardHandler:
         ch = self._channel
         loop = ch._loop
 
-        # Re-inject the user's decision as a ``/approval`` control
-        # command back into the channel queue, so the magic-command
-        # pipeline (ApprovalCommandHandler) is the single source of
-        # truth that talks to ApprovalService.  The card handler stays
-        # fully decoupled from approval business logic.
+        # Re-inject as ``/approval`` magic command so ApprovalCommandHandler
+        # stays the single source of truth; card handler keeps no business
+        # state of its own.
         self._enqueue_approval_command(
             action=action,
             request_id=parsed["request_id"],
@@ -309,9 +305,8 @@ class FeishuCardHandler:
 
         tool_name = parsed.get("tool_name") or "tool"
 
-        # Resolve operator display name synchronously via the main loop.
-        # Fall back to the last 6 chars of open_id on lookup failure
-        # (e.g. missing contact permission or timeout).
+        # Resolve operator display name on the main loop; fall back to
+        # the last 6 chars of open_id on lookup failure.
         operator_display = operator_open_id[-6:] if operator_open_id else ""
         if operator_open_id and loop and loop.is_running():
             try:
@@ -353,14 +348,11 @@ class FeishuCardHandler:
         session_ctx: Dict[str, Any],
         operator_open_id: str,
     ) -> None:
-        """Inject ``/approval {action} {request_id}`` into channel queue.
+        """Inject ``/approval {action} {request_id}`` into the channel queue.
 
-        Reconstructs a native-style payload (see ``FeishuChannel._on_message``)
-        from the session context embedded in the button value, so the
-        runner's command dispatcher picks it up and routes to
-        :class:`ApprovalCommandHandler`.  This is thread-safe: the
-        channel manager's enqueue callback hops onto the main loop via
-        ``loop.call_soon_threadsafe`` internally.
+        Rebuilds a native payload from ``session_ctx`` so the runner's
+        command dispatcher routes it to :class:`ApprovalCommandHandler`.
+        Thread-safe via the manager's enqueue callback.
         """
         from agentscope_runtime.engine.schemas.agent_schemas import (
             ContentType,
@@ -433,15 +425,11 @@ class FeishuCardHandler:
         receive_id: str,
         receive_id_type: str,
     ) -> Dict[str, Any]:
-        """Collect the routing info we need to re-inject a message later.
+        """Collect routing info needed to re-inject a message later.
 
-        ``send_meta`` is the original inbound ``meta`` dict populated in
-        :meth:`FeishuChannel._on_message`, which already contains
-        ``feishu_sender_id`` / ``feishu_chat_id`` / ``feishu_chat_type``
-        / ``is_group`` etc.  We also derive ``session_id`` from
-        ``to_handle`` (``feishu:sw:<short_session_id>``) so the enqueued
-        command lands in the same debounce bucket as the original
-        conversation.
+        ``session_id`` is derived from ``to_handle``
+        (``feishu:sw:<short_session_id>``) so the enqueued command
+        lands in the same debounce bucket as the original conversation.
         """
         session_id = ""
         handle = (to_handle or "").strip()

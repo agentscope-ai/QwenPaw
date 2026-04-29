@@ -58,21 +58,13 @@ def build_tool_guard_approval_card(
 ) -> str:
     """Build the tool-guard approval card JSON string.
 
-    ``body_text`` is the pre-rendered, already-i18n'd message produced
-    by tool_guard_mixin; it is used verbatim as the markdown body.
+    ``body_text`` is the pre-rendered markdown body produced by
+    tool_guard_mixin and used verbatim.
 
-    Each button's ``value`` is echoed back in the
-    ``card.action.trigger`` event, so we embed ``request_id`` plus a
-    ``type`` marker and a snapshot of ``body_text`` (so the resolved
-    card can reconstruct the original content without any extra API
-    call on the WS thread).
-
-    ``session_ctx`` carries the originating chat's routing info
-    (session_id / sender_id / receive_id / chat_id / is_group ...).  It
-    is echoed back inside the button value so the inbound handler can
-    re-inject a ``/approval approve <id>`` message into the channel's
-    queue with the right context, instead of calling ApprovalService
-    directly.
+    A snapshot of ``body_text`` plus ``session_ctx`` (session_id /
+    sender_id / receive_id / chat_id / ...) is embedded in each button's
+    ``value``, so the inbound handler can rebuild the resolved card and
+    re-inject a ``/approval`` command without any extra API call.
     """
     text = body_text or ""
     markdown_content = _truncate(text, 1800)
@@ -138,14 +130,12 @@ def build_tool_guard_resolved_card(
 ) -> str:
     """Card that replaces the original one after a button click.
 
-    ``action`` is the raw button action string (``"approve"`` or
-    ``"deny"``); any other value is treated as an expired/unknown
-    fallback.  We keep this layer independent of the tool-guard enum
-    so templates stay pure-data.
+    ``action`` is the raw button action string (``"approve"`` /
+    ``"deny"``); any other value falls back to an expired/unknown
+    state.  Kept free of the tool-guard enum so templates stay pure-data.
 
-    The original approval body (``body_text``) is preserved so the
-    card keeps the full tool-guard context; only the button row is
-    replaced by a single status line.
+    ``body_text`` (the original approval body) is preserved; only the
+    button row is replaced by a single status line.
     """
     by = f" by `{operator_display}`" if operator_display else ""
     if action == "approve":
