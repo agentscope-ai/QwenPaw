@@ -233,13 +233,27 @@ def copy_workspace_md_files(
     """Copy common workspace md files plus optional template overrides."""
     workspace_dir = Path(workspace_dir).expanduser()
 
+    initialized_markers = (
+        workspace_dir / "AGENTS.md",
+        workspace_dir / "PROFILE.md",
+        workspace_dir / "MEMORY.md",
+    )
+    workspace_initialized = (
+        (workspace_dir / ".bootstrap_completed").exists()
+        or all(path.exists() for path in initialized_markers)
+    )
+
+    exclude_filenames = (
+        set(_TEMPLATE_OVERRIDE_FILENAMES) if md_template_id else set()
+    )
+    if workspace_initialized:
+        exclude_filenames.add("BOOTSTRAP.md")
+
     copied_files = copy_md_files(
         language,
         skip_existing=only_if_missing,
         workspace_dir=workspace_dir,
-        exclude_filenames=(
-            _TEMPLATE_OVERRIDE_FILENAMES if md_template_id else None
-        ),
+        exclude_filenames=exclude_filenames or None,
     )
 
     if not md_template_id:
