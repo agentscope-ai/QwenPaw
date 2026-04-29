@@ -7,11 +7,13 @@ import {
   Switch,
   Button,
   Checkbox,
+  Radio,
 } from "@agentscope-ai/design";
 import { TimePicker } from "antd";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
 import type { CronJobSpecOutput } from "../../../../api/types";
+import type { CronJobFormValues } from "../index";
 import { DEFAULT_FORM_VALUES } from "./constants";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
 import styles from "../index.module.less";
@@ -21,10 +23,10 @@ type CronJob = CronJobSpecOutput;
 interface JobDrawerProps {
   open: boolean;
   editingJob: CronJob | null;
-  form: FormInstance<CronJob>;
+  form: FormInstance<CronJobFormValues>;
   saving: boolean;
   onClose: () => void;
-  onSubmit: (values: CronJob) => void;
+  onSubmit: (values: CronJobFormValues) => void;
 }
 
 export function JobDrawer({
@@ -90,7 +92,11 @@ export function JobDrawer({
           <Switch />
         </Form.Item>
 
-        <Form.Item name={["schedule", "type"]} label="ScheduleType" hidden>
+        <Form.Item
+          name={["schedule", "type"]}
+          label={t("cronJobs.scheduleType")}
+          hidden
+        >
           <Input disabled value="cron" />
         </Form.Item>
 
@@ -156,7 +162,12 @@ export function JobDrawer({
                 <Form.Item
                   name="cronDaysOfWeek"
                   label={t("cronJobs.cronDaysOfWeek")}
-                  rules={[{ required: true, message: "请选择至少一天" }]}
+                  rules={[
+                    {
+                      required: true,
+                      message: t("cronJobs.pleaseSelectAtLeastOneDay"),
+                    },
+                  ]}
                 >
                   <Checkbox.Group
                     options={[
@@ -332,22 +343,39 @@ export function JobDrawer({
         </Form.Item>
 
         <Form.Item
-          name={["request", "session_id"]}
-          label={t("cronJobs.requestSessionId")}
-          tooltip={t("cronJobs.requestSessionIdTooltip")}
+          name="sessionStrategy"
+          label={t("cronJobs.executionSessionStrategy")}
+          tooltip={t("cronJobs.executionSessionStrategyTooltip")}
+          initialValue="dispatch"
         >
-          <Input placeholder="default" />
+          <Radio.Group>
+            <Radio value="dispatch">
+              {t("cronJobs.executionSessionReuseDispatch")}
+            </Radio>
+            <Radio value="new_per_run">
+              {t("cronJobs.executionSessionNewPerRun")}
+            </Radio>
+          </Radio.Group>
+        </Form.Item>
+
+        <Form.Item noStyle shouldUpdate>
+          {({ getFieldValue }) =>
+            getFieldValue("sessionStrategy") === "new_per_run" ? (
+              <div
+                className={styles.formExtraText}
+                style={{ marginBottom: 16 }}
+              >
+                {t("cronJobs.executionSessionNewPerRunHint")}
+              </div>
+            ) : null
+          }
         </Form.Item>
 
         <Form.Item
-          name={["request", "user_id"]}
-          label={t("cronJobs.requestUserId")}
-          tooltip={t("cronJobs.requestUserIdTooltip")}
+          name={["dispatch", "type"]}
+          label={t("cronJobs.dispatchType")}
+          hidden
         >
-          <Input placeholder="system" />
-        </Form.Item>
-
-        <Form.Item name={["dispatch", "type"]} label="DispatchType" hidden>
           <Input disabled value="channel" />
         </Form.Item>
 
@@ -373,11 +401,11 @@ export function JobDrawer({
 
         <Form.Item
           name={["dispatch", "target", "session_id"]}
-          label={t("cronJobs.dispatchTargetSessionId")}
+          label={t("cronJobs.outputSession")}
           rules={[
             { required: true, message: t("cronJobs.pleaseInputSessionId") },
           ]}
-          tooltip={t("cronJobs.dispatchTargetSessionIdTooltip")}
+          tooltip={t("cronJobs.outputSessionTooltip")}
         >
           <Input placeholder="default" />
         </Form.Item>
