@@ -56,7 +56,14 @@ export default function AgentSelector({
       return;
     }
 
-    setSelectedAgent(value);
+    // setSelectedAgent returns the saved chat ID for the target agent (if any)
+    const savedChatId = setSelectedAgent(value);
+    
+    // If there's a saved chat ID for this agent, navigate to it
+    if (savedChatId) {
+      navigate(`/chat/${savedChatId}`);
+    }
+    
     message.success(t("agent.switchSuccess"));
   };
 
