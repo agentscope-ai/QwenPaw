@@ -59,6 +59,13 @@ _UPLOAD_CMD_FINISH = "aibot_upload_media_finish"
 _UPLOAD_CMDS = (_UPLOAD_CMD_INIT, _UPLOAD_CMD_CHUNK, _UPLOAD_CMD_FINISH)
 _UPLOAD_ACK_TIMEOUT = 30.0  # seconds to wait for each upload ack
 
+# Keepalive for "🤔 Thinking..." stream: refresh to avoid WeCom
+# server-side timeout; force-finish before the limit so later replies
+# can start a fresh stream_id (issue #3947).
+_PROCESSING_REFRESH_INTERVAL = 20.0
+_PROCESSING_MAX_DURATION = 180.0
+_PROCESSING_TEXT = "🤔 Thinking..."
+
 # Map ContentType → wecom msgtype used in send_message.
 _MEDIA_MSGTYPE: Dict[str, str] = {
     "image": "image",
@@ -149,6 +156,10 @@ class WecomChannel(BaseChannel):
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ws_loop: Optional[asyncio.AbstractEventLoop] = None
         self._ws_thread: Optional[threading.Thread] = None
+
+        # Keepalive tasks keyed by stream_id (kept off `meta` so the
+        # payload stays JSON-serializable).
+        self._keepalive_tasks: Dict[str, "asyncio.Task[None]"] = {}
 
         # message_id dedup (ordered dict, trimmed when over limit)
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
@@ -632,15 +643,25 @@ class WecomChannel(BaseChannel):
                     await self._client.reply_stream(
                         frame,
                         stream_id=processing_stream_id,
-                        content="🤔 Thinking...",
+                        content=_PROCESSING_TEXT,
                         finish=False,
                     )
                 except Exception:
                     logger.debug("wecom failed to send processing indicator")
+                    processing_stream_id = ""
 
             session_id = self.resolve_session_id(sender_id, meta)
             if processing_stream_id:
                 meta["wecom_processing_stream_id"] = processing_stream_id
+                # Keep stream alive while agent is generating.
+                self._keepalive_tasks[
+                    processing_stream_id
+                ] = asyncio.create_task(
+                    self._keepalive_processing(
+                        frame,
+                        processing_stream_id,
+                    ),
+                )
             native = {
                 "channel_id": self.channel,
                 "sender_id": sender_id,
@@ -942,6 +963,57 @@ class WecomChannel(BaseChannel):
                     chatid[:20],
                 )
 
+    async def _keepalive_processing(
+        self,
+        frame: Any,
+        stream_id: str,
+        interval: float = _PROCESSING_REFRESH_INTERVAL,
+        max_duration: float = _PROCESSING_MAX_DURATION,
+    ) -> None:
+        """Refresh placeholder stream; force-finish at max_duration.
+
+        Prevents WeCom server from silently dropping the stream while
+        the agent is still running (issue #3947).
+        """
+        if not self._client:
+            return
+        elapsed = 0.0
+        try:
+            while elapsed + interval <= max_duration:
+                await asyncio.sleep(interval)
+                elapsed += interval
+                try:
+                    await self._client.reply_stream(
+                        frame,
+                        stream_id=stream_id,
+                        content=_PROCESSING_TEXT,
+                        finish=False,
+                    )
+                except Exception:
+                    logger.debug(
+                        "wecom keepalive refresh failed stream_id=%s",
+                        stream_id[:20],
+                    )
+            # Close stream so next reply can use a fresh stream_id.
+            try:
+                await self._client.reply_stream(
+                    frame,
+                    stream_id=stream_id,
+                    content=_PROCESSING_TEXT,
+                    finish=True,
+                )
+                logger.info(
+                    "wecom keepalive force-finished after %.0fs stream_id=%s",
+                    max_duration,
+                    stream_id[:20],
+                )
+            except Exception:
+                logger.debug("wecom keepalive force-finish failed")
+        except asyncio.CancelledError:
+            return
+        finally:
+            self._keepalive_tasks.pop(stream_id, None)
+
     async def _send_text_via_frame(
         self,
         frame: Any,
@@ -1019,9 +1091,19 @@ class WecomChannel(BaseChannel):
         # Format markdown tables for WeCom compatibility
         body = format_markdown_tables(body)
 
-        # Use processing stream_id to overwrite "thinking..." indicator
-        # Only first reply uses it; subsequent replies get new stream_id
+        # Reuse placeholder stream_id on first chunk; cancel its
+        # keepalive task first to avoid racing finish=True. If task
+        # is already gone, it force-finished the stream, so start fresh.
         processing_sid = m.pop("wecom_processing_stream_id", "")
+        keepalive_task = self._keepalive_tasks.pop(processing_sid, None)
+        if keepalive_task is not None and not keepalive_task.done():
+            keepalive_task.cancel()
+            try:
+                await keepalive_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        elif keepalive_task is None and processing_sid:
+            processing_sid = ""
 
         first_chunk = True
         for chunk in split_text(body) if body else []:
