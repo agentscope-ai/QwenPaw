@@ -82,6 +82,10 @@ export default function MainLayout() {
       : "chat";
   }
 
+  // Keep Chat component always mounted to preserve session/task state.
+  // Use CSS display to show/hide instead of unmounting via Routes.
+  const isChatActive = currentPath === "/" || currentPath.startsWith("/chat");
+
   return (
     <Layout className={styles.mainLayout}>
       <Header />
@@ -99,43 +103,62 @@ export default function MainLayout() {
                   />
                 }
               >
-                <Routes>
-                  <Route path="/" element={<Navigate to="/chat" replace />} />
-                  <Route path="/chat/*" element={<Chat />} />
-                  <Route path="/channels" element={<ChannelsPage />} />
-                  <Route path="/sessions" element={<SessionsPage />} />
-                  <Route path="/cron-jobs" element={<CronJobsPage />} />
-                  <Route path="/heartbeat" element={<HeartbeatPage />} />
-                  <Route path="/skills" element={<SkillsPage />} />
-                  <Route path="/skill-pool" element={<SkillPoolPage />} />
-                  <Route path="/tools" element={<ToolsPage />} />
-                  <Route path="/mcp" element={<MCPPage />} />
-                  <Route path="/acp" element={<ACPPage />} />
-                  <Route path="/ACP" element={<Navigate to="/acp" replace />} />
-                  <Route path="/workspace" element={<WorkspacePage />} />
-                  <Route path="/agents" element={<AgentsPage />} />
-                  <Route path="/models" element={<ModelsPage />} />
-                  <Route path="/environments" element={<EnvironmentsPage />} />
-                  <Route path="/agent-config" element={<AgentConfigPage />} />
-                  <Route path="/security" element={<SecurityPage />} />
-                  <Route path="/token-usage" element={<TokenUsagePage />} />
-                  <Route path="/agent-stats" element={<AgentStatsPage />} />
-                  <Route
-                    path="/voice-transcription"
-                    element={<VoiceTranscriptionPage />}
-                  />
-                  <Route path="/debug" element={<DebugPage />} />
-                  <Route path="/backups" element={<BackupsPage />} />
+                {/* Chat is always mounted; hidden via display:none when inactive */}
+                <div
+                  style={{
+                    display: isChatActive ? "contents" : "none",
+                  }}
+                >
+                  <Chat />
+                </div>
 
-                  {/* Plugin routes — dynamically injected at runtime */}
-                  {pluginRoutes.map((route) => (
+                {/* Other pages rendered only when chat is not active */}
+                {!isChatActive && (
+                  <Routes>
+                    <Route path="/channels" element={<ChannelsPage />} />
+                    <Route path="/sessions" element={<SessionsPage />} />
+                    <Route path="/cron-jobs" element={<CronJobsPage />} />
+                    <Route path="/heartbeat" element={<HeartbeatPage />} />
+                    <Route path="/skills" element={<SkillsPage />} />
+                    <Route path="/skill-pool" element={<SkillPoolPage />} />
+                    <Route path="/tools" element={<ToolsPage />} />
+                    <Route path="/mcp" element={<MCPPage />} />
+                    <Route path="/acp" element={<ACPPage />} />
                     <Route
-                      key={route.path}
-                      path={route.path}
-                      element={<route.component />}
+                      path="/ACP"
+                      element={<Navigate to="/acp" replace />}
                     />
-                  ))}
-                </Routes>
+                    <Route path="/workspace" element={<WorkspacePage />} />
+                    <Route path="/agents" element={<AgentsPage />} />
+                    <Route path="/models" element={<ModelsPage />} />
+                    <Route
+                      path="/environments"
+                      element={<EnvironmentsPage />}
+                    />
+                    <Route
+                      path="/agent-config"
+                      element={<AgentConfigPage />}
+                    />
+                    <Route path="/security" element={<SecurityPage />} />
+                    <Route path="/token-usage" element={<TokenUsagePage />} />
+                    <Route path="/agent-stats" element={<AgentStatsPage />} />
+                    <Route
+                      path="/voice-transcription"
+                      element={<VoiceTranscriptionPage />}
+                    />
+                    <Route path="/debug" element={<DebugPage />} />
+                    <Route path="/backups" element={<BackupsPage />} />
+
+                    {/* Plugin routes dynamically injected at runtime */}
+                    {pluginRoutes.map((route) => (
+                      <Route
+                        key={route.path}
+                        path={route.path}
+                        element={<route.component />}
+                      />
+                    ))}
+                  </Routes>
+                )}
               </Suspense>
             </ChunkErrorBoundary>
           </div>
