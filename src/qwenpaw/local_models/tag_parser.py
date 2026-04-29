@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Parse special tags from model-generated text.
 
-Handles ``<think>...</think>`` (reasoning) and
+Handles ``<think>...</think>`` / ``<thought>...</thought>`` (reasoning) and
 ``<tool_call>...</tool_call>`` (function calling) tags that local models
 like Qwen3-Instruct embed in their raw text output.
 """
@@ -23,12 +23,21 @@ logger = logging.getLogger(__name__)
 THINK_START = "<think>"
 THINK_END = "</think>"
 
+THOUGHT_START = "<thought>"
+THOUGHT_END = "</thought>"
+
 TOOL_CALL_START = "<tool_call>"
 TOOL_CALL_END = "</tool_call>"
 
 # Regex to find a complete <think>...</think> block (non-greedy).
 _THINK_RE = re.compile(
     r"<think>(.*?)</think>",
+    re.DOTALL,
+)
+
+# Regex to find a complete <thought>...</thought> block (non-greedy).
+_THOUGHT_RE = re.compile(
+    r"<thought>(.*?)</thought>",
     re.DOTALL,
 )
 
@@ -269,19 +278,26 @@ def _parse_single_tool_call(raw_text: str) -> ParsedToolCall | None:
 
 
 def text_contains_think_tag(text: str) -> bool:
-    """Fast substring check for a ``<think>`` tag."""
-    return THINK_START in text
+    """Fast substring check for a ``<think>`` or ``<thought>`` tag."""
+    return THINK_START in text or THOUGHT_START in text
 
 
 def extract_thinking_from_text(text: str) -> TextWithThinking:
-    """Extract ``<think>...</think>`` content from *text*.
+    """Extract ``<think>...</think>`` or ``<thought>...</thought>`` content
+    from *text*.
+
+    Both tag variants are supported: ``<think>`` (used by models such as
+    Qwen3-Instruct) and ``<thought>`` (used by some other providers).
 
     Returns a :class:`TextWithThinking` with:
 
     * ``thinking``       – the reasoning content (empty if none found)
-    * ``remaining_text`` – everything outside the think tags
-    * ``has_open_tag``   – ``True`` if ``<think>`` opened but not closed yet
+    * ``remaining_text`` – everything outside the think/thought tags
+    * ``has_open_tag``   – ``True`` if an opening tag was found but the
+                           matching closing tag has not yet been seen
+                           (streaming scenario)
     """
+    # Try <think>...</think> first.
     match = _THINK_RE.search(text)
     if match:
         thinking = match.group(1).strip()
@@ -291,18 +307,37 @@ def extract_thinking_from_text(text: str) -> TextWithThinking:
             remaining_text=remaining,
         )
 
-    # No complete block — check for an unclosed <think>.
-    open_idx = text.find(THINK_START)
-    if open_idx != -1:
-        remaining = text[:open_idx].strip()
-        partial = text[open_idx + len(THINK_START) :]
+    # Try <thought>...</thought>.
+    match = _THOUGHT_RE.search(text)
+    if match:
+        thinking = match.group(1).strip()
+        remaining = (text[: match.start()] + text[match.end() :]).strip()
         return TextWithThinking(
-            thinking=partial.strip(),
+            thinking=thinking,
             remaining_text=remaining,
-            has_open_tag=True,
         )
 
-    return TextWithThinking(remaining_text=text)
+    # No complete block — check for an unclosed <think> or <thought>.
+    think_idx = text.find(THINK_START)
+    thought_idx = text.find(THOUGHT_START)
+
+    # Pick whichever open tag appears first (if both present).
+    if think_idx != -1 and (thought_idx == -1 or think_idx <= thought_idx):
+        open_idx = think_idx
+        open_tag_len = len(THINK_START)
+    elif thought_idx != -1:
+        open_idx = thought_idx
+        open_tag_len = len(THOUGHT_START)
+    else:
+        return TextWithThinking(remaining_text=text)
+
+    remaining = text[:open_idx].strip()
+    partial = text[open_idx + open_tag_len :]
+    return TextWithThinking(
+        thinking=partial.strip(),
+        remaining_text=remaining,
+        has_open_tag=True,
+    )
 
 
 def text_contains_tool_call_tag(text: str) -> bool:
