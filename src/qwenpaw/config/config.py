@@ -900,8 +900,33 @@ class AgentsLLMRoutingConfig(BaseModel):
     cloud: Optional[ModelSlotConfig] = Field(
         default=None,
         description=(
-            "Optional explicit cloud model slot; when null, uses "
-            "providers.json active_llm."
+            "Optional explicit cloud model slot. Required when "
+            "mode is cloud_first."
+        ),
+    )
+
+
+def has_configured_model_slot(slot: ModelSlotConfig | None) -> bool:
+    """Return True when a provider/model pair is configured."""
+    return bool(slot and slot.provider_id and slot.model)
+
+
+def routing_has_explicit_override(
+    routing_cfg: AgentsLLMRoutingConfig | None,
+) -> bool:
+    """Return True when a scope defines its own routing state.
+
+    Configured slots count as an override even when ``enabled`` is False.
+    This preserves agent-scope intent: once an agent has its own routing
+    slots, inherited global routing stays masked until those slots are
+    explicitly cleared.
+    """
+    return bool(
+        routing_cfg
+        and (
+            routing_cfg.enabled
+            or has_configured_model_slot(routing_cfg.local)
+            or has_configured_model_slot(routing_cfg.cloud)
         ),
     )
 
