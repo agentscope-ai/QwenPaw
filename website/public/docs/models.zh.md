@@ -156,8 +156,11 @@ QwenPaw 当前支持的云提供商包括：
 - Kimi
 - MiniMax
 - Zhipu
+- GitHub Copilot
 
 > 由于部分供应商针对中国大陆以及其他地区提供了不同的 API 域名，请根据您所在的地区选择正确的供应商
+
+> **GitHub Copilot** 使用 OAuth Device Code 流程而非 API Key 进行授权，详见下方的 [GitHub Copilot 配置](#github-copilot-配置) 章节。
 
 ![云供应商列表](https://img.alicdn.com/imgextra/i2/O1CN010o2p2y1Qj5cbfpqto_!!6000000002011-2-tps-3826-2076.png)
 
@@ -176,6 +179,38 @@ QwenPaw 当前支持的云提供商包括：
 如果预设的模型无法满足需求，您也可以在模型管理页面选择 **添加模型** 来添加增加新的模型，添加时需要提供 **模型 ID**（API 实际使用的模型标识，通常可以从提供商文档中获得）以及 **模型名称** （用于在界面中展示）。手动添加的模型同样可以通过 **测试连接** 来验证是否能够正常使用。
 
 ![添加模型](https://img.alicdn.com/imgextra/i1/O1CN014GTNqr1t4tipsb3OF_!!6000000005849-2-tps-1260-1588.png)
+
+## GitHub Copilot 配置
+
+GitHub Copilot 是一个特殊的云供应商：它**不**使用 API Key，而是通过 GitHub 的 **OAuth Device Code** 授权流程，将你已有的 GitHub Copilot 订阅（Individual、Business 或 Enterprise）接入 QwenPaw。
+
+该供应商内置了一组 Copilot 托管的聊天模型，例如 `gpt-4o`、`gpt-4o-mini`、`gpt-4.1`、`o1`、`o3-mini`、`claude-3.5-sonnet`、`claude-3.7-sonnet`、`claude-sonnet-4`、`gemini-2.0-flash-001` 等，实际可用的模型由您的 Copilot 订阅计划决定。
+
+### 通过 Device Code 登录
+
+1. 进入 **设置 -> 模型 -> 提供商**，选择 **GitHub Copilot**。
+2. 点击 **使用 GitHub 登录**，QwenPaw 会向 GitHub 申请一个 device code 并展示：
+   - 一段简短的 **user code**（例如 `ABCD-1234`），
+   - 一个验证 URL（`https://github.com/login/device`）。
+3. 在任意浏览器中打开该 URL，粘贴 user code，并授权 QwenPaw / Copilot 的设备会话。
+4. QwenPaw 会自动轮询 GitHub，授权成功后将加密保存一个长期 OAuth Token，并显示您的 GitHub 登录名。
+5. 在具体模型上点击 **测试连接**，验证 Copilot 订阅能够正常返回聊天结果。
+
+### 工作原理
+
+- 长期的 **GitHub OAuth access token** 经 Fernet 加密后保存在 `~/.qwenpaw.secret/providers/oauth/github-copilot.json`。
+- 短期的 **Copilot API token** 按需向 `https://api.github.com/copilot_internal/v2/token` 拉取，仅保存在内存中，并在过期前自动续期。
+- 每个聊天请求都通过 `httpx.Auth` 在调用时注入最新 token，token 轮换对上层完全透明。
+
+### 退出登录
+
+在供应商页面点击 **退出登录**，会立即清除本地 OAuth 状态：删除加密的 token 文件并清空内存中的 Copilot token。
+
+### 限制
+
+- 需要一个有效的 GitHub Copilot 订阅。
+- 可用模型与速率限制由您的 Copilot 订阅计划决定。
+- 当前版本暂不支持 GitHub Enterprise Server（GHES）部署。
 
 ## 自定义供应商配置
 

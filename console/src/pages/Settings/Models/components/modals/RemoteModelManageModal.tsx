@@ -599,10 +599,18 @@ export function RemoteModelManageModal({
   }, [adding, form, isOpenRouter]);
 
   const filteredModels = useMemo(() => {
-    const all_models = [
-      ...(provider.extra_models ?? []),
-      ...(provider.models ?? []),
-    ];
+    const builtinIds = new Set((provider.models ?? []).map((m) => m.id.trim()));
+    // Dedupe: drop any extra_models that share an id with a built-in
+    // entry, and also drop duplicates within extra_models itself.
+    const seen = new Set<string>();
+    const dedupedExtras: NonNullable<typeof provider.extra_models> = [];
+    for (const m of provider.extra_models ?? []) {
+      const id = m.id.trim();
+      if (builtinIds.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      dedupedExtras.push(m);
+    }
+    const all_models = [...dedupedExtras, ...(provider.models ?? [])];
     const q = modelSearchQuery.trim().toLowerCase();
     if (!q) return all_models;
     return all_models.filter(

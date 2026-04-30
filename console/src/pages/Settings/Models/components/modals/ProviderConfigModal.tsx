@@ -7,6 +7,7 @@ import type { ProviderConfigRequest } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { getLocalizedTestConnectionMessage } from "./testConnectionMessage";
+import { GitHubCopilotAuthPanel } from "./GitHubCopilotAuthPanel";
 import styles from "../../index.module.less";
 
 interface ProviderConfigFormValues
@@ -248,6 +249,9 @@ interface ProviderConfigModalProps {
     chat_model: string;
     support_connection_check: boolean;
     generate_kwargs: Record<string, unknown>;
+    auth_type?: string;
+    is_authenticated?: boolean;
+    oauth_user_login?: string;
   };
   activeModels: any;
   open: boolean;
@@ -271,6 +275,7 @@ export function ProviderConfigModal({
   const { message } = useAppMessage();
   const selectedChatModel = Form.useWatch("chat_model", form);
   const canEditBaseUrl = !provider.freeze_url;
+  const isOAuthProvider = provider.auth_type === "oauth_device_code";
 
   const parseGenerateConfig = (value?: string) => {
     const trimmed = value?.trim();
@@ -507,12 +512,12 @@ export function ProviderConfigModal({
       footer={
         <div className={styles.modalFooter}>
           <div className={styles.modalFooterLeft}>
-            {provider.api_key && (
+            {!isOAuthProvider && provider.api_key && (
               <Button danger size="small" onClick={handleRevoke}>
                 {t("models.revokeAuthorization")}
               </Button>
             )}
-            {provider.support_connection_check && (
+            {!isOAuthProvider && provider.support_connection_check && (
               <Button
                 size="small"
                 icon={<ApiOutlined />}
@@ -525,6 +530,13 @@ export function ProviderConfigModal({
           </div>
           <div className={styles.modalFooterRight}>
             <Button onClick={onClose}>{t("models.cancel")}</Button>
+            {/*
+              Save is shown for OAuth providers as well so that the user
+              can persist non-credential fields (e.g. base_url overrides
+              and ``generate_kwargs``).  The backend explicitly ignores
+              ``api_key`` updates for OAuth providers, so re-enabling
+              Save here cannot leak or override the OAuth credential.
+            */}
             <Button
               type="primary"
               loading={saving}
@@ -552,6 +564,16 @@ export function ProviderConfigModal({
         }}
         onValuesChange={() => setFormDirty(true)}
       >
+        {isOAuthProvider && (
+          <GitHubCopilotAuthPanel
+            providerId={provider.id}
+            initialStatus={{
+              is_authenticated: provider.is_authenticated,
+              oauth_user_login: provider.oauth_user_login,
+            }}
+            onAuthChanged={onSaved}
+          />
+        )}
         {provider.is_custom && (
           <Form.Item
             name="chat_model"
@@ -622,32 +644,34 @@ export function ProviderConfigModal({
         </Form.Item>
 
         {/* API Key */}
-        <Form.Item
-          name="api_key"
-          label={t("models.apiKey")}
-          rules={[
-            {
-              validator: (_, value) => {
-                if (
-                  value &&
-                  provider.api_key_prefix &&
-                  !value.startsWith(provider.api_key_prefix)
-                ) {
-                  return Promise.reject(
-                    new Error(
-                      t("models.apiKeyShouldStart", {
-                        prefix: provider.api_key_prefix,
-                      }),
-                    ),
-                  );
-                }
-                return Promise.resolve();
+        {!isOAuthProvider && (
+          <Form.Item
+            name="api_key"
+            label={t("models.apiKey")}
+            rules={[
+              {
+                validator: (_, value) => {
+                  if (
+                    value &&
+                    provider.api_key_prefix &&
+                    !value.startsWith(provider.api_key_prefix)
+                  ) {
+                    return Promise.reject(
+                      new Error(
+                        t("models.apiKeyShouldStart", {
+                          prefix: provider.api_key_prefix,
+                        }),
+                      ),
+                    );
+                  }
+                  return Promise.resolve();
+                },
               },
-            },
-          ]}
-        >
-          <Input.Password placeholder={apiKeyPlaceholder} />
-        </Form.Item>
+            ]}
+          >
+            <Input.Password placeholder={apiKeyPlaceholder} />
+          </Form.Item>
+        )}
 
         <div className={styles.advancedConfigSection}>
           <button
