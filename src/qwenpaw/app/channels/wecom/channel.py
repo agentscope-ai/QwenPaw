@@ -23,7 +23,7 @@ import sys
 import threading
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Coroutine, Dict, List, Optional
 
 from agentscope_runtime.engine.schemas.agent_schemas import (
     AgentRequest,
@@ -650,11 +650,13 @@ class WecomChannel(BaseChannel):
             if text_parts and self._client:
                 processing_stream_id = generate_req_id("stream")
                 try:
-                    await self._client.reply_stream(
-                        frame,
-                        stream_id=processing_stream_id,
-                        content=_PROCESSING_TEXT,
-                        finish=False,
+                    await self._run_on_ws_loop(
+                        self._client.reply_stream(
+                            frame,
+                            stream_id=processing_stream_id,
+                            content=_PROCESSING_TEXT,
+                            finish=False,
+                        ),
                     )
                 except Exception:
                     logger.debug("wecom failed to send processing indicator")
@@ -715,9 +717,11 @@ class WecomChannel(BaseChannel):
         logger.info("wecom enter_chat event")
         if not self.welcome_text or not self._client:
             return
-        await self._client.reply_welcome(
-            frame,
-            {"msgtype": "text", "text": {"content": self.welcome_text}},
+        await self._run_on_ws_loop(
+            self._client.reply_welcome(
+                frame,
+                {"msgtype": "text", "text": {"content": self.welcome_text}},
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -763,6 +767,27 @@ class WecomChannel(BaseChannel):
     # ------------------------------------------------------------------
     # Send helpers
     # ------------------------------------------------------------------
+
+    async def _run_on_ws_loop(self, coro: Coroutine[Any, Any, Any]) -> Any:
+        """Run an SDK coroutine on the WebSocket thread's event loop.
+
+        All aibot SDK public method (reply, reply_stream, reply_welcome,
+        send_message) ultimately call _ws_manager.send_reply() which may
+        use asyncio.ensure_future() internnally. When called from the
+        main agent loop (_loop), the new task gets bound to the wrong
+        loop, causing ``RuntimeError: Task got Future attached to a
+        different loop``.
+
+        This helper dispatches the coroutine to _ws_loop via
+        run_coroutine_threadsafe + warp_future. Falls back to a direct
+        await when _ws_loop is not running (e.g. tests or single-loop
+        setups).
+        """
+        if self._ws_loop and self._ws_loop.is_running():
+            return await asyncio.wrap_future(
+                asyncio.run_coroutine_threadsafe(coro, self._ws_loop),
+            )
+        return await coro
 
     async def _send_ws_cmd(
         self,
@@ -964,15 +989,19 @@ class WecomChannel(BaseChannel):
 
         if frame:
             try:
-                await self._client.reply(
-                    frame,
-                    {"msgtype": msgtype, msgtype: {"media_id": media_id}},
+                await self._run_on_ws_loop(
+                    self._client.reply(
+                        frame,
+                        {"msgtype": msgtype, msgtype: {"media_id": media_id}},
+                    ),
                 )
             except Exception:
                 logger.exception("wecom send media via reply failed")
         elif chatid and self._client:
             try:
-                await self._client.send_message(chatid, msg_body)
+                await self._run_on_ws_loop(
+                    self._client.send_message(chatid, msg_body),
+                )
             except Exception:
                 logger.exception(
                     "wecom send media via send_message failed chatid=%s",
@@ -999,11 +1028,13 @@ class WecomChannel(BaseChannel):
                 await asyncio.sleep(interval)
                 elapsed += interval
                 try:
-                    await self._client.reply_stream(
-                        frame,
-                        stream_id=stream_id,
-                        content=_PROCESSING_TEXT,
-                        finish=False,
+                    await self._run_on_ws_loop(
+                        self._client.reply_stream(
+                            frame,
+                            stream_id=stream_id,
+                            content=_PROCESSING_TEXT,
+                            finish=False,
+                        ),
                     )
                 except Exception:
                     logger.debug(
@@ -1012,11 +1043,13 @@ class WecomChannel(BaseChannel):
                     )
             # Close stream so next reply can use a fresh stream_id.
             try:
-                await self._client.reply_stream(
-                    frame,
-                    stream_id=stream_id,
-                    content=_PROCESSING_TEXT,
-                    finish=True,
+                await self._run_on_ws_loop(
+                    self._client.reply_stream(
+                        frame,
+                        stream_id=stream_id,
+                        content=_PROCESSING_TEXT,
+                        finish=True,
+                    )
                 )
                 logger.info(
                     "wecom keepalive force-finished after %.0fs stream_id=%s",
@@ -1048,23 +1081,14 @@ class WecomChannel(BaseChannel):
             return
         try:
             sid = stream_id or generate_req_id("stream")
-            if self._ws_loop and self._ws_loop.is_running():
-                reply_coro = self._client.reply_stream(
+            await self._run_on_ws_loop(
+                self._client.reply_stream(
                     frame,
                     stream_id=sid,
                     content=text,
                     finish=True,
-                )
-                await asyncio.wrap_future(
-                    asyncio.run_coroutine_threadsafe(reply_coro, self._ws_loop)
-                )
-            else:
-                await self._client.reply_stream(
-                    frame,
-                    stream_id=sid,
-                    content=text,
-                    finish=True,
-                )
+                ),
+            )
         except Exception:
             logger.exception("wecom _send_text_via_frame failed")
 
@@ -1140,12 +1164,14 @@ class WecomChannel(BaseChannel):
                 await self._send_text_via_frame(frame, chunk, sid)
             elif chatid:
                 try:
-                    await self._client.send_message(
-                        chatid,
-                        {
-                            "msgtype": "markdown",
-                            "markdown": {"content": chunk},
-                        },
+                    await self._run_on_ws_loop(
+                        self._client.send_message(
+                            chatid,
+                            {
+                                "msgtype": "markdown",
+                                "markdown": {"content": chunk},
+                            },
+                        )
                     )
                 except Exception:
                     logger.exception(
@@ -1156,11 +1182,13 @@ class WecomChannel(BaseChannel):
         # clear it with an empty finish before sending media.
         if processing_sid and first_chunk and frame:
             try:
-                await self._client.reply_stream(
-                    frame,
-                    stream_id=processing_sid,
-                    content="✅ Done",
-                    finish=True,
+                await self._run_on_ws_loop(
+                    self._client.reply_stream(
+                        frame,
+                        stream_id=processing_sid,
+                        content="✅ Done",
+                        finish=True,
+                    ),
                 )
             except Exception:
                 logger.debug("wecom: failed to clear processing indicator")
