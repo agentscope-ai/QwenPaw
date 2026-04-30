@@ -413,6 +413,10 @@ class BaseChannel(ABC):
         TaskTracker is used to track the running task so /stop can cancel it.
         Message serialization is ensured by UnifiedQueueManager which queues
         messages per (channel, session, priority).
+        
+        Implements timeout mechanism: if a task runs longer than
+        TASK_TIMEOUT_SECONDS (default: 300s), it will be automatically
+        cancelled to prevent permanent blocking.
 
         Args:
             request: AgentRequest
@@ -421,6 +425,15 @@ class BaseChannel(ABC):
         session_id = getattr(request, "session_id", "") or ""
         user_id = getattr(request, "user_id", "") or ""
         channel_id = getattr(request, "channel", self.channel)
+        
+        # Timeout configuration
+        TASK_TIMEOUT_SECONDS = 300.0  # 5 minutes
+        
+        # Track task start time for timeout detection
+        if not hasattr(self, '_task_start_times'):
+            self._task_start_times: Dict[str, float] = {}
+        if not hasattr(self, '_active_tasks'):
+            self._active_tasks: Dict[str, asyncio.Task] = {}
 
         chat = await self._workspace.chat_manager.get_or_create_chat(
             session_id,
@@ -441,6 +454,9 @@ class BaseChannel(ABC):
         )
 
         if is_new:
+            # Record task start time
+            self._task_start_times[chat.id] = time.time()
+            
             try:
                 async for _ in self._workspace.task_tracker.stream_from_queue(
                     queue,
@@ -453,12 +469,75 @@ class BaseChannel(ABC):
                     f"session={session_id[:30]}",
                 )
                 raise
+            finally:
+                # Clean up task tracking
+                self._task_start_times.pop(chat.id, None)
+                self._active_tasks.pop(chat.id, None)
         else:
-            logger.warning(
-                f"Message ignored (task already running): "
-                f"chat_id={chat.id} session={session_id[:30]}. "
-                f"This should not happen with UnifiedQueueManager.",
-            )
+            # Task already running - check if it's stuck (timeout)
+            start_time = self._task_start_times.get(chat.id)
+            if start_time:
+                elapsed = time.time() - start_time
+                
+                if elapsed > TASK_TIMEOUT_SECONDS:
+                    # Task has exceeded timeout - cancel it and start new one
+                    logger.warning(
+                        f"Task timeout ({elapsed:.1f}s > {TASK_TIMEOUT_SECONDS}s): "
+                        f"chat_id={chat.id} session={session_id[:30]}. "
+                        f"Cancelling stuck task and processing new message."
+                    )
+                    
+                    # Request task cancellation via TaskTracker
+                    await self._workspace.task_tracker.request_stop(chat.id)
+                    
+                    # Clean up tracking
+                    self._task_start_times.pop(chat.id, None)
+                    self._active_tasks.pop(chat.id, None)
+                    
+                    # Wait a bit for cleanup
+                    await asyncio.sleep(0.5)
+                    
+                    # Now start a new task for this message
+                    logger.info(
+                        f"Starting new task after timeout: chat_id={chat.id}"
+                    )
+                    queue, is_new = await self._workspace.task_tracker.attach_or_start(
+                        chat.id,
+                        payload,
+                        self._stream_with_tracker,
+                    )
+                    
+                    if is_new:
+                        self._task_start_times[chat.id] = time.time()
+                        try:
+                            async for _ in self._workspace.task_tracker.stream_from_queue(
+                                queue,
+                                chat.id,
+                            ):
+                                pass
+                        except asyncio.CancelledError:
+                            logger.info(
+                                f"Task cancelled: chat_id={chat.id} "
+                                f"session={session_id[:30]}",
+                            )
+                            raise
+                        finally:
+                            self._task_start_times.pop(chat.id, None)
+                            self._active_tasks.pop(chat.id, None)
+                    return
+                
+                # Task is still running but within timeout - wait for it
+                logger.warning(
+                    f"Message queued (task already running, {elapsed:.1f}s): "
+                    f"chat_id={chat.id} session={session_id[:30]}. "
+                    f"This should not happen with UnifiedQueueManager.",
+                )
+            else:
+                logger.warning(
+                    f"Message ignored (task already running): "
+                    f"chat_id={chat.id} session={session_id[:30]}. "
+                    f"This should not happen with UnifiedQueueManager.",
+                )
 
     async def _stream_with_tracker(
         self,
@@ -959,8 +1038,6 @@ class BaseChannel(ABC):
             return False
         status = getattr(event, "status", None)
         if status != RunStatus.InProgress:
-            return False
-        if self._filter_tool_messages:
             return False
         data = getattr(event, "data", None) or {}
         if not isinstance(data, dict) or "output" not in data:
