@@ -4,7 +4,10 @@ from urllib.parse import unquote
 from fastapi import APIRouter, HTTPException
 from starlette.responses import FileResponse
 
+from ...constant import WORKING_DIR
+
 router = APIRouter(prefix="/files", tags=["files"])
+
 
 
 @router.api_route(
@@ -27,6 +30,13 @@ async def preview_file(
             normalized = trimmed[len(prefix) :]
             continue
         break
+
+    # normalized starts with "knowledge-assets/", resolve it under WORKING_DIR/knowledge_assets for backward compatibility.
+    if normalized.startswith("knowledge-assets/"):
+        path = WORKING_DIR / "knowledge_assets" / normalized[len("knowledge-assets/") :]
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Not found")
+        return FileResponse(path, filename=path.name)
 
     # Normalize /C:/... to C:/... on Windows.
     if (

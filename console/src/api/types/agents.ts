@@ -1,6 +1,7 @@
 // Multi-agent management types
 
 import type { ModelSlotConfig } from "./provider";
+import type { KnowledgeBaseSummary, KnowledgeReferenceItem } from "./knowledge";
 
 export interface AgentSummary {
   id: string;
@@ -50,4 +51,18 @@ export interface CreateAgentRequest {
 export interface AgentProfileRef {
   id: string;
   workspace_dir: string;
+}
+
+export interface AgentKnowledgeBaseListResponse {
+  items: KnowledgeBaseSummary[];
+}
+
+export interface AgentKnowledgeConfigResponse {
+  items: KnowledgeReferenceItem[];
+  soul_path: string;
+}
+
+export interface AgentKnowledgePreviewResponse {
+  knowledge_bases: KnowledgeBaseSummary[];
+  knowledge_config: AgentKnowledgeConfigResponse;
 }

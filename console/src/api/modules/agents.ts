@@ -5,6 +5,9 @@ import type {
   CreateAgentRequest,
   AgentProfileRef,
   ReorderAgentsResponse,
+  AgentKnowledgeBaseListResponse,
+  AgentKnowledgeConfigResponse,
+  AgentKnowledgePreviewResponse,
 } from "../types/agents";
 
 // Multi-agent management API
@@ -15,6 +18,25 @@ export const agentsApi = {
   // Get agent details
   getAgent: (agentId: string) =>
     request<AgentProfileConfig>(`/agents/${agentId}`),
+
+  listAgentKnowledgeBases: (agentId: string) =>
+    request<AgentKnowledgeBaseListResponse>(
+      `/agents/${agentId}/knowledge-bases`,
+    ),
+
+  getAgentKnowledgeBase: (agentId: string) =>
+    request<AgentKnowledgeConfigResponse>(`/agents/${agentId}/knowledge-base`),
+
+  updateAgentKnowledgeBase: (agentId: string, knowledgeIds: string[]) =>
+    request<AgentKnowledgeConfigResponse>(`/agents/${agentId}/knowledge-base`, {
+      method: "PUT",
+      body: JSON.stringify({ knowledge_ids: knowledgeIds }),
+    }),
+
+  previewWorkspaceKnowledge: (workspaceDir: string) =>
+    request<AgentKnowledgePreviewResponse>(
+      `/agents/knowledge-preview?workspace_dir=${encodeURIComponent(workspaceDir)}`,
+    ),
 
   // Create new agent
   createAgent: (agent: CreateAgentRequest) =>

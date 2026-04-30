@@ -23,6 +23,7 @@ export default function AgentsPage() {
   const [reordering, setReordering] = useState(false);
   const [form] = Form.useForm();
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [selectedKnowledgeIds, setSelectedKnowledgeIds] = useState<string[]>([]);
   const installedSkillsRef = useRef<string[]>([]);
   const { message } = useAppMessage();
 
@@ -35,6 +36,7 @@ export default function AgentsPage() {
       active_model_model: undefined,
     });
     setSelectedSkills([]);
+    setSelectedKnowledgeIds([]);
     installedSkillsRef.current = [];
     setModalVisible(true);
   };
@@ -42,6 +44,7 @@ export default function AgentsPage() {
   const handleEdit = async (agent: AgentSummary) => {
     try {
       setSelectedSkills([]);
+      setSelectedKnowledgeIds([]);
       installedSkillsRef.current = [];
       invalidateSkillCache({ agentId: agent.id });
       const config = await agentsApi.getAgent(agent.id);
@@ -121,6 +124,10 @@ export default function AgentsPage() {
           });
         }
         await agentsApi.updateAgent(editingAgent.id, payload);
+        await agentsApi.updateAgentKnowledgeBase(
+          editingAgent.id,
+          selectedKnowledgeIds,
+        );
         installedSkillsRef.current = [
           ...previousInstalledSkills,
           ...newSkills.filter(
@@ -135,6 +142,7 @@ export default function AgentsPage() {
           language: i18n.language,
           skill_names: selectedSkills,
         });
+        await agentsApi.updateAgentKnowledgeBase(result.id, selectedKnowledgeIds);
         message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);
       }
 
@@ -206,7 +214,9 @@ export default function AgentsPage() {
         editingAgent={editingAgent}
         form={form}
         selectedSkills={selectedSkills}
+        selectedKnowledgeIds={selectedKnowledgeIds}
         onSelectedSkillsChange={setSelectedSkills}
+        onSelectedKnowledgeIdsChange={setSelectedKnowledgeIds}
         onInstalledSkillsLoaded={handleInstalledSkillsLoaded}
         onSave={handleSubmit}
         onCancel={() => setModalVisible(false)}

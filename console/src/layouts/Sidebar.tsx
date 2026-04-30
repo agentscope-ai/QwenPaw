@@ -27,12 +27,12 @@ import {
   SparkBrowseLine,
   SparkMcpMcpLine,
   SparkScanLine,
+  SparkSearchUserLine,
   SparkToolLine,
   SparkDataLine,
   SparkMicLine,
   SparkAgentLine,
   SparkExitFullscreenLine,
-  SparkSearchUserLine,
   SparkMenuExpandLine,
   SparkMenuFoldLine,
   SparkOtherLine,
@@ -205,6 +205,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.acp"),
     },
     {
+      key: "knowledge",
+      icon: <SparkSearchUserLine size={18} />,
+      path: "/knowledge",
+      label: t("nav.knowledge"),
+    },
+    {
       key: "agent-config",
       icon: <SparkModifyLine size={18} />,
       path: "/agent-config",
@@ -335,6 +341,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           key: "acp",
           label: collapsed ? null : t("nav.acp"),
           icon: <SparkScanLine size={16} />,
+        },
+        {
+          key: "knowledge",
+          label: collapsed ? null : t("nav.knowledge"),
+          icon: <SparkSearchUserLine size={16} />,
         },
         {
           key: "agent-config",

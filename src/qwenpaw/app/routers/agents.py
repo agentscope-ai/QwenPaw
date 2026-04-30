@@ -7,7 +7,7 @@ Provides RESTful API for managing multiple agent instances.
 import json
 import logging
 from pathlib import Path
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi import Path as PathParam
 from pydantic import BaseModel, field_validator
 
@@ -30,6 +30,12 @@ from ...config.config import (
 from ...config.utils import load_config, save_config
 from ...agents.utils import copy_workspace_md_files, normalize_agent_language
 from ...agents.skills_manager import SkillPoolService, get_workspace_skills_dir
+from ..knowledge import (
+    build_knowledge_summary,
+    load_soul_knowledge_config,
+    load_store,
+    save_soul_knowledge_config,
+)
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
 
@@ -59,6 +65,24 @@ class ReorderAgentsRequest(BaseModel):
     """Request model for persisting agent order."""
 
     agent_ids: list[str]
+
+
+class AgentKnowledgeSelectionRequest(BaseModel):
+    knowledge_ids: list[str]
+
+
+class AgentKnowledgeBaseSummaryResponse(BaseModel):
+    items: list[dict]
+
+
+class AgentKnowledgeConfigResponse(BaseModel):
+    items: list[dict]
+    soul_path: str
+
+
+class AgentKnowledgePreviewResponse(BaseModel):
+    knowledge_bases: list[dict]
+    knowledge_config: dict
 
 
 class CreateAgentRequest(BaseModel):
@@ -152,6 +176,36 @@ def _read_profile_description(workspace_dir: str) -> str:
         return " ".join(lines)[:200] if lines else ""
     except Exception:  # noqa: E722
         return ""
+
+
+def _get_agent_workspace_dir(agent_id: str) -> Path:
+    try:
+        agent_config = load_agent_config(agent_id)
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return Path(agent_config.workspace_dir).expanduser()
+
+
+def _resolve_preview_workspace_dir(workspace_dir: str | None) -> Path:
+    raw = str(workspace_dir or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="workspace_dir is required")
+    return Path(raw).expanduser()
+
+
+def _build_workspace_knowledge_preview(workspace_dir: Path) -> AgentKnowledgePreviewResponse:
+    store = load_store(workspace_dir)
+    knowledge_bases = [
+        build_knowledge_summary(item, index)
+        for index, item in enumerate(store.get("knowledge_bases", []), start=1)
+    ]
+    knowledge_config = load_soul_knowledge_config(workspace_dir)
+    return AgentKnowledgePreviewResponse(
+        knowledge_bases=knowledge_bases,
+        knowledge_config=knowledge_config,
+    )
 
 
 @router.get(
@@ -250,6 +304,80 @@ async def get_agent(agentId: str = PathParam(...)) -> AgentProfileConfig:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get(
+    "/{agentId}/knowledge-bases",
+    response_model=AgentKnowledgeBaseSummaryResponse,
+    summary="List agent knowledge bases",
+    description="List knowledge bases available in the target agent workspace.",
+)
+async def list_agent_knowledge_bases(agentId: str = PathParam(...)) -> AgentKnowledgeBaseSummaryResponse:
+    workspace_dir = _get_agent_workspace_dir(agentId)
+    store = load_store(workspace_dir)
+    items = [
+        build_knowledge_summary(item, index)
+        for index, item in enumerate(store.get("knowledge_bases", []), start=1)
+    ]
+    return AgentKnowledgeBaseSummaryResponse(items=items)
+
+
+@router.get(
+    "/{agentId}/knowledge-base",
+    response_model=AgentKnowledgeConfigResponse,
+    summary="Get agent knowledge selection",
+    description="Read SOUL.md knowledge_base entries for the target agent workspace.",
+)
+async def get_agent_knowledge_base(agentId: str = PathParam(...)) -> AgentKnowledgeConfigResponse:
+    workspace_dir = _get_agent_workspace_dir(agentId)
+    config = load_soul_knowledge_config(workspace_dir)
+    return AgentKnowledgeConfigResponse(**config)
+
+
+@router.put(
+    "/{agentId}/knowledge-base",
+    response_model=AgentKnowledgeConfigResponse,
+    summary="Update agent knowledge selection",
+    description="Persist selected knowledge bases into SOUL.md knowledge_base for the target agent.",
+)
+async def update_agent_knowledge_base(
+    agentId: str = PathParam(...),
+    payload: AgentKnowledgeSelectionRequest = Body(...),
+) -> AgentKnowledgeConfigResponse:
+    workspace_dir = _get_agent_workspace_dir(agentId)
+    existing = load_soul_knowledge_config(workspace_dir)
+    existing_by_id = {item["id"]: item for item in existing["items"]}
+    next_items = []
+    for index, knowledge_id in enumerate(payload.knowledge_ids, start=1):
+        item = existing_by_id.get(knowledge_id)
+        if item is None:
+            item = {
+                "id": knowledge_id,
+                "priority": index,
+                "trigger": "always",
+                "retrieval_top_k": 3,
+                "usage_rule": "Use this knowledge base when it is relevant.",
+                "keywords": [],
+            }
+        else:
+            item = {**item, "priority": index}
+        next_items.append(item)
+    config = save_soul_knowledge_config(workspace_dir, next_items)
+    return AgentKnowledgeConfigResponse(**config)
+
+
+@router.get(
+    "/knowledge-preview",
+    response_model=AgentKnowledgePreviewResponse,
+    summary="Preview workspace knowledge state",
+    description="Preview knowledge bases and SOUL knowledge_base selection for a workspace path before creating an agent.",
+)
+async def preview_workspace_knowledge(
+    workspace_dir: str = Query(...),
+) -> AgentKnowledgePreviewResponse:
+    return _build_workspace_knowledge_preview(
+        _resolve_preview_workspace_dir(workspace_dir),
+    )
 
 
 def _generate_unique_id(existing_ids: set[str]) -> str:

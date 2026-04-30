@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Modal,
   Form,
@@ -13,10 +13,12 @@ import {
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { AgentSummary } from "@/api/types/agents";
+import type { KnowledgeBaseSummary } from "@/api/types/knowledge";
 import type { ProviderInfo } from "@/api/types/provider";
 import { getAgentDisplayName } from "@/utils/agentDisplayName";
 import type { PoolSkillSpec } from "@/api/types/skill";
 import { skillApi } from "@/api/modules/skill";
+import { agentsApi } from "@/api/modules/agents";
 import { providerApi } from "@/api/modules/provider";
 import { providerIcon } from "../../Models/components/providerIcon";
 import styles from "../index.module.less";
@@ -34,7 +36,9 @@ interface AgentModalProps {
   editingAgent: AgentSummary | null;
   form: ReturnType<typeof Form.useForm>[0];
   selectedSkills: string[];
+  selectedKnowledgeIds: string[];
   onSelectedSkillsChange: (skills: string[]) => void;
+  onSelectedKnowledgeIdsChange: (knowledgeIds: string[]) => void;
   onInstalledSkillsLoaded: (skills: string[]) => void;
   onSave: () => Promise<void>;
   onCancel: () => void;
@@ -45,7 +49,9 @@ export function AgentModal({
   editingAgent,
   form,
   selectedSkills,
+  selectedKnowledgeIds,
   onSelectedSkillsChange,
+  onSelectedKnowledgeIdsChange,
   onInstalledSkillsLoaded,
   onSave,
   onCancel,
@@ -54,11 +60,14 @@ export function AgentModal({
   const [poolSkills, setPoolSkills] = useState<PoolSkillSpec[]>([]);
   const [installedSkills, setInstalledSkills] = useState<string[]>([]);
   const [loadingSkills, setLoadingSkills] = useState(false);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseSummary[]>([]);
+  const [loadingKnowledgeBases, setLoadingKnowledgeBases] = useState(false);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [loadingProviders, setLoadingProviders] = useState(false);
 
   const selectedProviderId = Form.useWatch("active_model_provider", form);
   const selectedModelId = Form.useWatch("active_model_model", form);
+  const watchedWorkspaceDir = Form.useWatch("workspace_dir", form);
 
   const eligibleProviders: EligibleProvider[] = useMemo(() => {
     return providers
@@ -102,7 +111,6 @@ export function AgentModal({
     const fetchInstalled = editingAgent
       ? skillApi.listSkills(editingAgent.id)
       : Promise.resolve([]);
-
     Promise.all([fetchPool, fetchInstalled])
       .then(([pool, workspaceSkills]) => {
         const poolSkillNames = new Set(pool.map((skill) => skill.name));
@@ -119,8 +127,75 @@ export function AgentModal({
           onSelectedSkillsChange([]);
         }
       })
-      .finally(() => setLoadingSkills(false));
-  }, [editingAgent, onInstalledSkillsLoaded, onSelectedSkillsChange, open]);
+      .catch((error) => {
+        console.error("Failed to load agent skills:", error);
+        setPoolSkills([]);
+        setInstalledSkills([]);
+      })
+      .finally(() => {
+        setLoadingSkills(false);
+      });
+  }, [
+    editingAgent,
+    onInstalledSkillsLoaded,
+    onSelectedKnowledgeIdsChange,
+    onSelectedSkillsChange,
+    open,
+  ]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    if (editingAgent) {
+      setLoadingKnowledgeBases(true);
+      Promise.all([
+        agentsApi.listAgentKnowledgeBases(editingAgent.id),
+        agentsApi.getAgentKnowledgeBase(editingAgent.id),
+      ])
+        .then(([knowledgeBaseResponse, knowledgeConfig]) => {
+          setKnowledgeBases(knowledgeBaseResponse.items);
+          onSelectedKnowledgeIdsChange(
+            knowledgeConfig.items.map((item) => item.id),
+          );
+        })
+        .catch((error) => {
+          console.error("Failed to load agent knowledge bases:", error);
+          setKnowledgeBases([]);
+          onSelectedKnowledgeIdsChange([]);
+        })
+        .finally(() => setLoadingKnowledgeBases(false));
+      return;
+    }
+
+    const workspaceDir = String(watchedWorkspaceDir || "").trim();
+    if (!workspaceDir) {
+      setKnowledgeBases([]);
+      onSelectedKnowledgeIdsChange([]);
+      setLoadingKnowledgeBases(false);
+      return;
+    }
+
+    setLoadingKnowledgeBases(true);
+    agentsApi
+      .previewWorkspaceKnowledge(workspaceDir)
+      .then((preview) => {
+        setKnowledgeBases(preview.knowledge_bases);
+        onSelectedKnowledgeIdsChange(
+          preview.knowledge_config.items.map((item) => item.id),
+        );
+      })
+      .catch((error) => {
+        console.error("Failed to preview workspace knowledge:", error);
+        setKnowledgeBases([]);
+        onSelectedKnowledgeIdsChange([]);
+      })
+      .finally(() => setLoadingKnowledgeBases(false));
+  }, [
+    editingAgent,
+    onSelectedKnowledgeIdsChange,
+    open,
+    watchedWorkspaceDir,
+  ]);
 
   const handleProviderChange = (providerId: string) => {
     form.setFieldsValue({
@@ -163,6 +238,24 @@ export function AgentModal({
 
   const handleSelectNone = () => {
     onSelectedSkillsChange(editingAgent ? [...installedSkills] : []);
+  };
+
+  const toggleKnowledgeBase = (knowledgeId: string) => {
+    if (selectedKnowledgeIds.includes(knowledgeId)) {
+      onSelectedKnowledgeIdsChange(
+        selectedKnowledgeIds.filter((item) => item !== knowledgeId),
+      );
+      return;
+    }
+    onSelectedKnowledgeIdsChange([...selectedKnowledgeIds, knowledgeId]);
+  };
+
+  const handleSelectAllKnowledgeBases = () => {
+    onSelectedKnowledgeIdsChange(knowledgeBases.map((item) => item.id));
+  };
+
+  const handleSelectNoKnowledgeBases = () => {
+    onSelectedKnowledgeIdsChange([]);
   };
 
   return (
@@ -349,6 +442,64 @@ export function AgentModal({
                     </span>
                   )}
                   <div className={styles.pickerCardTitle}>{skill.name}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 8,
+          }}
+        >
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            {editingAgent
+              ? t("agent.addKnowledgeBasesToAgent")
+              : t("agent.initialKnowledgeBases")}
+          </Text>
+          <Space size={4}>
+            <Button size="small" type="text" onClick={handleSelectAllKnowledgeBases}>
+              {t("agent.selectAll")}
+            </Button>
+            <Button size="small" type="text" onClick={handleSelectNoKnowledgeBases}>
+              {t("agent.selectNone")}
+            </Button>
+          </Space>
+        </div>
+
+        {loadingKnowledgeBases ? (
+          <div style={{ textAlign: "center", padding: "16px 0" }}>
+            <Spin size="small" />
+          </div>
+        ) : knowledgeBases.length === 0 ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={t("agent.noKnowledgeBases")}
+          />
+        ) : (
+          <div className={styles.pickerGrid}>
+            {knowledgeBases.map((knowledgeBase) => {
+              const selected = selectedKnowledgeIds.includes(knowledgeBase.id);
+              return (
+                <div
+                  key={knowledgeBase.id}
+                  className={`${styles.pickerCard} ${
+                    selected ? styles.pickerCardSelected : ""
+                  }`}
+                  onClick={() => toggleKnowledgeBase(knowledgeBase.id)}
+                >
+                  {selected && (
+                    <span className={styles.pickerCheck}>
+                      <CheckOutlined />
+                    </span>
+                  )}
+                  <div className={styles.pickerCardTitle}>{knowledgeBase.name}</div>
                 </div>
               );
             })}

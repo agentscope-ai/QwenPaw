@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Coroutine
 
 import frontmatter as fm
-from agentscope.message import Msg, TextBlock
+from agentscope.message import Msg
 from agentscope_runtime.engine.runner import Runner
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from agentscope_runtime.engine.schemas.exception import (
@@ -28,6 +28,7 @@ from .mission_dispatch import (
     maybe_handle_mission_command,
     detect_active_mission_phase,
 )
+from ..knowledge_service import build_retrieval_message_content
 from .session import SafeJSONSession
 from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
@@ -606,6 +607,21 @@ class AgentRunner(Runner):
                 if skill_response is not None:
                     yield skill_response, True
                     return
+
+            retrieval_content = build_retrieval_message_content(
+                Path(_ws),
+                query or "",
+                self.agent_id,
+            )
+            if retrieval_content:
+                msgs = [
+                    Msg(
+                        name="Knowledge Base",
+                        role="system",
+                        content=retrieval_content,
+                    ),
+                    *msgs,
+                ]
 
             # Ensure session file has a valid plan_notebook dict
             # to prevent TypeError/KeyError during load_state_dict
