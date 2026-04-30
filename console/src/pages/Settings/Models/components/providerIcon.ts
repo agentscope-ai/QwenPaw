@@ -27,6 +27,8 @@ export const providerIcon = (provider: string) => {
       return "https://gw.alicdn.com/imgextra/i4/O1CN01aDHDeq1mgj7gbRkhi_!!6000000004984-2-tps-400-400.png";
     case "lmstudio":
       return "https://gw.alicdn.com/imgextra/i4/O1CN01Abv67y1jHaXLqikIJ_!!6000000004523-2-tps-200-200.png";
+    case "unsloth-studio":
+      return "https://cdn.jsdelivr.net/gh/unslothai/unsloth@main/images/unsloth_logo.png";
     case "siliconflow-cn":
     case "siliconflow-intl":
       return "https://img.alicdn.com/imgextra/i1/O1CN01TUkzVC1clAoPa2ix8_!!6000000003640-2-tps-520-520.png";

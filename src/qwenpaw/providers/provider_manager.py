@@ -24,6 +24,7 @@ from .gemini_provider import GeminiProvider
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
 from .lmstudio_provider import LMStudioProvider
+from .unsloth_studio_provider import UnslothStudioProvider
 from .provider import (
     ModelInfo,
     Provider,
@@ -710,6 +711,15 @@ PROVIDER_LMSTUDIO = LMStudioProvider(
     generate_kwargs={"max_tokens": None},
 )
 
+PROVIDER_UNSLOTH_STUDIO = UnslothStudioProvider(
+    id="unsloth-studio",
+    name="Unsloth Studio",
+    is_local=True,
+    require_api_key=False,
+    support_model_discovery=True,
+    generate_kwargs={"max_tokens": None},
+)
+
 PROVIDER_SILICONFLOW_CN = OpenAIProvider(
     id="siliconflow-cn",
     name="SiliconFlow (China)",
@@ -775,6 +785,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_QWENPAW)
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
+        self._add_builtin(PROVIDER_UNSLOTH_STUDIO)
         self._add_builtin(PROVIDER_OPENROUTER)
         self._add_builtin(PROVIDER_MODELSCOPE)
         self._add_builtin(PROVIDER_DASHSCOPE)
@@ -1347,6 +1358,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             return GeminiProvider.model_validate(data)
         if provider_id == "ollama":
             return OllamaProvider.model_validate(data)
+        if provider_id == "unsloth-studio":
+            return UnslothStudioProvider.model_validate(data)
         return OpenAIProvider.model_validate(data)
 
     def save_active_model(self, active_model: ModelSlotConfig):
