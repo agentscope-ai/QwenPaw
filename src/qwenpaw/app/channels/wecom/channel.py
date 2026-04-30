@@ -1329,8 +1329,9 @@ class WecomChannel(BaseChannel):
         self._client.on("message", self._on_message_sync)
         self._client.on("event.enter_chat", self._on_enter_chat_sync)
 
-        # Patch SDK heartbeat to trigger reconnect on pong timeout.
-        # Use ensure_future so reconnect survives heartbeat task cancel.
+        # On pong timeout just close the ws; let SDK's _receive_loop
+        # ConnectionClosed branch handle stop_heartbeat + reconnect,
+        # to avoid double _schedule_reconnect race (issue #2757).
         ws_mgr = self._client._ws_manager
         _original_send_heartbeat = ws_mgr._send_heartbeat
 
@@ -1338,14 +1339,9 @@ class WecomChannel(BaseChannel):
             if ws_mgr._missed_pong_count >= ws_mgr._max_missed_pong:
                 logger.warning(
                     "wecom heartbeat: no pong for %d pings, "
-                    "triggering reconnect",
+                    "closing ws to trigger reconnect",
                     ws_mgr._missed_pong_count,
                 )
-                # Schedule reconnect BEFORE _stop_heartbeat() because
-                # it cancels the current task; any await after that
-                # would raise CancelledError.
-                asyncio.ensure_future(ws_mgr._schedule_reconnect())
-                ws_mgr._stop_heartbeat()
                 if ws_mgr._ws:
                     try:
                         await ws_mgr._ws.close()
@@ -1397,9 +1393,16 @@ class WecomChannel(BaseChannel):
     async def stop(self) -> None:
         if not self.enabled:
             return
-        if self._client:
+        # disconnect() uses asyncio.ensure_future() internally which
+        # binds to the current loop; schedule it on _ws_loop so the
+        # ws is operated on its own loop (issue #2757).
+        if (
+            self._client
+            and self._ws_loop is not None
+            and self._ws_loop.is_running()
+        ):
             try:
-                self._client.disconnect()
+                self._ws_loop.call_soon_threadsafe(self._client.disconnect)
             except Exception:
                 pass
         if self._ws_loop is not None:
