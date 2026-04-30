@@ -404,7 +404,7 @@ class WeChatConfig(BaseChannelConfig):
 
     bot_token:              Bearer token obtained after QR code login.
     bot_token_file:         Path to persist/load the bot_token
-                            (default ~/.qwenpaw/weixin_bot_token).
+                            (default ~/.qwenpaw/wechat_bot_token).
     base_url:               iLink API base URL (leave empty to use default).
     media_dir:              Local directory for downloaded media files.
     message_merge_enabled:  When True, merge multiple outgoing text messages
@@ -424,11 +424,6 @@ class WeChatConfig(BaseChannelConfig):
     media_dir: Optional[str] = None
     message_merge_enabled: bool = False
     message_merge_delay_ms: Optional[int] = 0
-
-
-# Backwards-compatible alias for code that imports WeixinConfig.
-# The canonical name is WeChatConfig.
-WeixinConfig = WeChatConfig
 
 
 class ChannelConfig(BaseModel):
@@ -455,12 +450,13 @@ class ChannelConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _alias_weixin_to_wechat(cls, data: Any) -> Any:
-        """Backwards compatibility: accept legacy ``weixin`` key.
+    def _migrate_legacy_weixin_key(cls, data: Any) -> Any:
+        """One-shot migration: legacy ``weixin`` key -> canonical ``wechat``.
 
-        Older config.json files used ``weixin`` as the WeChat channel key.
-        We have unified the canonical key to ``wechat``. If a config still
-        carries ``weixin`` (and no ``wechat``), transparently rename it.
+        Older config files used ``weixin`` as the WeChat channel key. The
+        canonical key is now ``wechat``. When an old config is loaded we
+        rename the key in-place so validation succeeds. The on-disk file is
+        rewritten by ``load_config`` right after validation (see utils.py).
         """
         if isinstance(data, dict) and "weixin" in data:
             data = dict(data)
@@ -1636,7 +1632,7 @@ ChannelConfigUnion = Union[
     SIPChannelConfig,
     WecomConfig,
     XiaoYiConfig,
-    WeixinConfig,
+    WeChatConfig,
 ]
 
 
@@ -1765,6 +1761,32 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
             data = _normalize_working_dir_bound_paths(data)
         except Exception:
             pass
+
+        # One-shot migration: rename legacy ``channels.weixin`` key to
+        # ``channels.wechat`` and rewrite the file on disk so future loads
+        # see the canonical key directly.
+        _migrated = False
+        channels = data.get("channels")
+        if isinstance(channels, dict) and "weixin" in channels:
+            legacy = channels.pop("weixin")
+            if "wechat" not in channels:
+                channels["wechat"] = legacy
+            _migrated = True
+        if _migrated:
+            try:
+                import uuid as _uuid
+                import shutil as _shutil
+
+                backup_path = agent_config_path.with_suffix(
+                    f".{_uuid.uuid4().hex[:8]}.weixin-migrate.bak",
+                )
+                _shutil.copy2(agent_config_path, backup_path)
+                with open(
+                    agent_config_path, "w", encoding="utf-8"
+                ) as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+            except OSError:
+                pass
 
         agent_config = AgentProfileConfig(**data)
 

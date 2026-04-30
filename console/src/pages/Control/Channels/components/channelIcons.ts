@@ -36,11 +36,6 @@ export const CHANNEL_DEFAULT_ICON_URL =
 
 /** Get the CDN icon URL for a channel, with a default fallback. */
 export function getChannelIconUrl(channelKey: string): string {
-  // Legacy alias: older configs / API responses may still emit "weixin".
-  // Map to the canonical "wechat" so the icon lookup always succeeds.
-  if (channelKey === "weixin") {
-    channelKey = "wechat";
-  }
   return CHANNEL_ICON_URLS[channelKey] ?? CHANNEL_DEFAULT_ICON_URL;
 }
 
@@ -54,7 +49,7 @@ const LETTER_ICON_COLORS: Record<string, string> = {
   telegram: "#2AABEE",
   discord: "#5865F2",
   wecom: "#07C160",
-  weixin: "#07C160",
+  wechat: "#07C160",
   mqtt: "#660066",
   mattermost: "#0058CC",
   matrix: "#0DBD8B",

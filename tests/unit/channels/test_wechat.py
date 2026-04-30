@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-WeChat (Weixin) Channel Unit Tests
+WeChat Channel Unit Tests
 
-Comprehensive unit tests for WeixinChannel covering:
+Comprehensive unit tests for WeChatChannel covering:
 - Initialization and configuration
 - Factory methods (from_env, from_config)
 - Session ID resolution and routing
@@ -19,8 +19,8 @@ Test Patterns:
 - Thread safety tests for deduplication
 
 Run:
-    pytest tests/unit/channels/test_weixin.py -v
-    pytest tests/unit/channels/test_weixin.py::TestWeixinChannelInit -v
+    pytest tests/unit/channels/test_wechat.py -v
+    pytest tests/unit/channels/test_wechat.py::TestWeChatChannelInit -v
 """
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 # pylint: disable=broad-exception-raised,using-constant-test
@@ -74,14 +74,14 @@ def temp_token_dir(tmp_path) -> Path:
 
 
 @pytest.fixture
-def weixin_channel(
+def wechat_channel(
     mock_process_handler,
     temp_media_dir,
 ) -> Generator:
-    """Create a WeixinChannel instance for testing."""
-    from qwenpaw.app.channels.weixin.channel import WeixinChannel
+    """Create a WeChatChannel instance for testing."""
+    from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
-    channel = WeixinChannel(
+    channel = WeChatChannel(
         process=mock_process_handler,
         enabled=True,
         bot_token="test_token_123",
@@ -136,9 +136,9 @@ def mock_ilink_client() -> MagicMock:
 # =============================================================================
 
 
-class TestWeixinChannelInit:
+class TestWeChatChannelInit:
     """
-    Tests for WeixinChannel initialization and factory methods.
+    Tests for WeChatChannel initialization and factory methods.
     Verifies correct storage of configuration parameters.
     """
 
@@ -148,9 +148,9 @@ class TestWeixinChannelInit:
         temp_media_dir,
     ):
         """Constructor should store all basic configuration parameters."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
-        channel = WeixinChannel(
+        channel = WeChatChannel(
             process=mock_process_handler,
             enabled=True,
             bot_token="my_token_123",
@@ -173,9 +173,9 @@ class TestWeixinChannelInit:
         temp_media_dir,
     ):
         """Constructor should store advanced configuration parameters."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
-        channel = WeixinChannel(
+        channel = WeChatChannel(
             process=mock_process_handler,
             enabled=False,
             bot_token="",
@@ -200,9 +200,9 @@ class TestWeixinChannelInit:
 
     def test_init_creates_required_data_structures(self, mock_process_handler):
         """Constructor should initialize required internal data structures."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
-        channel = WeixinChannel(
+        channel = WeChatChannel(
             process=mock_process_handler,
             enabled=True,
         )
@@ -221,9 +221,9 @@ class TestWeixinChannelInit:
 
     def test_init_creates_locks(self, mock_process_handler):
         """Constructor should create required locks for thread safety."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
-        channel = WeixinChannel(
+        channel = WeChatChannel(
             process=mock_process_handler,
             enabled=True,
         )
@@ -233,12 +233,12 @@ class TestWeixinChannelInit:
         lock_type = type(channel._processed_ids_lock).__name__
         assert "lock" in lock_type.lower()
 
-    def test_channel_type_is_wechat(self, weixin_channel):
+    def test_channel_type_is_wechat(self, wechat_channel):
         """Channel type must be 'wechat'."""
-        assert weixin_channel.channel == "wechat"
+        assert wechat_channel.channel == "wechat"
 
 
-class TestWeixinChannelFromEnv:
+class TestWeChatChannelFromEnv:
     """Tests for from_env factory method."""
 
     def test_from_env_reads_basic_env_vars(
@@ -247,14 +247,14 @@ class TestWeixinChannelFromEnv:
         monkeypatch,
     ):
         """from_env should read basic environment variables."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
-        monkeypatch.setenv("WEIXIN_CHANNEL_ENABLED", "1")
-        monkeypatch.setenv("WEIXIN_BOT_TOKEN", "env_token_123")
-        monkeypatch.setenv("WEIXIN_BOT_PREFIX", "[EnvBot] ")
-        monkeypatch.setenv("WEIXIN_BASE_URL", "https://env.api.com")
+        monkeypatch.setenv("WECHAT_CHANNEL_ENABLED", "1")
+        monkeypatch.setenv("WECHAT_BOT_TOKEN", "env_token_123")
+        monkeypatch.setenv("WECHAT_BOT_PREFIX", "[EnvBot] ")
+        monkeypatch.setenv("WECHAT_BASE_URL", "https://env.api.com")
 
-        channel = WeixinChannel.from_env(mock_process_handler)
+        channel = WeChatChannel.from_env(mock_process_handler)
 
         assert channel.enabled is True
         assert channel.bot_token == "env_token_123"
@@ -267,15 +267,15 @@ class TestWeixinChannelFromEnv:
         monkeypatch,
     ):
         """from_env should read advanced environment variables."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
-        monkeypatch.setenv("WEIXIN_BOT_TOKEN_FILE", "/env/token/file.txt")
-        monkeypatch.setenv("WEIXIN_MEDIA_DIR", "/env/media")
-        monkeypatch.setenv("WEIXIN_DM_POLICY", "allowlist")
-        monkeypatch.setenv("WEIXIN_GROUP_POLICY", "allowlist")
-        monkeypatch.setenv("WEIXIN_DENY_MESSAGE", "Env access denied")
+        monkeypatch.setenv("WECHAT_BOT_TOKEN_FILE", "/env/token/file.txt")
+        monkeypatch.setenv("WECHAT_MEDIA_DIR", "/env/media")
+        monkeypatch.setenv("WECHAT_DM_POLICY", "allowlist")
+        monkeypatch.setenv("WECHAT_GROUP_POLICY", "allowlist")
+        monkeypatch.setenv("WECHAT_DENY_MESSAGE", "Env access denied")
 
-        channel = WeixinChannel.from_env(mock_process_handler)
+        channel = WeChatChannel.from_env(mock_process_handler)
 
         assert (
             channel._bot_token_file == Path("/env/token/file.txt").expanduser()
@@ -290,12 +290,12 @@ class TestWeixinChannelFromEnv:
         mock_process_handler,
         monkeypatch,
     ):
-        """from_env should parse WEIXIN_ALLOW_FROM correctly."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        """from_env should parse WECHAT_ALLOW_FROM correctly."""
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
-        monkeypatch.setenv("WEIXIN_ALLOW_FROM", "user1,user2,user3")
+        monkeypatch.setenv("WECHAT_ALLOW_FROM", "user1,user2,user3")
 
-        channel = WeixinChannel.from_env(mock_process_handler)
+        channel = WeChatChannel.from_env(mock_process_handler)
 
         assert "user1" in channel.allow_from
         assert "user2" in channel.allow_from
@@ -306,25 +306,25 @@ class TestWeixinChannelFromEnv:
         mock_process_handler,
         monkeypatch,
     ):
-        """from_env should handle empty WEIXIN_ALLOW_FROM."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        """from_env should handle empty WECHAT_ALLOW_FROM."""
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
-        monkeypatch.setenv("WEIXIN_ALLOW_FROM", "")
+        monkeypatch.setenv("WECHAT_ALLOW_FROM", "")
 
-        channel = WeixinChannel.from_env(mock_process_handler)
+        channel = WeChatChannel.from_env(mock_process_handler)
 
         assert channel.allow_from == set()
 
     def test_from_env_defaults(self, mock_process_handler, monkeypatch):
         """from_env should use sensible defaults."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
-        monkeypatch.delenv("WEIXIN_CHANNEL_ENABLED", raising=False)
-        monkeypatch.delenv("WEIXIN_BOT_PREFIX", raising=False)
-        monkeypatch.delenv("WEIXIN_DM_POLICY", raising=False)
-        monkeypatch.delenv("WEIXIN_GROUP_POLICY", raising=False)
+        monkeypatch.delenv("WECHAT_CHANNEL_ENABLED", raising=False)
+        monkeypatch.delenv("WECHAT_BOT_PREFIX", raising=False)
+        monkeypatch.delenv("WECHAT_DM_POLICY", raising=False)
+        monkeypatch.delenv("WECHAT_GROUP_POLICY", raising=False)
 
-        channel = WeixinChannel.from_env(mock_process_handler)
+        channel = WeChatChannel.from_env(mock_process_handler)
 
         assert channel.enabled is False  # Default disabled
         assert channel.bot_prefix == ""  # Default empty
@@ -332,12 +332,12 @@ class TestWeixinChannelFromEnv:
         assert channel.group_policy == "open"  # Default open
 
 
-class TestWeixinChannelFromConfig:
+class TestWeChatChannelFromConfig:
     """Tests for from_config factory method."""
 
     def test_from_config_uses_config_values(self, mock_process_handler):
         """from_config should use values from config object."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
         class MockConfig:
             enabled = True
@@ -352,7 +352,7 @@ class TestWeixinChannelFromConfig:
             deny_message = "Config denied"
 
         config = MockConfig()
-        channel = WeixinChannel.from_config(
+        channel = WeChatChannel.from_config(
             process=mock_process_handler,
             config=config,
         )
@@ -365,7 +365,7 @@ class TestWeixinChannelFromConfig:
 
     def test_from_config_handles_none_values(self, mock_process_handler):
         """from_config should handle None values gracefully."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
         class MockConfig:
             enabled = False  # Use False instead of None
@@ -375,7 +375,7 @@ class TestWeixinChannelFromConfig:
             group_policy = None
 
         config = MockConfig()
-        channel = WeixinChannel.from_config(
+        channel = WeChatChannel.from_config(
             process=mock_process_handler,
             config=config,
         )
@@ -392,96 +392,96 @@ class TestWeixinChannelFromConfig:
 # =============================================================================
 
 
-class TestWeixinResolveSession:
+class TestWeChatResolveSession:
     """Tests for session resolution and routing helpers."""
 
-    def test_resolve_session_id_private_chat(self, weixin_channel):
+    def test_resolve_session_id_private_chat(self, wechat_channel):
         """resolve_session_id should format private chat session ID."""
-        result = weixin_channel.resolve_session_id(
+        result = wechat_channel.resolve_session_id(
             sender_id="user123",
             channel_meta={},
         )
 
-        assert result == "weixin:user123"
+        assert result == "wechat:user123"
 
-    def test_resolve_session_id_group_chat(self, weixin_channel):
+    def test_resolve_session_id_group_chat(self, wechat_channel):
         """resolve_session_id should format group chat session ID."""
-        result = weixin_channel.resolve_session_id(
+        result = wechat_channel.resolve_session_id(
             sender_id="user123",
-            channel_meta={"weixin_group_id": "group456"},
+            channel_meta={"wechat_group_id": "group456"},
         )
 
-        assert result == "weixin:group:group456"
+        assert result == "wechat:group:group456"
 
-    def test_resolve_session_id_unknown(self, weixin_channel):
+    def test_resolve_session_id_unknown(self, wechat_channel):
         """resolve_session_id should handle unknown sender."""
-        result = weixin_channel.resolve_session_id(
+        result = wechat_channel.resolve_session_id(
             sender_id="",
             channel_meta={},
         )
 
-        assert result == "weixin:unknown"
+        assert result == "wechat:unknown"
 
-    def test_parse_user_id_from_handle_private(self, weixin_channel):
+    def test_parse_user_id_from_handle_private(self, wechat_channel):
         """_parse_user_id_from_handle extracts user ID from private handle."""
-        result = weixin_channel._parse_user_id_from_handle("weixin:user123")
+        result = wechat_channel._parse_user_id_from_handle("wechat:user123")
 
         assert result == "user123"
 
-    def test_parse_user_id_from_handle_group(self, weixin_channel):
+    def test_parse_user_id_from_handle_group(self, wechat_channel):
         """_parse_user_id_from_handle extracts group ID from group handle."""
-        result = weixin_channel._parse_user_id_from_handle(
-            "weixin:group:group456",
+        result = wechat_channel._parse_user_id_from_handle(
+            "wechat:group:group456",
         )
 
         assert result == "group456"
 
-    def test_parse_user_id_from_handle_plain(self, weixin_channel):
+    def test_parse_user_id_from_handle_plain(self, wechat_channel):
         """_parse_user_id_from_handle should return plain ID."""
-        result = weixin_channel._parse_user_id_from_handle("plain_user_id")
+        result = wechat_channel._parse_user_id_from_handle("plain_user_id")
 
         assert result == "plain_user_id"
 
-    def test_to_handle_from_target_with_session(self, weixin_channel):
+    def test_to_handle_from_target_with_session(self, wechat_channel):
         """to_handle_from_target should prefer session_id."""
-        result = weixin_channel.to_handle_from_target(
+        result = wechat_channel.to_handle_from_target(
             user_id="user123",
-            session_id="weixin:session_abc",
+            session_id="wechat:session_abc",
         )
 
-        assert result == "weixin:session_abc"
+        assert result == "wechat:session_abc"
 
-    def test_to_handle_from_target_fallback_to_user(self, weixin_channel):
+    def test_to_handle_from_target_fallback_to_user(self, wechat_channel):
         """to_handle_from_target should fallback to user_id when no session."""
-        result = weixin_channel.to_handle_from_target(
+        result = wechat_channel.to_handle_from_target(
             user_id="user123",
             session_id="",
         )
 
-        assert result == "weixin:user123"
+        assert result == "wechat:user123"
 
-    def test_get_to_handle_from_request(self, weixin_channel):
+    def test_get_to_handle_from_request(self, wechat_channel):
         """get_to_handle_from_request should extract handle from request."""
         mock_request = MagicMock()
-        mock_request.session_id = "weixin:session_abc"
+        mock_request.session_id = "wechat:session_abc"
         mock_request.user_id = "user123"
 
-        result = weixin_channel.get_to_handle_from_request(mock_request)
+        result = wechat_channel.get_to_handle_from_request(mock_request)
 
-        assert result == "weixin:session_abc"
+        assert result == "wechat:session_abc"
 
-    def test_get_on_reply_sent_args(self, weixin_channel):
+    def test_get_on_reply_sent_args(self, wechat_channel):
         """get_on_reply_sent_args should return correct tuple."""
         mock_request = MagicMock()
         mock_request.user_id = "user123"
-        mock_request.session_id = "weixin:session_abc"
+        mock_request.session_id = "wechat:session_abc"
 
-        result = weixin_channel.get_on_reply_sent_args(
+        result = wechat_channel.get_on_reply_sent_args(
             mock_request,
-            "weixin:session_abc",
+            "wechat:session_abc",
         )
 
-        assert result == ("user123", "weixin:session_abc")
+        assert result == ("user123", "wechat:session_abc")
 
 
 # =============================================================================
@@ -489,7 +489,7 @@ class TestWeixinResolveSession:
 # =============================================================================
 
 
-class TestWeixinTokenPersistence:
+class TestWeChatTokenPersistence:
     """Tests for bot_token persistence to/from file."""
 
     def test_load_token_from_file_success(
@@ -498,12 +498,12 @@ class TestWeixinTokenPersistence:
         temp_token_dir,
     ):
         """Should load token from file when available."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
-        token_file = temp_token_dir / "weixin_bot_token"
+        token_file = temp_token_dir / "wechat_bot_token"
         token_file.write_text("persisted_token_123", encoding="utf-8")
 
-        channel = WeixinChannel(
+        channel = WeChatChannel(
             process=mock_process_handler,
             enabled=True,
             bot_token_file=str(token_file),
@@ -519,9 +519,9 @@ class TestWeixinTokenPersistence:
         temp_token_dir,
     ):
         """Should return empty string when file doesn't exist."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
-        channel = WeixinChannel(
+        channel = WeChatChannel(
             process=mock_process_handler,
             enabled=True,
             bot_token_file=str(temp_token_dir / "nonexistent"),
@@ -537,10 +537,10 @@ class TestWeixinTokenPersistence:
         temp_token_dir,
     ):
         """Should create token file with correct content."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
-        token_file = temp_token_dir / "weixin_bot_token"
-        channel = WeixinChannel(
+        token_file = temp_token_dir / "wechat_bot_token"
+        channel = WeChatChannel(
             process=mock_process_handler,
             enabled=True,
             bot_token_file=str(token_file),
@@ -557,10 +557,10 @@ class TestWeixinTokenPersistence:
         tmp_path,
     ):
         """Should create parent directories if needed."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
         deep_path = tmp_path / "deep" / "nested" / "dir" / "token"
-        channel = WeixinChannel(
+        channel = WeChatChannel(
             process=mock_process_handler,
             enabled=True,
             bot_token_file=str(deep_path),
@@ -576,16 +576,16 @@ class TestWeixinTokenPersistence:
         temp_token_dir,
     ):
         """Should load context tokens from file."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
-        context_file = temp_token_dir / "weixin_context_tokens.json"
+        context_file = temp_token_dir / "wechat_context_tokens.json"
         data = {"user1": "token1", "user2": "token2"}
         context_file.write_text(json.dumps(data), encoding="utf-8")
 
-        channel = WeixinChannel(
+        channel = WeChatChannel(
             process=mock_process_handler,
             enabled=True,
-            bot_token_file=str(temp_token_dir / "weixin_bot_token"),
+            bot_token_file=str(temp_token_dir / "wechat_bot_token"),
         )
         channel._load_context_tokens()
 
@@ -600,18 +600,18 @@ class TestWeixinTokenPersistence:
         temp_token_dir,
     ):
         """Should save context tokens to file."""
-        from qwenpaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.wechat.channel import WeChatChannel
 
-        channel = WeixinChannel(
+        channel = WeChatChannel(
             process=mock_process_handler,
             enabled=True,
-            bot_token_file=str(temp_token_dir / "weixin_bot_token"),
+            bot_token_file=str(temp_token_dir / "wechat_bot_token"),
         )
         channel._user_context_tokens = {"user1": "token1", "user2": "token2"}
 
         channel._save_context_tokens()
 
-        context_file = temp_token_dir / "weixin_context_tokens.json"
+        context_file = temp_token_dir / "wechat_context_tokens.json"
         assert context_file.exists()
         data = json.loads(context_file.read_text(encoding="utf-8"))
         assert data == {"user1": "token1", "user2": "token2"}
@@ -622,27 +622,27 @@ class TestWeixinTokenPersistence:
 # =============================================================================
 
 
-class TestWeixinMessageDedup:
+class TestWeChatMessageDedup:
     """Tests for message deduplication mechanism."""
 
-    def test_is_duplicate_new_message(self, weixin_channel):
+    def test_is_duplicate_new_message(self, wechat_channel):
         """Should return False for new message ID."""
-        result = weixin_channel._is_duplicate("msg_unique_123")
+        result = wechat_channel._is_duplicate("msg_unique_123")
 
         assert result is False
-        assert "msg_unique_123" in weixin_channel._processed_ids
+        assert "msg_unique_123" in wechat_channel._processed_ids
 
-    def test_is_duplicate_duplicate_message(self, weixin_channel):
+    def test_is_duplicate_duplicate_message(self, wechat_channel):
         """Should return True for duplicate message ID."""
         # First call
-        weixin_channel._is_duplicate("msg_dup_123")
+        wechat_channel._is_duplicate("msg_dup_123")
 
         # Second call (duplicate)
-        result = weixin_channel._is_duplicate("msg_dup_123")
+        result = wechat_channel._is_duplicate("msg_dup_123")
 
         assert result is True
 
-    def test_is_duplicate_is_thread_safe(self, weixin_channel):
+    def test_is_duplicate_is_thread_safe(self, wechat_channel):
         """Deduplication should be thread-safe."""
         accepted_count = [0]
         rejected_count = [0]
@@ -650,7 +650,7 @@ class TestWeixinMessageDedup:
         def try_accept():
             for i in range(100):
                 msg_id = f"batch_msg_{i % 10}"  # 10 unique IDs, 10 times each
-                if weixin_channel._is_duplicate(msg_id):
+                if wechat_channel._is_duplicate(msg_id):
                     rejected_count[0] += 1
                 else:
                     accepted_count[0] += 1
@@ -666,15 +666,15 @@ class TestWeixinMessageDedup:
         # Rest should be rejected
         assert rejected_count[0] == 490
 
-    def test_is_duplicate_max_size_limit(self, weixin_channel):
+    def test_is_duplicate_max_size_limit(self, wechat_channel):
         """Should limit processed_ids size."""
         # Add more than max IDs
-        max_size = 2000  # _WEIXIN_PROCESSED_IDS_MAX
+        max_size = 2000  # _WECHAT_PROCESSED_IDS_MAX
 
         for i in range(max_size + 100):
-            weixin_channel._is_duplicate(f"msg_{i}")
+            wechat_channel._is_duplicate(f"msg_{i}")
 
-        assert len(weixin_channel._processed_ids) <= max_size
+        assert len(wechat_channel._processed_ids) <= max_size
 
 
 # =============================================================================
@@ -682,10 +682,10 @@ class TestWeixinMessageDedup:
 # =============================================================================
 
 
-class TestWeixinBuildAgentRequest:
+class TestWeChatBuildAgentRequest:
     """Tests for build_agent_request_from_native method."""
 
-    def test_build_agent_request_from_native(self, weixin_channel):
+    def test_build_agent_request_from_native(self, wechat_channel):
         """Should create AgentRequest from native payload."""
         from qwenpaw.app.channels.base import TextContent, ContentType
 
@@ -693,22 +693,22 @@ class TestWeixinBuildAgentRequest:
             "channel_id": "wechat",
             "sender_id": "user123",
             "user_id": "user123",
-            "session_id": "weixin:session_abc",
+            "session_id": "wechat:session_abc",
             "content_parts": [
                 TextContent(type=ContentType.TEXT, text="Hello"),
             ],
-            "meta": {"weixin_group_id": "group123"},
+            "meta": {"wechat_group_id": "group123"},
         }
 
-        request = weixin_channel.build_agent_request_from_native(payload)
+        request = wechat_channel.build_agent_request_from_native(payload)
 
         assert request.user_id == "user123"
         assert request.channel == "wechat"
-        assert request.session_id == "weixin:session_abc"
+        assert request.session_id == "wechat:session_abc"
         assert hasattr(request, "channel_meta")
-        assert request.channel_meta.get("weixin_group_id") == "group123"
+        assert request.channel_meta.get("wechat_group_id") == "group123"
 
-    def test_build_agent_request_auto_session(self, weixin_channel):
+    def test_build_agent_request_auto_session(self, wechat_channel):
         """Should auto-generate session_id when not provided."""
         from qwenpaw.app.channels.base import TextContent, ContentType
 
@@ -721,11 +721,11 @@ class TestWeixinBuildAgentRequest:
             "meta": {},
         }
 
-        request = weixin_channel.build_agent_request_from_native(payload)
+        request = wechat_channel.build_agent_request_from_native(payload)
 
-        assert request.session_id == "weixin:user123"
+        assert request.session_id == "wechat:user123"
 
-    def test_merge_native_items(self, weixin_channel):
+    def test_merge_native_items(self, wechat_channel):
         """Should merge multiple native payloads."""
         from qwenpaw.app.channels.base import TextContent, ContentType
 
@@ -746,16 +746,16 @@ class TestWeixinBuildAgentRequest:
             },
         ]
 
-        result = weixin_channel.merge_native_items(items)
+        result = wechat_channel.merge_native_items(items)
 
         assert result["channel_id"] == "wechat"
         assert result["sender_id"] == "user1"
         assert len(result["content_parts"]) == 2
         assert result["meta"].get("key2") == "value2"
 
-    def test_merge_native_items_empty(self, weixin_channel):
+    def test_merge_native_items_empty(self, wechat_channel):
         """Should return None for empty list."""
-        result = weixin_channel.merge_native_items([])
+        result = wechat_channel.merge_native_items([])
 
         assert result is None
 
@@ -766,18 +766,18 @@ class TestWeixinBuildAgentRequest:
 
 
 @pytest.mark.asyncio
-class TestWeixinSendMethods:
+class TestWeChatSendMethods:
     """Tests for send methods using HTTP mocking."""
 
     async def test_send_text_direct_success(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Successfully send text message."""
-        weixin_channel._client = mock_ilink_client
+        wechat_channel._client = mock_ilink_client
 
-        await weixin_channel._send_text_direct(
+        await wechat_channel._send_text_direct(
             to_user_id="user123",
             text="Hello World",
             context_token="token_abc",
@@ -790,12 +790,12 @@ class TestWeixinSendMethods:
             "token_abc",
         )
 
-    async def test_send_text_direct_no_client(self, weixin_channel):
+    async def test_send_text_direct_no_client(self, wechat_channel):
         """Should return early when no client available."""
-        weixin_channel._client = None
+        wechat_channel._client = None
 
         # Should not raise
-        result = await weixin_channel._send_text_direct(
+        result = await wechat_channel._send_text_direct(
             to_user_id="user123",
             text="Hello",
             context_token="token_abc",
@@ -805,13 +805,13 @@ class TestWeixinSendMethods:
 
     async def test_send_text_direct_no_user_id(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Should return early when no user_id."""
-        weixin_channel._client = mock_ilink_client
+        wechat_channel._client = mock_ilink_client
 
-        await weixin_channel._send_text_direct(
+        await wechat_channel._send_text_direct(
             to_user_id="",
             text="Hello",
             context_token="token_abc",
@@ -821,23 +821,23 @@ class TestWeixinSendMethods:
 
     async def test_send_content_parts_success(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Successfully send content parts."""
         from qwenpaw.app.channels.base import TextContent, ContentType
 
-        weixin_channel._client = mock_ilink_client
+        wechat_channel._client = mock_ilink_client
 
         parts = [
             TextContent(type=ContentType.TEXT, text="Hello"),
             TextContent(type=ContentType.TEXT, text="World"),
         ]
 
-        await weixin_channel.send_content_parts(
-            to_handle="weixin:user123",
+        await wechat_channel.send_content_parts(
+            to_handle="wechat:user123",
             parts=parts,
-            meta={"weixin_context_token": "ctx_token"},
+            meta={"wechat_context_token": "ctx_token"},
         )
 
         mock_ilink_client.send_text.assert_called_once()
@@ -848,21 +848,21 @@ class TestWeixinSendMethods:
 
     async def test_send_content_parts_with_prefix(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Should include bot_prefix in message."""
         from qwenpaw.app.channels.base import TextContent, ContentType
 
-        weixin_channel._client = mock_ilink_client
+        wechat_channel._client = mock_ilink_client
 
         parts = [TextContent(type=ContentType.TEXT, text="Message")]
 
-        await weixin_channel.send_content_parts(
-            to_handle="weixin:user123",
+        await wechat_channel.send_content_parts(
+            to_handle="wechat:user123",
             parts=parts,
             meta={
-                "weixin_context_token": "ctx_token",
+                "wechat_context_token": "ctx_token",
                 "bot_prefix": "[Prefix]",
             },
         )
@@ -873,19 +873,19 @@ class TestWeixinSendMethods:
 
     async def test_send_content_parts_disabled_channel(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Should do nothing when channel is disabled."""
         from qwenpaw.app.channels.base import TextContent, ContentType
 
-        weixin_channel.enabled = False
-        weixin_channel._client = mock_ilink_client
+        wechat_channel.enabled = False
+        wechat_channel._client = mock_ilink_client
 
         parts = [TextContent(type=ContentType.TEXT, text="Message")]
 
-        await weixin_channel.send_content_parts(
-            to_handle="weixin:user123",
+        await wechat_channel.send_content_parts(
+            to_handle="wechat:user123",
             parts=parts,
             meta={},
         )
@@ -894,37 +894,37 @@ class TestWeixinSendMethods:
 
     async def test_send_content_parts_empty_body_skipped(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Should skip sending when body is empty."""
         from qwenpaw.app.channels.base import TextContent, ContentType
 
-        weixin_channel._client = mock_ilink_client
+        wechat_channel._client = mock_ilink_client
 
         parts = [TextContent(type=ContentType.TEXT, text="")]
 
-        await weixin_channel.send_content_parts(
-            to_handle="weixin:user123",
+        await wechat_channel.send_content_parts(
+            to_handle="wechat:user123",
             parts=parts,
-            meta={"weixin_context_token": "ctx_token"},
+            meta={"wechat_context_token": "ctx_token"},
         )
 
         mock_ilink_client.send_text.assert_not_called()
 
     async def test_send_content_parts_no_to_user_id(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Should do nothing when to_user_id cannot be resolved."""
         from qwenpaw.app.channels.base import TextContent, ContentType
 
-        weixin_channel._client = mock_ilink_client
+        wechat_channel._client = mock_ilink_client
 
         parts = [TextContent(type=ContentType.TEXT, text="Hello")]
 
-        await weixin_channel.send_content_parts(
+        await wechat_channel.send_content_parts(
             to_handle="",
             parts=parts,
             meta={},
@@ -934,16 +934,16 @@ class TestWeixinSendMethods:
 
     async def test_send_proactive_message(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Successfully send proactive message."""
-        weixin_channel._client = mock_ilink_client
+        wechat_channel._client = mock_ilink_client
 
-        await weixin_channel.send(
-            to_handle="weixin:user123",
+        await wechat_channel.send(
+            to_handle="wechat:user123",
             text="Proactive message",
-            meta={"weixin_context_token": "ctx_token"},
+            meta={"wechat_context_token": "ctx_token"},
         )
 
         # Verify send_text was called with correct user_id and message text
@@ -955,14 +955,14 @@ class TestWeixinSendMethods:
         )  # text includes message (may have prefix)
         assert call_args[2] == "ctx_token"  # context_token
 
-    async def test_send_with_prefix(self, weixin_channel, mock_ilink_client):
+    async def test_send_with_prefix(self, wechat_channel, mock_ilink_client):
         """Should include prefix in proactive message."""
-        weixin_channel._client = mock_ilink_client
+        wechat_channel._client = mock_ilink_client
 
-        await weixin_channel.send(
-            to_handle="weixin:user123",
+        await wechat_channel.send(
+            to_handle="wechat:user123",
             text="Message",
-            meta={"weixin_context_token": "ctx_token", "bot_prefix": "[Bot]"},
+            meta={"wechat_context_token": "ctx_token", "bot_prefix": "[Bot]"},
         )
 
         call_args = mock_ilink_client.send_text.call_args
@@ -970,15 +970,15 @@ class TestWeixinSendMethods:
 
     async def test_send_disabled_channel(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Should do nothing when channel is disabled."""
-        weixin_channel.enabled = False
-        weixin_channel._client = mock_ilink_client
+        wechat_channel.enabled = False
+        wechat_channel._client = mock_ilink_client
 
-        await weixin_channel.send(
-            to_handle="weixin:user123",
+        await wechat_channel.send(
+            to_handle="wechat:user123",
             text="Message",
             meta={},
         )
@@ -992,19 +992,19 @@ class TestWeixinSendMethods:
 
 
 @pytest.mark.asyncio
-class TestWeixinMediaDownload:
+class TestWeChatMediaDownload:
     """Tests for media download functionality."""
 
     async def test_download_media_success(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
         temp_media_dir,
     ):
         """Successfully download media file."""
-        weixin_channel._client = mock_ilink_client
+        wechat_channel._client = mock_ilink_client
 
-        result = await weixin_channel._download_media(
+        result = await wechat_channel._download_media(
             client=mock_ilink_client,
             url="",
             aes_key="test_key",
@@ -1013,19 +1013,19 @@ class TestWeixinMediaDownload:
         )
 
         assert result is not None
-        assert "weixin_" in result
+        assert "wechat_" in result
         assert "image.jpg" in result
         mock_ilink_client.download_media.assert_called_once()
 
     async def test_download_media_no_encrypt_param(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Download media even without encrypt_query_param."""
-        weixin_channel._client = mock_ilink_client
+        wechat_channel._client = mock_ilink_client
 
-        result = await weixin_channel._download_media(
+        result = await wechat_channel._download_media(
             client=mock_ilink_client,
             url="http://example.com/file.jpg",
             aes_key="",
@@ -1036,20 +1036,20 @@ class TestWeixinMediaDownload:
         # The code doesn't check for empty encrypt_query_param
         # It proceeds to download and returns the file path
         assert result is not None
-        assert "weixin_" in result
+        assert "wechat_" in result
 
     async def test_download_media_exception_handling(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Should handle download exception gracefully."""
         mock_ilink_client.download_media = AsyncMock(
             side_effect=Exception("Download failed"),
         )
-        weixin_channel._client = mock_ilink_client
+        wechat_channel._client = mock_ilink_client
 
-        result = await weixin_channel._download_media(
+        result = await wechat_channel._download_media(
             client=mock_ilink_client,
             url="",
             aes_key="test_key",
@@ -1066,52 +1066,52 @@ class TestWeixinMediaDownload:
 
 
 @pytest.mark.asyncio
-class TestWeixinQRCodeLogin:
+class TestWeChatQRCodeLogin:
     """Tests for QR code login functionality."""
 
     async def test_do_qrcode_login_success(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
         temp_token_dir,
     ):
         """Successfully complete QR code login."""
-        weixin_channel._client = mock_ilink_client
-        weixin_channel._bot_token_file = temp_token_dir / "weixin_bot_token"
+        wechat_channel._client = mock_ilink_client
+        wechat_channel._bot_token_file = temp_token_dir / "wechat_bot_token"
 
-        result = await weixin_channel._do_qrcode_login()
+        result = await wechat_channel._do_qrcode_login()
 
         assert result is True
-        assert weixin_channel.bot_token == "new_token_123"
+        assert wechat_channel.bot_token == "new_token_123"
         mock_ilink_client.get_bot_qrcode.assert_called_once()
         mock_ilink_client.wait_for_login.assert_called_once_with(
             "qr_code_string",
         )
 
         # Verify token was saved
-        assert weixin_channel._bot_token_file.exists()
-        assert weixin_channel._bot_token_file.read_text() == "new_token_123"
+        assert wechat_channel._bot_token_file.exists()
+        assert wechat_channel._bot_token_file.read_text() == "new_token_123"
 
-    async def test_do_qrcode_login_no_client(self, weixin_channel):
+    async def test_do_qrcode_login_no_client(self, wechat_channel):
         """Should return False when no client available."""
-        weixin_channel._client = None
+        wechat_channel._client = None
 
-        result = await weixin_channel._do_qrcode_login()
+        result = await wechat_channel._do_qrcode_login()
 
         assert result is False
 
     async def test_do_qrcode_login_exception(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Should handle login exception gracefully."""
         mock_ilink_client.get_bot_qrcode = AsyncMock(
             side_effect=Exception("Network error"),
         )
-        weixin_channel._client = mock_ilink_client
+        wechat_channel._client = mock_ilink_client
 
-        result = await weixin_channel._do_qrcode_login()
+        result = await wechat_channel._do_qrcode_login()
 
         assert result is False
 
@@ -1122,17 +1122,17 @@ class TestWeixinQRCodeLogin:
 
 
 @pytest.mark.asyncio
-class TestWeixinOnMessage:
+class TestWeChatOnMessage:
     """Tests for _on_message handler."""
 
     async def test_on_message_text_only(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Handle text message correctly."""
-        weixin_channel._client = mock_ilink_client
-        weixin_channel._enqueue = MagicMock()
+        wechat_channel._client = mock_ilink_client
+        wechat_channel._enqueue = MagicMock()
 
         msg = {
             "from_user_id": "user123",
@@ -1146,20 +1146,20 @@ class TestWeixinOnMessage:
             ],
         }
 
-        await weixin_channel._on_message(msg, mock_ilink_client)
+        await wechat_channel._on_message(msg, mock_ilink_client)
 
-        assert weixin_channel._enqueue.called
-        call_args = weixin_channel._enqueue.call_args[0][0]
+        assert wechat_channel._enqueue.called
+        call_args = wechat_channel._enqueue.call_args[0][0]
         assert call_args["sender_id"] == "user123"
 
     async def test_on_message_skip_non_user_message(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Skip non-user messages (message_type != 1)."""
-        weixin_channel._client = mock_ilink_client
-        weixin_channel._enqueue = MagicMock()
+        wechat_channel._client = mock_ilink_client
+        wechat_channel._enqueue = MagicMock()
 
         msg = {
             "from_user_id": "user123",
@@ -1167,18 +1167,18 @@ class TestWeixinOnMessage:
             "item_list": [],
         }
 
-        await weixin_channel._on_message(msg, mock_ilink_client)
+        await wechat_channel._on_message(msg, mock_ilink_client)
 
-        weixin_channel._enqueue.assert_not_called()
+        wechat_channel._enqueue.assert_not_called()
 
     async def test_on_message_skip_duplicate(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Skip duplicate messages."""
-        weixin_channel._client = mock_ilink_client
-        weixin_channel._enqueue = MagicMock()
+        wechat_channel._client = mock_ilink_client
+        wechat_channel._enqueue = MagicMock()
 
         msg = {
             "from_user_id": "user123",
@@ -1188,22 +1188,22 @@ class TestWeixinOnMessage:
         }
 
         # First message
-        await weixin_channel._on_message(msg, mock_ilink_client)
-        assert weixin_channel._enqueue.call_count == 1
+        await wechat_channel._on_message(msg, mock_ilink_client)
+        assert wechat_channel._enqueue.call_count == 1
 
         # Duplicate message
-        await weixin_channel._on_message(msg, mock_ilink_client)
+        await wechat_channel._on_message(msg, mock_ilink_client)
         # Should still be 1 (duplicate skipped)
-        assert weixin_channel._enqueue.call_count == 1
+        assert wechat_channel._enqueue.call_count == 1
 
     async def test_on_message_group_chat(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Handle group chat message correctly."""
-        weixin_channel._client = mock_ilink_client
-        weixin_channel._enqueue = MagicMock()
+        wechat_channel._client = mock_ilink_client
+        wechat_channel._enqueue = MagicMock()
 
         msg = {
             "from_user_id": "user123",
@@ -1216,16 +1216,16 @@ class TestWeixinOnMessage:
             ],
         }
 
-        await weixin_channel._on_message(msg, mock_ilink_client)
+        await wechat_channel._on_message(msg, mock_ilink_client)
 
-        call_args = weixin_channel._enqueue.call_args[0][0]
-        assert call_args["session_id"] == "weixin:group:group456"
+        call_args = wechat_channel._enqueue.call_args[0][0]
+        assert call_args["session_id"] == "wechat:group:group456"
         assert call_args["meta"]["is_group"] is True
 
-    async def test_on_message_voice(self, weixin_channel, mock_ilink_client):
+    async def test_on_message_voice(self, wechat_channel, mock_ilink_client):
         """Handle voice message with ASR text."""
-        weixin_channel._client = mock_ilink_client
-        weixin_channel._enqueue = MagicMock()
+        wechat_channel._client = mock_ilink_client
+        wechat_channel._enqueue = MagicMock()
 
         msg = {
             "from_user_id": "user123",
@@ -1241,9 +1241,9 @@ class TestWeixinOnMessage:
             ],
         }
 
-        await weixin_channel._on_message(msg, mock_ilink_client)
+        await wechat_channel._on_message(msg, mock_ilink_client)
 
-        call_args = weixin_channel._enqueue.call_args[0][0]
+        call_args = wechat_channel._enqueue.call_args[0][0]
         content_parts = call_args["content_parts"]
         assert any(
             "Voice transcription" in str(part) for part in content_parts
@@ -1251,13 +1251,13 @@ class TestWeixinOnMessage:
 
     async def test_on_message_image(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
         temp_media_dir,
     ):
         """Handle image message."""
-        weixin_channel._client = mock_ilink_client
-        weixin_channel._enqueue = MagicMock()
+        wechat_channel._client = mock_ilink_client
+        wechat_channel._enqueue = MagicMock()
         mock_ilink_client.download_media = AsyncMock(
             return_value=b"image_data",
         )
@@ -1277,21 +1277,21 @@ class TestWeixinOnMessage:
             ],
         }
 
-        await weixin_channel._on_message(msg, mock_ilink_client)
+        await wechat_channel._on_message(msg, mock_ilink_client)
 
         mock_ilink_client.download_media.assert_called_once()
-        assert weixin_channel._enqueue.called
+        assert wechat_channel._enqueue.called
 
     async def test_on_message_allows_sender(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Allow message from authorized sender."""
-        weixin_channel.allow_from = {"user123"}
-        weixin_channel.dm_policy = "allowlist"
-        weixin_channel._client = mock_ilink_client
-        weixin_channel._enqueue = MagicMock()
+        wechat_channel.allow_from = {"user123"}
+        wechat_channel.dm_policy = "allowlist"
+        wechat_channel._client = mock_ilink_client
+        wechat_channel._enqueue = MagicMock()
 
         msg = {
             "from_user_id": "user123",
@@ -1300,22 +1300,22 @@ class TestWeixinOnMessage:
             "item_list": [{"type": 1, "text_item": {"text": "Hello"}}],
         }
 
-        await weixin_channel._on_message(msg, mock_ilink_client)
+        await wechat_channel._on_message(msg, mock_ilink_client)
 
-        weixin_channel._enqueue.assert_called_once()
+        wechat_channel._enqueue.assert_called_once()
 
     async def test_on_message_blocks_unauthorized_sender(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Block message from unauthorized sender."""
-        weixin_channel.allow_from = {"authorized_user"}
-        weixin_channel.dm_policy = "allowlist"
-        weixin_channel.deny_message = "Access denied"
-        weixin_channel._client = mock_ilink_client
-        weixin_channel._loop = asyncio.new_event_loop()
-        weixin_channel._enqueue = MagicMock()
+        wechat_channel.allow_from = {"authorized_user"}
+        wechat_channel.dm_policy = "allowlist"
+        wechat_channel.deny_message = "Access denied"
+        wechat_channel._client = mock_ilink_client
+        wechat_channel._loop = asyncio.new_event_loop()
+        wechat_channel._enqueue = MagicMock()
 
         msg = {
             "from_user_id": "unauthorized_user",
@@ -1324,10 +1324,10 @@ class TestWeixinOnMessage:
             "item_list": [{"type": 1, "text_item": {"text": "Hello"}}],
         }
 
-        await weixin_channel._on_message(msg, mock_ilink_client)
+        await wechat_channel._on_message(msg, mock_ilink_client)
 
-        weixin_channel._enqueue.assert_not_called()
-        weixin_channel._loop.close()
+        wechat_channel._enqueue.assert_not_called()
+        wechat_channel._loop.close()
 
 
 # =============================================================================
@@ -1336,119 +1336,119 @@ class TestWeixinOnMessage:
 
 
 @pytest.mark.asyncio
-class TestWeixinLifecycle:
+class TestWeChatLifecycle:
     """Tests for channel lifecycle management."""
 
-    async def test_start_disabled_channel(self, weixin_channel):
+    async def test_start_disabled_channel(self, wechat_channel):
         """Starting disabled channel should succeed without action."""
-        weixin_channel.enabled = False
+        wechat_channel.enabled = False
 
         # Should not raise
-        await weixin_channel.start()
+        await wechat_channel.start()
 
-        assert weixin_channel._client is None
+        assert wechat_channel._client is None
 
     async def test_start_with_existing_token(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Start with existing bot_token should skip QR login."""
-        weixin_channel.bot_token = "existing_token"
+        wechat_channel.bot_token = "existing_token"
 
         with patch(
-            "qwenpaw.app.channels.weixin.channel.ILinkClient",
+            "qwenpaw.app.channels.wechat.channel.ILinkClient",
             return_value=mock_ilink_client,
         ):
-            await weixin_channel.start()
+            await wechat_channel.start()
 
         # Client may be started multiple times in implementation
         assert mock_ilink_client.start.called
-        assert weixin_channel._client is not None
-        assert weixin_channel._poll_thread is not None
+        assert wechat_channel._client is not None
+        assert wechat_channel._poll_thread is not None
 
         # Clean up
-        weixin_channel._stop_event.set()
-        if weixin_channel._poll_thread:
-            weixin_channel._poll_thread.join(timeout=0.1)
+        wechat_channel._stop_event.set()
+        if wechat_channel._poll_thread:
+            wechat_channel._poll_thread.join(timeout=0.1)
 
     async def test_start_without_token_triggers_qr_login(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
         temp_token_dir,
     ):
         """Start without token should trigger QR code login."""
-        weixin_channel.bot_token = ""
-        weixin_channel._bot_token_file = temp_token_dir / "weixin_bot_token"
+        wechat_channel.bot_token = ""
+        wechat_channel._bot_token_file = temp_token_dir / "wechat_bot_token"
 
         with patch(
-            "qwenpaw.app.channels.weixin.channel.ILinkClient",
+            "qwenpaw.app.channels.wechat.channel.ILinkClient",
             return_value=mock_ilink_client,
         ):
-            await weixin_channel.start()
+            await wechat_channel.start()
 
         mock_ilink_client.get_bot_qrcode.assert_called_once()
         mock_ilink_client.wait_for_login.assert_called_once()
 
         # Clean up
-        weixin_channel._stop_event.set()
-        if weixin_channel._poll_thread:
-            weixin_channel._poll_thread.join(timeout=0.1)
+        wechat_channel._stop_event.set()
+        if wechat_channel._poll_thread:
+            wechat_channel._poll_thread.join(timeout=0.1)
 
     async def test_start_loads_token_from_file(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
         temp_token_dir,
     ):
         """Start should load token from file when available."""
-        token_file = temp_token_dir / "weixin_bot_token"
+        token_file = temp_token_dir / "wechat_bot_token"
         token_file.write_text("file_token_123", encoding="utf-8")
 
-        weixin_channel.bot_token = ""
-        weixin_channel._bot_token_file = token_file
+        wechat_channel.bot_token = ""
+        wechat_channel._bot_token_file = token_file
 
         with patch(
-            "qwenpaw.app.channels.weixin.channel.ILinkClient",
+            "qwenpaw.app.channels.wechat.channel.ILinkClient",
             return_value=mock_ilink_client,
         ):
-            await weixin_channel.start()
+            await wechat_channel.start()
 
-        assert weixin_channel.bot_token == "file_token_123"
+        assert wechat_channel.bot_token == "file_token_123"
 
         # Clean up
-        weixin_channel._stop_event.set()
-        if weixin_channel._poll_thread:
-            weixin_channel._poll_thread.join(timeout=0.1)
+        wechat_channel._stop_event.set()
+        if wechat_channel._poll_thread:
+            wechat_channel._poll_thread.join(timeout=0.1)
 
-    async def test_stop_disabled_channel(self, weixin_channel):
+    async def test_stop_disabled_channel(self, wechat_channel):
         """Stopping disabled channel should succeed without action."""
-        weixin_channel.enabled = False
+        wechat_channel.enabled = False
 
         # Should not raise
-        await weixin_channel.stop()
+        await wechat_channel.stop()
 
     async def test_stop_cleans_up_resources(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Stop should clean up all resources."""
-        weixin_channel.enabled = True
-        weixin_channel._client = mock_ilink_client
-        weixin_channel._poll_thread = MagicMock()
+        wechat_channel.enabled = True
+        wechat_channel._client = mock_ilink_client
+        wechat_channel._poll_thread = MagicMock()
 
-        await weixin_channel.stop()
+        await wechat_channel.stop()
 
         mock_ilink_client.stop.assert_called_once()
-        assert weixin_channel._poll_thread is None
-        assert weixin_channel._client is None
+        assert wechat_channel._poll_thread is None
+        assert wechat_channel._client is None
 
-    async def test_stop_without_prior_start(self, weixin_channel):
+    async def test_stop_without_prior_start(self, wechat_channel):
         """Stopping without prior start should succeed."""
         # Should not raise
-        await weixin_channel.stop()
+        await wechat_channel.stop()
 
 
 # =============================================================================
@@ -1456,67 +1456,67 @@ class TestWeixinLifecycle:
 # =============================================================================
 
 
-class TestWeixinAllowlist:
+class TestWeChatAllowlist:
     """Tests for _check_allowlist method."""
 
-    def test_check_allowlist_open_policy(self, weixin_channel):
+    def test_check_allowlist_open_policy(self, wechat_channel):
         """Open policy should allow all users."""
-        weixin_channel.dm_policy = "open"
+        wechat_channel.dm_policy = "open"
 
-        allowed, error = weixin_channel._check_allowlist("any_user", False)
+        allowed, error = wechat_channel._check_allowlist("any_user", False)
 
         assert allowed is True
         assert error is None
 
-    def test_check_allowlist_group_open_policy(self, weixin_channel):
+    def test_check_allowlist_group_open_policy(self, wechat_channel):
         """Group open policy should allow all groups."""
-        weixin_channel.group_policy = "open"
+        wechat_channel.group_policy = "open"
 
-        allowed, error = weixin_channel._check_allowlist("any_group", True)
+        allowed, error = wechat_channel._check_allowlist("any_group", True)
 
         assert allowed is True
         assert error is None
 
-    def test_check_allowlist_dm_allowlist_authorized(self, weixin_channel):
+    def test_check_allowlist_dm_allowlist_authorized(self, wechat_channel):
         """DM allowlist should allow authorized users."""
-        weixin_channel.dm_policy = "allowlist"
-        weixin_channel.allow_from = {"user123"}
+        wechat_channel.dm_policy = "allowlist"
+        wechat_channel.allow_from = {"user123"}
 
-        allowed, error = weixin_channel._check_allowlist("user123", False)
+        allowed, error = wechat_channel._check_allowlist("user123", False)
 
         assert allowed is True
         assert error is None
 
-    def test_check_allowlist_dm_allowlist_unauthorized(self, weixin_channel):
+    def test_check_allowlist_dm_allowlist_unauthorized(self, wechat_channel):
         """DM allowlist should block unauthorized users."""
-        weixin_channel.dm_policy = "allowlist"
-        weixin_channel.allow_from = {"other_user"}
-        weixin_channel.deny_message = "Custom denial"
+        wechat_channel.dm_policy = "allowlist"
+        wechat_channel.allow_from = {"other_user"}
+        wechat_channel.deny_message = "Custom denial"
 
-        allowed, error = weixin_channel._check_allowlist("user123", False)
+        allowed, error = wechat_channel._check_allowlist("user123", False)
 
         assert allowed is False
         assert error == "Custom denial"
 
-    def test_check_allowlist_dm_default_deny_message(self, weixin_channel):
+    def test_check_allowlist_dm_default_deny_message(self, wechat_channel):
         """Should use default deny message when not configured."""
-        weixin_channel.dm_policy = "allowlist"
-        weixin_channel.allow_from = set()
-        weixin_channel.deny_message = ""
+        wechat_channel.dm_policy = "allowlist"
+        wechat_channel.allow_from = set()
+        wechat_channel.deny_message = ""
 
-        allowed, error = weixin_channel._check_allowlist("user123", False)
+        allowed, error = wechat_channel._check_allowlist("user123", False)
 
         assert allowed is False
         assert "not authorized" in error
         assert "user123" in error
 
-    def test_check_allowlist_group_allowlist(self, weixin_channel):
+    def test_check_allowlist_group_allowlist(self, wechat_channel):
         """Group allowlist should use different deny message."""
-        weixin_channel.group_policy = "allowlist"
-        weixin_channel.allow_from = set()
-        weixin_channel.deny_message = ""
+        wechat_channel.group_policy = "allowlist"
+        wechat_channel.allow_from = set()
+        wechat_channel.deny_message = ""
 
-        allowed, error = weixin_channel._check_allowlist("group123", True)
+        allowed, error = wechat_channel._check_allowlist("group123", True)
 
         assert allowed is False
         assert "only available to authorized users" in error
@@ -1528,27 +1528,27 @@ class TestWeixinAllowlist:
 
 
 @pytest.mark.asyncio
-class TestWeixinEdgeCases:
+class TestWeChatEdgeCases:
     """Additional edge case tests."""
 
     async def test_send_content_parts_long_text_splitting(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Long text should be split into chunks."""
         from qwenpaw.app.channels.base import TextContent, ContentType
 
-        weixin_channel._client = mock_ilink_client
+        wechat_channel._client = mock_ilink_client
 
         # Create very long text
         long_text = "A" * 5000
         parts = [TextContent(type=ContentType.TEXT, text=long_text)]
 
-        await weixin_channel.send_content_parts(
-            to_handle="weixin:user123",
+        await wechat_channel.send_content_parts(
+            to_handle="wechat:user123",
             parts=parts,
-            meta={"weixin_context_token": "ctx_token"},
+            meta={"wechat_context_token": "ctx_token"},
         )
 
         # Should call send_text multiple times for chunks
@@ -1556,15 +1556,15 @@ class TestWeixinEdgeCases:
 
     async def test_download_media_invalid_filename(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
         temp_media_dir,
     ):
         """Should sanitize invalid filename characters."""
         mock_ilink_client.download_media = AsyncMock(return_value=b"data")
-        weixin_channel._client = mock_ilink_client
+        wechat_channel._client = mock_ilink_client
 
-        result = await weixin_channel._download_media(
+        result = await wechat_channel._download_media(
             client=mock_ilink_client,
             url="",
             aes_key="key",
@@ -1579,23 +1579,23 @@ class TestWeixinEdgeCases:
 
     async def test_poll_loop_exception_handling(
         self,
-        weixin_channel,
+        wechat_channel,
         mock_ilink_client,
     ):
         """Poll loop should handle exceptions gracefully."""
         mock_ilink_client.getupdates = AsyncMock(
             side_effect=Exception("Network error"),
         )
-        weixin_channel._client = mock_ilink_client
-        weixin_channel._stop_event.set()  # Stop after one iteration
+        wechat_channel._client = mock_ilink_client
+        wechat_channel._stop_event.set()  # Stop after one iteration
 
         # Should not raise despite exception
         try:
-            await weixin_channel._poll_loop_async()
+            await wechat_channel._poll_loop_async()
         except Exception:
             pytest.fail("_poll_loop_async should handle exceptions gracefully")
 
-    def test_build_agent_request_with_varied_content(self, weixin_channel):
+    def test_build_agent_request_with_varied_content(self, wechat_channel):
         """Should handle different content types in build_agent_request."""
         from qwenpaw.app.channels.base import ImageContent, ContentType
 
@@ -1611,7 +1611,7 @@ class TestWeixinEdgeCases:
             "meta": {},
         }
 
-        request = weixin_channel.build_agent_request_from_native(payload)
+        request = wechat_channel.build_agent_request_from_native(payload)
 
         assert request.user_id == "user123"
         assert len(request.input) == 1

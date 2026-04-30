@@ -27,7 +27,7 @@ tests/
     ├── test_telegram.py        # TelegramChannel 单元测试（93 个测试）
     ├── test_voice.py           # VoiceChannel 单元测试（37 个测试）
     ├── test_wecom.py           # WecomChannel 单元测试（69 个测试）
-    ├── test_weixin.py          # WeixinChannel 单元测试（78 个测试）
+    ├── test_wechat.py          # WeChatChannel 单元测试（78 个测试）
     └── test_xiaoyi.py          # XiaoyiChannel 单元测试（57 个测试）
 ```
 
@@ -49,7 +49,7 @@ tests/
 | QQ | 116 | 2,096 | 高 | ✅ 完成 |
 | Telegram | 93 | 1,798 | 中高 | ✅ 完成 |
 | Mattermost | 82 | 1,990 | 中高 | ✅ 完成 |
-| Weixin | 78 | 1,617 | 中 | ✅ 完成 |
+| WeChat | 78 | 1,617 | 中 | ✅ 完成 |
 | Wecom | 69 | 1,504 | 中 | ✅ 完成 |
 | BaseChannel (Core) | 68 | 1,390 | 核心逻辑 | ✅ 完成 |
 | Console | 26 | 567 | 简单 | ✅ 完成 |

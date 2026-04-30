@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """WeChat (iLink Bot) channel package."""
 
-from .channel import WeixinChannel
+from .channel import WeChatChannel
 
-__all__ = ["WeixinChannel"]
+__all__ = ["WeChatChannel"]

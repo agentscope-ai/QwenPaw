@@ -512,7 +512,7 @@ export function ChannelDrawer({
             <Form.Item name="verification_token" label="Verification Token">
               <Input placeholder="Optional" />
             </Form.Item>
-            <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
+            <Form.Item name="media_dir" label={t("channels.wechatMediaDir")}>
               <Input placeholder={defaultMediaDir} />
             </Form.Item>
           </>
@@ -689,7 +689,7 @@ export function ChannelDrawer({
             >
               <Input.Password placeholder="Mattermost bot token" />
             </Form.Item>
-            <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
+            <Form.Item name="media_dir" label={t("channels.wechatMediaDir")}>
               <Input placeholder={defaultMediaDir} />
             </Form.Item>
             <Form.Item
@@ -983,7 +983,7 @@ export function ChannelDrawer({
             >
               <Input.Password placeholder="Secret from WeCom backend" />
             </Form.Item>
-            <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
+            <Form.Item name="media_dir" label={t("channels.wechatMediaDir")}>
               <Input placeholder={defaultMediaDir} />
             </Form.Item>
             <Form.Item
@@ -1049,24 +1049,24 @@ export function ChannelDrawer({
               <Alert
                 type="info"
                 showIcon
-                message={t("channels.weixinSetupGuide")}
+                message={t("channels.wechatSetupGuide")}
                 style={{ marginBottom: 16 }}
               />
               <Alert
                 type="warning"
                 showIcon
-                message={t("channels.weixinContextTokenLimit")}
+                message={t("channels.wechatContextTokenLimit")}
                 style={{ marginBottom: 16 }}
               />
             </ConfigProvider>
-            <Form.Item label={t("channels.weixinScanLogin")}>
+            <Form.Item label={t("channels.wechatScanLogin")}>
               <Button
                 type="primary"
                 block
                 loading={wechatQrcode.loading}
                 onClick={wechatQrcode.fetchQrcode}
               >
-                {t("channels.weixinGetQrcode")}
+                {t("channels.wechatGetQrcode")}
               </Button>
               {wechatQrcode.loading && (
                 <div style={{ textAlign: "center", marginTop: 12 }}>
@@ -1089,35 +1089,35 @@ export function ChannelDrawer({
                         : "rgba(0,0,0,0.45)",
                     }}
                   >
-                    {t("channels.weixinScanHint")}
+                    {t("channels.wechatScanHint")}
                   </div>
                 </div>
               )}
             </Form.Item>
             <Form.Item
               name="bot_token"
-              label={t("channels.weixinBotToken")}
-              tooltip={t("channels.weixinBotTokenTooltip")}
+              label={t("channels.wechatBotToken")}
+              tooltip={t("channels.wechatBotTokenTooltip")}
             >
               <Input.Password
-                placeholder={t("channels.weixinBotTokenPlaceholder")}
+                placeholder={t("channels.wechatBotTokenPlaceholder")}
               />
             </Form.Item>
             <Form.Item
               name="bot_token_file"
-              label={t("channels.weixinBotTokenFile")}
-              tooltip={t("channels.weixinBotTokenFileTooltip")}
+              label={t("channels.wechatBotTokenFile")}
+              tooltip={t("channels.wechatBotTokenFileTooltip")}
             >
-              <Input placeholder="~/.qwenpaw/weixin_bot_token" />
+              <Input placeholder="~/.qwenpaw/wechat_bot_token" />
             </Form.Item>
-            <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
+            <Form.Item name="media_dir" label={t("channels.wechatMediaDir")}>
               <Input placeholder={defaultMediaDir} />
             </Form.Item>
             <Form.Item
               name="message_merge_enabled"
-              label={t("channels.weixinMessageMerge")}
+              label={t("channels.wechatMessageMerge")}
               valuePropName="checked"
-              tooltip={t("channels.weixinMessageMergeTooltip")}
+              tooltip={t("channels.wechatMessageMergeTooltip")}
             >
               <Switch />
             </Form.Item>
@@ -1131,8 +1131,8 @@ export function ChannelDrawer({
                 getFieldValue("message_merge_enabled") ? (
                   <Form.Item
                     name="message_merge_delay_ms"
-                    label={t("channels.weixinMessageMergeDelayMs")}
-                    tooltip={t("channels.weixinMessageMergeDelayMsTooltip")}
+                    label={t("channels.wechatMessageMergeDelayMs")}
+                    tooltip={t("channels.wechatMessageMergeDelayMsTooltip")}
                     initialValue={0}
                     rules={[
                       {
@@ -1149,7 +1149,7 @@ export function ChannelDrawer({
                             return Promise.reject(
                               new Error(
                                 t(
-                                  "channels.weixinMessageMergeDelayMsValidation",
+                                  "channels.wechatMessageMergeDelayMsValidation",
                                 ),
                               ),
                             );

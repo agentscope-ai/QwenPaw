@@ -540,12 +540,6 @@ class ChannelManager:
         logger.info("ChannelManager stopped")
 
     async def get_channel(self, channel: str) -> Optional[BaseChannel]:
-        # Backwards compatibility: legacy callers (e.g. existing cron jobs,
-        # old API clients) may still pass "weixin" while the canonical
-        # channel id has been unified to "wechat". Normalize transparently
-        # so we don't break user-saved configurations.
-        if channel == "weixin":
-            channel = "wechat"
         async with self._lock:
             for ch in self.channels:
                 if ch.channel == channel:

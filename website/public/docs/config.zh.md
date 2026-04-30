@@ -266,7 +266,7 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 - **mattermost** — Mattermost
 - **matrix** — Matrix
 - **wecom** — 企业微信
-- **weixin** — 微信个人（iLink）
+- **wechat** — 微信个人（iLink）
 - **xiaoyi** — 华为小艺
 - **mqtt** — MQTT
 - **voice** — Voice

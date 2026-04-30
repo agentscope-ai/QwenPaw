@@ -93,7 +93,7 @@ class ILinkClient:
     ) -> Any:
         if self._client is None:
             raise ChannelError(
-                channel_name="weixin",
+                channel_name="wechat",
                 message="ILinkClient not started",
             )
         headers = make_headers(self.bot_token)
@@ -180,7 +180,7 @@ class ILinkClient:
                 data = await self.get_qrcode_status(qrcode)
             except httpx.ReadTimeout:
                 logger.warning(
-                    "weixin: QR status poll timed out, retrying…",
+                    "wechat: QR status poll timed out, retrying…",
                 )
                 elapsed += poll_interval
                 continue
@@ -212,7 +212,7 @@ class ILinkClient:
         Returns:
             Dict with keys:
                 ret (int): 0 = success.
-                msgs (list): List of WeixinMessage dicts (may be absent).
+                msgs (list): List of WeChatMessage dicts (may be absent).
                 get_updates_buf (str): Cursor for next call.
                 longpolling_timeout_ms (int): Server-side hold time.
         """

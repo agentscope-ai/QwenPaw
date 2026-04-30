@@ -148,13 +148,6 @@ export interface WeChatConfig extends BaseChannelConfig {
   message_merge_delay_ms?: number;
 }
 
-/**
- * @deprecated Use {@link WeChatConfig}. The legacy "weixin" key has been
- * unified to "WeChat"; this alias is kept for backwards compatibility with
- * existing imports and will be removed in a future release.
- */
-export type WeixinConfig = WeChatConfig;
-
 export interface OneBotConfig extends BaseChannelConfig {
   ws_host: string;
   ws_port: number;
@@ -178,10 +171,6 @@ export interface ChannelConfig {
   sip: SIPChannelConfig;
   xiaoyi: XiaoYiConfig;
   wechat: WeChatConfig;
-  /**
-   * @deprecated Legacy alias for `wechat`. Old config payloads may still
-   * carry this field; the backend transparently maps it to `wechat`.
-   */
   onebot: OneBotConfig;
 }
 

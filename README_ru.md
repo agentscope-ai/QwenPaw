@@ -391,7 +391,6 @@ qwenpaw app # запустите сервис
 | [Модели](https://qwenpaw.agentscope.io/docs/models)             | Настройка облачных/локальных/пользовательских провайдеров |
 | [Каналы](https://qwenpaw.agentscope.io/docs/channels)           | DingTalk, Feishu, WeChat, Discord, Telegram и др. |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)             | Расширение и настройка возможностей             |
-| [Плагины](https://qwenpaw.agentscope.io/docs/plugins)           | Система плагинов                                 |
 | [MCP и инструменты](https://qwenpaw.agentscope.io/docs/mcp)     | Управление MCP-клиентами и инструментами       |
 | [Память](https://qwenpaw.agentscope.io/docs/memory)             | Механизм долговременной памяти                  |
 | [Память-эволюция и проактивное взаимодействие](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | Эволюция памяти агента и проактивное взаимодействие |

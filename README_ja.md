@@ -391,7 +391,6 @@ qwenpaw app    # サービスを起動
 | [モデル](https://qwenpaw.agentscope.io/docs/models)                         | クラウド・ローカル・カスタムプロバイダーの設定       |
 | [チャネル](https://qwenpaw.agentscope.io/docs/channels)                      | DingTalk、Feishu、QQ、Discord、iMessageなど         |
 | [スキル](https://qwenpaw.agentscope.io/docs/skills)                          | 機能の拡張とカスタマイズ                             |
-| [プラグイン](https://qwenpaw.agentscope.io/docs/plugins)                     | プラグインシステム                                   |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                                | MCPクライアントの管理                               |
 | [メモリ](https://qwenpaw.agentscope.io/docs/memory)                          | 長期記憶                              |
 | [記憶進化＆プロアクティブ](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | エージェントの記憶進化とプロアクティブインタラクション |

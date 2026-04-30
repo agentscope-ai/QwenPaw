@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../../../api";
 
 interface ChannelQrcodeConfig {
-  /** Channel name used in the API path, e.g. "weixin" or "wecom" */
+  /** Channel name used in the API path, e.g. "wechat" or "wecom" */
   channel: string;
   /** Status value that indicates successful authorization */
   successStatus: string;

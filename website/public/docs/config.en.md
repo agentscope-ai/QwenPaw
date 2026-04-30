@@ -306,7 +306,7 @@ Each channel has common fields (like `enabled`, `bot_prefix`, access control pol
 - **mattermost** — Mattermost
 - **matrix** — Matrix
 - **wecom** — WeCom (WeChat Work)
-- **weixin** — WeChat Personal (iLink)
+- **wechat** — WeChat Personal (iLink)
 - **xiaoyi** — Huawei XiaoYi
 - **mqtt** — MQTT
 - **voice** — Voice
