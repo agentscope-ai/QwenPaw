@@ -14,9 +14,6 @@ AI_CARD_STREAM_MIN_INTERVAL_SECONDS = 0.6
 # Time debounce (300ms)
 DINGTALK_DEBOUNCE_SECONDS = 0.3
 
-# Short suffix length for session_id from conversation_id
-DINGTALK_SESSION_ID_SUFFIX_LEN = 8
-
 # DingTalk message type to runtime content type
 DINGTALK_TYPE_MAPPING = {
     "picture": "image",

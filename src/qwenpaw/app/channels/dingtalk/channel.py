@@ -81,7 +81,6 @@ from .constants import (
 from .content_utils import (
     parse_data_url,
     session_param_from_webhook_url,
-    short_session_id_from_conversation_id,
 )
 from .handler import DingTalkChannelHandler
 from . import markdown as dingtalk_markdown
@@ -334,11 +333,11 @@ class DingTalkChannel(BaseChannel):
         sender_id: str,
         channel_meta: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Session_id = short suffix of conversation_id for cron lookup."""
+        """Session_id = conversation_id for unique session lookup."""
         meta = channel_meta or {}
         cid = meta.get("conversation_id")
         if cid:
-            return short_session_id_from_conversation_id(cid)
+            return cid
         return f"{self.channel}:{sender_id}"
 
     def build_agent_request_from_native(
