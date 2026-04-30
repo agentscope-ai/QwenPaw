@@ -13,9 +13,18 @@ export interface ChatSpec {
   pinned?: boolean; // Whether the chat is pinned to the top
 }
 
+export interface MessageMetadata {
+  original_id?: string;
+  original_name?: string;
+  original_timestamp?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
 export interface Message {
   role: string;
   content: unknown;
+  name?: string;
+  metadata?: MessageMetadata | null;
   [key: string]: unknown;
 }
 
