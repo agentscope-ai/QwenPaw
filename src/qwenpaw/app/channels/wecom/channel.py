@@ -1049,7 +1049,7 @@ class WecomChannel(BaseChannel):
                         stream_id=stream_id,
                         content=_PROCESSING_TEXT,
                         finish=True,
-                    )
+                    ),
                 )
                 logger.info(
                     "wecom keepalive force-finished after %.0fs stream_id=%s",
@@ -1171,7 +1171,7 @@ class WecomChannel(BaseChannel):
                                 "msgtype": "markdown",
                                 "markdown": {"content": chunk},
                             },
-                        )
+                        ),
                     )
                 except Exception:
                     logger.exception(
