@@ -33,6 +33,13 @@ def _truncate(text: str, limit: int) -> str:
 # approve/deny buttons; avoids clashing with other interactive cards.
 TOOL_GUARD_ACTION_TYPE = "tool_guard_approval"
 
+# Docs anchor shown when the ``card.action.trigger`` event is not
+# subscribed and the buttons silently fail on click.
+_FEISHU_CALLBACK_CONFIG_DOC_URL = (
+    "https://qwenpaw.agentscope.io/docs/channels#feishu-callback-config"
+)
+
+
 _TOOL_GUARD_SEVERITY_TEMPLATE = {
     "critical": "red",
     "high": "red",
@@ -93,6 +100,15 @@ def build_tool_guard_approval_card(
         "elements": [
             {"tag": "markdown", "content": markdown_content},
             {"tag": "hr"},
+            {
+                "tag": "markdown",
+                "content": (
+                    "ⓘ <font color='orange'>**"
+                    "[Buttons not working?  Click here]"
+                    f"({_FEISHU_CALLBACK_CONFIG_DOC_URL})"
+                    "**</font>"
+                ),
+            },
             {
                 "tag": "action",
                 "actions": [
