@@ -87,34 +87,6 @@ def _build_asset_block(url: str, alt: str = "") -> dict[str, Any]:
     return FileBlock(type="file", source=source, filename=filename)
 
 
-def _retrieval_context_to_message_content(context: str) -> list[dict[str, Any]]:
-    blocks: list[dict[str, Any]] = []
-    cursor = 0
-
-    for match in _KNOWLEDGE_ASSET_PATTERN.finditer(context):
-        start, end = match.span()
-        if start > cursor:
-            text = context[cursor:start]
-            if text:
-                blocks.append(TextBlock(type="text", text=text))
-
-        url = match.group("markdown_url") or match.group("plain_url") or ""
-        alt = match.group("alt") or ""
-        if url:
-            blocks.append(_build_asset_block(url, alt))
-        cursor = end
-
-    if cursor < len(context):
-        tail = context[cursor:]
-        if tail:
-            blocks.append(TextBlock(type="text", text=tail))
-
-    if not blocks and context:
-        blocks.append(TextBlock(type="text", text=context))
-
-    return blocks
-
-
 def build_retrieval_context(workspace_dir: Path, query: str, agent_id: str = "default") -> str | None:
     if not query.strip():
         return None
@@ -200,7 +172,22 @@ def build_retrieval_context(workspace_dir: Path, query: str, agent_id: str = "de
             f"Usage Rule: {reference['usage_rule']}",
         ]
         for _, document, chunk in selected:
-            chunk_context = _render_chunk_context(chunk)[:1200]
+            chunk_context = _render_chunk_context(chunk)
+            # 优先保证 markdown image 块不被截断
+            max_len = 1200
+            if len(chunk_context) > max_len:
+                # 查找所有 markdown image 的区间
+                img_spans = [m.span() for m in re.finditer(r'!\[[^\]]*\]\([^\)\s]+\)', chunk_context)]
+                # 找到第一个超出 max_len 的 image 块
+                cut = max_len
+                for start, end in img_spans:
+                    if start < max_len < end:
+                        cut = end
+                        break
+                    if start >= max_len:
+                        cut = start
+                        break
+                chunk_context = chunk_context[:cut]
             lines.append(f"- {document['name']} / {chunk['name']}: {chunk_context}")
         sections.append("\n".join(lines))
 
@@ -209,7 +196,9 @@ def build_retrieval_context(workspace_dir: Path, query: str, agent_id: str = "de
 
     return (
         "Use the following retrieved knowledge-base context when answering. "
-        "If it conflicts with the user's current request, explain the conflict clearly.\n\n"
+        "If it conflicts with the user's current request, explain the conflict clearly. "
+        "If the context contains images (such as markdown image links), you must preserve and reference these images in your answer. "
+        "Do not omit or ignore any image references from the context.\n\n"
         + "\n\n".join(sections)
     )
 
@@ -222,4 +211,29 @@ def build_retrieval_message_content(
     context = build_retrieval_context(workspace_dir, query, agent_id)
     if not context:
         return None
-    return _retrieval_context_to_message_content(context)
+
+    blocks: list[dict[str, Any]] = []
+    cursor = 0
+
+    for match in _KNOWLEDGE_ASSET_PATTERN.finditer(context):
+        start, end = match.span()
+        if start > cursor:
+            text = context[cursor:start]
+            if text:
+                blocks.append(TextBlock(type="text", text=text))
+
+        url = match.group("markdown_url") or match.group("plain_url") or ""
+        alt = match.group("alt") or ""
+        if url:
+            blocks.append(_build_asset_block(url, alt))
+        cursor = end
+
+    if cursor < len(context):
+        tail = context[cursor:]
+        if tail:
+            blocks.append(TextBlock(type="text", text=tail))
+
+    if not blocks and context:
+        blocks.append(TextBlock(type="text", text=context))
+
+    return blocks

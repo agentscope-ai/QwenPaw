@@ -323,6 +323,10 @@ async def _process_single_block(
     if source is None:
         return None
 
+    # skip downloading, keep original URL for asset links
+    if (source.get("kind", "") == "asset"):
+        return None
+
     # Normalize: when source is "base64" but data is a local path (e.g.
     # DingTalk voice returns path), treat as url only if under allowed dir.
     if (

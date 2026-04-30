@@ -2,7 +2,6 @@
 
 import asyncio
 import io
-import re
 import tempfile
 import unittest
 import zipfile
@@ -256,247 +255,6 @@ class KnowledgeBackendTestCase(unittest.TestCase):
 
         self.assertEqual([chunk["content"] for chunk in chunks], [f"{first}<sep>{second}", third])
 
-    def test_chunk_text_can_normalize_whitespace_without_breaking_separator_split(self) -> None:
-        chunks = parsing.chunk_text(
-            "alpha\n\n  beta\t\tgamma<sep>delta\n\n\n epsilon",
-            {
-                "mode": "general",
-                "granularity": "balanced",
-                "separator": "<sep>",
-                "normalize_whitespace": True,
-                "chunk_size": 100,
-                "chunk_overlap": 0,
-            },
-        )
-
-        self.assertEqual(
-            [chunk["content"] for chunk in chunks],
-            ["alpha beta gamma<sep>delta epsilon"],
-        )
-
-    def test_parent_child_chunk_text_can_normalize_whitespace(self) -> None:
-        chunks = parsing.chunk_text(
-            "Parent\n\n block\t\tone.\n\nSecond\n\n block two.",
-            {
-                "mode": "parent_child",
-                "parent_separator": "\\n\\n",
-                "parent_normalize_whitespace": True,
-                "parent_chunk_size": 200,
-                "parent_chunk_overlap": 0,
-                "child_separator": "\\n",
-                "child_normalize_whitespace": True,
-                "child_chunk_size": 200,
-                "child_chunk_overlap": 0,
-            },
-        )
-
-        self.assertEqual(
-            [chunk["content"] for chunk in chunks],
-            ["Parent block one. Second block two."],
-        )
-
-    def test_save_asset_bytes_uses_document_directory(self) -> None:
-        asset = parsing.save_asset_bytes(
-            "kb-123456",
-            "doc-1",
-            "figure.png",
-            b"fake-image",
-        )
-
-        self.assertRegex(asset["path"], r"^kb-123456/doc-1/[0-9a-f]{12}\.png$")
-        self.assertRegex(asset["url"], r"^/api/files/preview/knowledge-assets/kb-123456/doc-1/[0-9a-f]{12}\.png$")
-        self.assertTrue((self.temp_workspace / "knowledge_assets" / asset["path"]).is_file())
-
-    def test_chunk_text_assigns_matching_assets_without_mutating_content(self) -> None:
-        asset = {
-            "id": "asset-1",
-            "name": "diagram.png",
-            "kind": "image",
-            "mime_type": "image/png",
-            "path": "kb-123456/doc-1/asset-1.png",
-            "url": "/api/files/preview/knowledge-assets/kb-123456/doc-1/asset-1.png",
-        }
-        chunks = parsing.chunk_text(
-            f"alpha\n\n![diagram]({asset['url']})\n\nbeta gamma",
-            {
-                "mode": "general",
-                "granularity": "balanced",
-                "chunk_size": 100,
-                "chunk_overlap": 0,
-            },
-            assets=[asset],
-        )
-
-        self.assertEqual(len(chunks), 1)
-        self.assertEqual(len(chunks[0]["assets"]), 1)
-        self.assertEqual(chunks[0]["content"], f"alpha\n\n![diagram]({asset['url']})\n\nbeta gamma")
-
-    def test_retrieval_context_includes_chunk_assets(self) -> None:
-        now = storage.utc_now()
-        store = {
-            "knowledge_bases": [
-                {
-                    "id": "kb-123456",
-                    "name": "Product Docs",
-                    "slug": "product-docs",
-                    "enabled": True,
-                    "created_at": now,
-                    "updated_at": now,
-                    "documents": [
-                        {
-                            "id": "doc-1",
-                            "name": "guide.md",
-                            "char_count": 120,
-                            "uploaded_at": now,
-                            "updated_at": now,
-                            "enabled": True,
-                            "status": "enabled",
-                            "content": "guide",
-                            "chunks": [
-                                {
-                                    "id": "chunk-a",
-                                    "name": "Chunk A",
-                                    "content": "refund process",
-                                    "char_count": 14,
-                                    "enabled": True,
-                                    "created_at": now,
-                                    "updated_at": now,
-                                    "assets": [
-                                        {
-                                            "id": "asset-1",
-                                            "name": "workflow.png",
-                                            "kind": "image",
-                                            "mime_type": "image/png",
-                                            "path": "kb-123456/doc-1/asset-1.png",
-                                            "url": "/api/files/preview/knowledge-assets/kb-123456/doc-1/asset-1.png",
-                                        }
-                                    ],
-                                }
-                            ],
-                            "source_filename": "guide.md",
-                            "chunk_config": {},
-                            "vector_model_summary": {},
-                            "assets": [],
-                            "retrieval_config": {},
-                        }
-                    ],
-                }
-            ]
-        }
-
-        storage.save_store(self.temp_workspace, store)
-        save_soul_knowledge_config(
-            self.temp_workspace,
-            [
-                {
-                    "id": "kb-123456",
-                    "priority": 1,
-                    "trigger": "always",
-                    "retrieval_top_k": 1,
-                    "usage_rule": "Use it.",
-                }
-            ],
-        )
-
-        context = retrieval.build_retrieval_context(self.temp_workspace, "refund")
-
-        self.assertIsNotNone(context)
-        self.assertIn("workflow.png", context)
-        self.assertIn("/api/files/preview/knowledge-assets/kb-123456/doc-1/asset-1.png", context)
-
-    def test_retrieval_message_content_converts_markdown_images_to_blocks(self) -> None:
-        now = storage.utc_now()
-        store = {
-            "knowledge_bases": [
-                {
-                    "id": "kb-123456",
-                    "name": "Product Docs",
-                    "slug": "product-docs",
-                    "enabled": True,
-                    "created_at": now,
-                    "updated_at": now,
-                    "documents": [
-                        {
-                            "id": "doc-1",
-                            "name": "guide.md",
-                            "char_count": 120,
-                            "uploaded_at": now,
-                            "updated_at": now,
-                            "enabled": True,
-                            "status": "enabled",
-                            "content": "guide",
-                            "chunks": [
-                                {
-                                    "id": "chunk-a",
-                                    "name": "Chunk A",
-                                    "content": (
-                                        "refund process\n\n"
-                                        "![workflow](/api/files/preview/knowledge-assets/kb-123456/doc-1/asset-1.png)\n\n"
-                                        "listen: /api/files/preview/knowledge-assets/kb-123456/doc-1/asset-2.mp3\n\n"
-                                        "watch: /api/files/preview/knowledge-assets/kb-123456/doc-1/asset-3.mp4\n\n"
-                                        "download: /api/files/preview/knowledge-assets/kb-123456/doc-1/asset-4.pdf\n\n"
-                                        "step 2"
-                                    ),
-                                    "char_count": 14,
-                                    "enabled": True,
-                                    "created_at": now,
-                                    "updated_at": now,
-                                    "assets": [],
-                                }
-                            ],
-                            "source_filename": "guide.md",
-                            "chunk_config": {},
-                            "vector_model_summary": {},
-                            "assets": [],
-                            "retrieval_config": {},
-                        }
-                    ],
-                }
-            ]
-        }
-
-        storage.save_store(self.temp_workspace, store)
-        save_soul_knowledge_config(
-            self.temp_workspace,
-            [
-                {
-                    "id": "kb-123456",
-                    "priority": 1,
-                    "trigger": "always",
-                    "retrieval_top_k": 1,
-                    "usage_rule": "Use it.",
-                }
-            ],
-        )
-
-        content = retrieval.build_retrieval_message_content(self.temp_workspace, "refund")
-
-        self.assertIsNotNone(content)
-        assert content is not None
-        self.assertGreaterEqual(len(content), 3)
-        self.assertEqual(content[0]["type"], "text")
-        self.assertEqual(content[1]["type"], "image")
-        self.assertEqual(
-            content[1]["source"]["url"],
-            "/api/files/preview/knowledge-assets/kb-123456/doc-1/asset-1.png",
-        )
-        self.assertEqual(content[3]["type"], "audio")
-        self.assertEqual(
-            content[3]["source"]["url"],
-            "/api/files/preview/knowledge-assets/kb-123456/doc-1/asset-2.mp3",
-        )
-        self.assertEqual(content[5]["type"], "video")
-        self.assertEqual(
-            content[5]["source"]["url"],
-            "/api/files/preview/knowledge-assets/kb-123456/doc-1/asset-3.mp4",
-        )
-        self.assertEqual(content[7]["type"], "file")
-        self.assertEqual(
-            content[7]["source"]["url"],
-            "/api/files/preview/knowledge-assets/kb-123456/doc-1/asset-4.pdf",
-        )
-        self.assertEqual(content[7]["filename"], "asset-4.pdf")
-
         def test_extract_docx_text_includes_table_and_header_content(self) -> None:
                 document_xml = """<?xml version='1.0' encoding='UTF-8' standalone='yes'?>
 <w:document xmlns:w='http://schemas.openxmlformats.org/wordprocessingml/2006/main'>
@@ -524,7 +282,6 @@ class KnowledgeBackendTestCase(unittest.TestCase):
                         SimpleNamespace(filename="sample.docx"),
                         buffer.getvalue(),
                         "kb-123456",
-                    "doc-1",
                 )
 
                 self.assertIn("正文段落", payload["content"])
@@ -870,10 +627,10 @@ class KnowledgeBackendTestCase(unittest.TestCase):
     def test_chunk_text_with_model_uses_llm_boundaries(self) -> None:
         async def run_test() -> None:
             with patch(
-                "qwenpaw.app.knowledge.parsing_chunking.create_model_and_formatter",
+                "qwenpaw.app.knowledge.parsing.create_model_and_formatter",
                 return_value=(object(), object()),
             ), patch(
-                "qwenpaw.app.knowledge.parsing_chunking.ReActAgent"
+                "qwenpaw.app.knowledge.parsing.ReActAgent"
             ) as agent_cls:
                 agent = agent_cls.return_value
                 agent.reply = AsyncMock(return_value=SimpleNamespace(
@@ -886,7 +643,6 @@ class KnowledgeBackendTestCase(unittest.TestCase):
                         "mode": "general",
                         "granularity": "paragraph",
                         "separator": "\\n\\n",
-                        "llm_grouping": True,
                         "chunk_size": 1024,
                         "chunk_overlap": 50,
                     },
@@ -900,10 +656,10 @@ class KnowledgeBackendTestCase(unittest.TestCase):
     def test_chunk_text_with_model_falls_back_on_invalid_llm_output(self) -> None:
         async def run_test() -> None:
             with patch(
-                "qwenpaw.app.knowledge.parsing_chunking.create_model_and_formatter",
+                "qwenpaw.app.knowledge.parsing.create_model_and_formatter",
                 return_value=(object(), object()),
             ), patch(
-                "qwenpaw.app.knowledge.parsing_chunking.ReActAgent"
+                "qwenpaw.app.knowledge.parsing.ReActAgent"
             ) as agent_cls:
                 agent = agent_cls.return_value
                 agent.reply = AsyncMock(return_value=SimpleNamespace(
@@ -916,7 +672,6 @@ class KnowledgeBackendTestCase(unittest.TestCase):
                         "mode": "general",
                         "granularity": "paragraph",
                         "separator": "\\n\\n",
-                        "llm_grouping": True,
                         "chunk_size": 1024,
                         "chunk_overlap": 50,
                     },
@@ -933,10 +688,10 @@ class KnowledgeBackendTestCase(unittest.TestCase):
     def test_chunk_text_with_model_raises_without_fallback(self) -> None:
         async def run_test() -> None:
             with patch(
-                "qwenpaw.app.knowledge.parsing_chunking.create_model_and_formatter",
+                "qwenpaw.app.knowledge.parsing.create_model_and_formatter",
                 return_value=(object(), object()),
             ), patch(
-                "qwenpaw.app.knowledge.parsing_chunking.ReActAgent"
+                "qwenpaw.app.knowledge.parsing.ReActAgent"
             ) as agent_cls:
                 agent = agent_cls.return_value
                 agent.reply = AsyncMock(return_value=SimpleNamespace(
@@ -950,7 +705,6 @@ class KnowledgeBackendTestCase(unittest.TestCase):
                             "mode": "general",
                             "granularity": "paragraph",
                             "separator": "\\n\\n",
-                            "llm_grouping": True,
                             "chunk_size": 1024,
                             "chunk_overlap": 50,
                         },

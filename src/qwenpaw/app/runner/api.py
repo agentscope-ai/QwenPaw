@@ -172,6 +172,9 @@ async def get_chat(
 
     memories = await memory.get_memory(prepend_summary=False)
     messages = agentscope_msg_to_message(memories)
+    # Filter out system-role messages that are internal to the agent
+    # (e.g. knowledge base retrieval context) and should not be shown to the user.
+    messages = [m for m in messages if getattr(m, "role", None) != "system"]
     return ChatHistory(messages=messages, status=status)
 
 
