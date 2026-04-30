@@ -1752,27 +1752,16 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
         with open(agent_config_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
-        # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json
-        # contains older hard-coded paths like "~/.copaw/media".
-        try:
-            from .utils import _normalize_working_dir_bound_paths
-
-            data = _normalize_working_dir_bound_paths(data)
-        except Exception:
-            pass
-
         # One-shot migration: rename legacy ``channels.weixin`` key to
         # ``channels.wechat`` and rewrite the file on disk so future loads
-        # see the canonical key directly.
-        _migrated = False
+        # see the canonical key directly. This rewrite must happen BEFORE
+        # any in-memory normalization (e.g. ~/.copaw path rewriting) so we
+        # only persist the key rename, not unrelated runtime transforms.
         channels = data.get("channels")
         if isinstance(channels, dict) and "weixin" in channels:
             legacy = channels.pop("weixin")
             if "wechat" not in channels:
                 channels["wechat"] = legacy
-            _migrated = True
-        if _migrated:
             try:
                 import uuid as _uuid
                 import shutil as _shutil
@@ -1785,8 +1774,26 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
                     agent_config_path, "w", encoding="utf-8"
                 ) as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
+                # Refresh mtime cache key after rewriting the file so the
+                # cached config still reflects the on-disk state.
+                try:
+                    current_mtime = agent_config_path.stat().st_mtime
+                except OSError:
+                    pass
             except OSError:
                 pass
+
+        # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
+        # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json
+        # contains older hard-coded paths like "~/.copaw/media".
+        # NOTE: this transform is applied in-memory only; it must not be
+        # persisted back to disk.
+        try:
+            from .utils import _normalize_working_dir_bound_paths
+
+            data = _normalize_working_dir_bound_paths(data)
+        except Exception:
+            pass
 
         agent_config = AgentProfileConfig(**data)
 
