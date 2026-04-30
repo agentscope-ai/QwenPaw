@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -17,12 +18,81 @@ from ..app.runner.session import sanitize_filename
 from ..token_usage import get_token_usage_manager
 from .models import (
     AgentStatsSummary,
-    ChatStats,
+    ChannelStats,
     DailyStats,
-    MessageStats,
 )
 
 logger = logging.getLogger(__name__)
+
+
+# pylint: disable=unused-argument
+def _should_skip_by_mtime(
+    session_file: Path,
+    start_date: date,
+    end_date: date,
+) -> bool:
+    try:
+        mtime = session_file.stat().st_mtime
+        mtime_date = date.fromtimestamp(mtime)
+        if mtime_date < start_date:
+            logger.debug(
+                "Skipping %s by mtime (%s) before start date %s",
+                session_file.name,
+                mtime_date.isoformat(),
+                start_date.isoformat(),
+            )
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def _should_skip_by_content_range(
+    session_data: dict,
+    start_date_str: str,
+    end_date_str: str,
+) -> bool:
+    memories = (
+        session_data.get("agent", {}).get("memory", {}).get("memories")
+    ) or session_data.get("agent", {}).get("memory", {}).get("content", [])
+
+    if not memories:
+        return True
+
+    timestamps: list[str] = []
+    for msg_item in memories:
+        if isinstance(msg_item, list) and len(msg_item) > 0:
+            msg_data = msg_item[0]
+        elif isinstance(msg_item, dict):
+            msg_data = msg_item
+        else:
+            continue
+
+        if not isinstance(msg_data, dict):
+            continue
+
+        timestamp = msg_data.get("timestamp")
+        if timestamp:
+            timestamps.append(str(timestamp)[:10])
+
+    if not timestamps:
+        return True
+
+    first_date = timestamps[0]
+    last_date = timestamps[-1]
+
+    if last_date < start_date_str or first_date > end_date_str:
+        logger.debug(
+            "Skipping session by content range [%s, %s] "
+            "outside target [%s, %s]",
+            first_date,
+            last_date,
+            start_date_str,
+            end_date_str,
+        )
+        return True
+
+    return False
 
 
 # pylint:disable=too-many-statements,too-many-branches
@@ -31,22 +101,26 @@ def _process_session_file(
     start_date_str: str,
     end_date_str: str,
     daily_stats: dict[str, dict],
-    channel_messages: dict[str, dict],
+    channel_stats: dict[str, dict],
     channel: str,
     session_stem: str,
     active_sessions: dict[str, set[str]],
-) -> int:
-    """Count tool calls, channel messages and active sessions
-    from one session file."""
+) -> tuple[int, bool]:
     tool_call_count = 0
+    has_messages_in_range = False
     try:
         memories = (
             session_data.get("agent", {}).get("memory", {}).get("memories")
         ) or session_data.get("agent", {}).get("memory", {}).get("content", [])
 
-        ch = channel_messages.setdefault(
+        stats = channel_stats.setdefault(
             channel,
-            {"user": 0, "assistant": 0, "total": 0},
+            {
+                "session_count": 0,
+                "user_messages": 0,
+                "assistant_messages": 0,
+                "total_messages": 0,
+            },
         )
 
         for msg_item in memories:
@@ -68,6 +142,7 @@ def _process_session_file(
             if date_str < start_date_str or date_str > end_date_str:
                 continue
 
+            has_messages_in_range = True
             active_sessions.setdefault(date_str, set()).add(session_stem)
 
             ds = daily_stats[date_str]
@@ -77,13 +152,13 @@ def _process_session_file(
             if role == "user":
                 ds["user_messages"] += 1
                 ds["total_messages"] += 1
-                ch["user"] += 1
-                ch["total"] += 1
+                stats["user_messages"] += 1
+                stats["total_messages"] += 1
             elif role == "assistant":
                 ds["assistant_messages"] += 1
                 ds["total_messages"] += 1
-                ch["assistant"] += 1
-                ch["total"] += 1
+                stats["assistant_messages"] += 1
+                stats["total_messages"] += 1
 
             if isinstance(content, list):
                 for block in content:
@@ -97,7 +172,10 @@ def _process_session_file(
     except Exception as e:
         logger.debug("Failed to count messages in session: %s", e)
 
-    return tool_call_count
+    if has_messages_in_range and channel in channel_stats:
+        channel_stats[channel]["session_count"] += 1
+
+    return tool_call_count, has_messages_in_range
 
 
 class AgentStatsService:
@@ -133,11 +211,10 @@ class AgentStatsService:
         start_date_str = start_date.isoformat()
         end_date_str = end_date.isoformat()
 
-        channel_chats: dict[str, int] = {}
-        channel_messages: dict[str, dict] = {}
+        channel_stats: dict[str, dict] = {}
         total_tool_calls = 0
         active_sessions: dict[str, set[str]] = {}
-        total_chats = 0
+        total_active_sessions = 0
 
         session_file_to_channel: dict[str, str] = {}
         if chats_file.exists():
@@ -159,8 +236,6 @@ class AgentStatsService:
                     if start_date <= chat_date <= end_date:
                         date_str = chat_date.isoformat()
                         daily_stats[date_str]["chats"] += 1
-                        channel_chats[ch] = channel_chats.get(ch, 0) + 1
-                        total_chats += 1
             except Exception as e:
                 logger.warning("Failed to load chat statistics: %s", e)
 
@@ -173,39 +248,61 @@ class AgentStatsService:
                     if name.endswith(".json")
                 ]
 
-                async def _process_one(session_file: Path) -> int:
-                    try:
-                        async with aiofiles.open(
+                session_fd_sem = asyncio.Semaphore((os.cpu_count() or 4) * 2)
+
+                async def _process_one(session_file: Path) -> tuple[int, bool]:
+                    async with session_fd_sem:
+                        if _should_skip_by_mtime(
                             session_file,
-                            "r",
-                            encoding="utf-8",
-                        ) as f:
-                            session_data = orjson.loads(await f.read())
-                    except Exception as e:
-                        logger.debug(
-                            "Failed to read session file %s: %s",
-                            session_file,
-                            e,
+                            start_date,
+                            end_date,
+                        ):
+                            return 0, False
+
+                        try:
+                            async with aiofiles.open(
+                                session_file,
+                                "r",
+                                encoding="utf-8",
+                            ) as f:
+                                session_data = orjson.loads(await f.read())
+                        except Exception as e:
+                            logger.debug(
+                                "Failed to read session file %s: %s",
+                                session_file,
+                                e,
+                            )
+                            return 0, False
+
+                        if _should_skip_by_content_range(
+                            session_data,
+                            start_date_str,
+                            end_date_str,
+                        ):
+                            return 0, False
+
+                        stem = session_file.stem
+                        channel = session_file_to_channel.get(stem, "console")
+
+                        return _process_session_file(
+                            session_data,
+                            start_date_str,
+                            end_date_str,
+                            daily_stats,
+                            channel_stats,
+                            channel,
+                            stem,
+                            active_sessions,
                         )
-                        return 0
-                    stem = session_file.stem
-                    channel = session_file_to_channel.get(stem, "console")
-                    return _process_session_file(
-                        session_data,
-                        start_date_str,
-                        end_date_str,
-                        daily_stats,
-                        channel_messages,
-                        channel,
-                        stem,
-                        active_sessions,
-                    )
 
                 tasks = [_process_one(sf) for sf in session_files]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 for result in results:
-                    if isinstance(result, int):
-                        total_tool_calls += result
+                    if isinstance(result, tuple) and len(result) == 2:
+                        tool_calls, has_messages = result
+                        total_tool_calls += tool_calls
+                        if has_messages:
+                            total_active_sessions += 1
                     elif isinstance(result, Exception):
                         logger.debug("Failed to process session: %s", result)
             except Exception as e:
@@ -236,28 +333,25 @@ class AgentStatsService:
         total_messages = total_user_messages + total_assistant_messages
 
         return AgentStatsSummary(
-            total_chats=total_chats,
-            chats_by_channel=[
-                ChatStats(channel=ch, count=cnt)
-                for ch, cnt in sorted(channel_chats.items())
-            ],
+            total_active_sessions=total_active_sessions,
             total_messages=total_messages,
             total_user_messages=total_user_messages,
             total_assistant_messages=total_assistant_messages,
-            messages_by_channel=[
-                MessageStats(
-                    channel=ch,
-                    user_messages=cnts["user"],
-                    assistant_messages=cnts["assistant"],
-                    total_messages=cnts["total"],
-                )
-                for ch, cnts in sorted(channel_messages.items())
-            ],
             total_prompt_tokens=token_summary.total_prompt_tokens,
             total_completion_tokens=token_summary.total_completion_tokens,
             total_llm_calls=token_summary.total_calls,
             total_tool_calls=total_tool_calls,
             by_date=[DailyStats.model_validate(ds) for ds in by_date],
+            channel_stats=[
+                ChannelStats(
+                    channel=ch,
+                    session_count=cnts["session_count"],
+                    user_messages=cnts["user_messages"],
+                    assistant_messages=cnts["assistant_messages"],
+                    total_messages=cnts["total_messages"],
+                )
+                for ch, cnts in sorted(channel_stats.items())
+            ],
             start_date=start_date_str,
             end_date=end_date_str,
         )

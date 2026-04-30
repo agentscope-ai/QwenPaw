@@ -38,6 +38,7 @@ from ..utils.system_info import summarize_python_environment
 from .auth import AuthMiddleware
 from .routers import router as api_router, create_agent_scoped_router
 from .routers.agent_scoped import AgentContextMiddleware
+from .routers.approval import router as approval_router
 from .routers.voice import voice_router
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
@@ -259,6 +260,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     multi_agent_manager = MultiAgentManager()
     provider_manager = ProviderManager.get_instance()
     local_model_manager = LocalModelManager.get_instance()
+
+    # Start token usage manager background tasks
+    logger.debug("Starting TokenUsageManager background tasks...")
+    from ..token_usage import get_token_usage_manager
+
+    token_usage_manager = get_token_usage_manager()
+    token_usage_manager.start(flush_interval=10)
 
     # Expose to endpoints (must be set before first request arrives)
     app.state.multi_agent_manager = multi_agent_manager
@@ -505,6 +513,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             except Exception as e:
                 logger.error(f"Error stopping MultiAgentManager: {e}")
 
+        # Stop token usage manager (drain queue and final flush)
+        logger.info("Stopping TokenUsageManager...")
+        try:
+            await token_usage_manager.stop()
+        except Exception as e:
+            logger.error(f"Error stopping TokenUsageManager: {e}")
+
         logger.info("Application shutdown complete")
 
 
@@ -609,6 +624,9 @@ def get_doctor_runtime():
 
 app.include_router(api_router, prefix="/api")
 
+# Approval router: /api/approval/approve, /api/approval/deny, etc.
+app.include_router(approval_router, prefix="/api")
+
 # Agent-scoped router: /api/agents/{agentId}/chats, etc.
 agent_scoped_router = create_agent_scoped_router()
 app.include_router(agent_scoped_router, prefix="/api")
@@ -663,4 +681,15 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         # Skip API routes (should already be matched due to registration order)
         if full_path.startswith("api/") or full_path == "api":
             raise HTTPException(status_code=404, detail="Not Found")
+
+        # Serve static files from the console build directory (e.g. logo SVGs,
+        # favicons, images placed in public/).  Only serve regular files whose
+        # path does not escape the console directory.
+        if full_path and ".." not in full_path:
+            # Security: Reject absolute paths to prevent path traversal bypass
+            if not Path(full_path).is_absolute():
+                static_file = _console_path / full_path
+                if static_file.is_file():
+                    return FileResponse(static_file)
+
         return _serve_console_index()

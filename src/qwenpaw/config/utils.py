@@ -9,9 +9,10 @@ import shutil
 import socket
 import subprocess
 import sys
-from pathlib import Path
-from typing import Optional, Tuple
+import threading
 import uuid
+from pathlib import Path
+from typing import Any, Optional, Tuple
 
 from json_repair import repair_json
 
@@ -36,6 +37,16 @@ from .config import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Config cache with mtime tracking for reducing disk IO
+_config_cache: Optional[Config] = None
+_config_mtime: Optional[float] = None
+_config_lock = threading.Lock()
+
+# Agent config cache: {agent_id: (config, mtime)}
+# Using Any for forward reference to AgentProfileConfig
+_agent_config_cache: dict[str, tuple[Any, float]] = {}
+_agent_config_lock = threading.Lock()
 
 
 def _normalize_working_dir_bound_paths(data: object) -> object:
@@ -488,17 +499,11 @@ def _read_config_data(config_path: Path) -> Optional[dict]:
     return data
 
 
-def load_config(config_path: Optional[Path] = None) -> Config:
-    """Load config from file. Returns default Config if file is missing."""
-    if config_path is None:
-        config_path = get_config_path()
-    if not config_path.is_file():
-        return Config()
-
-    data = _read_config_data(config_path)
-    if data is None:
-        return Config()
-
+def _load_and_validate_config(
+    config_path: Path,
+    data: dict,
+) -> Config:
+    """Load and validate config data, handling validation errors."""
     data = _normalize_working_dir_bound_paths(data)
     # Backward compat: top-level last_api_host / last_api_port -> last_api
     if "last_api_host" in data or "last_api_port" in data:
@@ -528,6 +533,47 @@ def load_config(config_path: Optional[Path] = None) -> Config:
             "validation error after field removal",
         )
         return Config()
+
+
+def load_config(config_path: Optional[Path] = None) -> Config:
+    """Load config from file with mtime-based caching.
+
+    Uses file modification time to avoid unnecessary disk reads.
+    Returns default Config if file is missing.
+    """
+    global _config_cache, _config_mtime
+
+    if config_path is None:
+        config_path = get_config_path()
+
+    if not config_path.is_file():
+        return Config()
+
+    # Check mtime to see if we can use cached config
+    try:
+        current_mtime = config_path.stat().st_mtime
+    except OSError:
+        return Config()
+
+    with _config_lock:
+        # Return cached config if mtime hasn't changed
+        if (
+            _config_cache is not None
+            and _config_mtime is not None
+            and _config_mtime == current_mtime
+        ):
+            return _config_cache
+
+        # Need to reload config from disk
+        data = _read_config_data(config_path)
+        if data is None:
+            config = Config()
+        else:
+            config = _load_and_validate_config(config_path, data)
+
+        _config_cache = config
+        _config_mtime = current_mtime
+        return config
 
 
 def strict_validate_config_file(
@@ -571,7 +617,9 @@ def strict_validate_config_file(
 
 
 def save_config(config: Config, config_path: Optional[Path] = None) -> None:
-    """Save the config to the file."""
+    """Save the config to the file and invalidate cache."""
+    global _config_cache, _config_mtime
+
     if config_path is None:
         config_path = get_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -582,6 +630,11 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
             indent=2,
             ensure_ascii=False,
         )
+
+    # Invalidate cache after saving
+    with _config_lock:
+        _config_cache = None
+        _config_mtime = None
 
 
 def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
@@ -625,7 +678,7 @@ def get_dream_cron(agent_id: Optional[str] = None) -> str:
     if agent_id is not None:
         try:
             agent_config = load_agent_config(agent_id)
-            return agent_config.running.memory_summary.dream_cron
+            return agent_config.running.reme_light_memory_config.dream_cron
         except Exception:
             return ""
     # Legacy: return empty string if no agent_id provided

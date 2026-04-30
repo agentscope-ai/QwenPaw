@@ -45,7 +45,7 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
-from ..utils import split_text
+from ..utils import file_url_to_local_path, split_text
 from .client import ILinkClient, _DEFAULT_BASE_URL
 
 logger = logging.getLogger(__name__)
@@ -76,6 +76,7 @@ class WeixinChannel(BaseChannel):
         base_url: str = "",
         bot_prefix: str = "",
         media_dir: str = "",
+        workspace_dir: Path | None = None,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
@@ -84,6 +85,8 @@ class WeixinChannel(BaseChannel):
         group_policy: str = "open",
         allow_from: Optional[List[str]] = None,
         deny_message: str = "",
+        message_merge_enabled: bool = False,
+        message_merge_delay_ms: int = 0,
     ):
         super().__init__(
             process,
@@ -108,9 +111,25 @@ class WeixinChannel(BaseChannel):
         self._context_tokens_file = (
             self._bot_token_file.parent / "weixin_context_tokens.json"
         )
-        self._media_dir = (
-            Path(media_dir).expanduser() if media_dir else DEFAULT_MEDIA_DIR
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
         )
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = DEFAULT_MEDIA_DIR
+
+        # Message merge settings (mitigates 10-msg context_token limit)
+        self._message_merge_enabled = message_merge_enabled
+        self._message_merge_delay_ms = max(message_merge_delay_ms, 0)
+        # Merge buffer (WeChat iLink is single-chat only, one buffer suffices)
+        self._merge_buffer: List[OutgoingContentPart] = []
+        self._merge_meta: Optional[Dict[str, Any]] = None
+        self._merge_timer: Optional[asyncio.TimerHandle] = None
+        self._merge_to_handle: str = ""
 
         self._client: Optional[ILinkClient] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -181,6 +200,7 @@ class WeixinChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Path | None = None,
     ) -> "WeixinChannel":
         return cls(
             process=process,
@@ -190,6 +210,7 @@ class WeixinChannel(BaseChannel):
             base_url=getattr(config, "base_url", "") or "",
             bot_prefix=getattr(config, "bot_prefix", "") or "",
             media_dir=getattr(config, "media_dir", None) or "",
+            workspace_dir=workspace_dir,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -198,6 +219,17 @@ class WeixinChannel(BaseChannel):
             group_policy=getattr(config, "group_policy", "open") or "open",
             allow_from=getattr(config, "allow_from", []) or [],
             deny_message=getattr(config, "deny_message", "") or "",
+            message_merge_enabled=getattr(
+                config,
+                "message_merge_enabled",
+                False,
+            ),
+            message_merge_delay_ms=getattr(
+                config,
+                "message_merge_delay_ms",
+                0,
+            )
+            or 0,
         )
 
     # ------------------------------------------------------------------
@@ -964,7 +996,18 @@ class WeixinChannel(BaseChannel):
         if not _client or not to_user_id or not text:
             return
         try:
-            await _client.send_text(to_user_id, text, context_token)
+            resp = await _client.send_text(to_user_id, text, context_token)
+            if isinstance(resp, dict):
+                ret = resp.get("ret", 0)
+                errcode = resp.get("errcode", 0)
+                if ret != 0 or errcode != 0:
+                    logger.warning(
+                        "weixin send_text rejected: "
+                        "ret=%s errcode=%s to_user_id=%s",
+                        ret,
+                        errcode,
+                        to_user_id,
+                    )
         except Exception:
             logger.exception("weixin _send_text_direct failed")
 
@@ -991,8 +1034,7 @@ class WeixinChannel(BaseChannel):
 
         try:
             # Convert URL to local path if it's a file:// URL
-            if file_path.startswith("file://"):
-                file_path = file_path[7:]
+            file_path = file_url_to_local_path(file_path) or file_path
 
             # Check if file exists
             path_obj = Path(file_path)
@@ -1043,15 +1085,129 @@ class WeixinChannel(BaseChannel):
         if stop_func:
             stop_func()
 
+    # ------------------------------------------------------------------
+    # Message merge helpers (mitigates 10-msg context_token limit)
+    #
+    # WeChat iLink Bot is single-chat only (no group chat), so a single
+    # instance-level buffer is sufficient — no per-session keying needed.
+    # ------------------------------------------------------------------
+
+    async def _buffer_parts_for_merge(
+        self,
+        to_handle: str,
+        parts: List[OutgoingContentPart],
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Append parts to the merge buffer.
+
+        In full-merge mode (delay_ms == 0) nothing is flushed here; the
+        caller is responsible for flushing at the end of the request.
+
+        In delay-merge mode (delay_ms > 0) a timer is (re)started; when
+        it fires the buffer is flushed automatically.
+        """
+        # Insert a newline separator between existing buffer and new parts
+        # so that merged messages are visually separated in the final output.
+        if self._merge_buffer and parts:
+            self._merge_buffer.append(
+                TextContent(type=ContentType.TEXT, text="\n"),
+            )
+        self._merge_buffer.extend(parts)
+        self._merge_meta = dict(meta or {})
+        self._merge_to_handle = to_handle
+
+        if self._message_merge_delay_ms > 0:
+            if self._merge_timer is not None:
+                self._merge_timer.cancel()
+
+            loop = asyncio.get_running_loop()
+            delay_sec = self._message_merge_delay_ms / 1000.0
+            self._merge_timer = loop.call_later(
+                delay_sec,
+                lambda: asyncio.ensure_future(
+                    self._flush_merge_buffer(to_handle),
+                ),
+            )
+
+    async def _flush_merge_buffer(
+        self,
+        to_handle: str,
+    ) -> None:
+        """Flush the merge buffer: send all accumulated parts at once."""
+        if self._merge_timer is not None:
+            self._merge_timer.cancel()
+            self._merge_timer = None
+
+        buffered_parts = self._merge_buffer
+        buffered_meta = self._merge_meta
+        self._merge_buffer = []
+        self._merge_meta = None
+
+        if not buffered_parts:
+            return
+
+        await self._send_content_parts_immediate(
+            to_handle,
+            buffered_parts,
+            buffered_meta,
+        )
+
     async def send_content_parts(
         self,
         to_handle: str,
         parts: List[OutgoingContentPart],
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Send agent response content back to the WeChat user."""
+        """Send agent response content back to the WeChat user.
+
+        When message merging is enabled, text parts are buffered and
+        sent together (either at the end of the request or after a
+        configurable delay window).  Media parts are always sent
+        immediately since they cannot be merged into text.
+        """
         if not self.enabled:
             return
+
+        if self._message_merge_enabled:
+            # Separate text/refusal parts (mergeable) from media (immediate)
+            text_parts: List[OutgoingContentPart] = []
+            media_parts: List[OutgoingContentPart] = []
+            for part in parts:
+                part_type = getattr(part, "type", None) or (
+                    part.get("type") if isinstance(part, dict) else None
+                )
+                if part_type in (ContentType.TEXT, ContentType.REFUSAL):
+                    text_parts.append(part)
+                else:
+                    media_parts.append(part)
+
+            # Buffer text parts for later merge
+            if text_parts:
+                await self._buffer_parts_for_merge(
+                    to_handle,
+                    text_parts,
+                    meta,
+                )
+
+            # Media parts are sent immediately (cannot be merged)
+            if media_parts:
+                await self._send_content_parts_immediate(
+                    to_handle,
+                    media_parts,
+                    meta,
+                )
+            return
+
+        # Merging disabled: send everything immediately
+        await self._send_content_parts_immediate(to_handle, parts, meta)
+
+    async def _send_content_parts_immediate(
+        self,
+        to_handle: str,
+        parts: List[OutgoingContentPart],
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Actually send content parts to WeChat (no merge buffering)."""
         m = meta or {}
         to_user_id = (
             m.get("weixin_from_user_id")
@@ -1148,7 +1304,11 @@ class WeixinChannel(BaseChannel):
         to_handle: str,
         send_meta: Dict[str, Any],
     ) -> None:
-        """Stop typing indicator after all reply messages have been sent."""
+        """Flush merge buffer (if any) and stop typing indicator."""
+        # Flush any remaining merged messages before finishing
+        if self._message_merge_enabled:
+            await self._flush_merge_buffer(to_handle)
+
         user_id = (
             (send_meta or {}).get("weixin_from_user_id")
             or self._parse_user_id_from_handle(to_handle)
@@ -1163,7 +1323,11 @@ class WeixinChannel(BaseChannel):
         to_handle: str,
         err_text: str,
     ) -> None:
-        """Stop typing and send error message."""
+        """Flush merge buffer, stop typing, and send error message."""
+        # Flush any buffered messages before sending the error
+        if self._message_merge_enabled:
+            await self._flush_merge_buffer(to_handle)
+
         user_id = self._parse_user_id_from_handle(to_handle) or ""
         if user_id:
             self._stop_typing_for_user(user_id)
@@ -1372,6 +1536,36 @@ class WeixinChannel(BaseChannel):
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Check WeChat long-poll client status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "WeChat channel is disabled.",
+            }
+        issues = []
+        if self._client is None:
+            issues.append("WeChat client not initialized")
+        if not self.bot_token:
+            issues.append("Bot token not available (not logged in)")
+        poll_thread_alive = (
+            self._poll_thread is not None and self._poll_thread.is_alive()
+        )
+        if not poll_thread_alive:
+            issues.append("Long-poll thread is not running")
+        if issues:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "; ".join(issues),
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "WeChat client is connected and polling.",
+        }
 
     async def start(self) -> None:
         if not self.enabled:

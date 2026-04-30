@@ -145,6 +145,9 @@ export function LocalModelManageModal({
   const [startingModelName, setStartingModelName] = useState<string | null>(
     null,
   );
+  const [deletingModelName, setDeletingModelName] = useState<string | null>(
+    null,
+  );
   const [stoppingServer, setStoppingServer] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [advancedSaving, setAdvancedSaving] = useState(false);
@@ -788,12 +791,45 @@ export function LocalModelManageModal({
     }
   }, [onSaved, refreshStatus, t]);
 
+  const handleDeleteModel = useCallback(
+    (model: LocalModelInfo) => {
+      Modal.confirm({
+        title: t("models.localDeleteModel"),
+        content: t("models.localDeleteConfirm", { name: model.name }),
+        okText: t("common.delete"),
+        okButtonProps: { danger: true },
+        cancelText: t("common.cancel"),
+        onOk: async () => {
+          setDeletingModelName(model.id);
+          try {
+            await api.deleteLocalModel(model.id);
+            message.success(
+              t("models.localModelDeleted", { name: model.name }),
+            );
+            await fetchLocalModels();
+            onSaved();
+          } catch (error) {
+            const errMsg =
+              error instanceof Error
+                ? error.message
+                : t("models.localDeleteFailed");
+            message.error(errMsg);
+          } finally {
+            setDeletingModelName(null);
+          }
+        },
+      });
+    },
+    [fetchLocalModels, message, onSaved, t],
+  );
+
   const handleClose = () => {
     onClose();
   };
 
   const isModelDownloading = isDownloadActive(modelDownload);
-  const isServerBusy = stoppingServer || startingModelName !== null;
+  const isServerBusy =
+    stoppingServer || startingModelName !== null || deletingModelName !== null;
   const isRuntimeInstallable = serverStatus?.installable ?? true;
   const isRuntimeInstalled = Boolean(serverStatus?.installed);
   const runtimeLockedMessage =
@@ -943,9 +979,11 @@ export function LocalModelManageModal({
                     isServerBusy={isServerBusy}
                     startingModelName={startingModelName}
                     stoppingServer={stoppingServer}
+                    deletingModelName={deletingModelName}
                     onStartDownload={handleStartModelDownload}
                     onStartServer={handleStartServer}
                     onStopServer={handleStopServer}
+                    onDeleteModel={handleDeleteModel}
                   />
                 ))
               : null}

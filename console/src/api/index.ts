@@ -5,6 +5,7 @@ export { request } from "./request";
 export { getApiUrl, getApiToken } from "./config";
 
 import { rootApi } from "./modules/root";
+import { acpApi } from "./modules/acp";
 import { channelApi } from "./modules/channel";
 import { heartbeatApi } from "./modules/heartbeat";
 import { cronJobApi } from "./modules/cronjob";
@@ -23,10 +24,14 @@ import { toolsApi } from "./modules/tools";
 import { securityApi } from "./modules/security";
 import { userTimezoneApi } from "./modules/userTimezone";
 import { languageApi } from "./modules/language";
+import { backupApi } from "./modules/backup";
 
 export const api = {
   // Root
   ...rootApi,
+
+  // ACP
+  ...acpApi,
 
   // Channels
   ...channelApi,
@@ -79,6 +84,9 @@ export const api = {
 
   // Language
   ...languageApi,
+
+  // Backups
+  ...backupApi,
 };
 
 export default api;

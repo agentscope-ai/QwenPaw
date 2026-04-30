@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .runner import AgentRunner
+    from ...agents.context import AgentContext
 
 
 def _get_last_user_text(msgs) -> str | None:
@@ -49,11 +50,18 @@ def _get_last_user_text(msgs) -> str | None:
 
 
 def _is_conversation_command(query: str | None) -> bool:
-    """True if query is a conversation command (/compact, /new, etc.)."""
+    """True if query is a conversation command (/compact, /new, etc.).
+
+    ``/plan <description>`` (with arguments) is NOT a command — it
+    passes through the runner to activate plan mode.
+    """
     if not query or not query.startswith("/"):
         return False
     stripped = query.strip().lstrip("/")
-    cmd = stripped.split(" ", 1)[0] if stripped else ""
+    parts = stripped.split(" ", 1)
+    cmd = parts[0] if parts else ""
+    if cmd == "plan" and len(parts) > 1 and parts[1].strip():
+        return False
     return cmd in CommandHandler.SYSTEM_COMMANDS
 
 
@@ -129,6 +137,7 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
         daemon_ctx = DaemonContext(
             load_config_fn=lambda: load_agent_config(agent_id),
             memory_manager=runner.memory_manager,
+            context_manager=runner.context_manager,
             manager=manager,
             agent_id=agent_id,
             session_id=session_id,
@@ -138,7 +147,7 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
         logger.info("handle_daemon_command %s completed", query)
         return
 
-    # Control command path (e.g. /stop)
+    # Control command path (e.g. /stop, /approval)
     if _is_control_command(query):
         workspace = runner._workspace  # pylint: disable=protected-access
         if workspace is None:
@@ -198,6 +207,7 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
             channel=channel,
             session_id=session_id,
             user_id=user_id,
+            agent_id=runner.agent_id,
             args={},
         )
 
@@ -233,19 +243,21 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
         return
 
     # Conversation path: lightweight memory + CommandHandler
-    memory = runner.memory_manager.get_in_memory_memory()
+    context_manager = runner.context_manager
+    memory: "AgentContext" = context_manager.get_agent_context()
     session_state = await runner.session.get_session_state_dict(
         session_id=session_id,
         user_id=user_id,
     )
     memory_state = session_state.get("agent", {}).get("memory", {})
-    memory.load_state_dict(memory_state, strict=False)
+    if memory is not None:
+        memory.load_state_dict(memory_state, strict=False)
 
     conv_handler = CommandHandler(
         agent_name="Friday",
         memory=memory,
         memory_manager=runner.memory_manager,
-        enable_memory_manager=runner.memory_manager is not None,
+        context_manager=context_manager,
     )
     try:
         response_msg = await conv_handler.handle_conversation_command(query)
@@ -266,6 +278,43 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
             value=memory.state_dict(),
             user_id=user_id,
         )
+
+        # Clear plan state when /clear or /new is used
+        metadata = getattr(response_msg, "metadata", None)
+        if isinstance(metadata, dict) and metadata.get("clear_plan"):
+            try:
+                from agentscope.plan import PlanNotebook, InMemoryPlanStorage
+
+                _empty_nb = PlanNotebook(storage=InMemoryPlanStorage())
+                await runner.session.update_session_state(
+                    session_id=session_id,
+                    key="agent.plan_notebook",
+                    value=_empty_nb.state_dict(),
+                    user_id=user_id,
+                )
+                logger.info(
+                    "Cleared plan_notebook from session %s",
+                    session_id,
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to clear plan_notebook from session",
+                    exc_info=True,
+                )
+
+            try:
+                from ...plan.broadcast import broadcast_plan_update
+
+                broadcast_plan_update(
+                    runner.agent_id,
+                    {"type": "plan_update", "plan": None},
+                    session_id=session_id,
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to broadcast plan clear",
+                    exc_info=True,
+                )
     else:
         logger.warning(
             "Skipping session_state update for conversation"

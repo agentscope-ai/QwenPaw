@@ -3,6 +3,7 @@
 
 This module handles system commands like /compact, /new, /clear, etc.
 """
+
 import json
 import logging
 from pathlib import Path
@@ -16,15 +17,21 @@ from ..exceptions import SystemCommandException
 
 if TYPE_CHECKING:
     from .memory import BaseMemoryManager
+    from .context import AgentContext, BaseContextManager
 
 logger = logging.getLogger(__name__)
+
+
+def _fmt_tokens(n: int) -> str:
+    """Format token count as e.g. '82.3k' or '450'."""
+    return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
 
 
 class ConversationCommandHandlerMixin:
     """Mixin for conversation (system) commands: /compact, /new, /clear, etc.
 
     Expects self to have: agent_name, memory, formatter, memory_manager,
-    _enable_memory_manager.
+    context_manager.
     """
 
     # Supported conversation commands (unchanged set)
@@ -35,16 +42,21 @@ class ConversationCommandHandlerMixin:
             "clear",
             "history",
             "compact_str",
-            "await_summary",
+            "summarize_status",
             "message",
             "dump_history",
             "load_history",
-            "long_term_memory",
+            "proactive",
+            "plan",
         },
     )
 
     def is_conversation_command(self, query: str | None) -> bool:
         """Check if the query is a conversation system command.
+
+        ``/plan <description>`` (with arguments) is NOT a command — it
+        passes through the runner to activate plan mode.  Only bare
+        ``/plan`` is treated as a status command.
 
         Args:
             query: User query string
@@ -55,7 +67,10 @@ class ConversationCommandHandlerMixin:
         if not isinstance(query, str) or not query.startswith("/"):
             return False
         stripped = query.strip().lstrip("/")
-        cmd = stripped.split(" ", 1)[0] if stripped else ""
+        parts = stripped.split(" ", 1)
+        cmd = parts[0] if parts else ""
+        if cmd == "plan" and len(parts) > 1 and parts[1].strip():
+            return False
         return cmd in self.SYSTEM_COMMANDS
 
 
@@ -65,22 +80,22 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def __init__(
         self,
         agent_name: str,
-        memory,
+        memory: "AgentContext",
         memory_manager: "BaseMemoryManager | None" = None,
-        enable_memory_manager: bool = True,
+        context_manager: "BaseContextManager | None" = None,
     ):
         """Initialize command handler.
 
         Args:
             agent_name: Name of the agent for message creation
-            memory: Agent's in-memory memory instance
+            memory: Agent's context instance (AgentContext)
             memory_manager: Optional memory manager instance
-            enable_memory_manager: Whether memory manager is enabled
+            context_manager: Optional context manager instance
         """
         self.agent_name = agent_name
-        self.memory = memory
-        self.memory_manager = memory_manager
-        self._enable_memory_manager = enable_memory_manager
+        self.memory: "AgentContext" = memory
+        self.memory_manager: "BaseMemoryManager" = memory_manager
+        self.context_manager: "BaseContextManager" = context_manager
 
     def _get_agent_config(self):
         """Get hot-reloaded agent config.
@@ -117,7 +132,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
     def _has_memory_manager(self) -> bool:
         """Check if memory manager is available."""
-        return self._enable_memory_manager and self.memory_manager is not None
+        return self.memory_manager is not None
+
+    def _has_context_manager(self) -> bool:
+        """Check if context manager is available."""
+        return self.context_manager is not None
 
     async def _process_compact(
         self,
@@ -128,39 +147,57 @@ class CommandHandler(ConversationCommandHandlerMixin):
         extra_instruction = args.strip()
         if not messages:
             return await self._make_system_msg(
-                "**No messages to compact.**\n\n"
+                "📭 **No messages to compact.**\n\n"
                 "- Current memory is empty\n"
                 "- No action taken",
             )
-        if not self._has_memory_manager():
+        if not self._has_memory_manager() or not self._has_context_manager():
             return await self._make_system_msg(
-                "**Memory Manager Disabled**\n\n"
+                "🚫 **Memory/Context Manager Disabled**\n\n"
                 "- Memory compaction is not available\n"
-                "- Enable memory manager to use this feature",
+                "- Enable memory and context manager to use this feature",
             )
 
-        self.memory_manager.add_async_summary_task(messages=messages)
-        compact_content = await self.memory_manager.compact_memory(
+        self.memory_manager.add_summarize_task(messages=messages)
+        result = await self.context_manager.compact_context(
             messages=messages,
             previous_summary=self.memory.get_compressed_summary(),
             extra_instruction=extra_instruction,
         )
 
-        if not compact_content:
+        if not result.get("success"):
+            reason = result.get("reason", "unknown")
+            before = result.get("before_tokens", 0)
+            max_len = self._get_agent_config().running.max_input_length
+            before_pct = (
+                f"{before / max_len * 100:.0f}%" if max_len > 0 else "N/A"
+            )
             return await self._make_system_msg(
-                "**Compact Failed!**\n\n"
-                "- Memory compaction returned empty result\n"
-                "- Please check the logs for details\n"
-                "- If context exceeds max length, "
-                "please use `/new` or `/clear` to clear the context",
+                f"❌ **Compact Failed!**\n\n"
+                f"- Reason: {reason}\n"
+                f"- Messages: {len(messages)}, "
+                f"Tokens: {_fmt_tokens(before)}/"
+                f"{_fmt_tokens(max_len)} ({before_pct})\n"
+                f"- Please check the logs for details\n"
+                f"- If context exceeds max length, "
+                f"please use `/new` or `/clear` to clear the context",
             )
 
+        compact_content = result.get("history_compact", "")
         await self.memory.update_compressed_summary(compact_content)
-        updated_count = len(messages)
-        self.memory.clear_content()
+        before = result.get("before_tokens", 0)
+        after = result.get("after_tokens", 0)
+        max_len = self._get_agent_config().running.max_input_length
+        await self.memory.clear_content()
+        before_pct = f"{before / max_len * 100:.0f}%" if max_len > 0 else "N/A"
+        after_pct = f"{after / max_len * 100:.0f}%" if max_len > 0 else "N/A"
         return await self._make_system_msg(
-            f"**Compact Complete!**\n\n"
-            f"- Messages compacted: {updated_count}\n"
+            f"✅ **Compact Complete!**\n\n"
+            f"- Messages compacted: {len(messages)}\n"
+            f"- Tokens: {_fmt_tokens(before)}/"
+            f"{_fmt_tokens(max_len)}({before_pct}) -> "
+            f"{_fmt_tokens(after)}/"
+            f"{_fmt_tokens(max_len)}({after_pct})\n"
             f"**Compressed Summary:**\n{compact_content}\n"
             f"- Summary task started in background\n",
         )
@@ -173,7 +210,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "**No messages to summarize.**\n\n"
                 "- Current memory is empty\n"
                 "- Compressed summary is clear\n"
+                "- Plan state cleared\n"
                 "- No action taken",
+                metadata={"clear_plan": True},
             )
         if not self._has_memory_manager():
             return await self._make_system_msg(
@@ -182,14 +221,16 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- Enable memory manager to use this feature",
             )
 
-        self.memory_manager.add_async_summary_task(messages=messages)
+        self.memory_manager.add_summarize_task(messages=messages)
         self.memory.clear_compressed_summary()
 
-        self.memory.clear_content()
+        await self.memory.clear_content()
         return await self._make_system_msg(
             "**New Conversation Started!**\n\n"
             "- Summary task started in background\n"
+            "- Plan state cleared\n"
             "- Ready for new conversation",
+            metadata={"clear_plan": True},
         )
 
     async def _process_clear(
@@ -198,13 +239,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _args: str = "",
     ) -> Msg:
         """Process /clear command."""
-        self.memory.clear_content()
+        await self.memory.clear_content()
         self.memory.clear_compressed_summary()
         return await self._make_system_msg(
             "**History Cleared!**\n\n"
             "- Compressed summary reset\n"
-            "- Memory is now empty",
-            metadata={"clear_history": True},
+            "- Memory is now empty\n"
+            "- Plan state cleared",
+            metadata={"clear_history": True, "clear_plan": True},
         )
 
     async def _process_compact_str(
@@ -251,33 +293,39 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         return await self._make_system_msg(history_str)
 
-    async def _process_await_summary(
+    async def _process_summarize_status(
         self,
         _messages: list[Msg],
         _args: str = "",
     ) -> Msg:
-        """Process /await_summary command to wait for all summary tasks."""
+        """Process /summarize_status command to show all status."""
         if not self._has_memory_manager():
             return await self._make_system_msg(
                 "**Memory Manager Disabled**\n\n"
-                "- Cannot await summary tasks\n"
+                "- Cannot list summary task status\n"
                 "- Enable memory manager to use this feature",
             )
 
-        task_count = len(self.memory_manager.summary_tasks)
-        if task_count == 0:
+        task_list = self.memory_manager.list_summarize_status()
+        if not task_list:
             return await self._make_system_msg(
                 "**No Summary Tasks**\n\n"
-                "- No pending summary tasks to wait for",
+                "- No summary tasks have been started",
             )
 
-        result = await self.memory_manager.await_summary_tasks()
-        return await self._make_system_msg(
-            f"**Summary Tasks Complete**\n\n"
-            f"- Waited for {task_count} summary task(s)\n"
-            f"- {result}"
-            f"- All tasks have finished",
-        )
+        status_lines = ["**Summary Task Status**\n\n"]
+        for info in task_list:
+            status_lines.append(
+                f"- **{info['task_id']}**\n"
+                f"  - Start: {info['start_time']}\n"
+                f"  - Status: {info['status']}\n",
+            )
+            if info["status"] == "completed" and info["result"]:
+                status_lines.append(f"  - Result: {info['result'][:200]}...\n")
+            elif info["status"] == "failed" and info["error"]:
+                status_lines.append(f"  - Error: {info['error']}\n")
+
+        return await self._make_system_msg("".join(status_lines))
 
     async def _process_message(
         self,
@@ -479,30 +527,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 f"**Load Failed**\n\n" f"- Error: {e}",
             )
 
-    async def _process_long_term_memory(
-        self,
-        _messages: list[Msg],
-        _args: str = "",
-    ) -> Msg:
-        """Process /long_term_memory to display the long-term memory."""
-        long_term_memory = getattr(self.memory, "_long_term_memory", None)
-        if long_term_memory is None:
-            return await self._make_system_msg(
-                "**Long-Term Memory Not Available**\n\n"
-                "- `_long_term_memory` attribute does not exist "
-                "on this memory instance\n"
-                "- This feature requires a ReMeInMemoryMemory-compatible"
-                " memory backend",
-            )
-        if not long_term_memory:
-            return await self._make_system_msg(
-                "**Long-Term Memory Empty**\n\n"
-                "- `_long_term_memory` exists but contains no content yet",
-            )
-        return await self._make_system_msg(
-            f"**Long-Term Memory**\n\n{long_term_memory}",
-        )
-
     async def handle_conversation_command(self, query: str) -> Msg:
         """Process conversation system commands.
 
@@ -534,3 +558,190 @@ class CommandHandler(ConversationCommandHandlerMixin):
     async def handle_command(self, query: str) -> Msg:
         """Process system commands (alias for handle_conversation_command)."""
         return await self.handle_conversation_command(query)
+
+    async def _process_plan(
+        self,
+        _messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
+        """Process bare /plan command to show plan status.
+
+        This handler is only called for ``/plan`` without arguments.
+        ``/plan <description>`` is routed through the runner instead.
+        """
+        from ..app.agent_context import get_current_agent_id
+
+        agent_id = get_current_agent_id()
+        try:
+            agent_config = load_agent_config(agent_id)
+            plan_enabled = getattr(
+                getattr(agent_config, "plan", None),
+                "enabled",
+                False,
+            )
+        except Exception:
+            plan_enabled = False
+
+        if not plan_enabled:
+            return await self._make_system_msg(
+                "**Plan Mode**\n\n"
+                "- Status: **disabled**\n"
+                "- Enable plan mode in Settings → Plan to use "
+                "`/plan <description>` for creating structured plans.",
+            )
+        return await self._make_system_msg(
+            "**Plan Mode**\n\n"
+            "- Status: **enabled**\n"
+            "- Use `/plan <description>` to create a new plan\n"
+            "- The plan panel on the right shows the current plan and "
+            "progress\n"
+            "- Use `/clear` or `/new` to clear any active plan",
+        )
+
+    async def _process_proactive(
+        self,
+        _messages: list[Msg],
+        args: str = "",
+    ) -> Msg:
+        """Process /proactive command for proactive message feature."""
+        args = args.strip().lower()
+        from .memory import enable_proactive_for_session
+        from ..app.agent_context import get_current_agent_id
+
+        # Get current agent ID and language
+        active_agent_id = get_current_agent_id()
+        agent_config = load_agent_config(active_agent_id)
+        agent_lang = getattr(agent_config, "language", "en")
+
+        # Define warnings in both languages
+        warning_en = (
+            "**NOTE**: In this mode, the agent bypasses tool "
+            "protection mechanisms. Please note that the agent will "
+            "read historical session memories and may take screenshots "
+            "to obtain runtime environment information."
+            "Proactive mode can be turned off via /proactive off."
+        )
+
+        warning_zh = (
+            "**请注意**：在此模式下，代理会绕过工具保护机制。请注意，代理将会"
+            "读取历史会话内存，并可能截取屏幕截图以获取运行环境信息。"
+            "可通过 /proactive off 关闭主动模式。"
+        )
+
+        # Define all message templates in both languages
+        msg_templates = {
+            "en": {
+                "enabled": (
+                    "**Proactive Mode Enabled**\n\n"
+                    "- Idle time: {minutes} minutes\n"
+                    "- Status: {result}\n"
+                    "- Proactive messages will be sent after "
+                    "{minutes} minutes of inactivity\n\n{warning}"
+                ),
+                "disabled": (
+                    "**Proactive Mode Disabled**\n\n"
+                    "- Proactive monitoring has been stopped\n"
+                    "- No more proactive messages will be sent"
+                ),
+                "error_en": ("**Error Enabling Proactive Mode**\n-{error}"),
+                "error_dis": ("**Error Disabling Proactive Mode**\n- {error}"),
+                "error_args": (
+                    "**Error Enabling Proactive Mode**\n\n"
+                    "- {error}"
+                    "- Usage: /proactive [minutes|on|off]\n"
+                    "- Examples:\n"
+                    "  • /proactive (default 30 minutes)\n"
+                    "  • /proactive 45 (45 minutes idle time)\n"
+                    "  • /proactive on (default 30 minutes)\n"
+                    "  • /proactive off (disable proactive mode)\n"
+                ),
+            },
+            "zh": {
+                "enabled": (
+                    "**主动模式已启用**\n\n"
+                    "- 空闲时间: {minutes} 分钟\n"
+                    "- 状态: {result}\n"
+                    "- 将在 {minutes} 分钟不活动后发送主动消息\n\n{warning}"
+                ),
+                "disabled": ("**主动模式已停用**\n" "- 不再发送主动消息"),
+                "error_en": ("**启用主动模式时出错**\n\n-{error}"),
+                "error_dis": ("**禁用主动模式时出错**\n\n- {error}"),
+                "error_args": (
+                    "**启用主动模式时出错**\n\n"
+                    "- {error}"
+                    "- 使用方法: /proactive [分钟数|on|off]\n"
+                    "- 示例:\n"
+                    "  • /proactive (默认30分钟)\n"
+                    "  • /proactive 45 (45分钟空闲时间)\n"
+                    "  • /proactive on (默认30分钟)\n"
+                    "  • /proactive off (禁用主动模式)\n"
+                ),
+            },
+        }
+
+        # Select messages and warning based on agent language
+        lang_key = "zh" if agent_lang.lower() == "zh" else "en"
+        msgs = msg_templates[lang_key]
+        selected_warning = warning_zh if lang_key == "zh" else warning_en
+
+        if not args or args == "on":
+            try:
+                result = enable_proactive_for_session(
+                    self.agent_name,
+                    30,
+                )
+                return await self._make_system_msg(
+                    msgs["enabled"].format(
+                        minutes=30,
+                        result=result,
+                        warning=selected_warning,
+                    ),
+                )
+            except Exception as e:
+                return await self._make_system_msg(
+                    msgs["error_en"].format(error=str(e)),
+                )
+
+        elif args == "off":
+            try:
+                import asyncio
+                from .memory import proactive_tasks
+
+                if self.agent_name in proactive_tasks:
+                    task = proactive_tasks[self.agent_name]
+                    if not task.done():
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                    del proactive_tasks[self.agent_name]
+
+                return await self._make_system_msg(
+                    msgs["disabled"],
+                )
+            except Exception as e:
+                return await self._make_system_msg(
+                    msgs["error_dis"].format(error=str(e)),
+                )
+        else:
+            try:
+                minutes = int(args)
+                if minutes <= 0:
+                    raise ValueError("Minutes must be a positive integer")
+
+                result = enable_proactive_for_session(
+                    self.agent_name,
+                    minutes,
+                )
+                return await self._make_system_msg(
+                    msgs["enabled"].format(
+                        minutes=minutes,
+                        result=result,
+                        warning=selected_warning,
+                    ),
+                )
+            except Exception as e:
+                return await self._make_system_msg(
+                    msgs["error_args"].format(error=str(e)),
+                )

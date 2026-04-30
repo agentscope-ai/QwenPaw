@@ -13,8 +13,8 @@ All existing single-agent components are reused without modification.
 import logging
 from pathlib import Path
 from typing import Optional
-from agentscope_runtime.engine.schemas.exception import ConfigurationException
 
+from qwenpaw.config.timezone import normalize_tz
 from qwenpaw.config.utils import load_config
 
 from .service_manager import ServiceDescriptor, ServiceManager
@@ -33,17 +33,6 @@ from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_memory_class(backend: str) -> type:
-    """Return the memory manager class for the given backend name."""
-    from ...agents.memory import ReMeLightMemoryManager
-
-    if backend == "remelight":
-        return ReMeLightMemoryManager
-    raise ConfigurationException(
-        message=f"Unsupported memory manager backend: '{backend}'",
-    )
 
 
 class Workspace:
@@ -98,6 +87,11 @@ class Workspace:
         return self._service_manager.services.get("memory_manager")
 
     @property
+    def context_manager(self):
+        """Get context manager instance from ServiceManager."""
+        return self._service_manager.services.get("context_manager")
+
+    @property
     def mcp_manager(self):
         """Get MCP manager instance from ServiceManager."""
         return self._service_manager.services.get("mcp_manager")
@@ -126,8 +120,7 @@ class Workspace:
     @property
     def config(self):
         """Get agent configuration."""
-        if self._config is None:
-            self._config = load_agent_config(self.agent_id)
+        self._config = load_agent_config(self.agent_id)
         return self._config
 
     def set_manager(self, manager) -> None:
@@ -150,6 +143,13 @@ class Workspace:
         hardcoded initialization logic.
         """
         # pylint: disable=protected-access
+        from ...agents.memory.base_memory_manager import (
+            get_memory_manager_backend,
+        )
+        from ...agents.context.base_context_manager import (
+            get_context_manager_backend,
+        )
+
         sm = self._service_manager
 
         # Priority 10: Runner
@@ -172,7 +172,7 @@ class Workspace:
         sm.register(
             ServiceDescriptor(
                 name="memory_manager",
-                service_class=lambda ws: _resolve_memory_class(
+                service_class=lambda ws: get_memory_manager_backend(
                     ws._config.running.memory_manager_backend,
                 ),
                 init_args=lambda ws: {
@@ -183,6 +183,29 @@ class Workspace:
                     ws._service_manager.services["runner"],
                     "memory_manager",
                     mm,
+                ),
+                start_method="start",
+                stop_method="close",
+                reusable=True,
+                priority=20,
+                concurrent_init=True,
+            ),
+        )
+
+        sm.register(
+            ServiceDescriptor(
+                name="context_manager",
+                service_class=lambda ws: get_context_manager_backend(
+                    ws._config.running.context_manager_backend,
+                ),
+                init_args=lambda ws: {
+                    "working_dir": str(ws.workspace_dir),
+                    "agent_id": ws.agent_id,
+                },
+                post_init=lambda ws, cm: setattr(
+                    ws._service_manager.services["runner"],
+                    "context_manager",
+                    cm,
                 ),
                 start_method="start",
                 stop_method="close",
@@ -253,7 +276,10 @@ class Workspace:
                     "channel_manager": ws._service_manager.services.get(
                         "channel_manager",
                     ),
-                    "timezone": load_config().user_timezone or "UTC",
+                    "timezone": normalize_tz(
+                        load_config().user_timezone or "UTC",
+                    )
+                    or "UTC",
                     "agent_id": ws.agent_id,
                 },
                 start_method="start",
@@ -300,6 +326,7 @@ class Workspace:
             components: Dict mapping component name to instance.
                 Supported keys:
                 - 'memory_manager': BaseMemoryManager instance
+                - 'context_manager': BaseContextManager instance
                 - 'chat_manager': ChatManager instance
 
         Example:

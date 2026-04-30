@@ -55,6 +55,7 @@ _PUBLIC_PATHS: frozenset[str] = frozenset(
         "/api/auth/register",
         "/api/version",
         "/api/settings/language",
+        "/api/plugins",
     },
 )
 
@@ -63,6 +64,7 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/assets/",
     "/logo.png",
     "/qwenpaw-symbol.svg",
+    "/api/plugins/",  # plugin JS bundles served to unauthenticated login page
 )
 
 
@@ -615,9 +617,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not path.startswith("/api/"):
             return True
 
-        # Allow localhost requests without auth (CLI runs locally)
+        # Check if client host is in allow_no_auth_hosts whitelist
+        from ..config import load_config
+
         client_host = request.client.host if request.client else ""
-        return client_host in ("127.0.0.1", "::1")
+        config = load_config()
+        allowed_hosts = config.security.allow_no_auth_hosts
+        return client_host in allowed_hosts
 
     @staticmethod
     def _extract_token(request: Request) -> Optional[str]:

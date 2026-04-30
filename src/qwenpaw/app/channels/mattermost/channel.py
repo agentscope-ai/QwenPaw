@@ -9,7 +9,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 import httpx
 from agentscope_runtime.engine.schemas.agent_schemas import (
@@ -27,6 +27,7 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
+from ..utils import file_url_to_local_path
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,7 @@ class MattermostChannel(BaseChannel):
         bot_token: str,
         bot_prefix: str = "",
         media_dir: str = "",
+        workspace_dir: Path | None = None,
         show_typing: Optional[bool] = None,
         thread_follow_without_mention: bool = False,
         on_reply_sent: OnReplySent = None,
@@ -131,9 +133,16 @@ class MattermostChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self._url = url.rstrip("/")
         self._bot_token = bot_token
-        self._media_dir = (
-            Path(media_dir).expanduser() if media_dir else _DEFAULT_MEDIA_DIR
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
         )
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = _DEFAULT_MEDIA_DIR
         self._show_typing = show_typing if show_typing is not None else True
         self._thread_follow = thread_follow_without_mention
 
@@ -176,6 +185,7 @@ class MattermostChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Path | None = None,
     ) -> "MattermostChannel":
         if isinstance(config, dict):
             c = config
@@ -192,6 +202,7 @@ class MattermostChannel(BaseChannel):
             bot_token=_s("bot_token"),
             bot_prefix=_s("bot_prefix"),
             media_dir=_s("media_dir"),
+            workspace_dir=workspace_dir,
             show_typing=c.get("show_typing"),
             thread_follow_without_mention=bool(
                 c.get("thread_follow_without_mention", False),
@@ -241,6 +252,36 @@ class MattermostChannel(BaseChannel):
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Check Mattermost WebSocket and bot identity status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "Mattermost channel is disabled.",
+            }
+        issues = []
+        task_alive = self._task is not None and not self._task.done()
+        if not task_alive:
+            issues.append("WebSocket task is not running")
+        if not self._bot_id:
+            issues.append("Bot identity not resolved (bot_id is empty)")
+        if issues:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "; ".join(issues),
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": (
+                f"Mattermost bot is connected "
+                f"(bot_id={self._bot_id}, "
+                f"username={self._bot_username})."
+            ),
+        }
 
     async def start(self) -> None:
         if not self.enabled:
@@ -937,8 +978,7 @@ class MattermostChannel(BaseChannel):
 
         if not local_path:
             return
-        if local_path.startswith("file://"):
-            local_path = local_path[len("file://") :]
+        local_path = file_url_to_local_path(local_path) or local_path
 
         file_id = await self._upload_file(mm_channel_id, local_path)
         if file_id:

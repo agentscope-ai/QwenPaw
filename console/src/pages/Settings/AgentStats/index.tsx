@@ -4,14 +4,15 @@ import { Spin, Tooltip } from "antd";
 import { DatePicker } from "antd";
 import type { Dayjs } from "dayjs";
 import dayjs from "dayjs";
-import { Column, Pie } from "@ant-design/plots";
 import { useTranslation } from "react-i18next";
+import { Column, Pie } from "@ant-design/plots";
 import api from "../../../api";
 import type { AgentStatsSummary } from "../../../api/types/agentStats";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { formatCompact } from "../../../utils/formatNumber";
 import { useTheme } from "../../../contexts/ThemeContext";
+import { useAgentStore } from "../../../stores/agentStore";
 import { SummaryCard } from "./SummaryCard";
 import styles from "./index.module.less";
 
@@ -90,6 +91,7 @@ function AgentStatsPage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark: isDarkMode } = useTheme();
+  const { selectedAgent } = useAgentStore();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<AgentStatsSummary | null>(null);
@@ -118,7 +120,7 @@ function AgentStatsPage() {
 
   useEffect(() => {
     fetchData(startDate, endDate);
-  }, []);
+  }, [selectedAgent]);
 
   const handleDateChange = (dates: [Dayjs | null, Dayjs | null] | null) => {
     const newStart = dates?.[0] || startDate;
@@ -149,7 +151,7 @@ function AgentStatsPage() {
 
   const hasData =
     data &&
-    ((data.total_chats ?? 0) > 0 ||
+    ((data.total_active_sessions ?? 0) > 0 ||
       (data.total_messages ?? 0) > 0 ||
       (data.total_llm_calls ?? 0) > 0 ||
       (data.total_tool_calls ?? 0) > 0);
@@ -239,26 +241,26 @@ function AgentStatsPage() {
   );
 
   const chatPieConfig = useMemo(() => {
-    if (!data?.chats_by_channel?.length) return null;
+    if (!data?.channel_stats?.length) return null;
     return {
       ...pieCommon,
-      data: data.chats_by_channel.map((item) => ({
+      data: data.channel_stats.map((item) => ({
         channel: item.channel,
-        value: Number(item.count),
+        value: Number(item.session_count),
       })),
     };
-  }, [data?.chats_by_channel, pieCommon]);
+  }, [data?.channel_stats, pieCommon]);
 
   const messagePieConfig = useMemo(() => {
-    if (!data?.messages_by_channel?.length) return null;
+    if (!data?.channel_stats?.length) return null;
     return {
       ...pieCommon,
-      data: data.messages_by_channel.map((item) => ({
+      data: data.channel_stats.map((item) => ({
         channel: item.channel,
         value: Number(item.total_messages),
       })),
     };
-  }, [data?.messages_by_channel, pieCommon]);
+  }, [data?.channel_stats, pieCommon]);
 
   return (
     <div className={styles.page}>
@@ -287,6 +289,9 @@ function AgentStatsPage() {
                 onChange={handleDateChange}
                 className={styles.datePicker}
                 disabled={loading}
+                disabledDate={(current) =>
+                  current && current.isAfter(dayjs(), "day")
+                }
               />
               {loading && <Spin size="small" />}
             </div>
@@ -295,7 +300,7 @@ function AgentStatsPage() {
               <>
                 <div className={styles.summaryCards}>
                   <SummaryCard
-                    value={data.total_chats}
+                    value={data.total_active_sessions}
                     label={t("agentStats.totalSessions")}
                     tooltip={t("agentStats.totalSessionsTooltip")}
                   />

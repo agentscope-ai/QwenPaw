@@ -431,6 +431,20 @@ DEEPSEEK_MODELS: List[ModelInfo] = [
         supports_video=False,
         probe_source="documentation",
     ),
+    ModelInfo(
+        id="deepseek-v4-flash",
+        name="DeepSeek V4 Flash",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-v4-pro",
+        name="DeepSeek V4 Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
 ]
 
 ANTHROPIC_MODELS: List[ModelInfo] = []
@@ -507,8 +521,19 @@ PROVIDER_DASHSCOPE = OpenAIProvider(
 
 PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
     id="aliyun-codingplan",
-    name="Aliyun Coding Plan",
+    name="Aliyun Coding Plan (China)",
     base_url="https://coding.dashscope.aliyuncs.com/v1",
+    api_key_prefix="sk-sp",
+    models=ALIYUN_CODINGPLAN_MODELS,
+    # This provider doesn't support connection check without model config
+    support_connection_check=False,
+    freeze_url=True,
+)
+
+PROVIDER_ALIYUN_CODINGPLAN_INTL = OpenAIProvider(
+    id="aliyun-codingplan-intl",
+    name="Aliyun Coding Plan (International)",
+    base_url="https://coding-intl.dashscope.aliyuncs.com/v1",
     api_key_prefix="sk-sp",
     models=ALIYUN_CODINGPLAN_MODELS,
     # This provider doesn't support connection check without model config
@@ -754,6 +779,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_MODELSCOPE)
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
+        self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN_INTL)
         self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
@@ -1036,7 +1062,15 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        await provider.add_model(model_info)
+        added, error_message = await provider.add_model(model_info)
+        if not added:
+            raise ProviderError(
+                message=error_message,
+                details={
+                    "provider_id": provider_id,
+                    "model_id": model_info.id,
+                },
+            )
 
         # Save provider config to appropriate location
         is_plugin = provider_id in self.plugin_providers
@@ -1113,21 +1147,41 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self,
         provider_id: str,
         model_id: str,
+        image_only: bool = False,
     ) -> dict:
-        """Probe a model's multimodal capabilities and persist the result."""
+        """Probe a model's multimodal capabilities and persist the result.
+
+        Args:
+            provider_id: Provider identifier.
+            model_id: Model identifier.
+            image_only: When True, skip the video probe for a faster result.
+                Only ``supports_image`` will be accurate; ``supports_video``
+                will remain at its previous value (not updated).
+        """
         provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             return {"error": f"Provider '{provider_id}' not found"}
 
-        result = await provider.probe_model_multimodal(model_id)
+        result = await provider.probe_model_multimodal(
+            model_id,
+            image_only=image_only,
+        )
 
-        # Update the model's capability flags
+        # Update the model's capability flags.
+        # For image_only probes, leave supports_video untouched so a
+        # subsequent full probe can fill it in correctly.
         for model in provider.models + provider.extra_models:
             if model.id == model_id:
                 model.supports_image = result.supports_image
-                model.supports_video = result.supports_video
-                model.supports_multimodal = result.supports_multimodal
+                if not image_only:
+                    model.supports_video = result.supports_video
+                    model.supports_multimodal = result.supports_multimodal
+                else:
+                    # Partial update: derive supports_multimodal from
+                    # image alone; video will be updated by the full probe.
+                    if result.supports_image:
+                        model.supports_multimodal = True
                 model.probe_source = "probed"
                 break
 
@@ -1479,14 +1533,27 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if not builtin.freeze_url:
                     builtin.base_url = provider.base_url
                 builtin.api_key = provider.api_key
-                builtin.extra_models = provider.extra_models
+                builtin_model_ids = {m.id for m in builtin.models}
+                builtin.extra_models = [
+                    m
+                    for m in provider.extra_models
+                    if m.id not in builtin_model_ids
+                ]
                 builtin.generate_kwargs.update(provider.generate_kwargs)
-                # Restore per-model generate_kwargs for built-in models
-                stored_model_kwargs = {
-                    m.id: m.generate_kwargs
-                    for m in provider.models
-                    if m.generate_kwargs
-                }
+                # Restore per-model generate_kwargs for built-in models.
+                # Collect from both stored built-in models and promoted
+                # extra_models (models that were user-added but are now
+                # part of the built-in list).
+                stored_model_kwargs: dict = {}
+                for m in provider.models:
+                    if m.generate_kwargs:
+                        stored_model_kwargs[m.id] = m.generate_kwargs
+                for m in provider.extra_models:
+                    if m.id in builtin_model_ids and m.generate_kwargs:
+                        stored_model_kwargs.setdefault(
+                            m.id,
+                            m.generate_kwargs,
+                        )
                 if stored_model_kwargs:
                     for model in builtin.models:
                         if model.id in stored_model_kwargs:

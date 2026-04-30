@@ -422,6 +422,29 @@ async def test_activate_provider_invalid_model_raises(
         await manager.activate_model("openai", "not-exists")
 
 
+async def test_add_model_to_provider_duplicate_id_raises(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    model_info = ModelInfo(id="custom-duplicate", name="Custom Duplicate")
+
+    provider = await manager.add_model_to_provider("openai", model_info)
+
+    assert [m.id for m in provider.extra_models].count("custom-duplicate") == 1
+
+    with pytest.raises(ProviderError, match="already exists"):
+        await manager.add_model_to_provider("openai", model_info)
+
+    reloaded = ProviderManager()
+    reloaded_provider = reloaded.get_provider("openai")
+
+    assert reloaded_provider is not None
+    assert reloaded_provider.extra_models is not None
+    assert [m.id for m in reloaded_provider.extra_models].count(
+        "custom-duplicate",
+    ) == 1
+
+
 def test_save_provider_skip_if_exists_does_not_overwrite(
     isolated_secret_dir,
 ) -> None:

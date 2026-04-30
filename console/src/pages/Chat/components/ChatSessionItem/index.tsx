@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, useRef } from "react";
 import { Input } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import {
@@ -8,14 +8,13 @@ import {
   SparkMarkFill,
 } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
-import {
-  getChannelIconUrl,
-  getChannelLabel,
-} from "../../../Control/Channels/components";
+import { ChannelIcon } from "../../../Control/Channels/components";
 import type { ChatStatus } from "../../../../api/types/chat";
 import styles from "./index.module.less";
 
 interface ChatSessionItemProps {
+  /** Unique session id — used to call back parent handlers without inline closures */
+  sessionId: string;
   /** Session display name */
   name: string;
   /** Pre-formatted creation time string */
@@ -34,36 +33,71 @@ interface ChatSessionItemProps {
   editValue?: string;
   /** Whether the chat is pinned */
   pinned?: boolean;
-  /** Click callback */
-  onClick?: () => void;
-  /** Edit button callback */
-  onEdit?: () => void;
-  /** Delete button callback */
-  onDelete?: () => void;
-  /** Pin button callback */
-  onPin?: () => void;
+  /** Click callback — receives sessionId */
+  onClick?: (sessionId: string) => void;
+  /** Edit button callback — receives (sessionId, currentName) */
+  onEdit?: (sessionId: string, currentName: string) => void;
+  /** Delete button callback — receives sessionId */
+  onDelete?: (sessionId: string) => void;
+  /** Pin button callback — receives sessionId */
+  onPin?: (sessionId: string) => void;
   /** Edit input value change callback */
   onEditChange?: (value: string) => void;
   /** Confirm edit callback (Enter key or blur) */
   onEditSubmit?: () => void;
   /** Cancel edit callback */
   onEditCancel?: () => void;
+  /** Context menu callback — parent manages a shared ContextMenu */
+  onContextMenu?: (sessionId: string, event: React.MouseEvent) => void;
   className?: string;
 }
 
 const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
   const { t } = useTranslation();
-  const hasVisibleChannelLabel = Boolean(props.channelLabel?.trim());
-  const channelIconAlt =
-    hasVisibleChannelLabel || !props.channelKey
-      ? ""
-      : getChannelLabel(props.channelKey, t);
+
+  /** Track IME composition state to prevent premature submit during CJK input */
+  const isComposingRef = useRef(false);
 
   const inProgress =
     props.generating === true || props.chatStatus === "running";
   const statusAriaLabel = inProgress
     ? t("chat.statusInProgress")
     : t("chat.statusIdle");
+
+  const handleClick = useCallback(() => {
+    props.onClick?.(props.sessionId);
+  }, [props.onClick, props.sessionId]);
+
+  const handleEdit = useCallback(
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      props.onEdit?.(props.sessionId, props.name);
+    },
+    [props.onEdit, props.sessionId, props.name],
+  );
+
+  const handleDelete = useCallback(
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      props.onDelete?.(props.sessionId);
+    },
+    [props.onDelete, props.sessionId],
+  );
+
+  const handlePin = useCallback(
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      props.onPin?.(props.sessionId);
+    },
+    [props.onPin, props.sessionId],
+  );
+
+  const handleContextMenu = useCallback(
+    (event: React.MouseEvent) => {
+      props.onContextMenu?.(props.sessionId, event);
+    },
+    [props.onContextMenu, props.sessionId],
+  );
 
   const className = [
     styles.chatSessionItem,
@@ -78,7 +112,8 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
   return (
     <div
       className={className}
-      onClick={props.editing ? undefined : props.onClick}
+      onClick={props.editing ? undefined : handleClick}
+      onContextMenu={props.editing ? undefined : handleContextMenu}
     >
       {/* Timeline indicator placeholder */}
       <div className={styles.iconPlaceholder} />
@@ -89,8 +124,36 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
             size="small"
             value={props.editValue}
             onChange={(e) => props.onEditChange?.(e.target.value)}
-            onPressEnter={props.onEditSubmit}
-            onBlur={props.onEditSubmit}
+            onCompositionStart={() => {
+              isComposingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              isComposingRef.current = false;
+            }}
+            onKeyDown={(e) => {
+              if (
+                e.key === "Enter" &&
+                !e.nativeEvent.isComposing &&
+                !isComposingRef.current
+              ) {
+                e.preventDefault();
+                props.onEditSubmit?.();
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                props.onEditCancel?.();
+              }
+            }}
+            onBlur={() => {
+              /* Delay slightly so that IME composition end + blur
+                 ordering issues on some browsers don't cause
+                 premature submit */
+              setTimeout(() => {
+                if (!isComposingRef.current) {
+                  props.onEditSubmit?.();
+                }
+              }, 100);
+            }}
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
@@ -118,13 +181,7 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
               title={props.channelLabel || props.channelKey}
             >
               {props.channelKey ? (
-                <img
-                  className={styles.channelIcon}
-                  src={getChannelIconUrl(props.channelKey)}
-                  alt={channelIconAlt}
-                  loading="lazy"
-                  decoding="async"
-                />
+                <ChannelIcon channelKey={props.channelKey} size={14} />
               ) : null}
               {props.channelLabel ? (
                 <span className={styles.channelTagText}>
@@ -143,10 +200,7 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
           className={styles.pinButton}
           data-pinned={props.pinned}
           icon={props.pinned ? <SparkMarkFill /> : <SparkMarkLine />}
-          onClick={(e) => {
-            e.stopPropagation();
-            props.onPin?.();
-          }}
+          onClick={handlePin}
         />
       )}
       {/* Action buttons - edit and delete, only visible on hover */}
@@ -156,19 +210,13 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
             bordered={false}
             size="small"
             icon={<SparkEditLine />}
-            onClick={(e) => {
-              e.stopPropagation();
-              props.onEdit?.();
-            }}
+            onClick={handleEdit}
           />
           <IconButton
             bordered={false}
             size="small"
             icon={<SparkDeleteLine />}
-            onClick={(e) => {
-              e.stopPropagation();
-              props.onDelete?.();
-            }}
+            onClick={handleDelete}
           />
         </div>
       )}
@@ -176,4 +224,4 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
   );
 };
 
-export default ChatSessionItem;
+export default React.memo(ChatSessionItem);

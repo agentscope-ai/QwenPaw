@@ -4,53 +4,6 @@ read_when:
   - Bootstrapping a workspace manually
 ---
 
-<!-- memory:start -->
-## Memory
-
-Each session is fresh. Files in the working directory are your memory continuity:
-
-- **Daily notes:** `memory/YYYY-MM-DD.md` (create `memory/` if needed) — raw logs of what happened
-- **Long-term:** `MEMORY.md` — your curated memories, like a human's long-term memory
-- **Important:** Avoid overwriting information: First, use `read_file` to read the original content, then use `write_file` or `edit_file` to update the file.
-
-Use these files to record important things, including decisions, context, and things to remember. Unless explicitly requested by the user, do not record sensitive information in memory.
-
-### 🧠 MEMORY.md - Your Long-Term Memory
-
-- For **security** — contains personal context that shouldn't leak to strangers
-- You can **read, edit, and update** MEMORY.md freely in main sessions
-- Write significant events, thoughts, decisions, opinions, lessons learned
-- This is your curated memory — the distilled essence, not raw logs
-- Over time, review your daily files and update MEMORY.md with what's worth keeping
-
-### 📝 Write It Down - No "Mental Notes"!
-
-- **Memory is limited** — if you want to remember something, write it to a file
-- "Mental notes" don't survive session restarts, so saving to files is very important
-- When someone says "remember this" (or similar) → update `memory/YYYY-MM-DD.md` or relevant file
-- When you learn a lesson → update AGENTS.md, MEMORY.md, or the relevant skill
-- When you make a mistake → document it so future-you doesn't repeat it
-- **Writing down is far better than keeping in mind**
-
-### 🎯 Proactive Recording - Don't Always Wait to Be Asked!
-
-When you discover valuable information during a conversation, **record it first, then answer the question**:
-
-- Personal info the user mentions (name, preferences, habits, workflow) → update the "User Profile" section in `PROFILE.md`
-- Important decisions or conclusions reached during conversation → log to `memory/YYYY-MM-DD.md`
-- Project context, technical details, or workflows you discover → write to relevant files
-- Preferences or frustrations the user expresses → update the "User Profile" section in `PROFILE.md`
-- Tool-related local config (SSH, cameras, etc.) → update the "Tool Setup" section in `MEMORY.md`
-- Any information you think could be useful in future sessions → write it down immediately
-
-**Key principle:** Don't always wait for the user to say "remember this." If information is valuable for the future, record it proactively. Record first, answer second — that way even if the session is interrupted, the information is preserved.
-
-### 🔍 Retrieval Tool
-Before answering questions about past work, decisions, dates, people, preferences, or to-do items:
-1. Run memory_search on MEMORY.md and files in memory/*.md.
-2. If you need to read daily notes from memory/YYYY-MM-DD.md, you can directly access them using `read_file`.
-<!-- memory:end -->
-
 ## Safety
 
 - Don't exfiltrate private data. Ever.
@@ -122,16 +75,6 @@ You are free to edit `HEARTBEAT.md` with a short checklist or reminders. Keep it
 
 **Tip:** Batch similar periodic checks into `HEARTBEAT.md` instead of creating multiple cron jobs. Use cron for precise schedules and standalone tasks.
 
-### 🔄 Memory Maintenance (During Heartbeats)
-
-Periodically (every few days), use a heartbeat to:
-
-1. Read through recent `memory/YYYY-MM-DD.md` files
-2. Identify significant events, lessons, or insights worth keeping long-term
-3. Update `MEMORY.md` with distilled learnings
-4. Remove outdated info from MEMORY.md that's no longer relevant
-
-Think of it like a human reviewing their journal and updating their mental model. Daily files are raw notes; MEMORY.md is curated wisdom.
 
 The goal: Be helpful without being annoying. Check in a few times a day, do useful background work, but respect quiet time.
 <!-- heartbeat:end -->

@@ -66,6 +66,7 @@ from .utils import (
     sender_display_string,
     short_session_id_from_full_id,
 )
+from .card_handler import FeishuCardHandler
 
 
 # Compatibility for setuptools>=82 where pkg_resources may be absent.
@@ -129,7 +130,6 @@ try:
         GetMessageResourceRequest,
         P2ImMessageReceiveV1,
     )
-
     import lark_oapi.ws.client as _ws_mod
 
     _ws_mod.loop = _EventLoopProxy()
@@ -255,6 +255,10 @@ class FeishuChannel(BaseChannel):
         # open_id -> nickname (from Contact API) for sender display
         self._nickname_cache: Dict[str, str] = {}
         self._nickname_cache_lock = asyncio.Lock()
+
+        # All interactive-card logic (outbound rendering + inbound
+        # card.action.trigger dispatch) lives in the card handler.
+        self._card_handler = FeishuCardHandler(self)
 
     @classmethod
     def from_env(
@@ -1924,6 +1928,31 @@ class FeishuChannel(BaseChannel):
         if last_msg_id:
             await self._add_reaction(last_msg_id, "DONE")
 
+    # ------------------------------------------------------------------
+    # Interactive cards (tool_guard approval, etc.)
+    # ------------------------------------------------------------------
+
+    async def on_event_message_completed(  # type: ignore[override]
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Render card-flagged events via the card handler; else default."""
+        if await self._card_handler.try_send_card_for_event(
+            to_handle,
+            event,
+            send_meta,
+        ):
+            return
+        await super().on_event_message_completed(
+            request,
+            to_handle,
+            event,
+            send_meta,
+        )
+
     async def send(
         self,
         to_handle: str,
@@ -1997,6 +2026,15 @@ class FeishuChannel(BaseChannel):
                     )
                     .register_p2_im_message_receive_v1(
                         self._on_message_sync,
+                    )
+                    .register_p2_im_message_reaction_created_v1(
+                        lambda _evt: None,
+                    )
+                    .register_p2_im_message_reaction_deleted_v1(
+                        lambda _evt: None,
+                    )
+                    .register_p2_card_action_trigger(
+                        self._card_handler.handle_card_action,
                     )
                     .build()
                 )
@@ -2149,6 +2187,34 @@ class FeishuChannel(BaseChannel):
 
         # Final cleanup signal
         self._stop_event.set()
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Check Feishu WebSocket and SDK client status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "Feishu channel is disabled.",
+            }
+        issues = []
+        if self._client is None:
+            issues.append("Feishu SDK client not initialized")
+        ws_thread_alive = (
+            self._ws_thread is not None and self._ws_thread.is_alive()
+        )
+        if not ws_thread_alive:
+            issues.append("WebSocket thread is not running")
+        if issues:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "; ".join(issues),
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "Feishu SDK client and WebSocket are active.",
+        }
 
     async def start(self) -> None:
         if not self.enabled:

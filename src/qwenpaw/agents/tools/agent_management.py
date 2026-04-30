@@ -191,8 +191,20 @@ def build_agent_chat_request(
     text: str,
     session_id: Optional[str] = None,
     from_agent: Optional[str] = None,
+    root_session_id: Optional[str] = None,
 ) -> tuple[str, Dict[str, Any], bool]:
-    """Build the inter-agent chat payload and resolve the final session ID."""
+    """Build the inter-agent chat payload and resolve the final session ID.
+
+    Args:
+        to_agent: Target agent ID
+        text: Message text
+        session_id: Optional session ID override
+        from_agent: Calling agent ID (for identity prefix)
+        root_session_id: Root session ID for cross-session approval routing
+
+    Returns:
+        Tuple of (final_session_id, request_payload, text_was_prefixed)
+    """
     caller_agent_id = resolve_calling_agent_id(from_agent)
     final_session_id = resolve_agent_session_id(
         caller_agent_id,
@@ -209,11 +221,29 @@ def build_agent_chat_request(
             },
         ],
     }
+
+    # Add root_session_id as top-level field for approval routing
+    if root_session_id:
+        request_payload["root_session_id"] = root_session_id
+
     return final_session_id, request_payload, final_text != text
 
 
-def _request_headers(to_agent: Optional[str]) -> Dict[str, str]:
-    return {"X-Agent-Id": to_agent} if to_agent else {}
+def _request_headers(
+    to_agent: Optional[str],
+) -> Dict[str, str]:
+    """Build HTTP headers for agent chat requests.
+
+    Args:
+        to_agent: Target agent ID
+
+    Returns:
+        Dictionary of HTTP headers
+    """
+    headers = {}
+    if to_agent:
+        headers["X-Agent-Id"] = to_agent
+    return headers
 
 
 def stream_agent_chat(
@@ -443,11 +473,22 @@ async def chat_with_agent(
             f"Agent [{normalized_to_agent}] not exists",
         )
 
+    # Get root_session_id from current context for cross-session approval
+    from ...app.agent_context import (
+        get_current_session_id,
+        get_current_root_session_id,
+    )
+
+    caller_session_id = get_current_session_id() or ""
+    caller_root_session = get_current_root_session_id()
+    final_root_session = caller_root_session or caller_session_id
+
     final_session_id, request_payload, _ = build_agent_chat_request(
         normalized_to_agent,
         text,
         session_id=normalized_session_id,
         from_agent=None,
+        root_session_id=final_root_session,
     )
 
     response_data = await asyncio.to_thread(
@@ -513,12 +554,24 @@ async def submit_to_agent(
             f"Agent [{normalized_to_agent}] not exists",
         )
 
+    # Get root_session_id from current context for cross-session approval
+    from ...app.agent_context import (
+        get_current_session_id,
+        get_current_root_session_id,
+    )
+
+    caller_session_id = get_current_session_id() or ""
+    caller_root_session = get_current_root_session_id()
+    final_root_session = caller_root_session or caller_session_id
+
     final_session_id, request_payload, _ = build_agent_chat_request(
         normalized_to_agent,
         text,
         session_id=normalized_session_id,
         from_agent=None,
+        root_session_id=final_root_session,
     )
+
     result = await asyncio.to_thread(
         submit_agent_chat_task,
         None,

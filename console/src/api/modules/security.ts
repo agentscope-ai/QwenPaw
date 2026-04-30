@@ -18,6 +18,7 @@ export interface ToolGuardConfig {
   denied_tools: string[];
   custom_rules: ToolGuardRule[];
   disabled_rules: string[];
+  shell_evasion_checks: Record<string, boolean>;
 }
 
 // ── File Guard types ──────────────────────────────────────────────
@@ -72,6 +73,16 @@ export interface SecurityScanErrorResponse {
   skill_name: string;
   max_severity: string;
   findings: BlockedSkillFinding[];
+}
+
+// ── Allow No Auth Hosts types ──────────────────────────────────────
+
+export interface AllowNoAuthHostsResponse {
+  hosts: string[];
+}
+
+export interface AllowNoAuthHostsUpdateBody {
+  hosts: string[];
 }
 
 export const securityApi = {
@@ -145,4 +156,15 @@ export const securityApi = {
       )}`,
       { method: "DELETE" },
     ),
+
+  // ── Allow No Auth Hosts ─────────────────────────────────────────
+
+  getAllowNoAuthHosts: () =>
+    request<AllowNoAuthHostsResponse>("/config/security/allow-no-auth-hosts"),
+
+  updateAllowNoAuthHosts: (body: AllowNoAuthHostsUpdateBody) =>
+    request<AllowNoAuthHostsResponse>("/config/security/allow-no-auth-hosts", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
 };

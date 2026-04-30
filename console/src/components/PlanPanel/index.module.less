@@ -1,0 +1,157 @@
+.drawer {
+  :global {
+    .qwenpaw-drawer-body {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--colorBgBase, #fff);
+    }
+  }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  padding: 16px 16px 16px 20px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.headerTitle {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 32px;
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  flex: 1;
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 20px 20px;
+}
+
+.planInfo {
+  margin-bottom: 16px;
+}
+
+.planName {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
+}
+
+.planDesc {
+  font-size: 13px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.progressSection {
+  margin-bottom: 16px;
+}
+
+.progressLabel {
+  font-size: 12px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  margin-bottom: 4px;
+}
+
+.subtaskList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.subtaskItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+}
+
+.subtaskItem:last-child {
+  border-bottom: none;
+}
+
+.subtaskIcon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.subtaskBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.subtaskName {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  line-height: 1.4;
+}
+
+.subtaskDesc {
+  font-size: 12px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+.subtaskOutcome {
+  font-size: 12px;
+  color: var(--colorSuccessText, #52c41a);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  text-align: center;
+}
+
+.emptyIcon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.4;
+}
+
+.planState {
+  display: inline-block;
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  margin-left: 8px;
+  font-weight: 400;
+}
+
+.stateTodo {
+  background: var(--colorInfoBg, #e6f4ff);
+  color: var(--colorInfoText, #1677ff);
+}
+
+.stateInProgress {
+  background: var(--colorWarningBg, #fffbe6);
+  color: var(--colorWarningText, #faad14);
+}
+
+.stateDone {
+  background: var(--colorSuccessBg, #f6ffed);
+  color: var(--colorSuccessText, #52c41a);
+}
+
+.stateAbandoned {
+  background: var(--colorErrorBg, #fff2f0);
+  color: var(--colorErrorText, #ff4d4f);
+}

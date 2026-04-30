@@ -9,7 +9,7 @@ class DummyMemory:
         self.clear_content_called = 0
         self.clear_summary_called = 0
 
-    def clear_content(self) -> None:
+    async def clear_content(self) -> None:
         self.clear_content_called += 1
 
     def clear_compressed_summary(self) -> None:
@@ -29,4 +29,4 @@ async def test_process_clear_returns_clear_history_metadata() -> None:
 
     assert memory.clear_content_called == 1
     assert memory.clear_summary_called == 1
-    assert msg.metadata == {"clear_history": True}
+    assert msg.metadata == {"clear_history": True, "clear_plan": True}

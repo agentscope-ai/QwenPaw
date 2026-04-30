@@ -90,13 +90,14 @@ User requested help building a user authentication system, login endpoint implem
 
 Commands for viewing and managing conversation history.
 
-| Command         | Response Content              |
-| --------------- | ----------------------------- |
-| `/history`      | 📋 Message list + Token stats |
-| `/message`      | 📄 Specified message details  |
-| `/compact_str`  | 📝 Compressed summary content |
-| `/dump_history` | 📁 Exported history file path |
-| `/load_history` | ✅ History load result        |
+| Command             | Response Content              |
+| ------------------- | ----------------------------- |
+| `/history`          | 📋 Message list + Token stats |
+| `/message`          | 📄 Specified message details  |
+| `/compact_str`      | 📝 Compressed summary content |
+| `/summarize_status` | 📊 Summary task status        |
+| `/dump_history`     | 📁 Exported history file path |
+| `/load_history`     | ✅ History load result        |
 
 ---
 
@@ -203,6 +204,33 @@ User requested help building a user authentication system, login endpoint implem
 - No summary has been generated yet
 - Use /compact or wait for auto-compaction
 ```
+
+---
+
+### /summarize_status - View Summary Task Status
+
+Display the running status of all background summary tasks, including task ID, start time, and execution results.
+
+```
+/summarize_status
+```
+
+**Example response:**
+
+```
+**Summary Task Status**
+
+- **task-001**
+  - Start: 2024-01-15 10:30:00
+  - Status: completed
+  - Result: User requested help building a user authentication system...
+- **task-002**
+  - Start: 2024-01-15 10:35:00
+  - Status: failed
+  - Error: Summary generation timeout
+```
+
+> 💡 Using `/compact` or `/new` automatically starts a summary task in the background. Use this command to check its execution status.
 
 ---
 
@@ -854,5 +882,75 @@ Please fix the PRD format before confirming.
 | ---------------- | ------------------------- | ------------------------------ | ------------------------ |
 | **Normal Chat**  | Simple tasks, quick fixes | Single agent executes directly | All tools available      |
 | **Mission Mode** | Complex, long-term tasks  | Master dispatches workers      | Master has limited tools |
+
+---
+
+## Proactive Mode - Proactive Notification Mode
+
+Proactive Mode is an intelligent feature that allows the AI agent to actively analyze the user's current session context and screen activities after detecting that the user has been inactive for a prolonged period, and provide relevant assistance and information.
+
+### Core Features
+
+- 🤖 **Intelligent Detection**: Monitors session activity status and triggers when inactivity is detected for a set period
+- 🧠 **Context Analysis**: Analyzes user's conversation history and current screen content to identify potential needs
+- 🔍 **Goal Extraction**: Extracts topics that the user may be focusing on from conversation history
+- 💬 **Proactive Response**: Generates helpful and relevant proactive messages based on analysis results
+
+### Important Notice
+
+**Please be aware of the following risks before enabling this mode:**
+
+- **Tool Protection Bypass**: In this mode, the Agent **bypasses standard tool protection mechanisms**. This means the Agent has higher system privileges and execution freedom.
+- **Privacy and Environment Access**: The Agent **reads historical session memory** to understand context and **may take screenshots** to obtain current runtime environment information. Please ensure use in a trusted environment and protect sensitive information.
+- This mode is **disabled by default**. It only takes effect when actively enabled by the user and can be disabled after being turned on.
+
+### Basic Usage
+
+#### Enable Proactive Mode
+
+```bash
+/proactive
+/proactive on
+/proactive <minutes>
+```
+
+**Example:**
+
+```bash
+/proactive      # Default 30 minutes, trigger proactive notification after 30 minutes of inactivity
+/proactive on   # Same as above, default 30 minutes
+/proactive 60   # Trigger proactive notification after 60 minutes
+```
+
+#### Disable Proactive Mode
+
+```bash
+/proactive off
+```
+
+### How It Works
+
+1. **Monitoring Phase**: Continuously monitors user activity, recording the last activity timestamp
+2. **Analysis Phase**: When inactivity exceeding the set time is detected, analyzes recent conversation history
+3. **Task Extraction**: Identifies topics the user may be concerned about
+4. **Query Execution**: Uses tools like browser, file reading, command execution to obtain relevant information
+5. **Response Generation**: Generates friendly and relevant proactive assistance information
+
+#### Context Awareness
+
+- Focuses only on user-initiated messages, ignoring system messages
+- Avoids repeatedly sending proactive messages on the same topics
+- Prioritizes frequent and recently mentioned topics
+
+### Important Notes
+
+1. **Resource Consumption**: Enables regular context analysis after activation, which may increase computational resource usage
+2. **Distraction Control**: If the user does not respond to proactive messages, no consecutive proactive messages will be sent
+3. **Model Dependency**: Function effectiveness depends on the AI model capability used; multimodal-enabled models can better utilize screen analysis features
+
+### Typical Use Cases
+
+- New information acquisition during research processes
+- Supplementary knowledge provision during learning processes
 
 ---

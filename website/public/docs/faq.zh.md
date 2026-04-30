@@ -39,6 +39,7 @@ docker pull agentscope/qwenpaw:latest
 docker run -p 127.0.0.1:8088:8088 \
   -v qwenpaw-data:/app/working \
   -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
   agentscope/qwenpaw:latest
 ```
 
@@ -99,12 +100,13 @@ docker pull agentscope/qwenpaw:latest
 docker run -p 127.0.0.1:8088:8088 \
   -v qwenpaw-data:/app/working \
   -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
   agentscope/qwenpaw:latest
 ```
 
-5. 如果你使用的是 Windows 桌面版（exe），目前需要卸载后重新安装：
+5. 如果你使用的是桌面版（exe/zip），目前需要卸载后重新安装：
    - 在电脑中卸载 QwenPaw
-   - 下载最新版本：https://github.com/agentscope-ai/QwenPaw/releases
+   - 下载最新版本：https://qwenpaw.agentscope.io/downloads
    - 重新安装
 
 升级后重启服务 qwenpaw app。
@@ -163,6 +165,7 @@ qwenpaw app --port 8090
 docker run -p 127.0.0.1:8090:8088 \
   -v qwenpaw-data:/app/working \
   -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
   agentscope/qwenpaw:latest
 ```
 

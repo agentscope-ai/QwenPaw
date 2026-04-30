@@ -10,7 +10,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 from telegram import BotCommand
 from telegram.constants import ParseMode
@@ -305,12 +305,16 @@ class TelegramChannel(BaseChannel):
         self._http_proxy = http_proxy or ""
         self._http_proxy_auth = http_proxy_auth or ""
         self.bot_prefix = bot_prefix
-        self._media_dir = (
-            Path(media_dir).expanduser() if media_dir else _DEFAULT_MEDIA_DIR
-        )
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
         )
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = _DEFAULT_MEDIA_DIR
         self._show_typing = show_typing
         self._typing_tasks: dict[str, asyncio.Task] = {}
         self._is_processing: dict[str, bool] = {}
@@ -946,6 +950,14 @@ class TelegramChannel(BaseChannel):
                 command="history",
                 description="Show conversation history",
             ),
+            BotCommand(
+                command="model",
+                description="Show or switch AI model",
+            ),
+            BotCommand(
+                command="stop",
+                description="Stop the current task",
+            ),
         ]
         try:
             await app.bot.set_my_commands(commands)
@@ -1025,6 +1037,33 @@ class TelegramChannel(BaseChannel):
             )
             await asyncio.sleep(delay)
             delay = min(delay * _RECONNECT_FACTOR, _RECONNECT_MAX_S)
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Check Telegram polling task status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "Telegram channel is disabled.",
+            }
+        if not self._bot_token:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "Telegram bot token is not configured.",
+            }
+        task_alive = self._task is not None and not self._task.done()
+        if not task_alive:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "Telegram polling task is not running.",
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "Telegram polling task is running.",
+        }
 
     async def start(self) -> None:
         if not self.enabled or not self._bot_token:

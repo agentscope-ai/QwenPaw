@@ -169,6 +169,7 @@ class AnthropicProvider(Provider):
         self,
         model_id: str,
         timeout: float = 10,
+        image_only: bool = False,  # pylint: disable=unused-argument
     ) -> ProbeResult:
         """Probe multimodal support using Anthropic messages API format.
 

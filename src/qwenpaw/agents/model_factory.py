@@ -14,7 +14,7 @@ import base64
 import logging
 import os
 from typing import List, Sequence, Tuple, Type, Any, Union, Optional
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
 from agentscope.model import ChatModelBase, OpenAIChatModel
@@ -49,12 +49,13 @@ from ..token_usage import TokenRecordingModelWrapper
 def _file_url_to_path(url: str) -> str:
     """
     Strip file:// to path. On Windows file:///C:/path -> C:/path not /C:/path.
+    Percent-decodes the path so non-ASCII filenames resolve correctly.
     """
     s = url.removeprefix("file://")
     # Windows: file:///C:/path yields "/C:/path"; remove leading slash.
     if len(s) >= 3 and s.startswith("/") and s[1].isalpha() and s[2] == ":":
         s = s[1:]
-    return s
+    return unquote(s)
 
 
 logger = logging.getLogger(__name__)
@@ -221,7 +222,7 @@ def _format_openai_video_block(video_block: dict) -> dict:
         media_type = source["media_type"]
         url = f"data:{media_type};base64,{source['data']}"
     elif source["type"] == "url":
-        raw_url = source["url"].removeprefix("file://")
+        raw_url = _file_url_to_path(source["url"])
         if os.path.exists(raw_url) and os.path.isfile(raw_url):
             ext = os.path.splitext(raw_url)[1].lower()
             media_type = _SUPPORTED_VIDEO_EXTENSIONS.get(ext)
@@ -306,7 +307,7 @@ def _format_anthropic_output_items(
     seen_media: set[str] | None = None,
 ) -> list:
     """Format a list of tool_result output blocks for Anthropic API,
-    converting image and video blocks as needed.
+    converting image, video, and file blocks as needed.
 
     When *seen_media* is provided, media blocks whose source has already
     been encoded in a preceding top-level block are replaced with a
@@ -314,7 +315,30 @@ def _format_anthropic_output_items(
     """
     result: list[dict] = []
     for item in output:
-        if item.get("type") not in ("image", "video"):
+        item_type = item.get("type")
+
+        if item_type == "file":
+            # Anthropic tool_result content only supports 'text' and 'image';
+            # convert file blocks to a readable text placeholder so the
+            # conversation history stays intact without triggering a 400 error.
+            source = item.get("source", {})
+            file_url = source.get("url", "")
+            filename = (
+                item.get("filename")
+                or file_url.rsplit("/", 1)[-1]
+                or "unknown"
+            )
+            readable_path = file_url.removeprefix("file://")
+            result.append(
+                {
+                    "type": "text",
+                    "text": f"File '{filename}' is available at:"
+                    f" {readable_path}",
+                },
+            )
+            continue
+
+        if item_type not in ("image", "video"):
             result.append(item)
             continue
 
@@ -385,7 +409,7 @@ def _format_anthropic_messages(  # pylint: disable=too-many-branches
                 output = block.get("output")
                 if output is None:
                     content_value: list = [
-                        {"type": "text", "text": None},
+                        {"type": "text", "text": ""},
                     ]
                 elif isinstance(output, list):
                     content_value = _format_anthropic_output_items(
@@ -416,7 +440,7 @@ def _format_anthropic_messages(  # pylint: disable=too-many-branches
 
         msg_anthropic: dict = {
             "role": role,
-            "content": content_blocks or None,
+            "content": content_blocks or "",
         }
 
         if msg_anthropic["content"] or msg_anthropic.get(
@@ -629,6 +653,53 @@ def _fix_image_mime_types(messages: list[dict]) -> None:
                     )
 
 
+_MEDIA_BLOCK_TYPES = ("image", "audio", "video")
+
+
+def _fixup_media_list(items: list) -> None:
+    """Normalize media blocks in a list in-place.
+
+    - Strips ``file://`` prefixes from source URLs.
+    - Replaces media blocks whose local file no longer exists with
+      a text placeholder so the downstream formatter won't throw.
+    - Recurses into ``tool_result`` output lists.
+    """
+    for i, block in enumerate(items):
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype in _MEDIA_BLOCK_TYPES:
+            source = block.get("source")
+            if not (
+                isinstance(source, dict)
+                and source.get("type") == "url"
+                and isinstance(source.get("url"), str)
+            ):
+                continue
+            if source["url"].startswith("file://"):
+                source["url"] = _file_url_to_path(source["url"])
+            url = source["url"]
+            if not url.startswith(
+                ("http://", "https://", "data:"),
+            ) and not os.path.exists(url):
+                logger.warning(
+                    "Media file no longer exists, "
+                    "replacing with placeholder: %s",
+                    url,
+                )
+                items[i] = {
+                    "type": "text",
+                    "text": (
+                        f"[{btype.title()} unavailable"
+                        f" — file deleted from disk]"
+                    ),
+                }
+        elif btype == "tool_result":
+            output = block.get("output")
+            if isinstance(output, list):
+                _fixup_media_list(output)
+
+
 # pylint: disable-next=too-many-statements
 def _create_file_block_support_formatter(
     base_formatter_class: Type[FormatterBase],
@@ -688,18 +759,11 @@ def _create_file_block_support_formatter(
                         extra_contents[block["id"]] = block["extra_content"]
 
             # Convert file:// URLs to paths for all media blocks,
+            # and replace deleted local files with text placeholders.
             # TODO: remove this after AgentScope updated
             for msg in normalized_msgs:
-                for block in msg.get_content_blocks():
-                    if block.get("type") in ("image", "audio", "video"):
-                        source = block.get("source")
-                        if (
-                            isinstance(source, dict)
-                            and source.get("type") == "url"
-                            and isinstance(source.get("url"), str)
-                            and source["url"].startswith("file://")
-                        ):
-                            source["url"] = _file_url_to_path(source["url"])
+                if isinstance(msg.content, list):
+                    _fixup_media_list(msg.content)
 
             # For Anthropic, fully override formatting to handle
             # media blocks (top-level & inside tool_result output).

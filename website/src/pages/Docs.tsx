@@ -166,8 +166,13 @@ const DOC_GROUPS: DocGroup[] = [
       { slug: "console", titleKey: "docs.console" },
       { slug: "channels", titleKey: "docs.channels" },
       { slug: "commands", titleKey: "docs.commands" },
+      { slug: "plan", titleKey: "docs.plan" },
       { slug: "heartbeat", titleKey: "docs.heartbeat" },
       { slug: "memory", titleKey: "docs.memory" },
+      {
+        slug: "memory-evolving-and-proactive",
+        titleKey: "docs.memoryEvolvingAndProactive",
+      },
     ],
   },
   {
@@ -186,8 +191,15 @@ const DOC_GROUPS: DocGroup[] = [
     children: [
       { slug: "models", titleKey: "docs.models" },
       { slug: "security", titleKey: "docs.security" },
+      { slug: "backup", titleKey: "docs.backup" },
       { slug: "cli", titleKey: "docs.cli" },
       { slug: "plugins", titleKey: "docs.plugins" },
+    ],
+  },
+  {
+    titleKey: "docs.groupPractice",
+    children: [
+      { slug: "practice-agent-team", titleKey: "docs.practiceAgentTeam" },
     ],
   },
   {
@@ -195,6 +207,7 @@ const DOC_GROUPS: DocGroup[] = [
     children: [
       { slug: "faq", titleKey: "docs.faq" },
       { slug: "api-tutorial", titleKey: "docs.apiTutorial" },
+      { slug: "acp-integration", titleKey: "docs.acpServer" },
       { slug: "community", titleKey: "docs.community" },
       { slug: "contributing", titleKey: "docs.contributing" },
       { slug: "roadmap", titleKey: "docs.roadmap" },
@@ -205,6 +218,7 @@ const DOC_GROUPS: DocGroup[] = [
 const ALL_SLUGS = [
   ...DOC_GROUPS.flatMap((g) => g.children.map((d) => d.slug)),
   "comparison", // Hidden page, accessible only via FAQ link
+  "practice-agent-team", // Practice section
 ];
 
 const DOC_TITLE_BANNERS = [
