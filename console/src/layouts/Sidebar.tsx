@@ -437,9 +437,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                 key={item.key}
                 title={item.label}
                 placement="right"
-                overlayInnerStyle={{
-                  background: "rgba(0,0,0,0.75)",
-                  color: "#fff",
+                styles={{
+                  root: {
+                    background: "rgba(0,0,0,0.75)",
+                    color: "#fff",
+                  },
                 }}
               >
                 <button

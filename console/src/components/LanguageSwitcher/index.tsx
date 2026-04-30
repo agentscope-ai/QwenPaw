@@ -60,7 +60,7 @@ export default function LanguageSwitcher() {
     <Dropdown
       menu={{ items, selectedKeys: [currentLangKey] }}
       placement="bottomRight"
-      overlayClassName={styles.languageDropdown}
+      classNames={{ root: styles.languageDropdown }}
     >
       <Button icon={LIGHT_ICON[currentLangKey]} type="text" />
     </Dropdown>
