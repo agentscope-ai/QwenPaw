@@ -686,8 +686,10 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         # favicons, images placed in public/).  Only serve regular files whose
         # path does not escape the console directory.
         if full_path and ".." not in full_path:
-            static_file = _console_path / full_path
-            if static_file.is_file():
-                return FileResponse(static_file)
+            # Security: Reject absolute paths to prevent path traversal bypass
+            if not Path(full_path).is_absolute():
+                static_file = _console_path / full_path
+                if static_file.is_file():
+                    return FileResponse(static_file)
 
         return _serve_console_index()

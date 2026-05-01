@@ -309,6 +309,9 @@ class WecomConfig(BaseChannelConfig):
     secret: str = ""
     media_dir: Optional[str] = None
     welcome_text: str = ""
+    # If True (default), all group members share one chat; set to
+    # False to isolate each member into their own chat.
+    share_session_in_group: bool = True
     max_reconnect_attempts: int = -1
 
 

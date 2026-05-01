@@ -89,6 +89,7 @@ export interface WecomConfig extends BaseChannelConfig {
   secret: string;
   media_dir?: string;
   welcome_text?: string;
+  share_session_in_group?: boolean;
   max_reconnect_attempts?: number;
 }
 

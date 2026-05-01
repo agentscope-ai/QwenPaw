@@ -190,7 +190,21 @@
 
 ![result](https://img.alicdn.com/imgextra/i2/O1CN015GPfGr1BsxuoOXbYC_!!6000000000002-2-tps-4082-2126.png)
 
-9. 在「应用发布」的「版本管理与发布」中，**创建版本**，填写基础信息，**保存**并**发布**
+<div id="feishu-callback-config"></div>
+
+9. 在「事件与回调」中，点击「回调配置」，选择订阅方式为**长连接（WebSocket）** 模式（无需公网 IP）
+
+![websocket](https://img.alicdn.com/imgextra/i4/O1CN015r6kS71DLBxFDJQWe_!!6000000000199-2-tps-1671-848.png)
+
+10. 选择「添加回调」，搜索**卡片回传交互**，订阅**卡片回传交互**
+
+![reveive](https://img.alicdn.com/imgextra/i3/O1CN017s7lz724GJMzKKKnC_!!6000000007363-2-tps-1685-855.png)
+
+![click](https://img.alicdn.com/imgextra/i4/O1CN01CcGGmW1K0JCp7cQQV_!!6000000001101-2-tps-1679-847.png)
+
+![result](https://img.alicdn.com/imgextra/i3/O1CN01V9kzMj1CbqkBnSI0x_!!6000000000100-2-tps-1682-847.png)
+
+11. 在「应用发布」的「版本管理与发布」中，**创建版本**，填写基础信息，**保存**并**发布**
 
 ![create](https://img.alicdn.com/imgextra/i1/O1CN01zOqMGk1lhoREn9Lip_!!6000000004851-2-tps-4082-2126.png)
 
