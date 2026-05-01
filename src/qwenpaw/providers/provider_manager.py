@@ -39,7 +39,6 @@ from ..security.secret_store import (
 
 logger = logging.getLogger(__name__)
 
-
 # -------------------------------------------------------
 # Built-in provider definitions and their default models.
 # -------------------------------------------------------
@@ -451,6 +450,142 @@ VOLCENGINE_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="Doubao-Seed-2.0-Code",
         name="Doubao-Seed-2.0-Code",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="Doubao-Seed-2.0-pro",
+        name="Doubao-Seed-2.0-pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="Doubao-Seed-2.0-lite",
+        name="Doubao-Seed-2.0-lite",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="Doubao-Seed-Code",
+        name="Doubao-Seed-Code",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="GLM-5.1",
+        name="GLM-5.1",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.7",
+        name="MiniMax-M2.7",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="Kimi-K2.6",
+        name="Kimi-K2.6",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="Kimi-K2.5",
+        name="Kimi-K2.5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="GLM-4.7",
+        name="GLM-4.7",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="DeepSeek-V3.2",
+        name="DeepSeek-V3.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+]
+
+VOLCENGINE_CODINGPLAN_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="Doubao-Seed-2.0-Code",
+        name="Doubao-Seed-2.0-Code",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="Doubao-Seed-2.0-pro",
+        name="Doubao-Seed-2.0-pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="Doubao-Seed-2.0-lite",
+        name="Doubao-Seed-2.0-lite",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="Doubao-Seed-Code",
+        name="Doubao-Seed-Code",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="GLM-5.1",
+        name="GLM-5.1",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.7",
+        name="MiniMax-M2.7",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="Kimi-K2.6",
+        name="Kimi-K2.6",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="Kimi-K2.5",
+        name="Kimi-K2.5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="GLM-4.7",
+        name="GLM-4.7",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="DeepSeek-V3.2",
+        name="DeepSeek-V3.2",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
