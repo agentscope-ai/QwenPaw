@@ -447,6 +447,16 @@ DEEPSEEK_MODELS: List[ModelInfo] = [
     ),
 ]
 
+VOLCENGINE_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="Doubao-Seed-2.0-Code",
+        name="Doubao-Seed-2.0-Code",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+]
+
 ANTHROPIC_MODELS: List[ModelInfo] = []
 
 GEMINI_MODELS: List[ModelInfo] = [
@@ -730,6 +740,25 @@ PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
     require_api_key=True,
 )
 
+PROVIDER_VOLCENGINE_CN = OpenAIProvider(
+    id="volcengine-cn",
+    name="Volcano Engine",
+    base_url="https://ark.cn-beijing.volces.com/api/v3",
+    api_key_prefix="",
+    models=VOLCENGINE_MODELS,
+    freeze_url=True,
+)
+
+PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
+    id="volcengine-cn-codingplan",
+    name="Volcano Engine Coding Plan",
+    base_url="https://ark.cn-beijing.volces.com/api/coding/v3",
+    api_key_prefix="",
+    models=VOLCENGINE_MODELS,
+    support_connection_check=False,
+    freeze_url=True,
+)
+
 
 class ProviderManager:  # pylint: disable=too-many-public-methods
     """A manager class to handle all providers,
@@ -796,6 +825,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_ZHIPU_INTL_CODINGPLAN)
         self._add_builtin(PROVIDER_SILICONFLOW_CN)
         self._add_builtin(PROVIDER_SILICONFLOW_INTL)
+        self._add_builtin(PROVIDER_VOLCENGINE_CN)
+        self._add_builtin(PROVIDER_VOLCENGINE_CN_CODINGPLAN)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider
