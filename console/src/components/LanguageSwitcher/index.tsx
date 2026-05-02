@@ -47,6 +47,11 @@ export default function LanguageSwitcher() {
       label: "Русский",
       onClick: () => changeLanguage("ru"),
     },
+    {
+      key: "pt-BR",
+      label: "Português (Brasil)",
+      onClick: () => changeLanguage("pt-BR"),
+    },
   ];
 
   const LIGHT_ICON: Record<string, React.ReactElement> = {
@@ -54,6 +59,7 @@ export default function LanguageSwitcher() {
     zh: <SparkChinese02Line />,
     ja: <SparkJapanLine />,
     ru: <SparkRusLine />,
+    "pt-BR": <SparkEnglish02Line />,
   };
 
   return (
