@@ -10,6 +10,7 @@ from ..agents.skills_manager import (
     SkillConflictError,
     SkillPoolService,
     SkillService,
+    _validate_skill_content,
     get_workspace_skills_dir,
     list_workspaces,
     read_skill_pool_manifest,
@@ -21,9 +22,11 @@ from ..agents.skills_hub import (
     import_pool_skill_from_hub,
     install_skill_from_hub,
 )
+from ..agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..config import load_config
 from ..constant import WORKING_DIR
-from ..security.skill_scanner import SkillScanError
+from ..exceptions import SkillsError
+from ..security.skill_scanner import SkillScanError, scan_skill_directory
 from .utils import prompt_checkbox, prompt_confirm
 
 
@@ -102,6 +105,57 @@ def _print_skill_changes(
                 fg="red",
             ),
         )
+
+
+def _validate_skill_frontmatter(skill_dir: Path) -> None:
+    """Validate required skill metadata."""
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.is_file():
+        raise click.ClickException(f"Missing SKILL.md: {skill_md}")
+
+    content = read_text_file_with_encoding_fallback(skill_md)
+    try:
+        _validate_skill_content(content)
+    except SkillsError as exc:
+        raise click.ClickException(str(exc))
+    except Exception as exc:
+        raise click.ClickException(
+            f"SKILL.md frontmatter is invalid: {exc}",
+        ) from exc
+
+
+def _resolve_skill_test_dir(skill: str, agent_id: str) -> Path:
+    """Resolve a skill argument as a path first, then workspace skill name."""
+    candidate = Path(skill).expanduser()
+    if candidate.exists():
+        return candidate.resolve()
+
+    working_dir = _get_agent_workspace(agent_id)
+    return get_workspace_skills_dir(working_dir) / skill
+
+
+def _run_skill_test(skill_dir: Path) -> str:
+    """Run local skill validation and security scanning."""
+    if not skill_dir.is_dir():
+        raise click.ClickException(f"Skill directory not found: {skill_dir}")
+
+    skill_name = skill_dir.name
+    _validate_skill_frontmatter(skill_dir)
+    try:
+        result = scan_skill_directory(
+            skill_dir,
+            skill_name=skill_name,
+            block=True,
+        )
+    except SkillScanError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if result is not None and not result.is_safe:
+        raise click.ClickException(
+            "Security scan found "
+            f"{len(result.findings)} issue(s) in skill '{skill_name}'.",
+        )
+    return skill_name
 
 
 def _apply_skill_changes(
@@ -489,3 +543,18 @@ def uninstall_cmd(
         raise
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
+
+
+@skills_group.command("test")
+@click.argument("skill", required=True)
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
+def test_cmd(skill: str, agent_id: str) -> None:
+    """Validate a workspace skill or local skill directory."""
+    skill_dir = _resolve_skill_test_dir(skill, agent_id)
+    skill_name = _run_skill_test(skill_dir)
+    click.echo(f"Skill test passed: {skill_name}")
+    click.echo(f"Path: {skill_dir}")
