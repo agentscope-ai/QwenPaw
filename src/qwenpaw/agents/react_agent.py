@@ -427,6 +427,24 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         )
         logger.debug("Registered bootstrap hook")
 
+        # Memory hook - 自动检索和存储记忆 (LanceDB + 百炼)
+        try:
+            from .hooks.memory_hook import MemoryHook
+            memory_hook = MemoryHook()
+            self.register_instance_hook(
+                hook_type="pre_reasoning",
+                hook_name="memory_retrieve_hook",
+                hook=memory_hook.pre_reasoning,
+            )
+            self.register_instance_hook(
+                hook_type="post_reply",
+                hook_name="memory_store_hook",
+                hook=memory_hook.post_reply,
+            )
+            logger.info("Registered memory hooks (LanceDB + 百炼)")
+        except Exception as e:
+            logger.warning(f"Failed to register memory hooks (non-fatal): {e}")
+
         # Context manager hooks - delegate compaction / tool-result pruning
         # to the context manager's lifecycle methods
         if self.context_manager is not None:

@@ -150,6 +150,22 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         self.summary_toolkit.register_tool_function(write_file)
         self.summary_toolkit.register_tool_function(edit_file)
 
+        # 修复 #3182：确保 start() 被调用，构建向量索引
+        if self._reme is not None:
+            import threading
+            def _start_reme():
+                import asyncio
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(self._reme.start())
+                    loop.close()
+                except Exception as e:
+                    logger.warning(f"ReMeLight auto-start failed (non-fatal): {e}")
+            # 延迟启动，避免阻塞初始化
+            threading.Thread(target=_start_reme, daemon=True).start()
+            logger.info("ReMeLight auto-start triggered (#3182 fix)")
+
     @staticmethod
     def _mask_key(key: str) -> str:
         """Mask an API key, showing only the first 5 characters."""
@@ -184,19 +200,46 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             )
 
     def get_embedding_config(self) -> dict:
-        """Return embedding config: config > env var > default."""
+        """Return embedding config: agent.json > config.json > env var > default."""
         self._warn_if_version_mismatch()
         cfg = load_agent_config(
             self.agent_id,
         ).running.reme_light_memory_config.embedding_model_config
+
+        api_key = cfg.api_key or EnvVarLoader.get_str("EMBEDDING_API_KEY")
+        base_url = cfg.base_url or EnvVarLoader.get_str("EMBEDDING_BASE_URL")
+        model_name = cfg.model_name or EnvVarLoader.get_str("EMBEDDING_MODEL_NAME")
+
+        # 修复 #3828：如果 agent.json 里配置为空，从 config.json 同步
+        if not api_key or not base_url or not model_name:
+            try:
+                from qwenpaw.config.config import load_config
+                root_cfg = load_config()
+                legacy_emb = root_cfg.agents.running.reme_light_memory_config.embedding_model_config
+                if legacy_emb.api_key and legacy_emb.base_url and legacy_emb.model_name:
+                    api_key = api_key or legacy_emb.api_key
+                    base_url = base_url or legacy_emb.base_url
+                    model_name = model_name or legacy_emb.model_name
+                    # 同步到 agent.json
+                    try:
+                        from qwenpaw.config.config import save_agent_config
+                        import copy
+                        agent_cfg = load_agent_config(self.agent_id)
+                        agent_cfg.running.reme_light_memory_config.embedding_model_config.api_key = api_key
+                        agent_cfg.running.reme_light_memory_config.embedding_model_config.base_url = base_url
+                        agent_cfg.running.reme_light_memory_config.embedding_model_config.model_name = model_name
+                        save_agent_config(self.agent_id, agent_cfg)
+                        logger.info("已从 config.json 同步 embedding 配置到 agent.json (#3828 fix)")
+                    except Exception as sync_err:
+                        logger.warning(f"同步 embedding 配置失败 (非致命): {sync_err}")
+            except Exception as e:
+                logger.warning(f"读取 config.json 配置失败 (非致命): {e}")
+
         return {
             "backend": cfg.backend,
-            "api_key": cfg.api_key
-            or EnvVarLoader.get_str("EMBEDDING_API_KEY"),
-            "base_url": cfg.base_url
-            or EnvVarLoader.get_str("EMBEDDING_BASE_URL"),
-            "model_name": cfg.model_name
-            or EnvVarLoader.get_str("EMBEDDING_MODEL_NAME"),
+            "api_key": api_key,
+            "base_url": base_url,
+            "model_name": model_name,
             "dimensions": cfg.dimensions,
             "enable_cache": cfg.enable_cache,
             "use_dimensions": cfg.use_dimensions,
