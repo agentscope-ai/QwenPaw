@@ -39,6 +39,7 @@ from ...agents.skills_manager import (
     _default_workspace_manifest,
     _get_skill_mtime,
     _mutate_json,
+    _normalize_skill_manifest_entry,
     _read_skill_from_dir,
     get_pool_builtin_update_notice,
     get_pool_builtin_sync_status,
@@ -510,7 +511,13 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
     entries = manifest.get("skills", {})
     skill_root = get_workspace_skills_dir(workspace_dir)
     specs: list[SkillSpec] = []
-    for skill_name, entry in sorted(entries.items()):
+    for skill_name, raw_entry in sorted(entries.items()):
+        entry = _normalize_skill_manifest_entry(raw_entry)
+        if raw_entry not in (None, entry):
+            logger.warning(
+                "Skipping malformed workspace skill entry '%s' in manifest",
+                skill_name,
+            )
         try:
             source = entry.get("source", "customized")
             skill_dir = skill_root / skill_name
@@ -543,7 +550,13 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
     pool_dir = get_skill_pool_dir()
     sync_info = get_pool_builtin_sync_status(pool_skills=entries)
     specs: list[PoolSkillSpec] = []
-    for skill_name, entry in sorted(entries.items()):
+    for skill_name, raw_entry in sorted(entries.items()):
+        entry = _normalize_skill_manifest_entry(raw_entry)
+        if raw_entry not in (None, entry):
+            logger.warning(
+                "Skipping malformed pool skill entry '%s' in manifest",
+                skill_name,
+            )
         try:
             source = entry.get("source", "customized")
             skill_dir = pool_dir / skill_name
@@ -699,28 +712,14 @@ async def cancel_hub_install(task_id: str) -> dict[str, Any]:
 
 @router.get("/pool")
 async def list_pool_skills() -> list[PoolSkillSpec]:
-    try:
-        return _build_pool_skill_specs()
-    except Exception as exc:
-        logger.exception("Failed to list pool skills")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to load skill pool: {exc}",
-        ) from exc
+    return _build_pool_skill_specs()
 
 
 @router.post("/pool/refresh")
 async def refresh_pool_skills() -> list[PoolSkillSpec]:
     """Force reconcile and return updated pool skill list."""
-    try:
-        reconcile_pool_manifest()
-        return _build_pool_skill_specs()
-    except Exception as exc:
-        logger.exception("Failed to refresh pool skills")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to refresh skill pool: {exc}",
-        ) from exc
+    reconcile_pool_manifest()
+    return _build_pool_skill_specs()
 
 
 @router.get("/pool/builtin-sources")

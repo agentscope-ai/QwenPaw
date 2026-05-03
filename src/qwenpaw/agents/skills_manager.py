@@ -505,8 +505,8 @@ def _read_json_unlocked(path: Path, default: dict[str, Any]) -> dict[str, Any]:
         return json.loads(json.dumps(default))
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
-        logger.warning("Cannot read JSON from %s, resetting to default", path)
+    except json.JSONDecodeError:
+        logger.warning("Malformed JSON in %s, resetting to default", path)
         return json.loads(json.dumps(default))
 
 
@@ -570,6 +570,11 @@ def _default_pool_manifest() -> dict[str, Any]:
     }
 
 
+def _normalize_skill_manifest_entry(entry: Any) -> dict[str, Any]:
+    """Return a manifest entry as a dict, or an empty dict for legacy junk."""
+    return entry if isinstance(entry, dict) else {}
+
+
 def _is_builtin_skill(skill_name: str, builtin_names: list[str]) -> bool:
     """Check if skill name is in builtin list."""
     return skill_name in builtin_names
@@ -577,7 +582,11 @@ def _is_builtin_skill(skill_name: str, builtin_names: list[str]) -> bool:
 
 def _is_pool_builtin_entry(entry: dict[str, Any] | None) -> bool:
     """Return whether one pool manifest entry represents a builtin slot."""
-    return bool(entry) and str(entry.get("source", "") or "") == "builtin"
+    normalized = _normalize_skill_manifest_entry(entry)
+    return (
+        bool(normalized)
+        and str(normalized.get("source", "") or "") == "builtin"
+    )
 
 
 def _classify_pool_skill_source(
@@ -1076,7 +1085,9 @@ def _build_builtin_import_candidate(
     pref = preferred_language or get_builtin_skill_language_preference()
     canonical_name = _canonical_builtin_skill_name(skill_name, registry)
     variants = registry.get(canonical_name) or {}
-    current = pool_skills.get(canonical_name) or {}
+    current = _normalize_skill_manifest_entry(
+        pool_skills.get(canonical_name),
+    )
     current_version_text = str(current.get("version_text", "") or "")
     current_source = str(current.get("source", "") or "")
     current_language = ""
@@ -1460,8 +1471,17 @@ def reconcile_pool_manifest() -> dict[str, Any]:
         }
 
         for skill_name, skill_dir in sorted(discovered.items()):
+            raw_existing = skills.get(skill_name)
+            existing = _normalize_skill_manifest_entry(raw_existing)
+            if raw_existing not in (None, existing):
+                logger.warning(
+                    (
+                        "Malformed pool manifest entry for '%s'; "
+                        "rebuilding from disk"
+                    ),
+                    skill_name,
+                )
             try:
-                existing = skills.get(skill_name, {})
                 source, protected = _classify_pool_skill_source(
                     skill_name,
                     skill_dir,
@@ -1552,8 +1572,17 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         }
 
         for skill_name, skill_dir in sorted(discovered.items()):
+            raw_existing = skills.get(skill_name)
+            existing = _normalize_skill_manifest_entry(raw_existing)
+            if raw_existing not in (None, existing):
+                logger.warning(
+                    (
+                        "Malformed workspace manifest entry for '%s'; "
+                        "rebuilding from disk"
+                    ),
+                    skill_name,
+                )
             try:
-                existing = skills.get(skill_name) or {}
                 enabled = bool(existing.get("enabled", False))
                 channels = existing.get("channels") or ["all"]
 
