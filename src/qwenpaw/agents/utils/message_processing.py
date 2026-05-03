@@ -59,6 +59,12 @@ async def _process_single_file_block(
                     local_path = urllib.request.url2pathname(parsed.path)
                 except Exception:
                     return None
+                logger.debug(
+                    "Resolved file:// URL to local path: %s -> %s",
+                    url,
+                    local_path,
+                )
+                return local_path
             local_path = await download_file_from_url(
                 url,
                 filename,
