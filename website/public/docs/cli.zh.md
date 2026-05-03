@@ -374,15 +374,27 @@ qwenpaw channels send \
 
 **别名：** 可以用 `qwenpaw agent`（单数）作为 `qwenpaw agents` 的简写。
 
-| 命令                  | 说明                                             |
-| --------------------- | ------------------------------------------------ |
-| `qwenpaw agents list` | 列出所有已配置的智能体（ID、名称、描述、工作区） |
-| `qwenpaw agents chat` | 与另一个智能体通信（双向，支持多轮对话）         |
+| 命令                    | 说明                                                       |
+| ----------------------- | ---------------------------------------------------------- |
+| `qwenpaw agents list`   | 列出所有已配置的智能体（ID、名称、描述、工作区）           |
+| `qwenpaw agents create` | 创建新的智能体配置和工作区（本地操作，无需服务运行）       |
+| `qwenpaw agents delete` | 删除已配置的智能体（若正在运行则先停止，从智能体列表移除） |
+| `qwenpaw agents chat`   | 与另一个智能体通信（双向，支持多轮对话）                   |
 
 ```bash
 # 列出所有智能体
 qwenpaw agents list
 qwenpaw agent list  # 单数别名效果相同
+
+# 创建新的智能体
+qwenpaw agents create --name "数据分析师"
+qwenpaw agents create --name "助手" --template coder --skill web_search --skill pdf_reader
+qwenpaw agents create --name "GPT Bot" --provider-id openai --model-id gpt-4
+
+# 删除智能体（默认智能体不可删除）
+qwenpaw agents delete my_agent
+qwenpaw agents delete my_agent --remove-workspace  # 同时删除工作区目录
+qwenpaw agents delete my_agent --yes                # 跳过确认
 
 # 与另一个智能体对话（实时模式，单次）
 qwenpaw agents chat \
@@ -672,18 +684,30 @@ qwenpaw --host 0.0.0.0 --port 9090 cron list
 
 ## 命令总览
 
-| 命令               | 子命令                                                                               |  需要服务运行？   |
-| ------------------ | ------------------------------------------------------------------------------------ | :---------------: |
-| `qwenpaw init`     | —                                                                                    |        否         |
-| `qwenpaw app`      | —                                                                                    | —（启动服务本身） |
-| `qwenpaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` |        否         |
-| `qwenpaw env`      | `list` · `set` · `delete`                                                            |        否         |
-| `qwenpaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                            |      **是**       |
-| `qwenpaw agents`   | `list` · `chat`                                                                      |      **是**       |
-| `qwenpaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |      **是**       |
-| `qwenpaw chats`    | `list` · `get` · `create` · `update` · `delete`                                      |      **是**       |
-| `qwenpaw skills`   | `list` · `config`                                                                    |        否         |
-| `qwenpaw clean`    | —                                                                                    |        否         |
+| 命令                | 子命令                                                                               |  需要服务运行？   |
+| ------------------- | ------------------------------------------------------------------------------------ | :---------------: |
+| `qwenpaw init`      | —                                                                                    |        否         |
+| `qwenpaw app`       | —                                                                                    | —（启动服务本身） |
+| `qwenpaw desktop`   | —                                                                                    | —（启动服务本身） |
+| `qwenpaw doctor`    | `fix`                                                                                |        否         |
+| `qwenpaw daemon`    | `status` · `restart` · `reload-config` · `version` · `logs`                          |        否         |
+| `qwenpaw models`    | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` |        否         |
+| `qwenpaw env`       | `list` · `set` · `delete`                                                            |        否         |
+| `qwenpaw channels`  | `list` · `send` · `install` · `add` · `remove` · `config`                            |      **是**       |
+| `qwenpaw agents`    | `list` · `create` · `delete` · `chat`                                                |    部分需要 ¹     |
+| `qwenpaw cron`      | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |      **是**       |
+| `qwenpaw chats`     | `list` · `get` · `create` · `update` · `delete`                                      |      **是**       |
+| `qwenpaw skills`    | `list` · `config` · `info`                                                           |        否         |
+| `qwenpaw task`      | —                                                                                    |        否         |
+| `qwenpaw auth`      | `reset-password`                                                                     |        否         |
+| `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate`                               |        否         |
+| `qwenpaw acp`       | —                                                                                    |        否         |
+| `qwenpaw clean`     | —                                                                                    |        否         |
+| `qwenpaw shutdown`  | —                                                                                    |        否         |
+| `qwenpaw update`    | —                                                                                    |        否         |
+| `qwenpaw uninstall` | —                                                                                    |        否         |
+
+¹ `create` 不需要服务运行；`list`、`delete`、`chat` 需要服务运行。
 
 ---
 

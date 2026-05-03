@@ -221,14 +221,24 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
   },
   "security": {
     "tool_guard": {
-      "enabled": true
+      "enabled": true,
+      "shell_evasion_checks": {
+        "command_substitution": false,
+        "obfuscated_flags": false,
+        "backslash_escaped_whitespace": false,
+        "backslash_escaped_operators": false,
+        "newlines": false,
+        "comment_quote_desync": false,
+        "quoted_newline": false
+      }
     },
     "file_guard": {
       "enabled": true
     },
     "skill_scanner": {
       "mode": "warn"
-    }
+    },
+    "allow_no_auth_hosts": ["127.0.0.1", "::1"]
   },
   "last_dispatch": null
 }
@@ -302,9 +312,11 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **基础运行参数：**
 
-| 字段        | 类型 | 默认值 | 说明                                            |
-| ----------- | ---- | ------ | ----------------------------------------------- |
-| `max_iters` | int  | `100`  | ReAct Agent 推理-执行循环的最大轮数（必须 ≥ 1） |
+| 字段                         | 类型  | 默认值  | 说明                                                                                      |
+| ---------------------------- | ----- | ------- | ----------------------------------------------------------------------------------------- |
+| `max_iters`                  | int   | `100`   | ReAct Agent 推理-执行循环的最大轮数（必须 ≥ 1）                                           |
+| `shell_command_timeout`      | float | `60.0`  | `execute_shell_command` 的默认超时时间（秒）。LLM 可在每次调用时通过 timeout 参数覆盖此值 |
+| `auto_continue_on_text_only` | bool  | `false` | 启用后,若模型只返回文本而未调用工具,Agent 会自动重试最多两轮推理                          |
 
 **LLM 重试与限流：**
 
@@ -427,6 +439,24 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 ---
 
+#### `plan` — 计划模式配置
+
+| 字段      | 类型 | 默认值  | 说明             |
+| --------- | ---- | ------- | ---------------- |
+| `enabled` | bool | `false` | 是否启用计划模式 |
+
+启用后,智能体支持 `/plan` 命令进行结构化任务规划与执行。详见 [计划模式](./plan)。
+
+---
+
+#### `approval_level` — 工具执行安全级别
+
+| 字段             | 类型   | 默认值   | 说明                                                                          |
+| ---------------- | ------ | -------- | ----------------------------------------------------------------------------- |
+| `approval_level` | string | `"AUTO"` | 工具执行安全级别: `STRICT`、`SMART`、`AUTO`、`OFF`。详见 [安全](./security)。 |
+
+---
+
 #### `tools` — 工具配置
 
 控制智能体可用的内置工具。每个工具可以单独启用/禁用，配置是否显示给用户，以及是否异步执行。
@@ -444,6 +474,12 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 - **`tool_guard`** — 工具守卫（运行时检测危险命令和注入攻击）
 - **`file_guard`** — 文件守卫（保护敏感文件访问）
 - **`skill_scanner`** — 技能扫描器（技能启用前扫描恶意代码）
+
+顶层字段：
+
+| 字段                  | 类型     | 默认值                 | 说明                                                  |
+| --------------------- | -------- | ---------------------- | ----------------------------------------------------- |
+| `allow_no_auth_hosts` | string[] | `["127.0.0.1", "::1"]` | IP 白名单，绕过 Web 登录认证。默认允许 localhost 访问 |
 
 > **完整配置说明：** 每个模块的详细字段说明、安全规则、自定义规则配置等请参见 [安全](./security)。
 
@@ -482,6 +518,7 @@ QwenPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/
 | QwenPaw Local                           | `qwenpaw-local`          | 本地 llama.cpp 后端           |
 | Ollama                                  | `ollama`                 | 本地 Ollama 服务              |
 | LM Studio                               | `lmstudio`               | 本地 LM Studio 服务           |
+| OpenRouter                              | `openrouter`             | OpenRouter 模型聚合平台       |
 | ModelScope（魔搭）                      | `modelscope`             | 魔搭社区模型服务              |
 | DashScope（灵积）                       | `dashscope`              | 阿里云灵积模型服务            |
 | 阿里云百炼 Coding Plan（China）         | `aliyun-codingplan`      | 阿里云百炼 Coding Plan        |
@@ -500,6 +537,8 @@ QwenPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/
 | Zhipu（Z.AI）                           | `zhipu-intl`             | 智谱国际版标准 API            |
 | Zhipu Coding Plan（Z.AI）               | `zhipu-intl-codingplan`  | 智谱国际版 Coding Plan        |
 | OpenCode                                | `opencode`               | OpenCode Zen 模型服务         |
+| SiliconFlow（China）                    | `siliconflow-cn`         | 硅基流动国内版                |
+| SiliconFlow（International）            | `siliconflow-intl`       | 硅基流动国际版                |
 | 自定义                                  | `custom`                 | 自定义 OpenAI 兼容服务        |
 
 > **完整配置说明：** 每个提供商的详细配置方式、`providers.json` 字段结构、模型发现等请参见 [模型](./models)。

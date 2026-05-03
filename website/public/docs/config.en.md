@@ -261,14 +261,24 @@ Each agent has an independent `agent.json` in its workspace directory (`~/.qwenp
   },
   "security": {
     "tool_guard": {
-      "enabled": true
+      "enabled": true,
+      "shell_evasion_checks": {
+        "command_substitution": false,
+        "obfuscated_flags": false,
+        "backslash_escaped_whitespace": false,
+        "backslash_escaped_operators": false,
+        "newlines": false,
+        "comment_quote_desync": false,
+        "quoted_newline": false
+      }
     },
     "file_guard": {
       "enabled": true
     },
     "skill_scanner": {
       "mode": "warn"
-    }
+    },
+    "allow_no_auth_hosts": ["127.0.0.1", "::1"]
   },
   "last_dispatch": null
 }
@@ -349,9 +359,11 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **Basic Runtime:**
 
-| Field       | Type | Default | Description                                                                 |
-| ----------- | ---- | ------- | --------------------------------------------------------------------------- |
-| `max_iters` | int  | `100`   | Maximum number of reasoning-acting iterations for ReAct agent (must be ≥ 1) |
+| Field                        | Type  | Default | Description                                                                                                                 |
+| ---------------------------- | ----- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `max_iters`                  | int   | `100`   | Maximum number of reasoning-acting iterations for ReAct agent (must be ≥ 1)                                                 |
+| `shell_command_timeout`      | float | `60.0`  | Default timeout in seconds for `execute_shell_command`. The LLM may still override this per-call via the timeout parameter  |
+| `auto_continue_on_text_only` | bool  | `false` | When enabled, the agent automatically retries up to two extra reasoning passes if the model responds with text but no tools |
 
 **LLM Retry & Rate Limiting:**
 
@@ -491,6 +503,24 @@ When `null`, uses the global default model. Can be configured in Console (Agent 
 
 ---
 
+#### `plan` — Plan mode configuration
+
+| Field     | Type | Default | Description                 |
+| --------- | ---- | ------- | --------------------------- |
+| `enabled` | bool | `false` | Whether to enable plan mode |
+
+When enabled, the agent supports `/plan` commands for structured task planning and execution. See [Plan Mode](./plan) for detailed documentation.
+
+---
+
+#### `approval_level` — Tool execution security level
+
+| Field            | Type   | Default  | Description                                                                                     |
+| ---------------- | ------ | -------- | ----------------------------------------------------------------------------------------------- |
+| `approval_level` | string | `"AUTO"` | Tool execution security level: `STRICT`, `SMART`, `AUTO`, or `OFF`. See [Security](./security). |
+
+---
+
 #### `tools` — Tool configuration
 
 Controls the built-in tools available to the agent. Each tool can be individually enabled/disabled, configured whether to show to users, and whether to execute asynchronously.
@@ -508,6 +538,12 @@ Contains three protection modules:
 - **`tool_guard`** — Tool guard (runtime detection of dangerous commands and injection attacks)
 - **`file_guard`** — File guard (protects sensitive file access)
 - **`skill_scanner`** — Skill scanner (scans for malicious code before enabling skills)
+
+Top-level field:
+
+| Field                 | Type     | Default                | Description                                                                    |
+| --------------------- | -------- | ---------------------- | ------------------------------------------------------------------------------ |
+| `allow_no_auth_hosts` | string[] | `["127.0.0.1", "::1"]` | IP whitelist that bypasses web authentication. Localhost is allowed by default |
 
 > **Complete configuration:** Detailed field descriptions, security rules, custom rule configuration, etc. for each module are documented in [Security](./security).
 
@@ -544,6 +580,7 @@ QwenPaw needs an LLM provider to work. You can set it up in three ways:
 | QwenPaw Local                      | `qwenpaw-local`          | _(local)_                                           | _(none)_       |
 | Ollama                             | `ollama`                 | `http://localhost:11434`                            | _(none)_       |
 | LM Studio                          | `lmstudio`               | `http://localhost:1234/v1`                          | _(none)_       |
+| OpenRouter                         | `openrouter`             | `https://openrouter.ai/api/v1`                      | `sk-or-v1-`    |
 | ModelScope                         | `modelscope`             | `https://api-inference.modelscope.cn/v1`            | `ms`           |
 | DashScope                          | `dashscope`              | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `sk`           |
 | Aliyun Coding Plan (China)         | `aliyun-codingplan`      | `https://coding.dashscope.aliyuncs.com/v1`          | `sk-sp`        |
@@ -562,6 +599,8 @@ QwenPaw needs an LLM provider to work. You can set it up in three ways:
 | Zhipu (Z.AI)                       | `zhipu-intl`             | `https://api.z.ai/api/paas/v4`                      | _(any)_        |
 | Zhipu Coding Plan (Z.AI)           | `zhipu-intl-codingplan`  | `https://api.z.ai/api/coding/paas/v4`               | _(any)_        |
 | OpenCode                           | `opencode`               | `https://opencode.ai/zen/v1`                        | _(any)_        |
+| SiliconFlow (China)                | `siliconflow-cn`         | `https://api.siliconflow.cn/v1`                     | `sk-`          |
+| SiliconFlow (International)        | `siliconflow-intl`       | `https://api.siliconflow.com/v1`                    | `sk-`          |
 | Custom                             | `custom`                 | _(you set it)_                                      | _(any)_        |
 
 For each provider you need to set:
