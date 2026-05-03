@@ -511,22 +511,29 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
     skill_root = get_workspace_skills_dir(workspace_dir)
     specs: list[SkillSpec] = []
     for skill_name, entry in sorted(entries.items()):
-        source = entry.get("source", "customized")
-        skill_dir = skill_root / skill_name
-        skill = _read_skill_from_dir(skill_dir, source)
-        if skill is None:
-            continue
-        dump = skill.model_dump()
-        dump["tags"] = entry.get("tags") or []
-        specs.append(
-            SkillSpec(
-                **dump,
-                enabled=entry.get("enabled", False),
-                channels=entry.get("channels") or ["all"],
-                config=entry.get("config") or {},
-                last_updated=_get_skill_mtime(skill_dir),
-            ),
-        )
+        try:
+            source = entry.get("source", "customized")
+            skill_dir = skill_root / skill_name
+            skill = _read_skill_from_dir(skill_dir, source)
+            if skill is None:
+                continue
+            dump = skill.model_dump()
+            dump["tags"] = entry.get("tags") or []
+            specs.append(
+                SkillSpec(
+                    **dump,
+                    enabled=entry.get("enabled", False),
+                    channels=entry.get("channels") or ["all"],
+                    config=entry.get("config") or {},
+                    last_updated=_get_skill_mtime(skill_dir),
+                ),
+            )
+        except Exception:
+            logger.warning(
+                "Skipping workspace skill '%s': failed to build spec",
+                skill_name,
+                exc_info=True,
+            )
     return specs
 
 
@@ -537,40 +544,47 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
     sync_info = get_pool_builtin_sync_status(pool_skills=entries)
     specs: list[PoolSkillSpec] = []
     for skill_name, entry in sorted(entries.items()):
-        source = entry.get("source", "customized")
-        skill_dir = pool_dir / skill_name
-        skill = _read_skill_from_dir(skill_dir, source)
-        if skill is None:
-            continue
-        info = sync_info.get(skill_name, {})
-        dump = skill.model_dump(exclude={"version_text"})
-        dump["tags"] = entry.get("tags") or []
-        specs.append(
-            PoolSkillSpec(
-                **dump,
-                protected=bool(entry.get("protected", False)),
-                version_text=str(entry.get("version_text", "") or ""),
-                commit_text=str(entry.get("commit_text", "") or ""),
-                sync_status=str(info.get("sync_status", "") or ""),
-                latest_version_text=str(
-                    info.get("latest_version_text", "") or "",
+        try:
+            source = entry.get("source", "customized")
+            skill_dir = pool_dir / skill_name
+            skill = _read_skill_from_dir(skill_dir, source)
+            if skill is None:
+                continue
+            info = sync_info.get(skill_name, {})
+            dump = skill.model_dump(exclude={"version_text"})
+            dump["tags"] = entry.get("tags") or []
+            specs.append(
+                PoolSkillSpec(
+                    **dump,
+                    protected=bool(entry.get("protected", False)),
+                    version_text=str(entry.get("version_text", "") or ""),
+                    commit_text=str(entry.get("commit_text", "") or ""),
+                    sync_status=str(info.get("sync_status", "") or ""),
+                    latest_version_text=str(
+                        info.get("latest_version_text", "") or "",
+                    ),
+                    builtin_language=str(
+                        entry.get("builtin_language", "") or "",
+                    ),
+                    available_builtin_languages=[
+                        str(language)
+                        for language in (
+                            info.get("available_languages")
+                            or entry.get("available_builtin_languages")
+                            or []
+                        )
+                        if str(language)
+                    ],
+                    config=entry.get("config") or {},
+                    last_updated=_get_skill_mtime(skill_dir),
                 ),
-                builtin_language=str(
-                    entry.get("builtin_language", "") or "",
-                ),
-                available_builtin_languages=[
-                    str(language)
-                    for language in (
-                        info.get("available_languages")
-                        or entry.get("available_builtin_languages")
-                        or []
-                    )
-                    if str(language)
-                ],
-                config=entry.get("config") or {},
-                last_updated=_get_skill_mtime(skill_dir),
-            ),
-        )
+            )
+        except Exception:
+            logger.warning(
+                "Skipping pool skill '%s': failed to build spec",
+                skill_name,
+                exc_info=True,
+            )
     return specs
 
 
@@ -685,14 +699,28 @@ async def cancel_hub_install(task_id: str) -> dict[str, Any]:
 
 @router.get("/pool")
 async def list_pool_skills() -> list[PoolSkillSpec]:
-    return _build_pool_skill_specs()
+    try:
+        return _build_pool_skill_specs()
+    except Exception as exc:
+        logger.exception("Failed to list pool skills")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load skill pool: {exc}",
+        ) from exc
 
 
 @router.post("/pool/refresh")
 async def refresh_pool_skills() -> list[PoolSkillSpec]:
     """Force reconcile and return updated pool skill list."""
-    reconcile_pool_manifest()
-    return _build_pool_skill_specs()
+    try:
+        reconcile_pool_manifest()
+        return _build_pool_skill_specs()
+    except Exception as exc:
+        logger.exception("Failed to refresh pool skills")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to refresh skill pool: {exc}",
+        ) from exc
 
 
 @router.get("/pool/builtin-sources")
