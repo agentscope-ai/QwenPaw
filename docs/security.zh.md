@@ -59,19 +59,29 @@ QwenPaw 的安全系统由三个核心安全层组成:
       "guarded_tools": null,
       "denied_tools": [],
       "custom_rules": [],
-      "disabled_rules": []
+      "disabled_rules": [],
+      "shell_evasion_checks": {
+        "command_substitution": false,
+        "obfuscated_flags": false,
+        "backslash_escaped_whitespace": false,
+        "backslash_escaped_operators": false,
+        "newlines": false,
+        "comment_quote_desync": false,
+        "quoted_newline": false
+      }
     }
   }
 }
 ```
 
-| 字段             | 说明                                                                                                                         |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`        | 启用或禁用工具守卫。也可通过环境变量 `QWENPAW_TOOL_GUARD_ENABLED` 设置(优先级高于配置文件)。                                 |
-| `guarded_tools`  | 指定守护范围:<br>• `null`(默认) — 守护所有内置工具<br>• `[]` — 不守护任何工具<br>• `["tool_a", "tool_b"]` — 仅守护列出的工具 |
-| `denied_tools`   | 无条件阻止的工具列表:列在其中的工具**无论参数如何**均不可调用(自动拒绝,不提供审批)。                                         |
-| `custom_rules`   | 用户自定义正则规则(格式见下文)。                                                                                             |
-| `disabled_rules` | 要禁用的内置规则 ID 列表。                                                                                                   |
+| 字段                   | 说明                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `enabled`              | 启用或禁用工具守卫。也可通过环境变量 `QWENPAW_TOOL_GUARD_ENABLED` 设置(优先级高于配置文件)。                                                                                                                                                                                                                                               |
+| `guarded_tools`        | 指定守护范围:<br>• `null`(默认) — 守护所有内置工具<br>• `[]` — 不守护任何工具<br>• `["tool_a", "tool_b"]` — 仅守护列出的工具                                                                                                                                                                                                               |
+| `denied_tools`         | 无条件阻止的工具列表:列在其中的工具**无论参数如何**均不可调用(自动拒绝,不提供审批)。                                                                                                                                                                                                                                                       |
+| `custom_rules`         | 用户自定义正则规则(格式见下文)。                                                                                                                                                                                                                                                                                                           |
+| `disabled_rules`       | 要禁用的内置 YAML 规则 ID 列表(仅作用于 `TOOL_CMD_*` 规则)。                                                                                                                                                                                                                                                                               |
+| `shell_evasion_checks` | Shell 规避守卫的逐项开关。字典类型,key 为检查名,value 为 `true`/`false`。**默认全部关闭(`false`)。** 可在控制台 设置 → 安全 → 工具防护 中切换,也可在此处配置。可用的 key:`command_substitution`、`obfuscated_flags`、`backslash_escaped_whitespace`、`backslash_escaped_operators`、`newlines`、`comment_quote_desync`、`quoted_newline`。 |
 
 #### 自定义规则格式
 
@@ -139,6 +149,27 @@ QwenPaw 的安全系统由三个核心安全层组成:
   }
 }
 ```
+
+### 执行级别（approval_level）
+
+每个 Agent 都有一个 `approval_level` 字段(在 `agent.json` 中),控制工具守卫对发现的处理方式:
+
+| 级别       | 行为                                         |
+| ---------- | -------------------------------------------- |
+| **STRICT** | 所有工具调用执行前均需人工审批               |
+| **SMART**  | 低风险工具调用自动放行,高风险调用需审批      |
+| **AUTO**   | 仅被守卫规则标记的工具调用需审批(默认)       |
+| **OFF**    | 该 Agent 的工具守卫关闭,所有工具调用直接执行 |
+
+在 `agent.json` 中配置:
+
+```json
+{
+  "approval_level": "AUTO"
+}
+```
+
+也可以在控制台 **设置 → 智能体** 中对应 Agent 的配置卡片中修改。
 
 ### 控制台管理
 
@@ -223,13 +254,14 @@ QwenPaw 的安全系统由三个核心安全层组成:
 | `SHELL_EVASION_COMMENT_QUOTE_DESYNC` | 未在引号内的 `#` 注释行中出现引号字符,干扰引号跟踪      |
 | `SHELL_EVASION_QUOTED_NEWLINE`       | 引号内换行且后续片段形如 `#` 注释行                     |
 
-**配置说明:** `config.json` 中的 `disabled_rules` 仅作用于 YAML 规则 ID(一般为 `TOOL_CMD_*`),**不会**关闭 `SHELL_EVASION_*`;关闭工具守卫会一并停用所有守卫(含本守卫)。
+**配置说明:** `config.json` 中的 `disabled_rules` 仅作用于 YAML 规则 ID(一般为 `TOOL_CMD_*`),**不控制** `SHELL_EVASION_*`。Shell 规避检查通过 `shell_evasion_checks` 独立配置(见下文)。关闭工具守卫会一并停用所有守卫(含本守卫)。
 
 **使用建议**:
 
 - CRITICAL 级别规则建议保持启用,这些是最危险的操作
 - HIGH 级别规则可根据实际使用场景调整,某些合法操作可能触发
-- 可通过 `disabled_rules` 禁用不适用的 YAML `TOOL_CMD_*` 规则(工具守卫开启时仍会评估 `SHELL_EVASION_*`)
+- 可通过 `disabled_rules` 禁用不适用的 YAML `TOOL_CMD_*` 规则
+- 可通过 `shell_evasion_checks` 逐个控制 Shell 规避检查的开关(默认全部关闭)
 - 可通过 `custom_rules` 添加组织特定的安全规则
 
 ---
@@ -587,6 +619,26 @@ QwenPaw 支持可选的 Web 登录认证,保护控制台免受未授权访问。
 | `QWENPAW_AUTH_ENABLED`  | 设为 `true` 启用认证         | **是**   |
 | `QWENPAW_AUTH_USERNAME` | 自动注册时预设的管理员用户名 | 可选     |
 | `QWENPAW_AUTH_PASSWORD` | 自动注册时预设的管理员密码   | 可选     |
+
+### 认证豁免主机白名单
+
+在 `config.json` 中,`security.allow_no_auth_hosts` 字段指定即使启用了认证也可以无需认证访问 API 的客户端 IP 地址:
+
+```json
+{
+  "security": {
+    "allow_no_auth_hosts": ["127.0.0.1", "::1"]
+  }
+}
+```
+
+| 字段                  | 类型          | 默认值                 | 说明                                                         |
+| --------------------- | ------------- | ---------------------- | ------------------------------------------------------------ |
+| `allow_no_auth_hosts` | array[string] | `["127.0.0.1", "::1"]` | 允许无需认证令牌即可访问 `/api/*` 路由的客户端 IP 地址列表。 |
+
+也可以在控制台 **设置 → 安全** 中管理。
+
+> **安全提示**: 向此列表添加非 localhost 地址意味着这些 IP 可以无需凭据访问完整 API。请谨慎使用,仅用于私有网络中的可信主机。
 
 **配置说明**:
 

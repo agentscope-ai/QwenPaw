@@ -387,15 +387,27 @@ When agents have the **multi_agent_collaboration** skill enabled, they can autom
 
 **Alias:** You can use `qwenpaw agent` (singular) as a shorthand for `qwenpaw agents`.
 
-| Command               | What it does                                                                 |
-| --------------------- | ---------------------------------------------------------------------------- |
-| `qwenpaw agents list` | List all configured agents with their IDs, names, descriptions, workspaces   |
-| `qwenpaw agents chat` | Communicate with another agent (bidirectional, supports multi-turn dialogue) |
+| Command                 | What it does                                                                 |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| `qwenpaw agents list`   | List all configured agents with their IDs, names, descriptions, workspaces   |
+| `qwenpaw agents create` | Create a new agent configuration and workspace locally                       |
+| `qwenpaw agents delete` | Delete a configured agent (stops it if running, removes from agent list)     |
+| `qwenpaw agents chat`   | Communicate with another agent (bidirectional, supports multi-turn dialogue) |
 
 ```bash
 # List all agents
 qwenpaw agents list
 qwenpaw agent list  # Same with singular alias
+
+# Create a new agent
+qwenpaw agents create --name "Data Analyst"
+qwenpaw agents create --name "Helper" --template coder --skill web_search --skill pdf_reader
+qwenpaw agents create --name "GPT Bot" --provider-id openai --model-id gpt-4
+
+# Delete an agent (default agent cannot be deleted)
+qwenpaw agents delete my_agent
+qwenpaw agents delete my_agent --remove-workspace  # Also remove workspace directory
+qwenpaw agents delete my_agent --yes                # Skip confirmation
 
 # Chat with another agent (real-time mode, one-shot)
 qwenpaw agents chat \
@@ -688,18 +700,30 @@ See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for 
 
 ## Command overview
 
-| Command            | Subcommands                                                                          | Requires server? |
-| ------------------ | ------------------------------------------------------------------------------------ | :--------------: |
-| `qwenpaw init`     | —                                                                                    |        No        |
-| `qwenpaw app`      | —                                                                                    |  — (starts it)   |
-| `qwenpaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` |        No        |
-| `qwenpaw env`      | `list` · `set` · `delete`                                                            |        No        |
-| `qwenpaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                            |     **Yes**      |
-| `qwenpaw agents`   | `list` · `chat`                                                                      |     **Yes**      |
-| `qwenpaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |     **Yes**      |
-| `qwenpaw chats`    | `list` · `get` · `create` · `update` · `delete`                                      |     **Yes**      |
-| `qwenpaw skills`   | `list` · `config`                                                                    |        No        |
-| `qwenpaw clean`    | —                                                                                    |        No        |
+| Command             | Subcommands                                                                          | Requires server? |
+| ------------------- | ------------------------------------------------------------------------------------ | :--------------: |
+| `qwenpaw init`      | —                                                                                    |        No        |
+| `qwenpaw app`       | —                                                                                    |  — (starts it)   |
+| `qwenpaw desktop`   | —                                                                                    |  — (starts it)   |
+| `qwenpaw doctor`    | `fix`                                                                                |        No        |
+| `qwenpaw daemon`    | `status` · `restart` · `reload-config` · `version` · `logs`                          |        No        |
+| `qwenpaw models`    | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` |        No        |
+| `qwenpaw env`       | `list` · `set` · `delete`                                                            |        No        |
+| `qwenpaw channels`  | `list` · `send` · `install` · `add` · `remove` · `config`                            |     **Yes**      |
+| `qwenpaw agents`    | `list` · `create` · `delete` · `chat`                                                |    Partial ¹     |
+| `qwenpaw cron`      | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |     **Yes**      |
+| `qwenpaw chats`     | `list` · `get` · `create` · `update` · `delete`                                      |     **Yes**      |
+| `qwenpaw skills`    | `list` · `config` · `info`                                                           |        No        |
+| `qwenpaw task`      | —                                                                                    |        No        |
+| `qwenpaw auth`      | `reset-password`                                                                     |        No        |
+| `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate`                               |        No        |
+| `qwenpaw acp`       | —                                                                                    |        No        |
+| `qwenpaw clean`     | —                                                                                    |        No        |
+| `qwenpaw shutdown`  | —                                                                                    |        No        |
+| `qwenpaw update`    | —                                                                                    |        No        |
+| `qwenpaw uninstall` | —                                                                                    |        No        |
+
+¹ `create` does not require server; `list`, `delete`, and `chat` require server.
 
 ---
 
