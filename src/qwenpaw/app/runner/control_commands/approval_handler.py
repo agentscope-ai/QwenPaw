@@ -309,11 +309,15 @@ class ApproveCommandHandler(BaseControlCommandHandler):
         Returns:
             Response text from approval handler
         """
-        # Transform args: set action to approve
-        context.args = {
-            **context.args,
-            "action": "approve",
-        }
+        raw_args = context.args.get("_raw_args", "").strip()
+        parts = raw_args.split(maxsplit=1)
+
+        new_args = {"action": "approve"}
+
+        if parts:
+            new_args["request_id"] = parts[0]
+
+        context.args = new_args
 
         # Delegate to approval handler
         return await self._approval_handler._handle_approve(context)
