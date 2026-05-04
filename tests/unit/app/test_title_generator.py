@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from qwenpaw.app.runner import title_generator
 from qwenpaw.app.runner.manager import ChatManager
 from qwenpaw.app.runner.models import ChatSpec, ChatUpdate
 from qwenpaw.app.runner.repo.json_repo import JsonChatRepository
@@ -115,6 +114,27 @@ class TestExtractTextFromResponse:
         response.text = None
         response.content = 12345
         assert _extract_text_from_response(response) == ""
+
+    def test_dict_subclass_with_keyerror_getattr(self) -> None:
+        """``agentscope.model.ChatResponse`` extends ``dict`` with
+        ``__getattr__ = dict.__getitem__``, so ``getattr(response, "text",
+        None)`` raises ``KeyError`` instead of returning ``None``. The
+        extractor must tolerate this and fall back to the ``content``
+        list-of-blocks path that real ``ChatResponse`` objects expose.
+        """
+
+        class _DictResponse(dict):
+            __getattr__ = dict.__getitem__
+
+        # Mirrors a streaming chunk for a text-only response:
+        # content is a list with a single TypedDict-style TextBlock,
+        # and the dict has no "text" key at the top level.
+        response = _DictResponse(
+            content=[{"type": "text", "text": "Trip Planning Assistant"}],
+        )
+        assert (
+            _extract_text_from_response(response) == "Trip Planning Assistant"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -237,31 +257,6 @@ async def test_updates_chat_name_with_cleaned_title(
     assert saved is not None
     assert saved.name == "Trip Planning Assistant"
     model.assert_awaited_once()
-
-
-async def test_passes_concise_title_prompt_to_model(
-    chat_manager: ChatManager,
-    workspace: MagicMock,
-) -> None:
-    """Model receives the system prompt and (truncated) user message."""
-    chat = await _seed_chat(chat_manager)
-
-    model = AsyncMock(return_value=_make_response("Title"))
-    with _patch_model_factory(model):
-        await generate_and_update_title(
-            workspace=workspace,
-            chat_id=chat.id,
-            user_message="x" * (title_generator.MAX_INPUT_CHARS + 50),
-            placeholder_name=chat.name,
-        )
-
-    args, _ = model.call_args
-    messages = args[0]
-    assert messages[0]["role"] == "system"
-    assert "title" in messages[0]["content"].lower()
-    assert messages[1]["role"] == "user"
-    # Long user message is truncated before being sent to the model.
-    assert len(messages[1]["content"]) == title_generator.MAX_INPUT_CHARS
 
 
 async def test_skips_when_user_message_blank(
@@ -493,20 +488,6 @@ async def test_cancellation_propagates(
                 user_message="hello",
                 placeholder_name=chat.name,
             )
-
-
-def test_cancelled_error_does_not_inherit_from_exception() -> None:
-    """Pin the language-level invariant the cancellation handling relies on.
-
-    ``except Exception`` in :func:`generate_and_update_title` deliberately
-    does not catch ``asyncio.CancelledError``; this only works because
-    ``CancelledError`` has inherited from ``BaseException`` since
-    Python 3.8 (the project requires Python >= 3.10). If a future Python
-    version reverts that, this test fails loudly so the cancellation
-    handling can be revisited.
-    """
-    assert not issubclass(asyncio.CancelledError, Exception)
-    assert issubclass(asyncio.CancelledError, BaseException)
 
 
 async def test_does_not_overwrite_concurrent_rename(

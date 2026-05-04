@@ -39,12 +39,32 @@ MAX_INPUT_CHARS = 500
 MAX_TITLE_CHARS = 60
 
 
+def _safe_attr(obj: Any, name: str) -> Any:
+    """``getattr(obj, name, None)`` that also returns ``None`` for
+    dict-like objects whose ``__getattr__`` raises ``KeyError`` for
+    missing keys.
+
+    ``agentscope.model.ChatResponse`` extends ``dict`` with
+    ``__getattr__ = dict.__getitem__``, so ``getattr(response, "text",
+    None)`` raises ``KeyError`` instead of returning ``None`` —
+    Python's ``getattr`` default only swallows ``AttributeError``.
+    Use ``dict.get`` for dict instances and a try/except for everything
+    else.
+    """
+    if isinstance(obj, dict):
+        return obj.get(name)
+    try:
+        return getattr(obj, name, None)
+    except (AttributeError, KeyError, TypeError):
+        return None
+
+
 def _first_text_in_list(items: list) -> str:
     """Return the first text fragment from a list-of-blocks ``content``."""
     for item in items:
         if isinstance(item, dict) and isinstance(item.get("text"), str):
             return item["text"]
-        inner = getattr(item, "text", None)
+        inner = _safe_attr(item, "text")
         if isinstance(inner, str):
             return inner
     return ""
@@ -62,10 +82,10 @@ def _extract_text_from_response(response: Any) -> str:
         return ""
     if isinstance(response, str):
         return response
-    text = getattr(response, "text", None)
+    text = _safe_attr(response, "text")
     if isinstance(text, str) and text:
         return text
-    content = getattr(response, "content", None)
+    content = _safe_attr(response, "content")
     if isinstance(content, str):
         return content
     if isinstance(content, list):
