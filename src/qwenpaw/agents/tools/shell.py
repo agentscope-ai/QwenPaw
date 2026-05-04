@@ -23,6 +23,29 @@ from ...config.context import (
 )
 
 
+def _resolve_workspace_venv_dirs(
+    workspace_dir: Path,
+) -> tuple[Path | None, Path | None]:
+    """Return (venv_root, python_bin_dir) for workspace-local virtualenv."""
+    if not isinstance(workspace_dir, Path):
+        return None, None
+
+    candidates = [workspace_dir / ".venv", workspace_dir / "venv"]
+    if sys.platform == "win32":
+        bin_name = "Scripts"
+    else:
+        bin_name = "bin"
+
+    for venv_root in candidates:
+        python_bin_dir = venv_root / bin_name
+        if not python_bin_dir.is_dir():
+            continue
+        python_exe = python_bin_dir / ("python.exe" if sys.platform == "win32" else "python")
+        if python_exe.exists():
+            return venv_root, python_bin_dir
+    return None, None
+
+
 def _kill_process_tree_win32(pid: int) -> None:
     """Kill a process and all its descendants on Windows via taskkill.
 
@@ -335,12 +358,23 @@ async def execute_shell_command(
 
     # Ensure the venv Python is on PATH for subprocesses
     env = os.environ.copy()
+    path_prefixes: list[str] = []
+
+    # Prefer workspace-local virtual environment when available.
+    venv_root, venv_bin_dir = _resolve_workspace_venv_dirs(Path(working_dir))
+    if venv_root is not None and venv_bin_dir is not None:
+        path_prefixes.append(str(venv_bin_dir))
+        env["VIRTUAL_ENV"] = str(venv_root)
+
+    # Keep current interpreter bin as fallback.
     python_bin_dir = str(Path(sys.executable).parent)
+    path_prefixes.append(python_bin_dir)
+
     existing_path = env.get("PATH", "")
     if existing_path:
-        env["PATH"] = python_bin_dir + os.pathsep + existing_path
+        env["PATH"] = os.pathsep.join(path_prefixes + [existing_path])
     else:
-        env["PATH"] = python_bin_dir
+        env["PATH"] = os.pathsep.join(path_prefixes)
 
     try:
         if sys.platform == "win32":
