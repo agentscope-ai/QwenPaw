@@ -137,12 +137,24 @@ def workspace(chat_manager: ChatManager) -> MagicMock:
     return ws
 
 
-def _make_response(text: str) -> MagicMock:
-    """Construct a fake ChatResponse-like object with a .text attribute."""
-    response = MagicMock()
-    response.text = text
-    response.content = None
-    return response
+class _FakeResponse:
+    """Plain non-streaming ``ChatResponse`` stub.
+
+    Deliberately not a ``MagicMock``: ``MagicMock`` auto-implements
+    ``__aiter__`` and would trip the streaming branch in
+    :func:`_consume_model_response`, which checks ``hasattr(response,
+    "__aiter__")`` to detect async-generator responses.
+    """
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.content = None
+
+
+def _make_response(text: str) -> _FakeResponse:
+    """Construct a fake non-streaming ChatResponse with a ``.text``
+    attribute."""
+    return _FakeResponse(text)
 
 
 async def _seed_chat(

@@ -51,10 +51,12 @@ def _first_text_in_list(items: list) -> str:
 
 
 def _extract_text_from_response(response: Any) -> str:
-    """Pull text out of a non-streaming ``ChatResponse``-like object.
+    """Pull text out of a ``ChatResponse``-like object or stream chunk.
 
     Same shape as ``skills_stream._extract_text_from_response`` plus a
     fallback for the list-of-text-blocks shape returned by some providers.
+    Streaming chunks (consumed by :func:`_consume_model_response`) carry
+    the same ``.content`` shape, so this function handles both.
     """
     if response is None:
         return ""
@@ -69,6 +71,28 @@ def _extract_text_from_response(response: Any) -> str:
     if isinstance(content, list):
         return _first_text_in_list(content)
     return ""
+
+
+async def _consume_model_response(model: Any, messages: list) -> str:
+    """Await ``model(messages)`` and return its text content.
+
+    Some providers (e.g. ``dashscope/qwen3-max``) return an
+    ``async_generator`` that streams response chunks; others return a
+    non-streaming ``ChatResponse``-like object. This helper handles both,
+    mirroring the streaming/non-streaming branch in
+    ``app/routers/skills_stream.py``. Streaming chunks are assumed to
+    carry the cumulative text seen so far, so the latest non-empty
+    chunk wins.
+    """
+    response = await model(messages)
+    if hasattr(response, "__aiter__"):
+        accumulated = ""
+        async for chunk in response:
+            text = _extract_text_from_response(chunk)
+            if text:
+                accumulated = text
+        return accumulated
+    return _extract_text_from_response(response)
 
 
 def _clean_title(raw: str) -> str:
@@ -142,11 +166,11 @@ async def generate_and_update_title(
             {"role": "user", "content": message},
         ]
 
-        response = await asyncio.wait_for(
-            model(messages),
+        raw_title = await asyncio.wait_for(
+            _consume_model_response(model, messages),
             timeout=timeout,
         )
-        title = _clean_title(_extract_text_from_response(response))
+        title = _clean_title(raw_title)
         if not title:
             logger.debug(
                 "Title generation produced empty output for %s",
