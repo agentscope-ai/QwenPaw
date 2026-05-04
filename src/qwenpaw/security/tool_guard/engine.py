@@ -23,7 +23,10 @@ from typing import Any
 
 from ...constant import EnvVarLoader
 from .guardians import BaseToolGuardian
-from .guardians.file_guardian import FilePathToolGuardian
+from .guardians.file_guardian import (
+    FilePathToolGuardian,
+    WriteFileOverwriteGuardian,
+)
 from .guardians.rule_guardian import RuleBasedToolGuardian
 from .guardians.shell_evasion_guardian import ShellEvasionGuardian
 from .models import ToolGuardResult
@@ -91,6 +94,13 @@ class ToolGuardEngine:
         except Exception as exc:  # pragma: no cover
             logger.warning(
                 "Failed to initialise FilePathToolGuardian: %s",
+                exc,
+            )
+        try:
+            guardians.append(WriteFileOverwriteGuardian())
+        except Exception as exc:  # pragma: no cover
+            logger.warning(
+                "Failed to initialise WriteFileOverwriteGuardian: %s",
                 exc,
             )
         try:
