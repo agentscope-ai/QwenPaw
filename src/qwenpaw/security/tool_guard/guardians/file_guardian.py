@@ -154,6 +154,18 @@ def _is_file_guard_enabled() -> bool:
         return True
 
 
+def _is_write_file_overwrite_guard_enabled() -> bool:
+    """Check ``security.file_guard.prevent_write_file_overwrite``."""
+    try:
+        from qwenpaw.config import load_config
+
+        return bool(
+            load_config().security.file_guard.prevent_write_file_overwrite,
+        )
+    except Exception:
+        return True
+
+
 def _load_sensitive_files_from_config() -> list[str]:
     """Load ``security.file_guard.sensitive_files`` from config.json.
 
@@ -303,11 +315,18 @@ class WriteFileOverwriteGuardian(BaseToolGuardian):
 
     def __init__(self) -> None:
         super().__init__(name="write_file_overwrite_guardian", always_run=True)
-        self._enabled: bool = _is_file_guard_enabled()
+        self._enabled: bool = self._is_enabled()
+
+    @staticmethod
+    def _is_enabled() -> bool:
+        return (
+            _is_file_guard_enabled()
+            and _is_write_file_overwrite_guard_enabled()
+        )
 
     def reload(self) -> None:
         """Reload enabled state from config."""
-        self._enabled = _is_file_guard_enabled()
+        self._enabled = self._is_enabled()
 
     def _make_finding(
         self,

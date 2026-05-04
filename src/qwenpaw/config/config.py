@@ -1475,6 +1475,12 @@ class FileGuardConfig(BaseModel):
 
     enabled: bool = True
     sensitive_files: List[str] = Field(default_factory=list)
+    prevent_write_file_overwrite: bool = Field(
+        default=True,
+        description=(
+            "Block write_file when the target is an existing non-empty file"
+        ),
+    )
 
 
 class SkillScannerWhitelistEntry(BaseModel):
