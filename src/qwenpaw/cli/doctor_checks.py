@@ -271,7 +271,9 @@ def _windows_long_paths_enabled() -> tuple[bool | None, str | None]:
     return bool(value), None
 
 
-def _powershell_language_mode(executable: str) -> tuple[str | None, str | None]:
+def _powershell_language_mode(
+    executable: str,
+) -> tuple[str | None, str | None]:
     """Return PowerShell language mode without mutating user state."""
     try:
         completed = subprocess.run(
@@ -326,13 +328,14 @@ def windows_environment_lines() -> list[str]:
     pwsh = shutil.which("pwsh.exe") or shutil.which("pwsh")
     if powershell:
         lines.append(f"PowerShell: found {ntpath.basename(powershell)}")
+        executable = powershell
     elif pwsh:
         lines.append(f"PowerShell: found {ntpath.basename(pwsh)}")
+        executable = pwsh
     else:
         lines.append("PowerShell: not found on PATH")
         return lines
 
-    executable = powershell or pwsh
     mode, mode_err = _powershell_language_mode(executable)
     if mode:
         mode_line = f"PowerShell language mode: {mode}"

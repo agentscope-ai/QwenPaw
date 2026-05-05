@@ -12,7 +12,7 @@ from qwenpaw.cli import doctor_checks
 def test_windows_environment_lines_skips_non_windows(monkeypatch) -> None:
     monkeypatch.setattr(doctor_checks.platform, "system", lambda: "Linux")
 
-    assert doctor_checks.windows_environment_lines() == []
+    assert not doctor_checks.windows_environment_lines()
 
 
 def test_windows_environment_lines_reports_long_paths_and_powershell(
@@ -29,13 +29,13 @@ def test_windows_environment_lines_reports_long_paths_and_powershell(
         "WORKING_DIR",
         Path(r"C:\QwenPaw"),
     )
-    monkeypatch.setattr(
-        doctor_checks.shutil,
-        "which",
-        lambda name: r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-        if name == "powershell.exe"
-        else None,
-    )
+
+    def fake_which(name):
+        if name == "powershell.exe":
+            return r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+        return None
+
+    monkeypatch.setattr(doctor_checks.shutil, "which", fake_which)
     monkeypatch.setattr(
         doctor_checks,
         "_powershell_language_mode",
@@ -68,13 +68,13 @@ def test_windows_environment_lines_reports_constrained_language(
         "WORKING_DIR",
         Path("C:/" + "a" * 230),
     )
-    monkeypatch.setattr(
-        doctor_checks.shutil,
-        "which",
-        lambda name: r"C:\Program Files\PowerShell\7\pwsh.exe"
-        if name == "pwsh.exe"
-        else None,
-    )
+
+    def fake_which(name):
+        if name == "pwsh.exe":
+            return r"C:\Program Files\PowerShell\7\pwsh.exe"
+        return None
+
+    monkeypatch.setattr(doctor_checks.shutil, "which", fake_which)
     monkeypatch.setattr(
         doctor_checks,
         "_powershell_language_mode",
@@ -84,11 +84,14 @@ def test_windows_environment_lines_reports_constrained_language(
     lines = doctor_checks.windows_environment_lines()
 
     assert "Long paths: enabled" in lines
-    assert any("close to Windows MAX_PATH" in line for line in lines)
+    assert any(
+        "close to Windows MAX_PATH" in line
+        for line in lines
+    )
     assert "PowerShell: found pwsh.exe" in lines
     assert (
-        "PowerShell language mode: ConstrainedLanguage; some scripts may be restricted"
-        in lines
+        "PowerShell language mode: ConstrainedLanguage; "
+        "some scripts may be restricted" in lines
     )
 
 
@@ -98,7 +101,11 @@ def test_powershell_language_mode_handles_errors(monkeypatch) -> None:
 
     monkeypatch.setattr(doctor_checks.subprocess, "run", fake_run)
 
-    mode, error = doctor_checks._powershell_language_mode("powershell.exe")
+    powershell_language_mode = getattr(
+        doctor_checks,
+        "_powershell_language_mode",
+    )
+    mode, error = powershell_language_mode("powershell.exe")
 
     assert mode is None
     assert error == "blocked"
