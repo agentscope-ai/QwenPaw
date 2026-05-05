@@ -14,7 +14,11 @@ export default function LanguageSwitcher() {
   const { i18n } = useTranslation();
 
   const currentLanguage = i18n.resolvedLanguage || i18n.language;
-  const currentLangKey = currentLanguage.split("-")[0];
+  // Use full language code (e.g. "pt-BR") when available, fallback to base code (e.g. "en" from "en-US")
+  const knownLanguages = ["en", "zh", "ja", "ru", "pt-BR"];
+  const currentLangKey = knownLanguages.includes(currentLanguage)
+    ? currentLanguage
+    : currentLanguage.split("-")[0];
 
   const changeLanguage = (lang: string) => {
     i18n.changeLanguage(lang);
