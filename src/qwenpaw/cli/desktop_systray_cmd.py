@@ -28,7 +28,20 @@ if sys.platform != "win32":
     )
     sys.exit(1)
 
-# Windows-only imports
+# Windows-only imports - check pywin32 first
+try:
+    import win32file
+    import win32pipe
+except ImportError as e:
+    click.echo(
+        "Error: Required dependency pywin32 not installed. "
+        "Please install with: pip install pywin32\n"
+        f"(Details: {e})",
+        err=True,
+    )
+    sys.exit(1)
+
+# Other Windows-only imports
 try:
     import pystray
     from PIL import Image
@@ -441,9 +454,6 @@ _run_webview_window('{self._url}', '{self._log_level}', '{socket_path_escaped}')
         """
         try:
             if sys.platform == "win32":
-                import win32file
-                import win32pipe
-                
                 # Just try to open the pipe, don't actually read/write
                 handle = win32file.CreateFile(
                     self._control_socket_path,
@@ -517,9 +527,6 @@ _run_webview_window('{self._url}', '{self._log_level}', '{socket_path_escaped}')
         try:
             if sys.platform == "win32":
                 # Windows: use named pipe
-                import win32file
-                import win32pipe
-                
                 try:
                     handle = win32file.CreateFile(
                         self._control_socket_path,
@@ -638,8 +645,6 @@ def _run_webview_window(url: str, log_level: str, control_socket_path: str) -> N
         """Listen for commands from the tray process."""
         if sys.platform == "win32":
             # Windows: use named pipe
-            import win32file
-            import win32pipe
             import pywintypes
             
             try:
