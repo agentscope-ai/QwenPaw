@@ -17,12 +17,14 @@ class EmbeddingConfig(BaseModel):
 
     base_url: str = Field(default="", description="Base URL for embedding API")
     api_key: str = Field(
-        default="", description="API key for embedding provider"
+        default="",
+        description="API key for embedding provider",
     )
     model_name: str = Field(default="", description="Embedding model name")
     dimensions: int = Field(default=1024, description="Embedding dimensions")
     max_batch_size: int = Field(
-        default=10, description="Maximum batch size for embedding"
+        default=10,
+        description="Maximum batch size for embedding",
     )
 
 

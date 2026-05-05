@@ -67,11 +67,7 @@ export function SemanticRoutingCard() {
 
           <Form.Item
             label={t("agentConfig.semanticRoutingEmbeddingBaseUrl")}
-            name={[
-              "semantic_routing",
-              "embedding_model_config",
-              "base_url",
-            ]}
+            name={["semantic_routing", "embedding_model_config", "base_url"]}
             tooltip={t("agentConfig.semanticRoutingEmbeddingBaseUrlTooltip")}
           >
             <Input placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
@@ -79,11 +75,7 @@ export function SemanticRoutingCard() {
 
           <Form.Item
             label={t("agentConfig.semanticRoutingEmbeddingModelName")}
-            name={[
-              "semantic_routing",
-              "embedding_model_config",
-              "model_name",
-            ]}
+            name={["semantic_routing", "embedding_model_config", "model_name"]}
             tooltip={t("agentConfig.semanticRoutingEmbeddingModelNameTooltip")}
           >
             <Input placeholder="text-embedding-v3" />
@@ -91,23 +83,19 @@ export function SemanticRoutingCard() {
 
           <Form.Item
             label={t("agentConfig.semanticRoutingEmbeddingApiKey")}
-            name={[
-              "semantic_routing",
-              "embedding_model_config",
-              "api_key",
-            ]}
+            name={["semantic_routing", "embedding_model_config", "api_key"]}
             tooltip={t("agentConfig.semanticRoutingEmbeddingApiKeyTooltip")}
           >
-            <Input.Password placeholder={t("agentConfig.semanticRoutingEmbeddingApiKeyPlaceholder")} />
+            <Input.Password
+              placeholder={t(
+                "agentConfig.semanticRoutingEmbeddingApiKeyPlaceholder",
+              )}
+            />
           </Form.Item>
 
           <Form.Item
             label={t("agentConfig.semanticRoutingEmbeddingDimensions")}
-            name={[
-              "semantic_routing",
-              "embedding_model_config",
-              "dimensions",
-            ]}
+            name={["semantic_routing", "embedding_model_config", "dimensions"]}
             tooltip={t("agentConfig.semanticRoutingEmbeddingDimensionsTooltip")}
           >
             <InputNumber min={1} max={4096} style={{ width: "100%" }} />
