@@ -12,11 +12,13 @@ from qwenpaw.security.tool_guard.guardians.file_guardian import (
 @pytest.fixture(autouse=True)
 def _enable_file_guard(monkeypatch):
     monkeypatch.setattr(
-        "qwenpaw.security.tool_guard.guardians.file_guardian._is_file_guard_enabled",
+        "qwenpaw.security.tool_guard.guardians.file_guardian."
+        "_is_file_guard_enabled",
         lambda: True,
     )
     monkeypatch.setattr(
-        "qwenpaw.security.tool_guard.guardians.file_guardian._is_write_file_overwrite_guard_enabled",
+        "qwenpaw.security.tool_guard.guardians.file_guardian."
+        "_is_write_file_overwrite_guard_enabled",
         lambda: True,
     )
 
@@ -29,14 +31,14 @@ def _guard(file_path: str):
 def test_write_file_allows_new_file(tmp_path):
     target = tmp_path / "new.txt"
 
-    assert _guard(str(target)) == []
+    assert not _guard(str(target))
 
 
 def test_write_file_allows_empty_existing_file(tmp_path):
     target = tmp_path / "empty.txt"
     target.write_text("", encoding="utf-8")
 
-    assert _guard(str(target)) == []
+    assert not _guard(str(target))
 
 
 def test_write_file_blocks_non_empty_existing_file(tmp_path):
@@ -58,19 +60,23 @@ def test_write_file_guard_ignores_other_tools(tmp_path):
     target.write_text("content", encoding="utf-8")
     guardian = WriteFileOverwriteGuardian()
 
-    assert guardian.guard("edit_file", {"file_path": str(target)}) == []
+    assert not guardian.guard("edit_file", {"file_path": str(target)})
 
 
 def test_write_file_guard_respects_overwrite_switch(tmp_path, monkeypatch):
     target = tmp_path / "existing.txt"
     target.write_text("content", encoding="utf-8")
     monkeypatch.setattr(
-        "qwenpaw.security.tool_guard.guardians.file_guardian._is_write_file_overwrite_guard_enabled",
+        "qwenpaw.security.tool_guard.guardians.file_guardian."
+        "_is_write_file_overwrite_guard_enabled",
         lambda: False,
     )
     guardian = WriteFileOverwriteGuardian()
 
-    assert guardian.guard("write_file", {"file_path": str(target)}) == []
+    assert not guardian.guard(
+        "write_file",
+        {"file_path": str(target)},
+    )
 
 
 def test_default_engine_registers_write_file_overwrite_guardian():

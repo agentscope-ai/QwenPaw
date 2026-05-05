@@ -362,11 +362,13 @@ class WriteFileOverwriteGuardian(BaseToolGuardian):
         tool_name: str,
         params: dict[str, Any],
     ) -> list[GuardFinding]:
-        if not self._enabled or tool_name != "write_file":
-            return []
-
         raw_value = params.get("file_path")
-        if not isinstance(raw_value, str) or not raw_value.strip():
+        if (
+            not self._enabled
+            or tool_name != "write_file"
+            or not isinstance(raw_value, str)
+            or not raw_value.strip()
+        ):
             return []
 
         abs_path = _normalize_path(_sanitize_path_candidate(raw_value))
