@@ -332,6 +332,7 @@ def agentscope_msg_to_message(
         metadata = {
             "original_id": msg.id,
             "original_name": msg.name,
+            "original_timestamp": msg.timestamp,
             "metadata": msg.metadata,
         }
 
