@@ -257,6 +257,107 @@ WshShell.Run Chr(34) & batPath & Chr(34), 0, False
 Set WshShell = Nothing
 "@ | Set-Content -Path $LauncherVbs -Encoding ASCII
 
+# Systray launcher scripts (for desktop-systray mode)
+# Main systray launcher .bat (will be hidden by VBS)
+$SystrayLauncherBat = Join-Path $EnvRoot "qwenpaw_desktop_systray.bat"
+@"
+@echo off
+cd /d "%~dp0"
+
+REM Isolate packaged Python from user site-packages to prevent conflicts
+set "PYTHONNOUSERSITE=1"
+
+REM Preserve system PATH for accessing system commands
+REM Prepend packaged env to PATH so packaged Python takes precedence
+set "PATH=%~dp0;%~dp0Scripts;%PATH%"
+
+REM Log level: env var QWENPAW_LOG_LEVEL or default to "info"
+if not defined QWENPAW_LOG_LEVEL set "QWENPAW_LOG_LEVEL=info"
+
+REM Set SSL certificate paths for packaged environment
+REM Use temp file to avoid for /f blocking issue in bat scripts
+set "CERT_TMP=%TEMP%\qwenpaw_cert_%RANDOM%.txt"
+"%~dp0python.exe" -u -c "import certifi; print(certifi.where())" > "%CERT_TMP%" 2>nul
+set /p CERT_FILE=<"%CERT_TMP%"
+del "%CERT_TMP%" 2>nul
+if defined CERT_FILE (
+  if exist "%CERT_FILE%" (
+    set "SSL_CERT_FILE=%CERT_FILE%"
+    set "REQUESTS_CA_BUNDLE=%CERT_FILE%"
+    set "CURL_CA_BUNDLE=%CERT_FILE%"
+  )
+)
+
+if not exist "%USERPROFILE%\.qwenpaw\config.json" (
+  "%~dp0python.exe" -u -m qwenpaw init --defaults --accept-security
+)
+"%~dp0python.exe" -u -m qwenpaw desktop-systray --log-level %QWENPAW_LOG_LEVEL%
+"@ | Set-Content -Path $SystrayLauncherBat -Encoding ASCII
+
+# Debug systray launcher .bat (shows console)
+$SystrayDebugBat = Join-Path $EnvRoot "qwenpaw_desktop_systray_debug.bat"
+@"
+@echo off
+cd /d "%~dp0"
+
+REM Isolate packaged Python from user site-packages to prevent conflicts
+set "PYTHONNOUSERSITE=1"
+
+REM Preserve system PATH for accessing system commands
+REM Prepend packaged env to PATH so packaged Python takes precedence
+set "PATH=%~dp0;%~dp0Scripts;%PATH%"
+
+REM Debug mode: use debug log level by default (can override with QWENPAW_LOG_LEVEL)
+if not defined QWENPAW_LOG_LEVEL set "QWENPAW_LOG_LEVEL=debug"
+
+REM Set SSL certificate paths for packaged environment
+REM Use temp file to avoid for /f blocking issue in bat scripts
+set "CERT_TMP=%TEMP%\qwenpaw_cert_%RANDOM%.txt"
+"%~dp0python.exe" -u -c "import certifi; print(certifi.where())" > "%CERT_TMP%" 2>nul
+set /p CERT_FILE=<"%CERT_TMP%"
+del "%CERT_TMP%" 2>nul
+if defined CERT_FILE (
+  if exist "%CERT_FILE%" (
+    set "SSL_CERT_FILE=%CERT_FILE%"
+    set "REQUESTS_CA_BUNDLE=%CERT_FILE%"
+    set "CURL_CA_BUNDLE=%CERT_FILE%"
+  )
+)
+
+echo ====================================
+echo QwenPaw Desktop Systray - Debug Mode
+echo ====================================
+echo Working Directory: %cd%
+echo Python: "%~dp0python.exe"
+echo PATH: %PATH%
+echo PYTHONNOUSERSITE: %PYTHONNOUSERSITE%
+echo Log Level: %QWENPAW_LOG_LEVEL%
+echo SSL_CERT_FILE: %SSL_CERT_FILE%
+echo REQUESTS_CA_BUNDLE: %REQUESTS_CA_BUNDLE%
+echo CURL_CA_BUNDLE: %CURL_CA_BUNDLE%
+echo.
+if not exist "%USERPROFILE%\.qwenpaw\config.json" (
+  echo [Init] Creating config...
+  "%~dp0python.exe" -u -m qwenpaw init --defaults --accept-security
+)
+echo [Launch] Starting QwenPaw Desktop Systray with log-level=%QWENPAW_LOG_LEVEL%...
+echo Press Ctrl+C to stop
+echo.
+"%~dp0python.exe" -u -m qwenpaw desktop-systray --log-level %QWENPAW_LOG_LEVEL%
+echo.
+echo [Exit] QwenPaw Desktop Systray closed
+pause
+"@ | Set-Content -Path $SystrayDebugBat -Encoding ASCII
+
+# VBScript systray launcher (no console window)
+$SystrayLauncherVbs = Join-Path $EnvRoot "qwenpaw_desktop_systray.vbs"
+@"
+Set WshShell = CreateObject("WScript.Shell")
+batPath = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName) & "\qwenpaw_desktop_systray.bat"
+WshShell.Run Chr(34) & batPath & Chr(34), 0, False
+Set WshShell = Nothing
+"@ | Set-Content -Path $SystrayLauncherVbs -Encoding ASCII
+
 # Create qwenpaw.cmd wrapper in env root so "qwenpaw" resolves to this
 # instead of Scripts\qwenpaw.exe whose embedded Python path may be stale
 # after conda-pack/unpack.
