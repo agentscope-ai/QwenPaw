@@ -153,6 +153,11 @@ def _looks_like_project_path(value: str) -> bool:
             ".uninstall_cmd",
         ),
         "desktop": ("qwenpaw.cli.desktop_cmd", "desktop_cmd", ".desktop_cmd"),
+        "desktop-systray": (
+            "qwenpaw.cli.desktop_systray_cmd",
+            "desktop_systray_cmd",
+            ".desktop_systray_cmd",
+        ),
         "update": ("qwenpaw.cli.update_cmd", "update_cmd", ".update_cmd"),
         "shutdown": (
             "qwenpaw.cli.shutdown_cmd",
