@@ -23,7 +23,6 @@ from typing import Any
 import httpx
 import numpy as np
 
-from qwenpaw.config.config import load_agent_config
 from qwenpaw.config.utils import load_config
 
 from .models import IndexItem, SearchHit
@@ -53,22 +52,20 @@ def _normalize(vectors: np.ndarray) -> np.ndarray:
 
 
 def _get_embedding_config() -> dict[str, Any] | None:
-    """Try to load QwenPaw's EmbeddingConfig for the active agent.
+    """Load embedding config from semantic routing's own configuration.
 
     Returns a dict with base_url, api_key, model_name, max_batch_size
-    etc., or None.
+    etc., or None if not configured.
     """
     try:
         config = load_config()
-        agent_id = config.agents.active_agent or "default"
-        agent_cfg = load_agent_config(agent_id)
-        emb = agent_cfg.running.reme_light_memory_config.embedding_model_config
+        emb = config.semantic_routing.embedding_model_config
         if emb.base_url.strip() and emb.model_name.strip():
             return {
                 "base_url": emb.base_url.strip(),
                 "api_key": emb.api_key,
                 "model_name": emb.model_name.strip(),
-                "max_batch_size": getattr(emb, "max_batch_size", 10),
+                "max_batch_size": emb.max_batch_size,
             }
     except Exception as exc:
         logger.debug("Failed to load embedding config: %s", exc)

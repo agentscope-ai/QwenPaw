@@ -10,6 +10,20 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class EmbeddingConfig(BaseModel):
+    """Embedding model configuration for semantic routing."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    base_url: str = Field(default="", description="Base URL for embedding API")
+    api_key: str = Field(default="", description="API key for embedding provider")
+    model_name: str = Field(default="", description="Embedding model name")
+    dimensions: int = Field(default=1024, description="Embedding dimensions")
+    max_batch_size: int = Field(
+        default=10, description="Maximum batch size for embedding"
+    )
+
+
 class SemanticRoutingConfig(BaseModel):
     """Semantic routing configuration.
 
@@ -39,4 +53,9 @@ class SemanticRoutingConfig(BaseModel):
         description="Minimum similarity score threshold. "
         "Skills below this score are excluded from results. "
         "Set to 0.0 to disable score filtering.",
+    )
+    embedding_model_config: EmbeddingConfig = Field(
+        default_factory=EmbeddingConfig,
+        description="Embedding model configuration for semantic routing. "
+        "Must be configured for API-based embedding to work.",
     )
