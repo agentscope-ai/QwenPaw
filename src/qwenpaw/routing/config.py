@@ -16,7 +16,9 @@ class EmbeddingConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     base_url: str = Field(default="", description="Base URL for embedding API")
-    api_key: str = Field(default="", description="API key for embedding provider")
+    api_key: str = Field(
+        default="", description="API key for embedding provider"
+    )
     model_name: str = Field(default="", description="Embedding model name")
     dimensions: int = Field(default=1024, description="Embedding dimensions")
     max_batch_size: int = Field(
