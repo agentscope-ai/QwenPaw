@@ -89,7 +89,7 @@ COPY src ./src
 COPY --from=console-builder /app/console/dist/ ./src/qwenpaw/console/
 # Speed up Python package installation with uv.
 COPY --from=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/uv:latest /uv /bin/uv
-RUN uv pip install --no-cache-dir .
+RUN uv pip install --no-cache-dir . && rm -rf ./build
 
 
 # QwenPaw app port (default 8088). Override at runtime with -e QWENPAW_PORT=3000.

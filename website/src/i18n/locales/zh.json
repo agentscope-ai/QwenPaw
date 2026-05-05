@@ -14,9 +14,9 @@
     "titleleft": "欢迎使用你的",
     "titleright": "专业AI助手",
     "slogan": "懂你所需，伴你左右",
-    "sub": "v1.1.0 四大方面能力升级：",
+    "sub": "v1.1.5 四大方面能力升级：",
     "sub1": "为 QwenPaw 量身定制的小模型、安全机制、多智能体协同、以及记忆管理",
-    "releaseNote": "QwenPaw v1.1.0版本全新发布",
+    "releaseNote": "QwenPaw v1.1.5版本全新发布",
     "cta": "查看文档",
     "quickStart": "快速开始"
   },
@@ -225,6 +225,7 @@
       "x": "X",
       "github": "GitHub",
       "discord": "Discord",
+      "wechat": "微信公众号",
       "youtube": "YouTube"
     },
     "copyright": "© 2026 Qwenpaw PRIVATE LIMITED，保留所有权利。",
@@ -264,6 +265,7 @@
     "memoryEvolvingAndProactive": "记忆进化与主动交互",
     "context": "上下文",
     "commands": "魔法命令",
+    "plan": "计划模式",
     "heartbeat": "心跳",
     "config": "配置与工作目录",
     "security": "安全",

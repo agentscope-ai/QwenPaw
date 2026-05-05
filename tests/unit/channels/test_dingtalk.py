@@ -1077,7 +1077,7 @@ class TestDingTalkPartsToText:
         assert "I cannot" in result
 
     def test_parts_to_single_text_with_image(self, dingtalk_channel):
-        """Should format image content."""
+        """Media parts should be skipped (delivered separately)."""
         from qwenpaw.app.channels.base import ImageContent, ContentType
 
         parts = [
@@ -1086,8 +1086,7 @@ class TestDingTalkPartsToText:
 
         result = dingtalk_channel._parts_to_single_text(parts)
 
-        assert "[Image:" in result
-        assert "http://img.jpg" in result
+        assert result == ""
 
     def test_parts_to_single_text_empty_list(self, dingtalk_channel):
         """Should handle empty parts list."""

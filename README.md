@@ -60,17 +60,26 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-- [2026-04-22] We've released **v1.1.3**! See the full [v1.1.3 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+- [2026-04-29] We've released **v1.1.5**! See the full [v1.1.5 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
-  - **[v1.1.3] Added**: Backup & Restore system; QwenPaw as ACP Server; proactive agent messaging; Console Plugin System; Agent Statistics page; builtin skill language switch; Shell Evasion Guard.
-  - **[v1.1.3] Changed**: Debug page restructured under Settings; unified channel media directory; startup performance optimization.
-  - **[v1.1.3] New Contributors**: @daliu858, @xuanrui-L, @pxdawn, @mailmrcai, @linhuang0405, @imrewce, @zealonexp, @Prince-liu.
+  - **[v1.1.5] Added**: Memory search optimization; context compaction fallback; ACP agent rename & delete; QQ voice & ASR support.
+  - **[v1.1.5] Performance**: Config and skill manifest loading cache; model API request deduplication; console chat virtualized rendering.
+  - **[v1.1.5] Fixed**: Channel approval commands; timezone normalization; MCP execution timeout handling.
+  - **[v1.1.5] New Contributors**: @LinQi0777, @albert-zen, @ideal, @CA-mambo, @bxy3045134656.
+
+- [2026-04-24] We've released **v1.1.4**! See the full [v1.1.4 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+
+  - **[v1.1.4] Added**: Memory & context architecture refactor; plan mode; configurable shell evasion checks; auth-bypass host whitelist; SIP voice channel; session right-click menu; browser launch parameters and shell command timeout; Built-in DeepSeek V4 models.
+  - **[v1.1.4] Changed**: Tool Guard approval system; Docker build improvements; dynamic plugin registration.
+  - **[v1.1.4] New Contributors**: @shadowabi, @shaohuaxi, @vincentyzhj, @hlgone, @twz915, @Nioolek.
+
+- [2026-04-22] We've released **v1.1.3**! See the full [v1.1.3 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
 - [2026-04-17] We've released **v1.1.2**! See the full [v1.1.2 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
 - [2026-04-14] We've released **v1.1.1**! See the full [v1.1.1 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
-[2026-04-12] **CoPaw is Officially Rebranding to QwenPaw**: This rebranding marks an important step forward into our next phase of open-source development.
+- [2026-04-12] **CoPaw is Officially Rebranding to QwenPaw**: This rebranding marks an important step forward into our next phase of open-source development.
 
 The new name better reflects the open ecosystem we are building and the broader direction we are continuing to pursue:
 
@@ -368,6 +377,7 @@ QwenPaw can run LLMs entirely on your machine — no API keys or cloud services 
 | [Models](https://qwenpaw.agentscope.io/docs/models)                     | Configure cloud, local, and custom providers    |
 | [Channels](https://qwenpaw.agentscope.io/docs/channels)                  | DingTalk, Feishu, QQ, Discord, iMessage, and more |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)                      | Extend and customize capabilities               |
+| [Plugins](https://qwenpaw.agentscope.io/docs/plugins)                    | Plugin system                                    |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                            | Manage MCP clients                               |
 | [Memory](https://qwenpaw.agentscope.io/docs/memory)                     | Long-term memory                     |
 | [Memory-Evolving & Proactive](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | Agent memory evolution and proactive interaction |

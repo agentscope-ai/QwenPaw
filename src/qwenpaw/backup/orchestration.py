@@ -129,12 +129,10 @@ async def execute_restore(
             "execute_restore finished successfully: backup_id=%s",
             backup_id,
         )
-    except Exception as exc:
-        logger.error(
-            "execute_restore failed for backup_id=%s: %s",
+    except Exception:
+        logger.exception(
+            "execute_restore failed for backup_id=%s",
             backup_id,
-            exc,
-            exc_info=True,
         )
         raise
     finally:

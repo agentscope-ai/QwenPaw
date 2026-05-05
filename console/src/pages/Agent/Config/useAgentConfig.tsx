@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Form, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
-import { agentsApi } from "../../../api/modules/agents";
 import type { AgentsRunningConfig } from "../../../api/types";
 import type { SemanticRoutingConfig } from "../../../api/types/semanticRouting";
 import type { AgentProfileConfig } from "../../../api/types/agents";
+import { agentsApi } from "../../../api/modules/agents";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
 import {
@@ -45,7 +45,7 @@ export function useAgentConfig() {
         ]);
       agentProfileRef.current = agentProfile;
       const loadedLevel = (
-        agentProfile?.approval_level || "AUTO"
+        config.approval_level || "AUTO"
       ).toUpperCase() as ToolExecutionLevel;
       setApprovalLevel(loadedLevel);
       initialApprovalLevelRef.current = loadedLevel;
@@ -76,6 +76,10 @@ export function useAgentConfig() {
         light_context_config: config.light_context_config,
         memory_manager_backend: memoryBackend,
         reme_light_memory_config: config.reme_light_memory_config,
+        auto_title_config: config.auto_title_config ?? {
+          enabled: true,
+          timeout_seconds: 30.0,
+        },
         semantic_routing: srConfig,
       });
       setLanguage(langResp.language);

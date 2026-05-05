@@ -322,6 +322,9 @@ class WecomConfig(BaseChannelConfig):
     secret: str = ""
     media_dir: Optional[str] = None
     welcome_text: str = ""
+    # If True (default), all group members share one chat; set to
+    # False to isolate each member into their own chat.
+    share_session_in_group: bool = True
     max_reconnect_attempts: int = -1
 
 
@@ -412,17 +415,28 @@ class XiaoYiConfig(BaseChannelConfig):
 class WeixinConfig(BaseChannelConfig):
     """WeChat (iLink Bot) personal account channel config.
 
-    bot_token:      Bearer token obtained after QR code login.
-    bot_token_file: Path to persist/load the bot_token
-                    (default ~/.qwenpaw/weixin_bot_token).
-    base_url:       iLink API base URL (leave empty to use default).
-    media_dir:      Local directory for downloaded media files.
+    bot_token:              Bearer token obtained after QR code login.
+    bot_token_file:         Path to persist/load the bot_token
+                            (default ~/.qwenpaw/weixin_bot_token).
+    base_url:               iLink API base URL (leave empty to use default).
+    media_dir:              Local directory for downloaded media files.
+    message_merge_enabled:  When True, merge multiple outgoing text messages
+                            within a single request to reduce message count
+                            (mitigates the 10-message context_token limit).
+    message_merge_delay_ms: Controls merge behaviour when merging is enabled.
+                            0  → merge ALL text messages and send once at the
+                                 end of the request (maximum savings).
+                            >0 → buffer messages for this many milliseconds;
+                                 if no new message arrives within the window
+                                 the buffer is flushed (adjacent-merge mode).
     """
 
     bot_token: str = ""
     bot_token_file: str = ""
     base_url: str = ""
     media_dir: Optional[str] = None
+    message_merge_enabled: bool = False
+    message_merge_delay_ms: Optional[int] = 0
 
 
 class ChannelConfig(BaseModel):
@@ -722,6 +736,38 @@ class LightContextConfig(BaseModel):
     )
 
 
+class AutoTitleConfig(BaseModel):
+    """Async chat-title generation configuration.
+
+    The console handler creates each new chat with a 10-character
+    placeholder name and spawns a background task that asks the active
+    LLM for a concise title. Each new chat costs one short extra LLM
+    call; flip ``enabled`` to ``False`` to keep the placeholder and
+    avoid the spend.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "Generate a chat title via the active LLM after the first "
+            "user message. Disable to keep the truncated placeholder "
+            "and skip the extra per-chat LLM call."
+        ),
+    )
+
+    timeout_seconds: float = Field(
+        default=30.0,
+        ge=1.0,
+        description=(
+            "Hard timeout for the title-generation LLM call. The "
+            "background task is swallowed if this fires, leaving the "
+            "placeholder name in place."
+        ),
+    )
+
+
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
 
@@ -862,6 +908,14 @@ class AgentsRunningConfig(BaseModel):
         default_factory=LightContextConfig,
     )
 
+    auto_title_config: AutoTitleConfig = Field(
+        default_factory=AutoTitleConfig,
+        description=(
+            "Async chat-title generation toggle and timeout. See "
+            "AutoTitleConfig."
+        ),
+    )
+
     memory_manager_backend: str = Field(default="remelight")
 
     reme_light_memory_config: ReMeLightMemoryConfig = Field(
@@ -871,6 +925,15 @@ class AgentsRunningConfig(BaseModel):
     daily_memory_dir: str = Field(
         default="memory",
         description="Dir name to daily summary file",
+    )
+
+    approval_level: Optional[str] = Field(
+        default=None,
+        description=(
+            "Tool execution security level (proxied from agent profile): "
+            "STRICT, SMART, AUTO, or OFF.  When set via running-config API, "
+            "the value is written back to the agent profile."
+        ),
     )
 
 
@@ -1651,11 +1714,15 @@ def build_fallback_agent_profile_config(
             and config.agents.system_prompt_files
             else ["AGENTS.md", "SOUL.md", "PROFILE.md"]
         ),
+        acp=(config.acp if hasattr(config, "acp") and config.acp else None),
     )
 
 
 def load_agent_config(agent_id: str) -> AgentProfileConfig:
-    """Load agent's complete configuration from workspace/agent.json.
+    """Load agent's complete configuration from workspace/agent.json with
+    mtime-based caching.
+
+    Uses file modification time to avoid unnecessary disk reads.
 
     Args:
         agent_id: Agent ID to load
@@ -1666,7 +1733,11 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
     Raises:
         ValueError: If agent ID not found in root config
     """
-    from .utils import load_config
+    from .utils import (
+        load_config,
+        _agent_config_cache,
+        _agent_config_lock,
+    )
 
     config = load_config()
 
@@ -1686,27 +1757,48 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
         save_agent_config(agent_id, fallback_config)
         return fallback_config
 
-    with open(agent_config_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
-    # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json
-    # contains older hard-coded paths like "~/.copaw/media".
+    # Check mtime to see if we can use cached config
     try:
-        from .utils import _normalize_working_dir_bound_paths
+        current_mtime = agent_config_path.stat().st_mtime
+    except OSError:
+        fallback_config = build_fallback_agent_profile_config(agent_id, config)
+        save_agent_config(agent_id, fallback_config)
+        return fallback_config
 
-        data = _normalize_working_dir_bound_paths(data)
-    except Exception:
-        pass
+    with _agent_config_lock:
+        # Return cached config if mtime hasn't changed
+        if agent_id in _agent_config_cache:
+            cached_config, cached_mtime = _agent_config_cache[agent_id]
+            if cached_mtime == current_mtime:
+                return cached_config
 
-    return AgentProfileConfig(**data)
+        # Need to reload config from disk
+        with open(agent_config_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
+        # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json
+        # contains older hard-coded paths like "~/.copaw/media".
+        try:
+            from .utils import _normalize_working_dir_bound_paths
+
+            data = _normalize_working_dir_bound_paths(data)
+        except Exception:
+            pass
+
+        agent_config = AgentProfileConfig(**data)
+
+        # Cache the config with its mtime
+        _agent_config_cache[agent_id] = (agent_config, current_mtime)
+
+        return agent_config
 
 
 def save_agent_config(
     agent_id: str,
     agent_config: AgentProfileConfig,
 ) -> None:
-    """Save agent configuration to workspace/agent.json.
+    """Save agent configuration to workspace/agent.json and invalidate cache.
 
     Args:
         agent_id: Agent ID
@@ -1715,7 +1807,11 @@ def save_agent_config(
     Raises:
         ValueError: If agent ID not found in root config
     """
-    from .utils import load_config
+    from .utils import (
+        load_config,
+        _agent_config_cache,
+        _agent_config_lock,
+    )
 
     config = load_config()
 
@@ -1738,6 +1834,11 @@ def save_agent_config(
             ensure_ascii=False,
             indent=2,
         )
+
+    # Invalidate cache after saving
+    with _agent_config_lock:
+        if agent_id in _agent_config_cache:
+            del _agent_config_cache[agent_id]
 
 
 def migrate_legacy_config_to_multi_agent() -> bool:

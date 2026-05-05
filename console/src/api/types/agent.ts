@@ -59,6 +59,11 @@ export interface ReMeLightMemoryConfig {
   recursive_file_watcher: boolean;
 }
 
+export interface AutoTitleConfig {
+  enabled: boolean;
+  timeout_seconds: number;
+}
+
 export interface AgentsRunningConfig {
   max_iters: number;
   auto_continue_on_text_only: boolean;
@@ -78,4 +83,6 @@ export interface AgentsRunningConfig {
   light_context_config: LightContextConfig;
   memory_manager_backend: string;
   reme_light_memory_config: ReMeLightMemoryConfig;
+  approval_level?: string;
+  auto_title_config: AutoTitleConfig;
 }

@@ -48,7 +48,8 @@ MEMORY_GUIDANCE_ZH = """\
 ### 🔍 检索工具
 回答关于过往工作、决策、日期、人员、偏好或待办的问题前：
 1. 对 MEMORY.md 和 memory/*.md 运行 `memory_search`
-2. 如需阅读每日笔记 `memory/YYYY-MM-DD.md`，直接用 `read_file`"""
+2. 如需阅读每日笔记 `memory/YYYY-MM-DD.md`，直接用 `read_file`
+"""
 
 MEMORY_GUIDANCE_EN = """\
 ## Memory

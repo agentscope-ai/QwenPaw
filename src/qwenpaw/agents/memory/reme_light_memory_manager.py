@@ -34,6 +34,8 @@ logger = logging.getLogger(__name__)
 
 _REME_STORE_VERSION = "v1"
 _EXPECTED_REME_VERSION = "0.3.1.8"
+# Maximum number of tokens from query splitting
+MAX_QUERY_TOKENS = 50
 
 
 def _detect_memory_manager_backend() -> str:
@@ -274,6 +276,67 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """Return memory tool functions to register with the agent toolkit."""
         return [self.memory_search]
 
+    @staticmethod
+    def _is_cjk(char: str) -> bool:
+        """Check if a character is CJK (Chinese/Japanese/Korean)."""
+        cp = ord(char)
+        return (
+            (0x4E00 <= cp <= 0x9FFF)
+            or (0x3400 <= cp <= 0x4DBF)  # CJK Unified Ideographs
+            or (  # CJK Extension A
+                0xF900 <= cp <= 0xFAFF
+            )  # CJK Compatibility Ideographs
+        )
+
+    def tokenize_query(
+        self,
+        query: str,
+        max_tokens: int = MAX_QUERY_TOKENS,
+    ) -> list[str]:
+        """Tokenize query: CJK chars as 1-gram, non-CJK split by whitespace.
+
+        Args:
+            query: The search query string (non-empty)
+            max_tokens: Maximum number of tokens to return
+
+        Returns:
+            List of tokens, limited to max_tokens
+        """
+        tokens = []
+
+        for word in query.split():
+            if not word:
+                continue
+
+            # Fast path: pure non-CJK word, add directly
+            if not any(self._is_cjk(c) for c in word):
+                tokens.append(word)
+                if len(tokens) >= max_tokens:
+                    break
+                continue
+
+            # Mixed CJK/non-CJK: iterate chars within the word
+            non_cjk_buffer = []
+            for char in word:
+                if self._is_cjk(char):
+                    if non_cjk_buffer:
+                        tokens.append("".join(non_cjk_buffer))
+                        non_cjk_buffer = []
+                    tokens.append(char)
+                else:
+                    non_cjk_buffer.append(char)
+
+                if len(tokens) >= max_tokens:
+                    break
+
+            if non_cjk_buffer and len(tokens) < max_tokens:
+                tokens.append("".join(non_cjk_buffer))
+
+            if len(tokens) >= max_tokens:
+                break
+
+        return tokens[:max_tokens]
+
     async def memory_search(
         self,
         query: str,
@@ -310,8 +373,16 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                     ),
                 ],
             )
+
+        try:
+            query_final = " ".join(self.tokenize_query(query))
+            logger.info(f"Tokenized query: {query_final}")
+        except Exception as e:
+            logger.exception(f"Failed to tokenize query: {e} query={query}")
+            query_final = query
+
         return await self._reme.memory_search(
-            query=query,
+            query=query_final,
             max_results=max_results,
             min_score=min_score,
         )

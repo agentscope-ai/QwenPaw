@@ -2,6 +2,7 @@
 """Console APIs: push messages, chat, and file upload for chat."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -15,6 +16,7 @@ from starlette.responses import StreamingResponse
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from ...utils.logging import LOG_FILE_PATH
 from ..agent_context import get_agent_for_request
+from ..runner.title_generator import generate_and_update_title
 
 
 logger = logging.getLogger(__name__)
@@ -29,6 +31,35 @@ def _safe_filename(name: str) -> str:
     """Safe basename, alphanumeric/./-/_, max 200 chars."""
     base = Path(name).name if name else "file"
     return re.sub(r"[^\w.\-]", "_", base)[:200] or "file"
+
+
+def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
+    """Return ``(placeholder_name, first_user_text)`` for a new chat.
+
+    The placeholder name shows up in the session drawer immediately while a
+    background task asks the model for a real title. Content shapes match
+    ``channels/base.py::_extract_chat_name``: dict blocks like
+    ``{"type": "text", "text": "..."}``, raw strings, and objects with a
+    ``.text`` attribute. Anything else (audio/image/file blocks) is treated
+    as media and gets the generic "Media Message" placeholder.
+    """
+    if not content_parts:
+        return "New Chat", ""
+    content = content_parts[0]
+    if not content:
+        return "Media Message", ""
+    if isinstance(content, str):
+        first_text = content
+    elif isinstance(content, dict):
+        text = content.get("text", "")
+        first_text = text if isinstance(text, str) else ""
+    elif hasattr(content, "text"):
+        first_text = content.text or ""
+    else:
+        first_text = ""
+    if not first_text:
+        return "Media Message", ""
+    return first_text[:10], first_text
 
 
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
@@ -123,18 +154,9 @@ async def post_console_chat(
         sender_id=native_payload["sender_id"],
         channel_meta=native_payload["meta"],
     )
-    name = "New Chat"
-    if len(native_payload["content_parts"]) > 0:
-        content = native_payload["content_parts"][0]
-        if content:
-            if isinstance(content, str):
-                name = content[:10]
-            elif hasattr(content, "text"):
-                name = content.text[:10]
-            else:
-                name = str(content)[:10]
-        else:
-            name = "Media Message"
+    name, first_text = _extract_placeholder_name(
+        native_payload["content_parts"],
+    )
     chat = await workspace.chat_manager.get_or_create_chat(
         session_id,
         native_payload["sender_id"],
@@ -142,6 +164,19 @@ async def post_console_chat(
         name=name,
     )
     tracker = workspace.task_tracker
+
+    # Kick off an LLM-backed title generation in the background when the chat
+    # was just created with the truncated placeholder. This runs detached so
+    # the streaming response is never blocked by title generation latency.
+    if first_text and chat.name == name:
+        asyncio.create_task(
+            generate_and_update_title(
+                workspace=workspace,
+                chat_id=chat.id,
+                user_message=first_text,
+                placeholder_name=name,
+            ),
+        )
 
     is_reconnect = False
     if isinstance(request_data, dict):

@@ -195,7 +195,21 @@ The Feishu channel receives messages via **WebSocket long connection** (no publi
 
 ![Result](https://img.alicdn.com/imgextra/i2/O1CN01fiMjkp24mN51TyWcI_!!6000000007433-2-tps-4082-2126.png)
 
-9. Under **App Versions** → **Version Management & Release**, **Create a version**, fill in basic info, **Save** and **Publish**
+<div id="feishu-callback-config"></div>
+
+9. Under **Events & Callbacks**, click **Callback configuration**, and choose **Receive events through persistent connection** as the subscription mode (no public IP needed)
+
+![WebSocket](https://img.alicdn.com/imgextra/i4/O1CN015r6kS71DLBxFDJQWe_!!6000000000199-2-tps-1671-848.png)
+
+10. Select **Add Callback**, search for **Card callback interaction**, and subscribe to **Card callback interaction** (`card.action.trigger`)
+
+![Receive](https://img.alicdn.com/imgextra/i3/O1CN017s7lz724GJMzKKKnC_!!6000000007363-2-tps-1685-855.png)
+
+![Click](https://img.alicdn.com/imgextra/i4/O1CN01CcGGmW1K0JCp7cQQV_!!6000000001101-2-tps-1679-847.png)
+
+![Result](https://img.alicdn.com/imgextra/i3/O1CN01V9kzMj1CbqkBnSI0x_!!6000000000100-2-tps-1682-847.png)
+
+11. Under **App Versions** → **Version Management & Release**, **Create a version**, fill in basic info, **Save** and **Publish**
 
 ![Create](https://img.alicdn.com/imgextra/i3/O1CN01mzOHs11cdO4MnZMcX_!!6000000003623-2-tps-4082-2126.png)
 

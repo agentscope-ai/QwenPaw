@@ -541,7 +541,12 @@ Use `/model openai:gpt-4o` to switch to this model.
 | `/daemon reload-config`             | 重新读取并校验配置文件                                                       | ✅   | ✅   |
 | `/daemon version`                   | 版本号、工作目录与日志路径                                                   | ✅   | ✅   |
 | `/daemon logs` 或 `/daemon logs 50` | 查看最近 N 行日志（默认 100 行，最大 2000 行，来自工作目录下 `qwenpaw.log`） | ✅   | ✅   |
-| `/daemon approve`                   | 批准待审的工具调用（工具审批场景）                                           | ✅   | ❌   |
+| `/approval approve [request_id]`    | 批准待审的工具调用（无 ID 则批准队首）                                       | ✅   | ❌   |
+| `/approval deny [request_id]`       | 拒绝待审的工具调用，可附理由                                                 | ✅   | ❌   |
+| `/approval list`                    | 列出所有待审批请求                                                           | ✅   | ❌   |
+| `/approval cancel <request_id>`     | 取消指定审批请求                                                             | ✅   | ❌   |
+| `/approve`                          | `/approval approve` 的快捷方式                                               | ✅   | ❌   |
+| `/deny`                             | `/approval deny` 的快捷方式                                                  | ✅   | ❌   |
 
 ---
 
@@ -630,23 +635,36 @@ qwenpaw daemon logs -n 200   # 在终端指定 200 行
 
 ---
 
-### `/daemon approve` - 批准工具调用
+### `/approval` - 工具执行审批命令
 
-快速批准待审的工具调用。当工具调用需要人工审批时（tool-guard 场景），使用此命令批准执行。
+管理工具审批请求。当 `approval_level` 设为 `STRICT` 或 `SMART` 时，存在 CRITICAL 或 HIGH 级别发现的工具调用会进入待审批队列，使用这些命令进行批准、拒绝、列表查看或取消操作。
 
 **用法：**
 
 ```
-/daemon approve            # 在对话中
+/approval approve [request_id]           # 批准指定请求或队首请求
+/approval deny [request_id] [reason]     # 拒绝并附理由
+/approval list                           # 列出当前会话的待审批项
+/approval list --all                     # 列出所有会话的待审批项
+/approval cancel <request_id>            # 取消指定请求
 ```
 
-> 💡 **提示**：此命令仅在对话中有效。当 Agent 提示需要批准工具调用时，发送此命令即可快速批准。
+**快捷方式：**
+
+```
+/approve                                 # 等同于 /approval approve
+/approve <request_id>                    # 等同于 /approval approve <request_id>
+/deny                                    # 等同于 /approval deny
+/deny <request_id> <reason>              # 等同于 /approval deny <request_id> <reason>
+```
+
+> `/approval list` 显示当前会话（含子会话）的待审批项。使用 `--all` 或 `-a` 查看该 Agent 所有会话的待审批项。
 
 ---
 
 ### 终端使用
 
-所有 daemon 命令都支持在终端中使用（除 `/stop` 和 `/daemon approve` 仅在对话中有效）：
+所有 daemon 命令都支持在终端中使用（除 `/stop` 和 `/approval` 仅在对话中有效）：
 
 ```bash
 qwenpaw daemon status
@@ -881,6 +899,17 @@ Phase 2 执行过程中，可以随时发送消息与 master agent 交互：
 | ---------------- | ------------------ | ------------------- | --------------- |
 | **普通对话**     | 简单任务、快速修改 | 单 agent 直接执行   | 所有工具可用    |
 | **Mission Mode** | 复杂、长期任务     | Master 调度 workers | Master 限制工具 |
+
+---
+
+## Plan Mode - 计划模式
+
+计划模式提供结构化的任务规划和分步执行能力。完整文档请参见 [计划模式](./plan)。
+
+| 命令               | 说明                                        | 对话 |
+| ------------------ | ------------------------------------------- | ---- |
+| `/plan`            | 显示计划模式状态（启用/禁用）及当前计划信息 | ✅   |
+| `/plan <任务描述>` | 创建新的结构化计划并开始分步执行            | ✅   |
 
 ---
 

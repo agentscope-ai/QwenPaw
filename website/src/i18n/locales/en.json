@@ -14,9 +14,9 @@
     "titleleft": "Your Personal",
     "titleright": "AI assistant",
     "slogan": "Works for you, grows with you",
-    "sub": "v1.1.0: QwenPaw custom LLMs, safety architecture, multi-agent collaboration,",
+    "sub": "v1.1.5: QwenPaw custom LLMs, safety architecture, multi-agent collaboration,",
     "sub1": "and memory management — all upgraded, all yours.",
-    "releaseNote": "QwenPaw v1.1.0 is released",
+    "releaseNote": "QwenPaw v1.1.5 is released",
     "cta": "Read the docs",
     "quickStart": "Quick Start"
   },
@@ -225,6 +225,7 @@
       "x": "X",
       "github": "GitHub",
       "discord": "Discord",
+      "wechat": "WeChat Official Account",
       "youtube": "YouTube"
     },
     "copyright": "© 2026 Qwenpaw PRIVATE LIMITED, All rights reserved.",
@@ -264,6 +265,7 @@
     "memoryEvolvingAndProactive": "Memory-Evolving & Proactive",
     "context": "Context",
     "commands": "Magic commands",
+    "plan": "Plan mode",
     "heartbeat": "Heartbeat",
     "config": "Config & working dir",
     "security": "Security",

@@ -96,7 +96,16 @@ class PlainFormatter(logging.Formatter):
 
         prefix = f"{record.levelname} | {full_path}:{record.lineno}"
         formatted_time = self.formatTime(record, self.datefmt)
-        return f"{formatted_time} | {prefix} | {record.getMessage()}"
+        msg = f"{formatted_time} | {prefix} | {record.getMessage()}"
+
+        if record.exc_info and not record.exc_text:
+            record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            msg = msg + "\n" + record.exc_text
+        if record.stack_info:
+            msg = msg + "\n" + self.formatStack(record.stack_info)
+
+        return msg
 
 
 class SuppressPathAccessLogFilter(logging.Filter):

@@ -753,25 +753,13 @@ class DingTalkChannel(BaseChannel):
             None,
         )
 
-    @staticmethod
-    def _is_base64_url(url: str) -> bool:
-        """True when *url* is a ``data:…;base64,`` URI."""
-        return (
-            isinstance(url, str)
-            and url.startswith("data:")
-            and "base64," in url
-        )
-
     def _parts_to_single_text(
         self,
         parts: List[OutgoingContentPart],
         bot_prefix: str = "",
     ) -> str:
-        """Build one reply text from parts.
-
-        Base64 data-URIs are replaced with a short
-        placeholder to avoid exceeding DingTalk's
-        message size limit.
+        """
+        Build one reply text from parts.
         """
         text_parts: List[str] = []
         for p in parts:
@@ -780,32 +768,6 @@ class DingTalkChannel(BaseChannel):
                 text_parts.append(p.text or "")
             elif t == ContentType.REFUSAL and getattr(p, "refusal", None):
                 text_parts.append(p.refusal or "")
-            elif t == ContentType.IMAGE and getattr(p, "image_url", None):
-                url = p.image_url
-                if self._is_base64_url(url):
-                    text_parts.append("[Image]")
-                else:
-                    text_parts.append(f"[Image: {url}]")
-            elif t == ContentType.VIDEO and getattr(p, "video_url", None):
-                url = p.video_url
-                if self._is_base64_url(url):
-                    text_parts.append("[Video]")
-                else:
-                    text_parts.append(f"[Video: {url}]")
-            elif t == ContentType.FILE and (
-                getattr(p, "file_url", None) or getattr(p, "file_id", None)
-            ):
-                url_or_id = getattr(p, "file_url", None) or getattr(
-                    p,
-                    "file_id",
-                    None,
-                )
-                if self._is_base64_url(url_or_id or ""):
-                    text_parts.append("[File]")
-                else:
-                    text_parts.append(f"[File: {url_or_id}]")
-            elif t == ContentType.AUDIO and getattr(p, "data", None):
-                text_parts.append("[Audio]")
         body = "\n".join(text_parts) if text_parts else ""
         if bot_prefix and body:
             body = bot_prefix + "  " + body
@@ -1984,33 +1946,11 @@ class DingTalkChannel(BaseChannel):
                 ):
                     self._reply_sync(m, SENT_VIA_WEBHOOK)
                 return
-            # Open API unavailable: append text placeholders so the user
-            # is at least aware of the attachments.
-            for p in media_parts:
-                pt = getattr(p, "type", None)
-                if pt == ContentType.IMAGE and getattr(
-                    p,
-                    "image_url",
-                    None,
-                ):
-                    body += f"\n[Image: {p.image_url}]"
-                elif pt == ContentType.FILE and (
-                    getattr(p, "file_url", None) or getattr(p, "file_id", None)
-                ):
-                    furl = getattr(p, "file_url", None) or getattr(
-                        p,
-                        "file_id",
-                        None,
-                    )
-                    body += f"\n[File: {furl}]"
-                elif pt == ContentType.VIDEO and getattr(
-                    p,
-                    "video_url",
-                    None,
-                ):
-                    body += f"\n[Video: {p.video_url}]"
-                elif pt == ContentType.AUDIO and getattr(p, "data", None):
-                    body += "\n[Audio]"
+            logger.warning(
+                "dingtalk send_content_parts: no webhook and no "
+                "conversation_id, skipping %s media part(s)",
+                len(media_parts),
+            )
 
         if (
             m.get("reply_loop") is not None

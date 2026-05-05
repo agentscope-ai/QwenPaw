@@ -18,6 +18,7 @@ import base64
 import hashlib
 import logging
 import os
+import re
 import sys
 import threading
 from collections import OrderedDict
@@ -57,6 +58,13 @@ _UPLOAD_CMD_CHUNK = "aibot_upload_media_chunk"
 _UPLOAD_CMD_FINISH = "aibot_upload_media_finish"
 _UPLOAD_CMDS = (_UPLOAD_CMD_INIT, _UPLOAD_CMD_CHUNK, _UPLOAD_CMD_FINISH)
 _UPLOAD_ACK_TIMEOUT = 30.0  # seconds to wait for each upload ack
+
+# Keepalive for "🤔 Thinking..." stream: refresh to avoid WeCom
+# server-side timeout; force-finish before the limit so later replies
+# can start a fresh stream_id (issue #3947).
+_PROCESSING_REFRESH_INTERVAL = 20.0
+_PROCESSING_MAX_DURATION = 180.0
+_PROCESSING_TEXT = "🤔 Thinking..."
 
 # Map ContentType → wecom msgtype used in send_message.
 _MEDIA_MSGTYPE: Dict[str, str] = {
@@ -105,6 +113,7 @@ class WecomChannel(BaseChannel):
         bot_prefix: str = "",
         media_dir: str = "",
         welcome_text: str = "",
+        share_session_in_group: bool = True,
         workspace_dir: Path | None = None,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
@@ -132,6 +141,7 @@ class WecomChannel(BaseChannel):
         self.secret = secret
         self.bot_prefix = bot_prefix
         self.welcome_text = welcome_text
+        self.share_session_in_group = share_session_in_group
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
         )
@@ -148,6 +158,10 @@ class WecomChannel(BaseChannel):
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ws_loop: Optional[asyncio.AbstractEventLoop] = None
         self._ws_thread: Optional[threading.Thread] = None
+
+        # Keepalive tasks keyed by stream_id (kept off `meta` so the
+        # payload stays JSON-serializable).
+        self._keepalive_tasks: Dict[str, "asyncio.Task[None]"] = {}
 
         # message_id dedup (ordered dict, trimmed when over limit)
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
@@ -176,6 +190,11 @@ class WecomChannel(BaseChannel):
             secret=os.getenv("WECOM_SECRET", ""),
             bot_prefix=os.getenv("WECOM_BOT_PREFIX", ""),
             media_dir=os.getenv("WECOM_MEDIA_DIR", ""),
+            share_session_in_group=os.getenv(
+                "WECOM_SHARE_SESSION_IN_GROUP",
+                "1",
+            )
+            == "1",
             on_reply_sent=on_reply_sent,
             dm_policy=os.getenv("WECOM_DM_POLICY", "open"),
             group_policy=os.getenv("WECOM_GROUP_POLICY", "open"),
@@ -205,6 +224,9 @@ class WecomChannel(BaseChannel):
             bot_prefix=getattr(config, "bot_prefix", "") or "",
             media_dir=getattr(config, "media_dir", None) or "",
             welcome_text=getattr(config, "welcome_text", "") or "",
+            share_session_in_group=bool(
+                getattr(config, "share_session_in_group", True),
+            ),
             workspace_dir=workspace_dir,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
@@ -375,6 +397,24 @@ class WecomChannel(BaseChannel):
             if msgtype == "text":
                 text = (body.get("text") or {}).get("content", "").strip()
                 if text:
+                    # In group chat, strip @mention only when it wraps a
+                    # slash command, to preserve normal conversation text.
+                    if chat_type == "group":
+                        text = re.sub(
+                            r"^@\S+\s+(?=/)",
+                            "",
+                            text,
+                        ).strip()
+                        text = (
+                            re.sub(
+                                r"@\S+$",
+                                "",
+                                text,
+                            )
+                            if text.startswith("/")
+                            else text
+                        )
+                        text = text.strip()
                     text_parts.append(text)
 
             elif msgtype == "image":
@@ -613,21 +653,37 @@ class WecomChannel(BaseChannel):
                     await self._client.reply_stream(
                         frame,
                         stream_id=processing_stream_id,
-                        content="🤔 Thinking...",
+                        content=_PROCESSING_TEXT,
                         finish=False,
                     )
                 except Exception:
                     logger.debug("wecom failed to send processing indicator")
+                    processing_stream_id = ""
 
             session_id = self.resolve_session_id(sender_id, meta)
             if processing_stream_id:
                 meta["wecom_processing_stream_id"] = processing_stream_id
+                # Keep stream alive while agent is generating.
+                self._keepalive_tasks[
+                    processing_stream_id
+                ] = asyncio.create_task(
+                    self._keepalive_processing(
+                        frame,
+                        processing_stream_id,
+                    ),
+                )
             native = {
                 "channel_id": self.channel,
                 "sender_id": sender_id,
-                # Group chats use a non-empty placeholder to prevent
-                # Runner.stream_query from overwriting it with session_id.
-                "user_id": "group" if is_group else sender_id,
+                # Group chats: all members share one chat by default
+                # (user_id="group"); when share_session_in_group is
+                # False, use sender_id so each member is isolated.
+                # session_id stays group-level for reply routing.
+                "user_id": (
+                    "group"
+                    if (is_group and self.share_session_in_group)
+                    else sender_id
+                ),
                 "session_id": session_id,
                 "content_parts": content_parts,
                 "meta": meta,
@@ -923,6 +979,57 @@ class WecomChannel(BaseChannel):
                     chatid[:20],
                 )
 
+    async def _keepalive_processing(
+        self,
+        frame: Any,
+        stream_id: str,
+        interval: float = _PROCESSING_REFRESH_INTERVAL,
+        max_duration: float = _PROCESSING_MAX_DURATION,
+    ) -> None:
+        """Refresh placeholder stream; force-finish at max_duration.
+
+        Prevents WeCom server from silently dropping the stream while
+        the agent is still running (issue #3947).
+        """
+        if not self._client:
+            return
+        elapsed = 0.0
+        try:
+            while elapsed + interval <= max_duration:
+                await asyncio.sleep(interval)
+                elapsed += interval
+                try:
+                    await self._client.reply_stream(
+                        frame,
+                        stream_id=stream_id,
+                        content=_PROCESSING_TEXT,
+                        finish=False,
+                    )
+                except Exception:
+                    logger.debug(
+                        "wecom keepalive refresh failed stream_id=%s",
+                        stream_id[:20],
+                    )
+            # Close stream so next reply can use a fresh stream_id.
+            try:
+                await self._client.reply_stream(
+                    frame,
+                    stream_id=stream_id,
+                    content=_PROCESSING_TEXT,
+                    finish=True,
+                )
+                logger.info(
+                    "wecom keepalive force-finished after %.0fs stream_id=%s",
+                    max_duration,
+                    stream_id[:20],
+                )
+            except Exception:
+                logger.debug("wecom keepalive force-finish failed")
+        except asyncio.CancelledError:
+            return
+        finally:
+            self._keepalive_tasks.pop(stream_id, None)
+
     async def _send_text_via_frame(
         self,
         frame: Any,
@@ -1000,9 +1107,19 @@ class WecomChannel(BaseChannel):
         # Format markdown tables for WeCom compatibility
         body = format_markdown_tables(body)
 
-        # Use processing stream_id to overwrite "thinking..." indicator
-        # Only first reply uses it; subsequent replies get new stream_id
+        # Reuse placeholder stream_id on first chunk; cancel its
+        # keepalive task first to avoid racing finish=True. If task
+        # is already gone, it force-finished the stream, so start fresh.
         processing_sid = m.pop("wecom_processing_stream_id", "")
+        keepalive_task = self._keepalive_tasks.pop(processing_sid, None)
+        if keepalive_task is not None and not keepalive_task.done():
+            keepalive_task.cancel()
+            try:
+                await keepalive_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        elif keepalive_task is None and processing_sid:
+            processing_sid = ""
 
         first_chunk = True
         for chunk in split_text(body) if body else []:
@@ -1228,8 +1345,9 @@ class WecomChannel(BaseChannel):
         self._client.on("message", self._on_message_sync)
         self._client.on("event.enter_chat", self._on_enter_chat_sync)
 
-        # Patch SDK heartbeat to trigger reconnect on pong timeout.
-        # Use ensure_future so reconnect survives heartbeat task cancel.
+        # On pong timeout just close the ws; let SDK's _receive_loop
+        # ConnectionClosed branch handle stop_heartbeat + reconnect,
+        # to avoid double _schedule_reconnect race (issue #2757).
         ws_mgr = self._client._ws_manager
         _original_send_heartbeat = ws_mgr._send_heartbeat
 
@@ -1237,14 +1355,9 @@ class WecomChannel(BaseChannel):
             if ws_mgr._missed_pong_count >= ws_mgr._max_missed_pong:
                 logger.warning(
                     "wecom heartbeat: no pong for %d pings, "
-                    "triggering reconnect",
+                    "closing ws to trigger reconnect",
                     ws_mgr._missed_pong_count,
                 )
-                # Schedule reconnect BEFORE _stop_heartbeat() because
-                # it cancels the current task; any await after that
-                # would raise CancelledError.
-                asyncio.ensure_future(ws_mgr._schedule_reconnect())
-                ws_mgr._stop_heartbeat()
                 if ws_mgr._ws:
                     try:
                         await ws_mgr._ws.close()
@@ -1296,9 +1409,16 @@ class WecomChannel(BaseChannel):
     async def stop(self) -> None:
         if not self.enabled:
             return
-        if self._client:
+        # disconnect() uses asyncio.ensure_future() internally which
+        # binds to the current loop; schedule it on _ws_loop so the
+        # ws is operated on its own loop (issue #2757).
+        if (
+            self._client
+            and self._ws_loop is not None
+            and self._ws_loop.is_running()
+        ):
             try:
-                self._client.disconnect()
+                self._ws_loop.call_soon_threadsafe(self._client.disconnect)
             except Exception:
                 pass
         if self._ws_loop is not None:

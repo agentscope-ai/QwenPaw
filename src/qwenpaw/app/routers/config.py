@@ -17,6 +17,7 @@ from ...config import (
     ToolGuardRuleConfig,
 )
 from ..channels.registry import BUILTIN_CHANNEL_KEYS
+from ...config.timezone import normalize_tz
 from ...config.config import (
     AgentsLLMRoutingConfig,
     ConsoleConfig,
@@ -613,10 +614,16 @@ async def put_user_timezone(
     tz = body.get("timezone", "").strip()
     if not tz:
         raise HTTPException(status_code=400, detail="timezone is required")
+    resolved = normalize_tz(tz)
+    if resolved is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid IANA timezone: {tz!r}",
+        )
     config = load_config()
-    config.user_timezone = tz
+    config.user_timezone = resolved
     save_config(config)
-    return {"timezone": tz}
+    return {"timezone": resolved}
 
 
 # ── Security / Tool Guard ────────────────────────────────────────────

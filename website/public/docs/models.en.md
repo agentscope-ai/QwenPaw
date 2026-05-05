@@ -148,6 +148,7 @@ Currently supported cloud providers include:
 - ModelScope
 - DashScope
 - Aliyun Coding Plan
+- OpenRouter
 - OpenAI
 - Azure OpenAI
 - Anthropic
@@ -156,6 +157,8 @@ Currently supported cloud providers include:
 - Kimi
 - MiniMax
 - Zhipu
+- SiliconFlow
+- OpenCode
 
 > Some providers offer different base URLs for Mainland China and other regions. Please select the correct provider based on your location.
 

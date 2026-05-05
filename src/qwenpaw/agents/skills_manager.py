@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import zipfile
+from functools import lru_cache
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -1630,18 +1631,45 @@ def list_workspaces() -> list[dict[str, str]]:
     return workspaces
 
 
+@lru_cache(maxsize=256)
+def _read_file_text_cached(  # pylint: disable=unused-argument
+    path_str: str,
+    mtime_ns: int,
+) -> str:
+    """Return file text cached by *path + mtime*."""
+    return Path(path_str).read_text(encoding="utf-8")
+
+
+def _read_json_mtime_cached(
+    path: Path,
+    default: dict[str, Any],
+) -> dict[str, Any]:
+    """``_read_json_unlocked`` variant with mtime cache."""
+    if not path.exists():
+        return json.loads(json.dumps(default))
+    try:
+        mtime_ns = os.stat(path).st_mtime_ns
+        text = _read_file_text_cached(str(path), mtime_ns)
+        return json.loads(text)
+    except json.JSONDecodeError:
+        logger.warning("Malformed JSON in %s, resetting to default", path)
+        return json.loads(json.dumps(default))
+    except OSError:
+        return json.loads(json.dumps(default))
+
+
 def read_skill_manifest(
     workspace_dir: Path,
 ) -> dict[str, Any]:
-    """Return the cached workspace skill manifest."""
+    """Return the workspace skill manifest, cached by file mtime."""
     path = get_workspace_skill_manifest_path(workspace_dir)
-    return _read_json_unlocked(path, _default_workspace_manifest())
+    return _read_json_mtime_cached(path, _default_workspace_manifest())
 
 
 def read_skill_pool_manifest() -> dict[str, Any]:
-    """Return the cached pool skill manifest."""
+    """Return the pool skill manifest, cached by file mtime."""
     path = get_pool_skill_manifest_path()
-    return _read_json_unlocked(path, _default_pool_manifest())
+    return _read_json_mtime_cached(path, _default_pool_manifest())
 
 
 def resolve_effective_skills(

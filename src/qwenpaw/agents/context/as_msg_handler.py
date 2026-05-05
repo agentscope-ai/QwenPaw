@@ -288,50 +288,22 @@ class AsMsgHandler:
         messages: list[Msg],
         context_compact_threshold: int,
         context_compact_reserve: int,
-    ) -> tuple[list[Msg], list[Msg], bool, int, int]:
-        """Check if context exceeds threshold and split
-        messages accordingly.
-
-        Uses brute-force slicing: iterates from minimum keep count
-        upward, finding the maximum slice that satisfies both
-        token limit and tool alignment.
-
-        Args:
-            messages: List of Msg objects to check.
-            context_compact_threshold: Maximum token count
-                threshold to trigger compaction.
-            context_compact_reserve: Token limit for messages to keep.
+    ) -> tuple[list[Msg], list[Msg], int, int]:
+        """Check if context exceeds threshold and split messages.
 
         Returns:
-            A tuple of (messages_to_compact, messages_to_keep,
-            tools_aligned, total_tokens, keep_tokens):
-            - messages_to_compact: Older messages that
-              exceed reserve limit
-            - messages_to_keep: Recent messages within
-              the reserve limit
-            - tools_aligned: Whether tool_use and tool_result
-              ids are aligned in messages_to_keep
-            - total_tokens: Total token count of all messages
-            - keep_tokens: Token count of messages to keep
+            (messages_to_compact, messages_to_keep, total_tokens, keep_tokens)
         """
         if not messages:
-            return [], [], True, 0, 0
+            return [], [], 0, 0
 
-        # Calculate total tokens and stats for all messages
-        msg_stats: list[AsMsgStat] = []
-        total_tokens = 0
-        for msg in messages:
-            stat = await self.stat_message(msg)
-            msg_stats.append(stat)
-            total_tokens += stat.total_tokens
+        msg_stats = [await self.stat_message(msg) for msg in messages]
+        total_tokens = sum(stat.total_tokens for stat in msg_stats)
 
-        # If total tokens don't exceed threshold, no split needed
         if total_tokens < context_compact_threshold:
-            return [], messages, True, total_tokens, total_tokens
+            return [], messages, total_tokens, total_tokens
 
-        # Brute-force slicing: from minimum keep count upward
-        # Find the maximum slice satisfying both conditions
-        # Fallback: empty slice (always valid)
+        # Find max keep count satisfying both token limit and tool alignment
         best_keep_count = 0
         best_keep_tokens = 0
 
@@ -339,41 +311,25 @@ class AsMsgHandler:
             keep_tokens = sum(
                 stat.total_tokens for stat in msg_stats[-keep_count:]
             )
-
             if keep_tokens > context_compact_reserve:
-                # Exceeds reserve limit, stop expanding
                 break
-
             if self.validate_tool_ids_alignment(messages[-keep_count:]):
-                # Valid slice, update best (keeps maximum valid)
                 best_keep_count = keep_count
                 best_keep_tokens = keep_tokens
 
-        # Build final split based on best_keep_count
-        messages_to_keep = (
-            messages[-best_keep_count:] if best_keep_count > 0 else []
-        )
-        messages_to_compact = (
-            messages[:-best_keep_count] if best_keep_count > 0 else messages
-        )
-
-        # Validate tool alignment for final split (defensive check)
-        tools_aligned = self.validate_tool_ids_alignment(messages_to_keep)
-
         logger.info(
-            f"Context check result: {len(messages_to_compact)} "
-            f"messages to compact, {len(messages_to_keep)} "
-            f"messages to keep, total tokens: {total_tokens}, "
-            f"threshold: {context_compact_threshold}, "
-            f"reserve: {context_compact_reserve}, "
-            f"kept tokens: {best_keep_tokens}, "
-            f"tools_aligned: {tools_aligned}",
+            f"Context split: {len(messages) - best_keep_count} to compact, "
+            f"{best_keep_count} to keep, "
+            f"tokens {total_tokens}->{best_keep_tokens}, "
+            f"threshold={context_compact_threshold}, "
+            f"reserve={context_compact_reserve}",
         )
 
+        if best_keep_count == 0:
+            return messages, [], total_tokens, 0
         return (
-            messages_to_compact,
-            messages_to_keep,
-            tools_aligned,
+            messages[:-best_keep_count],
+            messages[-best_keep_count:],
             total_tokens,
             best_keep_tokens,
         )
