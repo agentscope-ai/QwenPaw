@@ -15,7 +15,16 @@ from ..config.utils import write_last_api
 from ..utils.logging import setup_logger, SuppressPathAccessLogFilter
 
 
-_LOOPBACK_HOSTNAMES = frozenset({"localhost", "localhost.localdomain", "ip6-localhost"})
+_LOOPBACK_HOSTNAMES = frozenset(
+    {"localhost", "localhost.localdomain", "ip6-localhost"},
+)
+
+
+def _addr_is_loopback(addr: str) -> bool:
+    try:
+        return ipaddress.ip_address(addr).is_loopback
+    except ValueError:
+        return False
 
 
 def _host_is_loopback(host: str) -> bool:
@@ -30,25 +39,14 @@ def _host_is_loopback(host: str) -> bool:
         return False
     if host.lower() in _LOOPBACK_HOSTNAMES:
         return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        pass
+    if _addr_is_loopback(host):
+        return True
     # Hostname: only treat as loopback if every resolved address is loopback.
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror:
         return False
-    if not infos:
-        return False
-    for info in infos:
-        addr = info[4][0]
-        try:
-            if not ipaddress.ip_address(addr).is_loopback:
-                return False
-        except ValueError:
-            return False
-    return True
+    return bool(infos) and all(_addr_is_loopback(info[4][0]) for info in infos)
 
 
 def _enforce_unauth_public_bind_safety(
@@ -75,7 +73,8 @@ def _enforce_unauth_public_bind_safety(
         return
 
     env_override = EnvVarLoader.get_str(
-        "QWENPAW_ALLOW_UNAUTH_PUBLIC", ""
+        "QWENPAW_ALLOW_UNAUTH_PUBLIC",
+        "",
     ).strip().lower() in ("true", "1", "yes")
     if allow_unauth_public or env_override:
         click.echo(
@@ -123,7 +122,8 @@ def _enforce_unauth_public_bind_safety(
     click.echo("  2. Enable QwenPaw's built-in authentication:", err=True)
     click.echo("       export QWENPAW_AUTH_ENABLED=true", err=True)
     click.echo(
-        "       qwenpaw app --host <HOST> --port <PORT>   " "# then register at /login",
+        "       qwenpaw app --host <HOST> --port <PORT>   "
+        "# then register at /login",
         err=True,
     )
     click.echo(err=True)
@@ -133,7 +133,8 @@ def _enforce_unauth_public_bind_safety(
         err=True,
     )
     click.echo(
-        "       qwenpaw app --host <HOST> --port <PORT> " "--allow-unauth-public",
+        "       qwenpaw app --host <HOST> --port <PORT> "
+        "--allow-unauth-public",
         err=True,
     )
     click.echo(

@@ -6,6 +6,7 @@ QwenPaw's HTTP gateway can invoke host-affecting tools. When
 exposes those tools without an authentication gate. ``app_cmd`` must
 refuse this configuration unless the operator opts in.
 """
+# pylint: disable=protected-access,redefined-outer-name
 
 from __future__ import annotations
 
