@@ -16,6 +16,7 @@ import Chat from "../../pages/Chat";
 // All other pages are lazily loaded with automatic retry on chunk failure
 const ChannelsPage = lazyImportWithRetry("../../pages/Control/Channels");
 const SessionsPage = lazyImportWithRetry("../../pages/Control/Sessions");
+const InboxPage = lazyImportWithRetry("../../pages/Inbox");
 const CronJobsPage = lazyImportWithRetry("../../pages/Control/CronJobs");
 const HeartbeatPage = lazyImportWithRetry("../../pages/Control/Heartbeat");
 const AgentConfigPage = lazyImportWithRetry("../../pages/Agent/Config");
@@ -48,6 +49,7 @@ const pathToKey: Record<string, string> = {
   "/chat": "chat",
   "/channels": "channels",
   "/sessions": "sessions",
+  "/inbox": "inbox",
   "/cron-jobs": "cron-jobs",
   "/heartbeat": "heartbeat",
   "/skills": "skills",
@@ -108,6 +110,7 @@ export default function MainLayout() {
                   <Route path="/chat/*" element={<Chat />} />
                   <Route path="/channels" element={<ChannelsPage />} />
                   <Route path="/sessions" element={<SessionsPage />} />
+                  <Route path="/inbox" element={<InboxPage />} />
                   <Route path="/cron-jobs" element={<CronJobsPage />} />
                   <Route path="/heartbeat" element={<HeartbeatPage />} />
                   <Route path="/skills" element={<SkillsPage />} />

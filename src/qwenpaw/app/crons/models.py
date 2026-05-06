@@ -200,6 +200,7 @@ class CronJobSpec(BaseModel):
     text: Optional[str] = None
     request: Optional[CronJobRequest] = None
     dispatch: DispatchSpec
+    save_result_to_inbox: Optional[bool] = None
 
     runtime: JobRuntimeSpec = Field(default_factory=JobRuntimeSpec)
     meta: Dict[str, Any] = Field(default_factory=dict)
@@ -226,6 +227,13 @@ class CronJobSpec(BaseModel):
                     "user_id": target.user_id,
                     "session_id": target.session_id,
                 },
+            )
+        if self.save_result_to_inbox is None:
+            # Product rule:
+            # - text + recurring(cron) => default OFF
+            # - all other combinations => default ON
+            self.save_result_to_inbox = not (
+                self.task_type == "text" and self.schedule.type == "cron"
             )
         return self
 

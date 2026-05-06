@@ -2,6 +2,7 @@ import dayjs from "dayjs";
 
 export const DEFAULT_FORM_VALUES = {
   enabled: false,
+  save_result_to_inbox: true,
   scheduleType: "cron" as const,
   schedule: {
     type: "cron" as const,

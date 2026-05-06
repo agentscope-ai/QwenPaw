@@ -180,6 +180,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.chat"),
     },
     {
+      key: "inbox",
+      icon: <SparkOtherLine size={18} />,
+      path: "/inbox",
+      label: t("nav.inbox"),
+    },
+    {
       key: "channels",
       icon: <SparkWifiLine size={18} />,
       path: "/channels",
@@ -317,6 +323,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   // ── Menu items — agent-scoped (Chat + Control + Workspace) ──────────────
 
   const agentMenuItems: MenuProps["items"] = [
+    {
+      key: "inbox",
+      label: collapsed ? null : t("nav.inbox"),
+      icon: <SparkOtherLine size={16} />,
+    },
     {
       key: "control-group",
       label: collapsed ? null : t("nav.control"),

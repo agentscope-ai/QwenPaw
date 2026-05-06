@@ -9,6 +9,7 @@ import {
   Checkbox,
 } from "@agentscope-ai/design";
 import { DatePicker, TimePicker } from "antd";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
 import type { CronJobSpecOutput } from "../../../../api/types";
@@ -37,8 +38,15 @@ export function JobDrawer({
 }: JobDrawerProps) {
   const { t } = useTranslation();
   const timezoneOptions = useTimezoneOptions();
+  const [saveInboxTouched, setSaveInboxTouched] = useState(false);
 
   const isEdit = !!editingJob;
+
+  useEffect(() => {
+    if (open) {
+      setSaveInboxTouched(false);
+    }
+  }, [open, editingJob?.id]);
 
   return (
     <Drawer
@@ -88,6 +96,38 @@ export function JobDrawer({
           valuePropName="checked"
         >
           <Switch />
+        </Form.Item>
+
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, cur) =>
+            prev.task_type !== cur.task_type ||
+            prev.scheduleType !== cur.scheduleType ||
+            prev.save_result_to_inbox !== cur.save_result_to_inbox
+          }
+        >
+          {({ getFieldValue, setFieldValue }) => {
+            if (!isEdit && !saveInboxTouched) {
+              const taskType = getFieldValue("task_type");
+              const scheduleType = getFieldValue("scheduleType");
+              const expectedDefault = !(
+                taskType === "text" && scheduleType === "cron"
+              );
+              if (getFieldValue("save_result_to_inbox") !== expectedDefault) {
+                setFieldValue("save_result_to_inbox", expectedDefault);
+              }
+            }
+            return null;
+          }}
+        </Form.Item>
+
+        <Form.Item
+          name="save_result_to_inbox"
+          label={t("cronJobs.saveResultToInbox")}
+          valuePropName="checked"
+          tooltip={t("cronJobs.saveResultToInboxTooltip")}
+        >
+          <Switch onChange={() => setSaveInboxTouched(true)} />
         </Form.Item>
 
         <Form.Item
