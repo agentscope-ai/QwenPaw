@@ -1060,7 +1060,9 @@ export default function ChatPage() {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: !whisperEnabled,
-        prefix: whisperEnabled ? <WhisperSpeechButton ref={whisperSpeechRef} /> : undefined,
+        prefix: whisperEnabled ? (
+          <WhisperSpeechButton ref={whisperSpeechRef} />
+        ) : undefined,
         attachments: {
           trigger: function (props: any) {
             const tooltipKey = multimodalCaps.supportsMultimodal
