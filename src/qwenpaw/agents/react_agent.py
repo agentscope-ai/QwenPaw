@@ -492,7 +492,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 await self.toolkit.register_mcp_client(
                     client,
                     namesake_strategy=namesake_strategy,
-                    execution_timeout=client.sse_read_timeout,
+                    execution_timeout=client.read_timeout_seconds,
                 )
             except (ClosedResourceError, asyncio.CancelledError) as error:
                 if self._should_propagate_cancelled_error(error):
@@ -509,7 +509,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                         await self.toolkit.register_mcp_client(
                             recovered_client,
                             namesake_strategy=namesake_strategy,
-                            execution_timeout=client.sse_read_timeout,
+                            execution_timeout=client.read_timeout_seconds,
                         )
                         continue
                     except asyncio.CancelledError as recover_error:
