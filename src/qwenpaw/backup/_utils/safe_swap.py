@@ -89,6 +89,43 @@ def cleanup_stale_restore_artifacts(base_dir: Path) -> None:
         _cleanup_stale_restore_artifacts_locked(base_dir)
 
 
+def _startup_restore_targets() -> list[Path]:
+    """Return restore targets that may be loaded during app startup."""
+    from ...config import load_config
+    from ...config.utils import get_config_path
+    from ...constant import SECRET_DIR, WORKING_DIR
+
+    targets = [
+        SECRET_DIR,
+        WORKING_DIR / "skill_pool",
+    ]
+    config = load_config(get_config_path())
+    for profile in config.agents.profiles.values():
+        targets.append(Path(profile.workspace_dir).expanduser())
+    return _dedupe_paths(targets)
+
+
+def _dedupe_paths(paths: list[Path]) -> list[Path]:
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        try:
+            key = str(path.resolve())
+        except OSError:
+            key = str(path.absolute())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(path)
+    return deduped
+
+
+def cleanup_startup_restore_artifacts() -> None:
+    """Recover interrupted restores before startup reads restored content."""
+    for target in _startup_restore_targets():
+        cleanup_stale_restore_artifacts(target)
+
+
 def _cleanup_stale_restore_artifacts_locked(base_dir: Path) -> None:
     """Implementation of cleanup_stale_restore_artifacts (caller holds
     lock)."""

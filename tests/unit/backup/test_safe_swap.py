@@ -25,6 +25,7 @@ from qwenpaw.backup._utils._mount_swap import (
 from qwenpaw.backup._utils import _mount_swap
 from qwenpaw.backup._utils.safe_swap import (
     cleanup_stale_restore_artifacts,
+    cleanup_startup_restore_artifacts,
     commit_tmp,
     extract_to_tmp,
 )
@@ -248,6 +249,39 @@ def test_cleanup_finishes_committed_state(work_tmp_path: Path) -> None:
     assert not old_dir.exists()
     assert not _tmp_dir(dst).exists()
     assert not (dst / STATE_FILE_NAME).exists()
+
+
+def test_startup_cleanup_recovers_all_restore_targets(
+    work_tmp_path: Path,
+) -> None:
+    targets = [
+        work_tmp_path / "secrets",
+        work_tmp_path / "skill_pool",
+        work_tmp_path / "workspace",
+    ]
+    for target in targets:
+        target.mkdir()
+        old_dir = target / OLD_CONTENT_DIR_NAME
+        old_dir.mkdir()
+        (old_dir / "old.txt").write_text("old", encoding="utf-8")
+        (target / "new-partial.txt").write_text("new", encoding="utf-8")
+        (target / STATE_FILE_NAME).write_text(
+            STATE_INSTALLING_NEW,
+            encoding="utf-8",
+        )
+        _tmp_dir(target).mkdir()
+
+    with patch(
+        "qwenpaw.backup._utils.safe_swap._startup_restore_targets",
+        return_value=targets,
+    ):
+        cleanup_startup_restore_artifacts()
+
+    for target in targets:
+        assert _snapshot(target) == {"old.txt": "old"}
+        assert not (target / OLD_CONTENT_DIR_NAME).exists()
+        assert not _tmp_dir(target).exists()
+        assert not (target / STATE_FILE_NAME).exists()
 
 
 def test_reserved_restore_names_are_not_extracted(
