@@ -163,6 +163,22 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
 - `https://github.com/...`
 - `https://modelscope.cn/skills/...`
 
+CLI 支持相同的基于 URL 的导入方式：
+
+**指定工作区：** 指定单个智能体工作区时使用 `--agent-id`；不指定时，`install` / `uninstall` 作用于技能池。
+
+```bash
+qwenpaw skills install <skill_url>
+qwenpaw skills install <skill_url> --agent-id <agent_id>
+```
+
+CLI 也支持从共享技能池或单个工作区卸载技能：
+
+```bash
+qwenpaw skills uninstall <skill_name>
+qwenpaw skills uninstall <skill_name> --agent-id <agent_id>
+```
+
 #### 步骤
 
 1. 打开 [控制台](./console) → **工作区 → 技能**，点击 **从 Skills Hub 导入技能**。
