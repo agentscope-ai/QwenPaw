@@ -46,8 +46,7 @@ def test_windows_environment_lines_reports_long_paths_and_powershell(
 
     assert (
         "Long paths: disabled; deeply nested workspaces, skills, "
-        "caches, or package installs may fail over 260 characters"
-        in lines
+        "caches, or package installs may fail over 260 characters" in lines
     )
     assert "Current working directory length: 10" in lines
     assert "PowerShell: found powershell.exe" in lines
@@ -84,10 +83,7 @@ def test_windows_environment_lines_reports_constrained_language(
     lines = doctor_checks.windows_environment_lines()
 
     assert "Long paths: enabled" in lines
-    assert any(
-        "close to Windows MAX_PATH" in line
-        for line in lines
-    )
+    assert any("close to Windows MAX_PATH" in line for line in lines)
     assert "PowerShell: found pwsh.exe" in lines
     assert (
         "PowerShell language mode: ConstrainedLanguage; "
