@@ -32,7 +32,7 @@ export default function ConsolePollService() {
   }, []);
 
   useEffect(() => {
-    const prevApprovalsRef = { current: '' };
+    const prevApprovalsRef = { current: "" };
     const tick = () => {
       consoleApi
         .getPushMessages()
