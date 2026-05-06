@@ -496,7 +496,7 @@ qwenpaw agents chat \
 | `qwenpaw cron resume <job_id>` | 恢复暂停的任务                 |
 | `qwenpaw cron run <job_id>`    | 立刻执行一次                   |
 
-**指定智能体：** 需要指定智能体时使用 `--agent-id`。
+**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
 
 ### 创建任务
 

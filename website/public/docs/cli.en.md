@@ -509,7 +509,7 @@ ask QwenPaw and send the reply". **Requires `qwenpaw app` to be running.**
 | `qwenpaw cron resume <job_id>` | Resume a paused job                           |
 | `qwenpaw cron run <job_id>`    | Run once immediately                          |
 
-**Agent targeting:** use `--agent-id` when targeting one agent.
+**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
 
 ### Creating jobs
 
