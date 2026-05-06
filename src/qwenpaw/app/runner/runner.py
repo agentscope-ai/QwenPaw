@@ -332,6 +332,8 @@ class AgentRunner(Runner):
             user_id = request.user_id
             channel = getattr(request, "channel", DEFAULT_CHANNEL)
 
+            display_name = getattr(request, "display_name", "") or ""
+
             logger.info(
                 "Handle agent query:\n%s",
                 json.dumps(
@@ -356,6 +358,7 @@ class AgentRunner(Runner):
                     if self.workspace_dir
                     else str(WORKING_DIR)
                 ),
+                user_name=display_name,
             )
 
             # Get MCP clients from manager (hot-reloadable)

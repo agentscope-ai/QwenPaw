@@ -378,6 +378,7 @@ class FeishuChannel(BaseChannel):
             session_id=session_id,
             content_parts=content_parts,
             channel_meta=meta,
+            display_name=payload.get("sender_id") or "",
         )
         # Ensure channel_meta is on request for _before_consume_process
         # (AgentRequest may not have the field; base also sets from payload).

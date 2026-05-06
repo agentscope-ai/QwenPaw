@@ -611,6 +611,7 @@ class BaseChannel(ABC):
         session_id: str,
         content_parts: List[Any],
         channel_meta: Optional[Dict[str, Any]] = None,
+        display_name: Optional[str] = None,
     ) -> "AgentRequest":
         """
         Build AgentRequest from runtime content parts (Message content list).
@@ -632,12 +633,14 @@ class BaseChannel(ABC):
             role=Role.USER,
             content=content_parts,
         )
-        return AgentRequest(
+        request = AgentRequest(
             session_id=session_id,
             user_id=sender_id,
             input=[msg],
             channel=channel_id,
         )
+        request.display_name = display_name or ""
+        return request
 
     def build_agent_request_from_native(
         self,

@@ -360,6 +360,7 @@ class DingTalkChannel(BaseChannel):
             session_id=session_id,
             content_parts=content_parts,
             channel_meta=meta,
+            display_name=sender_id,
         )
         # Set serializable channel_meta (exclude non-JSON-serializable objects)
         serializable_meta = {
