@@ -67,7 +67,8 @@ def is_rename_blocked(exc: OSError) -> bool:
 def should_skip_zip_member(filename: str, prefix: str) -> bool:
     """Return True when a ZIP member would overwrite restore internals."""
     rel_path = filename[len(prefix) :]
-    if not any(part in RESERVED_NAMES for part in Path(rel_path).parts):
+    parts = Path(rel_path).parts
+    if not parts or parts[0] not in RESERVED_NAMES:
         return False
     logger.warning("Skipping reserved restore path in backup: %s", filename)
     return True

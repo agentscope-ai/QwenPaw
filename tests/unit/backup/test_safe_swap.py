@@ -259,6 +259,9 @@ def test_reserved_restore_names_are_not_extracted(
         f"data/secrets/{STATE_FILE_NAME}": "state",
         f"data/secrets/{STATE_TMP_FILE_NAME}": "state tmp",
         f"data/secrets/{OLD_CONTENT_DIR_NAME}/payload.txt": "old",
+        f"data/secrets/nested/{STATE_FILE_NAME}/payload.txt": "nested state",
+        f"data/secrets/nested/{STATE_TMP_FILE_NAME}": "nested state tmp",
+        f"data/secrets/nested/{OLD_CONTENT_DIR_NAME}/payload.txt": "nested old",
         "data/secrets/legit.txt": "legit",
     }
 
@@ -266,6 +269,11 @@ def test_reserved_restore_names_are_not_extracted(
     extract_to_tmp(zf, "data/secrets/", dst, zip_slip_base=dst)
 
     tmp_dst = _tmp_dir(dst)
-    assert _snapshot(tmp_dst) == {"legit.txt": "legit"}
+    assert _snapshot(tmp_dst) == {
+        "legit.txt": "legit",
+        f"nested/{OLD_CONTENT_DIR_NAME}/payload.txt": "nested old",
+        f"nested/{STATE_FILE_NAME}/payload.txt": "nested state",
+        f"nested/{STATE_TMP_FILE_NAME}": "nested state tmp",
+    }
     for reserved_name in RESERVED_NAMES:
         assert not (tmp_dst / reserved_name).exists()
