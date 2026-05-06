@@ -79,7 +79,7 @@ the app is not running).
 | `qwenpaw daemon version`       | Version and paths                                                                         |
 | `qwenpaw daemon logs [-n N]`   | Last N lines of log (default 100; from `qwenpaw.log` in working dir)                      |
 
-**Workspace targeting:** use `--agent-id` for one agent. Without it, `install` / `uninstall` act on the skill pool.
+**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
 
 ```bash
 qwenpaw daemon status                     # Default agent status
@@ -593,7 +593,7 @@ Manage chat sessions via the API. **Requires `qwenpaw app` to be running.**
 | `qwenpaw chats update <id> --name "..."` | Rename a session                                              |
 | `qwenpaw chats delete <id>`              | Delete a session                                              |
 
-**Agent targeting:** use `--agent-id` for one agent. Without it, `install` / `uninstall` act on the skill pool.
+**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
 
 ```bash
 qwenpaw chats list                        # Default agent's chats
@@ -622,7 +622,7 @@ Extend QwenPaw's capabilities with skills (PDF reading, web search, etc.).
 | `qwenpaw skills config`    | Interactively enable/disable skills (checkbox UI)         |
 | `qwenpaw skills info`      | Show local details for one workspace skill                |
 
-**Agent targeting:** use `--agent-id` for one agent. Without it, `install` / `uninstall` act on the skill pool.
+**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
 
 ```bash
 qwenpaw skills install https://skills.sh/owner/repo/skill  # Import into the local skill pool

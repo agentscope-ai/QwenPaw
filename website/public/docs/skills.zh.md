@@ -165,6 +165,8 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
 
 CLI 支持相同的基于 URL 的导入方式：
 
+**指定工作区：** 指定单个智能体工作区时使用 `--agent-id`；不指定时，`install` / `uninstall` 作用于技能池。
+
 ```bash
 qwenpaw skills install <skill_url>
 qwenpaw skills install <skill_url> --agent-id <agent_id>

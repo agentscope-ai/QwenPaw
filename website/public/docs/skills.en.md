@@ -178,6 +178,8 @@ The workspace skill page supports importing from the following URL sources:
 
 CLI supports the same URL-based import flow:
 
+**Workspace targeting:** use `--agent-id` when targeting a single agent workspace; without it, `install` / `uninstall` act on the skill pool.
+
 ```bash
 qwenpaw skills install <skill_url>
 qwenpaw skills install <skill_url> --agent-id <agent_id>

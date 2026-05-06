@@ -72,7 +72,7 @@ Docker 镜像或 pip 安装包已内置控制台，无需单独构建。
 | `qwenpaw daemon version`       | 版本与路径                                                                     |
 | `qwenpaw daemon logs [-n N]`   | 最近 N 行日志（默认 100，来自工作目录 `qwenpaw.log`）                          |
 
-**指定工作区：** 指定单个智能体工作区时使用 `--agent-id`；不指定时，`install` / `uninstall` 作用于技能池。
+**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
 
 ```bash
 qwenpaw daemon status                     # 默认智能体状态
@@ -578,7 +578,7 @@ JSON 结构见 `qwenpaw cron get <job_id>` 的返回。
 | `qwenpaw chats update <id> --name "..."` | 重命名会话                                         |
 | `qwenpaw chats delete <id>`              | 删除会话                                           |
 
-**指定智能体：** 指定单个智能体时使用 `--agent-id`；不指定时，`install` / `uninstall` 作用于技能池。
+**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
 
 ```bash
 qwenpaw chats list                        # 默认智能体的会话
@@ -607,7 +607,7 @@ qwenpaw chats delete <chat_id>
 | `qwenpaw skills config`    | 交互式启用/禁用技能（复选框界面）  |
 | `qwenpaw skills info`      | 查看某个 workspace 技能的本地详情  |
 
-**指定智能体：** 指定单个智能体时使用 `--agent-id`；不指定时，`install` / `uninstall` 作用于技能池。
+**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
 
 ```bash
 qwenpaw skills install https://skills.sh/owner/repo/skill  # 导入到本地技能池
