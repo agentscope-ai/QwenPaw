@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/agentscope-ai-qwenpaw-badge.png)](https://mseep.ai/app/agentscope-ai-qwenpaw)
+
 <div align="center">
 
 # QwenPaw
