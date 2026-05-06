@@ -32,13 +32,20 @@ export default function ConsolePollService() {
   }, []);
 
   useEffect(() => {
+    const prevApprovalsRef = { current: '' };
     const tick = () => {
       consoleApi
         .getPushMessages()
         .then((res) => {
-          // Update pending approvals (global, will be filtered by Chat component)
+          // Update pending approvals only when they actually change,
+          // to avoid triggering unnecessary re-renders in Chat component
+          // every 2.5s polling cycle.
           if (res?.pending_approvals) {
-            setApprovals(res.pending_approvals);
+            const serialized = JSON.stringify(res.pending_approvals);
+            if (serialized !== prevApprovalsRef.current) {
+              prevApprovalsRef.current = serialized;
+              setApprovals(res.pending_approvals);
+            }
           }
 
           // Update message bubbles
