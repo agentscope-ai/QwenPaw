@@ -121,6 +121,7 @@ class BaseChannel(ABC):
         allow_from: Optional[list] = None,
         deny_message: str = "",
         require_mention: bool = False,
+        target_agent: str = "",
     ):
         self._process = process
         self._on_reply_sent = on_reply_sent
@@ -134,6 +135,7 @@ class BaseChannel(ABC):
         self.require_mention = require_mention
         self._enqueue: EnqueueCallback = None
         self._workspace = None
+        self._target_agent = target_agent or ""
         cfg = load_config()
         internal_tools = frozenset(
             name
@@ -839,6 +841,8 @@ class BaseChannel(ABC):
             # Always attach so channel _before_consume_process can use it
             # (e.g. Feishu save receive_id for cron send).
             setattr(request, "channel_meta", meta_from_payload)
+            if self._target_agent:
+                meta_from_payload["_target_agent"] = self._target_agent
         to_handle = self.get_to_handle_from_request(request)
         await self._before_consume_process(request)
         # Prefer meta built from payload so session_webhook is present when

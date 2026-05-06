@@ -185,6 +185,11 @@ class ChannelManager:
                 "filter_tool_messages": filter_tool_messages,
                 "filter_thinking": filter_thinking,
                 "workspace_dir": workspace_dir,
+                "target_agent": (
+                    getattr(ch_cfg, "target_agent", "")
+                    if not isinstance(ch_cfg, dict)
+                    else ch_cfg.get("target_agent", "")
+                ),
             }
 
             # Only pass kwargs that the channel's from_config accepts
