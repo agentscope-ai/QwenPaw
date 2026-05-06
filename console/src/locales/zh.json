@@ -861,6 +861,8 @@
     "lmstudioEndpointHint": "LM Studio 端点，例如 http://localhost:1234/v1",
     "apiEndpointHint": "API 端点，例如 https://api.example.com",
     "pleaseEnterBaseURL": "请输入 API 基础 URL",
+    "selectBaseURL": "请选择基础 URL",
+    "selectBaseURLHint": "选择该服务商的区域接入点",
     "pleaseEnterValidURL": "请输入有效的 URL",
     "apiKeyShouldStart": "API 密钥应以 \"{{prefix}}\" 开头",
     "configurationSaved": "{{name}} 配置已保存",

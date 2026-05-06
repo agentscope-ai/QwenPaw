@@ -806,6 +806,8 @@
     "lmstudioEndpointHint": "LM Studio endpoint, например http://localhost:1234/v1",
     "apiEndpointHint": "API endpoint, например https://api.example.com",
     "pleaseEnterBaseURL": "Пожалуйста, введите базовый URL API",
+    "selectBaseURL": "Выберите базовый URL",
+    "selectBaseURLHint": "Выберите региональную конечную точку этого провайдера",
     "pleaseEnterValidURL": "Пожалуйста, введите корректный URL",
     "apiKeyShouldStart": "API-ключ должен начинаться с «{{prefix}}»",
     "configurationSaved": "Конфигурация {{name}} сохранена",

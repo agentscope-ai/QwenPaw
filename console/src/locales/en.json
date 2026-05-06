@@ -998,6 +998,8 @@
     "lmstudioEndpointHint": "LM Studio endpoint, e.g. http://localhost:1234/v1",
     "apiEndpointHint": "API endpoint, e.g. https://api.example.com",
     "pleaseEnterBaseURL": "Please enter the API base URL",
+    "selectBaseURL": "Select a base URL",
+    "selectBaseURLHint": "Select the regional endpoint for this provider",
     "pleaseEnterValidURL": "Please enter a valid URL",
     "apiKeyShouldStart": "API Key should start with \"{{prefix}}\"",
     "configurationSaved": "{{name}} configuration saved",
