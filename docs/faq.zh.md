@@ -190,6 +190,52 @@ netsh int ipv4 set dynamicport tcp start=49152 num=16384
 
 > ⚠️ **警告**：这会更改系统级端口配置，请确保了解相关影响后再操作。
 
+### WSL2 NAT 网络环境下 APITimeoutError 超时报错
+
+在 WSL2 中运行 QwenPaw 时，如果使用 NAT 网络模式（尤其是 Windows 宿主机上安装了 VPN），可能会遇到反复超时：
+
+```
+agent error: APITimeoutError: Request timed out.
+```
+
+**根本原因：** WSL2 默认网络接口的 MTU（1500）对 NAT 隧道来说过大，在使用 VPN 或特定网络配置时会导致数据包被静默丢弃。
+
+**解决方案：** 将 WSL2 网络接口的 MTU 降低为 **1350**。
+
+1. **在 WSL2 内查看当前 MTU：**
+
+   ```bash
+   ip link show eth0 | grep mtu
+   ```
+
+2. **临时设置 MTU 为 1350（重启后失效）：**
+
+   ```bash
+   sudo ip link set eth0 mtu 1350
+   ```
+
+3. **永久生效** — 在 `/etc/wsl.conf` 中添加启动命令：
+
+   ```ini
+   [boot]
+   command = /sbin/ip link set eth0 mtu 1350
+   ```
+
+   然后在 PowerShell 或 CMD 中重启 WSL2：
+
+   ```powershell
+   wsl --shutdown
+   ```
+
+4. **验证**修改是否生效：
+
+   ```bash
+   ip link show eth0 | grep mtu
+   # 应显示: mtu 1350
+   ```
+
+完成上述操作后，QwenPaw 应能正常与各模型服务商通信。
+
 ### 开源地址
 
 QwenPaw 已开源，官方仓库地址：

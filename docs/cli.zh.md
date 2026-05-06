@@ -599,15 +599,21 @@ qwenpaw chats delete <chat_id>
 
 ### qwenpaw skills
 
-| 命令                    | 说明                              |
-| ----------------------- | --------------------------------- |
-| `qwenpaw skills list`   | 列出所有技能及启用/禁用状态       |
-| `qwenpaw skills config` | 交互式启用/禁用技能（复选框界面） |
-| `qwenpaw skills info`   | 查看某个 workspace 技能的本地详情 |
+| 命令                       | 说明                               |
+| -------------------------- | ---------------------------------- |
+| `qwenpaw skills install`   | 从受支持的 URL 来源安装技能        |
+| `qwenpaw skills uninstall` | 从技能池或单个智能体工作区移除技能 |
+| `qwenpaw skills list`      | 列出所有技能及启用/禁用状态        |
+| `qwenpaw skills config`    | 交互式启用/禁用技能（复选框界面）  |
+| `qwenpaw skills info`      | 查看某个 workspace 技能的本地详情  |
 
 **多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
 
 ```bash
+qwenpaw skills install https://skills.sh/owner/repo/skill  # 导入到本地技能池
+qwenpaw skills install https://skills.sh/owner/repo/skill --agent-id abc123  # 直接导入到特定智能体工作区
+qwenpaw skills uninstall skill-creator  # 从本地技能池移除
+qwenpaw skills uninstall skill-creator --agent-id abc123  # 从特定智能体工作区移除
 qwenpaw skills list                   # 看默认智能体的技能
 qwenpaw skills list --agent-id abc123 # 看特定智能体的技能
 qwenpaw skills config                 # 交互式配置默认智能体
@@ -697,7 +703,7 @@ qwenpaw --host 0.0.0.0 --port 9090 cron list
 | `qwenpaw agents`    | `list` · `create` · `delete` · `chat`                                                |    部分需要 ¹     |
 | `qwenpaw cron`      | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |      **是**       |
 | `qwenpaw chats`     | `list` · `get` · `create` · `update` · `delete`                                      |      **是**       |
-| `qwenpaw skills`    | `list` · `config` · `info`                                                           |        否         |
+| `qwenpaw skills`    | `install` · `uninstall` · `list` · `config` · `info`                                 |        否         |
 | `qwenpaw task`      | —                                                                                    |        否         |
 | `qwenpaw auth`      | `reset-password`                                                                     |        否         |
 | `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate`                               |        否         |
