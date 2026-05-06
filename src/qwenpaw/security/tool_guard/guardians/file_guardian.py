@@ -154,6 +154,18 @@ def _is_file_guard_enabled() -> bool:
         return True
 
 
+def _is_write_file_overwrite_guard_enabled() -> bool:
+    """Check ``security.file_guard.prevent_write_file_overwrite``."""
+    try:
+        from qwenpaw.config import load_config
+
+        return bool(
+            load_config().security.file_guard.prevent_write_file_overwrite,
+        )
+    except Exception:
+        return True
+
+
 def _load_sensitive_files_from_config() -> list[str]:
     """Load ``security.file_guard.sensitive_files`` from config.json.
 
@@ -296,6 +308,85 @@ def _extract_paths_from_shell_command(command: str) -> list[str]:
         seen.add(c)
         deduped.append(c)
     return deduped
+
+
+class WriteFileOverwriteGuardian(BaseToolGuardian):
+    """Guardian that prevents write_file from overwriting non-empty files."""
+
+    def __init__(self) -> None:
+        super().__init__(name="write_file_overwrite_guardian", always_run=True)
+        self._enabled: bool = self._is_enabled()
+
+    @staticmethod
+    def _is_enabled() -> bool:
+        return (
+            _is_file_guard_enabled()
+            and _is_write_file_overwrite_guard_enabled()
+        )
+
+    def reload(self) -> None:
+        """Reload enabled state from config."""
+        self._enabled = self._is_enabled()
+
+    def _make_finding(
+        self,
+        raw_value: str,
+        abs_path: str,
+        size: int,
+    ) -> GuardFinding:
+        return GuardFinding(
+            id=f"GUARD-{uuid.uuid4().hex}",
+            rule_id="WRITE_FILE_OVERWRITE_NON_EMPTY",
+            category=GuardThreatCategory.SENSITIVE_FILE_ACCESS,
+            severity=GuardSeverity.HIGH,
+            title="[HIGH] write_file would overwrite a non-empty file",
+            description=(
+                "Tool 'write_file' attempted to overwrite an existing "
+                "non-empty file."
+            ),
+            tool_name="write_file",
+            param_name="file_path",
+            matched_value=raw_value,
+            matched_pattern=abs_path,
+            snippet=abs_path,
+            remediation=(
+                "Use edit_file to modify existing non-empty files. "
+                "Use write_file only for new or empty files."
+            ),
+            guardian=self.name,
+            metadata={"resolved_path": abs_path, "size": size},
+        )
+
+    def guard(
+        self,
+        tool_name: str,
+        params: dict[str, Any],
+    ) -> list[GuardFinding]:
+        raw_value = params.get("file_path")
+        if (
+            not self._enabled
+            or tool_name != "write_file"
+            or not isinstance(raw_value, str)
+            or not raw_value.strip()
+        ):
+            return []
+
+        abs_path = _normalize_path(_sanitize_path_candidate(raw_value))
+        if not abs_path:
+            return []
+
+        try:
+            path = Path(abs_path)
+            if not path.exists() or not path.is_file():
+                return []
+            size = path.stat().st_size
+        except OSError:
+            return []
+
+        if size <= 0:
+            return []
+
+        return [self._make_finding(raw_value, abs_path, size)]
 
 
 class FilePathToolGuardian(BaseToolGuardian):
