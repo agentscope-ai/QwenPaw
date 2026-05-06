@@ -8,14 +8,14 @@ export function getAgentDisplayName(
   agent: Pick<AgentSummary, "id" | "name">,
   t: TFunction,
 ): string {
-  // 优先使用用户自定义的 name
+  // Prioritize user-defined name
   if (agent.name) {
     return agent.name;
   }
-  // 如果没有 name，且 id 是 default，则返回国际化默认名称
+  // Fallback to localized default name if ID is default
   if (agent.id === DEFAULT_AGENT_ID) {
     return t("agent.defaultDisplayName");
   }
-  // 最后回退到 id
+  // Finally fallback to ID
   return agent.id;
 }
