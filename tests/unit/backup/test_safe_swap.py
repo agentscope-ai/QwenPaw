@@ -261,7 +261,9 @@ def test_reserved_restore_names_are_not_extracted(
         f"data/secrets/{OLD_CONTENT_DIR_NAME}/payload.txt": "old",
         f"data/secrets/nested/{STATE_FILE_NAME}/payload.txt": "nested state",
         f"data/secrets/nested/{STATE_TMP_FILE_NAME}": "nested state tmp",
-        f"data/secrets/nested/{OLD_CONTENT_DIR_NAME}/payload.txt": "nested old",
+        (
+            f"data/secrets/nested/{OLD_CONTENT_DIR_NAME}/payload.txt"
+        ): "nested old",
         "data/secrets/legit.txt": "legit",
     }
 
