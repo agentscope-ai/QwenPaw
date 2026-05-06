@@ -64,7 +64,7 @@ def build_env_context(
     if user_id is not None:
         parts.append(f"- User ID: {user_id}")
     if user_name:
-        parts.append(f"-User Nme: {user_name}")
+        parts.append(f"- User Name: {user_name}")
     if channel is not None:
         parts.append(f"- Channel: {channel}")
 
