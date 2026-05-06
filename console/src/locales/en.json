@@ -1568,7 +1568,9 @@
       "transcribing": "Transcribing...",
       "transcriptionDisabled": "Transcription is disabled. Configure a provider in Settings > Voice Transcription.",
       "transcriptionFailed": "Voice transcription failed",
-      "microphoneError": "Could not access microphone"
+      "microphoneError": "Could not access microphone",
+      "fileTooLarge": "Recording file is too large ({{size}}MB). Maximum allowed: {{limit}}MB",
+      "recordingTooLong": "Recording exceeds duration limit ({{limit}}s)"
     },
     "search": {
       "title": "Search Chat",

@@ -1431,7 +1431,9 @@
       "transcribing": "正在转录...",
       "transcriptionDisabled": "语音转录已禁用。请在设置 > 语音转写中配置转录服务。",
       "transcriptionFailed": "语音转录失败",
-      "microphoneError": "无法访问麦克风"
+      "microphoneError": "无法访问麦克风",
+      "fileTooLarge": "录音文件过大（{{size}}MB），最大支持 {{limit}}MB",
+      "recordingTooLong": "录音时长超过限制（{{limit}}秒）"
     },
     "search": {
       "title": "搜索聊天",

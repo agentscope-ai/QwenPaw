@@ -14,6 +14,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import { chatApi } from "../../api/modules/chat";
+import { agentApi } from "../../api/modules/agent";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
@@ -703,6 +704,17 @@ export default function ChatPage() {
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   const pendingClearHistoryRef = useRef(false);
   const whisperSpeechRef = useRef<WhisperSpeechButtonRef>(null);
+  const [whisperEnabled, setWhisperEnabled] = useState(false);
+
+  // Check if Whisper transcription is configured
+  useEffect(() => {
+    agentApi
+      .getTranscriptionProviderType()
+      .then((res) => {
+        setWhisperEnabled(res.transcription_provider_type !== "disabled");
+      })
+      .catch(() => setWhisperEnabled(false));
+  }, []);
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
 
@@ -717,12 +729,14 @@ export default function ChatPage() {
         e.key.toLowerCase() === "m"
       ) {
         e.preventDefault();
-        whisperSpeechRef.current?.toggleRecording();
+        if (whisperEnabled) {
+          whisperSpeechRef.current?.toggleRecording();
+        }
       }
     };
     document.addEventListener("keydown", handleShortcut);
     return () => document.removeEventListener("keydown", handleShortcut);
-  }, [isChatActive]);
+  }, [isChatActive, whisperEnabled]);
   chatIdRef.current = chatId;
   navigateRef.current = navigate;
 
@@ -1045,8 +1059,8 @@ export default function ChatPage() {
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
-        allowSpeech: false, // Disable default Web Speech API, use custom Whisper button
-        prefix: <WhisperSpeechButton ref={whisperSpeechRef} />,
+        allowSpeech: !whisperEnabled,
+        prefix: whisperEnabled ? <WhisperSpeechButton ref={whisperSpeechRef} /> : undefined,
         attachments: {
           trigger: function (props: any) {
             const tooltipKey = multimodalCaps.supportsMultimodal

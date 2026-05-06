@@ -8,8 +8,12 @@ import React, {
 import { IconButton } from "@agentscope-ai/design";
 import { SparkMicLine } from "@agentscope-ai/icons";
 import { Tooltip, message } from "antd";
+import { LoadingOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { agentApi } from "@/api/modules/agent";
+
+const MAX_RECORDING_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_AUDIO_SIZE_MB = 25;
 
 export interface WhisperSpeechButtonRef {
   toggleRecording: () => void;
@@ -92,6 +96,7 @@ const WhisperSpeechButton = forwardRef<
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const internalRecordingRef = useRef(false);
+  const recordingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const setTextareaValue = useCallback(
     (textarea: HTMLTextAreaElement, value: string) => {
@@ -144,7 +149,24 @@ const WhisperSpeechButton = forwardRef<
 
       recorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
+        if (recordingTimerRef.current) {
+          clearTimeout(recordingTimerRef.current);
+          recordingTimerRef.current = null;
+        }
         const blob = new Blob(chunksRef.current, { type: mimeType });
+
+        // File size validation
+        const sizeMb = blob.size / 1024 / 1024;
+        if (sizeMb > MAX_AUDIO_SIZE_MB) {
+          message.error(
+            t("chat.speech.fileTooLarge", {
+              size: sizeMb.toFixed(1),
+              limit: MAX_AUDIO_SIZE_MB,
+            }),
+          );
+          return;
+        }
+
         setLoading(true);
         try {
           const result = await agentApi.transcribeAudio(blob);
@@ -164,6 +186,15 @@ const WhisperSpeechButton = forwardRef<
             err instanceof Error ? err.message : "Transcription failed";
           if (errMsg.includes("Transcription is disabled")) {
             message.warning(t("chat.speech.transcriptionDisabled"));
+          } else if (errMsg.includes("File too large")) {
+            message.error(
+              t("chat.speech.fileTooLarge", {
+                size: sizeMb.toFixed(1),
+                limit: MAX_AUDIO_SIZE_MB,
+              }),
+            );
+          } else if (errMsg.includes("Unsupported file type")) {
+            message.error(t("chat.speech.transcriptionFailed"));
           } else {
             message.error(t("chat.speech.transcriptionFailed"));
           }
@@ -177,11 +208,23 @@ const WhisperSpeechButton = forwardRef<
       mediaRecorderRef.current = recorder;
       internalRecordingRef.current = true;
       setRecording(true);
+
+      // Auto-stop after max duration
+      recordingTimerRef.current = setTimeout(() => {
+        if (internalRecordingRef.current) {
+          message.warning(
+            t("chat.speech.recordingTooLong", {
+              limit: MAX_RECORDING_DURATION_MS / 1000,
+            }),
+          );
+          stopRecording();
+        }
+      }, MAX_RECORDING_DURATION_MS);
     } catch (err) {
       console.error("Microphone access error:", err);
       message.error(t("chat.speech.microphoneError"));
     }
-  }, [findTextarea, setTextareaValue, t, loading]);
+  }, [findTextarea, setTextareaValue, t, loading, stopRecording]);
 
   const toggleRecording = useCallback(() => {
     if (loading) return;
@@ -218,7 +261,15 @@ const WhisperSpeechButton = forwardRef<
     >
       <IconButton
         bordered={false}
-        icon={loading || recording ? <RecordingIcon /> : <SparkMicLine />}
+        icon={
+          loading ? (
+            <LoadingOutlined style={{ fontSize: "1.2em" }} />
+          ) : recording ? (
+            <RecordingIcon />
+          ) : (
+            <SparkMicLine />
+          )
+        }
         onClick={toggleRecording}
         disabled={isDisabled}
         style={{

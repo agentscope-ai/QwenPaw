@@ -91,7 +91,7 @@ export const agentApi = {
   transcribeAudio: async (file: File | Blob): Promise<{ text: string }> => {
     const formData = new FormData();
     formData.append("file", file);
-    const response = await fetch(getApiUrl("/agent/transcribe"), {
+    const response = await fetch(getApiUrl("/workspace/transcribe"), {
       method: "POST",
       headers: buildAuthHeaders(),
       body: formData,
