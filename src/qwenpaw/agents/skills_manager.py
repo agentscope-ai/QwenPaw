@@ -2277,11 +2277,46 @@ class SkillService:
                 "updated_at": metadata["updated_at"],
             }
 
-        _mutate_json(
-            get_workspace_skill_manifest_path(self.workspace_dir),
-            _default_workspace_manifest(),
-            _update,
-        )
+        try:
+            _mutate_json(
+                get_workspace_skill_manifest_path(self.workspace_dir),
+                _default_workspace_manifest(),
+                _update,
+            )
+        except Exception as exc:
+            try:
+                if skill_dir.exists():
+                    shutil.rmtree(skill_dir, ignore_errors=True)
+            except Exception as cleanup_exc:
+                raise SkillsError(
+                    message=(
+                        "Workspace skill files were created, but manifest "
+                        "update failed and rollback cleanup also failed."
+                    ),
+                    details={
+                        "skill_name": skill_name,
+                        "workspace_dir": str(self.workspace_dir),
+                        "manifest_path": str(
+                            get_workspace_skill_manifest_path(
+                                self.workspace_dir,
+                            ),
+                        ),
+                        "cleanup_error": str(cleanup_exc),
+                    },
+                ) from exc
+            raise SkillsError(
+                message=(
+                    "Workspace skill files were created, but manifest "
+                    "update failed. File changes were rolled back."
+                ),
+                details={
+                    "skill_name": skill_name,
+                    "workspace_dir": str(self.workspace_dir),
+                    "manifest_path": str(
+                        get_workspace_skill_manifest_path(self.workspace_dir),
+                    ),
+                },
+            ) from exc
         return skill_name
 
     def save_skill(
@@ -2722,11 +2757,26 @@ class SkillService:
         def _update(payload: dict[str, Any]) -> None:
             payload.get("skills", {}).pop(skill_name, None)
 
-        _mutate_json(
-            get_workspace_skill_manifest_path(self.workspace_dir),
-            _default_workspace_manifest(),
-            _update,
-        )
+        try:
+            _mutate_json(
+                get_workspace_skill_manifest_path(self.workspace_dir),
+                _default_workspace_manifest(),
+                _update,
+            )
+        except Exception as exc:
+            raise SkillsError(
+                message=(
+                    "Workspace skill files were deleted, but manifest "
+                    "update failed."
+                ),
+                details={
+                    "skill_name": skill_name,
+                    "workspace_dir": str(self.workspace_dir),
+                    "manifest_path": str(
+                        get_workspace_skill_manifest_path(self.workspace_dir),
+                    ),
+                },
+            ) from exc
         return True
 
     def load_skill_file(
@@ -2835,11 +2885,38 @@ class SkillPoolService:
             if config is not None:
                 payload["skills"][skill_name]["config"] = dict(config)
 
-        _mutate_json(
-            get_pool_skill_manifest_path(),
-            _default_pool_manifest(),
-            _update,
-        )
+        try:
+            _mutate_json(
+                get_pool_skill_manifest_path(),
+                _default_pool_manifest(),
+                _update,
+            )
+        except Exception as exc:
+            try:
+                if skill_dir.exists():
+                    shutil.rmtree(skill_dir, ignore_errors=True)
+            except Exception as cleanup_exc:
+                raise SkillsError(
+                    message=(
+                        "Skill pool files were created, but manifest update "
+                        "failed and rollback cleanup also failed."
+                    ),
+                    details={
+                        "skill_name": skill_name,
+                        "manifest_path": str(get_pool_skill_manifest_path()),
+                        "cleanup_error": str(cleanup_exc),
+                    },
+                ) from exc
+            raise SkillsError(
+                message=(
+                    "Skill pool manifest update failed after file creation. "
+                    "File changes were rolled back."
+                ),
+                details={
+                    "skill_name": skill_name,
+                    "manifest_path": str(get_pool_skill_manifest_path()),
+                },
+            ) from exc
         return skill_name
 
     def import_from_zip(
@@ -2964,11 +3041,23 @@ class SkillPoolService:
         def _update(payload: dict[str, Any]) -> None:
             payload.get("skills", {}).pop(skill_name, None)
 
-        _mutate_json(
-            get_pool_skill_manifest_path(),
-            _default_pool_manifest(),
-            _update,
-        )
+        try:
+            _mutate_json(
+                get_pool_skill_manifest_path(),
+                _default_pool_manifest(),
+                _update,
+            )
+        except Exception as exc:
+            raise SkillsError(
+                message=(
+                    "Skill pool files were deleted, but manifest update "
+                    "failed."
+                ),
+                details={
+                    "skill_name": skill_name,
+                    "manifest_path": str(get_pool_skill_manifest_path()),
+                },
+            ) from exc
         return True
 
     def set_pool_skill_tags(
