@@ -177,7 +177,7 @@ class OpenAIProvider(Provider):
     async def probe_model_multimodal(
         self,
         model_id: str,
-        timeout: float = 10,
+        timeout: float = 60,
         image_only: bool = False,
     ) -> ProbeResult:
         """Probe multimodal support via OpenAI-compatible API."""
