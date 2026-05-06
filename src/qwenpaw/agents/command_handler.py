@@ -158,7 +158,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- Enable memory and context manager to use this feature",
             )
 
-        self.memory_manager.add_summarize_task(messages=messages)
+        await self.memory_manager.add_summarize_task(messages=messages)
         result = await self.context_manager.compact_context(
             messages=messages,
             previous_summary=self.memory.get_compressed_summary(),
@@ -221,7 +221,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- Enable memory manager to use this feature",
             )
 
-        self.memory_manager.add_summarize_task(messages=messages)
+        await self.memory_manager.add_summarize_task(messages=messages)
         self.memory.clear_compressed_summary()
 
         await self.memory.clear_content()

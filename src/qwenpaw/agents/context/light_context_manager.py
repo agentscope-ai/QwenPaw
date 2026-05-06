@@ -926,7 +926,7 @@ class LightContextManager(BaseContextManager):
 
             rlmc = running_config.reme_light_memory_config
             if messages_to_compact and rlmc.summarize_when_compact:
-                memory_manager.add_summarize_task(
+                await memory_manager.add_summarize_task(
                     messages=messages_to_compact,
                 )
 
@@ -1015,7 +1015,9 @@ class LightContextManager(BaseContextManager):
                     msg for msg, _ in memory.content[start_index:]
                 ]
                 if recent_messages:
-                    memory_manager.add_summarize_task(messages=recent_messages)
+                    await memory_manager.add_summarize_task(
+                        messages=recent_messages,
+                    )
         except Exception as e:
             logger.warning("post_reply hook failed: %s", e)
 
