@@ -1159,7 +1159,7 @@ A tool plugin that adds OpenAI's GPT Image 2 image generation capability to Qwen
 ```bash
 # Clone the QwenPaw repository (if not already cloned)
 git clone https://github.com/agentscope-ai/QwenPaw.git
-cd QwenPaw/CoPaw
+cd QwenPaw
 
 # Install the plugin
 qwenpaw plugin install plugins/tool/gpt-image2

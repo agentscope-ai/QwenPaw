@@ -1143,7 +1143,7 @@ A: 如果多个插件注册相同的 provider_id 或 command_name，后注册的
 ```bash
 # 克隆 QwenPaw 仓库（如果尚未克隆）
 git clone https://github.com/agentscope-ai/QwenPaw.git
-cd QwenPaw/CoPaw
+cd QwenPaw
 
 # 安装插件
 qwenpaw plugin install plugins/tool/gpt-image2
