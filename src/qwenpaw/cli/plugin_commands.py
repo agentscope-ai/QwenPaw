@@ -72,10 +72,11 @@ def _sync_tool_plugin_to_agents(manifest: dict):
 
     click.echo(f"🔄 Syncing tool '{tool_name}' to all agents...")
 
-    from ..config.utils import get_agent_dirs
+    from ..config.utils import load_config
 
-    agent_dirs = get_agent_dirs()
-    if not agent_dirs:
+    config = load_config()
+
+    if not config.agents or not config.agents.profiles:
         click.echo("   No agents found, skipping sync")
         return
 
@@ -86,34 +87,30 @@ def _sync_tool_plugin_to_agents(manifest: dict):
     )
 
     synced_count = 0
-    for agent_dir in agent_dirs:
-        agent_json_path = agent_dir / "agent.json"
-        if not agent_json_path.exists():
-            continue
-
+    for agent_id in config.agents.profiles.keys():
         try:
-            # Load agent config using Pydantic model
-            config = load_agent_config(str(agent_dir))
+            # Load agent config using agent_id
+            agent_config = load_agent_config(agent_id)
 
             # Check if tool already exists
-            if tool_name in config.tools.builtin_tools:
+            if tool_name in agent_config.tools.builtin_tools:
                 continue
 
             # Add tool config using Pydantic model
-            config.tools.builtin_tools[tool_name] = BuiltinToolConfig(
+            agent_config.tools.builtin_tools[tool_name] = BuiltinToolConfig(
                 name=tool_name,
                 enabled=False,
                 config={},
             )
 
             # Save using config system
-            save_agent_config(str(agent_dir), config)
+            save_agent_config(agent_id, agent_config)
 
             synced_count += 1
 
         except Exception as e:
             logger.warning(
-                f"Failed to sync tool to {agent_dir.name}: {e}",
+                f"Failed to sync tool to {agent_id}: {e}",
             )
 
     if synced_count > 0:
