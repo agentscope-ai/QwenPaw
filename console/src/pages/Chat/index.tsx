@@ -716,6 +716,19 @@ export default function ChatPage() {
       .catch(() => setWhisperEnabled(false));
   }, []);
 
+  const handleWhisperTranscription = useCallback((text: string) => {
+    const senderContainer = document.querySelector('[class*="sender"]');
+    const textarea = senderContainer?.querySelector(
+      "textarea",
+    ) as HTMLTextAreaElement | null;
+    if (textarea) {
+      const currentValue = textarea.value || "";
+      const newValue = currentValue ? `${currentValue} ${text}` : text;
+      setTextareaValue(textarea, newValue);
+      textarea.focus();
+    }
+  }, []);
+
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
 
   // Shortcut key for voice recording (Ctrl+Shift+M or Cmd+Shift+M on Mac)
@@ -1061,7 +1074,10 @@ export default function ChatPage() {
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: !whisperEnabled,
         prefix: whisperEnabled ? (
-          <WhisperSpeechButton ref={whisperSpeechRef} />
+          <WhisperSpeechButton
+            ref={whisperSpeechRef}
+            onTranscription={handleWhisperTranscription}
+          />
         ) : undefined,
         attachments: {
           trigger: function (props: any) {

@@ -10,7 +10,7 @@ import { SparkMicLine } from "@agentscope-ai/icons";
 import { Tooltip, message } from "antd";
 import { LoadingOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-import { agentApi } from "@/api/modules/agent";
+import { agentApi, TranscriptionError } from "@/api/modules/agent";
 
 const MAX_RECORDING_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_AUDIO_SIZE_MB = 25;
@@ -23,6 +23,7 @@ export interface WhisperSpeechButtonRef {
 
 interface WhisperSpeechButtonProps {
   disabled?: boolean;
+  onTranscription: (text: string) => void;
 }
 
 // Original recording icon animation from @agentscope-ai/chat
@@ -89,7 +90,7 @@ const RecordingIcon: React.FC<{ className?: string }> = ({ className }) => (
 const WhisperSpeechButton = forwardRef<
   WhisperSpeechButtonRef,
   WhisperSpeechButtonProps
->(({ disabled }, ref) => {
+>(({ disabled, onTranscription }, ref) => {
   const { t } = useTranslation();
   const [recording, setRecording] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -97,31 +98,6 @@ const WhisperSpeechButton = forwardRef<
   const chunksRef = useRef<Blob[]>([]);
   const internalRecordingRef = useRef(false);
   const recordingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const setTextareaValue = useCallback(
-    (textarea: HTMLTextAreaElement, value: string) => {
-      const nativeValueSetter = Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )?.set;
-      if (nativeValueSetter) {
-        nativeValueSetter.call(textarea, value);
-      } else {
-        textarea.value = value;
-      }
-      textarea.selectionStart = textarea.selectionEnd = value.length;
-      const event = new Event("input", { bubbles: true });
-      textarea.dispatchEvent(event);
-    },
-    [],
-  );
-
-  const findTextarea = useCallback(() => {
-    const senderContainer = document.querySelector('[class*="sender"]');
-    return senderContainer?.querySelector(
-      "textarea",
-    ) as HTMLTextAreaElement | null;
-  }, []);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && internalRecordingRef.current) {
@@ -171,30 +147,25 @@ const WhisperSpeechButton = forwardRef<
         try {
           const result = await agentApi.transcribeAudio(blob);
           if (result.text) {
-            const textarea = findTextarea();
-            if (textarea) {
-              const currentValue = textarea.value || "";
-              const newValue = currentValue
-                ? `${currentValue} ${result.text}`
-                : result.text;
-              setTextareaValue(textarea, newValue);
-              textarea.focus();
-            }
+            onTranscription(result.text);
           }
         } catch (err) {
-          const errMsg =
-            err instanceof Error ? err.message : "Transcription failed";
-          if (errMsg.includes("Transcription is disabled")) {
-            message.warning(t("chat.speech.transcriptionDisabled"));
-          } else if (errMsg.includes("File too large")) {
-            message.error(
-              t("chat.speech.fileTooLarge", {
-                size: sizeMb.toFixed(1),
-                limit: MAX_AUDIO_SIZE_MB,
-              }),
-            );
-          } else if (errMsg.includes("Unsupported file type")) {
-            message.error(t("chat.speech.transcriptionFailed"));
+          if (err instanceof TranscriptionError) {
+            switch (err.code) {
+              case "TRANSCRIPTION_DISABLED":
+                message.warning(t("chat.speech.transcriptionDisabled"));
+                break;
+              case "FILE_TOO_LARGE":
+                message.error(
+                  t("chat.speech.fileTooLarge", {
+                    size: sizeMb.toFixed(1),
+                    limit: MAX_AUDIO_SIZE_MB,
+                  }),
+                );
+                break;
+              default:
+                message.error(t("chat.speech.transcriptionFailed"));
+            }
           } else {
             message.error(t("chat.speech.transcriptionFailed"));
           }
@@ -224,7 +195,7 @@ const WhisperSpeechButton = forwardRef<
       console.error("Microphone access error:", err);
       message.error(t("chat.speech.microphoneError"));
     }
-  }, [findTextarea, setTextareaValue, t, loading, stopRecording]);
+  }, [onTranscription, t, loading, stopRecording]);
 
   const toggleRecording = useCallback(() => {
     if (loading) return;

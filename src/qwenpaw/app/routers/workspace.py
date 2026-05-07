@@ -494,10 +494,13 @@ async def post_transcribe_audio(
     if provider_type == "disabled":
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Transcription is disabled. "
-                "Configure a transcription provider in Settings."
-            ),
+            detail={
+                "code": "TRANSCRIPTION_DISABLED",
+                "message": (
+                    "Transcription is disabled. "
+                    "Configure a transcription provider in Settings."
+                ),
+            },
         )
 
     # Validate file type
@@ -516,10 +519,13 @@ async def post_transcribe_audio(
     if suffix not in allowed_extensions:
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Unsupported file type: {suffix}. "
-                f"Allowed: {', '.join(sorted(allowed_extensions))}"
-            ),
+            detail={
+                "code": "UNSUPPORTED_FILE_TYPE",
+                "message": (
+                    f"Unsupported file type: {suffix}. "
+                    f"Allowed: {', '.join(sorted(allowed_extensions))}"
+                ),
+            },
         )
 
     # Validate file size (25 MB max)
@@ -529,7 +535,13 @@ async def post_transcribe_audio(
         size_mb = len(data) / 1024 / 1024
         raise HTTPException(
             status_code=400,
-            detail=f"File too large ({size_mb:.1f}MB). Maximum allowed: 25MB.",
+            detail={
+                "code": "FILE_TOO_LARGE",
+                "message": (
+                    f"File too large ({size_mb:.1f}MB). "
+                    "Maximum allowed: 25MB."
+                ),
+            },
         )
 
     # Save uploaded file to temp directory
@@ -547,7 +559,10 @@ async def post_transcribe_audio(
         return {"text": text}
     finally:
         # Clean up temp file
-        os.unlink(tmp_path)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 @router.get(

@@ -1338,6 +1338,16 @@
       "imageOnlyAccept": "現在のモデルは画像ファイルのみ対応しています",
       "imageOnlyWarning": "現在のモデルは画像のみ対応しています。動画などの非画像ファイルは正しく処理されない場合があります"
     },
+    "speech": {
+      "startRecording": "音声録音を開始 (Ctrl+Shift+M)",
+      "stopRecording": "録音を停止 (Ctrl+Shift+M)",
+      "transcribing": "文字起こし中...",
+      "transcriptionDisabled": "文字起こしは無効です。設定 > 音声文字起こしでプロバイダーを設定してください。",
+      "transcriptionFailed": "音声文字起こしに失敗しました",
+      "microphoneError": "マイクにアクセスできません",
+      "fileTooLarge": "録音ファイルが大きすぎます（{{size}}MB）。上限: {{limit}}MB",
+      "recordingTooLong": "録音時間が制限を超えています（上限: {{limit}}秒）"
+    },
     "search": {
       "title": "チャットを検索",
       "tooltip": "現在のチャットを検索",
