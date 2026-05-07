@@ -228,6 +228,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     # Everything here must be lightweight so the server starts quickly.
     # ================================================================
 
+    from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
+
+    cleanup_startup_restore_artifacts()
+
     from .auth import auto_register_from_env
 
     auto_register_from_env()

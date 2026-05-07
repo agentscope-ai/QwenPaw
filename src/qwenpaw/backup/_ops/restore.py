@@ -23,6 +23,7 @@ from .._utils.safe_swap import (
     commit_tmp,
     discard_tmp,
     extract_to_tmp,
+    restore_process_lock,
 )
 from ..models import BackupMeta, RestoreBackupRequest
 from ...config.config import AgentProfileRef
@@ -358,6 +359,11 @@ def _commit_and_finalize(
 
 
 def _restore_sync(backup_id: str, req: RestoreBackupRequest) -> None:
+    with restore_process_lock():
+        _restore_sync_locked(backup_id, req)
+
+
+def _restore_sync_locked(backup_id: str, req: RestoreBackupRequest) -> None:
     zp = zip_path(backup_id)
     if not zp.is_file():
         raise FileNotFoundError(f"Backup not found: {backup_id}")

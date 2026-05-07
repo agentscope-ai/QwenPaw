@@ -40,15 +40,31 @@ the entire phase-1, phase-2+3, or cleanup operation.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import threading
+import time
 import zipfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import BinaryIO
+
+from ._mount_swap import (
+    prepare_destination_for_swap,
+    recover_mount_point_swap,
+    should_skip_zip_member,
+)
 
 logger = logging.getLogger(__name__)
 
 _RESTORE_TMP_SUFFIX = ".restore_tmp"
 _RESTORE_OLD_SUFFIX = ".restore_old"
+_RESTORE_LOCK_FILE = ".qwenpaw_restore.lock"
+_LOCK_REGION_SIZE = 1
+_LOCK_RETRY_INTERVAL_SECONDS = 0.1
+_LOCK_TIMEOUT_SECONDS_ENV = "QWENPAW_RESTORE_LOCK_TIMEOUT_SECONDS"
+_LOCK_TIMEOUT_SECONDS = 3600.0
 
 # Per-destination threading locks.  The dict itself is guarded by _LOCKS_GUARD.
 _LOCKS: dict[str, threading.Lock] = {}
@@ -60,6 +76,89 @@ def _lock_for(dst: Path) -> threading.Lock:
     key = str(dst.resolve())
     with _LOCKS_GUARD:
         return _LOCKS.setdefault(key, threading.Lock())
+
+
+@contextmanager
+def restore_process_lock() -> Iterator[None]:
+    """Serialise restore and restore-cleanup work across processes."""
+    from ...constant import WORKING_DIR
+
+    lock_path = WORKING_DIR / _RESTORE_LOCK_FILE
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a+b") as handle:
+        _acquire_file_lock(handle, lock_path)
+        try:
+            yield
+        finally:
+            _release_file_lock(handle)
+
+
+def _acquire_file_lock(handle: BinaryIO, lock_path: Path) -> None:
+    deadline = time.monotonic() + _restore_lock_timeout_seconds()
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        if handle.read(_LOCK_REGION_SIZE) == b"":
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        while time.monotonic() < deadline:
+            try:
+                msvcrt.locking(
+                    handle.fileno(),
+                    msvcrt.LK_NBLCK,
+                    _LOCK_REGION_SIZE,
+                )
+                break
+            except OSError:
+                time.sleep(_LOCK_RETRY_INTERVAL_SECONDS)
+        else:
+            raise TimeoutError(
+                f"Timed out waiting for restore lock: {lock_path}",
+            )
+        return
+
+    import fcntl
+
+    while time.monotonic() < deadline:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError:
+            time.sleep(_LOCK_RETRY_INTERVAL_SECONDS)
+    else:
+        raise TimeoutError(
+            f"Timed out waiting for restore lock: {lock_path}",
+        )
+
+
+def _restore_lock_timeout_seconds() -> float:
+    raw = os.environ.get(_LOCK_TIMEOUT_SECONDS_ENV)
+    if not raw:
+        return _LOCK_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        return _LOCK_TIMEOUT_SECONDS
+    return max(value, 1.0)
+
+
+def _release_file_lock(handle: BinaryIO) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        msvcrt.locking(
+            handle.fileno(),
+            msvcrt.LK_UNLCK,
+            _LOCK_REGION_SIZE,
+        )
+        return
+
+    import fcntl
+
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def cleanup_stale_restore_artifacts(base_dir: Path) -> None:
@@ -74,13 +173,51 @@ def cleanup_stale_restore_artifacts(base_dir: Path) -> None:
          back to recover original data, then remove any orphaned .restore_tmp.
 
     2. ``.restore_tmp`` exists, ``base_dir`` exists
-       → crash during phase 1 (extraction); drop the incomplete tmp dir.
+       -> crash during phase 1 (extraction); drop the incomplete tmp dir.
 
     3. ``.restore_old`` exists, ``base_dir`` exists
        → crash during phase 3 (rmtree of old); drop the obsolete old dir.
     """
     with _lock_for(base_dir):
         _cleanup_stale_restore_artifacts_locked(base_dir)
+
+
+def _startup_restore_targets() -> list[Path]:
+    """Return restore targets that may be loaded during app startup."""
+    from ...config import load_config
+    from ...config.utils import get_config_path
+    from ...constant import SECRET_DIR, WORKING_DIR
+
+    targets = [
+        SECRET_DIR,
+        WORKING_DIR / "skill_pool",
+    ]
+    config = load_config(get_config_path())
+    for profile in config.agents.profiles.values():
+        targets.append(Path(profile.workspace_dir).expanduser())
+    return _dedupe_paths(targets)
+
+
+def _dedupe_paths(paths: list[Path]) -> list[Path]:
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        try:
+            key = str(path.resolve())
+        except OSError:
+            key = str(path.absolute())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(path)
+    return deduped
+
+
+def cleanup_startup_restore_artifacts() -> None:
+    """Recover interrupted restores before startup reads restored content."""
+    with restore_process_lock():
+        for target in _startup_restore_targets():
+            cleanup_stale_restore_artifacts(target)
 
 
 def _cleanup_stale_restore_artifacts_locked(base_dir: Path) -> None:
@@ -139,6 +276,11 @@ def _cleanup_stale_restore_artifacts_locked(base_dir: Path) -> None:
                 old,
             )
 
+    recover_mount_point_swap(
+        base_dir,
+        base_dir.with_name(base_dir.name + _RESTORE_TMP_SUFFIX),
+    )
+
 
 def _extract_zip_to(
     zf: zipfile.ZipFile,
@@ -155,6 +297,9 @@ def _extract_zip_to(
         if info.is_dir() or not info.filename.startswith(prefix):
             continue
         rel = info.filename[len(prefix) :]
+
+        if should_skip_zip_member(info.filename, prefix):
+            continue
 
         # Zip Slip guard: validate the *logical* destination path.
         if not (base_resolved / rel).resolve().is_relative_to(base_resolved):
@@ -182,10 +327,13 @@ def _swap_directories(dst: Path, tmp_dst: Path, old_dst: Path) -> None:
             f"commit_tmp called without a valid staging directory: {tmp_dst}",
         )
 
-    renamed_to_old = False
-    if dst.exists():
-        dst.rename(old_dst)
-        renamed_to_old = True
+    handled, renamed_to_old = prepare_destination_for_swap(
+        dst,
+        tmp_dst,
+        old_dst,
+    )
+    if handled:
+        return
 
     try:
         tmp_dst.rename(dst)
