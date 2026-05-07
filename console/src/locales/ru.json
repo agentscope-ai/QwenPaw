@@ -223,6 +223,7 @@
     "batchEnablePartial": "{{enabled}} включено, {{failed}} не удалось",
     "batchEnableFailed": "Не удалось выполнить пакетное включение",
     "batchDisableSuccess": "{{count}} навыков отключено",
+    "batchDisablePartial": "{{disabled}} отключено, {{failed}} не удалось",
     "batchDisableFailed": "Не удалось выполнить пакетное отключение",
     "batchDeleteTitle": "Удалить {{count}} навыков?",
     "batchDeleteSuccess": "{{count}} навыков удалено",

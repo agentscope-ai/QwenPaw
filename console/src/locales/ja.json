@@ -223,6 +223,7 @@
     "batchEnablePartial": "{{enabled}}個有効化、{{failed}}個失敗",
     "batchEnableFailed": "一括有効化に失敗しました",
     "batchDisableSuccess": "{{count}}個のスキルを無効にしました",
+    "batchDisablePartial": "{{disabled}}個無効化、{{failed}}個失敗",
     "batchDisableFailed": "一括無効化に失敗しました",
     "batchDeleteTitle": "{{count}}個のスキルを削除しますか？",
     "batchDeleteSuccess": "{{count}}個のスキルを削除しました",

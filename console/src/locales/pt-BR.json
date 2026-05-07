@@ -407,6 +407,7 @@
     "batchEnablePartial": "{{enabled}} ativadas, {{failed}} falharam",
     "batchEnableFailed": "Falha ao ativar em lote",
     "batchDisableSuccess": "{{count}} skills desativadas",
+    "batchDisablePartial": "{{disabled}} desativadas, {{failed}} falharam",
     "batchDisableFailed": "Falha ao desativar em lote",
     "batchDeleteTitle": "Excluir {{count}} skills?",
     "batchDeleteSuccess": "{{count}} Skills deleted",

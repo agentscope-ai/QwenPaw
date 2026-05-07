@@ -407,6 +407,7 @@
     "batchEnablePartial": "{{enabled}} enabled, {{failed}} failed",
     "batchEnableFailed": "Batch enable failed",
     "batchDisableSuccess": "{{count}} skills disabled",
+    "batchDisablePartial": "{{disabled}} disabled, {{failed}} failed",
     "batchDisableFailed": "Batch disable failed",
     "batchDeleteTitle": "Delete {{count}} skills?",
     "batchDeleteSuccess": "{{count}} skills deleted",

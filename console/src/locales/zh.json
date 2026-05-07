@@ -263,6 +263,7 @@
     "batchEnablePartial": "{{enabled}} 个已启用，{{failed}} 个失败",
     "batchEnableFailed": "批量启用失败",
     "batchDisableSuccess": "已禁用 {{count}} 个技能",
+    "batchDisablePartial": "{{disabled}} 个已禁用，{{failed}} 个失败",
     "batchDisableFailed": "批量禁用失败",
     "batchDeleteTitle": "删除 {{count}} 个技能？",
     "batchDeleteSuccess": "已删除 {{count}} 个技能",
