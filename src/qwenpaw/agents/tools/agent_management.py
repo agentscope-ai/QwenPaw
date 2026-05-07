@@ -13,6 +13,7 @@ from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
 from ...config.utils import read_last_api
+from ...utils.http import trust_env_for_url
 
 
 DEFAULT_AGENT_API_BASE_URL = "http://127.0.0.1:8088"
@@ -65,9 +66,11 @@ def create_agent_api_client(
     default_timeout: float = DEFAULT_AGENT_API_TIMEOUT,
 ) -> httpx.Client:
     """Create an HTTP client targeting the local agent API."""
+    normalized = _normalize_api_base_url(base_url)
     return httpx.Client(
-        base_url=_normalize_api_base_url(base_url),
+        base_url=normalized,
         timeout=default_timeout,
+        trust_env=trust_env_for_url(normalized),
     )
 
 
