@@ -75,7 +75,7 @@ class JsonChatRepository(BaseChatRepository):
 
 
 def migrate_legacy_weixin_chats_file(chats_path: Path | str) -> None:
-    """One-shot migration: rewrite legacy ``weixin:`` session_ids in chats.json.
+    """One-shot migration: rewrite legacy ``weixin:`` session_ids.
 
     Older releases used ``weixin`` as the ``session_id`` prefix for
     WeChat (iLink) chats. The canonical prefix is now ``wechat``. The
@@ -84,10 +84,14 @@ def migrate_legacy_weixin_chats_file(chats_path: Path | str) -> None:
     backed up before rewrite. Idempotent: a no-op when no legacy
     entries are present.
     """
-    path = Path(chats_path).expanduser() if isinstance(
-        chats_path,
-        str,
-    ) else chats_path
+    path = (
+        Path(chats_path).expanduser()
+        if isinstance(
+            chats_path,
+            str,
+        )
+        else chats_path
+    )
     if not path.is_file():
         return
     try:

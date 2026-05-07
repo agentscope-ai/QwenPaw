@@ -196,14 +196,14 @@ def _rewrite_weixin_in_session_filename(name: str) -> str | None:
     idx = stem.find(delim)
     if idx >= 0:
         safe_uid = stem[:idx]
-        safe_sid_tail = stem[idx + len(delim):]
+        safe_sid_tail = stem[idx + len(delim) :]
         return (
             f"{safe_uid}_{_CANONICAL_WECHAT_SAFE_PREFIX}{safe_sid_tail}.json"
         )
     if stem.startswith(_LEGACY_WEIXIN_SAFE_PREFIX):
         return (
             _CANONICAL_WECHAT_SAFE_PREFIX
-            + stem[len(_LEGACY_WEIXIN_SAFE_PREFIX):]
+            + stem[len(_LEGACY_WEIXIN_SAFE_PREFIX) :]
             + ".json"
         )
     return None

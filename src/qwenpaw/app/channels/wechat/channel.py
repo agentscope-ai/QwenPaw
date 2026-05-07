@@ -254,12 +254,6 @@ class WeChatChannel(BaseChannel):
             return h[len("wechat:group:") :]
         if h.startswith("wechat:"):
             return h[len("wechat:") :]
-        # Historical session IDs generated before the weixin->wechat rename
-        # may still be referenced by cron jobs / stored chat history.
-        if h.startswith("weixin:group:"):
-            return h[len("weixin:group:") :]
-        if h.startswith("weixin:"):
-            return h[len("weixin:") :]
         return h
 
     def to_handle_from_target(self, *, user_id: str, session_id: str) -> str:

@@ -499,17 +499,14 @@ def _read_config_data(config_path: Path) -> Optional[dict]:
     return data
 
 
-def _rewrite_legacy_weixin_key_on_disk(
-    config_path: Path,
-    data: dict,
-) -> None:
+def _rewrite_legacy_weixin_key_on_disk(config_path: Path) -> None:
     """One-shot migration: rewrite ``channels.weixin`` -> ``channels.wechat``.
 
-    Re-reads the raw file to detect whether the legacy key is still present
-    on disk (the ``data`` arg may have already been normalized in memory by
+    Re-reads the raw file to detect whether the legacy key is still
+    present on disk (in-memory data may already have been normalized by
     the model validator). When detected, backs up the original file and
-    writes the migrated content back so subsequent loads see the canonical
-    key directly.
+    writes the migrated content back so subsequent loads see the
+    canonical key directly.
     """
     try:
         with open(config_path, "r", encoding="utf-8") as file:
@@ -582,7 +579,7 @@ def _load_and_validate_config(
             )
             return Config()
 
-    _rewrite_legacy_weixin_key_on_disk(config_path, data)
+    _rewrite_legacy_weixin_key_on_disk(config_path)
     return config
 
 

@@ -1771,7 +1771,9 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
                 )
                 _shutil.copy2(agent_config_path, backup_path)
                 with open(
-                    agent_config_path, "w", encoding="utf-8"
+                    agent_config_path,
+                    "w",
+                    encoding="utf-8",
                 ) as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
                 # Refresh mtime cache key after rewriting the file so the

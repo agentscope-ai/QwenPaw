@@ -402,6 +402,7 @@ class Workspace:
         Each step is wrapped so a migration failure never blocks workspace
         startup; affected files are simply left in their legacy state.
         """
+        from ..crons.repo.json_repo import migrate_legacy_weixin_jobs_file
         from ..runner.repo.json_repo import migrate_legacy_weixin_chats_file
         from ..runner.session import migrate_legacy_weixin_session_files
 
@@ -418,13 +419,24 @@ class Workspace:
             )
 
         try:
+            migrate_legacy_weixin_jobs_file(
+                self.workspace_dir / "jobs.json",
+            )
+        except Exception as exc:
+            logger.warning(
+                "weixin->wechat jobs.json migration failed for "
+                "agent %s: %s",
+                self.agent_id,
+                exc,
+            )
+
+        try:
             migrate_legacy_weixin_session_files(
                 str(self.workspace_dir / "sessions"),
             )
         except Exception as exc:
             logger.warning(
-                "weixin->wechat sessions migration failed for "
-                "agent %s: %s",
+                "weixin->wechat sessions migration failed for agent %s: %s",
                 self.agent_id,
                 exc,
             )
