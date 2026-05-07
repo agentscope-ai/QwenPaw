@@ -10,6 +10,7 @@ import os
 import re
 import json
 import logging
+import shutil
 
 from typing import Union, Sequence
 
@@ -80,8 +81,14 @@ def sanitize_filename(name: str) -> str:
 _LEGACY_WEIXIN_SAFE_PREFIX = "weixin--"
 _CANONICAL_WECHAT_SAFE_PREFIX = "wechat--"
 
+# Sub-directory inside ``save_dir`` where the original legacy weixin
+# session files are archived after migration. Keeping a copy preserves
+# user data for manual recovery; the archive directory is excluded from
+# regular session scans because callers list ``*.json`` non-recursively.
+_WEIXIN_LEGACY_ARCHIVE_DIR = ".weixin-legacy"
 
-def _migrate_legacy_weixin_session_files(save_dir: str) -> None:
+
+def migrate_legacy_weixin_session_files(save_dir: str) -> None:
     """One-shot migration: rename legacy ``weixin--`` session files.
 
     Older releases generated session_ids prefixed with ``weixin:`` for the
@@ -89,8 +96,14 @@ def _migrate_legacy_weixin_session_files(save_dir: str) -> None:
     ``--``, so legacy files on disk look like ``..._weixin--xxx.json`` (or
     ``weixin--xxx.json`` when no user_id). The canonical prefix is now
     ``wechat``; rename matching files in-place so historical WeChat chat
-    history remains loadable. Skips files when a target with the
-    canonical prefix already exists. Idempotent.
+    history remains loadable.
+
+    For each migrated file the original is moved into the
+    ``.weixin-legacy/`` archive sub-directory before the canonical copy
+    is written, so subsequent startups no longer see ``weixin--`` files
+    in the top level and skip the migration without extra bookkeeping.
+    When a target file with the canonical prefix already exists the
+    legacy file is archived but not copied over the existing data.
     """
     if not save_dir or not os.path.isdir(save_dir):
         return
@@ -98,28 +111,59 @@ def _migrate_legacy_weixin_session_files(save_dir: str) -> None:
         entries = os.listdir(save_dir)
     except OSError:
         return
-    for name in entries:
-        if not name.endswith(".json"):
-            continue
-        new_name = _rewrite_weixin_in_session_filename(name)
-        if new_name is None or new_name == name:
-            continue
+    legacy_files = [
+        name
+        for name in entries
+        if name.endswith(".json")
+        and _rewrite_weixin_in_session_filename(name) is not None
+    ]
+    if not legacy_files:
+        return
+    archive_dir = os.path.join(save_dir, _WEIXIN_LEGACY_ARCHIVE_DIR)
+    try:
+        os.makedirs(archive_dir, exist_ok=True)
+    except OSError as exc:
+        logger.error(
+            "Failed to create weixin archive directory %s: %s",
+            archive_dir,
+            exc,
+        )
+        return
+    for name in legacy_files:
         src = os.path.join(save_dir, name)
-        dst = os.path.join(save_dir, new_name)
-        if os.path.exists(dst):
-            logger.warning(
-                "Skip migrating session file %s -> %s: target already exists",
-                src,
-                dst,
-            )
+        new_name = _rewrite_weixin_in_session_filename(name)
+        # ``new_name`` is non-None here (filtered above), but reassert for
+        # the type checker.
+        if new_name is None:
             continue
+        dst = os.path.join(save_dir, new_name)
+        archive_path = os.path.join(archive_dir, name)
+        target_exists = os.path.exists(dst)
         try:
-            os.rename(src, dst)
-            logger.warning(
-                "Migrated legacy weixin session file %s -> %s",
-                src,
-                dst,
-            )
+            if target_exists:
+                # Canonical file already present: archive the legacy copy
+                # and leave the live file untouched.
+                os.rename(src, archive_path)
+                logger.warning(
+                    "Archived legacy weixin session file %s -> %s "
+                    "(canonical %s already exists)",
+                    src,
+                    archive_path,
+                    dst,
+                )
+            else:
+                # Copy first, then archive the source. This keeps the
+                # legacy file recoverable even if the rename to ``dst``
+                # is interrupted.
+                shutil.copy2(src, dst)
+                os.rename(src, archive_path)
+                logger.warning(
+                    "Migrated legacy weixin session file %s -> %s "
+                    "(original archived to %s)",
+                    src,
+                    dst,
+                    archive_path,
+                )
         except OSError as exc:
             logger.error(
                 "Failed to migrate session file %s -> %s: %s",
@@ -176,7 +220,6 @@ class SafeJSONSession(SessionBase):
                 The directory to save the session state.
         """
         self.save_dir = save_dir
-        _migrate_legacy_weixin_session_files(save_dir)
 
     def _get_save_path(self, session_id: str, user_id: str) -> str:
         """Return a filesystem-safe save path.

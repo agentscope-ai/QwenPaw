@@ -372,7 +372,12 @@ class Workspace:
             self._config = load_agent_config(self.agent_id)
             logger.debug(f"Loaded config for agent: {self.agent_id}")
 
-            # 2. Start all services via ServiceManager
+            # 2. Run one-shot data migrations (legacy weixin -> wechat)
+            #    Must happen BEFORE services start so that newly created
+            #    ChatManager / Runner observe the canonical data layout.
+            self._migrate_legacy_weixin_data()
+
+            # 3. Start all services via ServiceManager
             await self._service_manager.start_all()
 
             self._started = True
@@ -385,6 +390,44 @@ class Workspace:
             # Clean up partially started components
             await self.stop()
             raise
+
+    def _migrate_legacy_weixin_data(self) -> None:
+        """Run one-shot legacy weixin -> wechat data migrations.
+
+        Triggered eagerly from :meth:`start` so that historical chats and
+        per-session state become visible immediately after upgrade,
+        without waiting for the first chat request to lazily instantiate
+        ``ChatManager`` / ``Runner``.
+
+        Each step is wrapped so a migration failure never blocks workspace
+        startup; affected files are simply left in their legacy state.
+        """
+        from ..runner.repo.json_repo import migrate_legacy_weixin_chats_file
+        from ..runner.session import migrate_legacy_weixin_session_files
+
+        try:
+            migrate_legacy_weixin_chats_file(
+                self.workspace_dir / "chats.json",
+            )
+        except Exception as exc:
+            logger.warning(
+                "weixin->wechat chats.json migration failed for "
+                "agent %s: %s",
+                self.agent_id,
+                exc,
+            )
+
+        try:
+            migrate_legacy_weixin_session_files(
+                str(self.workspace_dir / "sessions"),
+            )
+        except Exception as exc:
+            logger.warning(
+                "weixin->wechat sessions migration failed for "
+                "agent %s: %s",
+                self.agent_id,
+                exc,
+            )
 
     async def stop(self, final: bool = True):
         """Stop agent instance and clean up all resources.
