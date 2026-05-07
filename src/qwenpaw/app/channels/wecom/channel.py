@@ -907,7 +907,8 @@ class WecomChannel(BaseChannel):
                 return media_id
             except Exception:
                 logger.exception(
-                    "wecom _upload_media failed path=%s", local[:60]
+                    "wecom _upload_media failed path=%s",
+                    local[:60],
                 )
                 return None
 
