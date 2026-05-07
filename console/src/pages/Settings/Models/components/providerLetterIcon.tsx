@@ -15,6 +15,7 @@ const PROVIDER_LETTER_COLORS: Record<string, string> = {
   openai: "#10A37F",
   dashscope: "#6236FF",
   lmstudio: "#6C5CE7",
+  "unsloth-studio": "#FF6B35",
   "siliconflow-cn": "#5B5FC7",
   "siliconflow-intl": "#5B5FC7",
   "qwenpaw-local": "#FF7F16",
