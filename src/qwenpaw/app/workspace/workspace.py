@@ -372,9 +372,8 @@ class Workspace:
             self._config = load_agent_config(self.agent_id)
             logger.debug(f"Loaded config for agent: {self.agent_id}")
 
-            # 2. Run one-shot data migrations (legacy weixin -> wechat)
-            #    Must happen BEFORE services start so that newly created
-            #    ChatManager / Runner observe the canonical data layout.
+            # 2. Run legacy weixin -> wechat data migrations BEFORE services
+            # start so ChatManager / Runner see the canonical layout.
             self._migrate_legacy_weixin_data()
 
             # 3. Start all services via ServiceManager
@@ -392,15 +391,10 @@ class Workspace:
             raise
 
     def _migrate_legacy_weixin_data(self) -> None:
-        """Run one-shot legacy weixin -> wechat data migrations.
+        """Eagerly migrate legacy weixin -> wechat data on workspace start.
 
-        Triggered eagerly from :meth:`start` so that historical chats and
-        per-session state become visible immediately after upgrade,
-        without waiting for the first chat request to lazily instantiate
-        ``ChatManager`` / ``Runner``.
-
-        Each step is wrapped so a migration failure never blocks workspace
-        startup; affected files are simply left in their legacy state.
+        Each step is guarded so a failure logs a warning instead of
+        blocking startup; affected files stay in their legacy state.
         """
         from ..crons.repo.json_repo import migrate_legacy_weixin_jobs_file
         from ..runner.repo.json_repo import migrate_legacy_weixin_chats_file

@@ -89,21 +89,11 @@ _WEIXIN_LEGACY_ARCHIVE_DIR = ".weixin-legacy"
 
 
 def migrate_legacy_weixin_session_files(save_dir: str) -> None:
-    """One-shot migration: rename legacy ``weixin--`` session files.
+    """Rename legacy ``weixin--`` session files to the ``wechat--`` form.
 
-    Older releases generated session_ids prefixed with ``weixin:`` for the
-    WeChat (iLink) channel. ``sanitize_filename`` rewrites the colon to
-    ``--``, so legacy files on disk look like ``..._weixin--xxx.json`` (or
-    ``weixin--xxx.json`` when no user_id). The canonical prefix is now
-    ``wechat``; rename matching files in-place so historical WeChat chat
-    history remains loadable.
-
-    For each migrated file the original is moved into the
-    ``.weixin-legacy/`` archive sub-directory before the canonical copy
-    is written, so subsequent startups no longer see ``weixin--`` files
-    in the top level and skip the migration without extra bookkeeping.
-    When a target file with the canonical prefix already exists the
-    legacy file is archived but not copied over the existing data.
+    Originals are moved to the ``.weixin-legacy/`` archive sub-dir so
+    later startups skip the migration without extra bookkeeping. If a
+    canonical file already exists, the legacy file is only archived.
     """
     if not save_dir or not os.path.isdir(save_dir):
         return
@@ -142,8 +132,9 @@ def migrate_legacy_weixin_session_files(save_dir: str) -> None:
         try:
             if target_exists:
                 # Canonical file already present: archive the legacy copy
-                # and leave the live file untouched.
-                os.rename(src, archive_path)
+                # and leave the live file untouched. ``shutil.move`` falls
+                # back to copy+delete across filesystem boundaries.
+                shutil.move(src, archive_path)
                 logger.warning(
                     "Archived legacy weixin session file %s -> %s "
                     "(canonical %s already exists)",
@@ -153,10 +144,10 @@ def migrate_legacy_weixin_session_files(save_dir: str) -> None:
                 )
             else:
                 # Copy first, then archive the source. This keeps the
-                # legacy file recoverable even if the rename to ``dst``
-                # is interrupted.
+                # legacy file recoverable even if the move to ``dst`` is
+                # interrupted.
                 shutil.copy2(src, dst)
-                os.rename(src, archive_path)
+                shutil.move(src, archive_path)
                 logger.warning(
                     "Migrated legacy weixin session file %s -> %s "
                     "(original archived to %s)",
@@ -176,20 +167,13 @@ def migrate_legacy_weixin_session_files(save_dir: str) -> None:
 def _rewrite_weixin_in_session_filename(name: str) -> str | None:
     """Return the canonical filename for a legacy weixin session file.
 
-    File layout produced by ``_get_save_path`` is one of:
-      - ``{safe_uid}_{safe_sid}.json``
-      - ``{safe_sid}.json``
-    Only the ``safe_sid`` segment encodes the channel prefix, so we
-    rewrite the ``weixin--`` prefix of that segment. Returns ``None``
-    when the file does not match the legacy pattern.
+    File layout from ``_get_save_path`` is ``{safe_uid}_{safe_sid}.json``
+    or ``{safe_sid}.json``. Returns ``None`` if the file does not match.
 
-    Cannot rely on ``rsplit('_', 1)`` to recover ``safe_sid``: real
-    WeChat user_ids contain ``_`` (e.g. ``o9cq80_PO-STd-yy_aCrZEwU``)
-    and the session_id ends with ``@im.wechat``, so the rightmost
-    underscore lives inside the trailing ``_wechat`` of session_id,
-    not at the user_id / session_id boundary. Locate the ``_weixin--``
-    delimiter directly instead, falling back to a bare-``weixin--``
-    leading match for the no-user_id form.
+    NOTE: cannot use ``rsplit('_', 1)`` to find the boundary: WeChat
+    user_ids contain ``_`` and session_ids end with ``@im.wechat``, so
+    the rightmost ``_`` lives inside the session_id. Locate the literal
+    ``_weixin--`` delimiter instead.
     """
     stem = name[: -len(".json")]
     delim = "_" + _LEGACY_WEIXIN_SAFE_PREFIX

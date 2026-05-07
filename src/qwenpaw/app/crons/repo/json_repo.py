@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import uuid
 from pathlib import Path
@@ -51,18 +52,11 @@ class JsonJobRepository(BaseJobRepository):
 
 
 def migrate_legacy_weixin_jobs_file(jobs_path: Path | str) -> None:
-    """One-shot migration: rewrite legacy ``weixin:`` session_ids in jobs.json.
+    """Rewrite legacy ``weixin:`` cron dispatch session_ids to ``wechat:``.
 
-    Older releases used ``weixin`` as the ``session_id`` prefix for
-    WeChat (iLink) cron dispatch targets. The canonical prefix is now
-    ``wechat``. The ``dispatch.channel`` field has always been
-    ``wechat``, so only the ``dispatch.target.session_id`` prefix needs
-    to be rewritten. Original file is backed up before rewrite.
-    Idempotent: a no-op when no legacy entries are present.
-
-    Without this migration a fired cron would re-introduce ``weixin:``
-    prefixes into freshly-created chat / session files, undoing the
-    chats.json and sessions/ migrations done elsewhere on startup.
+    Without this, a fired cron would re-introduce ``weixin:`` prefixes
+    into freshly created chat / session files. Idempotent; backs up the
+    original file before rewrite.
     """
     path = (
         Path(jobs_path).expanduser()
@@ -106,6 +100,8 @@ def migrate_legacy_weixin_jobs_file(jobs_path: Path | str) -> None:
         )
         shutil.copy2(path, backup_path)
         tmp_path = path.with_suffix(path.suffix + ".tmp")
+        # newline="\n" prevents Windows from translating LF -> CRLF and
+        # polluting the file's line endings on rewrite.
         tmp_path.write_text(
             json.dumps(
                 data,
@@ -114,8 +110,11 @@ def migrate_legacy_weixin_jobs_file(jobs_path: Path | str) -> None:
                 sort_keys=True,
             ),
             encoding="utf-8",
+            newline="\n",
         )
-        shutil.move(str(tmp_path), str(path))
+        # os.replace is the documented atomic-overwrite primitive on all
+        # supported platforms (POSIX rename + Windows ReplaceFile).
+        os.replace(tmp_path, path)
         logger.warning(
             "Migrated legacy 'weixin' cron dispatch targets -> 'wechat' "
             "in %s (backup: %s)",

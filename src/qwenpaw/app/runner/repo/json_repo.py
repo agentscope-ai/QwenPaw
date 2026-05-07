@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import uuid
 from pathlib import Path
@@ -75,14 +76,9 @@ class JsonChatRepository(BaseChatRepository):
 
 
 def migrate_legacy_weixin_chats_file(chats_path: Path | str) -> None:
-    """One-shot migration: rewrite legacy ``weixin:`` session_ids.
+    """Rewrite legacy ``weixin:`` session_id prefixes to ``wechat:``.
 
-    Older releases used ``weixin`` as the ``session_id`` prefix for
-    WeChat (iLink) chats. The canonical prefix is now ``wechat``. The
-    ``channel`` field has always been ``wechat``, so only the
-    ``session_id`` prefix needs to be rewritten. Original file is
-    backed up before rewrite. Idempotent: a no-op when no legacy
-    entries are present.
+    Idempotent; backs up the original file before rewrite.
     """
     path = (
         Path(chats_path).expanduser()
@@ -123,6 +119,8 @@ def migrate_legacy_weixin_chats_file(chats_path: Path | str) -> None:
         )
         shutil.copy2(path, backup_path)
         tmp_path = path.with_suffix(path.suffix + ".tmp")
+        # newline="\n" prevents Windows from translating LF -> CRLF and
+        # polluting the file's line endings on rewrite.
         tmp_path.write_text(
             json.dumps(
                 data,
@@ -131,8 +129,11 @@ def migrate_legacy_weixin_chats_file(chats_path: Path | str) -> None:
                 sort_keys=True,
             ),
             encoding="utf-8",
+            newline="\n",
         )
-        shutil.move(str(tmp_path), str(path))
+        # os.replace is the documented atomic-overwrite primitive on all
+        # supported platforms (POSIX rename + Windows ReplaceFile).
+        os.replace(tmp_path, path)
         logger.warning(
             "Migrated legacy 'weixin' chat entries -> 'wechat' in %s "
             "(backup: %s)",
