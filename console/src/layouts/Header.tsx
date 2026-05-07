@@ -1,4 +1,5 @@
-import { Layout, Space, Badge, Spin, Tooltip } from "antd";
+import { Layout, Space, Badge, Spin, Tooltip, Dropdown } from "antd";
+import type { MenuProps } from "antd";
 import LanguageSwitcher from "../components/LanguageSwitcher/index";
 import ThemeToggleButton from "../components/ThemeToggleButton";
 import { useTranslation } from "react-i18next";
@@ -20,7 +21,16 @@ import { useTheme } from "../contexts/ThemeContext";
 import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { CopyOutlined, CheckOutlined, TagOutlined } from "@ant-design/icons";
+import {
+  CopyOutlined,
+  CheckOutlined,
+  TagOutlined,
+  GithubOutlined,
+  FileTextOutlined,
+  ReadOutlined,
+  QuestionCircleOutlined,
+  DownOutlined,
+} from "@ant-design/icons";
 
 const { Header: AntHeader } = Layout;
 
@@ -179,32 +189,41 @@ export default function Header() {
           )}
         </div>
         <Space size="middle">
-          <Tooltip title={t("header.changelog")}>
-            <Button
-              type="text"
-              onClick={() => handleNavClick(getReleaseNotesUrl(i18n.language))}
-            >
-              {t("header.changelog")}
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: "tutorial",
+                  icon: <ReadOutlined />,
+                  label: t("header.tutorial"),
+                  onClick: () => handleNavClick(getDocsUrl(i18n.language)),
+                },
+                {
+                  key: "changelog",
+                  icon: <FileTextOutlined />,
+                  label: t("header.changelog"),
+                  onClick: () =>
+                    handleNavClick(getReleaseNotesUrl(i18n.language)),
+                },
+                {
+                  key: "faq",
+                  icon: <QuestionCircleOutlined />,
+                  label: t("header.faq"),
+                  onClick: () => handleNavClick(getFaqUrl(i18n.language)),
+                },
+              ] as MenuProps["items"],
+            }}
+          >
+            <Button type="text">
+              {t("header.resources")} <DownOutlined />
             </Button>
-          </Tooltip>
-          <Tooltip title={t("header.docs")}>
-            <Button
-              type="text"
-              onClick={() => handleNavClick(getDocsUrl(i18n.language))}
-            >
-              {t("header.docs")}
-            </Button>
-          </Tooltip>
-          <Tooltip title={t("header.faq")}>
-            <Button
-              type="text"
-              onClick={() => handleNavClick(getFaqUrl(i18n.language))}
-            >
-              {t("header.faq")}
-            </Button>
-          </Tooltip>
+          </Dropdown>
           <Tooltip title={t("header.github")}>
-            <Button type="text" onClick={() => handleNavClick(GITHUB_URL)}>
+            <Button
+              type="text"
+              icon={<GithubOutlined />}
+              onClick={() => handleNavClick(GITHUB_URL)}
+            >
               {t("header.github")}
             </Button>
           </Tooltip>
