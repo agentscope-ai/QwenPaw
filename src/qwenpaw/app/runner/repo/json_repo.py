@@ -52,6 +52,27 @@ class JsonChatRepository(BaseChatRepository):
         data = json.loads(self._path.read_text(encoding="utf-8"))
         return ChatsFile.model_validate(data)
 
+    async def save(self, chats_file: ChatsFile) -> None:
+        """Save chat specs to JSON file atomically.
+
+        Args:
+            chats_file: ChatsFile to persist
+        """
+        # Create parent directory if needed
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write to temp file first (atomic write)
+        tmp_path = self._path.with_suffix(self._path.suffix + ".tmp")
+        payload = chats_file.model_dump(mode="json")
+
+        tmp_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+        # Atomic replace (shutil.move handles cross-disk on Windows)
+        shutil.move(str(tmp_path), str(self._path))
+
 
 def migrate_legacy_weixin_chats_file(chats_path: Path | str) -> None:
     """One-shot migration: rewrite legacy ``weixin:`` session_ids in chats.json.
@@ -120,24 +141,3 @@ def migrate_legacy_weixin_chats_file(chats_path: Path | str) -> None:
             path,
             exc,
         )
-
-    async def save(self, chats_file: ChatsFile) -> None:
-        """Save chat specs to JSON file atomically.
-
-        Args:
-            chats_file: ChatsFile to persist
-        """
-        # Create parent directory if needed
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Write to temp file first (atomic write)
-        tmp_path = self._path.with_suffix(self._path.suffix + ".tmp")
-        payload = chats_file.model_dump(mode="json")
-
-        tmp_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-
-        # Atomic replace (shutil.move handles cross-disk on Windows)
-        shutil.move(str(tmp_path), str(self._path))

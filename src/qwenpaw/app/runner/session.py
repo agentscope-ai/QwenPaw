@@ -180,23 +180,30 @@ def _rewrite_weixin_in_session_filename(name: str) -> str | None:
       - ``{safe_uid}_{safe_sid}.json``
       - ``{safe_sid}.json``
     Only the ``safe_sid`` segment encodes the channel prefix, so we
-    rewrite the leading ``weixin--`` of that segment. Returns ``None``
+    rewrite the ``weixin--`` prefix of that segment. Returns ``None``
     when the file does not match the legacy pattern.
+
+    Cannot rely on ``rsplit('_', 1)`` to recover ``safe_sid``: real
+    WeChat user_ids contain ``_`` (e.g. ``o9cq80_PO-STd-yy_aCrZEwU``)
+    and the session_id ends with ``@im.wechat``, so the rightmost
+    underscore lives inside the trailing ``_wechat`` of session_id,
+    not at the user_id / session_id boundary. Locate the ``_weixin--``
+    delimiter directly instead, falling back to a bare-``weixin--``
+    leading match for the no-user_id form.
     """
     stem = name[: -len(".json")]
-    # Try "{safe_uid}_{safe_sid}" first (rsplit so user_ids with '_' work).
-    if "_" in stem:
-        safe_uid, safe_sid = stem.rsplit("_", 1)
-        if safe_sid.startswith(_LEGACY_WEIXIN_SAFE_PREFIX):
-            new_sid = (
-                _CANONICAL_WECHAT_SAFE_PREFIX
-                + safe_sid[len(_LEGACY_WEIXIN_SAFE_PREFIX) :]
-            )
-            return f"{safe_uid}_{new_sid}.json"
+    delim = "_" + _LEGACY_WEIXIN_SAFE_PREFIX
+    idx = stem.find(delim)
+    if idx >= 0:
+        safe_uid = stem[:idx]
+        safe_sid_tail = stem[idx + len(delim):]
+        return (
+            f"{safe_uid}_{_CANONICAL_WECHAT_SAFE_PREFIX}{safe_sid_tail}.json"
+        )
     if stem.startswith(_LEGACY_WEIXIN_SAFE_PREFIX):
         return (
             _CANONICAL_WECHAT_SAFE_PREFIX
-            + stem[len(_LEGACY_WEIXIN_SAFE_PREFIX) :]
+            + stem[len(_LEGACY_WEIXIN_SAFE_PREFIX):]
             + ".json"
         )
     return None
