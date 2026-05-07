@@ -13,7 +13,6 @@ interface UseTokenTypeConfigProps {
   > | null;
   startDate: Dayjs;
   endDate: Dayjs;
-  selectedTokenTypes: string[];
   isDark: boolean;
 }
 
@@ -27,7 +26,6 @@ export function useTokenTypeConfig({
   byDate,
   startDate,
   endDate,
-  selectedTokenTypes,
   isDark,
 }: UseTokenTypeConfigProps) {
   return useMemo(() => {
@@ -42,19 +40,12 @@ export function useTokenTypeConfig({
       current = current.add(1, "day");
     }
 
-    const allTypes = ["Prompt Tokens", "Completion Tokens", "Total Tokens"];
-    const filteredTypes =
-      selectedTokenTypes.length > 0
-        ? allTypes.filter((type) => selectedTokenTypes.includes(type))
-        : allTypes;
-
-    // If no types selected, show all types
-    const displayTypes =
-      selectedTokenTypes.length === 0 ? allTypes : filteredTypes;
-
-    const colors = displayTypes
-      .map((type) => TYPE_COLORS[type])
-      .filter(Boolean);
+    const allTypes = [
+      "Prompt Tokens",
+      "Completion Tokens",
+      "Total Tokens",
+    ] as const;
+    const colors = allTypes.map((type) => TYPE_COLORS[type]);
 
     const chartData: Array<{
       date: string;
@@ -75,7 +66,7 @@ export function useTokenTypeConfig({
         "Total Tokens": dayStats.prompt_tokens + dayStats.completion_tokens,
       };
 
-      displayTypes.forEach((type) => {
+      allTypes.forEach((type) => {
         chartData.push({
           date,
           type,
@@ -116,7 +107,7 @@ export function useTokenTypeConfig({
           tickCount,
           labelFormatter: (d: string) => {
             const date = dayjs(d);
-            return date.format("MMM DD");
+            return date.format("MM-DD");
           },
           grid: null,
         },
@@ -152,5 +143,5 @@ export function useTokenTypeConfig({
       },
       color: colors,
     };
-  }, [byDate, startDate, endDate, selectedTokenTypes, isDark]);
+  }, [byDate, startDate, endDate, isDark]);
 }

@@ -18,7 +18,6 @@ interface UseModelTrendConfigProps {
   > | null;
   startDate: Dayjs;
   endDate: Dayjs;
-  selectedModels: string[];
   isDark: boolean;
 }
 
@@ -26,7 +25,6 @@ export function useModelTrendConfig({
   byDateModel,
   startDate,
   endDate,
-  selectedModels,
   isDark,
 }: UseModelTrendConfigProps) {
   return useMemo(() => {
@@ -34,28 +32,10 @@ export function useModelTrendConfig({
 
     const isDarkMode = isDark;
 
-    const allModelKeys = new Map<string, { provider: string; model: string }>();
-    Object.entries(byDateModel).forEach(([, modelMap]) => {
-      Object.entries(modelMap).forEach(([key, stats]) => {
-        allModelKeys.set(key, {
-          provider: stats.provider_id,
-          model: stats.model,
-        });
-      });
+    const allModelKeys = new Set<string>();
+    Object.values(byDateModel).forEach((modelMap) => {
+      Object.keys(modelMap).forEach((key) => allModelKeys.add(key));
     });
-
-    const filteredModelKeys =
-      selectedModels.length > 0
-        ? new Map(
-            Array.from(allModelKeys.entries()).filter(([key]) =>
-              selectedModels.includes(key),
-            ),
-          )
-        : allModelKeys;
-
-    // If no models selected, show all models
-    const displayModelKeys =
-      selectedModels.length === 0 ? allModelKeys : filteredModelKeys;
 
     const allDates: string[] = [];
     let current = startDate.clone();
@@ -72,7 +52,7 @@ export function useModelTrendConfig({
 
     allDates.forEach((date) => {
       const dayData = byDateModel[date] || {};
-      displayModelKeys.forEach((_, modelKey) => {
+      allModelKeys.forEach((modelKey) => {
         chartData.push({
           date,
           model: modelKey,
@@ -113,7 +93,7 @@ export function useModelTrendConfig({
           tickCount,
           labelFormatter: (d: string) => {
             const date = dayjs(d);
-            return date.format("MMM DD");
+            return date.format("MM-DD");
           },
           grid: null,
         },
@@ -139,14 +119,18 @@ export function useModelTrendConfig({
       },
       legend: {
         position: "top" as const,
+        maxRows: 2,
         itemMarker: "circle",
+        itemMarkerSize: 8,
+        itemLabelFontSize: 11,
+        itemSpacing: 8,
         itemName: {
           style: {
             fill: isDarkMode ? "rgba(255, 255, 255, 0.85)" : "#333",
-            fontSize: 12,
+            fontSize: 11,
           },
         },
       },
     };
-  }, [byDateModel, startDate, endDate, selectedModels, isDark]);
+  }, [byDateModel, startDate, endDate, isDark]);
 }
