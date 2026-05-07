@@ -250,7 +250,17 @@ export const skillApi = {
     }),
 
   batchEnableSkills: (skillNames: string[]) =>
-    request<void>("/skills/batch-enable", {
+    request<{
+      results: Record<string, { success?: boolean; reason?: string }>;
+    }>("/skills/batch-enable", {
+      method: "POST",
+      body: JSON.stringify(skillNames),
+    }),
+
+  batchDisableSkills: (skillNames: string[]) =>
+    request<{
+      results: Record<string, boolean>;
+    }>("/skills/batch-disable", {
       method: "POST",
       body: JSON.stringify(skillNames),
     }),

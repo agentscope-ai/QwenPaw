@@ -544,6 +544,54 @@ export function useSkillsPage() {
     }
   };
 
+  // ── Batch enable / disable ───────────────────────────────────────────────
+
+  const handleBatchEnable = async () => {
+    const names = Array.from(selectedSkills);
+    if (names.length === 0) return;
+    try {
+      const { results } = await api.batchEnableSkills(names);
+      const failed = Object.entries(results).filter(
+        ([, r]) => r.success === false,
+      );
+      if (failed.length > 0) {
+        message.warning(
+          t("skills.batchEnablePartial", {
+            enabled: names.length - failed.length,
+            failed: failed.length,
+          }),
+        );
+      } else {
+        message.success(
+          t("skills.batchEnableSuccess", { count: names.length }),
+        );
+      }
+      clearSelection();
+      invalidateSkillCache({ agentId: selectedAgent });
+      await refreshSkills();
+    } catch (error) {
+      message.error(
+        error instanceof Error ? error.message : t("skills.batchEnableFailed"),
+      );
+    }
+  };
+
+  const handleBatchDisable = async () => {
+    const names = Array.from(selectedSkills);
+    if (names.length === 0) return;
+    try {
+      await api.batchDisableSkills(names);
+      message.success(t("skills.batchDisableSuccess", { count: names.length }));
+      clearSelection();
+      invalidateSkillCache({ agentId: selectedAgent });
+      await refreshSkills();
+    } catch (error) {
+      message.error(
+        error instanceof Error ? error.message : t("skills.batchDisableFailed"),
+      );
+    }
+  };
+
   // ── Batch delete ────────────────────────────────────────────────────────
 
   const handleBatchDelete = async () => {
@@ -631,6 +679,8 @@ export function useSkillsPage() {
     handleSubmit,
     handleUploadToPool,
     handleDownloadFromPool,
+    handleBatchEnable,
+    handleBatchDisable,
     handleBatchDelete,
     handleUploadClick,
     handleFileChange,

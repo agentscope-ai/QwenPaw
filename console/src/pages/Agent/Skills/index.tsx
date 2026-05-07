@@ -54,6 +54,8 @@ function SkillsPage() {
     handleSubmit,
     handleUploadToPool,
     handleDownloadFromPool,
+    handleBatchEnable,
+    handleBatchDisable,
     handleBatchDelete,
     handleUploadClick,
     handleFileChange,
@@ -84,6 +86,8 @@ function SkillsPage() {
             onSelectAll={selectAll}
             onClearSelection={clearSelection}
             onUploadToPool={handleUploadToPool}
+            onBatchEnable={handleBatchEnable}
+            onBatchDisable={handleBatchDisable}
             onBatchDelete={handleBatchDelete}
             onToggleBatchMode={toggleBatchMode}
             onHardRefresh={hardRefresh}

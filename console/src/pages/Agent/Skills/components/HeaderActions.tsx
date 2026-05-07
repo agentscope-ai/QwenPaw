@@ -8,6 +8,8 @@ import {
   ReloadOutlined,
   SwapOutlined,
   UploadOutlined,
+  EyeOutlined,
+  EyeInvisibleOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
@@ -21,6 +23,8 @@ interface HeaderActionsProps {
   onSelectAll: () => void;
   onClearSelection: () => void;
   onUploadToPool: (names: string[]) => void;
+  onBatchEnable: () => void;
+  onBatchDisable: () => void;
   onBatchDelete: () => void;
   onToggleBatchMode: () => void;
   onHardRefresh: () => void;
@@ -41,6 +45,8 @@ export function HeaderActions({
   onSelectAll,
   onClearSelection,
   onUploadToPool,
+  onBatchEnable,
+  onBatchDisable,
   onBatchDelete,
   onToggleBatchMode,
   onHardRefresh,
@@ -93,6 +99,20 @@ export function HeaderActions({
                 {t("skills.uploadToPool")}
               </Button>
             </Tooltip>
+            <Button
+              type="default"
+              icon={<EyeOutlined />}
+              onClick={onBatchEnable}
+            >
+              {t("skills.batchEnable")}
+            </Button>
+            <Button
+              danger
+              icon={<EyeInvisibleOutlined />}
+              onClick={onBatchDisable}
+            >
+              {t("skills.batchDisable")}
+            </Button>
             <Button danger icon={<DeleteOutlined />} onClick={onBatchDelete}>
               {t("common.delete")} ({selectedSkills.size})
             </Button>
