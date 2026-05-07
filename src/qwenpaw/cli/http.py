@@ -7,6 +7,8 @@ from typing import Any, Optional
 import click
 import httpx
 
+from ..utils.http import trust_env_for_url
+
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8088"
 
@@ -17,7 +19,11 @@ def client(base_url: str) -> httpx.Client:
     base = base_url.rstrip("/")
     if not base.endswith("/api"):
         base = f"{base}/api"
-    return httpx.Client(base_url=base, timeout=30.0)
+    return httpx.Client(
+        base_url=base,
+        timeout=30.0,
+        trust_env=trust_env_for_url(base),
+    )
 
 
 def print_json(data: Any) -> None:
