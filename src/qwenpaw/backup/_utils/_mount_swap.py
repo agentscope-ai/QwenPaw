@@ -153,6 +153,14 @@ def recover_mount_point_swap(dst: Path, restore_tmp_suffix: str) -> None:
     if not (old_dir.exists() or marker.exists() or tmp_marker.exists()):
         return
 
+    if old_dir.exists() and not (marker.exists() or tmp_marker.exists()):
+        logger.warning(
+            "Leaving possible restore content directory untouched because "
+            "no restore state marker exists: %s",
+            old_dir,
+        )
+        return
+
     state = _read_state(dst)
     try:
         if state == STATE_COMMITTED:

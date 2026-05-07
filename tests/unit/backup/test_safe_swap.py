@@ -251,6 +251,25 @@ def test_cleanup_finishes_committed_state(work_tmp_path: Path) -> None:
     assert not (dst / STATE_FILE_NAME).exists()
 
 
+def test_cleanup_leaves_markerless_old_content_dir_untouched(
+    work_tmp_path: Path,
+) -> None:
+    dst = work_tmp_path / "secrets"
+    dst.mkdir()
+    old_dir = dst / OLD_CONTENT_DIR_NAME
+    old_dir.mkdir()
+    (old_dir / "payload.txt").write_text("keep", encoding="utf-8")
+    (dst / "live.txt").write_text("live", encoding="utf-8")
+
+    cleanup_stale_restore_artifacts(dst)
+
+    assert _snapshot(dst) == {
+        f"{OLD_CONTENT_DIR_NAME}/payload.txt": "keep",
+        "live.txt": "live",
+    }
+    assert old_dir.exists()
+
+
 def test_startup_cleanup_recovers_all_restore_targets(
     work_tmp_path: Path,
 ) -> None:
