@@ -406,8 +406,8 @@ class CronManager:
             # so operators know the new value applies to future runs only.
             current_limit = getattr(existing.sem, "_value", None)
             if (
-                    current_limit is not None
-                    and current_limit != spec.runtime.max_concurrency
+                current_limit is not None
+                and current_limit != spec.runtime.max_concurrency
             ):
                 logger.info(
                     "cron job_id=%s max_concurrency change (%s -> %s) "
@@ -494,20 +494,22 @@ class CronManager:
         try:
             try:
                 await self._execute_once(job)
-            except asyncio.CancelledError:
-                raise
             except Exception:  # pylint: disable=broad-except
                 # _execute_once already logged and persisted error status.
                 # Swallow here so that APScheduler does not double-report
                 # and so we still refresh next_run_at below.
+                # Note: asyncio.CancelledError is BaseException in Python
+                # 3.8+ and is not caught here, so cancellation still
+                # propagates up correctly.
                 pass
 
             # Refresh next_run_at, but only if the job still exists.
             # Otherwise a concurrent delete_job() would get its state
             # resurrected by this write.
-            if job_id not in self._states and (
-                    await self._repo.get_job(job_id)
-            ) is None:
+            if (
+                job_id not in self._states
+                and (await self._repo.get_job(job_id)) is None
+            ):
                 return
             aps_job = self._scheduler.get_job(job_id)
             st = self._states.get(job_id, CronJobState()).model_copy()
