@@ -428,8 +428,8 @@ class CronManager:
             # so operators know the new value applies to future runs only.
             current_limit = getattr(existing.sem, "_value", None)
             if (
-                    current_limit is not None
-                    and current_limit != spec.runtime.max_concurrency
+                current_limit is not None
+                and current_limit != spec.runtime.max_concurrency
             ):
                 logger.info(
                     "cron job_id=%s max_concurrency change (%s -> %s) "
@@ -562,8 +562,8 @@ class CronManager:
             # Otherwise a concurrent delete_job() would get its state
             # resurrected by this write.
             if (
-                    job_id not in self._states
-                    and (await self._repo.get_job(job_id)) is None
+                job_id not in self._states
+                and (await self._repo.get_job(job_id)) is None
             ):
                 return
             aps_job = self._scheduler.get_job(job_id)
