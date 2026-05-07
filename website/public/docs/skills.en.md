@@ -176,6 +176,22 @@ The workspace skill page supports importing from the following URL sources:
 - `https://github.com/...`
 - `https://modelscope.cn/skills/...`
 
+CLI supports the same URL-based import flow:
+
+**Workspace targeting:** use `--agent-id` when targeting a single agent workspace; without it, `install` / `uninstall` act on the skill pool.
+
+```bash
+qwenpaw skills install <skill_url>
+qwenpaw skills install <skill_url> --agent-id <agent_id>
+```
+
+CLI also supports uninstalling from the shared pool or one workspace:
+
+```bash
+qwenpaw skills uninstall <skill_name>
+qwenpaw skills uninstall <skill_name> --agent-id <agent_id>
+```
+
 #### Steps
 
 1. In [Console](./console) → **Workspace → Skills**, click **Import from Skills Hub**.

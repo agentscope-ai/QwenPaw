@@ -1562,6 +1562,16 @@
       "imageOnlyAccept": "Current model only supports image files",
       "imageOnlyWarning": "Current model only supports images, non-image files like videos may not be processed correctly"
     },
+    "speech": {
+      "startRecording": "Start voice recording (Ctrl+Shift+M)",
+      "stopRecording": "Stop recording (Ctrl+Shift+M)",
+      "transcribing": "Transcribing...",
+      "transcriptionDisabled": "Transcription is disabled. Configure a provider in Settings > Voice Transcription.",
+      "transcriptionFailed": "Voice transcription failed",
+      "microphoneError": "Could not access microphone",
+      "fileTooLarge": "Recording file is too large ({{size}}MB). Maximum allowed: {{limit}}MB",
+      "recordingTooLong": "Recording exceeds duration limit ({{limit}}s)"
+    },
     "search": {
       "title": "Search Chat",
       "tooltip": "Search current chat",

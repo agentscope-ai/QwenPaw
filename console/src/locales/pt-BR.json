@@ -1560,6 +1560,16 @@
       "imageOnlyAccept": "Current model only supports image files",
       "imageOnlyWarning": "Current model only supports images, non-image files like videos may not be processed correctly"
     },
+    "speech": {
+      "startRecording": "Iniciar gravação de voz (Ctrl+Shift+M)",
+      "stopRecording": "Parar gravação (Ctrl+Shift+M)",
+      "transcribing": "Transcrevendo...",
+      "transcriptionDisabled": "A transcrição está desativada. Configure um provedor em Configurações > Transcrição de Voz.",
+      "transcriptionFailed": "Falha na transcrição de voz",
+      "microphoneError": "Não foi possível acessar o microfone",
+      "fileTooLarge": "O arquivo de gravação é muito grande ({{size}}MB). Máximo permitido: {{limit}}MB",
+      "recordingTooLong": "A gravação excede o limite de duração ({{limit}}s)"
+    },
     "search": {
       "title": "Pesquisar Chat",
       "tooltip": "Pesquisar Atual Chat",

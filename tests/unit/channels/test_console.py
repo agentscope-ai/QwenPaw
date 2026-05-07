@@ -522,6 +522,66 @@ class TestConsoleStreaming:
 
             assert len(events) == 1
 
+    async def test_stream_one_falls_back_on_surrogate_json_error(
+        self,
+        stream_channel,
+    ):
+        """stream_one should fallback instead of crashing on bad surrogate."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            RunStatus,
+            TextContent,
+            ContentType,
+        )
+
+        class BrokenJsonEvent:
+            object = "response"
+            status = RunStatus.Completed
+            type = "response.completed"
+            output = []
+
+            def model_dump_json(self):
+                raise UnicodeEncodeError(
+                    "utf-8",
+                    "\ud83d",
+                    0,
+                    1,
+                    "surrogates not allowed",
+                )
+
+            def model_dump(self, mode="python"):
+                del mode
+                return {
+                    "object": "response",
+                    "status": "completed",
+                    "text": "\ud83d broken",
+                }
+
+        async def mock_process(_request):
+            yield BrokenJsonEvent()
+
+        stream_channel._process = mock_process
+
+        payload = {
+            "sender_id": "user123",
+            "content_parts": [
+                TextContent(
+                    type=ContentType.TEXT,
+                    text="Hello",
+                ),
+            ],
+            "meta": {},
+        }
+
+        events = []
+        async for event in stream_channel.stream_one(payload):
+            events.append(event)
+            break
+
+        assert len(events) == 1
+        assert events[0].startswith("data: ")
+        assert "\\ud83d" not in events[0]
+        assert "? broken" in events[0]
+
     async def test_consume_one_drain_stream(self, stream_channel):
         """consume_one should drain stream_one."""
         from unittest.mock import patch, AsyncMock

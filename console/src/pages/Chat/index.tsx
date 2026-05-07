@@ -14,6 +14,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import { chatApi } from "../../api/modules/chat";
+import { agentApi } from "../../api/modules/agent";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
@@ -45,6 +46,10 @@ interface ApprovalMessageData {
   createdAt: number;
   timeoutSeconds: number;
 }
+
+import WhisperSpeechButton, {
+  WhisperSpeechButtonRef,
+} from "./components/WhisperSpeechButton";
 
 import {
   toDisplayUrl,
@@ -698,8 +703,53 @@ export default function ChatPage() {
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   const pendingClearHistoryRef = useRef(false);
+  const whisperSpeechRef = useRef<WhisperSpeechButtonRef>(null);
+  const [whisperEnabled, setWhisperEnabled] = useState(false);
+
+  // Check if Whisper transcription is configured
+  useEffect(() => {
+    agentApi
+      .getTranscriptionProviderType()
+      .then((res) => {
+        setWhisperEnabled(res.transcription_provider_type !== "disabled");
+      })
+      .catch(() => setWhisperEnabled(false));
+  }, []);
+
+  const handleWhisperTranscription = useCallback((text: string) => {
+    const senderContainer = document.querySelector('[class*="sender"]');
+    const textarea = senderContainer?.querySelector(
+      "textarea",
+    ) as HTMLTextAreaElement | null;
+    if (textarea) {
+      const currentValue = textarea.value || "";
+      const newValue = currentValue ? `${currentValue} ${text}` : text;
+      setTextareaValue(textarea, newValue);
+      textarea.focus();
+    }
+  }, []);
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
+
+  // Shortcut key for voice recording (Ctrl+Shift+M or Cmd+Shift+M on Mac)
+  useEffect(() => {
+    const handleShortcut = (e: KeyboardEvent) => {
+      if (!isChatActive()) return;
+      // Check for Ctrl+Shift+M (Windows/Linux) or Cmd+Shift+M (Mac)
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        e.key.toLowerCase() === "m"
+      ) {
+        e.preventDefault();
+        if (whisperEnabled) {
+          whisperSpeechRef.current?.toggleRecording();
+        }
+      }
+    };
+    document.addEventListener("keydown", handleShortcut);
+    return () => document.removeEventListener("keydown", handleShortcut);
+  }, [isChatActive, whisperEnabled]);
   chatIdRef.current = chatId;
   navigateRef.current = navigate;
 
@@ -1022,7 +1072,13 @@ export default function ChatPage() {
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
-        allowSpeech: true,
+        allowSpeech: !whisperEnabled,
+        prefix: whisperEnabled ? (
+          <WhisperSpeechButton
+            ref={whisperSpeechRef}
+            onTranscription={handleWhisperTranscription}
+          />
+        ) : undefined,
         attachments: {
           trigger: function (props: any) {
             const tooltipKey = multimodalCaps.supportsMultimodal

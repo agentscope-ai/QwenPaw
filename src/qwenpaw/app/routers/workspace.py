@@ -11,6 +11,7 @@ import asyncio
 import io
 import shutil
 import tempfile
+import os
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -470,6 +471,98 @@ async def put_transcription_provider(
     config.agents.transcription_provider_id = provider_id
     save_config(config)
     return {"provider_id": provider_id}
+
+
+@router.post(
+    "/transcribe",
+    summary="Transcribe audio to text",
+    description=(
+        "Transcribe an uploaded audio file "
+        "using the configured Whisper provider. "
+        "Returns the transcribed text."
+    ),
+)
+async def post_transcribe_audio(
+    file: UploadFile = File(..., description="Audio file to transcribe"),
+) -> dict:
+    """Transcribe uploaded audio file using configured Whisper provider."""
+    from ...agents.utils.audio_transcription import transcribe_audio
+
+    # Check transcription is enabled
+    config = load_config()
+    provider_type = config.agents.transcription_provider_type
+    if provider_type == "disabled":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "TRANSCRIPTION_DISABLED",
+                "message": (
+                    "Transcription is disabled. "
+                    "Configure a transcription provider in Settings."
+                ),
+            },
+        )
+
+    # Validate file type
+    allowed_extensions = {
+        ".webm",
+        ".mp4",
+        ".m4a",
+        ".wav",
+        ".mp3",
+        ".ogg",
+        ".flac",
+    }
+    suffix = (
+        os.path.splitext(file.filename or "audio.webm")[1].lower() or ".webm"
+    )
+    if suffix not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "UNSUPPORTED_FILE_TYPE",
+                "message": (
+                    f"Unsupported file type: {suffix}. "
+                    f"Allowed: {', '.join(sorted(allowed_extensions))}"
+                ),
+            },
+        )
+
+    # Validate file size (25 MB max)
+    max_size_bytes = 25 * 1024 * 1024
+    data = await file.read()
+    if len(data) > max_size_bytes:
+        size_mb = len(data) / 1024 / 1024
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "FILE_TOO_LARGE",
+                "message": (
+                    f"File too large ({size_mb:.1f}MB). "
+                    "Maximum allowed: 25MB."
+                ),
+            },
+        )
+
+    # Save uploaded file to temp directory
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(data)
+        tmp_path = tmp.name
+
+    try:
+        text = await transcribe_audio(tmp_path)
+        if text is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Transcription failed. Check provider configuration.",
+            )
+        return {"text": text}
+    finally:
+        # Clean up temp file
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 @router.get(
