@@ -12,10 +12,14 @@ export const DEFAULT_FORM_VALUES = {
   task_type: "agent" as const,
   request: {
     input: "",
-    session_id: "",
-    user_id: "",
   },
   text: "",
+  execution: {
+    session: {
+      mode: "dispatch" as const,
+    },
+  },
+  sessionStrategy: "dispatch" as const,
   dispatch: {
     type: "channel" as const,
     channel: "console",
