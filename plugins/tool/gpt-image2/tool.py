@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-return-statements
+# pylint: disable=too-many-return-statements,too-many-branches
 """GPT Image 2 image generation tool."""
 
 import base64
@@ -85,6 +85,13 @@ async def generate_image_gpt(
         if not endpoint or not endpoint.strip():
             endpoint = "https://api.openai.com/v1/images/generations"
 
+        # Get timeout from config, use default if not set
+        timeout = tool_config.get("timeout")
+        if timeout is None or timeout <= 0:
+            timeout = 60.0
+        else:
+            timeout = float(timeout)
+
         # Validate parameters
         valid_sizes = {"1024x1024", "1024x1792", "1792x1024"}
         if size not in valid_sizes:
@@ -123,7 +130,7 @@ async def generate_image_gpt(
             f"size={size}, quality={quality}",
         )
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 endpoint,
                 headers={

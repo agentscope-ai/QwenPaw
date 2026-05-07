@@ -33,6 +33,16 @@
         "required": false,
         "placeholder": "https://api.openai.com/v1/images/generations",
         "help": "Custom API endpoint (leave empty to use default)"
+      },
+      {
+        "name": "timeout",
+        "label": "Request Timeout (seconds)",
+        "type": "number",
+        "required": false,
+        "placeholder": "60",
+        "min": 10,
+        "max": 300,
+        "help": "HTTP request timeout in seconds (default: 60)"
       }
     ]
   }
