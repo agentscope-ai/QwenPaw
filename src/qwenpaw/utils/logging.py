@@ -188,20 +188,12 @@ def add_project_file_handler(log_path: Path) -> None:
         if base is not None and Path(base).resolve() == log_path:
             return
 
-    is_windows_or_linux = platform.system() in ("Windows", "Linux")
-    if is_windows_or_linux:
-        file_handler = logging.FileHandler(
-            log_path,
-            encoding="utf-8",
-            mode="a",
-        )
-    else:
-        file_handler = logging.handlers.RotatingFileHandler(
-            log_path,
-            encoding="utf-8",
-            maxBytes=_LOG_MAX_BYTES,
-            backupCount=_LOG_BACKUP_COUNT,
-        )
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_path,
+        encoding="utf-8",
+        maxBytes=_LOG_MAX_BYTES,
+        backupCount=_LOG_BACKUP_COUNT,
+    )
 
     file_handler.setLevel(logger.level or logging.INFO)
 
@@ -209,3 +201,4 @@ def add_project_file_handler(log_path: Path) -> None:
         PlainFormatter("%(asctime)s | %(message)s", "%Y-%m-%d %H:%M:%S"),
     )
     logger.addHandler(file_handler)
+
