@@ -290,6 +290,22 @@ class MultiAgentManager:
 
         logger.info(f"Reloading agent (zero-downtime): {agent_id}")
 
+        # Step 1.5: Stop old config watcher (no-op if it triggered
+        # this reload, since it already disabled itself).
+        try:
+            # pylint: disable=protected-access
+            old_watcher = old_instance._service_manager.services.get(
+                "agent_config_watcher",
+            )
+            # pylint: enable=protected-access
+            if old_watcher is not None:
+                await old_watcher.stop()
+        except Exception as stop_err:
+            logger.warning(
+                f"Failed to stop old AgentConfigWatcher for "
+                f"{agent_id}: {stop_err}.",
+            )
+
         # Step 2: Load configuration (outside lock)
         config = load_config()
         if agent_id not in config.agents.profiles:
