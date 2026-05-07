@@ -40,10 +40,15 @@ the entire phase-1, phase-2+3, or cleanup operation.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import threading
+import time
 import zipfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import BinaryIO
 
 from ._mount_swap import (
     prepare_destination_for_swap,
@@ -55,6 +60,11 @@ logger = logging.getLogger(__name__)
 
 _RESTORE_TMP_SUFFIX = ".restore_tmp"
 _RESTORE_OLD_SUFFIX = ".restore_old"
+_RESTORE_LOCK_FILE = ".qwenpaw_restore.lock"
+_LOCK_REGION_SIZE = 1
+_LOCK_RETRY_INTERVAL_SECONDS = 0.1
+_LOCK_TIMEOUT_SECONDS_ENV = "QWENPAW_RESTORE_LOCK_TIMEOUT_SECONDS"
+_LOCK_TIMEOUT_SECONDS = 3600.0
 
 # Per-destination threading locks.  The dict itself is guarded by _LOCKS_GUARD.
 _LOCKS: dict[str, threading.Lock] = {}
@@ -66,6 +76,89 @@ def _lock_for(dst: Path) -> threading.Lock:
     key = str(dst.resolve())
     with _LOCKS_GUARD:
         return _LOCKS.setdefault(key, threading.Lock())
+
+
+@contextmanager
+def restore_process_lock() -> Iterator[None]:
+    """Serialise restore and restore-cleanup work across processes."""
+    from ...constant import WORKING_DIR
+
+    lock_path = WORKING_DIR / _RESTORE_LOCK_FILE
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a+b") as handle:
+        _acquire_file_lock(handle, lock_path)
+        try:
+            yield
+        finally:
+            _release_file_lock(handle)
+
+
+def _acquire_file_lock(handle: BinaryIO, lock_path: Path) -> None:
+    deadline = time.monotonic() + _restore_lock_timeout_seconds()
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        if handle.read(_LOCK_REGION_SIZE) == b"":
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        while time.monotonic() < deadline:
+            try:
+                msvcrt.locking(
+                    handle.fileno(),
+                    msvcrt.LK_NBLCK,
+                    _LOCK_REGION_SIZE,
+                )
+                break
+            except OSError:
+                time.sleep(_LOCK_RETRY_INTERVAL_SECONDS)
+        else:
+            raise TimeoutError(
+                f"Timed out waiting for restore lock: {lock_path}",
+            )
+        return
+
+    import fcntl
+
+    while time.monotonic() < deadline:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError:
+            time.sleep(_LOCK_RETRY_INTERVAL_SECONDS)
+    else:
+        raise TimeoutError(
+            f"Timed out waiting for restore lock: {lock_path}",
+        )
+
+
+def _restore_lock_timeout_seconds() -> float:
+    raw = os.environ.get(_LOCK_TIMEOUT_SECONDS_ENV)
+    if not raw:
+        return _LOCK_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        return _LOCK_TIMEOUT_SECONDS
+    return max(value, 1.0)
+
+
+def _release_file_lock(handle: BinaryIO) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        msvcrt.locking(
+            handle.fileno(),
+            msvcrt.LK_UNLCK,
+            _LOCK_REGION_SIZE,
+        )
+        return
+
+    import fcntl
+
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def cleanup_stale_restore_artifacts(base_dir: Path) -> None:
@@ -122,8 +215,9 @@ def _dedupe_paths(paths: list[Path]) -> list[Path]:
 
 def cleanup_startup_restore_artifacts() -> None:
     """Recover interrupted restores before startup reads restored content."""
-    for target in _startup_restore_targets():
-        cleanup_stale_restore_artifacts(target)
+    with restore_process_lock():
+        for target in _startup_restore_targets():
+            cleanup_stale_restore_artifacts(target)
 
 
 def _cleanup_stale_restore_artifacts_locked(base_dir: Path) -> None:
