@@ -48,8 +48,22 @@ async def generate_image_gpt(
         ... )
     """
     try:
-        # Get API key from tool config
-        api_key = _get_api_key()
+        # Get tool config (API key and endpoint)
+        tool_config = _get_tool_config()
+        if not tool_config:
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            "Error: Tool not configured. "
+                            "Please set your API key in the tool settings."
+                        ),
+                    ),
+                ],
+            )
+
+        api_key = tool_config.get("api_key")
         if not api_key:
             return ToolResponse(
                 content=[
@@ -62,6 +76,11 @@ async def generate_image_gpt(
                     ),
                 ],
             )
+
+        # Get endpoint from config, use default if not set
+        endpoint = tool_config.get("endpoint")
+        if not endpoint or not endpoint.strip():
+            endpoint = "https://api.openai.com/v1/images/generations"
 
         # Validate parameters
         valid_sizes = {"1024x1024", "1024x1792", "1792x1024"}
@@ -103,7 +122,7 @@ async def generate_image_gpt(
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
-                "https://api.openai.com/v1/images/generations",
+                endpoint,
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
@@ -188,11 +207,11 @@ async def generate_image_gpt(
         )
 
 
-def _get_api_key() -> Optional[str]:
-    """Get OpenAI API key from tool config.
+def _get_tool_config() -> Optional[dict]:
+    """Get tool configuration including API key and endpoint.
 
     Returns:
-        str or None: API key if configured, None otherwise
+        dict or None: Tool config if configured, None otherwise
     """
     try:
         from qwenpaw.plugins.registry import PluginRegistry
@@ -216,7 +235,7 @@ def _get_api_key() -> Optional[str]:
         if not tool_config:
             return None
 
-        return tool_config.get("api_key")
+        return tool_config
     except Exception as e:
-        logger.error(f"Failed to get API key: {e}")
+        logger.error(f"Failed to get tool config: {e}")
         return None

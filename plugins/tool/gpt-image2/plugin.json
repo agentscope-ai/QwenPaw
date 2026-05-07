@@ -25,6 +25,14 @@
         "required": true,
         "placeholder": "sk-...",
         "help": "Get your API key from platform.openai.com"
+      },
+      {
+        "name": "endpoint",
+        "label": "API Endpoint",
+        "type": "text",
+        "required": false,
+        "placeholder": "https://api.openai.com/v1/images/generations",
+        "help": "Custom API endpoint (leave empty to use default)"
       }
     ]
   }
