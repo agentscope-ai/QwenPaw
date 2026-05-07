@@ -32,7 +32,9 @@ from ..config.config import (
     MCPConfig,
     SecurityConfig,
     ToolsConfig,
+    has_configured_model_slot,
     load_agent_config,
+    routing_has_explicit_override,
 )
 from ..config.utils import (
     _normalize_working_dir_bound_paths,
@@ -1080,37 +1082,59 @@ def qwenpaw_local_llm_deep_notes() -> list[str]:
     return notes
 
 
-def _slot_is_set(slot: Any) -> bool:
-    return bool(
-        getattr(slot, "provider_id", None) and getattr(slot, "model", None),
-    )
-
-
 def _resolve_agent_effective_model_slot(
     agent_cfg: AgentProfileConfig,
     active_slot: Any | None,
+    global_routing: Any | None = None,
 ) -> tuple[Any | None, str]:
     """Resolve provider/model for the agent default chat model."""
-    if agent_cfg.active_model is not None and _slot_is_set(
-        agent_cfg.active_model,
+    agent_routing = agent_cfg.llm_routing
+    agent_has_selection = (
+        agent_cfg.active_model is not None
+        and has_configured_model_slot(agent_cfg.active_model)
+    )
+    agent_has_routing_override = routing_has_explicit_override(
+        agent_routing,
+    )
+    if agent_has_selection or agent_has_routing_override:
+        scoped_routing = agent_routing
+        scoped_fallback = agent_cfg.active_model or active_slot
+        scope_label = "agent"
+    else:
+        scoped_routing = global_routing
+        scoped_fallback = active_slot
+        scope_label = "global"
+
+    if getattr(scoped_routing, "enabled", False):
+        if scoped_routing.mode == "cloud_first":
+            if scoped_routing.cloud is not None and has_configured_model_slot(
+                scoped_routing.cloud,
+            ):
+                return scoped_routing.cloud, f"{scope_label}.llm_routing.cloud"
+            return (
+                None,
+                f"{scope_label} routing enabled but cloud slot is not set",
+            )
+        # local_first
+        if scoped_routing.local is not None and has_configured_model_slot(
+            scoped_routing.local,
+        ):
+            return scoped_routing.local, f"{scope_label}.llm_routing.local"
+        return None, f"{scope_label} routing enabled but local slot is not set"
+
+    if (
+        scope_label == "agent"
+        and agent_cfg.active_model is not None
+        and has_configured_model_slot(
+            agent_cfg.active_model,
+        )
     ):
         return agent_cfg.active_model, "agent.active_model"
 
-    routing = agent_cfg.llm_routing
-    if getattr(routing, "enabled", False):
-        if routing.mode == "cloud_first":
-            if routing.cloud is not None and _slot_is_set(routing.cloud):
-                return routing.cloud, "agent.llm_routing.cloud"
-            if active_slot is not None and _slot_is_set(active_slot):
-                return active_slot, "providers.active_llm (cloud fallback)"
-            return None, "routing enabled but no cloud slot and no active LLM"
-        # local_first
-        if routing.local is not None and _slot_is_set(routing.local):
-            return routing.local, "agent.llm_routing.local"
-        return None, "routing enabled but local slot is not set"
-
-    if active_slot is not None and _slot_is_set(active_slot):
-        return active_slot, "providers.active_llm"
+    if scoped_fallback is not None and has_configured_model_slot(
+        scoped_fallback,
+    ):
+        return scoped_fallback, "providers.active_llm"
     return None, "no agent.active_model and no active LLM"
 
 
@@ -1144,7 +1168,11 @@ async def check_enabled_agents_model_connections(
             )
             continue
 
-        slot, source = _resolve_agent_effective_model_slot(ac, active_slot)
+        slot, source = _resolve_agent_effective_model_slot(
+            ac,
+            active_slot,
+            getattr(cfg.agents, "llm_routing", None),
+        )
         if slot is None:
             all_ok = False
             lines.append(f"{agent_id}: FAIL — no model resolved ({source})")

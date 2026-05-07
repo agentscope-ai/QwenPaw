@@ -74,6 +74,84 @@ _ALLOWED_ACP_TOOL_PARSE_MODES = {
 }
 
 
+def _is_local_provider(provider) -> bool:
+    from urllib.parse import urlparse
+
+    if getattr(provider, "is_local", False):
+        return True
+    base_url = getattr(provider, "base_url", "") or ""
+    if not base_url:
+        return False
+    try:
+        hostname = urlparse(base_url).hostname or ""
+    except Exception:
+        return False
+    return hostname in {"127.0.0.1", "localhost", "::1"}
+
+
+def _validate_routing_config(body: AgentsLLMRoutingConfig) -> None:
+    from ...config.config import has_configured_model_slot
+    from ...providers import ProviderManager
+
+    selected_slot = body.local if body.mode == "local_first" else body.cloud
+    if body.enabled and not has_configured_model_slot(selected_slot):
+        raise HTTPException(
+            status_code=400,
+            detail="Configure the selected mode slot before enabling routing.",
+        )
+
+    if (
+        body.enabled
+        and has_configured_model_slot(body.local)
+        and has_configured_model_slot(body.cloud)
+        and body.local.provider_id == body.cloud.provider_id
+        and body.local.model == body.cloud.model
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Local and cloud slots must point to different "
+                "provider/model pairs."
+            ),
+        )
+
+    if not body.enabled:
+        return
+
+    manager = ProviderManager.get_instance()
+    selected_kind = "local" if body.mode == "local_first" else "cloud"
+
+    if not has_configured_model_slot(selected_slot):
+        return
+
+    provider = manager.get_provider(selected_slot.provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Provider '{selected_slot.provider_id}' not found.",
+        )
+    if not provider.has_model(selected_slot.model):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Model '{selected_slot.model}' not found for provider "
+                f"'{selected_slot.provider_id}'."
+            ),
+        )
+
+    is_local_provider = _is_local_provider(provider)
+    if selected_kind == "local" and not is_local_provider:
+        raise HTTPException(
+            status_code=400,
+            detail="Local slot must use a local or loopback provider.",
+        )
+    if selected_kind == "cloud" and is_local_provider:
+        raise HTTPException(
+            status_code=400,
+            detail="Cloud slot must use a non-local provider.",
+        )
+
+
 @router.get(
     "/channels",
     summary="List all channels",
@@ -570,8 +648,31 @@ async def put_heartbeat(
     response_model=AgentsLLMRoutingConfig,
     summary="Get agent LLM routing settings",
 )
-async def get_agents_llm_routing() -> AgentsLLMRoutingConfig:
+async def get_agents_llm_routing(
+    agent_id: str | None = None,
+) -> AgentsLLMRoutingConfig:
+    """Return effective routing settings.
+
+    Without ``agent_id``, returns the global routing config. With ``agent_id``,
+    returns the agent-specific routing config when it is meaningfully set;
+    otherwise falls back to the global config. An explicit agent
+    ``active_model`` masks inherited global routing, so this endpoint
+    reports ``enabled=False`` in that case.
+    """
+    from ...config.config import (
+        has_configured_model_slot,
+        load_agent_config,
+        routing_has_explicit_override,
+    )
+
     config = load_config()
+    if agent_id:
+        agent_config = load_agent_config(agent_id)
+        routing_cfg = agent_config.llm_routing
+        if routing_has_explicit_override(routing_cfg):
+            return routing_cfg
+        if has_configured_model_slot(agent_config.active_model):
+            return AgentsLLMRoutingConfig(enabled=False)
     return config.agents.llm_routing
 
 
@@ -581,8 +682,26 @@ async def get_agents_llm_routing() -> AgentsLLMRoutingConfig:
     summary="Update agent LLM routing settings",
 )
 async def put_agents_llm_routing(
+    request: Request,
     body: AgentsLLMRoutingConfig = Body(...),
+    agent_id: str | None = None,
 ) -> AgentsLLMRoutingConfig:
+    """Update routing settings.
+
+    Without ``agent_id``, updates the global routing config. With ``agent_id``,
+    writes the agent-specific routing config and schedules an agent reload.
+    """
+    from ...config.config import load_agent_config, save_agent_config
+
+    _validate_routing_config(body)
+
+    if agent_id:
+        agent_config = load_agent_config(agent_id)
+        agent_config.llm_routing = body
+        save_agent_config(agent_id, agent_config)
+        schedule_agent_reload(request, agent_id)
+        return body
+
     config = load_config()
     config.agents.llm_routing = body
     save_config(config)

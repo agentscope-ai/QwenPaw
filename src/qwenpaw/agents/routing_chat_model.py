@@ -5,14 +5,20 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator, Literal, Type
+from typing import Any, AsyncGenerator, Literal, Optional, Type
 
 from agentscope.formatter import FormatterBase
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
 from pydantic import BaseModel
 
-from ..config.config import AgentsLLMRoutingConfig
+from ..config.config import (
+    AgentsLLMRoutingConfig,
+    has_configured_model_slot,
+    ModelSlotConfig,
+    routing_has_explicit_override,
+)
+from ..providers import ProviderManager
 
 logger = logging.getLogger(__name__)
 
@@ -120,3 +126,91 @@ class RoutingChatModel(ChatModelBase):
             structured_model=structured_model,
             **kwargs,
         )
+
+
+def _routing_enabled(routing_cfg) -> bool:
+    return bool(routing_cfg and getattr(routing_cfg, "enabled", False))
+
+
+def _select_scoped_model_config(
+    *,
+    agent_model_slot: ModelSlotConfig | None,
+    agent_routing_cfg,
+    global_model_slot: ModelSlotConfig | None,
+    global_routing_cfg,
+) -> tuple[ModelSlotConfig | None, object | None]:
+    agent_has_selection = has_configured_model_slot(
+        agent_model_slot,
+    )
+    agent_has_routing_override = routing_has_explicit_override(
+        agent_routing_cfg,
+    )
+    if agent_has_selection or agent_has_routing_override:
+        return (
+            agent_model_slot or global_model_slot,
+            agent_routing_cfg,
+        )
+    return global_model_slot, global_routing_cfg
+
+
+def _resolve_routed_model_slot(
+    routing_cfg,
+) -> ModelSlotConfig | None:
+    if not _routing_enabled(routing_cfg):
+        return None
+
+    decision = RoutingPolicy(routing_cfg).decide()
+    if decision.route == "local":
+        return routing_cfg.local
+    return routing_cfg.cloud
+
+
+def _load_global_routing_config():
+    from ..config.utils import load_config
+
+    try:
+        return load_config().agents.llm_routing
+    except Exception:
+        return None
+
+
+def resolve_effective_model_slot(
+    agent_id: Optional[str] = None,
+) -> ModelSlotConfig | None:
+    """Resolve the concrete model slot for the current scope."""
+    from ..config.config import load_agent_config
+
+    if agent_id is None:
+        from ..app.agent_context import get_current_agent_id
+
+        try:
+            agent_id = get_current_agent_id()
+        except Exception:
+            pass
+
+    agent_model_slot = None
+    agent_routing_cfg = None
+    if agent_id:
+        try:
+            agent_config = load_agent_config(agent_id)
+            agent_model_slot = agent_config.active_model
+            agent_routing_cfg = getattr(agent_config, "llm_routing", None)
+        except Exception:
+            pass
+    manager = ProviderManager.get_instance()
+    global_model_slot = manager.get_active_model()
+    global_routing_cfg = _load_global_routing_config()
+    scoped_fallback_slot, scoped_routing_cfg = _select_scoped_model_config(
+        agent_model_slot=agent_model_slot,
+        agent_routing_cfg=agent_routing_cfg,
+        global_model_slot=global_model_slot,
+        global_routing_cfg=global_routing_cfg,
+    )
+    model_slot = _resolve_routed_model_slot(
+        scoped_routing_cfg,
+    )
+    if has_configured_model_slot(model_slot):
+        return model_slot
+    if _routing_enabled(scoped_routing_cfg):
+        return None
+    return scoped_fallback_slot

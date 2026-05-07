@@ -577,12 +577,16 @@ async def get_active_models(
         )
 
     try:
+        from ...agents.routing_chat_model import (
+            resolve_effective_model_slot,
+        )
+
         target_agent_id = agent_id
         if target_agent_id is None:
             workspace = await get_agent_for_request(request)
             target_agent_id = workspace.agent_id
 
-        agent_model = await _load_agent_model(request, target_agent_id)
+        agent_model = resolve_effective_model_slot(target_agent_id)
         if agent_model:
             logger.info(
                 "Returning agent-specific model for %s: %s",
@@ -590,6 +594,11 @@ async def get_active_models(
                 agent_model,
             )
             return ActiveModelsInfo(active_llm=agent_model)
+        logger.info(
+            "Agent-specific model for %s is unresolved under routing mode",
+            target_agent_id,
+        )
+        return ActiveModelsInfo(active_llm=None)
     except (
         HTTPException,
         OSError,
