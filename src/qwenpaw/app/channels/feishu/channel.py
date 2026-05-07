@@ -861,6 +861,8 @@ class FeishuChannel(BaseChannel):
                 "feishu_sender_id": sender_id,
                 "is_group": is_group,
             }
+            # Surface human-readable sender name to env_context.
+            meta["user_name"] = nickname
             receive_id = chat_id if is_group else sender_id
             receive_id_type = "chat_id" if is_group else "open_id"
             meta["feishu_receive_id"] = receive_id
