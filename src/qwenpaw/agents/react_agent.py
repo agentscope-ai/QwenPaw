@@ -337,7 +337,8 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         """Load and register skills from workspace directory.
 
         Uses the registry-backed skill resolver to determine effective
-        skills for the current channel.
+        skills for the current channel.  All enabled skills are always
+        registered to keep the tool list stable for KV cache friendliness.
 
         Args:
             toolkit: Toolkit to register skills to
@@ -356,6 +357,10 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
         working_skills_dir = get_workspace_skills_dir(Path(workspace_dir))
 
+        # Store skill metadata for hint injection (used in reply())
+        self._effective_skill_names = list(effective_skills)
+        self._working_skills_dir = working_skills_dir
+
         for skill_name in effective_skills:
             skill_dir = working_skills_dir / skill_name
             if skill_dir.exists():
@@ -368,6 +373,143 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                         skill_name,
                         e,
                     )
+
+    # pylint: disable-next=too-many-return-statements
+    def _build_skill_hint(self, query: str) -> str:
+        """Build a skill routing hint for the given user query.
+
+        Uses semantic routing to identify the most relevant skills and
+        returns a hint string.  This keeps the tool list unchanged
+        (KV cache friendly) while guiding the LLM toward the right
+        skills.
+
+        Returns an empty string when semantic routing is disabled,
+        unavailable, or encounters any error.
+        """
+        try:
+            from ..routing import is_routing_available
+
+            if not is_routing_available():
+                return ""
+
+            from ..config.utils import load_config
+
+            config = load_config()
+            sr_config = getattr(config, "semantic_routing", None)
+            if sr_config is None or not sr_config.enabled:
+                return ""
+
+            skill_names = getattr(self, "_effective_skill_names", [])
+            skills_dir = getattr(self, "_working_skills_dir", None)
+            if not skill_names or skills_dir is None:
+                return ""
+
+            # Read skill metadata (cached by mtime)
+            skill_metas = self._read_skill_metas(skill_names, skills_dir)
+
+            # Reuse cached SkillRouter; rebuild only when config changes
+            router = self._get_or_create_router(sr_config)
+            result = router.route(query, skill_metas)
+
+            if result.bypassed:
+                return ""
+
+            # Format hint from routing results
+            hints = []
+            for hit in result.hits:
+                desc = hit.item.description
+                if len(desc) > 80:
+                    desc = desc[:77] + "..."
+                hints.append(f"• {hit.item.name} — {desc}")
+
+            if not hints:
+                return ""
+
+            hint_text = (
+                "[Skill Hint] Relevant skills for this query:\n"
+                + "\n".join(hints)
+                + "\nPrioritize these. Other tools remain available "
+                "if needed.\n\n"
+            )
+
+            logger.info(
+                "Skill hint: %d skills suggested for query: %.60s...",
+                len(hints),
+                query,
+            )
+            return hint_text
+
+        except Exception as exc:
+            logger.warning(
+                "Skill hint generation error, skipping hint: %s",
+                exc,
+            )
+            return ""
+
+    def _get_or_create_router(
+        self,
+        sr_config: Any,
+    ) -> Any:
+        """Return a cached SkillRouter, recreating only when needed."""
+        from ..routing.router import SkillRouter
+
+        persist_dir = (
+            Path(self._workspace_dir or WORKING_DIR) / ".semantic_index"
+        )
+        cached = getattr(self, "_skill_router", None)
+        if cached is not None:
+            cached_cfg = getattr(self, "_skill_router_config", None)
+            if (
+                cached_cfg is not None
+                and cached_cfg.top_k == sr_config.top_k
+                and cached_cfg.min_score == sr_config.min_score
+                and cached_cfg.encoder == sr_config.encoder
+            ):
+                return cached
+
+        router = SkillRouter(config=sr_config, persist_dir=persist_dir)
+        self._skill_router = router
+        self._skill_router_config = sr_config
+        return router
+
+    _skill_meta_cache: dict[str, tuple[float, dict[str, str]]] = {}
+
+    @staticmethod
+    def _read_skill_metas(
+        skill_names: list[str],
+        skills_dir: Path,
+    ) -> list[dict[str, str]]:
+        """Read skill metadata with mtime-based caching.
+
+        Returns a list of dicts with 'name' and 'description' keys.
+        Only re-reads from disk when a skill directory's mtime changes.
+        """
+        from .skills_manager import _read_frontmatter_safe
+
+        cache = QwenPawAgent._skill_meta_cache
+        metas = []
+        for name in skill_names:
+            skill_dir = skills_dir / name
+            if not skill_dir.exists():
+                continue
+            try:
+                mtime = skill_dir.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+
+            cached = cache.get(f"{skills_dir}:{name}")
+            if cached is not None and cached[0] == mtime:
+                metas.append(cached[1])
+                continue
+
+            post = _read_frontmatter_safe(skill_dir, name)
+            meta = {
+                "name": name,
+                "description": str(post.get("description", "") or ""),
+            }
+            cache[f"{skills_dir}:{name}"] = (mtime, meta)
+            metas.append(meta)
+        return metas
 
     def _build_sys_prompt(self) -> str:
         """Build system prompt from working dir files and env context.
@@ -1321,11 +1463,43 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         request_context = getattr(self, "_request_context", {}) or {}
         channel_name = request_context.get("channel", "console")
         workspace_dir = Path(self._workspace_dir or WORKING_DIR)
-        with apply_skill_config_env_overrides(workspace_dir, channel_name):
-            return await super().reply(
-                msg=msg,
-                structured_model=structured_model,
-            )
+
+        # --- Skill hint injection (KV cache friendly) ---
+        # Add hint as a system message with mark="hint" in memory.
+        # This way:
+        #   - LLM sees the hint (it's in memory → included in messages)
+        #   - Frontend does NOT display it (system role not rendered)
+        #   - User message is NOT modified (no copy needed)
+        #   - After reply, hint is deleted from memory (no accumulation)
+        hint_injected = False
+        if query and msg is not None:
+            hint = await asyncio.to_thread(self._build_skill_hint, query)
+            if hint:
+                hint_msg = Msg(
+                    name="system",
+                    role="system",
+                    content=hint,
+                )
+                await self.memory.add(hint_msg, marks="skill_hint")
+                hint_injected = True
+
+        try:
+            with apply_skill_config_env_overrides(workspace_dir, channel_name):
+                result = await super().reply(
+                    msg=msg,
+                    structured_model=structured_model,
+                )
+            return result
+        finally:
+            # Always clean up hint from memory after reply completes
+            if hint_injected:
+                try:
+                    await self.memory.delete_by_mark("skill_hint")
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to clean up skill hint from memory: %s",
+                        exc,
+                    )
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
         """Interrupt the current reply process and wait for cleanup."""

@@ -7,6 +7,7 @@ import {
   LlmRetryCard,
   LlmRateLimiterCard,
   ToolExecutionLevelCard,
+  SemanticRoutingCard,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -87,6 +88,19 @@ function AgentConfigPage() {
         children: (
           <div className={styles.tabContent}>
             <LlmRateLimiterCard />
+          </div>
+        ),
+      },
+      {
+        key: "semanticRouting",
+        label: (
+          <span className={styles.tabLabel}>
+            {t("agentConfig.semanticRoutingTitle")}
+          </span>
+        ),
+        children: (
+          <div className={styles.tabContent}>
+            <SemanticRoutingCard />
           </div>
         ),
       },

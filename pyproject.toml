@@ -90,11 +90,14 @@ dev = [
 local = [
     "huggingface_hub>=0.20.0",
 ]
+semantic = [
+    "sentence-transformers>=2.2",
+]
 whisper = [
     "openai-whisper>=20231117",
 ]
 full = [
-    "qwenpaw[local,whisper]",
+    "qwenpaw[local,whisper,semantic]",
 ]
 sip = [
     "pyVoIP>=1.6.0",

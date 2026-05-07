@@ -3,6 +3,9 @@ import { Form, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import type { AgentsRunningConfig } from "../../../api/types";
+import type { SemanticRoutingConfig } from "../../../api/types/semanticRouting";
+import type { AgentProfileConfig } from "../../../api/types/agents";
+import { agentsApi } from "../../../api/modules/agents";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
 import {
@@ -26,16 +29,21 @@ export function useAgentConfig() {
   const [approvalLevel, setApprovalLevel] =
     useState<ToolExecutionLevel>("AUTO");
   const initialApprovalLevelRef = useRef<ToolExecutionLevel>("AUTO");
+  const agentProfileRef = useRef<AgentProfileConfig | null>(null);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [config, langResp, tzResp] = await Promise.all([
-        api.getAgentRunningConfig(),
-        api.getAgentLanguage(),
-        api.getUserTimezone(),
-      ]);
+      const [config, langResp, tzResp, agentProfile, srConfig] =
+        await Promise.all([
+          api.getAgentRunningConfig(),
+          api.getAgentLanguage(),
+          api.getUserTimezone(),
+          agentsApi.getAgent(selectedAgent),
+          api.getSemanticRoutingConfig(),
+        ]);
+      agentProfileRef.current = agentProfile;
       const loadedLevel = (
         config.approval_level || "AUTO"
       ).toUpperCase() as ToolExecutionLevel;
@@ -72,6 +80,7 @@ export function useAgentConfig() {
           enabled: true,
           timeout_seconds: 30.0,
         },
+        semantic_routing: srConfig,
       });
       setLanguage(langResp.language);
       setTimezone(tzResp.timezone || "UTC");
@@ -92,12 +101,23 @@ export function useAgentConfig() {
     try {
       const values = await form.validateFields();
       setSaving(true);
-      const configToSave: AgentsRunningConfig = {
-        ...(values as AgentsRunningConfig),
-        approval_level: approvalLevel,
-      };
-      await api.updateAgentRunningConfig(configToSave);
-      initialApprovalLevelRef.current = approvalLevel;
+      const { semantic_routing: srValues, ...runningValues } = values;
+      const approvalLevelChanged =
+        approvalLevel !== initialApprovalLevelRef.current;
+      await Promise.all([
+        api.updateAgentRunningConfig(runningValues as AgentsRunningConfig),
+        api.updateSemanticRoutingConfig(srValues as SemanticRoutingConfig),
+        approvalLevelChanged && agentProfileRef.current
+          ? agentsApi.updateAgent(selectedAgent, {
+              ...agentProfileRef.current,
+              approval_level: approvalLevel,
+            })
+          : Promise.resolve(),
+      ]);
+      if (approvalLevelChanged && agentProfileRef.current) {
+        agentProfileRef.current.approval_level = approvalLevel;
+        initialApprovalLevelRef.current = approvalLevel;
+      }
       message.success(t("agentConfig.saveSuccess"));
     } catch (err) {
       if (err instanceof Error && "errorFields" in err) return;
