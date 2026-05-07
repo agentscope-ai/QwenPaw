@@ -79,8 +79,8 @@ def cleanup_stale_restore_artifacts(base_dir: Path) -> None:
        → crash between the two renames in phase 2.  Rename .restore_old
          back to recover original data, then remove any orphaned .restore_tmp.
 
-    2. ``.restore_tmp`` exists, ``base_dir`` exists
-       → crash during phase 1 (extraction); drop the incomplete tmp dir.
+    2. markerless ``.restore_tmp`` exists
+       -> left untouched; it may be active staging from another process.
 
     3. ``.restore_old`` exists, ``base_dir`` exists
        → crash during phase 3 (rmtree of old); drop the obsolete old dir.
@@ -131,6 +131,7 @@ def _cleanup_stale_restore_artifacts_locked(base_dir: Path) -> None:
     lock)."""
     tmp = base_dir.with_name(base_dir.name + _RESTORE_TMP_SUFFIX)
     old = base_dir.with_name(base_dir.name + _RESTORE_OLD_SUFFIX)
+    had_old = old.exists()
 
     # Scenario 1: original data saved in .restore_old; recover it first.
     if old.exists() and not base_dir.exists():
@@ -150,19 +151,27 @@ def _cleanup_stale_restore_artifacts_locked(base_dir: Path) -> None:
             # Keep .restore_old intact to avoid data loss; abort cleanup.
             return
 
-    # Scenario 2: incomplete extraction.
+    # Scenario 2: incomplete extraction from a proven interrupted swap.
     if tmp.exists():
-        try:
-            shutil.rmtree(tmp)
-            logger.warning(
-                "Removed stale %s artifact: %s",
-                _RESTORE_TMP_SUFFIX,
-                tmp,
-            )
-        except OSError:
-            logger.exception(
-                "Failed to remove stale %s %s",
-                _RESTORE_TMP_SUFFIX,
+        if had_old:
+            try:
+                shutil.rmtree(tmp)
+                logger.warning(
+                    "Removed stale %s artifact: %s",
+                    _RESTORE_TMP_SUFFIX,
+                    tmp,
+                )
+            except OSError:
+                logger.exception(
+                    "Failed to remove stale %s %s",
+                    _RESTORE_TMP_SUFFIX,
+                    tmp,
+                )
+        else:
+            logger.debug(
+                "Leaving possible active restore staging untouched because "
+                "no %s artifact exists: %s",
+                _RESTORE_OLD_SUFFIX,
                 tmp,
             )
 
