@@ -231,7 +231,7 @@ export function AgentModal({
               allowClear
               onClear={handleClearModel}
               loading={loadingProviders}
-              style={{ width: "45%" }}
+              style={{ width: "45%", gap: "8px" }}
               showSearch
               optionFilterProp="label"
               options={eligibleProviders.map((p) => ({
@@ -308,13 +308,13 @@ export function AgentModal({
               : t("agent.initialSkills")}
           </Text>
           <Space size={4}>
-            <Button size="small" type="text" onClick={handleSelectAll}>
+            <Button size="small" type="primary" onClick={handleSelectAll}>
               {t("agent.selectAll")}
             </Button>
-            <Button size="small" type="text" onClick={handleSelectBuiltin}>
+            <Button size="small" type="default" onClick={handleSelectBuiltin}>
               {t("agent.selectBuiltin")}
             </Button>
-            <Button size="small" type="text" onClick={handleSelectNone}>
+            <Button size="small" type="default" onClick={handleSelectNone}>
               {t("agent.selectNone")}
             </Button>
           </Space>
