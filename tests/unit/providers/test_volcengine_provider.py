@@ -50,7 +50,7 @@ def test_volcengine_models_list() -> None:
     """Verify Volcano Engine model definitions."""
     model_ids = [m.id for m in VOLCENGINE_MODELS]
     assert "Doubao-Seed-2.0-Code" in model_ids
-    assert len(VOLCENGINE_MODELS) == 1
+    assert len(VOLCENGINE_MODELS) == 10
 
 
 @pytest.fixture

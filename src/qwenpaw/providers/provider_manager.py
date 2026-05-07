@@ -889,7 +889,7 @@ PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
     name="Volcano Engine Coding Plan",
     base_url="https://ark.cn-beijing.volces.com/api/coding/v3",
     api_key_prefix="",
-    models=VOLCENGINE_MODELS,
+    models=VOLCENGINE_CODINGPLAN_MODELS,
     support_connection_check=False,
     freeze_url=True,
 )
