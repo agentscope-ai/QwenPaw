@@ -146,12 +146,22 @@ class ToolGuardEngine:
         """Tools unconditionally denied (no approval offered)."""
         return self._denied_tools
 
+    @property
+    def auto_denied_rules(self) -> set[str]:
+        """Rule IDs that unconditionally deny matched tool calls."""
+        return self._auto_denied_rules
+
     def _reload_tool_sets(self) -> None:
-        """Refresh guarded and denied tool sets from config."""
-        from .utils import resolve_denied_tools, resolve_guarded_tools
+        """Refresh guarded/denied tool and rule sets from config."""
+        from .utils import (
+            resolve_auto_denied_rules,
+            resolve_denied_tools,
+            resolve_guarded_tools,
+        )
 
         self._guarded_tools: set[str] | None = resolve_guarded_tools()
         self._denied_tools: set[str] = resolve_denied_tools()
+        self._auto_denied_rules: set[str] = resolve_auto_denied_rules()
 
     def reload_rules(self) -> None:
         """Reload guardian rules and refresh guarded/denied tool sets."""
@@ -163,6 +173,19 @@ class ToolGuardEngine:
     def is_denied(self, tool_name: str) -> bool:
         """``True`` when *tool_name* is unconditionally denied."""
         return tool_name in self._denied_tools
+
+    def should_auto_deny_result(self, result: ToolGuardResult | None) -> bool:
+        """``True`` when guard findings hit any configured auto-deny rule."""
+        if (
+            result is None
+            or not result.findings
+            or not self._auto_denied_rules
+        ):
+            return False
+        return any(
+            finding.rule_id in self._auto_denied_rules
+            for finding in result.findings
+        )
 
     def is_guarded(self, tool_name: str) -> bool:
         """``True`` when *tool_name* falls within the guard scope."""
