@@ -75,6 +75,89 @@ def sanitize_filename(name: str) -> str:
     return _UNSAFE_FILENAME_RE.sub("--", name)
 
 
+# Marker used by ``sanitize_filename`` for the historical ``weixin:`` and
+# canonical ``wechat:`` session_id prefixes.
+_LEGACY_WEIXIN_SAFE_PREFIX = "weixin--"
+_CANONICAL_WECHAT_SAFE_PREFIX = "wechat--"
+
+
+def _migrate_legacy_weixin_session_files(save_dir: str) -> None:
+    """One-shot migration: rename legacy ``weixin--`` session files.
+
+    Older releases generated session_ids prefixed with ``weixin:`` for the
+    WeChat (iLink) channel. ``sanitize_filename`` rewrites the colon to
+    ``--``, so legacy files on disk look like ``..._weixin--xxx.json`` (or
+    ``weixin--xxx.json`` when no user_id). The canonical prefix is now
+    ``wechat``; rename matching files in-place so historical WeChat chat
+    history remains loadable. Skips files when a target with the
+    canonical prefix already exists. Idempotent.
+    """
+    if not save_dir or not os.path.isdir(save_dir):
+        return
+    try:
+        entries = os.listdir(save_dir)
+    except OSError:
+        return
+    for name in entries:
+        if not name.endswith(".json"):
+            continue
+        new_name = _rewrite_weixin_in_session_filename(name)
+        if new_name is None or new_name == name:
+            continue
+        src = os.path.join(save_dir, name)
+        dst = os.path.join(save_dir, new_name)
+        if os.path.exists(dst):
+            logger.warning(
+                "Skip migrating session file %s -> %s: target already exists",
+                src,
+                dst,
+            )
+            continue
+        try:
+            os.rename(src, dst)
+            logger.warning(
+                "Migrated legacy weixin session file %s -> %s",
+                src,
+                dst,
+            )
+        except OSError as exc:
+            logger.error(
+                "Failed to migrate session file %s -> %s: %s",
+                src,
+                dst,
+                exc,
+            )
+
+
+def _rewrite_weixin_in_session_filename(name: str) -> str | None:
+    """Return the canonical filename for a legacy weixin session file.
+
+    File layout produced by ``_get_save_path`` is one of:
+      - ``{safe_uid}_{safe_sid}.json``
+      - ``{safe_sid}.json``
+    Only the ``safe_sid`` segment encodes the channel prefix, so we
+    rewrite the leading ``weixin--`` of that segment. Returns ``None``
+    when the file does not match the legacy pattern.
+    """
+    stem = name[: -len(".json")]
+    # Try "{safe_uid}_{safe_sid}" first (rsplit so user_ids with '_' work).
+    if "_" in stem:
+        safe_uid, safe_sid = stem.rsplit("_", 1)
+        if safe_sid.startswith(_LEGACY_WEIXIN_SAFE_PREFIX):
+            new_sid = (
+                _CANONICAL_WECHAT_SAFE_PREFIX
+                + safe_sid[len(_LEGACY_WEIXIN_SAFE_PREFIX) :]
+            )
+            return f"{safe_uid}_{new_sid}.json"
+    if stem.startswith(_LEGACY_WEIXIN_SAFE_PREFIX):
+        return (
+            _CANONICAL_WECHAT_SAFE_PREFIX
+            + stem[len(_LEGACY_WEIXIN_SAFE_PREFIX) :]
+            + ".json"
+        )
+    return None
+
+
 class SafeJSONSession(SessionBase):
     """SessionBase subclass with filename sanitization and async file I/O.
 
@@ -93,6 +176,7 @@ class SafeJSONSession(SessionBase):
                 The directory to save the session state.
         """
         self.save_dir = save_dir
+        _migrate_legacy_weixin_session_files(save_dir)
 
     def _get_save_path(self, session_id: str, user_id: str) -> str:
         """Return a filesystem-safe save path.
