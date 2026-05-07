@@ -806,6 +806,8 @@
     "lmstudioEndpointHint": "LM Studioエンドポイント、例: http://localhost:1234/v1",
     "apiEndpointHint": "APIエンドポイント、例: https://api.example.com",
     "pleaseEnterBaseURL": "APIベースURLを入力してください",
+    "selectBaseURL": "ベースURLを選択してください",
+    "selectBaseURLHint": "このプロバイダーのリージョンエンドポイントを選択",
     "pleaseEnterValidURL": "有効なURLを入力してください",
     "apiKeyShouldStart": "APIキーは \"{{prefix}}\" で始まる必要があります",
     "configurationSaved": "{{name}} の設定を保存しました",

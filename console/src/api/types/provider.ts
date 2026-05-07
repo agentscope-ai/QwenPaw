@@ -31,6 +31,14 @@ export interface ProviderInfo {
   api_key: string;
   base_url: string;
   generate_kwargs: Record<string, unknown>;
+  /** Provider-specific metadata (e.g. base_url_options for region selection). */
+  meta?: Record<string, unknown>;
+}
+
+/** Predefined base URL option exposed via `ProviderInfo.meta.base_url_options`. */
+export interface BaseUrlOption {
+  label: string;
+  value: string;
 }
 
 export interface ProviderConfigRequest {

@@ -516,7 +516,25 @@ PROVIDER_DASHSCOPE = OpenAIProvider(
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
     api_key_prefix="sk",
     models=DASHSCOPE_MODELS,
-    freeze_url=True,
+    meta={
+        "base_url_options": [
+            {
+                "label": "China (Beijing)",
+                "value": "https://dashscope.aliyuncs.com/"
+                "compatible-mode/v1",
+            },
+            {
+                "label": "International (Singapore)",
+                "value": "https://dashscope-intl.aliyuncs.com/"
+                "compatible-mode/v1",
+            },
+            {
+                "label": "US (Virginia)",
+                "value": "https://dashscope-us.aliyuncs.com/"
+                "compatible-mode/v1",
+            },
+        ],
+    },
 )
 
 PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
