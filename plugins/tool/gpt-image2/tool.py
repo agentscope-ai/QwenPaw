@@ -2,12 +2,15 @@
 # pylint: disable=too-many-return-statements
 """GPT Image 2 image generation tool."""
 
+import base64
 import logging
+import time
 from typing import Optional
-import httpx
 
+import httpx
 from agentscope.message import ImageBlock, TextBlock
 from agentscope.tool import ToolResponse
+from qwenpaw.constant import DEFAULT_MEDIA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -161,22 +164,46 @@ async def generate_image_gpt(
 
         logger.info("Image generated successfully (base64)")
 
-        # Convert base64 to data URI for display
-        data_uri = f"data:image/png;base64,{b64_json}"
+        # Save image to local file in DEFAULT_MEDIA_DIR
 
-        # Return image with metadata
+        media_dir = DEFAULT_MEDIA_DIR / "gpt_image2"
+        media_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate unique filename using timestamp
+        timestamp = int(time.time() * 1000)
+        filename = f"gpt_image2_{timestamp}.png"
+        image_path = media_dir / filename
+
+        # Decode base64 and save to file
+        try:
+            image_data = base64.b64decode(b64_json)
+            image_path.write_bytes(image_data)
+            logger.info(f"Image saved to {image_path}")
+        except Exception as e:
+            logger.error(f"Failed to save image: {e}")
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: Failed to save image - {str(e)}",
+                    ),
+                ],
+            )
+
+        # Return image with local file path
         return ToolResponse(
             content=[
                 ImageBlock(
                     type="image",
-                    source={"type": "url", "url": data_uri},
+                    source={"type": "url", "url": str(image_path)},
                 ),
                 TextBlock(
                     type="text",
                     text=(
                         f"Generated image using GPT Image 2\n"
                         f"Prompt: {prompt}\n"
-                        f"Size: {size}, Quality: {quality}"
+                        f"Size: {size}, Quality: {quality}\n"
+                        f"Saved to: {image_path}"
                     ),
                 ),
             ],
