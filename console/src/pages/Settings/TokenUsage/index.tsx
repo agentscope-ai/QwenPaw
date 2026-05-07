@@ -1,251 +1,192 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Card, Select, Table } from "@agentscope-ai/design";
-import type { ColumnsType } from "antd/es/table";
-import { DatePicker } from "antd";
+import { Button, DatePicker } from "antd";
 import { useTranslation } from "react-i18next";
 import dayjs, { Dayjs } from "dayjs";
+import { useTheme } from "../../../contexts/ThemeContext";
 import api from "../../../api";
-import type {
-  TokenUsageSummary,
-  TokenUsageStats,
-} from "../../../api/types/tokenUsage";
-import { formatCompact } from "../../../utils/formatNumber";
-import { LoadingState, EmptyState } from "./components";
-import { PageHeader } from "@/components/PageHeader";
+import type { TokenUsageRecord } from "../../../api/types/tokenUsage";
 import { useAppMessage } from "../../../hooks/useAppMessage";
+import { PageHeader } from "@/components/PageHeader";
+import {
+  SummaryCards,
+  ModelTrendChart,
+  TokenTypeChart,
+  DataTables,
+  EmptyState,
+} from "./components";
+import { useDataAggregation } from "./hooks/useDataAggregation";
+import { useModelTrendConfig } from "./hooks/useModelTrendConfig";
+import { useTokenTypeConfig } from "./hooks/useTokenTypeConfig";
 import styles from "./index.module.less";
-
-type ByModelRow = TokenUsageStats & { key: string };
-type ByDateRow = TokenUsageStats & { key: string; date: string };
 
 function TokenUsagePage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
+  const { isDark } = useTheme();
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<TokenUsageSummary | null>(null);
+  const [records, setRecords] = useState<TokenUsageRecord[]>([]);
   const [startDate, setStartDate] = useState<Dayjs>(
     dayjs().subtract(30, "day"),
   );
   const [endDate, setEndDate] = useState<Dayjs>(dayjs());
-  const [selectedModel, setSelectedModel] = useState<string | undefined>(
-    undefined,
-  );
-  const [allModels, setAllModels] = useState<string[]>([]);
+  const [selectedModels, setSelectedModels] = useState<string[]>([]);
+  const [selectedTokenTypes, setSelectedTokenTypes] = useState<string[]>([]);
 
   const fetchData = async () => {
     setLoading(true);
-    setError(null);
     try {
-      const summary = await api.getTokenUsage({
+      const detailsData = await api.getTokenUsageDetails({
         start_date: startDate.format("YYYY-MM-DD"),
         end_date: endDate.format("YYYY-MM-DD"),
-        model: selectedModel,
       });
-      setData(summary);
-      // If no model filter is applied, update the complete model list
-      if (!selectedModel && summary?.by_model) {
-        const models = Object.values(summary.by_model)
-          .map((stats) => stats.model)
-          .filter((m): m is string => !!m)
-          .sort();
-        setAllModels([...new Set(models)]);
-      }
+
+      setRecords(detailsData);
     } catch (e) {
       console.error("Failed to load token usage:", e);
       const msg = t("tokenUsage.loadFailed");
       message.error(msg);
-      setError(msg);
-      setData(null);
+      setRecords([]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    // Initial load without model filter to get all models
     fetchData();
   }, []);
 
   const handleDateChange = (dates: [Dayjs | null, Dayjs | null] | null) => {
-    if (dates?.[0]) setStartDate(dates[0]);
-    if (dates?.[1]) setEndDate(dates[1]);
+    if (!dates || !dates[0] || !dates[1]) return;
+    setStartDate(dates[0]);
+    setEndDate(dates[1]);
   };
 
-  const byModelDataSource: ByModelRow[] = useMemo(() => {
-    if (!data?.by_model) return [];
-    return Object.entries(data.by_model).map(([key, stats]) => ({
-      ...stats,
+  const handleRefresh = async () => {
+    await fetchData();
+  };
+
+  // Use hooks for data aggregation and chart configs
+  const aggregatedData = useDataAggregation(records);
+  const modelTrendConfig = useModelTrendConfig({
+    byDateModel: aggregatedData?.by_date_model || null,
+    startDate,
+    endDate,
+    selectedModels,
+    isDark,
+  });
+  const tokenTypeConfig = useTokenTypeConfig({
+    byDate: aggregatedData?.by_date || null,
+    startDate,
+    endDate,
+    selectedTokenTypes,
+    isDark,
+  });
+
+  // Initialize with all models and types selected when data loads
+  useEffect(() => {
+    if (aggregatedData) {
+      const allModels = Object.keys(aggregatedData.by_model || {});
+      const allTypes = ["Prompt Tokens", "Completion Tokens", "Total Tokens"];
+
+      // Use functional updates to avoid dependency issues
+      setSelectedModels((prev) =>
+        prev.length === 0 || prev.length !== allModels.length
+          ? allModels
+          : prev,
+      );
+      setSelectedTokenTypes((prev) =>
+        prev.length === 0 || prev.length !== allTypes.length ? allTypes : prev,
+      );
+    }
+  }, [aggregatedData]);
+
+  // Prepare table data
+  const byModelData = useMemo(() => {
+    if (!aggregatedData?.by_model) return [];
+    return Object.entries(aggregatedData.by_model).map(([key, stats]) => ({
       key,
+      model: key,
+      prompt_tokens: stats.prompt_tokens,
+      completion_tokens: stats.completion_tokens,
+      call_count: stats.call_count,
     }));
-  }, [data?.by_model]);
+  }, [aggregatedData?.by_model]);
 
-  const modelOptions = useMemo(() => {
-    // Use the cached allModels list instead of extracting from filtered data
-    return allModels;
-  }, [allModels]);
+  const byDateData = useMemo(() => {
+    if (!aggregatedData?.by_date) return [];
+    const data = Object.entries(aggregatedData.by_date).map(
+      ([date, stats]) => ({
+        key: date,
+        date,
+        prompt_tokens: stats.prompt_tokens,
+        completion_tokens: stats.completion_tokens,
+        call_count: stats.call_count,
+      }),
+    );
+    return data.sort((a, b) => b.date.localeCompare(a.date));
+  }, [aggregatedData?.by_date]);
 
-  const byDateDataSource: ByDateRow[] = useMemo(() => {
-    if (!data?.by_date) return [];
-    return Object.entries(data.by_date)
-      .map(([dt, stats]) => ({
-        ...stats,
-        key: dt,
-        date: dt,
-      }))
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [data?.by_date]);
-
-  const byModelColumns: ColumnsType<ByModelRow> = useMemo(
-    () => [
-      {
-        title: t("tokenUsage.provider"),
-        dataIndex: "provider_id",
-        key: "provider_id",
-        render: (v: string) => v ?? "",
-      },
-      {
-        title: t("tokenUsage.model"),
-        dataIndex: "model",
-        key: "model",
-        render: (v: string, r) => v ?? r.key,
-      },
-      {
-        title: t("tokenUsage.promptTokens"),
-        dataIndex: "prompt_tokens",
-        key: "prompt_tokens",
-        render: (n: number) => formatCompact(n),
-      },
-      {
-        title: t("tokenUsage.completionTokens"),
-        dataIndex: "completion_tokens",
-        key: "completion_tokens",
-        render: (n: number) => formatCompact(n),
-      },
-      {
-        title: t("tokenUsage.totalCalls"),
-        dataIndex: "call_count",
-        key: "call_count",
-        render: (n: number) => formatCompact(n),
-      },
-    ],
-    [t],
-  );
-
-  const byDateColumns: ColumnsType<ByDateRow> = useMemo(
-    () => [
-      { title: t("tokenUsage.date"), dataIndex: "date", key: "date" },
-      {
-        title: t("tokenUsage.promptTokens"),
-        dataIndex: "prompt_tokens",
-        key: "prompt_tokens",
-        render: (n: number) => formatCompact(n),
-      },
-      {
-        title: t("tokenUsage.completionTokens"),
-        dataIndex: "completion_tokens",
-        key: "completion_tokens",
-        render: (n: number) => formatCompact(n),
-      },
-      {
-        title: t("tokenUsage.totalCalls"),
-        dataIndex: "call_count",
-        key: "call_count",
-        render: (n: number) => formatCompact(n),
-      },
-    ],
-    [t],
-  );
+  if (loading) {
+    return (
+      <div className={styles.container}>
+        <PageHeader
+          parent={t("nav.settings")}
+          current={t("tokenUsage.title")}
+        />
+        <div className={styles.loading}>Loading...</div>
+      </div>
+    );
+  }
 
   return (
-    <div className={styles.tokenUsagePage}>
+    <div className={styles.container}>
       <PageHeader parent={t("nav.settings")} current={t("tokenUsage.title")} />
+
       <div className={styles.content}>
-        {loading && !data ? (
-          <LoadingState
-            message={error ?? t("common.loading")}
-            error={!!error}
-            onRetry={error ? fetchData : undefined}
+        {/* Date Range Picker and Refresh Button */}
+        <div className={styles.toolbar}>
+          <DatePicker.RangePicker
+            value={[startDate, endDate]}
+            onChange={handleDateChange}
           />
+          <Button onClick={handleRefresh}>
+            {t("tokenUsage.refresh", "Refresh")}
+          </Button>
+        </div>
+
+        {/* Summary Cards */}
+        {aggregatedData && (
+          <SummaryCards
+            totalCalls={aggregatedData.total_calls}
+            totalPromptTokens={aggregatedData.total_prompt_tokens}
+            totalCompletionTokens={aggregatedData.total_completion_tokens}
+            totalTokens={
+              aggregatedData.total_prompt_tokens +
+              aggregatedData.total_completion_tokens
+            }
+          />
+        )}
+
+        {/* Charts */}
+        <div className={styles.trendRow}>
+          <ModelTrendChart
+            chartConfig={modelTrendConfig}
+            selectedModels={selectedModels}
+            allModels={Object.keys(aggregatedData?.by_model || {})}
+            onModelChange={setSelectedModels}
+          />
+          <TokenTypeChart
+            chartConfig={tokenTypeConfig}
+            selectedTokenTypes={selectedTokenTypes}
+            onTokenTypeChange={setSelectedTokenTypes}
+          />
+        </div>
+
+        {/* Tables */}
+        {byModelData.length === 0 && byDateData.length === 0 ? (
+          <EmptyState message={t("tokenUsage.noData")} />
         ) : (
-          <>
-            <div className={styles.filters}>
-              <DatePicker.RangePicker
-                value={[startDate, endDate]}
-                onChange={handleDateChange}
-                className={styles.datePicker}
-              />
-              <Select
-                value={selectedModel}
-                onChange={(value) => setSelectedModel(value || undefined)}
-                placeholder={t("tokenUsage.filterByModel")}
-                allowClear
-                className={styles.modelFilter}
-                options={modelOptions.map((model) => ({
-                  label: model,
-                  value: model,
-                }))}
-              />
-              <Button type="primary" onClick={fetchData} loading={loading}>
-                {t("tokenUsage.refresh")}
-              </Button>
-            </div>
-
-            {data && data.total_calls > 0 ? (
-              <>
-                <div className={styles.summaryCards}>
-                  <Card className={styles.card}>
-                    <div className={styles.cardValue}>
-                      {formatCompact(data.total_prompt_tokens)}
-                    </div>
-                    <div className={styles.cardLabel}>
-                      {t("tokenUsage.promptTokens")}
-                    </div>
-                  </Card>
-                  <Card className={styles.card}>
-                    <div className={styles.cardValue}>
-                      {formatCompact(data.total_completion_tokens)}
-                    </div>
-                    <div className={styles.cardLabel}>
-                      {t("tokenUsage.completionTokens")}
-                    </div>
-                  </Card>
-                </div>
-
-                {byModelDataSource.length > 0 && (
-                  <Card
-                    className={styles.tableCard}
-                    title={t("tokenUsage.byModel")}
-                    bodyStyle={{ padding: 0 }}
-                  >
-                    <Table<ByModelRow>
-                      columns={byModelColumns}
-                      dataSource={byModelDataSource}
-                      rowKey="key"
-                      pagination={false}
-                    />
-                  </Card>
-                )}
-
-                {byDateDataSource.length > 0 && (
-                  <Card
-                    className={styles.tableCard}
-                    title={t("tokenUsage.byDate")}
-                    bodyStyle={{ padding: 0 }}
-                  >
-                    <Table<ByDateRow>
-                      columns={byDateColumns}
-                      dataSource={byDateDataSource}
-                      rowKey="key"
-                      pagination={false}
-                    />
-                  </Card>
-                )}
-              </>
-            ) : (
-              <EmptyState message={t("tokenUsage.noData")} />
-            )}
-          </>
+          <DataTables byModelData={byModelData} byDateData={byDateData} />
         )}
       </div>
     </div>

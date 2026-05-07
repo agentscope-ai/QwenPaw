@@ -1,126 +1,22 @@
-.tokenUsagePage {
+.page {
   height: 100%;
   padding: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-
-  :global {
-    .qwenpaw-spark-card-wrapper {
-      padding: 0 !important;
-    }
-
-    .qwenpaw-table-wrapper
-      .qwenpaw-table-container
-      .qwenpaw-table-thead
-      > tr
-      > th {
-      background: #f9f8f4 !important;
-    }
-  }
 }
 
 .content {
   flex: 1;
   overflow-y: auto;
-
-  :global {
-    .qwenpaw-spark-card-wrapper {
-      padding: 0 !important;
-    }
-
-    .qwenpaw-table-wrapper
-      .qwenpaw-table-container
-      .qwenpaw-table-thead
-      > tr
-      > th {
-      background: #f9f8f4 !important;
-    }
-  }
+  overflow-x: hidden;
+  padding: 0 16px 24px;
 }
-
-/* ---- Page Header (breadcrumb style) ---- */
-.pageHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  position: relative;
-  padding: 20px;
-  border-bottom: 1px solid #eae9e7;
-}
-
-.breadcrumbHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 16px;
-  flex: 1;
-}
-
-.breadcrumbParent {
-  color: #999;
-  font-weight: 400;
-}
-
-.breadcrumbSeparator {
-  color: #ccc;
-  margin: 0 4px;
-}
-
-.breadcrumbCurrent {
-  color: #333;
-  font-weight: 600;
-  font-size: 20px;
-}
-
-/* ---- Deprecated Section styles (kept for backward compatibility) ---- */
-
-.section {
-  margin-bottom: 24px;
-}
-
-.section:last-child {
-  margin-bottom: 0;
-}
-
-.sectionTitle {
-  margin-bottom: 4px;
-  font-size: 24px;
-  font-weight: 600;
-}
-
-.sectionDesc {
-  margin: 0 0 16px;
-  color: #999;
-  font-size: 14px;
-}
-
-/* ---- Loading / Error ---- */
 
 .loading {
   text-align: center;
   padding: 60px;
-}
-
-.loadingText {
   color: #999;
-}
-
-/* ---- Empty state ---- */
-
-.emptyState {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 48px 24px;
-  color: #999;
-  font-size: 14px;
-}
-
-.emptyIcon {
-  font-size: 32px;
-  opacity: 0.6;
 }
 
 .filters {
@@ -128,14 +24,21 @@
   gap: 12px;
   align-items: center;
   margin: 20px 0;
-  padding: 0 16px;
 }
 
 .datePicker {
   width: 260px;
+
+  @media (max-width: 480px) {
+    width: 100%;
+  }
 }
 
 .modelFilter {
+  width: 200px;
+}
+
+.singleDatePicker {
   width: 200px;
 }
 
@@ -144,14 +47,20 @@
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 24px;
-  padding: 0 16px;
+}
+
+.dailySummaryCards {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
 }
 
 .card {
-  flex: 1 1 180px;
-  min-width: 160px;
+  flex: 1 1 140px;
+  min-width: 120px;
   text-align: center;
-  padding: 20px;
+  padding: 16px;
 }
 
 .cardValue {
@@ -166,139 +75,209 @@
   color: #999;
 }
 
+.insightCard {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none !important;
+
+  .cardValue {
+    color: white;
+    font-size: 24px;
+  }
+
+  .cardLabel {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 11px;
+  }
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
+  }
+}
+
 .tableCard {
   margin-bottom: 24px;
   border: none !important;
 
-  &:last-child {
-    margin-bottom: 0;
-  }
-
   :global {
-    .qwenpaw-card .qwenpaw-card-bordered .qwenpaw-spark-card {
-      border: none !important;
-    }
-
     .qwenpaw-card-body {
-      padding: 0;
+      padding: 16px;
     }
 
     .qwenpaw-spark-title {
-      font-size: 20px !important;
+      font-size: 16px !important;
       font-weight: 500 !important;
-      line-height: 24px !important;
-      letter-spacing: normal;
-      color: rgba(20, 20, 19, 0.88);
-      padding: 16px;
+      padding: 0 0 12px;
     }
   }
 }
 
-.tableWrapper {
+.chartCard {
+  margin-bottom: 24px;
+  border: none !important;
+
+  :global {
+    .qwenpaw-card-body {
+      padding: 16px;
+    }
+
+    .qwenpaw-spark-title {
+      font-size: 16px !important;
+      font-weight: 500 !important;
+      padding: 0 0 12px;
+    }
+  }
+}
+
+.trendRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+
+  @media (max-width: 768px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.chartContainer {
+  width: 100%;
+  min-height: 300px;
+}
+
+.chartContainerShort {
+  width: 100%;
+  min-height: 150px;
+}
+
+.dailyViewContent {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+
+  @media (max-width: 1200px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dailyTableSection {
   overflow-x: auto;
 }
 
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
+.dailyChartSection {
+  min-height: 400px;
+}
 
-  th,
-  td {
-    padding: 12px 16px;
-    text-align: left;
-    border-bottom: 1px solid #f0f0f0;
-  }
+.clickableDate {
+  cursor: pointer;
+  color: #1677ff;
+  transition: color 0.2s;
 
-  th {
-    font-weight: 600;
-    color: #666;
-    background: #fafafa;
-  }
-
-  td {
-    color: #333;
-  }
-
-  tbody tr:hover {
-    background: #fafafa;
+  &:hover {
+    color: #4096ff;
+    text-decoration: underline;
   }
 }
 
-.modelCell {
-  font-family: "SF Mono", "Menlo", monospace;
-  font-size: 13px;
+.dailyViewFilters {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.chartTitle {
+  /* No special cursor */
+}
+
+.comparisonCharts {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+
+  @media (max-width: 1200px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.error {
+  text-align: center;
+  padding: 60px;
+
+  > p {
+    color: #ff4d4f;
+    margin-bottom: 16px;
+  }
 }
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
-  .tokenUsagePage {
-    :global {
-      .qwenpaw-table-wrapper
-        .qwenpaw-table-container
-        .qwenpaw-table-thead
-        > tr
-        > th {
-        background: rgba(255, 255, 255, 0.04) !important;
-      }
+  .loading {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .error {
+    > p {
+      color: #ff7875;
     }
   }
 
-  .pageHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .breadcrumbParent {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .breadcrumbSeparator {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  .breadcrumbCurrent {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .sectionDesc {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .loadingText {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .emptyState {
-    color: rgba(255, 255, 255, 0.25);
-  }
-
-  /* Summary cards */
   .cardValue {
     color: rgba(255, 255, 255, 0.85);
   }
 
   .cardLabel {
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.45);
   }
 
-  /* Data table */
-  .table {
-    th,
-    td {
-      border-bottom-color: rgba(255, 255, 255, 0.06);
+  .tableCard {
+    :global {
+      .qwenpaw-card-body {
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .qwenpaw-spark-title {
+        color: rgba(255, 255, 255, 0.85);
+      }
+    }
+  }
+
+  .chartCard {
+    :global {
+      .qwenpaw-card-body {
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .qwenpaw-spark-title {
+        color: rgba(255, 255, 255, 0.85);
+      }
+    }
+  }
+
+  // Chart legend text color in dark mode
+  :global {
+    .g2-legend-item-name {
+      fill: rgba(255, 255, 255, 0.85) !important;
     }
 
-    th {
-      color: rgba(255, 255, 255, 0.4);
-      background: rgba(255, 255, 255, 0.03);
+    // Chart axis labels
+    .g2-axis-label-text {
+      fill: rgba(255, 255, 255, 0.65) !important;
     }
 
-    td {
-      color: rgba(255, 255, 255, 0.75);
+    // Pie chart labels
+    .g2-label-text {
+      fill: rgba(255, 255, 255, 0.65) !important;
     }
 
-    tbody tr:hover {
-      background: rgba(255, 255, 255, 0.04);
+    // Tooltip text
+    .g2-tooltip-title,
+    .g2-tooltip-name,
+    .g2-tooltip-value {
+      color: rgba(255, 255, 255, 0.85) !important;
     }
   }
 }

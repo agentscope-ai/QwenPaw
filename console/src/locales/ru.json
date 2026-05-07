@@ -708,20 +708,23 @@
   },
   "tokenUsage": {
     "title": "Использование токенов",
-    "description": "Просмотр расхода LLM-токенов по датам и моделям.",
     "totalTokens": "Всего токенов",
     "totalCalls": "Всего вызовов",
     "promptTokens": "Входные токены",
     "completionTokens": "Выходные токены",
     "byModel": "По модели",
     "byDate": "По дате",
-    "provider": "Провайдер",
     "model": "Модель",
     "date": "Дата",
-    "refresh": "Обновить",
     "loadFailed": "Не удалось загрузить данные об использовании токенов",
     "noData": "Нет данных об использовании токенов за выбранный период",
-    "filterByModel": "Фильтр по модели"
+    "modelTrend": "Тренд использования моделей",
+    "tokenTypeChart": "Тренд типов токенов",
+    "selectAll": "Выбрать все",
+    "allSelected": "Все",
+    "itemsSelected": "Выбрано: {{count}}",
+    "selectModels": "Выберите модели",
+    "selectTokenTypes": "Выберите типы токенов"
   },
   "agentStats": {
     "title": "Статистика агента",

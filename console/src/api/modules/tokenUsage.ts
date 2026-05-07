@@ -1,5 +1,5 @@
 import { request } from "../request";
-import type { TokenUsageSummary } from "../types/tokenUsage";
+import type { TokenUsageSummary, TokenUsageRecord } from "../types/tokenUsage";
 
 export interface GetTokenUsageParams {
   start_date: string;
@@ -19,6 +19,11 @@ function buildQuery(params: GetTokenUsageParams): string {
 }
 
 export const tokenUsageApi = {
+  // Original summary endpoint (backend aggregation)
   getTokenUsage: (params: GetTokenUsageParams) =>
     request<TokenUsageSummary>(`/token-usage${buildQuery(params)}`),
+
+  // New details endpoint (raw records for frontend aggregation)
+  getTokenUsageDetails: (params: GetTokenUsageParams) =>
+    request<TokenUsageRecord[]>(`/token-usage/details${buildQuery(params)}`),
 };

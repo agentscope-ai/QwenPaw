@@ -905,20 +905,23 @@
   },
   "tokenUsage": {
     "title": "Token Usage",
-    "description": "View LLM token consumption over time, by date and model.",
     "totalTokens": "Total Tokens",
     "totalCalls": "Total Calls",
     "promptTokens": "Prompt Tokens",
     "completionTokens": "Completion Tokens",
     "byModel": "By Model",
     "byDate": "By Date",
-    "provider": "Provider",
     "model": "Model",
     "date": "Date",
-    "refresh": "Refresh",
     "loadFailed": "Failed to load token usage",
     "noData": "No token usage data in the selected period",
-    "filterByModel": "Filter by Model"
+    "modelTrend": "Model Usage Trend",
+    "tokenTypeChart": "Token Type Trend",
+    "selectAll": "Select All",
+    "allSelected": "All",
+    "itemsSelected": "{{count}} selected",
+    "selectModels": "Select models",
+    "selectTokenTypes": "Select token types"
   },
   "agentStats": {
     "title": "Agent Statistics",
