@@ -112,7 +112,7 @@ def swap_mount_point_contents(dst: Path, tmp_dst: Path) -> None:
     except Exception:
         logger.exception("Mount-point content swap failed for %s", dst)
         try:
-            recover_mount_point_swap(dst, tmp_dst.name.removeprefix(dst.name))
+            recover_mount_point_swap(dst, tmp_dst)
         except Exception:
             logger.exception(
                 "Immediate recovery failed after mount-point swap error "
@@ -136,19 +136,19 @@ def _swap_mount_point_contents(dst: Path, tmp_dst: Path) -> None:
     _cleanup_artifacts(dst, tmp_dst)
 
 
-def recover_mount_point_swap(dst: Path, restore_tmp_suffix: str) -> None:
+def recover_mount_point_swap(dst: Path, tmp_dst: Path) -> None:
     """Recover a crashed mount-point fallback swap, if one is present.
 
     ``committed`` means the new content is already complete, so recovery only
     cleans artifacts.  ``installing_new`` means the new content may be partial,
     so recovery removes partial new children and restores old content.
-    ``evacuating_old`` or a missing/invalid state is treated conservatively:
-    move back any old children that had already been evacuated.
+    ``evacuating_old`` or an invalid state is treated conservatively: move back
+    any old children that had already been evacuated.  Markerless old-content
+    directories are left untouched because they are not proven restore state.
     """
     old_dir = dst / OLD_CONTENT_DIR_NAME
     marker = dst / STATE_FILE_NAME
     tmp_marker = dst / STATE_TMP_FILE_NAME
-    tmp_dst = dst.with_name(dst.name + restore_tmp_suffix)
 
     if not (old_dir.exists() or marker.exists() or tmp_marker.exists()):
         return

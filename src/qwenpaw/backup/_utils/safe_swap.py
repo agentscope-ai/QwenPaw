@@ -182,7 +182,10 @@ def _cleanup_stale_restore_artifacts_locked(base_dir: Path) -> None:
                 old,
             )
 
-    recover_mount_point_swap(base_dir, _RESTORE_TMP_SUFFIX)
+    recover_mount_point_swap(
+        base_dir,
+        base_dir.with_name(base_dir.name + _RESTORE_TMP_SUFFIX),
+    )
 
 
 def _extract_zip_to(
