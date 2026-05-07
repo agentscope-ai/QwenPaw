@@ -6,6 +6,7 @@ import {
   Input,
   Form,
   Tooltip,
+  Badge,
   type MenuProps,
 } from "antd";
 import { useState, useEffect } from "react";
@@ -43,6 +44,7 @@ import {
 import { Package } from "lucide-react";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
+import api from "../api";
 import { usePlugins } from "../plugins/PluginContext";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
@@ -60,6 +62,7 @@ function isMobileSidebarViewport() {
     window.matchMedia(MOBILE_SIDEBAR_QUERY).matches
   );
 }
+const INBOX_BADGE_POLLING_MS = 6000;
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -81,6 +84,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const [accountForm] = Form.useForm();
   const [collapsed, setCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(isMobileSidebarViewport);
+  const [hasInboxUnread, setHasInboxUnread] = useState(false);
 
   // ── Effects ──────────────────────────────────────────────────────────────
 
@@ -114,7 +118,41 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       mediaQuery.removeEventListener("change", syncMobileSidebar);
     };
   }, []);
+  useEffect(() => {
+    const loadUnreadState = async () => {
+      try {
+        const [inboxRes, pushRes] = await Promise.all([
+          api.getInboxEvents({
+            unread_only: true,
+            limit: 1,
+          }),
+          api.getPushMessages(),
+        ]);
+        const hasUnreadEvents = (inboxRes?.events?.length || 0) > 0;
+        const hasPendingApprovals =
+          (pushRes?.pending_approvals?.length || 0) > 0;
+        setHasInboxUnread(hasUnreadEvents || hasPendingApprovals);
+      } catch {
+        // Keep previous state when polling fails.
+      }
+    };
+    void loadUnreadState();
+    const timer = window.setInterval(() => {
+      void loadUnreadState();
+    }, INBOX_BADGE_POLLING_MS);
+    return () => window.clearInterval(timer);
+  }, []);
 
+  const inboxIcon = (size: number) => (
+    <Badge dot={hasInboxUnread} color="rgba(255, 157, 77, 1)" offset={[2, 0]}>
+      <SparkOtherLine size={size} />
+    </Badge>
+  );
+  const inboxLabel = collapsed ? null : (
+    <Badge dot={hasInboxUnread} color="rgba(255, 157, 77, 1)" offset={[5, 7]}>
+      <span>{t("nav.inbox")}</span>
+    </Badge>
+  );
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handleUpdateProfile = async (values: {
@@ -181,7 +219,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     },
     {
       key: "inbox",
-      icon: <SparkOtherLine size={18} />,
+      icon: inboxIcon(18),
       path: "/inbox",
       label: t("nav.inbox"),
     },
@@ -325,7 +363,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const agentMenuItems: MenuProps["items"] = [
     {
       key: "inbox",
-      label: collapsed ? null : t("nav.inbox"),
+      label: inboxLabel,
       icon: <SparkOtherLine size={16} />,
     },
     {

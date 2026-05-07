@@ -5,67 +5,7 @@ import type { HarvestInstance, InboxSummary, PushMessage } from "../types";
 
 const PUSH_POLLING_INTERVAL_MS = 6000;
 
-const MOCK_HARVESTS: HarvestInstance[] = [
-  {
-    id: "harvest-1",
-    name: "Tech Frontier Harvest",
-    templateId: "tech-daily",
-    emoji: "🚀",
-    schedule: {
-      cron: "0 9 * * *",
-      timezone: "Asia/Shanghai",
-      nextRun: new Date(Date.now() + 6 * 60 * 60 * 1000),
-    },
-    status: "active",
-    lastGenerated: {
-      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      success: true,
-    },
-    stats: {
-      totalGenerated: 23,
-      successRate: 95.6,
-      consecutiveDays: 7,
-    },
-  },
-  {
-    id: "harvest-2",
-    name: "Industry Intelligence",
-    templateId: "industry-weekly",
-    emoji: "📊",
-    schedule: {
-      cron: "0 10 * * 1",
-      timezone: "Asia/Shanghai",
-      nextRun: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-    },
-    status: "active",
-    lastGenerated: {
-      timestamp: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
-      success: true,
-    },
-    stats: {
-      totalGenerated: 12,
-      successRate: 100,
-      consecutiveDays: 12,
-    },
-  },
-  {
-    id: "harvest-3",
-    name: "Competitor Watch",
-    templateId: "competitor-daily",
-    emoji: "🏢",
-    schedule: {
-      cron: "0 18 * * *",
-      timezone: "Asia/Shanghai",
-      nextRun: new Date(Date.now() + 8 * 60 * 60 * 1000),
-    },
-    status: "paused",
-    stats: {
-      totalGenerated: 5,
-      successRate: 80,
-      consecutiveDays: 0,
-    },
-  },
-];
+const MOCK_HARVESTS: HarvestInstance[] = [];
 
 const mapPriority = (text: string): "low" | "normal" | "high" | "urgent" => {
   if (text.includes("❌") || text.toLowerCase().includes("error")) {
@@ -176,6 +116,29 @@ export const useInboxData = () => {
     }));
   }, []);
 
+  const markAllMessagesAsRead = useCallback(async (): Promise<number> => {
+    const unreadIds = pushMessages
+      .filter((message) => !message.read)
+      .map((m) => m.id);
+    if (!unreadIds.length) {
+      return 0;
+    }
+    await api.markInboxRead({ all: true });
+    setPushMessages((prev) =>
+      prev.map((message) =>
+        message.read ? message : { ...message, read: true },
+      ),
+    );
+    setSummary((prev) => ({
+      ...prev,
+      pushMessages: {
+        ...prev.pushMessages,
+        unread: 0,
+      },
+    }));
+    return unreadIds.length;
+  }, [pushMessages]);
+
   const deleteMessage = useCallback((messageId: string) => {
     void api.deleteInboxEvent(messageId);
     let unreadDelta = 0;
@@ -202,6 +165,7 @@ export const useInboxData = () => {
     pushMessages,
     harvests,
     markMessageAsRead,
+    markAllMessagesAsRead,
     deleteMessage,
     triggerHarvest,
     refreshPushMessages: loadPushMessages,

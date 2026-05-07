@@ -17,7 +17,7 @@ import {
   DownOutlined,
   ToolOutlined,
 } from "@ant-design/icons";
-import { PackageOpen, Bell, Sparkles, Plus } from "lucide-react";
+import { PackageOpen, Bell, Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
@@ -29,7 +29,6 @@ import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
 import sessionApi from "../Chat/sessionApi";
 import {
-  CreateHarvestModal,
   HarvestCard,
   MagazineStackViewer,
   PushMessageCard,
@@ -205,11 +204,11 @@ const renderMarkdownText = (text: string, className: string) => (
 export default function InboxPage() {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabKey>(resolveInitialTab);
+  const [markAllReading, setMarkAllReading] = useState(false);
   const [magazineViewerOpen, setMagazineViewerOpen] = useState(false);
   const [currentHarvest, setCurrentHarvest] = useState<HarvestInstance | null>(
     null,
   );
-  const [createModalOpen, setCreateModalOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState<PushMessage | null>(
     null,
@@ -227,6 +226,7 @@ export default function InboxPage() {
     pushMessages,
     harvests,
     markMessageAsRead,
+    markAllMessagesAsRead,
     deleteMessage,
     triggerHarvest,
   } = useInboxData();
@@ -430,6 +430,22 @@ export default function InboxPage() {
     message.info(t("inbox.harvestSettingsComingSoon"));
   };
 
+  const handleMarkAllRead = async () => {
+    if (summary.pushMessages.unread <= 0) {
+      message.info(t("inbox.markAllReadNoUnread"));
+      return;
+    }
+    setMarkAllReading(true);
+    try {
+      const updated = await markAllMessagesAsRead();
+      message.success(t("inbox.markAllReadSuccess", { count: updated }));
+    } catch {
+      message.error(t("common.operationFailed"));
+    } finally {
+      setMarkAllReading(false);
+    }
+  };
+
   const tabItems = [
     {
       key: "approvals",
@@ -511,6 +527,16 @@ export default function InboxPage() {
       ),
       children: (
         <div className={styles.tabContent}>
+          <div className={styles.messagesToolbar}>
+            <Button
+              size="small"
+              onClick={() => void handleMarkAllRead()}
+              loading={markAllReading}
+              disabled={summary.pushMessages.unread <= 0}
+            >
+              {t("inbox.markAllRead")}
+            </Button>
+          </div>
           {pushMessages.length > 0 ? (
             <div className={styles.cardList}>
               {pushMessages.map((item) => (
@@ -555,15 +581,7 @@ export default function InboxPage() {
               ))}
             </div>
           ) : (
-            <Empty description={t("inbox.emptyHarvests")}>
-              <Button
-                type="primary"
-                icon={<Plus size={16} />}
-                onClick={() => setCreateModalOpen(true)}
-              >
-                {t("inbox.createFirstHarvest")}
-              </Button>
-            </Empty>
+            <Empty description={t("inbox.emptyHarvests")} />
           )}
         </div>
       ),
@@ -572,20 +590,7 @@ export default function InboxPage() {
 
   return (
     <div className={styles.inboxPage}>
-      <PageHeader
-        items={[{ title: t("inbox.title") }]}
-        extra={
-          activeTab === "harvests" ? (
-            <Button
-              type="primary"
-              icon={<Plus size={16} />}
-              onClick={() => setCreateModalOpen(true)}
-            >
-              {t("inbox.createHarvest")}
-            </Button>
-          ) : null
-        }
-      />
+      <PageHeader items={[{ title: t("inbox.title") }]} extra={null} />
 
       <div className={styles.pageContent}>
         <Tabs
@@ -603,15 +608,6 @@ export default function InboxPage() {
           onClose={() => setMagazineViewerOpen(false)}
         />
       ) : null}
-
-      <CreateHarvestModal
-        open={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
-        onSubmit={() => {
-          message.success(t("inbox.createSuccess"));
-          setCreateModalOpen(false);
-        }}
-      />
 
       <Modal
         open={detailOpen}
