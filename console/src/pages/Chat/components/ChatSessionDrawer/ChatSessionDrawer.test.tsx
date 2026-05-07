@@ -15,7 +15,7 @@ vi.mock("react-window", () => ({
     return (
       <>
         {Array.from({ length: itemCount }, (_, i) => (
-          <Row key={i} index={i} style={{}}  data={itemData} />
+          <Row key={i} index={i} style={{}} data={itemData} />
         ))}
       </>
     );
@@ -87,7 +87,10 @@ const mockResizeObserver = vi.fn().mockImplementation(function (
   return {
     observe: vi.fn((el: HTMLElement) => {
       callback([
-        { target: el, contentRect: { height: 600 } } as unknown as ResizeObserverEntry,
+        {
+          target: el,
+          contentRect: { height: 600 },
+        } as unknown as ResizeObserverEntry,
       ]);
     }),
     unobserve: vi.fn(),
