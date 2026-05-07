@@ -1420,6 +1420,10 @@
     "embeddingMaxBatchSizeTooltip": "Maximum number of items in a single batch embedding request",
     "embeddingMaxBatchSizeRequired": "Max batch size is required",
     "embeddingRestartWarning": "Embedding model config does not support hot reload. Save and restart the service for changes to take effect.",
+    "embeddingTest": "Connection Test",
+    "embeddingTestButton": "Test Connection",
+    "embeddingTestSuccess": "Connection successful",
+    "embeddingTestFailed": "Connection failed",
     "toolExecutionLevelTitle": "Tool Execution Security",
     "toolExecutionLevel": {
       "title": "Tool Execution Security",
