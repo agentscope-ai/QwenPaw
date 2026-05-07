@@ -13,7 +13,9 @@ from agentscope.model._model_response import ChatResponse
 from pydantic import BaseModel
 
 from qwenpaw.local_models.tag_parser import (
+    extract_thinking_from_text,
     parse_tool_calls_from_text,
+    text_contains_think_tag,
     text_contains_tool_call_tag,
 )
 
@@ -192,7 +194,7 @@ class OpenAIChatModelCompat(OpenAIChatModel):
     """OpenAIChatModel with robust parsing for malformed tool-call chunks
     and transparent ``extra_content`` (Gemini thought_signature) relay."""
 
-    # pylint: disable=too-many-branches
+    # pylint: disable=too-many-branches,too-many-statements
     async def _parse_openai_stream_response(
         self,
         start_datetime: datetime,
@@ -268,11 +270,29 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                 # --- 2. Scan text/content blocks ---
                 # Some models emit <tool_call> tags directly in their
                 # response text instead of (or in addition to) thinking.
+                # Others embed reasoning inside <think>/<thought> tags
+                # in the text rather than via reasoning_content.
                 new_content: list | None = None
+                injected_thinking_blocks: list = []
                 for i, block in enumerate(parsed.content):
                     if block.get("type") != "text":
                         continue
                     text = block.get("text") or ""
+
+                    # --- 2a. Extract <think>/<thought> tags from text ---
+                    if text_contains_think_tag(text):
+                        think_result = extract_thinking_from_text(text)
+                        if think_result.thinking or think_result.has_open_tag:
+                            injected_thinking_blocks.append(
+                                {
+                                    "type": "thinking",
+                                    "thinking": think_result.thinking,
+                                },
+                            )
+                            text = think_result.remaining_text
+                            block["text"] = text
+
+                    # --- 2b. Extract <tool_call> tags from text ---
                     if not text_contains_tool_call_tag(text):
                         continue
 
@@ -301,7 +321,17 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                         new_content[i] = None  # type: ignore[index]
 
                 if new_content is not None:
+                    # Filter out blocks marked for removal first, so that
+                    # any blocks emptied by tag extraction are dropped
+                    # before we (optionally) prepend thinking blocks.
                     parsed.content = [b for b in new_content if b is not None]
+
+                if injected_thinking_blocks:
+                    # Prepend extracted thinking blocks before existing
+                    # content.
+                    parsed.content = injected_thinking_blocks + list(
+                        parsed.content,
+                    )
 
                 extra = list(_think_tool_calls.values()) + list(
                     _text_tool_calls.values(),
