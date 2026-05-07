@@ -614,15 +614,21 @@ Extend QwenPaw's capabilities with skills (PDF reading, web search, etc.).
 
 ### qwenpaw skills
 
-| Command                 | What it does                                      |
-| ----------------------- | ------------------------------------------------- |
-| `qwenpaw skills list`   | Show all skills and their enabled/disabled status |
-| `qwenpaw skills config` | Interactively enable/disable skills (checkbox UI) |
-| `qwenpaw skills info`   | Show local details for one workspace skill        |
+| Command                    | What it does                                              |
+| -------------------------- | --------------------------------------------------------- |
+| `qwenpaw skills install`   | Install a skill from a supported URL source               |
+| `qwenpaw skills uninstall` | Remove a skill from the skill pool or one agent workspace |
+| `qwenpaw skills list`      | Show all skills and their enabled/disabled status         |
+| `qwenpaw skills config`    | Interactively enable/disable skills (checkbox UI)         |
+| `qwenpaw skills info`      | Show local details for one workspace skill                |
 
 **Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
 
 ```bash
+qwenpaw skills install https://skills.sh/owner/repo/skill  # Import into the local skill pool
+qwenpaw skills install https://skills.sh/owner/repo/skill --agent-id abc123  # Import directly into a specific agent workspace
+qwenpaw skills uninstall skill-creator  # Remove from the local skill pool
+qwenpaw skills uninstall skill-creator --agent-id abc123  # Remove from a specific agent workspace
 qwenpaw skills list                   # See default agent's skills
 qwenpaw skills list --agent-id abc123 # See specific agent's skills
 qwenpaw skills config                 # Configure default agent
@@ -713,7 +719,7 @@ See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for 
 | `qwenpaw agents`    | `list` · `create` · `delete` · `chat`                                                |    Partial ¹     |
 | `qwenpaw cron`      | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |     **Yes**      |
 | `qwenpaw chats`     | `list` · `get` · `create` · `update` · `delete`                                      |     **Yes**      |
-| `qwenpaw skills`    | `list` · `config` · `info`                                                           |        No        |
+| `qwenpaw skills`    | `install` · `uninstall` · `list` · `config` · `info`                                 |        No        |
 | `qwenpaw task`      | —                                                                                    |        No        |
 | `qwenpaw auth`      | `reset-password`                                                                     |        No        |
 | `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate`                               |        No        |
