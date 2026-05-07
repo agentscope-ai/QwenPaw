@@ -52,6 +52,7 @@ from .doctor_checks import (
     qwenpaw_local_llm_deep_notes,
     startup_extra_volume_disk_notes,
     workspace_hygiene_notes,
+    windows_environment_lines,
 )
 from .doctor_connectivity import collect_deep_channel_connectivity_notes
 from .doctor_registry import DoctorRunContext, run_extension_contributions
@@ -393,6 +394,12 @@ def run_doctor_checks(
     )
     if mismatch:
         click.echo(click.style("Note:", fg="yellow") + f" {mismatch}")
+
+    win_lines = windows_environment_lines()
+    if win_lines:
+        click.echo("\n=== Windows environment ===")
+        for line in win_lines:
+            click.echo(f"  {line}")
 
     click.echo("\n=== Config ===")
     config_ok, detail = strict_validate_config_file()
