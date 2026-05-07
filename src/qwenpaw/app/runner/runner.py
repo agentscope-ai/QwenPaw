@@ -347,9 +347,15 @@ class AgentRunner(Runner):
                 ),
             )
 
+            # Optional sender display name from channel_meta.user_name.
+            channel_meta = getattr(request, "channel_meta", None)
+            if not isinstance(channel_meta, dict):
+                channel_meta = {}
+            user_name = channel_meta.get("user_name")
             env_context = build_env_context(
                 session_id=session_id,
                 user_id=user_id,
+                user_name=user_name,
                 channel=channel,
                 working_dir=(
                     str(self.workspace_dir)
