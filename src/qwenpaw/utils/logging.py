@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Logging setup for application logging and optional file output."""
+
 import logging
 import logging.handlers
 import os
@@ -201,4 +202,3 @@ def add_project_file_handler(log_path: Path) -> None:
         PlainFormatter("%(asctime)s | %(message)s", "%Y-%m-%d %H:%M:%S"),
     )
     logger.addHandler(file_handler)
-
