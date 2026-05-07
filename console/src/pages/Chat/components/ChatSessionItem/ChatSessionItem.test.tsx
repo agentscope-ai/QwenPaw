@@ -34,6 +34,7 @@ vi.mock("../../../Control/Channels/components", () => ({
 }));
 
 const baseProps = {
+  sessionId: "test-session-1",
   name: "Test Session",
   time: "2024-01-01 12:00:00",
 };
@@ -45,12 +46,13 @@ describe("ChatSessionItem", () => {
     expect(screen.getByText("2024-01-01 12:00:00")).toBeInTheDocument();
   });
 
-  it("clicking the item triggers onClick callback", async () => {
+  it("clicking the item triggers onClick callback with sessionId", async () => {
     const user = userEvent.setup();
     const onClick = vi.fn();
     renderWithProviders(<ChatSessionItem {...baseProps} onClick={onClick} />);
     await user.click(screen.getByText("Test Session"));
     expect(onClick).toHaveBeenCalledOnce();
+    expect(onClick).toHaveBeenCalledWith("test-session-1");
   });
 
   it("clicking edit button triggers onEdit and does not bubble to onClick", () => {
