@@ -764,7 +764,11 @@
   "modelSelector": {
     "selectModel": "モデルを選択",
     "noConfiguredModels": "設定済みモデルがありません",
-    "switchFailed": "モデルの切り替えに失敗しました"
+    "switchFailed": "モデルの切り替えに失敗しました",
+    "searchModels": "モデルを検索...",
+    "noModelsFound": "一致するモデルが見つかりません",
+    "free": "無料",
+    "vision": "視覚"
   },
   "models": {
     "llmConfiguration": "LLM設定",

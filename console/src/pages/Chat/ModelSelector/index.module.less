@@ -50,144 +50,180 @@
   object-fit: contain;
 }
 
-/* ---- Level-1 panel ---- */
+/* ---- Dropdown panel ---- */
 .panel {
-  min-width: 180px;
-  border-radius: 6px;
+  width: 360px;
+  max-height: 480px;
+  border-radius: 8px;
   background: #fff;
   border: 1px solid rgba(0, 0, 0, 0.06);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.providerItem {
-  position: relative;
+/* ---- Search box ---- */
+.searchWrapper {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 4px 8px;
-  cursor: pointer;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+}
+
+.searchIcon {
+  font-size: 14px;
+  color: #999;
+  flex-shrink: 0;
+}
+
+.searchInput {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
   font-size: 14px;
   color: #333;
-  transition: background 0.12s;
-  gap: 8px;
+  padding: 0;
+  min-width: 0;
 
-  &:hover {
-    background: rgba(97, 92, 237, 0.06);
-    color: #ff7f16;
-  }
-
-  &:hover :global(.modelSubmenu) {
-    display: block;
-  }
-
-  // Hover bridge: extend leftward to cover the margin-right gap between
-  // providerItem and the left-side submenu, keeping :hover active during transition
-  &::after {
-    content: "";
-    position: absolute;
-    left: -8px;
-    top: 0;
-    width: 8px;
-    height: 100%;
-    background: transparent;
-  }
-
-  &:first-child {
-    border-radius: 6px 6px 0 0;
-  }
-
-  &:last-child {
-    border-radius: 0 0 6px 6px;
-  }
-
-  &.providerItemActive {
-    font-weight: 500;
+  &::placeholder {
+    color: #bbb;
   }
 }
 
-.providerName {
+.searchClear {
+  font-size: 14px;
+  color: #bbb;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s;
+
+  &:hover {
+    color: #999;
+  }
+}
+
+/* ---- List container ---- */
+.listContainer {
+  overflow-y: auto;
   flex: 1;
+  padding: 4px 0;
+}
+
+/* ---- Provider group ---- */
+.providerGroup {
+  margin-bottom: 4px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.providerHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #999;
+  letter-spacing: 0.5px;
+}
+
+.providerHeaderName {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.providerArrow {
-  flex-shrink: 0;
-  font-size: 14px;
-  color: #bbb;
-}
-
-/* ---- Level-2 submenu ---- */
-.submenu {
-  display: none;
-  position: absolute;
-  top: -1px;
-  right: 100%;
-  margin-right: 2px;
-  min-width: 200px;
-  max-height: 360px;
-  overflow-y: auto;
-  border-radius: 6px;
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-  z-index: 1100;
-}
-
+/* ---- Model item ---- */
 .modelItem {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 8px;
+  padding: 7px 12px 7px 20px;
+  margin: 0 4px;
   cursor: pointer;
   font-size: 14px;
   color: #333;
   transition: background 0.12s;
   gap: 8px;
-  white-space: nowrap;
+  border-radius: 6px;
 
   &:hover {
     background: rgba(97, 92, 237, 0.06);
-    color: #ff7f16;
-  }
-
-  &:first-child {
-    border-radius: 6px 6px 0 0;
-  }
-
-  &:last-child {
-    border-radius: 0 0 6px 6px;
+    color: #333;
   }
 
   &.modelItemActive {
-    background: rgba(97, 92, 237, 0.08);
+    background: rgba(255, 127, 22, 0.08);
     color: #ff7f16;
     font-weight: 500;
+
+    .modelName {
+      color: #ff7f16;
+    }
   }
 }
 
 .modelName {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
   flex: 1;
+}
+
+.modelTags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.freeTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #52c41a;
+  background: rgba(82, 196, 26, 0.1);
+  border: 1px solid rgba(82, 196, 26, 0.2);
+  white-space: nowrap;
+}
+
+.visionTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #1890ff;
+  background: rgba(24, 144, 255, 0.1);
+  border: 1px solid rgba(24, 144, 255, 0.2);
+  white-space: nowrap;
 }
 
 .checkIcon {
   flex-shrink: 0;
-  font-size: 16px;
+  font-size: 14px;
   color: #ff7f16;
 }
 
 .emptyTip {
-  padding: 10px 14px;
-  font-size: 16px;
+  padding: 20px 16px;
+  text-align: center;
+  font-size: 14px;
   color: #bbb;
 }
 
 .spinWrapper {
-  padding: 14px 16px;
+  padding: 24px 16px;
   text-align: center;
 }
 
@@ -217,23 +253,32 @@
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   }
 
-  .providerItem {
+  .searchWrapper {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .searchIcon {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .searchInput {
     color: rgba(255, 255, 255, 0.85);
 
-    &:hover {
-      background: rgba(97, 92, 237, 0.15);
-      color: #ff7f16;
+    &::placeholder {
+      color: rgba(255, 255, 255, 0.25);
     }
   }
 
-  .providerArrow {
-    color: rgba(255, 255, 255, 0.2);
+  .searchClear {
+    color: rgba(255, 255, 255, 0.25);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.4);
+    }
   }
 
-  .submenu {
-    background: #1f1f1f;
-    border-color: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  .providerHeader {
+    color: rgba(255, 255, 255, 0.35);
   }
 
   .modelItem {
@@ -241,20 +286,36 @@
 
     &:hover {
       background: rgba(97, 92, 237, 0.15);
-      color: #ff7f16;
+      color: rgba(255, 255, 255, 0.85);
     }
 
     &.modelItemActive {
-      background: rgba(97, 92, 237, 0.18);
+      background: rgba(255, 127, 22, 0.12);
       color: #ff7f16;
-    }
-  }
 
-  .checkIcon {
-    color: #ff7f16;
+      .modelName {
+        color: #ff7f16;
+      }
+    }
   }
 
   .emptyTip {
     color: rgba(255, 255, 255, 0.25);
+  }
+
+  .freeTag {
+    color: #73d13d;
+    background: rgba(82, 196, 26, 0.15);
+    border-color: rgba(82, 196, 26, 0.3);
+  }
+
+  .visionTag {
+    color: #40a9ff;
+    background: rgba(24, 144, 255, 0.15);
+    border-color: rgba(24, 144, 255, 0.3);
+  }
+
+  .checkIcon {
+    color: #ff7f16;
   }
 }
