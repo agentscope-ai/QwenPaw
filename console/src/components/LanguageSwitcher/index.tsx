@@ -8,7 +8,7 @@ import {
   SparkEnglish02Line,
   SparkJapanLine,
   SparkRusLine,
-  SparkSort02Line,
+  SparkPtLine,
 } from "@agentscope-ai/icons";
 
 interface LanguageConfig {
@@ -22,7 +22,7 @@ const LANGUAGE_LIST: LanguageConfig[] = [
   { key: "zh", label: "简体中文", icon: <SparkChinese02Line /> },
   { key: "ja", label: "日本語", icon: <SparkJapanLine /> },
   { key: "ru", label: "Русский", icon: <SparkRusLine /> },
-  { key: "pt-BR", label: "Português (Brasil)", icon: <SparkSort02Line /> },
+  { key: "pt-BR", label: "Português (Brasil)", icon: <SparkPtLine /> },
 ];
 
 const KNOWN_LANG_KEYS = new Set(LANGUAGE_LIST.map((lang) => lang.key));
