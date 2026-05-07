@@ -58,7 +58,7 @@ Generate an image using OpenAI GPT Image 2 model.
 
 ## Requirements
 
-- QwenPaw >= 0.1.0
+- QwenPaw >= 1.1.6
 - httpx >= 0.24.0
 - Valid OpenAI API key with access to GPT Image 2
 

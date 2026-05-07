@@ -8,7 +8,7 @@
     "backend": "plugin.py"
   },
   "dependencies": ["httpx>=0.24.0"],
-  "min_version": "1.1.5",
+  "min_version": "1.1.6",
   "meta": {
     "tool_name": "generate_image_gpt",
     "tool_description": "Generate high-quality images from text prompts using GPT Image 2",
