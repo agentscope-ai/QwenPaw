@@ -59,6 +59,13 @@ class CronManager:
         self._lock = asyncio.Lock()
         self._states: Dict[str, CronJobState] = {}
         self._rt: Dict[str, _Runtime] = {}
+        # Track fire-and-forget background tasks so we can cancel them
+        # during stop() and avoid the "Task was destroyed while pending"
+        # warning caused by losing the task reference.
+        self._run_tasks: set[asyncio.Task] = set()
+        # Per-job set of running tasks, used by delete_job to cancel
+        # in-flight executions and prevent state resurrection.
+        self._job_tasks: Dict[str, set[asyncio.Task]] = {}
         self._started = False
 
     async def start(self) -> None:
@@ -141,6 +148,26 @@ class CronManager:
             self._scheduler.shutdown(wait=False)
             self._started = False
 
+            # Cancel all in-flight fire-and-forget tasks to prevent them
+            # from writing into the state dicts after we have cleared them.
+            pending = [t for t in self._run_tasks if not t.done()]
+            for task in pending:
+                task.cancel()
+
+            # Wait for cancellations to settle outside the lock so that the
+            # done callbacks (which remove tasks from the tracking set) can
+            # run without deadlocking on our lock.
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+        async with self._lock:
+            # Clear all per-run state to avoid leaking it to the next
+            # start() cycle (e.g. stale last_status / last_error).
+            self._states.clear()
+            self._rt.clear()
+            self._run_tasks.clear()
+            self._job_tasks.clear()
+
     # ----- read/state -----
 
     async def list_jobs(self) -> list[CronJobSpec]:
@@ -166,7 +193,19 @@ class CronManager:
                 self._scheduler.remove_job(job_id)
             self._states.pop(job_id, None)
             self._rt.pop(job_id, None)
-            return await self._repo.delete_job(job_id)
+            # Cancel any in-flight executions for this job so they cannot
+            # recreate runtime/state entries after deletion.
+            running = self._job_tasks.pop(job_id, set())
+            for task in running:
+                if not task.done():
+                    task.cancel()
+            deleted = await self._repo.delete_job(job_id)
+
+            # Wait outside the lock to let _task_done_cb run and remove the
+            # cancelled tasks from the tracking set.
+        if running:
+            await asyncio.gather(*running, return_exceptions=True)
+        return deleted
 
     async def pause_job(self, job_id: str) -> None:
         async with self._lock:
@@ -290,9 +329,24 @@ class CronManager:
             self._execute_once(job),
             name=f"cron-run-{job_id}",
         )
+        self._track_job_task(job_id, task)
         task.add_done_callback(lambda t: self._task_done_cb(t, job))
 
     # ----- callbacks -----
+
+    def _track_job_task(self, job_id: str, task: asyncio.Task) -> None:
+        """Register a fire-and-forget task for lifecycle management."""
+        self._run_tasks.add(task)
+        self._job_tasks.setdefault(job_id, set()).add(task)
+
+    def _untrack_job_task(self, job_id: str, task: asyncio.Task) -> None:
+        """Remove a tracked fire-and-forget task when it completes."""
+        self._run_tasks.discard(task)
+        job_set = self._job_tasks.get(job_id)
+        if job_set is not None:
+            job_set.discard(task)
+            if not job_set:
+                self._job_tasks.pop(job_id, None)
 
     def _task_done_cb(self, task: asyncio.Task, job: CronJobSpec) -> None:
         """Suppress and log exceptions from fire-and-forget tasks.
@@ -300,6 +354,12 @@ class CronManager:
         On failure, push an error message to the console push store so
         the frontend can display it.
         """
+        # Always drop the task from the tracking sets first so that a
+        # later stop()/delete_job() does not try to cancel a completed
+        # task (which is harmless but also leaks memory until next gc).
+        assert job.id is not None
+        self._untrack_job_task(job.id, task)
+
         if task.cancelled():
             return
         exc = task.exception()
@@ -313,9 +373,13 @@ class CronManager:
             session_id = job.dispatch.target.session_id
             if session_id:
                 error_text = f"❌ Cron job [{job.name}] failed: {exc}"
-                asyncio.ensure_future(
+                push_task = asyncio.create_task(
                     push_store_append(session_id, error_text),
+                    name=f"cron-push-err-{job.id}",
                 )
+                # Track so shutdown does not lose the reference.
+                self._run_tasks.add(push_task)
+                push_task.add_done_callback(self._run_tasks.discard)
 
     # ----- internal -----
 
@@ -326,9 +390,32 @@ class CronManager:
         trigger = self._build_trigger(spec)
 
         # per-job concurrency semaphore
-        self._rt[spec.id] = _Runtime(
-            sem=asyncio.Semaphore(spec.runtime.max_concurrency),
-        )
+        # Reuse the existing semaphore if one is already in place: blindly
+        # replacing it would orphan in-flight tasks holding permits on the
+        # old semaphore and silently double the effective max_concurrency
+        # until those tasks finish. Changes to max_concurrency therefore
+        # take effect only when no task is currently waiting on the sem.
+        existing = self._rt.get(spec.id)
+        if existing is None:
+            self._rt[spec.id] = _Runtime(
+                sem=asyncio.Semaphore(spec.runtime.max_concurrency),
+            )
+        else:
+            # Keep the existing _Runtime so in-flight executions see a
+            # consistent semaphore. If the limit actually changed, log it
+            # so operators know the new value applies to future runs only.
+            current_limit = getattr(existing.sem, "_value", None)
+            if (
+                    current_limit is not None
+                    and current_limit != spec.runtime.max_concurrency
+            ):
+                logger.info(
+                    "cron job_id=%s max_concurrency change (%s -> %s) "
+                    "will apply after current runs settle",
+                    spec.id,
+                    current_limit,
+                    spec.runtime.max_concurrency,
+                )
 
         # replace existing
         if self._scheduler.get_job(spec.id):
@@ -399,13 +486,37 @@ class CronManager:
         if not job:
             return
 
-        await self._execute_once(job)
+        # Track the scheduled execution as well so stop()/delete_job()
+        # can cancel it and we do not leak state writes after shutdown.
+        current = asyncio.current_task()
+        if current is not None:
+            self._track_job_task(job_id, current)
+        try:
+            try:
+                await self._execute_once(job)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # pylint: disable=broad-except
+                # _execute_once already logged and persisted error status.
+                # Swallow here so that APScheduler does not double-report
+                # and so we still refresh next_run_at below.
+                pass
 
-        # refresh next_run
-        aps_job = self._scheduler.get_job(job_id)
-        st = self._states.get(job_id, CronJobState())
-        st.next_run_at = aps_job.next_run_time if aps_job else None
-        self._states[job_id] = st
+            # Refresh next_run_at, but only if the job still exists.
+            # Otherwise a concurrent delete_job() would get its state
+            # resurrected by this write.
+            if job_id not in self._states and (
+                    await self._repo.get_job(job_id)
+            ) is None:
+                return
+            aps_job = self._scheduler.get_job(job_id)
+            st = self._states.get(job_id, CronJobState()).model_copy()
+            st.next_run_at = aps_job.next_run_time if aps_job else None
+            if job_id in self._states or aps_job is not None:
+                self._states[job_id] = st
+        finally:
+            if current is not None:
+                self._untrack_job_task(job_id, current)
 
     async def _heartbeat_callback(self) -> None:
         """Run one heartbeat (HEARTBEAT.md as query, optional dispatch)."""
@@ -442,14 +553,28 @@ class CronManager:
     async def _execute_once(self, job: CronJobSpec) -> None:
         assert job.id is not None, "Job must have an id"
         rt = self._rt.get(job.id)
-        if not rt:
-            rt = _Runtime(sem=asyncio.Semaphore(job.runtime.max_concurrency))
-            self._rt[job.id] = rt
+        if rt is None:
+            # The job is no longer managed (likely deleted while this
+            # execution was pending). Do NOT recreate the _Runtime here:
+            # that would resurrect runtime state for a deleted job, which
+            # is exactly the concurrency state leak we are fixing. Abort
+            # silently instead.
+            logger.info(
+                "cron _execute_once skipped: job_id=%s runtime missing "
+                "(job likely deleted)",
+                job.id,
+            )
+            return
 
         async with rt.sem:
-            st = self._states.get(job.id, CronJobState())
+            # Work on a *local* CronJobState so that parallel executions
+            # for the same job (max_concurrency > 1) and for different
+            # jobs do not share a mutable instance. Without this, one
+            # run's fields (e.g. last_error) leak into another run's
+            # final state.
+            st = self._states.get(job.id, CronJobState()).model_copy()
             st.last_status = "running"
-            self._states[job.id] = st
+            self._publish_state(job.id, st)
 
             try:
                 await self._executor.execute(job)
@@ -478,4 +603,22 @@ class CronManager:
                 raise
             finally:
                 st.last_run_at = datetime.now(timezone.utc)
-                self._states[job.id] = st
+                self._publish_state(job.id, st)
+
+    def _publish_state(self, job_id: str, state: CronJobState) -> None:
+        """Publish a per-run state snapshot back to the shared dict.
+
+        The write is skipped if the job has been deleted (its runtime
+        entry is gone) so that in-flight executions cannot resurrect
+        state for a removed job.
+        """
+        if job_id not in self._rt:
+            return
+        # Preserve next_run_at that may have been set by the scheduler
+        # callback (the execution path never owns this field).
+        existing = self._states.get(job_id)
+        if existing is not None and existing.next_run_at is not None:
+            state = state.model_copy(
+                update={"next_run_at": existing.next_run_at},
+            )
+        self._states[job_id] = state
