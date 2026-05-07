@@ -225,45 +225,64 @@ async def post_console_chat(
 async def post_console_chat_stop(
     request: Request,
     chat_id: str = Query(..., description="Chat id (ChatSpec.id) to stop"),
+    session_id: str | None = Query(
+        None,
+        description="Optional session_id to improve stop matching",
+    ),
 ) -> dict:
     """Stop the running chat. Only stops when called."""
-    logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
-    workspace = await get_agent_for_request(request)
-
-    # Try to stop with the provided chat_id first
     logger.debug(
-        "[STOP API] Got workspace, calling task_tracker.request_stop...",
+        "[STOP API] Received stop request chat_id=%s session_id=%s",
+        chat_id,
+        session_id,
     )
-    stopped = await workspace.task_tracker.request_stop(chat_id)
+    workspace = await get_agent_for_request(request)
+    task_tracker = workspace.task_tracker
+    chat_manager = getattr(workspace.runner, "_chat_manager", None)
 
-    # If not found, the chat_id might be a session_id (timestamp)
-    # Try to resolve it to the actual chat UUID
-    if not stopped:
-        logger.debug(
-            "[STOP API] chat_id not found in tracker, trying to resolve "
-            "from session_id...",
-        )
-        chat_manager = getattr(workspace.runner, "_chat_manager", None)
-        if chat_manager:
+    candidates: list[str] = []
+    for key in (chat_id, session_id):
+        if key and key not in candidates:
+            candidates.append(key)
+
+    if chat_manager:
+        for maybe_session_id in (chat_id, session_id):
+            if not maybe_session_id:
+                continue
             resolved_chat_id = await chat_manager.get_chat_id_by_session(
-                session_id=chat_id,
+                session_id=maybe_session_id,
                 channel="console",
             )
-            if resolved_chat_id:
+            if resolved_chat_id and resolved_chat_id not in candidates:
                 logger.debug(
                     "[STOP API] Resolved session_id=%s to chat_id=%s",
-                    chat_id[:12] if len(chat_id) >= 12 else chat_id,
+                    maybe_session_id[:12]
+                    if len(maybe_session_id) >= 12
+                    else maybe_session_id,
                     resolved_chat_id,
                 )
-                stopped = await workspace.task_tracker.request_stop(
-                    resolved_chat_id,
-                )
+                candidates.append(resolved_chat_id)
 
+    stopped_key: str | None = None
+    for key in candidates:
+        if await task_tracker.request_stop(key):
+            stopped_key = key
+            break
+
+    active_tasks = await task_tracker.list_active_tasks()
     logger.debug(
-        "[STOP API] task_tracker.request_stop returned: stopped=%s",
-        stopped,
+        "[STOP API] stop_result stopped=%s stopped_key=%s candidates=%s active=%s",
+        stopped_key is not None,
+        stopped_key,
+        candidates,
+        active_tasks,
     )
-    return {"stopped": stopped}
+    return {
+        "stopped": stopped_key is not None,
+        "stopped_key": stopped_key,
+        "tried_keys": candidates,
+        "active_tasks": active_tasks,
+    }
 
 
 @router.post("/upload", response_model=dict, summary="Upload file for chat")

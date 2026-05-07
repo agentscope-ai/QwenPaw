@@ -100,10 +100,21 @@ export const chatApi = {
       },
     ),
 
-  stopChat: (chatId: string) =>
-    request<void>(`/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`, {
+  stopChat: (chatId: string, sessionId?: string) => {
+    const params = new URLSearchParams();
+    params.set("chat_id", chatId);
+    if (sessionId) {
+      params.set("session_id", sessionId);
+    }
+    return request<{
+      stopped: boolean;
+      stopped_key?: string | null;
+      tried_keys?: string[];
+      active_tasks?: string[];
+    }>(`/console/chat/stop?${params.toString()}`, {
       method: "POST",
-    }),
+    });
+  },
 };
 
 export const sessionApi = {

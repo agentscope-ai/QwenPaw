@@ -1126,7 +1126,7 @@ export default function ChatPage() {
         replaceMediaURL: (url: string) => {
           return toDisplayUrl(url);
         },
-        cancel(data: { session_id: string }) {
+        async cancel(data: { session_id: string }) {
           console.log(
             "[Cancel] Cancel button clicked, session_id:",
             data.session_id,
@@ -1136,14 +1136,12 @@ export default function ChatPage() {
           console.log("[Cancel] Resolved chat_id:", chatId);
           if (chatId) {
             console.log("[Cancel] Calling stopChat API...");
-            chatApi
-              .stopChat(chatId)
-              .then(() => {
-                console.log("[Cancel] stopChat API succeeded");
-              })
-              .catch((err) => {
-                console.error("[Cancel] Failed to stop chat:", err);
-              });
+            try {
+              const result = await chatApi.stopChat(chatId, data.session_id);
+              console.log("[Cancel] stopChat result:", result);
+            } catch (err) {
+              console.error("[Cancel] Failed to stop chat:", err);
+            }
           } else {
             console.warn("[Cancel] No chat_id found, cannot stop");
           }
@@ -1266,9 +1264,9 @@ export default function ChatPage() {
               if (resolvedChatId) {
                 console.log("[Chat] Calling stopChat with:", resolvedChatId);
                 chatApi
-                  .stopChat(resolvedChatId)
-                  .then(() => {
-                    console.log("[Chat] stopChat succeeded");
+                  .stopChat(resolvedChatId, sessionId)
+                  .then((result) => {
+                    console.log("[Chat] stopChat result:", result);
                   })
                   .catch((err) => {
                     console.error("[Chat] stopChat failed:", err);
