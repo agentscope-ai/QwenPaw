@@ -64,13 +64,12 @@ def is_rename_blocked(exc: OSError) -> bool:
     return exc.errno in (errno.EBUSY, errno.EXDEV)
 
 
-def should_skip_zip_member(filename: str, prefix: str) -> bool:
-    """Return True when a ZIP member would overwrite restore internals."""
-    rel_path = filename[len(prefix) :]
+def should_skip_restore_internal_path(rel_path: str) -> bool:
+    """Return True when a relative restore path targets internals."""
     parts = Path(rel_path).parts
     if not parts or parts[0] not in RESERVED_NAMES:
         return False
-    logger.warning("Skipping reserved restore path in backup: %s", filename)
+    logger.warning("Skipping reserved restore path in backup: %s", rel_path)
     return True
 
 
@@ -147,13 +146,15 @@ def recover_mount_point_swap(dst: Path, tmp_dst: Path) -> None:
     directories are left untouched because they are not proven restore state.
     """
     old_dir = dst / OLD_CONTENT_DIR_NAME
-    marker = dst / STATE_FILE_NAME
-    tmp_marker = dst / STATE_TMP_FILE_NAME
+    has_marker = (
+        (dst / STATE_FILE_NAME).exists()
+        or (dst / STATE_TMP_FILE_NAME).exists()
+    )
 
-    if not (old_dir.exists() or marker.exists() or tmp_marker.exists()):
+    if not (old_dir.exists() or has_marker):
         return
 
-    if old_dir.exists() and not (marker.exists() or tmp_marker.exists()):
+    if old_dir.exists() and not has_marker:
         logger.warning(
             "Leaving possible restore content directory untouched because "
             "no restore state marker exists: %s",
@@ -172,20 +173,11 @@ def recover_mount_point_swap(dst: Path, tmp_dst: Path) -> None:
             return
 
         if state == STATE_INSTALLING_NEW:
-            _rollback_installing_new(
-                dst,
-                tmp_dst,
-                old_dir,
-                marker,
-                tmp_marker,
-            )
+            _rollback_installing_new(dst, tmp_dst)
             return
 
         _restore_old_content(dst)
-        if tmp_dst.exists():
-            shutil.rmtree(tmp_dst)
-        marker.unlink(missing_ok=True)
-        tmp_marker.unlink(missing_ok=True)
+        _remove_tmp_and_state_markers(dst, tmp_dst)
         logger.warning(
             "Rolled back interrupted restore preparation for %s",
             dst,
@@ -205,10 +197,8 @@ def recover_mount_point_swap(dst: Path, tmp_dst: Path) -> None:
 def _rollback_installing_new(
     dst: Path,
     tmp_dst: Path,
-    old_dir: Path,
-    marker: Path,
-    tmp_marker: Path,
 ) -> None:
+    old_dir = dst / OLD_CONTENT_DIR_NAME
     restored = False
     if old_dir.exists():
         _remove_children(dst, excluded_names=RESERVED_NAMES)
@@ -221,10 +211,7 @@ def _rollback_installing_new(
             old_dir,
         )
 
-    if tmp_dst.exists():
-        shutil.rmtree(tmp_dst)
-    marker.unlink(missing_ok=True)
-    tmp_marker.unlink(missing_ok=True)
+    _remove_tmp_and_state_markers(dst, tmp_dst)
     if restored:
         logger.warning("Rolled back partial restore of %s", dst)
 
@@ -279,6 +266,10 @@ def _cleanup_artifacts(dst: Path, tmp_dst: Path) -> None:
     old_dir = dst / OLD_CONTENT_DIR_NAME
     if old_dir.exists():
         shutil.rmtree(old_dir)
+    _remove_tmp_and_state_markers(dst, tmp_dst)
+
+
+def _remove_tmp_and_state_markers(dst: Path, tmp_dst: Path) -> None:
     if tmp_dst.exists():
         shutil.rmtree(tmp_dst)
     (dst / STATE_TMP_FILE_NAME).unlink(missing_ok=True)

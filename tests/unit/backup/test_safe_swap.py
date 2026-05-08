@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import errno
 import io
-import shutil
-import uuid
 import zipfile
-from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
@@ -54,24 +51,15 @@ def _tmp_dir(dst: Path) -> Path:
     return dst.with_name(dst.name + _RESTORE_TMP_SUFFIX)
 
 
-@pytest.fixture(name="work_tmp_path")
-def _work_tmp_path() -> Iterator[Path]:
-    root = Path.cwd() / ".safe_swap_test_tmp"
-    path = root / uuid.uuid4().hex
-    path.mkdir(parents=True)
-    try:
-        yield path
-    finally:
-        shutil.rmtree(path, ignore_errors=True)
-        try:
-            root.rmdir()
-        except OSError:
-            pass
-
-
-def test_normal_directory_uses_rename_swap(work_tmp_path: Path) -> None:
-    dst = work_tmp_path / "secrets"
+@pytest.fixture
+def secrets_dir(tmp_path: Path) -> Path:
+    dst = tmp_path / "secrets"
     dst.mkdir()
+    return dst
+
+
+def test_normal_directory_uses_rename_swap(secrets_dir: Path) -> None:
+    dst = secrets_dir
     (dst / "old.txt").write_text("old", encoding="utf-8")
 
     zf = _make_zip({"data/secrets/new.txt": "new"})
@@ -90,9 +78,8 @@ def test_normal_directory_uses_rename_swap(work_tmp_path: Path) -> None:
     assert not dst.with_name("secrets.restore_old").exists()
 
 
-def test_mount_point_swap_replaces_contents(work_tmp_path: Path) -> None:
-    dst = work_tmp_path / "secrets"
-    dst.mkdir()
+def test_mount_point_swap_replaces_contents(secrets_dir: Path) -> None:
+    dst = secrets_dir
     (dst / "old.txt").write_text("old", encoding="utf-8")
     (dst / "nested").mkdir()
     (dst / "nested" / "old.txt").write_text("old nested", encoding="utf-8")
@@ -120,10 +107,9 @@ def test_mount_point_swap_replaces_contents(work_tmp_path: Path) -> None:
 
 
 def test_ebusy_rename_falls_back_to_mount_point_swap(
-    work_tmp_path: Path,
+    secrets_dir: Path,
 ) -> None:
-    dst = work_tmp_path / "secrets"
-    dst.mkdir()
+    dst = secrets_dir
     (dst / "old.txt").write_text("old", encoding="utf-8")
 
     original_rename = Path.rename
@@ -145,10 +131,9 @@ def test_ebusy_rename_falls_back_to_mount_point_swap(
 
 
 def test_mount_point_swap_failure_restores_old_contents(
-    work_tmp_path: Path,
+    secrets_dir: Path,
 ) -> None:
-    dst = work_tmp_path / "secrets"
-    dst.mkdir()
+    dst = secrets_dir
     (dst / "old.txt").write_text("old", encoding="utf-8")
 
     zf = _make_zip({"data/secrets/new.txt": "new"})
@@ -182,10 +167,9 @@ def test_mount_point_swap_failure_restores_old_contents(
 
 
 def test_cleanup_rolls_back_evacuating_old_state(
-    work_tmp_path: Path,
+    secrets_dir: Path,
 ) -> None:
-    dst = work_tmp_path / "secrets"
-    dst.mkdir()
+    dst = secrets_dir
     old_dir = dst / OLD_CONTENT_DIR_NAME
     old_dir.mkdir()
     (old_dir / "old-a.txt").write_text("old a", encoding="utf-8")
@@ -209,10 +193,9 @@ def test_cleanup_rolls_back_evacuating_old_state(
 
 
 def test_cleanup_rolls_back_installing_new_state(
-    work_tmp_path: Path,
+    secrets_dir: Path,
 ) -> None:
-    dst = work_tmp_path / "secrets"
-    dst.mkdir()
+    dst = secrets_dir
     old_dir = dst / OLD_CONTENT_DIR_NAME
     old_dir.mkdir()
     (old_dir / "old.txt").write_text("old", encoding="utf-8")
@@ -232,9 +215,8 @@ def test_cleanup_rolls_back_installing_new_state(
     assert not (dst / STATE_FILE_NAME).exists()
 
 
-def test_cleanup_finishes_committed_state(work_tmp_path: Path) -> None:
-    dst = work_tmp_path / "secrets"
-    dst.mkdir()
+def test_cleanup_finishes_committed_state(secrets_dir: Path) -> None:
+    dst = secrets_dir
     old_dir = dst / OLD_CONTENT_DIR_NAME
     old_dir.mkdir()
     (old_dir / "old.txt").write_text("old", encoding="utf-8")
@@ -252,10 +234,9 @@ def test_cleanup_finishes_committed_state(work_tmp_path: Path) -> None:
 
 
 def test_cleanup_leaves_markerless_old_content_dir_untouched(
-    work_tmp_path: Path,
+    secrets_dir: Path,
 ) -> None:
-    dst = work_tmp_path / "secrets"
-    dst.mkdir()
+    dst = secrets_dir
     old_dir = dst / OLD_CONTENT_DIR_NAME
     old_dir.mkdir()
     (old_dir / "payload.txt").write_text("keep", encoding="utf-8")
@@ -271,12 +252,11 @@ def test_cleanup_leaves_markerless_old_content_dir_untouched(
 
 
 def test_startup_cleanup_recovers_all_restore_targets(
-    work_tmp_path: Path,
+    tmp_path: Path,
 ) -> None:
     targets = [
-        work_tmp_path / "secrets",
-        work_tmp_path / "skill_pool",
-        work_tmp_path / "workspace",
+        tmp_path / "skill_pool",
+        tmp_path / "workspace",
     ]
     for target in targets:
         target.mkdir()
@@ -304,10 +284,9 @@ def test_startup_cleanup_recovers_all_restore_targets(
 
 
 def test_reserved_restore_names_are_not_extracted(
-    work_tmp_path: Path,
+    secrets_dir: Path,
 ) -> None:
-    dst = work_tmp_path / "secrets"
-    dst.mkdir()
+    dst = secrets_dir
     entries = {
         f"data/secrets/{STATE_FILE_NAME}": "state",
         f"data/secrets/{STATE_TMP_FILE_NAME}": "state tmp",

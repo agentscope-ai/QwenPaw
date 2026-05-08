@@ -53,7 +53,7 @@ from typing import BinaryIO
 from ._mount_swap import (
     prepare_destination_for_swap,
     recover_mount_point_swap,
-    should_skip_zip_member,
+    should_skip_restore_internal_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -186,10 +186,10 @@ def _startup_restore_targets() -> list[Path]:
     """Return restore targets that may be loaded during app startup."""
     from ...config import load_config
     from ...config.utils import get_config_path
-    from ...constant import SECRET_DIR, WORKING_DIR
+    from ...constant import WORKING_DIR
 
+    # SECRET_DIR is recovered in load_envs_into_environ before envs.json is read.
     targets = [
-        SECRET_DIR,
         WORKING_DIR / "skill_pool",
     ]
     config = load_config(get_config_path())
@@ -298,7 +298,7 @@ def _extract_zip_to(
             continue
         rel = info.filename[len(prefix) :]
 
-        if should_skip_zip_member(info.filename, prefix):
+        if should_skip_restore_internal_path(rel):
             continue
 
         # Zip Slip guard: validate the *logical* destination path.
