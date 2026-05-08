@@ -169,7 +169,7 @@ class OpenAIProvider(Provider):
             }
         elif self.base_url == TOKEN_PLAN_BASE_URL:
             client_kwargs["default_headers"] = {
-                "X-DashScope-Tppl": json.dumps(
+                "X-DashScope-Cdpl": json.dumps(
                     {
                         "agentType": "QwenPaw",
                         "deployType": "UnKnown",
