@@ -1639,6 +1639,10 @@
       "previewTitle": "Rule Details",
       "actionLabel": "Action",
       "actionApproval": "Require Approval",
+      "autoDeny": "Auto Deny",
+      "autoDenyTooltip": "When enabled, tool calls matching this rule will be automatically denied without requiring manual approval",
+      "autoDenyEnable": "Enable auto deny for this rule",
+      "autoDenyDisable": "Disable auto deny for this rule",
       "allTools": "All tools",
       "allParams": "All parameters",
       "descriptions": {
