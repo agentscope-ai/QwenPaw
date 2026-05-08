@@ -237,11 +237,6 @@ MEMORY_COMPACT_RATIO = EnvVarLoader.get_float(
     allow_inf=False,
 )
 
-DASHSCOPE_BASE_URL = EnvVarLoader.get_str(
-    "DASHSCOPE_BASE_URL",
-    "https://dashscope.aliyuncs.com/compatible-mode/v1",
-)
-
 # CORS configuration — comma-separated list of allowed origins for dev mode.
 # Example: QWENPAW_CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
 # When unset, CORS middleware is not applied.

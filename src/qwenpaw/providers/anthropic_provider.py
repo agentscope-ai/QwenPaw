@@ -27,7 +27,6 @@ DASHSCOPE_BASE_URLS = (
     "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
     "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
 )
-DASHSCOPE_BASE_URL = DASHSCOPE_BASE_URLS[0]
 CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
 
 
