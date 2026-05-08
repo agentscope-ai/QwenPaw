@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .manager import CronManager
-from .models import CronJobSpec, CronJobView
+from .models import CronJobBase, CronJobSpec, CronJobView
 
 router = APIRouter(prefix="/cron", tags=["cron"])
 
@@ -40,12 +40,11 @@ async def get_job(job_id: str, mgr: CronManager = Depends(get_cron_manager)):
 
 @router.post("/jobs", response_model=CronJobSpec)
 async def create_job(
-    spec: CronJobSpec,
+    spec: CronJobBase,
     mgr: CronManager = Depends(get_cron_manager),
 ):
-    # server generates id; ignore client-provided spec.id
     job_id = str(uuid.uuid4())
-    created = spec.model_copy(update={"id": job_id})
+    created = CronJobSpec(id=job_id, **spec.model_dump())
     await mgr.create_or_replace_job(created)
     return created
 

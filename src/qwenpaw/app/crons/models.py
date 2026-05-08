@@ -107,6 +107,14 @@ class JobRuntimeSpec(BaseModel):
     misfire_grace_seconds: int = Field(default=60, ge=0)
 
 
+class ExecutionSessionSpec(BaseModel):
+    mode: Literal["dispatch", "new_per_run"] = "dispatch"
+
+
+class ExecutionSpec(BaseModel):
+    session: ExecutionSessionSpec = Field(default_factory=ExecutionSessionSpec)
+
+
 class CronJobRequest(BaseModel):
     """Passthrough payload to runner.stream_query(request=...).
 
@@ -123,8 +131,7 @@ class CronJobRequest(BaseModel):
 TaskType = Literal["text", "agent"]
 
 
-class CronJobSpec(BaseModel):
-    id: Optional[str] = None
+class CronJobBase(BaseModel):
     name: str
     enabled: bool = True
 
@@ -133,12 +140,13 @@ class CronJobSpec(BaseModel):
     text: Optional[str] = None
     request: Optional[CronJobRequest] = None
     dispatch: DispatchSpec
+    execution: ExecutionSpec = Field(default_factory=ExecutionSpec)
 
     runtime: JobRuntimeSpec = Field(default_factory=JobRuntimeSpec)
     meta: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def _validate_task_type_fields(self) -> "CronJobSpec":
+    def _validate_task_type_fields(self) -> "CronJobBase":
         if self.task_type == "text":
             if not (self.text and self.text.strip()):
                 raise ConfigurationException(
@@ -150,15 +158,18 @@ class CronJobSpec(BaseModel):
                 raise ConfigurationException(
                     message="task_type is agent but request is missing",
                 )
-            # Keep request.user_id and request.session_id in sync with target
+            # Keep request.user_id aligned with dispatch target.
             target = self.dispatch.target
             self.request = self.request.model_copy(
                 update={
                     "user_id": target.user_id,
-                    "session_id": target.session_id,
                 },
             )
         return self
+
+
+class CronJobSpec(CronJobBase):
+    id: Optional[str] = None
 
 
 class JobsFile(BaseModel):

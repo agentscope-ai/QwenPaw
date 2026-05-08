@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { Button, Card, Form, Modal, Table } from "@agentscope-ai/design";
 import dayjs from "dayjs";
-import type { CronJobSpecOutput } from "../../../api/types";
+import type { CronJobSpecInput, CronJobSpecOutput } from "../../../api/types";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
   createColumns,
   JobDrawer,
@@ -15,9 +16,17 @@ import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 type CronJob = CronJobSpecOutput;
+export type CronJobFormValues = CronJobSpecInput & {
+  cronType?: string;
+  cronTime?: dayjs.Dayjs;
+  cronDaysOfWeek?: string[];
+  cronCustom?: string;
+  sessionStrategy?: "dispatch" | "new_per_run";
+};
 
 function CronJobsPage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const {
     jobs,
     loading,
@@ -30,7 +39,7 @@ function CronJobsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form] = Form.useForm<CronJob>();
+  const [form] = Form.useForm<CronJobFormValues>();
   const userTimezoneRef = useRef("UTC");
 
   useEffect(() => {
@@ -70,6 +79,7 @@ function CronJobsPage() {
           : "",
       },
       cronType: cronParts.type,
+      sessionStrategy: job.execution?.session?.mode || "dispatch",
     };
 
     // Set time picker value
@@ -128,7 +138,7 @@ function CronJobsPage() {
     setEditingJob(null);
   };
 
-  const handleSubmit = async (values: any) => {
+  const handleSubmit = async (values: CronJobFormValues) => {
     // Serialize cron from form fields
     const cronParts: any = {
       type: values.cronType || "daily",
@@ -151,34 +161,49 @@ function CronJobsPage() {
 
     const cronExpression = serializeCron(cronParts);
 
-    let processedValues = {
+    let processedValues: CronJobSpecInput = {
       ...values,
       schedule: {
         ...values.schedule,
         cron: cronExpression,
       },
+      execution: {
+        ...values.execution,
+        session: {
+          ...values.execution?.session,
+          mode: values.sessionStrategy || "dispatch",
+        },
+      },
     };
 
+    delete (processedValues as any).sessionStrategy;
+    if (processedValues.request) {
+      const { session_id, user_id, ...requestRest } =
+        processedValues.request as any;
+      processedValues.request = requestRest;
+    }
+
     if (processedValues.task_type === "text") {
-      // Remove request object entirely for text tasks
       delete processedValues.request;
     } else if (processedValues.task_type === "agent") {
-      //Ensure request object exists
+      delete (processedValues as any).text;
+
       if (!processedValues.request) {
-        processedValues.request = {};
+        processedValues.request = {
+          input: values.request?.input,
+        } as NonNullable<CronJobSpecInput["request"]>;
       }
 
-      // Parse request input JSON
-      if (
-        processedValues.request?.input &&
-        typeof processedValues.request.input === "string"
-      ) {
+      if (values.request?.input && typeof values.request.input === "string") {
         try {
-          processedValues.request.input = JSON.parse(
-            processedValues.request.input,
-          );
+          processedValues.request = {
+            ...(processedValues.request || {}),
+            input: JSON.parse(values.request.input),
+          };
         } catch (error) {
           console.error("❌ Failed to parse request.input JSON:", error);
+          message.error(t("cronJobs.invalidJsonFormat"));
+          return;
         }
       }
     }
@@ -204,6 +229,8 @@ function CronJobsPage() {
     onExecuteNow: handleExecuteNow,
     onEdit: handleEdit,
     onDelete: handleDelete,
+    onCopySuccess: () => message.success(t("common.copied")),
+    onCopyError: () => message.error(t("common.copyFailed")),
     t,
   });
 
