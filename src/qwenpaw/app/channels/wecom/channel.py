@@ -43,6 +43,7 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
+from .card_handler import WecomCardHandler
 from .utils import compress_image_for_wecom, format_markdown_tables
 from ..utils import file_url_to_local_path, split_text
 
@@ -170,6 +171,9 @@ class WecomChannel(BaseChannel):
         # pending upload-ack futures: req_id -> Future[WsFrame]
         self._upload_ack_futures: Dict[str, "asyncio.Future[Any]"] = {}
         self._upload_lock: Optional[asyncio.Lock] = None  # init in start()
+
+        # Interactive card handler (tool-guard approval cards).
+        self._card_handler = WecomCardHandler(self)
 
     @classmethod
     def from_env(
@@ -1057,6 +1061,31 @@ class WecomChannel(BaseChannel):
         except Exception:
             logger.exception("wecom _send_text_via_frame failed")
 
+    # ------------------------------------------------------------------
+    # Interactive cards (tool_guard approval, etc.)
+    # ------------------------------------------------------------------
+
+    async def on_event_message_completed(
+        self,
+        request: "AgentRequest",
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Render card-flagged events via the card handler; else default."""
+        if await self._card_handler.try_send_card_for_event(
+            to_handle,
+            event,
+            send_meta,
+        ):
+            return
+        await super().on_event_message_completed(
+            request,
+            to_handle,
+            event,
+            send_meta,
+        )
+
     async def send_content_parts(  # pylint: disable=too-many-locals
         self,
         to_handle: str,
@@ -1344,6 +1373,10 @@ class WecomChannel(BaseChannel):
         # Register event handlers
         self._client.on("message", self._on_message_sync)
         self._client.on("event.enter_chat", self._on_enter_chat_sync)
+        self._client.on(
+            "event.template_card_event",
+            self._card_handler.handle_template_card_event_sync,
+        )
 
         # On pong timeout just close the ws; let SDK's _receive_loop
         # ConnectionClosed branch handle stop_heartbeat + reconnect,
