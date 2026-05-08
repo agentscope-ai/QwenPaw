@@ -71,8 +71,8 @@ def _build_button_key(
     severity: str,
     session_ctx: Dict[str, Any],
 ) -> str:
-    """Encode action + ctx into a button ``key`` (≤1024 bytes); the
-    callback returns it verbatim as ``event_key``."""
+    """Encode action + ctx into a button ``key`` (≤1024 bytes per WeCom);
+    raises :class:`ValueError` when the payload would overflow."""
     payload = json.dumps(
         {
             "a": action,
@@ -84,7 +84,12 @@ def _build_button_key(
         ensure_ascii=False,
         separators=(",", ":"),
     )
-    return _truncate(payload, 1024)
+    encoded_len = len(payload.encode("utf-8"))
+    if encoded_len > 1024:
+        raise ValueError(
+            f"button key payload too large: {encoded_len} bytes (limit 1024)",
+        )
+    return payload
 
 
 def build_approval_card(
@@ -248,12 +253,21 @@ async def render(
     body_text = context.extract_body_text(getattr(event, "content", None))
     session_ctx = context.build_session_ctx(to_handle, send_meta)
 
-    template_card = build_approval_card(
-        request_id=request_id,
-        tool_name=str(meta.get("tool_name") or "tool"),
-        severity=str(meta.get("severity") or "medium"),
-        session_ctx=session_ctx,
-    )
+    try:
+        template_card = build_approval_card(
+            request_id=request_id,
+            tool_name=str(meta.get("tool_name") or "tool"),
+            severity=str(meta.get("severity") or "medium"),
+            session_ctx=session_ctx,
+        )
+    except ValueError as exc:
+        # Skip the card and let default text rendering take over.
+        logger.warning(
+            "wecom approval card: %s; skipping card for request_id=%s",
+            exc,
+            request_id[:8],
+        )
+        return False
 
     # Stream the guard details first, then post the button card.
     await context.send_stream_detail(channel, frame, send_meta, body_text)
