@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import click
 
@@ -32,11 +32,11 @@ if sys.platform != "win32":
 try:
     import win32file
     import win32pipe
-except ImportError as e:
+except ImportError as g_imp_e:
     click.echo(
         "Error: Required dependency pywin32 not installed. "
         "Please install with: pip install pywin32\n"
-        f"(Details: {e})",
+        f"(Details: {g_imp_e})",
         err=True,
     )
     sys.exit(1)
@@ -45,10 +45,11 @@ except ImportError as e:
 try:
     import pystray
     from PIL import Image
-except ImportError as e:
+except ImportError as g_imp_e:
     click.echo(
-        f"Error: Required dependencies not installed. Please install with: "
-        f"pip install pystray Pillow\n(Details: {e})",
+        f"Error: Required dependencies not installed. "
+        f"Please install with: "
+        f"pip install pystray Pillow\n(Details: {g_imp_e})",
         err=True,
     )
     sys.exit(1)
@@ -123,7 +124,10 @@ class TrayIconManager:
             ),
         )
 
-    def run(self, setup: Optional[Callable[[pystray.Icon], None]] = None) -> None:
+    def run(
+        self,
+        setup: Optional[Callable[[pystray.Icon], None]] = None,
+    ) -> None:
         """Start the tray icon event loop.
 
         This method blocks until stop() is called.
@@ -191,7 +195,10 @@ class AppProcess:
             return sock.getsockname()[1]
 
     def _wait_for_http(
-        self, host: str, port: int, timeout_sec: float = 300.0
+        self,
+        host: str,
+        port: int,
+        timeout_sec: float = 300.0,
     ) -> bool:
         """Wait for HTTP server to be ready.
 
@@ -248,7 +255,9 @@ class AppProcess:
             self._actual_port = self._port
 
         url = f"http://{self._host}:{self._actual_port}"
-        logger.info(f"Starting QwenPaw app on {url} (port {self._actual_port})")
+        logger.info(
+            f"Starting QwenPaw app on {url} (port {self._actual_port})",
+        )
 
         env = os.environ.copy()
         from ..constant import LOG_LEVEL_ENV
@@ -267,6 +276,8 @@ class AppProcess:
 
         try:
             # Start subprocess
+            # long process, keep it running
+            # pylint: disable=consider-using-with
             self._process = subprocess.Popen(
                 [
                     sys.executable,
@@ -360,22 +371,25 @@ class AppProcess:
                     f"(process already exited)",
                 )
         elif self._process:
+            returncode = self._process.returncode
             logger.info(
-                f"App process already exited with code {self._process.returncode}",
+                f"App process already exited with code {returncode}",
             )
 
 
 class WindowProcess:
     """Manages the WebView window subprocess.
-    
-    The window can be started, stopped, and restarted. When the window process
-    exits (e.g., user closes the window), it can be restarted by calling start().
-    Uses a local socket for IPC communication with the window process.
+
+    The window can be started, stopped, and restarted.
+    When the window process exits (e.g., user closes
+    the window), it can be restarted by calling start().
+    Uses a local socket for IPC communication with the
+    window process.
     """
-    
+
     def __init__(self, url: str, log_level: str) -> None:
         """Initialize the window process.
-        
+
         Args:
             url: URL to load in the webview.
             log_level: Log level for the window process.
@@ -384,10 +398,11 @@ class WindowProcess:
         self._log_level = log_level
         self._process: Optional[subprocess.Popen] = None
         self._control_socket_path: Optional[str] = None
-        
+
         # Create a unique socket path for IPC
         import tempfile
         import uuid
+
         self._socket_name = f"qwenpaw_window_{uuid.uuid4().hex[:8]}"
         if sys.platform == "win32":
             # On Windows, use a named pipe path
@@ -395,29 +410,40 @@ class WindowProcess:
             self._control_socket_path = "\\\\.\\pipe\\" + self._socket_name
         else:
             # On Unix, use a Unix domain socket
-            self._control_socket_path = os.path.join(tempfile.gettempdir(), f"{self._socket_name}.sock")
-        
+            self._control_socket_path = os.path.join(
+                tempfile.gettempdir(),
+                f"{self._socket_name}.sock",
+            )
+
         # Pass socket path to subprocess - escape backslashes for Windows
-        socket_path_escaped = self._control_socket_path.replace('\\', '\\\\') if sys.platform == "win32" else self._control_socket_path
-        
+        socket_path_escaped = (
+            self._control_socket_path.replace("\\", "\\\\")
+            if sys.platform == "win32"
+            else self._control_socket_path
+        )
+
         self._script = f"""
 import sys
 sys.path.insert(0, '{Path(__file__).parent.parent.parent}')
 from qwenpaw.cli.desktop_systray_cmd import _run_webview_window
-_run_webview_window('{self._url}', '{self._log_level}', '{socket_path_escaped}')
+_run_webview_window(
+    '{self._url}', '{self._log_level}', '{socket_path_escaped}'
+)
         """.strip()
-    
+
     def start(self) -> bool:
         """Start the window process.
-        
+
         Returns:
             True if started successfully, False if already running.
         """
         if self._process and self._process.poll() is None:
             logger.debug("Window process already running")
             return False
-        
+
         try:
+            # long process, keep it running
+            # pylint: disable=consider-using-with
             self._process = subprocess.Popen(
                 [
                     sys.executable,
@@ -428,9 +454,11 @@ _run_webview_window('{self._url}', '{self._log_level}', '{socket_path_escaped}')
                 stdout=None,  # Let output go to console for debugging
                 stderr=None,  # Let errors go to console for debugging
             )
-            logger.info(f"Window process started with PID: {self._process.pid}")
+            logger.info(
+                f"Window process started with PID: {self._process.pid}",
+            )
             logger.debug(f"Control socket path: {self._control_socket_path}")
-            
+
             # Wait for the socket server to start (retry loop)
             max_retries = 20
             for i in range(max_retries):
@@ -438,17 +466,17 @@ _run_webview_window('{self._url}', '{self._log_level}', '{socket_path_escaped}')
                 if self._try_connect():
                     logger.debug(f"Socket server ready after {i+1} attempts")
                     return True
-            
+
             logger.warning("Socket server did not become ready in time")
             return True  # Still return True, window may work without IPC
-            
+
         except Exception as e:
             logger.error(f"Failed to start window process: {e}")
             return False
-    
+
     def _try_connect(self) -> bool:
         """Try to connect to the socket server to check if it's ready.
-        
+
         Returns:
             True if connection successful, False otherwise.
         """
@@ -457,32 +485,42 @@ _run_webview_window('{self._url}', '{self._log_level}', '{socket_path_escaped}')
                 # Just try to open the pipe, don't actually read/write
                 handle = win32file.CreateFile(
                     self._control_socket_path,
-                    win32file.GENERIC_READ,  # Read-only to avoid interfering
+                    win32file.GENERIC_READ,
+                    # Read-only to avoid interfering
                     0,  # No sharing - exclusive access
                     None,
                     win32file.OPEN_EXISTING,
-                    win32file.FILE_FLAG_OVERLAPPED,  # Use overlapped for non-blocking
+                    win32file.FILE_FLAG_OVERLAPPED,
+                    # Use overlapped for non-blocking
                     None,
                 )
                 # Don't close immediately - just check if we can open it
-                # Actually, we need to close it, but the pipe should stay open on server side
+                # Actually, we need to close it,
+                # but the pipe should stay open on server side
                 win32file.CloseHandle(handle)
                 return True
             else:
-                import socket
-                client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                try:
-                    client.connect(self._control_socket_path)
-                    client.close()
-                    return True
-                finally:
-                    try:
-                        client.close()
-                    except:
-                        pass
-        except:
+                # import socket
+                logger.warning(
+                    "only windows platform is supported!",
+                )
+                return False
+                # client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                # try:
+                #     client.connect(self._control_socket_path)
+                #     client.close()
+                #     return True
+                # finally:
+                #     try:
+                #         client.close()
+                #     except Exception as e:
+                #         logger.debug(
+                #             f"Failed to close socket connection: {e}",
+                #         )
+        except Exception as e:
+            logger.debug(f"Socket connection check failed: {e}")
             return False
-    
+
     def stop(self) -> None:
         """Stop the window process gracefully."""
         if self._process and self._process.poll() is None:
@@ -499,31 +537,37 @@ _run_webview_window('{self._url}', '{self._log_level}', '{socket_path_escaped}')
             except Exception as e:
                 logger.error(f"Error stopping window process: {e}")
         elif self._process:
-            logger.debug(f"Window process already exited with code {self._process.returncode}")
-    
+            returncode = self._process.returncode
+            logger.debug(
+                f"Window process already exited with code {returncode}",
+            )
+
     def is_running(self) -> bool:
         """Check if the window process is currently running.
-        
+
         Returns:
             True if running, False otherwise.
         """
         return self._process is not None and self._process.poll() is None
-    
+
     def send_command(self, command: str) -> bool:
         """Send a command to the window process via socket.
-        
+
         Args:
             command: Command string to send (e.g., "focus", "hide", "close").
-        
+
         Returns:
             True if command was sent successfully, False otherwise.
         """
         if not self.is_running():
             logger.debug("Cannot send command: window process not running")
             return False
-        
-        logger.debug(f"Attempting to send command '{command}' via pipe: {self._control_socket_path}")
-        
+
+        logger.debug(
+            f"Attempting to send command '{command}' via pipe: "
+            f"{self._control_socket_path}",
+        )
+
         try:
             if sys.platform == "win32":
                 # Windows: use named pipe
@@ -537,29 +581,41 @@ _run_webview_window('{self._url}', '{self._log_level}', '{socket_path_escaped}')
                         0,
                         None,
                     )
-                    win32file.WriteFile(handle, command.encode('utf-8'))
+                    win32file.WriteFile(handle, command.encode("utf-8"))
                     win32file.CloseHandle(handle)
-                    logger.debug(f"Command '{command}' sent to window process")
+                    logger.debug(
+                        f"Command '{command}' sent to window process",
+                    )
                     return True
                 except Exception as e:
-                    logger.error(f"Failed to send command via named pipe: {e}")
-                    logger.error(f"Pipe path: {self._control_socket_path}")
+                    logger.error(
+                        f"Failed to send command via named pipe: {e}",
+                    )
+                    logger.error(
+                        f"Pipe path: {self._control_socket_path}",
+                    )
                     return False
             else:
                 # Unix: use Unix domain socket
-                import socket
-                
-                client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                try:
-                    client.connect(self._control_socket_path)
-                    client.sendall(command.encode('utf-8'))
-                    logger.debug(f"Command '{command}' sent to window process")
-                    return True
-                except Exception as e:
-                    logger.error(f"Failed to send command via Unix socket: {e}")
-                    return False
-                finally:
-                    client.close()
+                logger.warning(
+                    "only windows platform is supported!",
+                )
+                # client = socket.socket(
+                #     socket.AF_UNIX, socket.SOCK_STREAM)
+                # try:
+                #     client.connect(self._control_socket_path)
+                #     client.sendall(command.encode("utf-8"))
+                #     logger.debug(
+                #         f"Command '{command}' sent to window process")
+                #     return True
+                # except Exception as e:
+                #     logger.error(
+                #         f"Failed to send command via Unix socket: {e}"
+                #     )
+                #     return False
+                # finally:
+                #     client.close()
+                return False
         except Exception as e:
             logger.error(f"Failed to send command '{command}': {e}")
             return False
@@ -619,12 +675,156 @@ class WebViewAPI:
             return False
 
 
-def _run_webview_window(url: str, log_level: str, control_socket_path: str) -> None:
+def _execute_pipe_command(
+    command: str,
+    window: webview.Window,
+) -> bool:
+    """Execute a single command received via pipe.
+
+    Args:
+        command: Command string (focus, hide, close, quit).
+        window: WebView window to operate on.
+
+    Returns:
+        True if should continue processing, False if should exit.
+    """
+    if command == "focus":
+        logger.info("Focusing window...")
+
+        # Step 1: Show the window (if hidden)
+        window.show()
+
+        # Step 2: Restore if minimized
+        window.restore()
+
+        # Small delay to ensure window is ready
+        time.sleep(0.05)  # 50ms
+
+        # Step 3: Bring to foreground using native Windows API
+        try:
+            import ctypes
+
+            # from ctypes import wintypes
+
+            user32 = ctypes.windll.user32
+            hwnd = window.native.Handle.ToInt32()
+
+            # Method 1: Try AllowSetForegroundWindow +
+            # SetForegroundWindow
+            user32.AllowSetForegroundWindow(-1)  # ASFW_ANY
+            result = user32.SetForegroundWindow(hwnd)
+
+            if result:
+                logger.info(
+                    "Window brought to foreground (method 1)",
+                )
+            else:
+                logger.debug(
+                    "SetForegroundWindow failed, trying method 2...",
+                )
+
+                # Method 2: Use ShowWindow with SW_RESTORE and SW_SHOW
+                SW_RESTORE = 9
+                SW_SHOW = 5
+                user32.ShowWindow(hwnd, SW_RESTORE)
+                user32.ShowWindow(hwnd, SW_SHOW)
+
+                # Try SetForegroundWindow again
+                result = user32.SetForegroundWindow(hwnd)
+                if result:
+                    logger.info(
+                        "Window brought to foreground (method 2)",
+                    )
+                else:
+                    # Method 3: Use SetActiveWindow + SetFocus
+                    user32.SetActiveWindow(hwnd)
+                    user32.SetFocus(hwnd)
+
+                    # Bring to top of Z-order
+                    user32.BringWindowToTop(hwnd)
+                    logger.debug(
+                        "Window activated with SetActiveWindow + SetFocus",
+                    )
+
+            # Always bring to top of Z-order
+            user32.BringWindowToTop(hwnd)
+
+        except Exception as e:
+            logger.error(
+                f"Failed to bring window to foreground: {e}",
+            )
+        return True
+
+    elif command == "hide":
+        window.hide()
+        logger.info("Window hidden")
+        return True
+
+    elif command in ("close", "quit"):
+        window.destroy()
+        return False
+
+    return True
+
+
+def _handle_pipe_connection(pipe: Any) -> bool:
+    """Handle commands from a single pipe connection.
+
+    Args:
+        pipe: Named pipe handle.
+
+    Returns:
+        True if should continue accepting connections, False if should exit.
+    """
+    try:
+        while True:
+            result = win32file.ReadFile(pipe, 64 * 1024)
+            if result[0] == 0:  # success
+                command = result[1].decode("utf-8").strip()
+                logger.debug(f"Received command: {command}")
+
+                # Check if window exists
+                if not webview.windows:
+                    logger.debug("No window available, skipping command")
+                    # Continue waiting for next command, don't exit
+                    continue
+
+                window = webview.windows[0]
+                should_continue = _execute_pipe_command(command, window)
+                if not should_continue:
+                    # Got quit/close command, should exit
+                    return False
+            else:
+                # ReadFile returned error or client disconnected
+                logger.debug(
+                    f"Client disconnected (ReadFile status: {result[0]})",
+                )
+                # This is normal - client may have closed connection
+                # Should continue accepting new connections
+                break
+    except Exception as e:
+        # Connection error - client disconnected or pipe error
+        logger.debug(f"Connection error: {e}")
+        # Should continue accepting new connections
+    finally:
+        win32file.CloseHandle(pipe)
+        logger.debug("Pipe instance closed")
+
+    # Return True to continue accepting connections
+    # Only return False if we got explicit quit command
+    return True
+
+
+def _run_webview_window(
+    url: str,
+    log_level: str,
+    control_socket_path: str,
+) -> None:
     """Run webview window in a separate process.
-    
+
     This function is designed to run in its own process so that closing
     the window doesn't affect the tray icon or backend process.
-    
+
     Args:
         url: URL to load in the webview.
         log_level: Log level for the process.
@@ -634,7 +834,7 @@ def _run_webview_window(url: str, log_level: str, control_socket_path: str) -> N
     setup_logger(log_level)
     logger.info(f"WebView process starting with URL: {url}")
     logger.info(f"Control socket path received: {control_socket_path}")
-    
+
     if not webview:
         logger.error("pywebview not available")
         return
@@ -645,181 +845,86 @@ def _run_webview_window(url: str, log_level: str, control_socket_path: str) -> N
         """Listen for commands from the tray process."""
         if sys.platform == "win32":
             # Windows: use named pipe
-            import pywintypes
-            
+            # import pywintypes
+
             try:
-                logger.info(f"Named pipe server created: {control_socket_path}")
-                
+                logger.info(
+                    f"Named pipe server created: {control_socket_path}",
+                )
+
                 # Keep accepting connections until window closes
                 while True:
                     # Create a new pipe instance
                     pipe = win32pipe.CreateNamedPipe(
                         control_socket_path,
                         win32pipe.PIPE_ACCESS_DUPLEX,
-                        win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                        win32pipe.PIPE_TYPE_MESSAGE
+                        | win32pipe.PIPE_READMODE_MESSAGE
+                        | win32pipe.PIPE_WAIT,
                         1,  # max instances
                         65536,  # output buffer size
                         65536,  # input buffer size
                         0,  # default timeout
                         None,
                     )
-                    
+
                     # Wait for client connection (blocking)
-                    win32pipe.ConnectNamedPipe(pipe, None)
-                    logger.debug("Client connected to named pipe")
-                    
-                    # Read commands until this connection closes
                     try:
-                        while True:
-                            result = win32file.ReadFile(pipe, 64*1024)
-                            if result[0] == 0:  # success
-                                command = result[1].decode('utf-8').strip()
-                                logger.debug(f"Received command: {command}")
-                                
-                                # Execute command
-                                if command == "focus":
-                                    if webview.windows:
-                                        window = webview.windows[0]
-                                        logger.info("Focusing window...")
-                                        
-                                        # Step 1: Show the window (if hidden)
-                                        window.show()
-                                        
-                                        # Step 2: Restore if minimized
-                                        window.restore()
-                                        
-                                        # Small delay to ensure window is ready
-                                        time.sleep(0.05)  # 50ms
-                                        
-                                        # Step 3: Bring to foreground using native Windows API
-                                        try:
-                                            import ctypes
-                                            from ctypes import wintypes
-                                            user32 = ctypes.windll.user32
-                                            hwnd = window.native.Handle.ToInt32()
-                                            
-                                            # Method 1: Try AllowSetForegroundWindow + SetForegroundWindow
-                                            user32.AllowSetForegroundWindow(-1)  # ASFW_ANY
-                                            result = user32.SetForegroundWindow(hwnd)
-                                            
-                                            if result:
-                                                logger.info("Window brought to foreground (method 1)")
-                                            else:
-                                                logger.debug("SetForegroundWindow failed, trying method 2...")
-                                                
-                                                # Method 2: Use ShowWindow with SW_RESTORE and SW_SHOW
-                                                SW_RESTORE = 9
-                                                SW_SHOW = 5
-                                                user32.ShowWindow(hwnd, SW_RESTORE)
-                                                user32.ShowWindow(hwnd, SW_SHOW)
-                                                
-                                                # Try SetForegroundWindow again
-                                                result = user32.SetForegroundWindow(hwnd)
-                                                if result:
-                                                    logger.info("Window brought to foreground (method 2)")
-                                                else:
-                                                    # Method 3: Use SetActiveWindow + SetFocus
-                                                    user32.SetActiveWindow(hwnd)
-                                                    user32.SetFocus(hwnd)
-                                                    
-                                                    # Bring to top of Z-order
-                                                    user32.BringWindowToTop(hwnd)
-                                                    logger.debug("Window activated with SetActiveWindow + SetFocus")
-                                            
-                                            # Always bring to top of Z-order
-                                            user32.BringWindowToTop(hwnd)
-                                            
-                                        except Exception as e:
-                                            logger.error(f"Failed to bring window to foreground: {e}")
-                                    else:
-                                        logger.warning("No window available to focus")
-                                elif command == "hide":
-                                    if webview.windows:
-                                        webview.windows[0].hide()
-                                        logger.info("Window hidden")
-                                elif command == "close":
-                                    if webview.windows:
-                                        webview.windows[0].destroy()
-                                    break
-                                elif command == "quit":
-                                    if webview.windows:
-                                        webview.windows[0].destroy()
-                                    break
-                    except Exception as e:
-                        logger.debug(f"Connection closed: {e}")
-                    finally:
+                        win32pipe.ConnectNamedPipe(pipe, None)
+                        logger.debug("Client connected to named pipe")
+                    except Exception as connect_err:
+                        logger.error(
+                            f"ConnectNamedPipe failed: {connect_err}",
+                        )
                         win32file.CloseHandle(pipe)
-                        logger.debug("Pipe instance closed")
-                    
-                    # Check if we should exit the outer loop too
-                    if not webview.windows:
+                        # Check if window was explicitly closed
+                        # (not just hidden - window may not be in list yet)
+                        if not webview.windows and hasattr(
+                            window,
+                            "native",
+                        ):
+                            # Window was destroyed
+                            logger.info(
+                                "Window destroyed, shutting down "
+                                "pipe server",
+                            )
+                            break
+                        # Otherwise, try to accept next connection
+                        # (window may be hidden or not yet created)
+                        continue
+
+                    # Handle commands on this connection
+                    should_continue = _handle_pipe_connection(pipe)
+                    if not should_continue:
                         break
-                
+
                 logger.info("Named pipe server shutting down")
             except Exception as e:
                 logger.error(f"Named pipe server error: {e}")
         else:
-            # Unix: use Unix domain socket
-            import socket
-            import os
-            
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            try:
-                # Remove existing socket file if it exists
-                if os.path.exists(control_socket_path):
-                    os.remove(control_socket_path)
-                
-                sock.bind(control_socket_path)
-                sock.listen(1)
-                logger.debug(f"Unix socket server created: {control_socket_path}")
-                
-                conn, _ = sock.accept()
-                logger.debug("Client connected to Unix socket")
-                
-                while True:
-                    try:
-                        data = conn.recv(4096)
-                        if not data:
-                            break
-                        command = data.decode('utf-8').strip()
-                        logger.debug(f"Received command: {command}")
-                        
-                        # Execute command
-                        if command == "focus":
-                            if webview.windows:
-                                window = webview.windows[0]
-                                window.show()
-                                window.restore()
-                        elif command == "hide":
-                            if webview.windows:
-                                webview.windows[0].hide()
-                        elif command == "close":
-                            if webview.windows:
-                                webview.windows[0].destroy()
-                            break
-                        elif command == "quit":
-                            if webview.windows:
-                                webview.windows[0].destroy()
-                            break
-                    except Exception as e:
-                        logger.debug(f"Error reading from socket: {e}")
-                        break
-                
-                conn.close()
-                logger.debug("Unix socket connection closed")
-            except Exception as e:
-                logger.error(f"Unix socket server error: {e}")
-            finally:
-                sock.close()
-                if os.path.exists(control_socket_path):
-                    os.remove(control_socket_path)
-    
+            # NOTE: Unix socket support is not currently used.
+            # System tray is Windows-only feature
+            # (see module-level check at top of file).
+            # This branch is kept for potential future
+            # cross-platform support.
+            logger.warning(
+                "Unix socket server is not supported - "
+                "system tray feature is Windows-only",
+            )
+            # The following Unix socket implementation is kept
+            #   for reference:
+            # - Create Unix domain socket at control_socket_path
+            # - Listen for commands: "focus", "hide", "close", "quit"
+            # - Execute commands on webview window
+            # To enable: remove module-level Windows check and implement
+            # cross-platform tray icon support
+
     # Start socket server in a background thread
     # Use daemon=True so it exits when the main thread exits
     socket_thread = threading.Thread(target=socket_server, daemon=True)
     socket_thread.start()
     logger.debug("Socket server thread started")
-    
+
     # Create and run webview
     api = WebViewAPI()
     window = webview.create_window(
@@ -830,18 +935,19 @@ def _run_webview_window(url: str, log_level: str, control_socket_path: str) -> N
         text_select=True,
         js_api=api,
     )
-    
-    # Note: pywebview on Windows doesn't support setting window icon at runtime.
-    # The icon can only be set during packaging (e.g., PyInstaller).
-    # Window will use the default icon, but tray icon and taskbar will still work.
-    
+
+    # Note: pywebview on Windows doesn't support setting window icon
+    # at runtime. The icon can only be set during packaging
+    # (e.g., PyInstaller). Window will use the default icon,
+    # but tray icon and taskbar will still work.
+
     # Intercept window close button to hide instead of close
     def on_closing():
         """Called when user clicks the window close button.
-        
+
         Instead of destroying the window, hide it to tray.
         This makes the window behave like a typical tray application.
-        
+
         Returns:
             False to cancel the close operation (pywebview convention).
         """
@@ -851,12 +957,12 @@ def _run_webview_window(url: str, log_level: str, control_socket_path: str) -> N
         # Return False to CANCEL the close operation
         # (pywebview: False = prevent closing, True = allow closing)
         return False
-    
+
     # Register the closing event handler
-    if hasattr(window, 'events') and hasattr(window.events, 'closing'):
+    if hasattr(window, "events") and hasattr(window.events, "closing"):
         window.events.closing += on_closing
         logger.debug("Window closing event handler registered")
-    
+
     logger.info("WebView window created, calling webview.start()...")
     webview.start(private_mode=False)
     logger.info("WebView window closed")
@@ -886,6 +992,8 @@ def _run_webview_window(url: str, log_level: str, control_socket_path: str) -> N
     show_default=True,
     help="Log level for the app process.",
 )
+# main entry point
+# pylint: disable=too-many-statements
 def desktop_systray_cmd(
     host: str,
     port: int | None,
@@ -896,7 +1004,8 @@ def desktop_systray_cmd(
     Starts the FastAPI app in a subprocess, opens a native webview window
     in a separate process, and displays a system tray icon for quick access.
     The window can be minimized to tray and restored from the tray menu.
-    Closing the window does not quit the application - use the tray menu to exit.
+    Closing the window does not quit the application - use the tray menu
+    to exit.
     """
     # Setup logger
     setup_logger(log_level)
@@ -909,11 +1018,11 @@ def desktop_systray_cmd(
 
     def show_window() -> None:
         """Show or restore the webview window.
-        
+
         If the window process is not running (closed or never started),
         start a new window process. Otherwise, send a focus command to
         bring the existing window to the front.
-        
+
         This is the default behavior when:
         - User double-clicks tray icon
         - User selects "Show Window" from tray menu
@@ -922,25 +1031,48 @@ def desktop_systray_cmd(
         if window_mgr is None:
             logger.warning("Window manager not initialized")
             return
-        
-        if window_mgr.is_running():
-            logger.info("Window is running, sending focus command...")
-            # Send focus command via IPC
-            if window_mgr.send_command("focus"):
-                logger.info("Focus command sent to window")
-            else:
-                logger.warning("Failed to send focus command")
-        else:
-            logger.info("Window was closed, starting new window process...")
+
+        # If window process is not running, start it
+        if not window_mgr.is_running():
+            logger.info("Window process not running, starting...")
             window_mgr.start()
+            return
+
+        # Window process is running, try to show/focus the window
+        logger.info("Window is running, sending focus command...")
+        if window_mgr.send_command("focus"):
+            logger.info("Focus command sent to window")
+            return  # Success!
+
+        # Failed to send command - pipe server may be down
+        # even though process is still running.
+        # This can happen if the window was closed/destroyed
+        # but the process didn't exit cleanly.
+        # The pipe path is tied to the WindowProcess instance,
+        # so we need to recreate it to get a fresh pipe.
+        logger.warning(
+            "Failed to send focus command - "
+            "pipe server unavailable. Restarting window...",
+        )
+        # Stop the old process
+        window_mgr.stop()
+        # Create a new WindowProcess instance (with new pipe path)
+        window_mgr = WindowProcess(url, log_level)
+        # Start fresh (this will wait for pipe server to be ready)
+        if window_mgr.start():
+            logger.info("Window restarted successfully")
+            # After restart, the window should be visible
+            # (webview.start() will show it)
+        else:
+            logger.error("Failed to restart window")
 
     def hide_window() -> None:
         """Hide the webview window by sending a hide command.
-        
+
         This does NOT stop the window process - the window is just hidden
         and can be shown again. The window process continues running in
         the background.
-        
+
         This is used when:
         - User selects "Hide Window" from tray menu
         - User clicks window close button (intercepted to hide instead)
@@ -949,7 +1081,7 @@ def desktop_systray_cmd(
         if window_mgr is None:
             logger.warning("Window manager not initialized")
             return
-        
+
         if window_mgr.is_running():
             logger.info("Sending hide command to window...")
             if window_mgr.send_command("hide"):
