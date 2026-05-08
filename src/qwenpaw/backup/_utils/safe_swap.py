@@ -188,7 +188,7 @@ def _startup_restore_targets() -> list[Path]:
     from ...config.utils import get_config_path
     from ...constant import WORKING_DIR
 
-    # SECRET_DIR is recovered in load_envs_into_environ before envs.json is read.
+    # SECRET_DIR is recovered before load_envs_into_environ reads envs.json.
     targets = [
         WORKING_DIR / "skill_pool",
     ]

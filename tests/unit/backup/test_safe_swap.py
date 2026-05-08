@@ -51,8 +51,8 @@ def _tmp_dir(dst: Path) -> Path:
     return dst.with_name(dst.name + _RESTORE_TMP_SUFFIX)
 
 
-@pytest.fixture
-def secrets_dir(tmp_path: Path) -> Path:
+@pytest.fixture(name="secrets_dir")
+def _secrets_dir(tmp_path: Path) -> Path:
     dst = tmp_path / "secrets"
     dst.mkdir()
     return dst

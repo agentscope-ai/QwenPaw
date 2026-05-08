@@ -152,10 +152,9 @@ def recover_mount_point_swap(dst: Path, tmp_dst: Path) -> None:
     directories are left untouched because they are not proven restore state.
     """
     old_dir = dst / OLD_CONTENT_DIR_NAME
-    has_marker = (
-        (dst / STATE_FILE_NAME).exists()
-        or (dst / STATE_TMP_FILE_NAME).exists()
-    )
+    has_marker = (dst / STATE_FILE_NAME).exists() or (
+        dst / STATE_TMP_FILE_NAME
+    ).exists()
 
     if not (old_dir.exists() or has_marker):
         return
