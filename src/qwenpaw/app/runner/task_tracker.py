@@ -140,6 +140,7 @@ class TaskTracker:
         Args:
             run_key: Unique identifier for the external task.
         """
+        start_time = datetime.now(timezone.utc)
         async with self._lock:
             if run_key in self._runs and not self._runs[run_key].task.done():
                 logger.debug(
@@ -154,7 +155,9 @@ class TaskTracker:
                 task=future,
                 queues=[],
                 buffer=[],
+                start_time=start_time,
             )
+            self._global_last_run_at = start_time
             logger.debug("Registered external task: %s", run_key)
 
     async def unregister_external_task(self, run_key: str) -> None:
@@ -169,6 +172,7 @@ class TaskTracker:
             run_key: Unique identifier previously passed to
                 :meth:`register_external_task`.
         """
+        finish_time = datetime.now(timezone.utc)
         async with self._lock:
             state = self._runs.pop(run_key, None)
             if state is None:
@@ -178,6 +182,8 @@ class TaskTracker:
                 q.put_nowait(_SENTINEL)
             if not state.task.done():
                 state.task.set_result(None)
+            state.finish_time = finish_time
+            self._global_last_finish_at = finish_time
             logger.debug("Unregistered external task: %s", run_key)
 
     async def attach(self, run_key: str) -> asyncio.Queue | None:
