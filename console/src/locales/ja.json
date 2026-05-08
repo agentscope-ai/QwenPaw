@@ -1415,6 +1415,10 @@
       "previewTitle": "ルール詳細",
       "actionLabel": "アクション",
       "actionApproval": "承認待ち",
+      "autoDeny": "自動拒否",
+      "autoDenyTooltip": "有効にすると、このルールに一致するツール呼び出しは手動承認なしで自動的に拒否されます",
+      "autoDenyEnable": "このルールの自動拒否を有効にする",
+      "autoDenyDisable": "このルールの自動拒否を無効にする",
       "allTools": "すべてのツール",
       "allParams": "すべてのパラメータ",
       "descriptions": {
