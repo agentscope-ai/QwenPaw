@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
+TOKEN_PLAN_BASE_URL = (
+    "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+)
 
 
 class AnthropicProvider(Provider):
@@ -146,6 +149,18 @@ class AnthropicProvider(Provider):
         elif self.base_url == CODING_DASHSCOPE_BASE_URL:
             client_kwargs["default_headers"] = {
                 "X-DashScope-Cdpl": json.dumps(
+                    {
+                        "agentType": "QwenPaw",
+                        "deployType": "UnKnown",
+                        "moduleCode": "model",
+                        "agentCode": "UnKnown",
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+        elif self.base_url == TOKEN_PLAN_BASE_URL:
+            client_kwargs["default_headers"] = {
+                "X-DashScope-Tppl": json.dumps(
                     {
                         "agentType": "QwenPaw",
                         "deployType": "UnKnown",
