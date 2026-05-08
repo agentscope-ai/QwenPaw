@@ -251,6 +251,32 @@ def test_cleanup_leaves_markerless_old_content_dir_untouched(
     assert old_dir.exists()
 
 
+def test_mount_point_restore_rejects_existing_markerless_old_dir(
+    secrets_dir: Path,
+) -> None:
+    dst = secrets_dir
+    old_dir = dst / OLD_CONTENT_DIR_NAME
+    old_dir.mkdir()
+    (old_dir / "payload.txt").write_text("keep", encoding="utf-8")
+    (dst / "live.txt").write_text("live", encoding="utf-8")
+
+    zf = _make_zip({"data/secrets/new.txt": "new"})
+    with patch(
+        "qwenpaw.backup._utils._mount_swap.is_mount_point",
+        return_value=True,
+    ), pytest.raises(RuntimeError, match="Reserved restore directory exists"):
+        extract_to_tmp(zf, "data/secrets/", dst, zip_slip_base=dst)
+        commit_tmp(dst)
+
+    assert _snapshot(dst) == {
+        f"{OLD_CONTENT_DIR_NAME}/payload.txt": "keep",
+        "live.txt": "live",
+    }
+    assert _snapshot(_tmp_dir(dst)) == {"new.txt": "new"}
+    assert not (dst / STATE_FILE_NAME).exists()
+    assert not (dst / STATE_TMP_FILE_NAME).exists()
+
+
 def test_startup_cleanup_recovers_all_restore_targets(
     tmp_path: Path,
 ) -> None:

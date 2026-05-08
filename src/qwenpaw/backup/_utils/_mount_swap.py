@@ -124,8 +124,14 @@ def swap_mount_point_contents(dst: Path, tmp_dst: Path) -> None:
 def _swap_mount_point_contents(dst: Path, tmp_dst: Path) -> None:
     """Implementation of mount-point content swap."""
     old_dir = dst / OLD_CONTENT_DIR_NAME
+    if old_dir.exists():
+        raise RuntimeError(
+            "Reserved restore directory exists before restore starts: "
+            f"{old_dir}",
+        )
+
     _write_state(dst, STATE_EVACUATING_OLD)
-    old_dir.mkdir(exist_ok=True)
+    old_dir.mkdir()
     _move_children(dst, old_dir, excluded_names=RESERVED_NAMES)
 
     _write_state(dst, STATE_INSTALLING_NEW)
