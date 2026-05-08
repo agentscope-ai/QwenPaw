@@ -9,10 +9,19 @@ import { stripFrontmatter } from "./markdown";
 const t = (key: string) => key; // test t function: returns the key as-is
 
 describe("getAgentDisplayName", () => {
-  it('returns i18n key when id is "default"', () => {
+  it('returns i18n key when id is "default" and name is the default placeholder', () => {
+    expect(
+      getAgentDisplayName(
+        { id: "default", name: "Default Agent" },
+        t as any,
+      ),
+    ).toBe("agent.defaultDisplayName");
+  });
+
+  it('returns custom name when id is "default" but name is customized', () => {
     expect(
       getAgentDisplayName({ id: "default", name: "anything" }, t as any),
-    ).toBe("agent.defaultDisplayName");
+    ).toBe("anything");
   });
 
   it('returns name when id is not "default"', () => {
