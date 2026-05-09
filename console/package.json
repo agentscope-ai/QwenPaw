@@ -40,6 +40,7 @@
     "react": "^18",
     "react-dom": "^18",
     "react-i18next": "^16.5.4",
+    "mermaid": "^11.12.2",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.13.0",
     "react-window": "^1.8.10",
