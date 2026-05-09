@@ -3053,6 +3053,9 @@ async def _action_batch(
     Each action in the JSON array is a dict with at least an "action" key.
     Optional keys: "page_id" (override default), "wait" (seconds to wait
     after the action), "stop_on_error" (bool, default True).
+
+    Reuses existing _action_* helper functions to avoid duplicating logic
+    and ensure consistent behavior with single-action calls.
     """
     actions = _parse_json_param(actions_json, [])
     if not isinstance(actions, list) or not actions:
@@ -3096,7 +3099,6 @@ async def _action_batch(
         sub_page_id = act.get("page_id") or page_id
         sub_wait: float = act.get("wait", 0)  # seconds
         stop_on_error = act.get("stop_on_error", True)
-        frame_sel = act.get("frame_selector", "")
 
         step_result: dict[str, Any] = {
             "step": idx,
@@ -3105,433 +3107,176 @@ async def _action_batch(
         }
 
         try:
+            resp: ToolResponse | None = None
+
             # --- navigate ---
             if sub_action == "navigate":
-                url = (act.get("url") or "").strip()
-                if not url:
-                    step_result["error"] = "url required for navigate"
-                else:
-                    page = _get_page(state, sub_page_id)
-                    if not page:
-                        step_result["error"] = f"Page '{sub_page_id}' not found"
-                    else:
-                        if _USE_SYNC_PLAYWRIGHT:
-                            await _run_sync(page.goto, url)
-                        else:
-                            await page.goto(url)
-                        state["current_page_id"] = sub_page_id
-                        step_result["ok"] = True
-                        step_result["message"] = f"Navigated to {url}"
+                resp = await _action_navigate(
+                    state,
+                    url=(act.get("url") or "").strip(),
+                    page_id=sub_page_id,
+                )
 
             # --- click ---
             elif sub_action == "click":
-                sel = (act.get("selector") or "").strip()
-                ref = (act.get("ref") or "").strip()
-                element = act.get("element", "")
-                click_wait: int = act.get("wait", 0)
-                double = act.get("double_click", False)
-                button = act.get("button", "left")
-                mods_json = act.get("modifiers_json", "")
-                if not ref and not sel:
-                    step_result["error"] = "selector or ref required for click"
-                else:
-                    page = _get_page(state, sub_page_id)
-                    if not page:
-                        step_result["error"] = f"Page '{sub_page_id}' not found"
-                    else:
-                        if _USE_SYNC_PLAYWRIGHT:
-                            loop = asyncio.get_event_loop()
-                            if click_wait > 0:
-                                await asyncio.sleep(click_wait / 1000.0)
-                            mods = _parse_json_param(mods_json, [])
-                            if not isinstance(mods, list):
-                                mods = []
-                            kwargs = {"button": button if button in ("left", "right", "middle") else "left"}
-                            if mods:
-                                kwargs["modifiers"] = [m for m in mods if m in ("Alt", "Control", "ControlOrMeta", "Meta", "Shift")]
-                            if ref:
-                                locator = _get_locator_by_ref(state, page, sub_page_id, ref, frame_sel)
-                                if locator is None:
-                                    step_result["error"] = f"Unknown ref: {ref}"
-                                elif double:
-                                    await loop.run_in_executor(_get_executor(), lambda: locator.dblclick(**kwargs))
-                                else:
-                                    await loop.run_in_executor(_get_executor(), lambda: locator.click(**kwargs))
-                            else:
-                                root = _get_root(page, frame_sel)
-                                locator = root.locator(sel).first
-                                if double:
-                                    await loop.run_in_executor(_get_executor(), lambda: locator.dblclick(**kwargs))
-                                else:
-                                    await loop.run_in_executor(_get_executor(), lambda: locator.click(**kwargs))
-                        else:
-                            if click_wait > 0:
-                                await asyncio.sleep(click_wait / 1000.0)
-                            mods = _parse_json_param(mods_json, [])
-                            if not isinstance(mods, list):
-                                mods = []
-                            kwargs = {"button": button if button in ("left", "right", "middle") else "left"}
-                            if mods:
-                                kwargs["modifiers"] = [m for m in mods if m in ("Alt", "Control", "ControlOrMeta", "Meta", "Shift")]
-                            if ref:
-                                locator = _get_locator_by_ref(state, page, sub_page_id, ref, frame_sel)
-                                if locator is None:
-                                    step_result["error"] = f"Unknown ref: {ref}"
-                                elif double:
-                                    await locator.dblclick(**kwargs)
-                                else:
-                                    await locator.click(**kwargs)
-                            else:
-                                root = _get_root(page, frame_sel)
-                                locator = root.locator(sel).first
-                                if double:
-                                    await locator.dblclick(**kwargs)
-                                else:
-                                    await locator.click(**kwargs)
-                        if "error" not in step_result:
-                            step_result["ok"] = True
-                            step_result["message"] = f"Clicked {ref or sel}"
+                resp = await _action_click(
+                    state,
+                    page_id=sub_page_id,
+                    selector=(act.get("selector") or "").strip(),
+                    ref=(act.get("ref") or "").strip(),
+                    element=act.get("element", ""),
+                    wait=act.get("wait", 0),
+                    double_click=act.get("double_click", False),
+                    button=act.get("button", "left"),
+                    modifiers_json=act.get("modifiers_json", ""),
+                    frame_selector=act.get("frame_selector", ""),
+                )
 
             # --- type ---
             elif sub_action == "type":
-                sel = (act.get("selector") or "").strip()
-                ref = (act.get("ref") or "").strip()
-                text = act.get("text", "")
-                do_submit = act.get("submit", False)
-                do_slowly = act.get("slowly", False)
-                element = act.get("element", "")
-                if not ref and not sel:
-                    step_result["error"] = "selector or ref required for type"
-                else:
-                    page = _get_page(state, sub_page_id)
-                    if not page:
-                        step_result["error"] = f"Page '{sub_page_id}' not found"
-                    else:
-                        if _USE_SYNC_PLAYWRIGHT:
-                            loop = asyncio.get_event_loop()
-                            if ref:
-                                locator = _get_locator_by_ref(state, page, sub_page_id, ref, frame_sel)
-                                if locator is None:
-                                    step_result["error"] = f"Unknown ref: {ref}"
-                                else:
-                                    if do_slowly:
-                                        await loop.run_in_executor(_get_executor(), lambda: locator.press_sequentially(text or ""))
-                                    else:
-                                        await loop.run_in_executor(_get_executor(), lambda: locator.fill(text or ""))
-                                    if do_submit:
-                                        await loop.run_in_executor(_get_executor(), lambda: locator.press("Enter"))
-                            else:
-                                root = _get_root(page, frame_sel)
-                                loc = root.locator(sel).first
-                                if do_slowly:
-                                    await loop.run_in_executor(_get_executor(), lambda: loc.press_sequentially(text or ""))
-                                else:
-                                    await loop.run_in_executor(_get_executor(), lambda: loc.fill(text or ""))
-                                if do_submit:
-                                    await loop.run_in_executor(_get_executor(), lambda: loc.press("Enter"))
-                        else:
-                            if ref:
-                                locator = _get_locator_by_ref(state, page, sub_page_id, ref, frame_sel)
-                                if locator is None:
-                                    step_result["error"] = f"Unknown ref: {ref}"
-                                else:
-                                    if do_slowly:
-                                        await locator.press_sequentially(text or "")
-                                    else:
-                                        await locator.fill(text or "")
-                                    if do_submit:
-                                        await locator.press("Enter")
-                            else:
-                                root = _get_root(page, frame_sel)
-                                loc = root.locator(sel).first
-                                if do_slowly:
-                                    await loc.press_sequentially(text or "")
-                                else:
-                                    await loc.fill(text or "")
-                                if do_submit:
-                                    await loc.press("Enter")
-                        if "error" not in step_result:
-                            step_result["ok"] = True
-                            step_result["message"] = f"Typed into {ref or sel}"
+                resp = await _action_type(
+                    state,
+                    page_id=sub_page_id,
+                    selector=(act.get("selector") or "").strip(),
+                    ref=(act.get("ref") or "").strip(),
+                    element=act.get("element", ""),
+                    text=act.get("text", ""),
+                    submit=act.get("submit", False),
+                    slowly=act.get("slowly", False),
+                    frame_selector=act.get("frame_selector", ""),
+                )
 
             # --- press_key ---
             elif sub_action == "press_key":
-                key = (act.get("key") or "").strip()
-                if not key:
-                    step_result["error"] = "key required for press_key"
-                else:
-                    page = _get_page(state, sub_page_id)
-                    if not page:
-                        step_result["error"] = f"Page '{sub_page_id}' not found"
-                    else:
-                        if _USE_SYNC_PLAYWRIGHT:
-                            await _run_sync(page.keyboard.press, key)
-                        else:
-                            await page.keyboard.press(key)
-                        step_result["ok"] = True
-                        step_result["message"] = f"Pressed key {key}"
+                resp = await _action_press_key(
+                    state,
+                    page_id=sub_page_id,
+                    key=(act.get("key") or "").strip(),
+                )
 
             # --- evaluate ---
             elif sub_action == "evaluate":
-                code = (act.get("code") or "").strip()
-                ref = (act.get("ref") or "").strip()
-                element = act.get("element", "")
-                if not code:
-                    step_result["error"] = "code required for evaluate"
-                else:
-                    page = _get_page(state, sub_page_id)
-                    if not page:
-                        step_result["error"] = f"Page '{sub_page_id}' not found"
-                    else:
-                        if ref:
-                            locator = _get_locator_by_ref(state, page, sub_page_id, ref, frame_sel)
-                            if locator is None:
-                                step_result["error"] = f"Unknown ref: {ref}"
-                            elif _USE_SYNC_PLAYWRIGHT:
-                                result = await _run_sync(locator.evaluate, code)
-                            else:
-                                result = await locator.evaluate(code)
-                        elif code.startswith("(") or code.startswith("function"):
-                            if _USE_SYNC_PLAYWRIGHT:
-                                result = await _run_sync(page.evaluate, code)
-                            else:
-                                result = await page.evaluate(code)
-                        else:
-                            wrapped = f"() => {{ return ({code}); }}"
-                            if _USE_SYNC_PLAYWRIGHT:
-                                result = await _run_sync(page.evaluate, wrapped)
-                            else:
-                                result = await page.evaluate(wrapped)
-                        if "error" not in step_result:
-                            try:
-                                step_result["result"] = result
-                            except TypeError:
-                                step_result["result"] = str(result)
-                            step_result["ok"] = True
+                resp = await _action_evaluate(
+                    state,
+                    page_id=sub_page_id,
+                    code=(act.get("code") or "").strip(),
+                    ref=(act.get("ref") or "").strip(),
+                    element=act.get("element", ""),
+                    frame_selector=act.get("frame_selector", ""),
+                )
 
             # --- eval ---
             elif sub_action == "eval":
-                code = (act.get("code") or "").strip()
-                if not code:
-                    step_result["error"] = "code required for eval"
-                else:
-                    page = _get_page(state, sub_page_id)
-                    if not page:
-                        step_result["error"] = f"Page '{sub_page_id}' not found"
-                    else:
-                        if code.startswith("(") or code.startswith("function"):
-                            if _USE_SYNC_PLAYWRIGHT:
-                                result = await _run_sync(page.evaluate, code)
-                            else:
-                                result = await page.evaluate(code)
-                        else:
-                            wrapped = f"() => {{ return ({code}); }}"
-                            if _USE_SYNC_PLAYWRIGHT:
-                                result = await _run_sync(page.evaluate, wrapped)
-                            else:
-                                result = await page.evaluate(wrapped)
-                        try:
-                            step_result["result"] = result
-                        except TypeError:
-                            step_result["result"] = str(result)
-                        step_result["ok"] = True
+                resp = await _action_eval(
+                    state,
+                    page_id=sub_page_id,
+                    code=(act.get("code") or "").strip(),
+                )
 
             # --- snapshot ---
             elif sub_action == "snapshot":
-                snap_filename = act.get("filename", "")
-                page = _get_page(state, sub_page_id)
-                if not page:
-                    step_result["error"] = f"Page '{sub_page_id}' not found"
-                else:
-                    if _USE_SYNC_PLAYWRIGHT:
-                        loop = asyncio.get_event_loop()
-                        root = _get_root(page, frame_sel)
-                        locator = root.locator(":root")
-                        raw = await loop.run_in_executor(_get_executor(), lambda: locator.aria_snapshot())
-                    else:
-                        root = _get_root(page, frame_sel)
-                        locator = root.locator(":root")
-                        raw = await locator.aria_snapshot()
-                    raw_str = str(raw) if raw is not None else ""
-                    snapshot, refs = build_role_snapshot_from_aria(raw_str, interactive=False, compact=False)
-                    state["refs"][sub_page_id] = refs
-                    state["refs_frame"][sub_page_id] = frame_sel.strip() if frame_sel else ""
-                    step_result["ok"] = True
-                    step_result["snapshot"] = snapshot
-                    step_result["refs"] = list(refs.keys())
-                    step_result["url"] = page.url
-                    if snap_filename and snap_filename.strip():
-                        resolved = _resolve_output_path(snap_filename.strip())
-                        with open(resolved, "w", encoding="utf-8") as f:
-                            f.write(snapshot)
-                        step_result["filename"] = resolved
+                resp = await _action_snapshot(
+                    state,
+                    page_id=sub_page_id,
+                    filename=act.get("filename", ""),
+                    frame_selector=act.get("frame_selector", ""),
+                )
 
             # --- screenshot ---
             elif sub_action == "screenshot":
-                path = (act.get("path") or "").strip()
-                full = act.get("full_page", False)
-                stype = act.get("screenshot_type", "png")
-                ref = (act.get("ref") or "").strip()
-                element = act.get("element", "")
-                if not path:
-                    ext = "jpeg" if stype == "jpeg" else "png"
-                    path = f"page-{int(time.time())}.{ext}"
-                path = _resolve_output_path(path)
-                page = _get_page(state, sub_page_id)
-                if not page:
-                    step_result["error"] = f"Page '{sub_page_id}' not found"
-                else:
-                    if ref:
-                        locator = _get_locator_by_ref(state, page, sub_page_id, ref, frame_sel)
-                        if locator is None:
-                            step_result["error"] = f"Unknown ref: {ref}"
-                        elif _USE_SYNC_PLAYWRIGHT:
-                            await _run_sync(locator.screenshot, path=path, type=stype, full_page=full if not ref else None)
-                        else:
-                            await locator.screenshot(path=path, type=stype, full_page=full if not ref else None)
-                    else:
-                        if _USE_SYNC_PLAYWRIGHT:
-                            await _run_sync(page.screenshot, path=path, type=stype, full_page=full)
-                        else:
-                            await page.screenshot(path=path, type=stype, full_page=full)
-                    if "error" not in step_result:
-                        step_result["ok"] = True
-                        step_result["path"] = path
+                resp = await _action_screenshot(
+                    state,
+                    page_id=sub_page_id,
+                    path=(act.get("path") or "").strip(),
+                    full_page=act.get("full_page", False),
+                    screenshot_type=act.get("screenshot_type", "png"),
+                    ref=(act.get("ref") or "").strip(),
+                    element=act.get("element", ""),
+                    frame_selector=act.get("frame_selector", ""),
+                )
 
             # --- wait_for ---
             elif sub_action == "wait_for":
-                wt = act.get("wait_time", 0)
-                text = (act.get("text") or "").strip()
-                text_gone = (act.get("text_gone") or "").strip()
-                page = _get_page(state, sub_page_id)
-                if not page:
-                    step_result["error"] = f"Page '{sub_page_id}' not found"
-                else:
-                    if wt and wt > 0:
-                        await asyncio.sleep(wt)
-                    if text:
-                        locator = page.get_by_text(text)
-                        if _USE_SYNC_PLAYWRIGHT:
-                            await _run_sync(locator.wait_for, state="visible", timeout=30000)
-                        else:
-                            await locator.wait_for(state="visible", timeout=30000)
-                    if text_gone:
-                        locator = page.get_by_text(text_gone)
-                        if _USE_SYNC_PLAYWRIGHT:
-                            await _run_sync(locator.wait_for, state="hidden", timeout=30000)
-                        else:
-                            await locator.wait_for(state="hidden", timeout=30000)
-                    step_result["ok"] = True
-                    step_result["message"] = "Wait completed"
+                resp = await _action_wait_for(
+                    state,
+                    page_id=sub_page_id,
+                    wait_time=act.get("wait_time", 0),
+                    text=(act.get("text") or "").strip(),
+                    text_gone=(act.get("text_gone") or "").strip(),
+                )
 
             # --- hover ---
             elif sub_action == "hover":
-                ref = (act.get("ref") or "").strip()
-                sel = (act.get("selector") or "").strip()
-                element = act.get("element", "")
-                if not ref and not sel:
-                    step_result["error"] = "hover requires ref or selector"
-                else:
-                    page = _get_page(state, sub_page_id)
-                    if not page:
-                        step_result["error"] = f"Page '{sub_page_id}' not found"
-                    else:
-                        if ref:
-                            locator = _get_locator_by_ref(state, page, sub_page_id, ref, frame_sel)
-                            if locator is None:
-                                step_result["error"] = f"Unknown ref: {ref}"
-                        else:
-                            root = _get_root(page, frame_sel)
-                            locator = root.locator(sel).first
-                        if "error" not in step_result:
-                            if _USE_SYNC_PLAYWRIGHT:
-                                await _run_sync(locator.hover)
-                            else:
-                                await locator.hover()
-                            step_result["ok"] = True
-                            step_result["message"] = f"Hovered {ref or sel}"
+                resp = await _action_hover(
+                    state,
+                    page_id=sub_page_id,
+                    ref=(act.get("ref") or "").strip(),
+                    element=act.get("element", ""),
+                    selector=(act.get("selector") or "").strip(),
+                    frame_selector=act.get("frame_selector", ""),
+                )
 
             # --- select_option ---
             elif sub_action == "select_option":
-                ref = (act.get("ref") or "").strip()
-                values_list = _parse_json_param(act.get("values_json", "[]"), [])
-                if not isinstance(values_list, list):
-                    values_list = [values_list] if values_list else []
-                element = act.get("element", "")
-                if not ref:
-                    step_result["error"] = "ref required for select_option"
-                elif not values_list:
-                    step_result["error"] = "values required (JSON array or comma-separated)"
-                else:
-                    page = _get_page(state, sub_page_id)
-                    if not page:
-                        step_result["error"] = f"Page '{sub_page_id}' not found"
-                    else:
-                        locator = _get_locator_by_ref(state, page, sub_page_id, ref, frame_sel)
-                        if locator is None:
-                            step_result["error"] = f"Unknown ref: {ref}"
-                        elif _USE_SYNC_PLAYWRIGHT:
-                            await _run_sync(locator.select_option, value=values_list)
-                        else:
-                            await locator.select_option(value=values_list)
-                        if "error" not in step_result:
-                            step_result["ok"] = True
-                            step_result["message"] = f"Selected {values_list}"
+                resp = await _action_select_option(
+                    state,
+                    page_id=sub_page_id,
+                    ref=(act.get("ref") or "").strip(),
+                    element=act.get("element", ""),
+                    values_json=act.get("values_json", "[]"),
+                    frame_selector=act.get("frame_selector", ""),
+                )
 
             # --- drag ---
             elif sub_action == "drag":
-                start_ref = (act.get("start_ref") or "").strip()
-                end_ref = (act.get("end_ref") or "").strip()
-                start_sel = (act.get("start_selector") or "").strip()
-                end_sel = (act.get("end_selector") or "").strip()
-                start_elem = act.get("start_element", "")
-                end_elem = act.get("end_element", "")
-                use_refs = bool(start_ref and end_ref)
-                use_sels = bool(start_sel and end_sel)
-                if not use_refs and not use_sels:
-                    step_result["error"] = "drag needs (start_ref,end_ref) or (start_selector,end_selector)"
-                else:
-                    page = _get_page(state, sub_page_id)
-                    if not page:
-                        step_result["error"] = f"Page '{sub_page_id}' not found"
-                    else:
-                        root = _get_root(page, frame_sel)
-                        if use_refs:
-                            start_loc = _get_locator_by_ref(state, page, sub_page_id, start_ref, frame_sel)
-                            end_loc = _get_locator_by_ref(state, page, sub_page_id, end_ref, frame_sel)
-                            if start_loc is None or end_loc is None:
-                                step_result["error"] = "Unknown ref for drag"
-                        else:
-                            start_loc = root.locator(start_sel).first
-                            end_loc = root.locator(end_sel).first
-                        if "error" not in step_result:
-                            if _USE_SYNC_PLAYWRIGHT:
-                                await _run_sync(start_loc.drag_to, end_loc)
-                            else:
-                                await start_loc.drag_to(end_loc)
-                            step_result["ok"] = True
-                            step_result["message"] = "Drag completed"
+                resp = await _action_drag(
+                    state,
+                    page_id=sub_page_id,
+                    start_ref=(act.get("start_ref") or "").strip(),
+                    end_ref=(act.get("end_ref") or "").strip(),
+                    start_selector=(act.get("start_selector") or "").strip(),
+                    end_selector=(act.get("end_selector") or "").strip(),
+                    start_element=act.get("start_element", ""),
+                    end_element=act.get("end_element", ""),
+                    frame_selector=act.get("frame_selector", ""),
+                )
 
             # --- resize ---
             elif sub_action == "resize":
-                w = act.get("width", 0)
-                h = act.get("height", 0)
-                if w <= 0 or h <= 0:
-                    step_result["error"] = "width and height must be positive"
-                else:
-                    page = _get_page(state, sub_page_id)
-                    if not page:
-                        step_result["error"] = f"Page '{sub_page_id}' not found"
-                    else:
-                        if _USE_SYNC_PLAYWRIGHT:
-                            await _run_sync(page.set_viewport_size, {"width": w, "height": h})
-                        else:
-                            await page.set_viewport_size({"width": w, "height": h})
-                        step_result["ok"] = True
-                        step_result["message"] = f"Resized to {w}x{h}"
+                resp = await _action_resize(
+                    state,
+                    page_id=sub_page_id,
+                    width=act.get("width", 0),
+                    height=act.get("height", 0),
+                )
 
             else:
                 step_result["error"] = f"Unknown batch sub-action: {sub_action}"
+
+            # Parse helper response into step_result
+            if resp is not None:
+                try:
+                    resp_data = json.loads(resp.content)
+                    if isinstance(resp_data, dict):
+                        step_result["ok"] = resp_data.get("ok", False)
+                        if not step_result["ok"] and "error" in resp_data:
+                            step_result["error"] = resp_data["error"]
+                        if "message" in resp_data:
+                            step_result["message"] = resp_data["message"]
+                        if "url" in resp_data:
+                            step_result["url"] = resp_data["url"]
+                        if "snapshot" in resp_data:
+                            step_result["snapshot"] = resp_data["snapshot"]
+                        if "refs" in resp_data:
+                            step_result["refs"] = resp_data["refs"]
+                        if "result" in resp_data:
+                            step_result["result"] = resp_data["result"]
+                        if "path" in resp_data:
+                            step_result["path"] = resp_data["path"]
+                        if "filename" in resp_data:
+                            step_result["filename"] = resp_data["filename"]
+                except (json.JSONDecodeError, AttributeError):
+                    step_result["error"] = "Failed to parse action response"
 
         except Exception as e:
             step_result["error"] = str(e)
@@ -3926,6 +3671,17 @@ async def browser_use(  # pylint: disable=R0911,R0912
             "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe".
             When set, overrides the system default browser detection.
             Default empty string (use system default).
+        actions_json (str):
+            JSON array string of sub-action dicts for action=batch. Required
+            when action=batch. Each sub-action dict has at least an "action"
+            key specifying the sub-action type. Supported sub-actions:
+            navigate, click, type, press_key, evaluate, eval, snapshot,
+            screenshot, wait_for, hover, select_option, drag, resize.
+            Optional keys per sub-action: "page_id" (override default),
+            "wait" (seconds to wait after the action), "stop_on_error"
+            (bool, default True). Example:
+            [{"action": "navigate", "url": "https://example.com"},
+             {"action": "click", "ref": "e1"}, {"action": "type", "ref": "e2", "text": "hello"}].
         cdp_url (str):
             CDP base URL, e.g. "http://localhost:9222". Required for
             action=connect_cdp.
