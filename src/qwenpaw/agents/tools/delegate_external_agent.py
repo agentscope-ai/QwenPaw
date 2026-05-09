@@ -475,12 +475,17 @@ async def delegate_external_agent(
         cwd (`str`):
             Working directory for the agent. Defaults to the current workspace.
         max_runtime (`float`, default=60.0):
-            **Maximum runtime in seconds for a single ACP turn.** 
-            This parameter prevents infinite hangs if the external agent fails to respond.
-            Default is 60.0 seconds. Increase this value for complex tasks that require more time.
-            When the limit is reached, the tool sends an ACP cancel signal but keeps the session open,
-            allowing continuation with `delegate_external_agent(action="message", runner=..., message="continue")`.
-            **Note: Always ensure a reasonable timeout is set to avoid indefinite waiting.**
+            **Maximum runtime in seconds for a single ACP turn.**
+            Prevents infinite hangs if the external agent fails
+            to respond. Default is 60.0 seconds. Increase for
+            complex tasks that require more time.
+            When the limit is reached, the tool sends an ACP
+            cancel signal but keeps the session open, allowing
+            continuation with ``delegate_external_agent(
+            action="message", runner=...,
+            message="continue")``.
+            **Note: Always set a reasonable timeout to avoid
+            indefinite waiting.**
 
     Returns:
         `AsyncGenerator[ToolResponse, None]`:
