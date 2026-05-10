@@ -1379,6 +1379,14 @@
       "assistantMessage": "アシスタント",
       "titleMatch": "タイトル"
     },
+    "tokenUsageBadge": {
+      "turn": "このターン",
+      "turnEstimated": "このターン約",
+      "context": "コンテキスト {{used}} / {{max}}",
+      "tok": "tok",
+      "inOut": "(入力 {{inTok}} · 出力 {{outTok}})",
+      "ariaLabel": "使用量統計"
+    },
     "contextMenu": {
       "open": "開く",
       "rename": "名前を変更",

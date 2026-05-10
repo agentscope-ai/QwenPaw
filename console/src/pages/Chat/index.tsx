@@ -22,7 +22,7 @@ import type { ProviderInfo, ModelInfo } from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
-import { useChatAnywhereInput } from "@agentscope-ai/chat";
+import { useChatAnywhereInput, useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
@@ -32,6 +32,13 @@ import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { planApi } from "../../api/modules/plan";
+import TokenUsageBadge, {
+  loadTokenBadgeSnapshot,
+  migrateTokenBadgeSnapshot,
+  resolveTokenBadgeStorageKey,
+  saveTokenBadgeSnapshot,
+} from "./components/TokenUsageBadge";
+import type { TokenUsageBadgeSnapshot } from "./components/TokenUsageBadge";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -124,6 +131,32 @@ function payloadCompletesResponse(payload: unknown): boolean {
 
   const record = payload as Record<string, unknown>;
   return record.object === "response" && record.status === "completed";
+}
+
+function toSnapshotFromUsagePayload(
+  usage: unknown,
+  ctx: unknown,
+): TokenUsageBadgeSnapshot | null {
+  // Normalize usage: ensure it has at least one meaningful token field
+  const hasUsage =
+    usage &&
+    typeof usage === "object" &&
+    (typeof (usage as Record<string, unknown>).total_tokens === "number" ||
+      typeof (usage as Record<string, unknown>).prompt_tokens === "number" ||
+      typeof (usage as Record<string, unknown>).completion_tokens === "number");
+
+  const hasCtx =
+    ctx &&
+    typeof ctx === "object" &&
+    typeof (ctx as Record<string, unknown>).estimated_tokens === "number";
+
+  if (!hasUsage && !hasCtx) return null;
+
+  return {
+    usage: hasUsage ? (usage as TokenUsageBadgeSnapshot["usage"]) : null,
+    context: hasCtx ? (ctx as TokenUsageBadgeSnapshot["context"]) : null,
+    receivedAt: Date.now(),
+  };
 }
 
 function renderSuggestionLabel(command: string, description: string) {
@@ -220,29 +253,7 @@ function useMultimodalCapabilities(
     supportsVideo: boolean;
   }>({ supportsMultimodal: false, supportsImage: false, supportsVideo: false });
 
-  const updateCapsIfChanged = useCallback(
-    (next: {
-      supportsMultimodal: boolean;
-      supportsImage: boolean;
-      supportsVideo: boolean;
-    }) => {
-      setMultimodalCaps((prev) =>
-        prev.supportsMultimodal === next.supportsMultimodal &&
-        prev.supportsImage === next.supportsImage &&
-        prev.supportsVideo === next.supportsVideo
-          ? prev
-          : next,
-      );
-    },
-    [],
-  );
-
   const fetchMultimodalCaps = useCallback(async () => {
-    const noCaps = {
-      supportsMultimodal: false,
-      supportsImage: false,
-      supportsVideo: false,
-    };
     try {
       const [providers, activeModels] = await Promise.all([
         providerApi.listProviders(),
@@ -254,14 +265,22 @@ function useMultimodalCapabilities(
       const activeProviderId = activeModels?.active_llm?.provider_id;
       const activeModelId = activeModels?.active_llm?.model;
       if (!activeProviderId || !activeModelId) {
-        updateCapsIfChanged(noCaps);
+        setMultimodalCaps({
+          supportsMultimodal: false,
+          supportsImage: false,
+          supportsVideo: false,
+        });
         return;
       }
       const provider = (providers as ProviderInfo[]).find(
         (p) => p.id === activeProviderId,
       );
       if (!provider) {
-        updateCapsIfChanged(noCaps);
+        setMultimodalCaps({
+          supportsMultimodal: false,
+          supportsImage: false,
+          supportsVideo: false,
+        });
         return;
       }
       const allModels: ModelInfo[] = [
@@ -269,15 +288,19 @@ function useMultimodalCapabilities(
         ...(provider.extra_models ?? []),
       ];
       const model = allModels.find((m) => m.id === activeModelId);
-      updateCapsIfChanged({
+      setMultimodalCaps({
         supportsMultimodal: model?.supports_multimodal ?? false,
         supportsImage: model?.supports_image ?? false,
         supportsVideo: model?.supports_video ?? false,
       });
     } catch {
-      updateCapsIfChanged(noCaps);
+      setMultimodalCaps({
+        supportsMultimodal: false,
+        supportsImage: false,
+        supportsVideo: false,
+      });
     }
-  }, [selectedAgent, updateCapsIfChanged]);
+  }, [selectedAgent]);
 
   // Fetch caps on mount and whenever refreshKey changes
   useEffect(() => {
@@ -497,7 +520,7 @@ function RuntimeLoadingBridge({
 }
 
 export default function ChatPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark } = useTheme();
@@ -505,6 +528,15 @@ export default function ChatPage() {
     const match = location.pathname.match(/^\/chat\/(.+)$/);
     return match?.[1];
   }, [location.pathname]);
+
+  /** Canonical id for token-badge sessionStorage (UUID when resolved). */
+  const storageIdForTokenBadge = useCallback((raw: string) => {
+    if (!raw) return "";
+    return sessionApi.getRealIdForSession(raw) ?? raw;
+  }, []);
+
+  const { sessions } = useChatAnywhereSessionsState();
+
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const { selectedAgent } = useAgentStore();
   const { toolRenderConfig } = usePlugins();
@@ -516,6 +548,86 @@ export default function ChatPage() {
     Map<string, ApprovalMessageData>
   >(new Map());
   const [planEnabled, setPlanEnabled] = useState(false);
+  const [tokenSnapshot, setTokenSnapshot] =
+    useState<TokenUsageBadgeSnapshot | null>(null);
+    const tokenSnapshotRef = useRef<TokenUsageBadgeSnapshot | null>(null);
+  tokenSnapshotRef.current = tokenSnapshot;
+  const collectTokenBadgeAliases = useCallback(
+    (rawSessionId: string): string[] => {
+      const aliases = new Set<string>();
+      if (rawSessionId) aliases.add(rawSessionId);
+      aliases.add(window.currentSessionId || "");
+      aliases.add(chatIdRef.current || "");
+      for (const id of [...aliases]) {
+        if (!id) continue;
+        const key = resolveTokenBadgeStorageKey(id);
+        if (!key) continue;
+        try {
+          const raw = sessionStorage.getItem(key);
+          if (raw) {
+            const data = JSON.parse(raw);
+            if (data?._relatedKeys && Array.isArray(data._relatedKeys)) {
+              for (const k of data._relatedKeys) aliases.add(k);
+            }
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
+      return [...aliases];
+    },
+    [],
+  );
+  const readTokenSnapshotForSession = useCallback(
+    (rawSessionId: string) => {
+      const aliasList = collectTokenBadgeAliases(rawSessionId);
+      let latest: TokenUsageBadgeSnapshot | null = null;
+      for (const id of aliasList) {
+        const loaded = loadTokenBadgeSnapshot(id);
+        if (!loaded) continue;
+        if (!latest || (loaded.receivedAt || 0) >= (latest.receivedAt || 0)) {
+          latest = loaded;
+        }
+      }
+      return latest;
+    },
+    [collectTokenBadgeAliases],
+  );
+  const saveTokenSnapshotForSession = useCallback(
+    (rawSessionId: string, snapshot: TokenUsageBadgeSnapshot) => {
+      for (const id of collectTokenBadgeAliases(rawSessionId)) {
+        const key = resolveTokenBadgeStorageKey(id);
+        if (key) saveTokenBadgeSnapshot(key, snapshot);
+      }
+    },
+    [collectTokenBadgeAliases],
+  );
+  const applyTokenSnapshotUpdate = useCallback(
+    (
+      usage: unknown,
+      ctx: unknown,
+      preferredSessionId?: string,
+      fallbackToPrev = true,
+    ) => {
+      const base = toSnapshotFromUsagePayload(usage, ctx);
+      if (!base) return;
+      setTokenSnapshot((prev: TokenUsageBadgeSnapshot | null) => {
+        const next: TokenUsageBadgeSnapshot = {
+          usage: base.usage ?? (fallbackToPrev ? prev?.usage ?? null : null),
+          context: base.context ?? (fallbackToPrev ? prev?.context ?? null : null),
+          receivedAt: Date.now(),
+        };
+        const id =
+          preferredSessionId ||
+          chatIdRef.current ||
+          window.currentSessionId ||
+          "";
+        if (id) saveTokenSnapshotForSession(id, next);
+        return next;
+      });
+    },
+    [saveTokenSnapshotForSession],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -536,38 +648,62 @@ export default function ChatPage() {
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
 
-  // Consume approvals from Context and filter by current session.
-  // Uses a serialized key to avoid creating a new Map (and triggering
-  // re-renders of the entire Chat tree) when the filtered result is identical.
-  const prevApprovalKeyRef = useRef("");
-
   useEffect(() => {
+    if (!isChatActiveRef.current) return;
+    const id = storageIdForTokenBadge(chatId || "");
+    const loaded = readTokenSnapshotForSession(id);
+    if (loaded) setTokenSnapshot(loaded);
+  }, [chatId, storageIdForTokenBadge, sessions, readTokenSnapshotForSession]);
+
+  // Consume approvals from Context and filter by current session
+  useEffect(() => {
+    // Get current session ID from multiple sources
+    // During new session creation, chatId may be empty but window.currentSessionId gets set
     const currentSessionId = window.currentSessionId || chatId || "";
 
-    // When no session ID is available yet, use the first approval's
-    // root_session_id as a hint (handles the race where approval arrives
-    // before the session ID is propagated).
+    // Filter approvals by root_session_id (includes children sessions)
+    console.debug(
+      "[Approval] Filtering approvals:",
+      "currentSessionId=",
+      currentSessionId,
+      "chatId=",
+      chatId,
+      "window.currentSessionId=",
+      window.currentSessionId,
+      "approvals=",
+      approvals.map((a) => ({
+        tool: a.tool_name,
+        session: a.session_id.slice(0, 8),
+        root: a.root_session_id.slice(0, 8),
+      })),
+    );
+
+    // If no session ID yet, check if we have approvals that could tell us the session
+    // (e.g., first message sent, approval arrives before session ID is set in window)
     let effectiveSessionId = currentSessionId;
     if (!effectiveSessionId && approvals.length > 0) {
+      // Use the root_session_id from the first approval as a hint
+      // This handles the race condition where approval arrives before session ID is propagated
       effectiveSessionId = approvals[0].root_session_id;
+      console.log(
+        "[Approval] No session ID yet, using first approval's root_session_id:",
+        effectiveSessionId,
+      );
     }
 
     const sessionApprovals = effectiveSessionId
       ? approvals.filter(
           (approval) => approval.root_session_id === effectiveSessionId,
         )
-      : approvals;
+      : approvals; // Show all if no session ID (fallback)
 
-    // Build a stable key from the filtered request IDs so we can skip
-    // the Map rebuild when nothing changed (avoids re-render every 2.5s poll).
-    const approvalKey = sessionApprovals
-      .map((a) => a.request_id)
-      .sort()
-      .join(",");
+    console.debug(
+      "[Approval] After filtering:",
+      sessionApprovals.length,
+      "approval(s)",
+    );
 
-    if (approvalKey === prevApprovalKeyRef.current) return;
-    prevApprovalKeyRef.current = approvalKey;
-
+    // Convert to map for display
     const newMap = new Map<string, ApprovalMessageData>();
     for (const approval of sessionApprovals) {
       newMap.set(approval.request_id, {
@@ -590,12 +726,27 @@ export default function ChatPage() {
 
   const handleApprove = useCallback(
     async (requestId: string) => {
+      console.log("[Approval] handleApprove called:", requestId);
+      console.log(
+        "[Approval] Current requests map size:",
+        approvalRequests.size,
+      );
       const request = approvalRequests.get(requestId);
-      if (!request) return;
+      if (!request) {
+        console.error("[Approval] Request not found:", requestId);
+        return;
+      }
 
+      // Use currentSessionId (root session) instead of request.sessionId (sub-agent session)
       const rootSessionId = window.currentSessionId || chatId || "";
+      console.log("[Approval] Sending approve command:", {
+        requestId,
+        rootSessionId,
+        subAgentSessionId: request.sessionId,
+      });
 
       try {
+        // Add exit animation class
         const cardElement = document.querySelector(
           `[data-approval-id="${requestId}"]`,
         );
@@ -608,19 +759,21 @@ export default function ChatPage() {
           requestId,
           rootSessionId,
         );
+        console.log("[Approval] Approve command sent successfully");
         message.success(t("approval.approved"));
 
-        // Delay removal to let exit animation complete
+        // Delay removal to let animation complete
+        // Backend will remove from pending list, next poll will update UI
         setTimeout(() => {
           setApprovalRequests((prev) => {
             const next = new Map(prev);
             next.delete(requestId);
             return next;
           });
-        }, 300);
+        }, 300); // Match animation duration
       } catch (error) {
         message.error(t("approval.approveFailed"));
-        console.error("Failed to approve:", error);
+        console.error("[Approval] Failed to approve:", error);
       }
     },
     [approvalRequests, chatId, t, message],
@@ -746,12 +899,20 @@ export default function ChatPage() {
   // Register session API event callbacks for URL synchronization
 
   useEffect(() => {
-    sessionApi.onSessionIdResolved = (realId) => {
+    sessionApi.onSessionIdResolved = (tempId, resolvedRealId) => {
       if (!isChatActiveRef.current) return;
       // Update URL when realId is resolved, regardless of current chatId
       // (chatId may be undefined if URL was cleared in onSessionCreated)
-      lastSessionIdRef.current = realId;
-      navigateRef.current(`/chat/${realId}`, { replace: true });
+      lastSessionIdRef.current = resolvedRealId;
+      migrateTokenBadgeSnapshot(tempId, resolvedRealId);
+      const fromStorage = readTokenSnapshotForSession(resolvedRealId);
+      if (!fromStorage && tokenSnapshotRef.current) {
+        saveTokenSnapshotForSession(resolvedRealId, tokenSnapshotRef.current);
+        setTokenSnapshot(tokenSnapshotRef.current);
+      } else {
+        setTokenSnapshot(fromStorage);
+      }
+      navigateRef.current(`/chat/${resolvedRealId}`, { replace: true });
     };
 
     sessionApi.onSessionRemoved = (removedId) => {
@@ -763,6 +924,7 @@ export default function ChatPage() {
       );
       if (chatIdRef.current === removedId || currentRealId === removedId) {
         lastSessionIdRef.current = null;
+        setTokenSnapshot(null);
         navigateRef.current("/chat", { replace: true });
       }
     };
@@ -801,6 +963,8 @@ export default function ChatPage() {
 
       if (targetId !== lastSessionIdRef.current) {
         lastSessionIdRef.current = targetId;
+        const storeId = storageIdForTokenBadge(targetId);
+        setTokenSnapshot(readTokenSnapshotForSession(storeId));
         navigateRef.current(`/chat/${targetId}`, { replace: true });
       }
     };
@@ -809,6 +973,7 @@ export default function ChatPage() {
       if (!isChatActiveRef.current) return;
       // Clear URL when creating new session, wait for realId resolution to update
       lastSessionIdRef.current = null;
+      setTokenSnapshot(null);
       navigateRef.current("/chat", { replace: true });
     };
 
@@ -909,6 +1074,7 @@ export default function ChatPage() {
         session_id: window.currentSessionId || session?.session_id || "",
         user_id: window.currentUserId || session?.user_id || DEFAULT_USER_ID,
         channel: window.currentChannel || session?.channel || DEFAULT_CHANNEL,
+        language: i18n.resolvedLanguage || i18n.language,
         stream: true,
         ...biz_params,
       };
@@ -937,7 +1103,7 @@ export default function ChatPage() {
 
       return response;
     },
-    [selectedAgent],
+    [i18n.language, i18n.resolvedLanguage, selectedAgent],
   );
 
   const handleFileUpload = useCallback(
@@ -982,6 +1148,41 @@ export default function ChatPage() {
       }
     },
     [multimodalCaps, t],
+  );
+
+  const handleStopChat = useCallback(
+    (sessionId: string) => {
+      const chatId =
+        sessionApi.getRealIdForSession(sessionId) ?? sessionId;
+      console.log("[Stop] session_id=%s resolved chat_id=%s", sessionId, chatId);
+      if (!chatId) {
+        console.warn("[Stop] No chat_id found, cannot stop");
+        return;
+      }
+      chatApi
+        .stopChat(chatId, i18n.language)
+        .then((res: any) => {
+          applyTokenSnapshotUpdate(
+            res?.usage,
+            res?.context_usage,
+            chatId,
+            false,
+          );
+          if (res?.usage_note) {
+            chatRef.current?.messages?.updateMessage?.({
+              id: `usage-${Date.now()}`,
+              cards: [{ code: 'Text', data: { content: res.usage_note } }],
+              role: 'assistant',
+              msgStatus: 'finished',
+            });
+          }
+          console.log("[Stop] stopChat API succeeded");
+        })
+        .catch((err) => {
+          console.error("[Stop] Failed to stop chat:", err);
+        });
+    },
+    [i18n.language, applyTokenSnapshotUpdate],
   );
 
   const options = useMemo(() => {
@@ -1036,7 +1237,7 @@ export default function ChatPage() {
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
             <ModelSelector />
-            <ChatActionGroup planEnabled={planEnabled} />
+            <ChatActionGroup />
           </>
         ),
       },
@@ -1090,6 +1291,24 @@ export default function ChatPage() {
         fetch: customFetch,
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
+          const nested =
+            payload &&
+            typeof payload.data === "object" &&
+            payload.data !== null &&
+            !Array.isArray(payload.data)
+              ? (payload.data as Record<string, unknown>)
+              : null;
+
+          const usage = (nested?.usage ?? payload.usage) as
+            | TokenUsageBadgeSnapshot["usage"]
+            | undefined;
+          const ctx = (nested?.context_usage ??
+            nested?.contextUsage ??
+            payload.context_usage ??
+            payload.contextUsage) as
+            | TokenUsageBadgeSnapshot["context"]
+            | undefined;
+          applyTokenSnapshotUpdate(usage, ctx);
 
           if (payloadRequestsHistoryClear(payload)) {
             pendingClearHistoryRef.current = true;
@@ -1103,13 +1322,7 @@ export default function ChatPage() {
           return toDisplayUrl(url);
         },
         cancel(data: { session_id: string }) {
-          const resolvedChatId =
-            sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
-          if (resolvedChatId) {
-            chatApi.stopChat(resolvedChatId).catch((err) => {
-              console.error("Failed to stop chat:", err);
-            });
-          }
+          handleStopChat(data.session_id);
         },
         async reconnect(data: { session_id: string; signal?: AbortSignal }) {
           const headers: Record<string, string> = {
@@ -1125,6 +1338,7 @@ export default function ChatPage() {
               session_id: window.currentSessionId || data.session_id,
               user_id: window.currentUserId || DEFAULT_USER_ID,
               channel: window.currentChannel || DEFAULT_CHANNEL,
+              language: i18n.resolvedLanguage || i18n.language,
             }),
             signal: data.signal,
           });
@@ -1158,6 +1372,8 @@ export default function ChatPage() {
     toolRenderConfig,
     scheduleHistoryClear,
     planEnabled,
+    applyTokenSnapshotUpdate,
+    handleStopChat,
   ]);
 
   return (
@@ -1169,13 +1385,14 @@ export default function ChatPage() {
         flexDirection: "column",
       }}
     >
-      <div className={styles.chatMessagesArea}>
+      <div className={styles.chatMessagesArea} style={{ position: "relative" }}>
         <AgentScopeRuntimeWebUI
           ref={chatRef}
           key={refreshKey}
           options={options}
         />
-      </div>
+        <TokenUsageBadge snapshot={tokenSnapshot} />
+              </div>
 
       {/* Render approval cards as overlays */}
       {Array.from(approvalRequests.values()).map((request) => (
@@ -1205,17 +1422,7 @@ export default function ChatPage() {
             onApprove={handleApprove}
             onDeny={handleDeny}
             onCancel={() => {
-              const sessionId = window.currentSessionId || "";
-              const resolvedChatId =
-                sessionApi.getRealIdForSession(sessionId) ??
-                chatIdRef.current ??
-                sessionId;
-
-              if (resolvedChatId) {
-                chatApi.stopChat(resolvedChatId).catch((err) => {
-                  console.error("Failed to stop chat:", err);
-                });
-              }
+              handleStopChat(window.currentSessionId || "");
             }}
           />
         </div>

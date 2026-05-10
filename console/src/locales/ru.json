@@ -1394,6 +1394,14 @@
       "assistantMessage": "Ассистент",
       "titleMatch": "Название"
     },
+    "tokenUsageBadge": {
+      "turn": "Ход",
+      "turnEstimated": "Ход примерно",
+      "context": "Контекст {{used}} / {{max}}",
+      "tok": "tok",
+      "inOut": "(в {{inTok}} · вы {{outTok}})",
+      "ariaLabel": "Статистика использования"
+    },
     "contextMenu": {
       "open": "Открыть",
       "rename": "Переименовать",

@@ -1590,6 +1590,14 @@
       "assistantMessage": "Assistant",
       "titleMatch": "Title"
     },
+    "tokenUsageBadge": {
+      "turn": "Turno",
+      "turnEstimated": "Turno aprox.",
+      "context": "Contexto {{used}} / {{max}}",
+      "tok": "tok",
+      "inOut": "(entrada {{inTok}} · saída {{outTok}})",
+      "ariaLabel": "Estatísticas de uso"
+    },
     "contextMenu": {
       "open": "Abrir",
       "rename": "Rename",

@@ -1603,6 +1603,14 @@
       "assistantMessage": "Assistant",
       "titleMatch": "Title"
     },
+    "tokenUsageBadge": {
+      "turn": "This turn",
+      "turnEstimated": "This turn approximately",
+      "context": "Context {{used}} / {{max}}",
+      "tok": "tok",
+      "inOut": "(in {{inTok}} · out {{outTok}})",
+      "ariaLabel": "Usage statistics"
+    },
     "contextMenu": {
       "open": "Open",
       "rename": "Rename",

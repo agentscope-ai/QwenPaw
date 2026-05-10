@@ -222,6 +222,22 @@ const buildResponseCard = (
   };
 };
 
+/** Assistant bubble with a single markdown body (e.g. usage stats from stop API). */
+export function buildAssistantMarkdownMessage(
+  markdown: string,
+): IAgentScopeRuntimeWebUIMessage {
+  const outId = generateId();
+  return buildResponseCard([
+    {
+      id: outId,
+      role: ROLE_ASSISTANT,
+      content: [{ type: "text", text: markdown }],
+      metadata: {},
+      sequence_number: 1,
+    },
+  ]);
+}
+
 /**
  * Convert flat backend messages into the card-based format expected by
  * the @agentscope-ai/chat component.

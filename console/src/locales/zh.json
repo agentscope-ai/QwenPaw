@@ -1466,6 +1466,14 @@
       "assistantMessage": "助手",
       "titleMatch": "标题"
     },
+    "tokenUsageBadge": {
+      "turn": "本轮",
+      "turnEstimated": "本轮约",
+      "context": "上下文 {{used}} / {{max}}",
+      "tok": "tok",
+      "inOut": "(输入 {{inTok}} · 输出 {{outTok}})",
+      "ariaLabel": "用量统计"
+    },
     "contextMenu": {
       "open": "打开",
       "rename": "重命名",

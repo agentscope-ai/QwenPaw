@@ -13,6 +13,7 @@ pretty-printed to the terminal.
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import os
 import sys
@@ -316,18 +317,105 @@ class ConsoleChannel(BaseChannel):
                 )
         return media_message
 
-    def _extract_token_usage(
+    async def _emit_usage(
         self,
-        session_id: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        event: Optional[Any],
+        session_id: str,
+    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """Attach usage for terminal response events.
+
+        Runner ``query_handler`` ``finally`` pops turn usage into
+        ``_pending_usage_for_stream`` (before persisting session state) so this
+        path can read the same stats. Only the runner must ``pop`` session
+        turn usage; this method uses ``peek`` when pending is empty so it never
+        races with that ``pop``. Pending is intentionally not cleared here so
+        ``/console/chat/stop`` can read the same finalized usage snapshot even
+        if stream cancellation races with SSE delivery.
+
+        *event* may be ``None`` when flushing usage after the stream aborts
+        without a terminal response event.
+        """
         from ....token_usage import TokenRecordingModelWrapper
+        from ....token_usage import compute_context_usage
 
-        if not session_id:
+        turn: Optional[Dict[str, Any]] = None
+        ctx: Optional[Dict[str, Any]] = None
+        runner = (
+            getattr(self._workspace, "runner", None)
+            if self._workspace is not None
+            else None
+        )
+        if runner is not None:
+            pt, pc = getattr(
+                runner,
+                "_pending_usage_for_stream",
+                (None, None),
+            )
+            if pt is not None or pc is not None:
+                turn, ctx = pt, pc
+
+        if turn is None and ctx is None:
+            turn = TokenRecordingModelWrapper.peek_usage_for_session(
+                session_id,
+            )
+            if self._workspace is not None:
+                ctx = await compute_context_usage(self._workspace)
+
+        if event is not None and turn and hasattr(event, "usage"):
+            event.usage = turn
+
+        if turn:
+            logger.info("Usage for session %s: %s", session_id, turn)
+            if ctx:
+                self._print_status_line(turn, ctx)
+        return turn, ctx
+
+    def _print_status_line(
+        self,
+        turn: Dict[str, Any],
+        ctx: Dict[str, Any],
+    ) -> None:
+        """Print a one-line terminal summary of turn + context usage."""
+        from ....token_usage.format import fmt_tokens
+
+        pt = turn.get("prompt_tokens", 0)
+        ct = turn.get("completion_tokens", 0)
+        tt = turn.get("total_tokens", 0)
+        est = int(ctx.get("estimated_tokens", 0) or 0)
+        mx = int(ctx.get("max_input_length", 0) or 0)
+        ratio = ctx.get("context_usage_ratio", 0) or 0
+        turn_line = (
+            f"{_GREEN}Turn {_BOLD}{fmt_tokens(tt)}{_RESET} "
+            f"(in {fmt_tokens(pt)} · out {fmt_tokens(ct)})"
+        )
+        ctx_line = (
+            f" · Context {_BOLD}{fmt_tokens(est)}{_RESET} / "
+            f"{fmt_tokens(mx)} ({ratio:.1f}%)"
+        )
+        self._safe_print(f"📝 {turn_line}{ctx_line}")
+
+    @staticmethod
+    def _usage_stats_chat_message(
+        turn: Optional[Dict[str, Any]],
+        ctx: Optional[Dict[str, Any]],
+        language: Optional[str] = None,
+    ) -> Optional[Message]:
+        from ....token_usage.format import format_usage_chat_note
+
+        body = format_usage_chat_note(turn, ctx, language)
+        if not body:
             return None
-
-        usage = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
-        logger.info("Usage for session %s (cleaned up): %s", session_id, usage)
-        return usage
+        msg = Message(
+            type=MessageType.MESSAGE,
+            role="assistant",
+            content=[
+                TextContent(type=ContentType.TEXT, text=body),
+            ],
+        )
+        completed = getattr(msg, "completed", None)
+        if callable(completed):
+            return completed()
+        return msg
 
     async def stream_one(self, payload: Any) -> AsyncGenerator[str, None]:
         """Process one payload and yield SSE-formatted events"""
@@ -363,6 +451,7 @@ class ConsoleChannel(BaseChannel):
         try:
             send_meta = getattr(request, "channel_meta", None) or {}
             send_meta.setdefault("bot_prefix", self.bot_prefix)
+            language = send_meta.get("language")
             last_response = None
             event_count = 0
 
@@ -395,16 +484,44 @@ class ConsoleChannel(BaseChannel):
                             if media_message:
                                 event.output.append(media_message)
 
-                if obj == "response":
-                    usage_data = self._extract_token_usage(session_id)
-                    if usage_data and hasattr(event, "usage"):
-                        setattr(event, "usage", usage_data)
+                if obj == "response" and status in (
+                    RunStatus.Completed,
+                    RunStatus.Failed,
+                    RunStatus.Canceled,
+                    "completed",
+                    "failed",
+                    "canceled",
+                ):
+                    turn, ctx = await self._emit_usage(event, session_id)
+                    if turn is not None or ctx is not None:
+                        if hasattr(event, "model_dump_json"):
+                            data = json.loads(event.model_dump_json())
+                        elif hasattr(event, "json"):
+                            data = json.loads(event.json())
+                        else:
+                            data = {"text": str(event)}
+                        if turn is not None:
+                            data["usage"] = turn
+                        if ctx is not None:
+                            data["context_usage"] = ctx
+                        yield f"data: {json.dumps(data)}\n\n"
+                        note = self._usage_stats_chat_message(
+                            turn,
+                            ctx,
+                            language,
+                        )
+                        if note is not None:
+                            yield f"data: {note.model_dump_json()}\n\n"
+                        last_response = event
+                        continue
 
                 data = self._serialize_event_for_sse(event)
                 yield f"data: {data}\n\n"
 
                 if obj == "message" and status == RunStatus.Completed:
-                    media_message = await self._extract_media_message(event)
+                    media_message = await self._extract_media_message(
+                        event,
+                    )
                     if media_message:
                         media_json = self._serialize_event_for_sse(
                             media_message,

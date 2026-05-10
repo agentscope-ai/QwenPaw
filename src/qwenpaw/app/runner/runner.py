@@ -123,6 +123,14 @@ class AgentRunner(Runner):
         self.memory_manager: BaseMemoryManager | None = None
         self.context_manager: BaseContextManager | None = None
         self._task_tracker = task_tracker  # Task tracker for background tasks
+        self._streaming_agent: Any = None
+        self._context_usage_snapshot: dict | None = None
+        # (turn_usage_dict, context_usage_dict) for console SSE; set in
+        # query_handler ``finally`` after pop.
+        self._pending_usage_for_stream: tuple[
+            dict[str, Any] | None,
+            dict[str, Any] | None,
+        ] = (None, None)
 
     def set_chat_manager(self, chat_manager):
         """Set chat manager for auto-registration.
@@ -321,16 +329,17 @@ class AgentRunner(Runner):
 
         set_current_agent_id(self.agent_id)
 
-        # Set session_id in context for token usage tracking
-        set_current_session_id(session_id)
-
         agent = None
         chat = None
         session_state_loaded = False
+        self._streaming_agent = None
+        self._context_usage_snapshot = None
+        self._pending_usage_for_stream = (None, None)
         try:
             session_id = request.session_id
             user_id = request.user_id
             channel = getattr(request, "channel", DEFAULT_CHANNEL)
+            set_current_session_id(session_id)
 
             logger.info(
                 "Handle agent query:\n%s",
@@ -561,6 +570,7 @@ class AgentRunner(Runner):
                 task_tracker=self._task_tracker,
                 plan_notebook=plan_notebook,
             )
+            self._streaming_agent = agent
             await agent.register_mcp_clients()
             agent.set_console_output_enabled(enabled=False)
 
@@ -620,7 +630,6 @@ class AgentRunner(Runner):
                     _states = await self.session.get_session_state_dict(
                         session_id=session_id,
                         user_id=user_id,
-                        channel=channel,
                         allow_not_exist=True,
                     )
                     _agent_st = _states.get("agent", {})
@@ -634,7 +643,6 @@ class AgentRunner(Runner):
                             key="agent.plan_notebook",
                             value=plan_notebook.state_dict(),
                             user_id=user_id,
-                            channel=channel,
                             create_if_not_exist=False,
                         )
                 except Exception:
@@ -647,7 +655,6 @@ class AgentRunner(Runner):
                 await self.session.load_session_state(
                     session_id=session_id,
                     user_id=user_id,
-                    channel=channel,
                     agent=agent,
                 )
             except KeyError as e:
@@ -767,16 +774,79 @@ class AgentRunner(Runner):
                     ) + converted.args[1:]
             raise converted from e
         finally:
-            if agent is not None and session_state_loaded:
-                await self.session.save_session_state(
-                    session_id=session_id,
-                    user_id=user_id,
-                    channel=channel,
-                    agent=agent,
+            if agent is not None:
+                from ...token_usage import TokenRecordingModelWrapper
+                from ...token_usage.context import (
+                    snapshot_context_usage_for_agent,
                 )
+                from ...token_usage.format import format_usage_chat_note
+
+                channel_meta = getattr(request, "channel_meta", None) or {}
+                language = channel_meta.get("language")
+                turn = TokenRecordingModelWrapper.pop_usage_for_session(
+                    session_id,
+                )
+                ctx = await snapshot_context_usage_for_agent(
+                    agent,
+                    self.agent_id,
+                )
+                if ctx is not None:
+                    latest_out = int(
+                        ctx.get("latest_assistant_tokens", 0) or 0,
+                    )
+                    ctx_est = int(ctx.get("estimated_tokens", 0) or 0)
+                    if turn is None and ctx_est > 0:
+                        turn = {
+                            "provider_id": "",
+                            "model_name": "",
+                            "prompt_tokens": max(ctx_est - latest_out, 0),
+                            "completion_tokens": latest_out,
+                            "total_tokens": ctx_est,
+                            "estimated": True,
+                        }
+                    elif turn is not None and latest_out > 0:
+                        actual_out = int(turn.get("completion_tokens", 0) or 0)
+                        # Some interrupted/OpenAI-compatible streams report a
+                        # tiny output count even though the assistant text was
+                        # already persisted. Prefer the local text estimate for
+                        # the per-turn display only; global accounting still
+                        # uses the provider usage recorded by the wrapper.
+                        if actual_out <= 1 and latest_out > actual_out:
+                            prompt_tokens = int(
+                                turn.get("prompt_tokens", 0) or 0,
+                            )
+                            turn = {
+                                **turn,
+                                "completion_tokens": latest_out,
+                                "total_tokens": prompt_tokens + latest_out,
+                                "estimated": True,
+                            }
+                self._context_usage_snapshot = ctx
+                self._pending_usage_for_stream = (turn, ctx)
+                if session_state_loaded:
+                    body = format_usage_chat_note(turn, ctx, language)
+                    if body:
+                        await agent.memory.add(
+                            Msg(
+                                name="assistant",
+                                role="assistant",
+                                content=[
+                                    TextBlock(type="text", text=body),
+                                ],
+                            ),
+                        )
+                    await self.session.save_session_state(
+                        session_id=session_id,
+                        user_id=user_id,
+                        agent=agent,
+                    )
+            else:
+                self._pending_usage_for_stream = (None, None)
 
             if self._chat_manager is not None and chat is not None:
                 await self._chat_manager.touch_chat(chat.id)
+
+            self._streaming_agent = None
 
     async def init_handler(self, *args, **kwargs):
         """

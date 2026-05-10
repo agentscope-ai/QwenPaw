@@ -8,7 +8,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import AsyncGenerator, Union
+from typing import Any, AsyncGenerator, Union
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from starlette.responses import StreamingResponse
@@ -25,6 +25,54 @@ router = APIRouter(prefix="/console", tags=["console"])
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_DEBUG_LOG_LINES = 1000
+
+
+async def _usage_snapshot_after_console_stop(
+    workspace: Any,
+    *,
+    session_id: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Best-effort turn + context usage after stop (stream may be cancelled).
+
+    The background producer task is cancelled on stop, so terminal SSE may not
+    reach the client; read from the runner / session buffers after a short wait
+    for ``query_handler`` ``finally`` to populate snapshots.
+    """
+    from ...token_usage import TokenRecordingModelWrapper
+
+    runner = getattr(workspace, "runner", None)
+    snap_ctx: dict[str, Any] | None = None
+
+    for _ in range(30):
+        if runner is not None:
+            turn, ctx = getattr(
+                runner,
+                "_pending_usage_for_stream",
+                (None, None),
+            )
+            snap_ctx = getattr(runner, "_context_usage_snapshot", None)
+            if turn is not None or ctx is not None:
+                t_out = dict(turn) if turn else None
+                c_out = dict(ctx) if ctx else None
+                return t_out, c_out
+        peek = TokenRecordingModelWrapper.peek_usage_for_session(session_id)
+        snap_ctx = (
+            getattr(runner, "_context_usage_snapshot", None)
+            if runner
+            else None
+        )
+        if peek is not None or snap_ctx is not None:
+            peek_out = dict(peek) if peek else None
+            snap_out = dict(snap_ctx) if snap_ctx else None
+            return peek_out, snap_out
+        await asyncio.sleep(0.01)
+    peek = TokenRecordingModelWrapper.peek_usage_for_session(session_id)
+    if runner is not None:
+        snap_ctx = getattr(runner, "_context_usage_snapshot", None)
+    return (
+        dict(peek) if peek else None,
+        dict(snap_ctx) if snap_ctx else None,
+    )
 
 
 def _safe_filename(name: str) -> str:
@@ -62,6 +110,21 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
     return first_text[:10], first_text
 
 
+def _console_request_ui_language(
+    request_data: Union[AgentRequest, dict],
+) -> str:
+    """Locale for usage stats (web client sends ``language`` on the body)."""
+    if isinstance(request_data, dict):
+        raw = request_data.get("language") or request_data.get("locale")
+    else:
+        raw = getattr(request_data, "language", None) or getattr(
+            request_data,
+            "locale",
+            None,
+        )
+    return str(raw or "zh")
+
+
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     """Extract run_key (ChatSpec.id), session_id, and native payload.
 
@@ -93,6 +156,7 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
         "meta": {
             "session_id": session_id,
             "user_id": sender_id,
+            "language": _console_request_ui_language(request_data),
         },
     }
     return native_payload
@@ -225,16 +289,22 @@ async def post_console_chat(
 async def post_console_chat_stop(
     request: Request,
     chat_id: str = Query(..., description="Chat id (ChatSpec.id) to stop"),
+    language: str = Query("zh", description="Language for usage note"),
 ) -> dict:
     """Stop the running chat. Only stops when called."""
     logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
     workspace = await get_agent_for_request(request)
+
+    chat_manager = getattr(workspace.runner, "_chat_manager", None)
+    spec = await chat_manager.get_chat(chat_id) if chat_manager else None
+    session_for_usage = spec.session_id if spec else ""
 
     # Try to stop with the provided chat_id first
     logger.debug(
         "[STOP API] Got workspace, calling task_tracker.request_stop...",
     )
     stopped = await workspace.task_tracker.request_stop(chat_id)
+    stop_run_key = chat_id
 
     # If not found, the chat_id might be a session_id (timestamp)
     # Try to resolve it to the actual chat UUID
@@ -243,7 +313,6 @@ async def post_console_chat_stop(
             "[STOP API] chat_id not found in tracker, trying to resolve "
             "from session_id...",
         )
-        chat_manager = getattr(workspace.runner, "_chat_manager", None)
         if chat_manager:
             resolved_chat_id = await chat_manager.get_chat_id_by_session(
                 session_id=chat_id,
@@ -258,12 +327,49 @@ async def post_console_chat_stop(
                 stopped = await workspace.task_tracker.request_stop(
                     resolved_chat_id,
                 )
+                stop_run_key = resolved_chat_id
+                if not session_for_usage:
+                    resolved_spec = await chat_manager.get_chat(
+                        resolved_chat_id,
+                    )
+                    if resolved_spec:
+                        session_for_usage = resolved_spec.session_id
+
+    # Let producer + runner ``finally`` finish so usage/context snapshots exist
+    # before we read them (especially after 2nd+ turns when save/teardown is
+    # slower).
+    await workspace.task_tracker.await_producer_cleanup(stop_run_key)
 
     logger.debug(
         "[STOP API] task_tracker.request_stop returned: stopped=%s",
         stopped,
     )
-    return {"stopped": stopped}
+    usage_out: dict[str, Any] | None = None
+    ctx_out: dict[str, Any] | None = None
+    usage_note: str | None = None
+    # Even when stopped=False, the run may have just finished/cancelled
+    # before this API checks the tracker. Keep a best-effort usage snapshot
+    # so frontend can still update token/context badge in real-time.
+    # When session_for_usage is empty (e.g. timestamp chat_id that
+    # chat_manager can't resolve), fall back to the original chat_id
+    # which may be the session_id directly.
+    usage_session = session_for_usage or chat_id
+    if usage_session:
+        usage_out, ctx_out = await _usage_snapshot_after_console_stop(
+            workspace,
+            session_id=usage_session,
+        )
+        # Format usage_note for frontend chat injection
+        if usage_out is not None or ctx_out is not None:
+            from ...token_usage.format import format_usage_chat_note
+
+            usage_note = format_usage_chat_note(usage_out, ctx_out, language)
+    return {
+        "stopped": stopped,
+        "usage": usage_out,
+        "context_usage": ctx_out,
+        "usage_note": usage_note,
+    }
 
 
 @router.post("/upload", response_model=dict, summary="Upload file for chat")
