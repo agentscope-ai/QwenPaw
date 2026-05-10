@@ -25,6 +25,19 @@ from ...config.context import (
 )
 
 
+def _read_file_bytes(path: str) -> bytes:
+    """Read all bytes from a file, returning empty bytes on error.
+
+    Used by the Unix execution path to read stdout/stderr from temp files
+    after the shell process has exited.
+    """
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError:
+        return b""
+
+
 def _kill_process_tree_win32(pid: int) -> None:
     """Kill a process and all its descendants on Windows via taskkill.
 
@@ -430,71 +443,99 @@ async def execute_shell_command(
                 shell_executable,
             )
         else:
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                bufsize=0,
-                cwd=str(working_dir),
-                env=env,
-                start_new_session=True,
-                executable=shell_executable,
-            )
+            # Unix: redirect stdout/stderr to temp files via shell redirection
+            # instead of using asyncio.subprocess.PIPE.
+            #
+            # Why? When a shell command spawns background/daemon processes
+            # (e.g. dev servers, browsers, Docker containers), those children
+            # inherit the pipe file descriptors.  asyncio's communicate()
+            # waits until ALL processes holding the pipe fd close it, so it
+            # hangs indefinitely even after the direct shell child has exited.
+            #
+            # By redirecting output to temp files at the shell level, the
+            # output is written directly to disk — fd inheritance by child
+            # processes is irrelevant, and wait() only needs to wait for the
+            # direct shell process to exit.  This mirrors the Windows
+            # _execute_subprocess_sync strategy.
+            stdout_str = ""
+            stderr_str = ""
+            returncode = 0
+            stdout_path = None
+            stderr_path = None
 
             try:
-                # Apply timeout to communicate directly; wait()+communicate()
-                # can hang if descendants keep stdout/stderr pipes open.
-                stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=timeout,
-                )
-                stdout_str = smart_decode(stdout)
-                stderr_str = smart_decode(stderr)
-                returncode = proc.returncode
+                _, stdout_path = tempfile.mkstemp(prefix="qwenpaw_stdout_")
+                _, stderr_path = tempfile.mkstemp(prefix="qwenpaw_stderr_")
 
-            except asyncio.TimeoutError:
-                stderr_suffix = (
-                    f"⚠️ TimeoutError: The command execution exceeded "
-                    f"the timeout of {timeout} seconds. "
-                    f"Please consider increasing the timeout value if this command "
-                    f"requires more time to complete."
+                # Wrap the command so the shell writes stdout/stderr to files
+                # instead of Python's pipe buffers.
+                wrapped_cmd = f"{cmd} >'{stdout_path}' 2>'{stderr_path}'"
+
+                proc = await asyncio.create_subprocess_shell(
+                    wrapped_cmd,
+                    cwd=str(working_dir),
+                    env=env,
+                    start_new_session=True,
+                    executable=shell_executable,
                 )
-                returncode = -1
+
                 try:
-                    # Kill the entire process group so that child processes
-                    # spawned by the shell are also terminated.
-                    pgid = os.getpgid(proc.pid)
-                    os.killpg(pgid, signal.SIGTERM)
+                    await asyncio.wait_for(proc.wait(), timeout=timeout)
+                    returncode = proc.returncode
+                except asyncio.TimeoutError:
+                    stderr_suffix = (
+                        f"TimeoutError: The command execution exceeded "
+                        f"the timeout of {timeout} seconds. "
+                        f"Please consider increasing the timeout value if this command "
+                        f"requires more time to complete."
+                    )
+                    returncode = -1
                     try:
-                        await asyncio.wait_for(proc.wait(), timeout=2)
-                    except asyncio.TimeoutError:
-                        os.killpg(pgid, signal.SIGKILL)
-                        await asyncio.wait_for(proc.wait(), timeout=2)
+                        # Kill the entire process group so that child processes
+                        # spawned by the shell are also terminated.
+                        pgid = os.getpgid(proc.pid)
+                        os.killpg(pgid, signal.SIGTERM)
+                        try:
+                            await asyncio.wait_for(proc.wait(), timeout=2)
+                        except asyncio.TimeoutError:
+                            os.killpg(pgid, signal.SIGKILL)
+                            await asyncio.wait_for(proc.wait(), timeout=2)
 
-                    # Drain remaining output.
-                    try:
-                        stdout, stderr = await asyncio.wait_for(
-                            proc.communicate(),
-                            timeout=1,
-                        )
-                    except asyncio.TimeoutError:
-                        stdout, stderr = b"", b""
-                    stdout_str = smart_decode(stdout)
-                    stderr_str = smart_decode(stderr)
-                    if stderr_str:
-                        stderr_str += f"\n{stderr_suffix}"
-                    else:
-                        stderr_str = stderr_suffix
-                except (ProcessLookupError, OSError):
-                    # Process already gone or pgid lookup failed — fall back
-                    # to direct kill on the process itself.
-                    try:
-                        proc.kill()
-                        await proc.wait()
+                        stdout_str = smart_decode(_read_file_bytes(stdout_path))
+                        stderr_str = smart_decode(_read_file_bytes(stderr_path))
+                        if stderr_str:
+                            stderr_str += f"\n{stderr_suffix}"
+                        else:
+                            stderr_str = stderr_suffix
                     except (ProcessLookupError, OSError):
-                        pass
-                    stdout_str = ""
-                    stderr_str = stderr_suffix
+                        # Process already gone or pgid lookup failed — fall back
+                        # to direct kill on the process itself.
+                        try:
+                            proc.kill()
+                            await proc.wait()
+                        except (ProcessLookupError, OSError):
+                            pass
+                        stdout_str = ""
+                        stderr_str = stderr_suffix
+
+                # Read captured output from temp files.
+                # In the timeout path above these are already populated;
+                # in the normal (no-timeout) path this is where we first read
+                # them, since the output went directly to disk.
+                stdout_str = smart_decode(_read_file_bytes(stdout_path))
+                stderr_str = smart_decode(_read_file_bytes(stderr_path))
+
+            except Exception as e:
+                returncode = -1
+                stdout_str = ""
+                stderr_str = str(e)
+            finally:
+                for path in (stdout_path, stderr_path):
+                    if path is not None:
+                        try:
+                            os.unlink(path)
+                        except OSError:
+                            pass
 
         if returncode == 0:
             if stdout_str:
