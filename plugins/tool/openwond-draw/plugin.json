@@ -1,0 +1,46 @@
+{
+  "id": "openwond-draw-tool",
+  "name": "OpenWond Draw Tool",
+  "version": "1.0.0",
+  "description": "Generate images via OpenWond relay. Supports GPT Image 2 (primary) and Nano Banana series (fallback). Default timeout 900s — GPT Image 2 generation is slow but worth the wait.",
+  "author": "QwenPaw Community",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "dependencies": ["httpx>=0.24.0"],
+  "min_version": "1.1.6",
+  "meta": {
+    "tool_name": "generate_image_openwond",
+    "tool_description": "Generate images using OpenWond relay. Supports GPT Image 2 (4 credits) and Nano Banana series (4-6 credits). Default timeout 900s.",
+    "tool_icon": "🎨",
+    "requires_config": true,
+    "config_fields": [
+      {
+        "name": "api_key",
+        "label": "OpenWond API Key",
+        "type": "password",
+        "required": true,
+        "placeholder": "f_...",
+        "help": "Your OpenWond relay API key"
+      },
+      {
+        "name": "endpoint",
+        "label": "API Endpoint",
+        "type": "text",
+        "required": false,
+        "placeholder": "https://image.openwond.com/v1/draw",
+        "help": "Custom API endpoint (leave empty for default)"
+      },
+      {
+        "name": "timeout",
+        "label": "Request Timeout (seconds)",
+        "type": "number",
+        "required": false,
+        "placeholder": "900",
+        "min": 60,
+        "max": 900,
+        "help": "Generation timeout. GPT Image 2 is slow — 900s recommended (default)"
+      }
+    ]
+  }
+}
