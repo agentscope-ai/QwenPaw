@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Shared utilities for file and shell tools."""
 
+import aiofiles
+
 # Default truncation limits
 DEFAULT_MAX_LINES = 1000
 DEFAULT_MAX_BYTES = 30 * 1024  # 30KB
@@ -238,3 +240,25 @@ def read_file_safe(file_path: str) -> str:
     except UnicodeDecodeError:
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             return f.read()
+
+
+async def read_file_safe_async(file_path: str) -> str:
+    """Read file with Unicode error handling asynchronously.
+
+    Args:
+        file_path: Path to the file.
+
+    Returns:
+        File content as string.
+    """
+    try:
+        async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+            return await f.read()
+    except UnicodeDecodeError:
+        async with aiofiles.open(
+            file_path,
+            "r",
+            encoding="utf-8",
+            errors="ignore",
+        ) as f:
+            return await f.read()

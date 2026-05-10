@@ -5,12 +5,13 @@ import os
 from pathlib import Path
 from typing import Optional
 
+import aiofiles
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
 from ...config.context import get_current_workspace_dir
-from .utils import truncate_file_output, read_file_safe
+from .utils import truncate_file_output, read_file_safe_async
 
 
 def _resolve_file_path(file_path: str) -> str:
@@ -101,7 +102,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
         )
 
     try:
-        content = read_file_safe(file_path)
+        content = await read_file_safe_async(file_path)
         all_lines = content.split("\n")
         total = len(all_lines)
 
@@ -188,8 +189,8 @@ async def write_file(
     file_path = _resolve_file_path(file_path)
 
     try:
-        with open(file_path, "w", encoding="utf-8") as file:
-            file.write(content)
+        async with aiofiles.open(file_path, "w", encoding="utf-8") as file:
+            await file.write(content)
         return ToolResponse(
             content=[
                 TextBlock(
@@ -260,7 +261,7 @@ async def edit_file(
         )
 
     try:
-        content = read_file_safe(resolved_path)
+        content = await read_file_safe_async(resolved_path)
     except Exception as e:
         return ToolResponse(
             content=[
@@ -329,8 +330,8 @@ async def append_file(
     file_path = _resolve_file_path(file_path)
 
     try:
-        with open(file_path, "a", encoding="utf-8") as file:
-            file.write(content)
+        async with aiofiles.open(file_path, "a", encoding="utf-8") as file:
+            await file.write(content)
         return ToolResponse(
             content=[
                 TextBlock(
