@@ -80,6 +80,7 @@ def create_agent_scoped_router() -> APIRouter:
     from .console import router as console_router
     from .plugins import router as plugins_router
     from .plan import router as plan_router
+    from .progress_observing import router as progress_observing_router
 
     router = APIRouter(prefix="/agents/{agentId}", tags=["agent-scoped"])
 
@@ -103,5 +104,6 @@ def create_agent_scoped_router() -> APIRouter:
     router.include_router(console_router)
     router.include_router(plugins_router)
     router.include_router(plan_router)
+    router.include_router(progress_observing_router)
 
     return router

@@ -7,6 +7,7 @@ import {
   LlmRetryCard,
   LlmRateLimiterCard,
   ToolExecutionLevelCard,
+  ProgressObservingCard,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -143,6 +144,21 @@ function AgentConfigPage() {
             onChange={setApprovalLevel}
             disabled={saving}
           />
+        </div>
+      ),
+    });
+
+    // Add Progress Observing tab
+    baseTabs.push({
+      key: "progressObserving",
+      label: (
+        <span className={styles.tabLabel}>
+          {t("agentConfig.progressObservingTitle")}
+        </span>
+      ),
+      children: (
+        <div className={styles.tabContent}>
+          <ProgressObservingCard />
         </div>
       ),
     });
