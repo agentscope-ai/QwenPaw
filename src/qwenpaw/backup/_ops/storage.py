@@ -44,8 +44,13 @@ def _list_sync() -> list[BackupMeta]:
                     results.append(
                         BackupMeta.model_validate_json(meta_json),
                     )
-        except Exception:
-            logger.warning("Skipping invalid backup file: %s", f.name)
+        except Exception as exc:
+            logger.warning(
+                "Skipping invalid backup file: %s: %s: %s",
+                f.name,
+                type(exc).__name__,
+                exc,
+            )
     results.sort(key=lambda s: s.created_at, reverse=True)
     return results
 
@@ -98,15 +103,23 @@ def _detail_sync(backup_id: str) -> BackupDetail | None:
                     name = data.get("name")
                     if isinstance(name, str) and name:
                         stats[aid]["name"] = name
-                except Exception:
+                except Exception as exc:
                     logger.debug(
-                        "Failed to read agent name from %s in backup %s",
+                        "Failed to read agent name from %s"
+                        " in backup %s: %s: %s",
                         json_path,
                         backup_id,
+                        type(exc).__name__,
+                        exc,
                     )
             return BackupDetail(**meta.model_dump(), workspace_stats=stats)
-    except Exception:
-        logger.warning("Failed to read backup: %s", backup_id)
+    except Exception as exc:
+        logger.warning(
+            "Failed to read backup: %s: %s: %s",
+            backup_id,
+            type(exc).__name__,
+            exc,
+        )
         return None
 
 

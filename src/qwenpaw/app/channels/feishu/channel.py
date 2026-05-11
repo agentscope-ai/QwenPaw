@@ -66,6 +66,7 @@ from .utils import (
     sender_display_string,
     short_session_id_from_full_id,
 )
+from .card_handler import FeishuCardHandler
 
 
 # Compatibility for setuptools>=82 where pkg_resources may be absent.
@@ -129,7 +130,6 @@ try:
         GetMessageResourceRequest,
         P2ImMessageReceiveV1,
     )
-
     import lark_oapi.ws.client as _ws_mod
 
     _ws_mod.loop = _EventLoopProxy()
@@ -255,6 +255,10 @@ class FeishuChannel(BaseChannel):
         # open_id -> nickname (from Contact API) for sender display
         self._nickname_cache: Dict[str, str] = {}
         self._nickname_cache_lock = asyncio.Lock()
+
+        # All interactive-card logic (outbound rendering + inbound
+        # card.action.trigger dispatch) lives in the card handler.
+        self._card_handler = FeishuCardHandler(self)
 
     @classmethod
     def from_env(
@@ -857,6 +861,8 @@ class FeishuChannel(BaseChannel):
                 "feishu_sender_id": sender_id,
                 "is_group": is_group,
             }
+            # Surface human-readable sender name to env_context.
+            meta["user_name"] = nickname
             receive_id = chat_id if is_group else sender_id
             receive_id_type = "chat_id" if is_group else "open_id"
             meta["feishu_receive_id"] = receive_id
@@ -1924,6 +1930,31 @@ class FeishuChannel(BaseChannel):
         if last_msg_id:
             await self._add_reaction(last_msg_id, "DONE")
 
+    # ------------------------------------------------------------------
+    # Interactive cards (tool_guard approval, etc.)
+    # ------------------------------------------------------------------
+
+    async def on_event_message_completed(  # type: ignore[override]
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Render card-flagged events via the card handler; else default."""
+        if await self._card_handler.try_send_card_for_event(
+            to_handle,
+            event,
+            send_meta,
+        ):
+            return
+        await super().on_event_message_completed(
+            request,
+            to_handle,
+            event,
+            send_meta,
+        )
+
     async def send(
         self,
         to_handle: str,
@@ -1997,6 +2028,15 @@ class FeishuChannel(BaseChannel):
                     )
                     .register_p2_im_message_receive_v1(
                         self._on_message_sync,
+                    )
+                    .register_p2_im_message_reaction_created_v1(
+                        lambda _evt: None,
+                    )
+                    .register_p2_im_message_reaction_deleted_v1(
+                        lambda _evt: None,
+                    )
+                    .register_p2_card_action_trigger(
+                        self._card_handler.handle_card_action,
                     )
                     .build()
                 )

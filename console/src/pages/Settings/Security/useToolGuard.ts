@@ -8,6 +8,7 @@ import type {
 export interface MergedRule extends ToolGuardRule {
   source: "builtin" | "custom";
   disabled: boolean;
+  autoDeny: boolean;
 }
 
 export function useToolGuard() {
@@ -15,6 +16,7 @@ export function useToolGuard() {
   const [builtinRules, setBuiltinRules] = useState<ToolGuardRule[]>([]);
   const [customRules, setCustomRules] = useState<ToolGuardRule[]>([]);
   const [disabledRules, setDisabledRules] = useState<Set<string>>(new Set());
+  const [autoDenyRules, setAutoDenyRules] = useState<Set<string>>(new Set());
   const [shellEvasionChecks, setShellEvasionChecks] = useState<
     Record<string, boolean>
   >({});
@@ -35,6 +37,7 @@ export function useToolGuard() {
       setBuiltinRules(builtin);
       setCustomRules(cfg.custom_rules ?? []);
       setDisabledRules(new Set(cfg.disabled_rules ?? []));
+      setAutoDenyRules(new Set(cfg.auto_denied_rules ?? []));
       setShellEvasionChecks(cfg.shell_evasion_checks ?? {});
     } catch (err) {
       const msg =
@@ -65,9 +68,29 @@ export function useToolGuard() {
     [],
   );
 
+  const toggleAutoDeny = useCallback(
+    (ruleId: string, currentlyAutoDeny: boolean) => {
+      setAutoDenyRules((prev) => {
+        const next = new Set(prev);
+        if (currentlyAutoDeny) {
+          next.delete(ruleId);
+        } else {
+          next.add(ruleId);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
   const deleteCustomRule = useCallback((ruleId: string) => {
     setCustomRules((prev) => prev.filter((r) => r.id !== ruleId));
     setDisabledRules((prev) => {
+      const next = new Set(prev);
+      next.delete(ruleId);
+      return next;
+    });
+    setAutoDenyRules((prev) => {
       const next = new Set(prev);
       next.delete(ruleId);
       return next;
@@ -90,11 +113,13 @@ export function useToolGuard() {
       ...r,
       source: "builtin" as const,
       disabled: disabledRules.has(r.id),
+      autoDeny: autoDenyRules.has(r.id),
     })),
     ...customRules.map((r) => ({
       ...r,
       source: "custom" as const,
       disabled: disabledRules.has(r.id),
+      autoDeny: autoDenyRules.has(r.id),
     })),
   ];
 
@@ -112,15 +137,24 @@ export function useToolGuard() {
       denied_tools: config?.denied_tools ?? [],
       custom_rules: customRules,
       disabled_rules: Array.from(disabledRules),
+      auto_denied_rules: Array.from(autoDenyRules),
       shell_evasion_checks: shellEvasionChecks,
     };
-  }, [enabled, config, customRules, disabledRules, shellEvasionChecks]);
+  }, [
+    enabled,
+    config,
+    customRules,
+    disabledRules,
+    autoDenyRules,
+    shellEvasionChecks,
+  ]);
 
   return {
     config,
     builtinRules,
     customRules,
     disabledRules,
+    autoDenyRules,
     enabled,
     setEnabled,
     mergedRules,
@@ -130,6 +164,7 @@ export function useToolGuard() {
     error,
     fetchAll,
     toggleRule,
+    toggleAutoDeny,
     deleteCustomRule,
     addCustomRule,
     updateCustomRule,

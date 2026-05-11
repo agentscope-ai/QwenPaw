@@ -1,0 +1,480 @@
+{
+  "nav": {
+    "docs": "Documentacao",
+    "more": "Mais",
+    "releaseNotes": "Notas de Lancamento",
+    "qwenpaw": "Qwenpaw",
+    "download": "Baixar",
+    "github": "GitHub",
+    "githubComingSoon": "Em Breve",
+    "lang": "English",
+    "agentscopeTeam": "AgentScope"
+  },
+  "hero": {
+    "titleleft": "Seu Assistente",
+    "titleright": "Pessoal de IA",
+    "slogan": "Trabalha pra voce, cresce com voce",
+    "sub": "v1.1.0: LLMs personalizados QwenPaw, arquitetura de seguranca, colaboracao multi-agente,",
+    "sub1": "e gerenciamento de memoria — tudo atualizado, tudo seu.",
+    "releaseNote": "QwenPaw v1.1.0 foi lancado",
+    "cta": "Ler a documentacao",
+    "quickStart": "Inicio Rapido"
+  },
+  "follow": {
+    "title": "Siga-nos",
+    "sub": "Siga-nos para as ultimas novidades do QwenPaw",
+    "xiaohongshu": "Rednote:",
+    "x": "X:"
+  },
+  "channels": {
+    "titleWe": "Conecte tudo com",
+    "titleEverything": "",
+    "sub": "10+ canais integrados, com mais chegando em breve"
+  },
+  "finalCta": {
+    "titleBefore": "Coloque suas",
+    "titleEmphasis": "patas pra cima agora",
+    "titleAfter": ",",
+    "titleLine2": "potencialize sua vida dev.",
+    "downloadFromGithub": "Baixar do GitHub"
+  },
+  "whyQwenpaw": {
+    "headingPrefix": "Por que",
+    "headingEmphasis": "QwenPaw?",
+    "sub": "Facil de instalar, rode na sua maquina ou na nuvem;\nsuporta varios apps de mensageria; com capacidades facilmente extensiveis.",
+    "heroLine": "QwenPaw significa Qwen Personal Agent Workstation. E tambem carrega um significado mais profundo: a inteligencia do Qwen, e o carinho de uma pata.",
+    "secondPrefix": "Esperamos que seja mais que uma ferramenta — mas uma \"patinha\" inteligente e carinhosa, sempre pronta para ajudar, e a companheira mais intuitiva da sua vida digital."
+  },
+  "worksForYou": {
+    "title": "Trabalha pra voce, cresce com voce",
+    "sub": "Memoria e personalizacao sob seu controle.",
+    "learnMore": "Saiba mais",
+    "cards": {
+      "skills": {
+        "title": "Arquitetura de Seguranca",
+        "desc": "O QwenPaw 1.0 adota uma arquitetura de defesa de tres camadas — Tool Guard, File Guard e Skill Scanner — para proteger contra ameacas em tempo de execucao, acesso nao autorizado a arquivos e instalacoes de skills arriscadas em todas as operacoes dos agentes."
+      },
+      "control": {
+        "title": "Workspaces Multi-agente",
+        "desc": "O QwenPaw 1.0 permite que varios workspaces de agentes isolados rodem simultaneamente em uma unica instancia, cada um com configuracoes e memorias independentes, suportando colaboracao assincrona para tarefas complexas com multiplas funcoes."
+      },
+      "apps": {
+        "title": "Modelos Personalizados QwenPaw",
+        "desc": "O QwenPaw 1.0 apresenta a serie QwenPaw-Flash — modelos pequenos criados para implantacao local que nao exigem dependencia de nuvem, oferecem configuracao com um clique e sao otimizados para tarefas de alta frequencia como processamento de documentos, atualizacao de memoria e recuperacao de informacao.",
+        "learnMoreHref": "https://huggingface.co/agentscope-ai"
+      },
+      "memory": {
+        "title": "Memoria",
+        "desc": "Comprima contexto e saida de ferramentas; transforme experiencia em memoria reutilizavel — a personalizacao fica sob seu controle."
+      },
+      "toolkit": {
+        "title": "Ferramentas, Skills e MCP",
+        "desc": "Mais de 20 ferramentas e skills integradas com hot reload; conecte MCP e adicione skills a qualquer momento — seu kit de ferramentas cresce com o QwenPaw."
+      }
+    }
+  },
+  "clientVoices": {
+    "title": "Ouca o que a comunidade diz sobre o QwenPaw",
+    "sub": "Veja o feedback real dos usuarios do QwenPaw",
+    "items": {
+      "t1": {
+        "text": "QwenPaw e um framework de agente de IA de uso geral verdadeiramente pronto para uso. A medida que as capacidades subjacentes do QwenPaw continuam a evoluir, nossos agentes de negocios desenvolvidos internamente tambem podem alcancar um salto em inteligencia, reduzindo significativamente os custos de manutencao de longo prazo e os passivos tecnicos.",
+        "role": "Engenheiro de Desenvolvimento, Alibaba Cloud"
+      },
+      "t2": {
+        "text": "O movimento da Alibaba Tongyi desta vez e muito solido. O QwenPaw fortalece o modelo de implantacao dupla \"local + nuvem\", que e altamente pratico no ambiente atual onde a sensibilidade a privacidade e as demandas de computacao coexistem. A estrategia de codigo aberto tambem reflete a abertura da Alibaba na construcao de seu ecossistema de IA.",
+        "role": "Desenvolvedor"
+      },
+      "t3": {
+        "text": "E otimo, muito facil de usar, e responde rapidamente quando usado com os modelos Qwen. Sugiro considerar o uso em dispositivos embarcados para reduzir o consumo de recursos.",
+        "role": "Desenvolvedor Independente"
+      },
+      "t4": {
+        "text": "O codigo e tao limpo e facil de entender. Sendo desenvolvedor, adoraria explorar mais.",
+        "role": "Desenvolvedor"
+      },
+      "t5": {
+        "text": "A troca a quente de MCP sem reinicializacao e o recurso de destaque para fluxos de trabalho de agentes. Isso significa que voce pode estender o conjunto de ferramentas do QwenPaw no meio da sessao, sem quebra de contexto, sem penalidade de reinicializacao. A integracao Skill Hub + Claw Hub faz o ecossistema crescer rapidamente.",
+        "role": "Desenvolvedor"
+      },
+      "t6": {
+        "text": "O projeto de codigo aberto QwenPaw do Tongyi Lab e realmente impressionante! E otimo ver que as pessoas nao estao apenas tendo experiencias de sucesso ao usa-lo, mas tambem compartilhando contratempos divertidos — como tentar organizar a area de trabalho e acidentalmente excluir arquivos. Frameworks de agente de IA de codigo aberto sao extremamente importantes para avancar toda a industria, e estou ansioso para ver mais aplicacoes inovadoras construidas sobre o QwenPaw.",
+        "role": "Desenvolvedor"
+      }
+    }
+  },
+  "features": {
+    "title": "Principais capacidades",
+    "channels": {
+      "title": "Todos os canais",
+      "desc": "DingTalk, Feishu, QQ, Discord, iMessage, e mais — um assistente, conecte como precisar."
+    },
+    "private": {
+      "title": "Sob seu controle",
+      "desc": "Memoria e personalizacao sob seu controle. Implante localmente ou na nuvem; lembretes agendados e colaboracao em qualquer canal."
+    },
+    "skills": {
+      "title": "Skills",
+      "desc": "Cron integrado; skills personalizadas no seu workspace, carregadas automaticamente."
+    }
+  },
+  "testimonials": {
+    "title": "O que dizem",
+    "viewAll": "Ver todos",
+    "1": "Isso sim e o que um assistente pessoal deveria ser: uma entrada, todos os canais.",
+    "2": "Cron e heartbeat sao super praticos. Adicione suas proprias skills; dados ficam locais.",
+    "3": "Equipes que querem controle total adoram."
+  },
+  "usecases": {
+    "title": "O que voce pode fazer com o QwenPaw",
+    "sub": "Memoria e personalizacao sob seu controle.",
+    "categories": {
+      "social": {
+        "title": "Midias Sociais",
+        "description": "O QwenPaw ajuda voce a ficar por dentro do conteudo social resumindo posts em alta, novos videos e padroes de contas com base nos seus interesses."
+      },
+      "creative": {
+        "title": "Criatividade e construcao",
+        "description": "O QwenPaw pode trabalhar durante a noite nos seus objetivos e apoiar todo o processo de criacao de conteudo, da ideia ao rascunho."
+      },
+      "productivity": {
+        "title": "Produtividade",
+        "description": "O QwenPaw aumenta a produtividade resumindo atualizacoes, organizando contatos e analisando registros pessoais em busca de padroes uteis."
+      },
+      "research": {
+        "title": "Pesquisa e aprendizado",
+        "description": "O QwenPaw acompanha atualizacoes importantes de empresas e constroi sua base de conhecimento pessoal para facil recuperacao e reuso."
+      }
+    }
+  },
+  "quickstart": {
+    "title": "Inicio rapido",
+    "heroTitle": "Faca voce mesmo, feito facilmente.",
+    "heroSub": "Seu assistente pessoal de IA em minutos. Um comando, ou dois cliques no app",
+    "serviceNotice": "Seu assistente pessoal de IA em minutos. Um comando, ou dois cliques no app — faca voce mesmo, feito facilmente.",
+    "hintBefore": "Instale → inicie → configure. Configure canais para usar o QwenPaw no DingTalk, Feishu, QQ, etc. Veja a ",
+    "hintLink": "documentacao",
+    "hintAfter": ".",
+    "method": {
+      "pip": "pip",
+      "script": "Script",
+      "docker": "Docker",
+      "cloud": "Nuvem",
+      "desktop": "Desktop"
+    },
+    "desc": {
+      "pip": "Se voce prefere gerenciar o Python manualmente, recomendamos:",
+      "script": "Sem necessidade de configurar Python, um comando instala tudo.",
+      "docker": "Implantacao rapida com imagens Docker oficiais, ambiente isolado e facil gerenciamento.",
+      "cloud": "Implantacao na nuvem com um clique ou execucao online, sem configuracao local.",
+      "desktop": "App desktop autonomo com ambiente Python integrado, todas as dependencias e assets do frontend. Dois cliques para rodar, sem linha de comando, sem pre-requisitos."
+    },
+    "platform": {
+      "mac": "macOS / Linux",
+      "windows": "Windows"
+    },
+    "shell": {
+      "cmd": "CMD",
+      "ps": "PowerShell"
+    },
+    "docker": {
+      "hub": "Docker Hub"
+    },
+    "cloud": {
+      "aliyun": "Aliyun",
+      "modelscope": "ModelScope",
+      "aliyunDeploy": "Implantar no Aliyun ECS",
+      "aliyunDoc": "Ver Documentacao",
+      "modelscopeGo": "Ir para ModelScope Studio"
+    },
+    "desktop": {
+      "platforms": "Plataformas Suportadas",
+      "viewDownloads": "Ver Downloads",
+      "downloadGithub": "Baixar do GitHub",
+      "viewGuide": "Ver Guia do Usuario",
+      "recommended": "recomendado"
+    },
+    "badgeBeta": "Beta"
+  },
+  "contributors": {
+    "titlePrefix": "Obrigado a cada",
+    "titleHighlight": "contribuidor",
+    "sub": "Cada linha de codigo e cada pull request no QwenPaw incorporam o trabalho duro e a paixao dos membros da comunidade.",
+    "prev": "Pagina anterior de contribuidores",
+    "next": "Proxima pagina de contribuidores",
+    "noteLine1Prefix": "A lista de contribuidores esta organizada em ordem alfabetica por seus IDs do GitHub. Sinta-se a vontade para",
+    "contactUs": "nos contatar",
+    "noteLine1Suffix": "se tiver duvidas sobre a lista.",
+    "noteLine2Prefix": "Os dados vem de todos os pull requests desde"
+  },
+  "footer": {
+    "text": "QwenPaw — Trabalha pra voce, cresce com voce",
+    "sections": {
+      "builtBy": "Construido por",
+      "resources": "Recursos",
+      "terms": "Termos"
+    },
+    "links": {
+      "docs": "Documentacao",
+      "blog": "Blog",
+      "changelog": "Changelog",
+      "termsOfService": "Termos de Servico",
+      "privacyPolicy": "Politica de Privacidade"
+    },
+    "social": {
+      "x": "X",
+      "github": "GitHub",
+      "discord": "Discord",
+      "wechat": "WeChat (Conta Oficial)",
+      "youtube": "YouTube"
+    },
+    "copyright": "© 2026 Qwenpaw PRIVATE LIMITED, Todos os direitos reservados.",
+    "poweredBy": {
+      "p1": "Construido por ",
+      "p2": " com ",
+      "p3": ", ",
+      "p3b": ", e ",
+      "p4": ".",
+      "team": "equipe AgentScope",
+      "agentscope": "AgentScope",
+      "runtime": "AgentScope Runtime",
+      "reme": "ReMe"
+    },
+    "inspiredBy": {
+      "text": "Parcialmente inspirado por ",
+      "name": "OpenClaw"
+    },
+    "thanksSkills": {
+      "text": "Agradecimentos a ",
+      "name": "anthropics/skills",
+      "suffix": " pela especificacao e exemplos de Agent Skills."
+    }
+  },
+  "docs": {
+    "intro": "Introducao",
+    "quickstart": "Inicio rapido",
+    "desktop": "App Desktop",
+    "console": "Console",
+    "multiAgent": "Multi-Agente",
+    "models": "Modelos",
+    "channels": "Canais",
+    "skills": "Skills",
+    "mcp": "MCP e Ferramentas Integradas",
+    "acpServer": "Integracao ACP",
+    "memory": "Memoria",
+    "memoryEvolvingAndProactive": "Memoria Evolutiva e Proativa",
+    "context": "Contexto",
+    "commands": "Comandos magicos",
+    "plan": "Modo plano",
+    "heartbeat": "Heartbeat",
+    "config": "Config e diretorio de trabalho",
+    "security": "Seguranca",
+    "backup": "Backup e Restauracao",
+    "cli": "CLI",
+    "plugins": "Sistema de Plugins",
+    "faq": "FAQ",
+    "apiTutorial": "API RESTful",
+    "community": "Relatorios de bugs e comunidade",
+    "contributing": "Codigo aberto e contribuicao",
+    "roadmap": "Roadmap",
+    "practiceAgentTeam": "Pratica de Equipe de Agentes",
+    "groupWelcome": "Boas-vindas",
+    "groupControl": "Controle",
+    "groupAgent": "Agente",
+    "groupSettings": "Configuracoes",
+    "groupPractice": "Pratica",
+    "groupOthers": "Outros",
+    "toggleSidebar": "Alternar barra lateral",
+    "closeSidebar": "Fechar barra lateral",
+    "onThisPage": "Nesta pagina",
+    "videoNotSupported": "Seu navegador nao suporta a tag de video.",
+    "backToTop": "Voltar ao topo",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "searchPlaceholder": "Pesquisar na documentacao",
+    "searchLoading": "Carregando...",
+    "searchNoResults": "Sem resultados",
+    "searchResultsTitle": "Resultados da pesquisa",
+    "searchResultsTitleEmpty": "Pesquisar na documentacao",
+    "searchHint": "Digite uma palavra-chave e pressione Enter para pesquisar.",
+    "agentPersona": "Persona do Agente"
+  },
+  "homeFaq": {
+    "title": "Perguntas frequentes",
+    "sub": "Memoria e personalizacao sob seu controle.",
+    "intro": "Aqui esta tudo que voce precisa saber para comecar, gerenciar sua conta e solucionar os problemas mais frequentes.",
+    "categories": {
+      "quickStart": "Inicio Rapido",
+      "features": "Funcionalidades",
+      "troubleshooting": "Solucao de Problemas"
+    },
+    "quickStart": {
+      "install": {
+        "q": "Como instalar o QwenPaw",
+        "p1": "O QwenPaw suporta varios metodos de instalacao, incluindo:",
+        "li1": "Aplicativo Desktop (Beta): baixe e execute o app desktop sem necessidade de linha de comando, adequado para usuarios nao familiarizados com terminais.",
+        "li2": "Instalacao via script: execute na sua maquina sem necessidade de configurar Python.",
+        "li3": "Instalacao via pip: se voce prefere gerenciar o Python manualmente.",
+        "li4": "Docker: use imagens oficiais do Docker Hub (ACR tambem disponivel para usuarios na China).",
+        "li5": "ModelScope Studio: implantacao na nuvem com um clique, sem instalacao local.",
+        "li6": "Alibaba Cloud ECS: implantacao com um clique na Alibaba Cloud, sem instalacao local.",
+        "ctaPrefix": "Veja",
+        "ctaLink": "Inicio Rapido",
+        "ctaSuffix": "para detalhes."
+      },
+      "update": {
+        "q": "Como atualizar o QwenPaw",
+        "p1": "Para atualizar o QwenPaw, use o metodo correspondente ao seu tipo de instalacao:",
+        "li1": "Se instalou via script de linha unica, execute novamente o instalador para atualizar.",
+        "li2Prefix": "Se instalou via pip, execute:",
+        "li3": "Se instalou a partir do codigo fonte, baixe o codigo mais recente e reinstale.",
+        "li4": "Se estiver usando Docker, baixe a imagem mais recente e reinicie o container.",
+        "li5Prefix": "Se estiver usando o App Desktop do Windows (exe), atualmente e necessario desinstalar e reinstalar:",
+        "li5a": "Desinstale o QwenPaw do seu PC.",
+        "li5bPrefix": "Baixe a versao mais recente em:",
+        "li5bLink": "GitHub Releases",
+        "li5bSuffix": ".",
+        "li5c": "Reinstale.",
+        "p2": "Se voce usava o CoPaw anteriormente, a atualizacao para o QwenPaw requer apenas baixar o QwenPaw mais recente. Nenhuma migracao extra e necessaria; sua configuracao, memoria, skills e outros dados da era CoPaw continuam funcionando."
+      },
+      "initialize": {
+        "q": "Como inicializar e iniciar o servico QwenPaw",
+        "p1": "Inicializacao rapida recomendada:",
+        "p2": "Iniciar servico:",
+        "p3Prefix": "A URL padrao do Console e",
+        "p3Suffix": ". Apos a inicializacao rapida, voce pode abrir o Console e personalizar as configuracoes."
+      },
+      "upgrade": {
+        "q": "Onde verificar os detalhes da versao mais recente",
+        "p1": "Voce pode verificar as mudancas de versao na secao de Changelog do Console, ou na pagina de",
+        "link": "GitHub Releases",
+        "p2": "do QwenPaw."
+      }
+    },
+    "features": {
+      "jobs": {
+        "q": "Como gerenciar tarefas agendadas (cron)",
+        "a": "A maneira mais facil de criar uma tarefa agendada e pedir diretamente ao QwenPaw no seu canal de destino. Por exemplo: \"Crie uma tarefa agendada que me lembre de beber agua a cada cinco minutos.\" Voce tambem pode criar e gerenciar tarefas manualmente no Console → Controle → Tarefas Agendadas."
+      },
+      "models": {
+        "q": "Como configurar modelos",
+        "p1Prefix": "No Console, va para",
+        "p1Strong": "Configuracoes → Modelos",
+        "p1Mid": "para configurar. Veja a documentacao de",
+        "modelsLink": "Modelos",
+        "p1Suffix": "para detalhes:",
+        "li1": "Modelos em nuvem: insira a chave da API do provedor (ex: ModelScope, DashScope, ou um provedor personalizado).",
+        "li2Prefix": "Modelos locais: suporta",
+        "li2Suffix": "e Ollama.",
+        "p2": "Apos configurar, escolha o provedor e modelo de destino em \"LLM Padrao\" no topo da pagina de Modelos e Salve — isso se torna o padrao global.",
+        "p3": "Para usar um modelo diferente por agente, alterne o agente com o seletor no canto superior esquerdo do Console, depois escolha um modelo no canto superior direito da pagina de Chat para aquele agente.",
+        "p4Prefix": "Voce tambem pode usar",
+        "p4Mid": "para configuracao, download e alternancia. Veja",
+        "cliLink": "CLI → Modelos e variaveis de ambiente → qwenpaw models",
+        "p4Suffix": "."
+      },
+      "skills": {
+        "q": "Como gerenciar Skills",
+        "p1Prefix": "Va para",
+        "p1Strong": "Agente → Skills",
+        "p1Mid": "no Console. Voce pode ativar/desativar Skills, criar Skills personalizadas e importar Skills do Skills Hub. Veja",
+        "link": "Skills",
+        "p1Suffix": "."
+      },
+      "mcp": {
+        "q": "Como configurar MCP",
+        "p1Prefix": "Va para",
+        "p1Strong": "Agente → MCP",
+        "p1Mid": "no Console. Voce pode ativar/desativar/excluir/criar clientes MCP la. Veja",
+        "link": "MCP",
+        "p1Suffix": "."
+      }
+    },
+    "troubleshooting": {
+      "error401": {
+        "q": "Recebendo Codigo de Erro 401",
+        "p1": "Se voce encontrar o seguinte erro:",
+        "err": "Error code: 401 - {'error': {'message': \"You didn't provide an API key. You need to provide your API key in an Authorization header using Bearer auth (i.e. Authorization: Bearer YOUR_KEY).\"}}",
+        "p2": "Isso geralmente e causado por uma das seguintes situacoes:",
+        "li1": "Nenhuma chave de API configurada. Obtenha uma chave de API e configure-a no Console → Configuracoes → Modelos.",
+        "li2Prefix": "Uma chave de API esta configurada mas a autenticacao ainda falha. Na maioria dos casos, um dos campos de configuracao esta incorreto. Verifique o seguinte:",
+        "li2a": "URL Base — Certifique-se de que esta correto.",
+        "li2b": "Chave da API — Certifique-se de que foi copiada por completo, sem espacos extras.",
+        "li2c": "Nome do modelo — Certifique-se de que corresponde exatamente ao valor do provedor (diferencia maiusculas/minusculas)."
+      },
+      "localModels": {
+        "q": "Solucao de problemas com modelos locais",
+        "p1": "Na maioria dos casos, isso nao e um bug do QwenPaw. A causa raiz geralmente e que o comprimento do contexto do modelo esta configurado muito pequeno.",
+        "p2": "Ao implantar um modelo local com Ollama ou LM Studio, se o comprimento do contexto do modelo for muito baixo, o QwenPaw pode apresentar problemas como:",
+        "li1": "falha em manter conversas de varias interacoes de forma confiavel",
+        "li2": "perda de contexto durante chamadas de ferramenta complexas",
+        "li3": "esquecimento de instrucoes dadas em interacoes anteriores",
+        "li4": "desvio da tarefa durante interacoes longas",
+        "fixTitle": "Como corrigir:",
+        "fix1": "Antes de executar o QwenPaw, defina o comprimento do contexto do modelo para pelo menos 32K.",
+        "fix2": "Para tarefas mais complexas, chamadas de ferramenta frequentes ou conversas mais longas, voce pode precisar de um valor superior a 32K."
+      },
+      "cron": {
+        "q": "Solucao de problemas com tarefas agendadas",
+        "p1": "Se uma tarefa agendada nao for executada como esperado, tente as seguintes etapas:",
+        "s1": "Confirme que o servico QwenPaw esta em execucao.",
+        "s2": "No Console, va para Controle → Tarefas Agendadas e certifique-se de que o Status da tarefa esta como Ativado.",
+        "s3": "Na mesma pagina, confirme que o Canal de Disparo esta configurado para o canal desejado (ex: Console, DingTalk, Feishu, Discord, iMessage).",
+        "s4": "Tambem confirme que o ID do Usuario de Destino e o ID da Sessao de Destino estao configurados corretamente.",
+        "s5": "No Console, va para Controle → Sessoes e localize a sessao usada ao criar a tarefa. O ID do Usuario e o ID da Sessao devem corresponder aos da tarefa para que as respostas aparecam naquela sessao.",
+        "s6": "Se a tarefa for executada no horario errado, volte para Controle → Tarefas Agendadas e verifique a expressao Agendamento (Cron).",
+        "s7": "Para testar manualmente a tarefa, clique em Executar Agora na pagina de Tarefas Agendadas. Se for bem-sucedido, a resposta aparecera no canal de destino. Alternativamente, voce pode pedir diretamente ao QwenPaw: \"Execute a tarefa 'lembrete de beber agua' que acabei de criar.\""
+      },
+      "help": {
+        "q": "Como obter ajuda",
+        "p1": "Se precisar de ajuda, voce pode:",
+        "s1Prefix": "Entre no nosso grupo do",
+        "s1Mid": "ou",
+        "s1Suffix": "para tirar duvidas.",
+        "dingtalk": "DingTalk",
+        "discord": "Discord",
+        "s2Prefix": "Abra uma issue no",
+        "githubIssues": "QwenPaw GitHub",
+        "s2Mid": "com a mensagem de erro completa, o arquivo de detalhes do erro (ex:",
+        "s2Suffix": "), seu provedor de modelo, nome do modelo e versao do QwenPaw."
+      }
+    }
+  },
+  "downloads": {
+    "title": "Downloads",
+    "subtitle": "Baixe instaladores, ferramentas e recursos do QwenPaw",
+    "loading": "Carregando...",
+    "emptyTitle": "Nenhum download disponivel ainda",
+    "emptyDesc": "As compilacoes desktop estao em andamento. Volte mais tarde.",
+    "emptyCta": "Ver outros metodos de instalacao",
+    "desktopTitle": "Aplicativo Desktop",
+    "desktopDesc": "App desktop autonomo com ambiente Python integrado e todas as dependencias. Dois cliques para rodar, sem linha de comando.",
+    "recommended": "Recomendado",
+    "selectVersion": "Selecionar Versao",
+    "latest": "Mais recente",
+    "download": "Baixar",
+    "version": "Versao",
+    "size": "Tamanho",
+    "updated": "Atualizado",
+    "otherMethodsTitle": "Outros Metodos de Instalacao",
+    "otherMethodsDesc": "Escolha o metodo de instalacao que melhor atende suas necessidades",
+    "pip": "pip",
+    "pipDesc": "Instale via pip no ambiente Python existente",
+    "script": "Script",
+    "scriptDesc": "Script de linha unica com configuracao automatica",
+    "docker": "Docker",
+    "dockerDesc": "Implantacao rapida com imagens Docker",
+    "cloud": "Nuvem",
+    "cloudDesc": "Implante no Aliyun, ModelScope, etc.",
+    "verifyTitle": "Verificar Download",
+    "verifyDesc": "Apos baixar o app desktop, verifique a integridade do arquivo usando o checksum SHA256.",
+    "helpTitle": "Precisa de Ajuda?",
+    "helpPrefix": "Veja o",
+    "helpLink": "guia de instalacao",
+    "helpSuffix": "para instrucoes detalhadas."
+  },
+  "releaseNotes": {
+    "title": "Notas de Lancamento",
+    "noReleases": "Nenhuma nota de lancamento disponivel"
+  }
+}

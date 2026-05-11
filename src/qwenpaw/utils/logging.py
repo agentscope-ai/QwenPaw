@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Logging setup for application logging and optional file output."""
+
 import logging
 import logging.handlers
 import os
@@ -84,6 +85,26 @@ class ColorFormatter(logging.Formatter):
         return f"{prefix} | {original_msg}"
 
 
+class _SafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """RotatingFileHandler that tolerates Windows file-locking errors.
+
+    On Windows, ``os.rename()`` inside ``doRollover()`` raises
+    ``PermissionError`` when the log file is held open by another
+    process (e.g. a log viewer or the debug-log console reader).
+    This subclass catches the error, reopens the stream so logging
+    continues without data loss, and defers rotation to the next
+    size-exceeding emit.
+    """
+
+    def doRollover(self):
+        try:
+            super().doRollover()
+        except PermissionError:
+            if self.stream:
+                self.stream.close()
+            self.stream = self._open()
+
+
 class PlainFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         full_path = record.pathname
@@ -96,7 +117,16 @@ class PlainFormatter(logging.Formatter):
 
         prefix = f"{record.levelname} | {full_path}:{record.lineno}"
         formatted_time = self.formatTime(record, self.datefmt)
-        return f"{formatted_time} | {prefix} | {record.getMessage()}"
+        msg = f"{formatted_time} | {prefix} | {record.getMessage()}"
+
+        if record.exc_info and not record.exc_text:
+            record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            msg = msg + "\n" + record.exc_text
+        if record.stack_info:
+            msg = msg + "\n" + self.formatStack(record.stack_info)
+
+        return msg
 
 
 class SuppressPathAccessLogFilter(logging.Filter):
@@ -159,10 +189,11 @@ def setup_logger(level: int | str = logging.INFO):
 
 
 def add_project_file_handler(log_path: Path) -> None:
-    """Add a file handler to the project logger for daemon logs.
+    """Add a rotating file handler to the project logger for daemon logs.
 
-    Windows/Linux: Uses simple FileHandler to avoid file locking issues.
-    macOS: Uses RotatingFileHandler with automatic log rotation.
+    Uses _SafeRotatingFileHandler on all platforms with automatic log
+    rotation (max 5 MiB per file, 3 backups).  On Windows, rotation
+    errors caused by file locking are tolerated gracefully.
 
     Idempotent: if the logger already has a file handler for the same path,
     no new handler is added (avoids duplicate lines and leaked descriptors
@@ -179,20 +210,12 @@ def add_project_file_handler(log_path: Path) -> None:
         if base is not None and Path(base).resolve() == log_path:
             return
 
-    is_windows_or_linux = platform.system() in ("Windows", "Linux")
-    if is_windows_or_linux:
-        file_handler = logging.FileHandler(
-            log_path,
-            encoding="utf-8",
-            mode="a",
-        )
-    else:
-        file_handler = logging.handlers.RotatingFileHandler(
-            log_path,
-            encoding="utf-8",
-            maxBytes=_LOG_MAX_BYTES,
-            backupCount=_LOG_BACKUP_COUNT,
-        )
+    file_handler = _SafeRotatingFileHandler(
+        log_path,
+        encoding="utf-8",
+        maxBytes=_LOG_MAX_BYTES,
+        backupCount=_LOG_BACKUP_COUNT,
+    )
 
     file_handler.setLevel(logger.level or logging.INFO)
 

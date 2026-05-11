@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import zipfile
+from functools import lru_cache
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -569,6 +570,11 @@ def _default_pool_manifest() -> dict[str, Any]:
     }
 
 
+def _normalize_skill_manifest_entry(entry: Any) -> dict[str, Any]:
+    """Return a manifest entry as a dict, or an empty dict for legacy junk."""
+    return entry if isinstance(entry, dict) else {}
+
+
 def _is_builtin_skill(skill_name: str, builtin_names: list[str]) -> bool:
     """Check if skill name is in builtin list."""
     return skill_name in builtin_names
@@ -576,7 +582,11 @@ def _is_builtin_skill(skill_name: str, builtin_names: list[str]) -> bool:
 
 def _is_pool_builtin_entry(entry: dict[str, Any] | None) -> bool:
     """Return whether one pool manifest entry represents a builtin slot."""
-    return bool(entry) and str(entry.get("source", "") or "") == "builtin"
+    normalized = _normalize_skill_manifest_entry(entry)
+    return (
+        bool(normalized)
+        and str(normalized.get("source", "") or "") == "builtin"
+    )
 
 
 def _classify_pool_skill_source(
@@ -1075,7 +1085,9 @@ def _build_builtin_import_candidate(
     pref = preferred_language or get_builtin_skill_language_preference()
     canonical_name = _canonical_builtin_skill_name(skill_name, registry)
     variants = registry.get(canonical_name) or {}
-    current = pool_skills.get(canonical_name) or {}
+    current = _normalize_skill_manifest_entry(
+        pool_skills.get(canonical_name),
+    )
     current_version_text = str(current.get("version_text", "") or "")
     current_source = str(current.get("source", "") or "")
     current_language = ""
@@ -1459,39 +1471,56 @@ def reconcile_pool_manifest() -> dict[str, Any]:
         }
 
         for skill_name, skill_dir in sorted(discovered.items()):
-            existing = skills.get(skill_name, {})
-            source, protected = _classify_pool_skill_source(
-                skill_name,
-                skill_dir,
-                existing,
-                builtin_names,
-            )
-            has_config = "config" in existing
-            config = existing.get("config") if has_config else None
-            existing_tags = existing.get("tags")
-            skills[skill_name] = _build_skill_metadata(
-                skill_name,
-                skill_dir,
-                source=source,
-                protected=protected,
-            )
-            if source == "builtin" or _is_pool_builtin_entry(existing):
-                language = _resolve_pool_builtin_language(
+            raw_existing = skills.get(skill_name)
+            existing = _normalize_skill_manifest_entry(raw_existing)
+            if raw_existing not in (None, existing):
+                logger.warning(
+                    (
+                        "Malformed pool manifest entry for '%s'; "
+                        "rebuilding from disk"
+                    ),
                     skill_name,
-                    existing or skills[skill_name],
-                    registry,
-                    preferred_language=pref,
                 )
-                if language:
-                    skills[skill_name]["builtin_language"] = language
-                    if language in (registry.get(skill_name) or {}):
-                        skills[skill_name]["builtin_source_name"] = registry[
-                            skill_name
-                        ][language].source_name
-            if has_config:
-                skills[skill_name]["config"] = config
-            if existing_tags is not None:
-                skills[skill_name]["tags"] = existing_tags
+            try:
+                source, protected = _classify_pool_skill_source(
+                    skill_name,
+                    skill_dir,
+                    existing,
+                    builtin_names,
+                )
+                has_config = "config" in existing
+                config = existing.get("config") if has_config else None
+                existing_tags = existing.get("tags")
+                new_entry = _build_skill_metadata(
+                    skill_name,
+                    skill_dir,
+                    source=source,
+                    protected=protected,
+                )
+                if source == "builtin" or _is_pool_builtin_entry(existing):
+                    language = _resolve_pool_builtin_language(
+                        skill_name,
+                        existing or new_entry,
+                        registry,
+                        preferred_language=pref,
+                    )
+                    if language:
+                        new_entry["builtin_language"] = language
+                        if language in (registry.get(skill_name) or {}):
+                            new_entry["builtin_source_name"] = registry[
+                                skill_name
+                            ][language].source_name
+                if has_config:
+                    new_entry["config"] = config
+                if existing_tags is not None:
+                    new_entry["tags"] = existing_tags
+                skills[skill_name] = new_entry
+            except Exception:
+                logger.warning(
+                    "Skipping pool skill '%s' during reconcile",
+                    skill_name,
+                    exc_info=True,
+                )
 
         for skill_name in list(skills):
             if skill_name not in discovered:
@@ -1543,44 +1572,60 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         }
 
         for skill_name, skill_dir in sorted(discovered.items()):
-            existing = skills.get(skill_name) or {}
-            enabled = bool(existing.get("enabled", False))
-            channels = existing.get("channels") or ["all"]
-
-            # Inherit source from manifest when the entry already exists.
-            # For new skills, default to "builtin" if name matches a
-            # packaged builtin, otherwise "customized".
-            if existing:
-                source = existing.get("source", "customized")
-            else:
-                source = (
-                    "builtin"
-                    if skill_name in builtin_versions
-                    else "customized"
+            raw_existing = skills.get(skill_name)
+            existing = _normalize_skill_manifest_entry(raw_existing)
+            if raw_existing not in (None, existing):
+                logger.warning(
+                    (
+                        "Malformed workspace manifest entry for '%s'; "
+                        "rebuilding from disk"
+                    ),
+                    skill_name,
                 )
+            try:
+                enabled = bool(existing.get("enabled", False))
+                channels = existing.get("channels") or ["all"]
 
-            metadata = _build_skill_metadata(
-                skill_name,
-                skill_dir,
-                source=source,
-                protected=False,
-            )
-            next_entry = {
-                "enabled": enabled,
-                "channels": channels,
-                "source": source,
-                "metadata": metadata,
-                "requirements": metadata["requirements"],
-                "updated_at": metadata["updated_at"],
-            }
-            if "config" in existing:
-                next_entry["config"] = existing.get("config")
-            existing_tags = existing.get("tags")
-            if existing_tags is not None:
-                next_entry["tags"] = existing_tags
-            skills[skill_name] = next_entry
-            skills[skill_name].pop("sync_to_hub", None)
-            skills[skill_name].pop("sync_to_pool", None)
+                # Inherit source from manifest when the entry already exists.
+                # For new skills, default to "builtin" if name matches a
+                # packaged builtin, otherwise "customized".
+                if existing:
+                    source = existing.get("source", "customized")
+                else:
+                    source = (
+                        "builtin"
+                        if skill_name in builtin_versions
+                        else "customized"
+                    )
+
+                metadata = _build_skill_metadata(
+                    skill_name,
+                    skill_dir,
+                    source=source,
+                    protected=False,
+                )
+                next_entry = {
+                    "enabled": enabled,
+                    "channels": channels,
+                    "source": source,
+                    "metadata": metadata,
+                    "requirements": metadata["requirements"],
+                    "updated_at": metadata["updated_at"],
+                }
+                if "config" in existing:
+                    next_entry["config"] = existing.get("config")
+                existing_tags = existing.get("tags")
+                if existing_tags is not None:
+                    next_entry["tags"] = existing_tags
+                skills[skill_name] = next_entry
+                skills[skill_name].pop("sync_to_hub", None)
+                skills[skill_name].pop("sync_to_pool", None)
+            except Exception:
+                logger.warning(
+                    "Skipping workspace skill '%s' during reconcile",
+                    skill_name,
+                    exc_info=True,
+                )
 
         for skill_name in list(skills):
             if skill_name not in discovered:
@@ -1630,18 +1675,45 @@ def list_workspaces() -> list[dict[str, str]]:
     return workspaces
 
 
+@lru_cache(maxsize=256)
+def _read_file_text_cached(  # pylint: disable=unused-argument
+    path_str: str,
+    mtime_ns: int,
+) -> str:
+    """Return file text cached by *path + mtime*."""
+    return Path(path_str).read_text(encoding="utf-8")
+
+
+def _read_json_mtime_cached(
+    path: Path,
+    default: dict[str, Any],
+) -> dict[str, Any]:
+    """``_read_json_unlocked`` variant with mtime cache."""
+    if not path.exists():
+        return json.loads(json.dumps(default))
+    try:
+        mtime_ns = os.stat(path).st_mtime_ns
+        text = _read_file_text_cached(str(path), mtime_ns)
+        return json.loads(text)
+    except json.JSONDecodeError:
+        logger.warning("Malformed JSON in %s, resetting to default", path)
+        return json.loads(json.dumps(default))
+    except OSError:
+        return json.loads(json.dumps(default))
+
+
 def read_skill_manifest(
     workspace_dir: Path,
 ) -> dict[str, Any]:
-    """Return the cached workspace skill manifest."""
+    """Return the workspace skill manifest, cached by file mtime."""
     path = get_workspace_skill_manifest_path(workspace_dir)
-    return _read_json_unlocked(path, _default_workspace_manifest())
+    return _read_json_mtime_cached(path, _default_workspace_manifest())
 
 
 def read_skill_pool_manifest() -> dict[str, Any]:
-    """Return the cached pool skill manifest."""
+    """Return the pool skill manifest, cached by file mtime."""
     path = get_pool_skill_manifest_path()
-    return _read_json_unlocked(path, _default_pool_manifest())
+    return _read_json_mtime_cached(path, _default_pool_manifest())
 
 
 def resolve_effective_skills(
@@ -2249,11 +2321,46 @@ class SkillService:
                 "updated_at": metadata["updated_at"],
             }
 
-        _mutate_json(
-            get_workspace_skill_manifest_path(self.workspace_dir),
-            _default_workspace_manifest(),
-            _update,
-        )
+        try:
+            _mutate_json(
+                get_workspace_skill_manifest_path(self.workspace_dir),
+                _default_workspace_manifest(),
+                _update,
+            )
+        except Exception as exc:
+            try:
+                if skill_dir.exists():
+                    shutil.rmtree(skill_dir, ignore_errors=True)
+            except Exception as cleanup_exc:
+                raise SkillsError(
+                    message=(
+                        "Workspace skill files were created, but manifest "
+                        "update failed and rollback cleanup also failed."
+                    ),
+                    details={
+                        "skill_name": skill_name,
+                        "workspace_dir": str(self.workspace_dir),
+                        "manifest_path": str(
+                            get_workspace_skill_manifest_path(
+                                self.workspace_dir,
+                            ),
+                        ),
+                        "cleanup_error": str(cleanup_exc),
+                    },
+                ) from exc
+            raise SkillsError(
+                message=(
+                    "Workspace skill files were created, but manifest "
+                    "update failed. File changes were rolled back."
+                ),
+                details={
+                    "skill_name": skill_name,
+                    "workspace_dir": str(self.workspace_dir),
+                    "manifest_path": str(
+                        get_workspace_skill_manifest_path(self.workspace_dir),
+                    ),
+                },
+            ) from exc
         return skill_name
 
     def save_skill(
@@ -2694,11 +2801,26 @@ class SkillService:
         def _update(payload: dict[str, Any]) -> None:
             payload.get("skills", {}).pop(skill_name, None)
 
-        _mutate_json(
-            get_workspace_skill_manifest_path(self.workspace_dir),
-            _default_workspace_manifest(),
-            _update,
-        )
+        try:
+            _mutate_json(
+                get_workspace_skill_manifest_path(self.workspace_dir),
+                _default_workspace_manifest(),
+                _update,
+            )
+        except Exception as exc:
+            raise SkillsError(
+                message=(
+                    "Workspace skill files were deleted, but manifest "
+                    "update failed."
+                ),
+                details={
+                    "skill_name": skill_name,
+                    "workspace_dir": str(self.workspace_dir),
+                    "manifest_path": str(
+                        get_workspace_skill_manifest_path(self.workspace_dir),
+                    ),
+                },
+            ) from exc
         return True
 
     def load_skill_file(
@@ -2807,11 +2929,38 @@ class SkillPoolService:
             if config is not None:
                 payload["skills"][skill_name]["config"] = dict(config)
 
-        _mutate_json(
-            get_pool_skill_manifest_path(),
-            _default_pool_manifest(),
-            _update,
-        )
+        try:
+            _mutate_json(
+                get_pool_skill_manifest_path(),
+                _default_pool_manifest(),
+                _update,
+            )
+        except Exception as exc:
+            try:
+                if skill_dir.exists():
+                    shutil.rmtree(skill_dir, ignore_errors=True)
+            except Exception as cleanup_exc:
+                raise SkillsError(
+                    message=(
+                        "Skill pool files were created, but manifest update "
+                        "failed and rollback cleanup also failed."
+                    ),
+                    details={
+                        "skill_name": skill_name,
+                        "manifest_path": str(get_pool_skill_manifest_path()),
+                        "cleanup_error": str(cleanup_exc),
+                    },
+                ) from exc
+            raise SkillsError(
+                message=(
+                    "Skill pool manifest update failed after file creation. "
+                    "File changes were rolled back."
+                ),
+                details={
+                    "skill_name": skill_name,
+                    "manifest_path": str(get_pool_skill_manifest_path()),
+                },
+            ) from exc
         return skill_name
 
     def import_from_zip(
@@ -2936,11 +3085,23 @@ class SkillPoolService:
         def _update(payload: dict[str, Any]) -> None:
             payload.get("skills", {}).pop(skill_name, None)
 
-        _mutate_json(
-            get_pool_skill_manifest_path(),
-            _default_pool_manifest(),
-            _update,
-        )
+        try:
+            _mutate_json(
+                get_pool_skill_manifest_path(),
+                _default_pool_manifest(),
+                _update,
+            )
+        except Exception as exc:
+            raise SkillsError(
+                message=(
+                    "Skill pool files were deleted, but manifest update "
+                    "failed."
+                ),
+                details={
+                    "skill_name": skill_name,
+                    "manifest_path": str(get_pool_skill_manifest_path()),
+                },
+            ) from exc
         return True
 
     def set_pool_skill_tags(

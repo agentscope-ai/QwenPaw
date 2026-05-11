@@ -309,6 +309,9 @@ class WecomConfig(BaseChannelConfig):
     secret: str = ""
     media_dir: Optional[str] = None
     welcome_text: str = ""
+    # If True (default), all group members share one chat; set to
+    # False to isolate each member into their own chat.
+    share_session_in_group: bool = True
     max_reconnect_attempts: int = -1
 
 
@@ -396,12 +399,12 @@ class XiaoYiConfig(BaseChannelConfig):
     task_timeout_ms: int = 3600000  # 1 hour task timeout
 
 
-class WeixinConfig(BaseChannelConfig):
+class WeChatConfig(BaseChannelConfig):
     """WeChat (iLink Bot) personal account channel config.
 
     bot_token:              Bearer token obtained after QR code login.
     bot_token_file:         Path to persist/load the bot_token
-                            (default ~/.qwenpaw/weixin_bot_token).
+                            (default ~/.qwenpaw/wechat_bot_token).
     base_url:               iLink API base URL (leave empty to use default).
     media_dir:              Local directory for downloaded media files.
     message_merge_enabled:  When True, merge multiple outgoing text messages
@@ -442,8 +445,25 @@ class ChannelConfig(BaseModel):
     sip: SIPChannelConfig = SIPChannelConfig()
     wecom: WecomConfig = WecomConfig()
     xiaoyi: XiaoYiConfig = XiaoYiConfig()
-    weixin: WeixinConfig = WeixinConfig()
+    wechat: WeChatConfig = WeChatConfig()
     onebot: OneBotConfig = OneBotConfig()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_weixin_key(cls, data: Any) -> Any:
+        """One-shot migration: legacy ``weixin`` key -> canonical ``wechat``.
+
+        Older config files used ``weixin`` as the WeChat channel key. The
+        canonical key is now ``wechat``. When an old config is loaded we
+        rename the key in-place so validation succeeds. The on-disk file is
+        rewritten by ``load_config`` right after validation (see utils.py).
+        """
+        if isinstance(data, dict) and "weixin" in data:
+            data = dict(data)
+            legacy = data.pop("weixin")
+            if "wechat" not in data:
+                data["wechat"] = legacy
+        return data
 
 
 class LastApiConfig(BaseModel):
@@ -720,6 +740,38 @@ class LightContextConfig(BaseModel):
     )
 
 
+class AutoTitleConfig(BaseModel):
+    """Async chat-title generation configuration.
+
+    The console handler creates each new chat with a 10-character
+    placeholder name and spawns a background task that asks the active
+    LLM for a concise title. Each new chat costs one short extra LLM
+    call; flip ``enabled`` to ``False`` to keep the placeholder and
+    avoid the spend.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "Generate a chat title via the active LLM after the first "
+            "user message. Disable to keep the truncated placeholder "
+            "and skip the extra per-chat LLM call."
+        ),
+    )
+
+    timeout_seconds: float = Field(
+        default=30.0,
+        ge=1.0,
+        description=(
+            "Hard timeout for the title-generation LLM call. The "
+            "background task is swallowed if this fires, leaving the "
+            "placeholder name in place."
+        ),
+    )
+
+
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
 
@@ -860,6 +912,14 @@ class AgentsRunningConfig(BaseModel):
         default_factory=LightContextConfig,
     )
 
+    auto_title_config: AutoTitleConfig = Field(
+        default_factory=AutoTitleConfig,
+        description=(
+            "Async chat-title generation toggle and timeout. See "
+            "AutoTitleConfig."
+        ),
+    )
+
     memory_manager_backend: str = Field(default="remelight")
 
     reme_light_memory_config: ReMeLightMemoryConfig = Field(
@@ -869,6 +929,15 @@ class AgentsRunningConfig(BaseModel):
     daily_memory_dir: str = Field(
         default="memory",
         description="Dir name to daily summary file",
+    )
+
+    approval_level: Optional[str] = Field(
+        default=None,
+        description=(
+            "Tool execution security level (proxied from agent profile): "
+            "STRICT, SMART, AUTO, or OFF.  When set via running-config API, "
+            "the value is written back to the agent profile."
+        ),
     )
 
 
@@ -1210,11 +1279,19 @@ class BuiltinToolConfig(BaseModel):
         default=None,
         description="Emoji icon for the tool",
     )
+    config: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Tool-specific configuration (e.g., API keys)",
+    )
 
 
 def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
-    """Return a fresh copy of the canonical built-in tool definitions."""
-    return {
+    """Return a fresh copy of the canonical built-in tool definitions.
+
+    This includes both hardcoded tools and dynamically registered tools
+    from plugins.
+    """
+    tools = {
         "execute_shell_command": BuiltinToolConfig(
             name="execute_shell_command",
             enabled=True,
@@ -1336,6 +1413,35 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
         ),
     }
 
+    # Merge dynamically registered tools from plugins
+    try:
+        from ..plugins.registry import PluginRegistry
+
+        registry = PluginRegistry()
+        # Access manifests via public method
+        all_manifests = registry.get_all_plugin_manifests()
+        for plugin_id, manifest in all_manifests.items():
+            meta = manifest.get("meta", {})
+            if meta.get("tool_name"):
+                tool_name = meta["tool_name"]
+                if tool_name not in tools:
+                    tools[tool_name] = BuiltinToolConfig(
+                        name=tool_name,
+                        enabled=False,
+                        description=meta.get(
+                            "tool_description",
+                            f"Tool from plugin {plugin_id}",
+                        ),
+                        display_to_user=True,
+                        async_execution=False,
+                        icon=meta.get("tool_icon", "🔧"),
+                    )
+    except Exception:
+        # Plugins not loaded yet, return hardcoded tools only
+        pass
+
+    return tools
+
 
 class ToolsConfig(BaseModel):
     """Built-in tools management configuration."""
@@ -1451,6 +1557,7 @@ class ToolGuardConfig(BaseModel):
     enabled: bool = True
     guarded_tools: Optional[List[str]] = None
     denied_tools: List[str] = Field(default_factory=list)
+    auto_denied_rules: List[str] = Field(default_factory=list)
     custom_rules: List[ToolGuardRuleConfig] = Field(default_factory=list)
     disabled_rules: List[str] = Field(default_factory=list)
     shell_evasion_checks: Dict[str, bool] = Field(
@@ -1563,7 +1670,7 @@ ChannelConfigUnion = Union[
     SIPChannelConfig,
     WecomConfig,
     XiaoYiConfig,
-    WeixinConfig,
+    WeChatConfig,
 ]
 
 
@@ -1683,9 +1790,44 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
         with open(agent_config_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        # One-shot migration: rename legacy ``channels.weixin`` key to
+        # ``channels.wechat`` and rewrite the file on disk so future loads
+        # see the canonical key directly. This rewrite must happen BEFORE
+        # any in-memory normalization (e.g. ~/.copaw path rewriting) so we
+        # only persist the key rename, not unrelated runtime transforms.
+        channels = data.get("channels")
+        if isinstance(channels, dict) and "weixin" in channels:
+            legacy = channels.pop("weixin")
+            if "wechat" not in channels:
+                channels["wechat"] = legacy
+            try:
+                import uuid as _uuid
+                import shutil as _shutil
+
+                backup_path = agent_config_path.with_suffix(
+                    f".{_uuid.uuid4().hex[:8]}.weixin-migrate.bak",
+                )
+                _shutil.copy2(agent_config_path, backup_path)
+                with open(
+                    agent_config_path,
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                # Refresh mtime cache key after rewriting the file so the
+                # cached config still reflects the on-disk state.
+                try:
+                    current_mtime = agent_config_path.stat().st_mtime
+                except OSError:
+                    pass
+            except OSError:
+                pass
+
         # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
         # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json
         # contains older hard-coded paths like "~/.copaw/media".
+        # NOTE: this transform is applied in-memory only; it must not be
+        # persisted back to disk.
         try:
             from .utils import _normalize_working_dir_bound_paths
 

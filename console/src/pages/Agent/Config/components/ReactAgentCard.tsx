@@ -167,6 +167,15 @@ export function ReactAgentCard({
         <Switch />
       </Form.Item>
 
+      <Form.Item
+        label={t("agentConfig.autoGenerateSessionTitle")}
+        name={["auto_title_config", "enabled"]}
+        valuePropName="checked"
+        tooltip={t("agentConfig.autoGenerateSessionTitleTooltip")}
+      >
+        <Switch />
+      </Form.Item>
+
       <div className={styles.reactAgentRow}>
         <Form.Item
           label={t("agentConfig.contextManagerBackend")}

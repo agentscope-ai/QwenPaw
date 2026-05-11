@@ -8,13 +8,32 @@ import {
   SparkEnglish02Line,
   SparkJapanLine,
   SparkRusLine,
+  SparkPtLine,
 } from "@agentscope-ai/icons";
+
+interface LanguageConfig {
+  key: string;
+  label: string;
+  icon: React.ReactElement;
+}
+
+const LANGUAGE_LIST: LanguageConfig[] = [
+  { key: "en", label: "English", icon: <SparkEnglish02Line /> },
+  { key: "zh", label: "简体中文", icon: <SparkChinese02Line /> },
+  { key: "ja", label: "日本語", icon: <SparkJapanLine /> },
+  { key: "ru", label: "Русский", icon: <SparkRusLine /> },
+  { key: "pt-BR", label: "Português (Brasil)", icon: <SparkPtLine /> },
+];
+
+const KNOWN_LANG_KEYS = new Set(LANGUAGE_LIST.map((lang) => lang.key));
 
 export default function LanguageSwitcher() {
   const { i18n } = useTranslation();
 
   const currentLanguage = i18n.resolvedLanguage || i18n.language;
-  const currentLangKey = currentLanguage.split("-")[0];
+  const currentLangKey = KNOWN_LANG_KEYS.has(currentLanguage)
+    ? currentLanguage
+    : currentLanguage.split("-")[0];
 
   const changeLanguage = (lang: string) => {
     i18n.changeLanguage(lang);
@@ -26,35 +45,15 @@ export default function LanguageSwitcher() {
       );
   };
 
-  const items: MenuProps["items"] = [
-    {
-      key: "en",
-      label: "English",
-      onClick: () => changeLanguage("en"),
-    },
-    {
-      key: "zh",
-      label: "简体中文",
-      onClick: () => changeLanguage("zh"),
-    },
-    {
-      key: "ja",
-      label: "日本語",
-      onClick: () => changeLanguage("ja"),
-    },
-    {
-      key: "ru",
-      label: "Русский",
-      onClick: () => changeLanguage("ru"),
-    },
-  ];
+  const items: MenuProps["items"] = LANGUAGE_LIST.map(({ key, label }) => ({
+    key,
+    label,
+    onClick: () => changeLanguage(key),
+  }));
 
-  const LIGHT_ICON: Record<string, React.ReactElement> = {
-    en: <SparkEnglish02Line />,
-    zh: <SparkChinese02Line />,
-    ja: <SparkJapanLine />,
-    ru: <SparkRusLine />,
-  };
+  const iconMap: Record<string, React.ReactElement> = Object.fromEntries(
+    LANGUAGE_LIST.map(({ key, icon }) => [key, icon]),
+  );
 
   return (
     <Dropdown
@@ -62,7 +61,7 @@ export default function LanguageSwitcher() {
       placement="bottomRight"
       overlayClassName={styles.languageDropdown}
     >
-      <Button icon={LIGHT_ICON[currentLangKey]} type="text" />
+      <Button icon={iconMap[currentLangKey]} type="text" />
     </Dropdown>
   );
 }

@@ -89,6 +89,7 @@ export interface WecomConfig extends BaseChannelConfig {
   secret: string;
   media_dir?: string;
   welcome_text?: string;
+  share_session_in_group?: boolean;
   max_reconnect_attempts?: number;
 }
 
@@ -138,7 +139,7 @@ export interface XiaoYiConfig extends BaseChannelConfig {
   task_timeout_ms?: number;
 }
 
-export interface WeixinConfig extends BaseChannelConfig {
+export interface WeChatConfig extends BaseChannelConfig {
   bot_token: string;
   bot_token_file: string;
   base_url: string;
@@ -169,7 +170,7 @@ export interface ChannelConfig {
   voice: VoiceChannelConfig;
   sip: SIPChannelConfig;
   xiaoyi: XiaoYiConfig;
-  weixin: WeixinConfig;
+  wechat: WeChatConfig;
   onebot: OneBotConfig;
 }
 
@@ -185,7 +186,7 @@ export type SingleChannelConfig =
   | MatrixConfig
   | MattermostConfig
   | WecomConfig
-  | WeixinConfig
+  | WeChatConfig
   | VoiceChannelConfig
   | SIPChannelConfig
   | XiaoYiConfig

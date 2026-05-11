@@ -104,6 +104,61 @@ async def test_put_chat_rejects_read_only_fields(
     assert saved.session_id == chat.session_id
 
 
+async def test_patch_chat_if_name_matches_applies_when_name_matches(
+    chat_manager: ChatManager,
+) -> None:
+    """Atomic compare-and-set succeeds when the persisted name matches."""
+    chat = await _seed_chat(chat_manager)
+
+    updated = await chat_manager.patch_chat_if_name_matches(
+        chat.id,
+        expected_name=chat.name,
+        patch=ChatUpdate(name="Generated Title"),
+    )
+
+    assert updated is not None
+    assert updated.name == "Generated Title"
+
+    saved = await chat_manager.get_chat(chat.id)
+    assert saved is not None
+    assert saved.name == "Generated Title"
+
+
+async def test_patch_chat_if_name_matches_skips_when_name_differs(
+    chat_manager: ChatManager,
+) -> None:
+    """Stale ``expected_name`` must leave the persisted name untouched.
+
+    Without this guard a slow background title task can race against a
+    user rename and overwrite it.
+    """
+    chat = await _seed_chat(chat_manager)
+    await chat_manager.patch_chat(chat.id, ChatUpdate(name="User Pick"))
+
+    updated = await chat_manager.patch_chat_if_name_matches(
+        chat.id,
+        expected_name=chat.name,  # stale: original placeholder
+        patch=ChatUpdate(name="Generated Title"),
+    )
+
+    assert updated is None
+
+    saved = await chat_manager.get_chat(chat.id)
+    assert saved is not None
+    assert saved.name == "User Pick"
+
+
+async def test_patch_chat_if_name_matches_returns_none_for_missing_chat(
+    chat_manager: ChatManager,
+) -> None:
+    updated = await chat_manager.patch_chat_if_name_matches(
+        "does-not-exist",
+        expected_name="anything",
+        patch=ChatUpdate(name="x"),
+    )
+    assert updated is None
+
+
 async def test_touch_chat_updates_timestamp_without_overwriting_name(
     chat_manager: ChatManager,
     monkeypatch: pytest.MonkeyPatch,

@@ -18,6 +18,54 @@ def _make_provider(is_custom: bool = False) -> AnthropicProvider:
     )
 
 
+def test_get_chat_model_instance_uses_configured_max_tokens(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeAnthropicChatModel:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "agentscope.model.AnthropicChatModel",
+        FakeAnthropicChatModel,
+    )
+
+    provider = _make_provider()
+    provider.generate_kwargs = {
+        "max_tokens": 4096,
+        "temperature": 0.2,
+    }
+
+    provider.get_chat_model_instance("claude-3-5-sonnet")
+
+    assert captured["model_name"] == "claude-3-5-sonnet"
+    assert captured["max_tokens"] == 4096
+
+
+def test_get_chat_model_instance_uses_default_max_tokens_when_unset(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeAnthropicChatModel:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "agentscope.model.AnthropicChatModel",
+        FakeAnthropicChatModel,
+    )
+
+    provider = _make_provider()
+
+    provider.get_chat_model_instance("claude-3-5-sonnet")
+
+    assert captured["model_name"] == "claude-3-5-sonnet"
+    assert captured["max_tokens"] == 16384
+
+
 async def test_check_connection_success(monkeypatch) -> None:
     provider = _make_provider()
     called = {"count": 0}

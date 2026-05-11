@@ -236,18 +236,6 @@ export const createColumns = (
       },
     },
     {
-      title: "RequestSessionID",
-      dataIndex: ["request", "session_id"],
-      key: "session_id",
-      width: 160,
-    },
-    {
-      title: "RequestUserID",
-      dataIndex: ["request", "user_id"],
-      key: "user_id",
-      width: 140,
-    },
-    {
       title: "DispatchType",
       dataIndex: ["dispatch", "type"],
       key: "dispatch_type",

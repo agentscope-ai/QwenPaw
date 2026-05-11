@@ -142,7 +142,7 @@ function contentToRequestParts(
 function normalizeOutputMessageContent(content: unknown): unknown {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return content;
-  return (content as ContentItem[]).map(resolveContentItemUrl);
+  return content as ContentItem[];
 }
 
 /**
@@ -338,6 +338,35 @@ function clearPendingUserMessage(sessionId: string): void {
 
 class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionList: IAgentScopeRuntimeWebUISession[] = [];
+
+  /**
+   * Pending resolvers waiting for a specific session's realId.
+   * Used to replace setTimeout-based busy-wait with event-driven notification.
+   */
+  private realIdResolvers: Map<string, Array<() => void>> = new Map();
+
+  /** Notify any pending waiters that a session's realId has been resolved. */
+  private notifyRealIdResolved(sessionId: string): void {
+    const resolvers = this.realIdResolvers.get(sessionId);
+    if (resolvers) {
+      this.realIdResolvers.delete(sessionId);
+      for (const resolve of resolvers) resolve();
+    }
+  }
+
+  /** Wait until a session's realId is available (set by updateSession). */
+  private waitForRealId(sessionId: string): Promise<void> {
+    const session = this.sessionList.find((x) => x.id === sessionId) as
+      | ExtendedSession
+      | undefined;
+    if (session?.realId) return Promise.resolve();
+
+    return new Promise<void>((resolve) => {
+      const existing = this.realIdResolvers.get(sessionId) || [];
+      existing.push(resolve);
+      this.realIdResolvers.set(sessionId, existing);
+    });
+  }
 
   /**
    * When set, getSessionList will move the matching session to the front on the first call,
@@ -591,19 +620,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
       // Pure local session (not yet sent to backend): wait until updateSession
       // resolves the realId, then fetch history with the real UUID.
-      await new Promise<void>((resolve) => {
-        const check = () => {
-          const s = this.sessionList.find((x) => x.id === sessionId) as
-            | ExtendedSession
-            | undefined;
-          if (s?.realId) {
-            resolve();
-          } else {
-            setTimeout(check, 100);
-          }
-        };
-        setTimeout(check, 100);
-      });
+      await this.waitForRealId(sessionId);
 
       const refreshed = this.sessionList.find((s) => s.id === sessionId) as
         | ExtendedSession
@@ -674,6 +691,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           const { list, realId } = resolveRealId(this.sessionList, tempId);
           this.sessionList = list;
           if (realId) {
+            this.notifyRealIdResolved(tempId);
             this.onSessionIdResolved?.(tempId, realId);
           }
         });
@@ -684,6 +702,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         const { list, realId } = resolveRealId(this.sessionList, tempId);
         this.sessionList = list;
         if (realId) {
+          this.notifyRealIdResolved(tempId);
           this.onSessionIdResolved?.(tempId, realId);
         }
       });

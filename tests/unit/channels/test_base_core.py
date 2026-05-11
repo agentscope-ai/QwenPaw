@@ -993,6 +993,69 @@ class TestStreamWithTracker:
                             ):
                                 pass
 
+    async def test_stream_with_tracker_falls_back_on_surrogate_json_error(
+        self,
+        base_channel,
+    ):
+        """_stream_with_tracker should fallback on malformed surrogate data."""
+        from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
+
+        class BrokenJsonEvent:
+            object = "response"
+            status = RunStatus.Completed
+            type = "response.completed"
+
+            def model_dump_json(self):
+                raise UnicodeEncodeError(
+                    "utf-8",
+                    "\ud83c",
+                    0,
+                    1,
+                    "surrogates not allowed",
+                )
+
+            def model_dump(self, mode="python"):
+                del mode
+                return {
+                    "object": "response",
+                    "status": "completed",
+                    "text": "\ud83c broken",
+                }
+
+        async def mock_process(_request):
+            yield BrokenJsonEvent()
+
+        base_channel._process = mock_process
+
+        with patch.object(
+            base_channel,
+            "_payload_to_request",
+            return_value=MagicMock(
+                session_id="test:session",
+                user_id="user123",
+                channel="test",
+                channel_meta={},
+            ),
+        ):
+            with patch.object(
+                base_channel,
+                "get_to_handle_from_request",
+                return_value="user123",
+            ):
+                with patch.object(
+                    base_channel,
+                    "_before_consume_process",
+                ):
+                    events = []
+                    async for event in base_channel._stream_with_tracker({}):
+                        events.append(event)
+                        break
+
+        assert len(events) == 1
+        assert events[0].startswith("data: ")
+        assert "\\ud83c" not in events[0]
+        assert "? broken" in events[0]
+
 
 # =============================================================================
 # P2: Audio Content Detection

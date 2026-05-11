@@ -57,7 +57,10 @@ _TYPING_TIMEOUT_S = 180
 _RECONNECT_INITIAL_S = 2.0
 _RECONNECT_MAX_S = 30.0
 _RECONNECT_FACTOR = 1.8
-_POLL_WATCHDOG_INTERVAL_S = 30
+_POLLING_STATUS_CHECK_INTERVAL_S = 15
+_POLLING_NETWORK_RETRY_BASE_S = 5.0
+_POLLING_NETWORK_RETRY_MAX_S = 60.0
+_POLLING_CONFLICT_RETRY_DELAY_S = 10.0
 
 _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
     ("document", FileContent, ContentType.FILE, "file_url"),
@@ -73,6 +76,16 @@ class _FileTooLargeError(Exception):
 
 class _MediaFileUnavailableError(Exception):
     """Raised when a media file cannot be found or resolved."""
+
+
+class _PollingReconnectRequested(Exception):
+    """Raised when polling should be reconnected by the outer loop."""
+
+    def __init__(self, reason: str, *, attempt: int, delay: float):
+        super().__init__(reason)
+        self.reason = reason
+        self.attempt = attempt
+        self.delay = delay
 
 
 async def _download_telegram_file(
@@ -320,6 +333,12 @@ class TelegramChannel(BaseChannel):
         self._is_processing: dict[str, bool] = {}
         self._task: Optional[asyncio.Task] = None
         self._application = None
+        self._polling_error_task: Optional[asyncio.Task] = None
+        self._pending_reconnect_reason: Optional[str] = None
+        self._pending_reconnect_attempt = 0
+        self._pending_reconnect_delay_s = _RECONNECT_INITIAL_S
+        self._polling_network_error_count = 0
+        self._polling_conflict_count = 0
         if self.enabled and self._bot_token:
             try:
                 self._application = self._build_application()
@@ -457,6 +476,83 @@ class TelegramChannel(BaseChannel):
             pending = self._pending_content_by_session.pop(session_id, [])
             return True, pending + list(content_parts)
         return super()._apply_no_text_debounce(session_id, content_parts)
+
+    @staticmethod
+    def _looks_like_polling_conflict(error: Exception) -> bool:
+        """Return True for Telegram getUpdates conflict errors."""
+        text = str(error).lower()
+        return (
+            error.__class__.__name__.lower() == "conflict"
+            or "terminated by other getupdates request" in text
+            or "another bot instance is running" in text
+        )
+
+    @staticmethod
+    def _looks_like_network_error(error: Exception) -> bool:
+        """Return True for transient polling transport errors."""
+        if isinstance(error, (NetworkError, TimedOut, OSError)):
+            return True
+        return error.__class__.__name__.lower() == "connectionerror"
+
+    def _plan_polling_reconnect(
+        self,
+        reason: str,
+    ) -> tuple[int, float]:
+        """Update retry state and return ``(attempt, delay_s)``."""
+        if reason == "conflict":
+            self._polling_conflict_count += 1
+            self._polling_network_error_count = 0
+            return (
+                self._polling_conflict_count,
+                _POLLING_CONFLICT_RETRY_DELAY_S,
+            )
+
+        self._polling_network_error_count += 1
+        self._polling_conflict_count = 0
+        attempt = self._polling_network_error_count
+        delay = min(
+            _POLLING_NETWORK_RETRY_BASE_S * (2 ** (attempt - 1)),
+            _POLLING_NETWORK_RETRY_MAX_S,
+        )
+        return attempt, delay
+
+    def _reset_polling_reconnect_state(self) -> None:
+        """Reset conflict/network retry counters after a clean reconnect."""
+        self._polling_network_error_count = 0
+        self._polling_conflict_count = 0
+
+    async def _request_polling_reconnect(
+        self,
+        app: Any,
+        *,
+        reason: str,
+        error: Exception,
+    ) -> None:
+        """Stop polling so the outer reconnect loop can rebuild it cleanly."""
+        if self._pending_reconnect_reason:
+            return
+        attempt, delay = self._plan_polling_reconnect(reason)
+        self._pending_reconnect_reason = reason
+        self._pending_reconnect_attempt = attempt
+        self._pending_reconnect_delay_s = delay
+        logger.warning(
+            "telegram: polling %s, requesting reconnect "
+            "(attempt %d, next delay %.1fs): %s",
+            reason,
+            attempt,
+            delay,
+            error,
+        )
+        updater = getattr(app, "updater", None)
+        if updater and getattr(updater, "running", False):
+            try:
+                await updater.stop()
+            except Exception as stop_err:
+                logger.debug(
+                    "telegram: failed stopping updater after %s: %s",
+                    reason,
+                    stop_err,
+                )
 
     @classmethod
     def from_env(
@@ -922,7 +1018,33 @@ class TelegramChannel(BaseChannel):
     async def _polling_cycle(self, app) -> None:
         """Run one polling lifecycle: init → poll → watchdog."""
 
+        self._pending_reconnect_reason = None
+        self._pending_reconnect_attempt = 0
+        self._pending_reconnect_delay_s = _RECONNECT_INITIAL_S
+        self._polling_error_task = None
+
         def _on_poll_error(exc) -> None:
+            if (
+                self._polling_error_task
+                and not self._polling_error_task.done()
+            ):
+                return
+            if self._looks_like_polling_conflict(exc):
+                self._polling_error_task = app.create_task(
+                    self._request_polling_reconnect(
+                        app,
+                        reason="conflict",
+                        error=exc,
+                    ),
+                )
+            elif self._looks_like_network_error(exc):
+                self._polling_error_task = app.create_task(
+                    self._request_polling_reconnect(
+                        app,
+                        reason="network error",
+                        error=exc,
+                    ),
+                )
             app.create_task(
                 app.process_error(error=exc, update=None),
             )
@@ -971,15 +1093,40 @@ class TelegramChannel(BaseChannel):
             )
 
         await app.updater.start_polling(
-            bootstrap_retries=-1,
+            bootstrap_retries=0,
             allowed_updates=["message", "edited_message"],
             error_callback=_on_poll_error,
         )
         await app.start()
+        self._reset_polling_reconnect_state()
         logger.info("telegram: polling started (receiving updates)")
 
         while getattr(app.updater, "running", False):
-            await asyncio.sleep(_POLL_WATCHDOG_INTERVAL_S)
+            await asyncio.sleep(_POLLING_STATUS_CHECK_INTERVAL_S)
+
+        if self._polling_error_task:
+            try:
+                await self._polling_error_task
+            except Exception:
+                logger.debug(
+                    "telegram: polling error task failed",
+                    exc_info=True,
+                )
+            finally:
+                self._polling_error_task = None
+
+        if self._pending_reconnect_reason:
+            reason = self._pending_reconnect_reason
+            attempt = self._pending_reconnect_attempt
+            delay = self._pending_reconnect_delay_s
+            self._pending_reconnect_reason = None
+            self._pending_reconnect_attempt = 0
+            self._pending_reconnect_delay_s = _RECONNECT_INITIAL_S
+            raise _PollingReconnectRequested(
+                reason,
+                attempt=attempt,
+                delay=delay,
+            )
 
         logger.warning("telegram: updater stopped unexpectedly")
 
@@ -1011,6 +1158,15 @@ class TelegramChannel(BaseChannel):
                 self._application = self._build_application()
                 await self._polling_cycle(self._application)
                 delay = _RECONNECT_INITIAL_S
+            except _PollingReconnectRequested as exc:
+                logger.warning(
+                    "telegram: polling reconnect requested (%s, attempt %d); "
+                    "reconnecting in %.1fs",
+                    exc.reason,
+                    exc.attempt,
+                    exc.delay,
+                )
+                delay = exc.delay
             except asyncio.CancelledError:
                 logger.debug("telegram: polling cancelled")
                 raise

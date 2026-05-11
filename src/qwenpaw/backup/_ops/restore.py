@@ -23,6 +23,7 @@ from .._utils.safe_swap import (
     commit_tmp,
     discard_tmp,
     extract_to_tmp,
+    restore_process_lock,
 )
 from ..models import BackupMeta, RestoreBackupRequest
 from ...config.config import AgentProfileRef
@@ -321,16 +322,15 @@ def _commit_and_finalize(
             commit_tmp(d)
             committed.append(d)
             logger.info("Committed restore for %s", d)
-    except Exception as exc:
+    except Exception:
         remaining = [d for d in staged_dirs if d not in set(committed)]
         for d in remaining:
             discard_tmp(d)
-        logger.error(
-            "Phase 2 commit failed after committing %d/%d dirs: %s. "
+        logger.exception(
+            "Phase 2 commit failed after committing %d/%d dirs. "
             "Committed (already live): %s. Discarded (rolled back): %s.",
             len(committed),
             len(staged_dirs),
-            exc,
             committed,
             remaining,
         )
@@ -359,6 +359,11 @@ def _commit_and_finalize(
 
 
 def _restore_sync(backup_id: str, req: RestoreBackupRequest) -> None:
+    with restore_process_lock():
+        _restore_sync_locked(backup_id, req)
+
+
+def _restore_sync_locked(backup_id: str, req: RestoreBackupRequest) -> None:
     zp = zip_path(backup_id)
     if not zp.is_file():
         raise FileNotFoundError(f"Backup not found: {backup_id}")

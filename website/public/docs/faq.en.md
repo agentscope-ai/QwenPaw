@@ -200,6 +200,56 @@ netsh int ipv4 set dynamicport tcp start=49152 num=16384
 > ⚠️ **Warning**: This changes system-wide port configuration. Only do this if
 > you understand the implications.
 
+### APITimeoutError when running QwenPaw in WSL2 (NAT mode)
+
+When running QwenPaw inside WSL2 with NAT networking (especially when a VPN is
+active on the Windows host), you may encounter repeated timeouts:
+
+```
+agent error: APITimeoutError: Request timed out.
+```
+
+**Root cause:** WSL2's default network MTU (1500) is too large for the NAT
+tunnel, causing packets to be silently dropped when a VPN or certain network
+configurations are in use.
+
+**Solution:** Lower the WSL2 network interface MTU to **1350**.
+
+1. **Check the current MTU inside WSL2:**
+
+   ```bash
+   ip link show eth0 | grep mtu
+   ```
+
+2. **Set MTU to 1350 (temporary, resets on reboot):**
+
+   ```bash
+   sudo ip link set eth0 mtu 1350
+   ```
+
+3. **Make the change permanent** by adding a boot command to `/etc/wsl.conf`:
+
+   ```ini
+   [boot]
+   command = /sbin/ip link set eth0 mtu 1350
+   ```
+
+   Then restart WSL2 from PowerShell or CMD:
+
+   ```powershell
+   wsl --shutdown
+   ```
+
+4. **Verify** the change took effect:
+
+   ```bash
+   ip link show eth0 | grep mtu
+   # should show: mtu 1350
+   ```
+
+After this, QwenPaw should be able to communicate with model providers
+normally.
+
 ### Open-source repository
 
 QwenPaw is open source. Official repository:

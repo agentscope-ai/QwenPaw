@@ -78,11 +78,11 @@ def generate_qrcode_image(scan_url: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-class WeixinQRCodeAuthHandler(QRCodeAuthHandler):
+class WeChatQRCodeAuthHandler(QRCodeAuthHandler):
     """QR code auth handler for WeChat iLink Bot login."""
 
     async def _get_base_url(self, request: Request) -> str:
-        from ..channels.weixin.client import _DEFAULT_BASE_URL
+        from ..channels.wechat.client import _DEFAULT_BASE_URL
 
         try:
             from ..agent_context import get_agent_for_request
@@ -90,10 +90,10 @@ class WeixinQRCodeAuthHandler(QRCodeAuthHandler):
             agent = await get_agent_for_request(request)
             channels = agent.config.channels
             if channels is not None:
-                weixin_cfg = getattr(channels, "weixin", None)
-                if weixin_cfg is not None:
+                wechat_cfg = getattr(channels, "wechat", None)
+                if wechat_cfg is not None:
                     return (
-                        getattr(weixin_cfg, "base_url", "")
+                        getattr(wechat_cfg, "base_url", "")
                         or _DEFAULT_BASE_URL
                     )
         except Exception:
@@ -102,7 +102,7 @@ class WeixinQRCodeAuthHandler(QRCodeAuthHandler):
 
     async def fetch_qrcode(self, request: Request) -> QRCodeResult:
         import httpx
-        from ..channels.weixin.client import ILinkClient
+        from ..channels.wechat.client import ILinkClient
 
         base_url = await self._get_base_url(request)
         client = ILinkClient(base_url=base_url)
@@ -138,7 +138,7 @@ class WeixinQRCodeAuthHandler(QRCodeAuthHandler):
 
     async def poll_status(self, token: str, request: Request) -> PollResult:
         import httpx
-        from ..channels.weixin.client import ILinkClient
+        from ..channels.wechat.client import ILinkClient
 
         base_url = await self._get_base_url(request)
         client = ILinkClient(base_url=base_url)
@@ -393,7 +393,7 @@ class DingtalkQRCodeAuthHandler(QRCodeAuthHandler):
 # ---------------------------------------------------------------------------
 
 QRCODE_AUTH_HANDLERS: Dict[str, QRCodeAuthHandler] = {
-    "weixin": WeixinQRCodeAuthHandler(),
+    "wechat": WeChatQRCodeAuthHandler(),
     "wecom": WecomQRCodeAuthHandler(),
     "dingtalk": DingtalkQRCodeAuthHandler(),
 }

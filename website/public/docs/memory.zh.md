@@ -255,7 +255,7 @@ Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_con
 
 ## 相关页面
 
-- [智能体记忆进化](./memory-evolving-and-proactive.en.md) — Auto-Memory、Auto-Dream、Auto-Memory-Search、Proactive 完整工作流
+- [智能体记忆进化](./memory-evolving-and-proactive.zh.md) — Auto-Memory、Auto-Dream、Auto-Memory-Search、Proactive 完整工作流
 - [项目介绍](./intro.zh.md) — 这个项目可以做什么
 - [控制台](./console.zh.md) — 在控制台管理记忆与配置
 - [Skills](./skills.zh.md) — 内置与自定义能力

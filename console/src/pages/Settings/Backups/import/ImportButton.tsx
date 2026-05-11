@@ -5,7 +5,7 @@
  */
 import { useRef } from "react";
 import { Button } from "antd";
-import { UploadOutlined } from "@ant-design/icons";
+import { ImportOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 
 interface Props {
@@ -36,7 +36,7 @@ export default function ImportButton({ onPick }: Props) {
         }}
       />
       <Button
-        icon={<UploadOutlined />}
+        icon={<ImportOutlined />}
         onClick={() => fileInputRef.current?.click()}
       >
         {t("backup.import")}

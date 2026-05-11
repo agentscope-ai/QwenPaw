@@ -195,6 +195,12 @@ class PluginLoader:
                 api = PluginApi(plugin_id, config or {}, manifest_dict)
                 api.set_registry(self.registry)
 
+                # Register plugin manifest to registry
+                self.registry.register_plugin_manifest(
+                    plugin_id,
+                    manifest_dict,
+                )
+
                 # Call plugin's register method (support both sync and async)
                 if hasattr(plugin_def, "register"):
                     result = plugin_def.register(api)

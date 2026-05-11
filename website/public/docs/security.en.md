@@ -61,19 +61,29 @@ In `config.json`:
       "guarded_tools": null,
       "denied_tools": [],
       "custom_rules": [],
-      "disabled_rules": []
+      "disabled_rules": [],
+      "shell_evasion_checks": {
+        "command_substitution": false,
+        "obfuscated_flags": false,
+        "backslash_escaped_whitespace": false,
+        "backslash_escaped_operators": false,
+        "newlines": false,
+        "comment_quote_desync": false,
+        "quoted_newline": false
+      }
     }
   }
 }
 ```
 
-| Field            | Description                                                                                                                                           |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`        | Enable or disable Tool Guard entirely. Can also be set via the `QWENPAW_TOOL_GUARD_ENABLED` environment variable (takes precedence).                  |
-| `guarded_tools`  | Specify guard scope:<br>• `null` (default) — guard all built-in tools<br>• `[]` — guard nothing<br>• `["tool_a", "tool_b"]` — guard only listed tools |
-| `denied_tools`   | Tools that are always blocked regardless of parameters.                                                                                               |
-| `custom_rules`   | User-defined regex rules (see format below).                                                                                                          |
-| `disabled_rules` | Built-in rule IDs to disable.                                                                                                                         |
+| Field                  | Description                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`              | Enable or disable Tool Guard entirely. Can also be set via the `QWENPAW_TOOL_GUARD_ENABLED` environment variable (takes precedence).                                                                                                                                                                                                                                                                                                  |
+| `guarded_tools`        | Specify guard scope:<br>• `null` (default) — guard all built-in tools<br>• `[]` — guard nothing<br>• `["tool_a", "tool_b"]` — guard only listed tools                                                                                                                                                                                                                                                                                 |
+| `denied_tools`         | Tools that are always blocked regardless of parameters.                                                                                                                                                                                                                                                                                                                                                                               |
+| `custom_rules`         | User-defined regex rules (see format below).                                                                                                                                                                                                                                                                                                                                                                                          |
+| `disabled_rules`       | Built-in YAML rule IDs to disable (applies to `TOOL_CMD_*` rules only).                                                                                                                                                                                                                                                                                                                                                               |
+| `shell_evasion_checks` | Per-check toggles for the shell evasion guardian. A dict mapping check names to `true`/`false`. **All checks default to `false` (disabled).** Toggle individual checks on from the Console under Settings → Security → Tool Guard, or set them here. Available keys: `command_substitution`, `obfuscated_flags`, `backslash_escaped_whitespace`, `backslash_escaped_operators`, `newlines`, `comment_quote_desync`, `quoted_newline`. |
 
 #### Custom rule format
 
@@ -141,6 +151,27 @@ Each custom rule is a JSON object with the following fields:
   }
 }
 ```
+
+### Execution level (approval_level)
+
+Each agent has an `approval_level` field (in `agent.json`) that controls how Tool Guard handles findings:
+
+| Level      | Behavior                                                               |
+| ---------- | ---------------------------------------------------------------------- |
+| **STRICT** | All tool calls require manual approval before execution                |
+| **SMART**  | Low-risk tool calls are auto-allowed; high-risk calls require approval |
+| **AUTO**   | Only tool calls flagged by guard rules require approval (default)      |
+| **OFF**    | Tool Guard is disabled for this agent; all tool calls execute directly |
+
+Configure in `agent.json`:
+
+```json
+{
+  "approval_level": "AUTO"
+}
+```
+
+Or change it in the Console under **Settings → Agents** in the agent's configuration card.
 
 ### Console management
 
@@ -225,13 +256,14 @@ The engine also runs **`ShellEvasionGuardian`** on `execute_shell_command`. It t
 | `SHELL_EVASION_COMMENT_QUOTE_DESYNC` | Quote characters inside an unquoted `#` comment line                         |
 | `SHELL_EVASION_QUOTED_NEWLINE`       | Newline inside quotes where the next segment looks like a `#` comment line   |
 
-**Configuration note:** `disabled_rules` in `config.json` applies only to YAML rule IDs (typically `TOOL_CMD_*`). It does **not** disable `SHELL_EVASION_*` findings; turning off Tool Guard disables all guardians, including this one.
+**Configuration note:** `disabled_rules` in `config.json` applies only to YAML rule IDs (typically `TOOL_CMD_*`). It does **not** control `SHELL_EVASION_*` findings. Shell evasion checks are controlled independently via the `shell_evasion_checks` config (see below). Turning off Tool Guard entirely disables all guardians, including this one.
 
 **Usage recommendations**:
 
 - Keep CRITICAL level rules enabled; these represent the most dangerous operations
 - HIGH level rules can be adjusted based on actual use cases; some legitimate operations may trigger them
-- Use `disabled_rules` config to disable YAML `TOOL_CMD_*` rules that don't apply to your use case (`SHELL_EVASION_*` is always evaluated while Tool Guard is enabled)
+- Use `disabled_rules` config to disable YAML `TOOL_CMD_*` rules that don't apply to your use case
+- Use `shell_evasion_checks` to toggle individual shell evasion checks (all disabled by default)
 - Use `custom_rules` to add organization-specific security rules
 
 ---
@@ -592,6 +624,26 @@ QwenPaw supports optional web login authentication to protect the Console from u
 | `QWENPAW_AUTH_ENABLED`  | Set to `true` to enable authentication       | **Yes**  |
 | `QWENPAW_AUTH_USERNAME` | Pre-set admin username for auto-registration | Optional |
 | `QWENPAW_AUTH_PASSWORD` | Pre-set admin password for auto-registration | Optional |
+
+### Auth-bypass host whitelist
+
+In `config.json`, the `security.allow_no_auth_hosts` field specifies client IP addresses that can access API endpoints without authentication, even when authentication is enabled:
+
+```json
+{
+  "security": {
+    "allow_no_auth_hosts": ["127.0.0.1", "::1"]
+  }
+}
+```
+
+| Field                 | Type          | Default                | Description                                                                          |
+| --------------------- | ------------- | ---------------------- | ------------------------------------------------------------------------------------ |
+| `allow_no_auth_hosts` | array[string] | `["127.0.0.1", "::1"]` | Client IP addresses allowed to access `/api/*` routes without authentication tokens. |
+
+This can also be managed from the Console under **Settings → Security**.
+
+> **Security warning**: Adding non-localhost addresses to this list means those IPs can access the full API without credentials. Use with caution and only for trusted hosts on private networks.
 
 **Configuration notes**:
 

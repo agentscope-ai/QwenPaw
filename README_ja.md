@@ -58,19 +58,18 @@
 
 ## ニュース
 
+- [2026-05-09] **v1.1.6** をリリースしました！詳細は [v1.1.6 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
+
+  - **[v1.1.6] 新機能**：LLM によるセッションタイトル自動生成；トークン使用量トレンドチャート；Mermaid ダイアグレンダリング；Feishu/WeCom インタラクティブ承認カード；Volcano Engine・Aliyun Token Plan プロバイダ；スキルインストール/アンインストール/テスト CLI；エージェントステータス API；Cron セッション分離；GPT Image 2 プラグイン。
+  - **[v1.1.6] パフォーマンス**：コンソールレンダリング最適化；チャット履歴ナビゲーション最適化；QR ポーリングクリーンアップ。
+  - **[v1.1.6] 修正**：MCP 実行タイムアウトとライフサイクルリーク；エージェント設定のホットリロードと保存修正。
+  - **[v1.1.6] 新規コントリビューター**：@karls0r、@Jailtonfonseca、@hllqkb、@yutai78786、@tqjason、@JingHou1215、@wjt0321、@1105623876、@Keillion、@q1023884985 の皆さん、ありがとうございます。
+
+- [2026-04-29] **v1.1.5** をリリースしました！詳細は [v1.1.5 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
+
 - [2026-04-24] **v1.1.4** をリリースしました！詳細は [v1.1.4 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
 
-  - **[v1.1.4] 新機能**：メモリ＆コンテキストアーキテクチャの再構築；プランモード；Shell 回避チェックの個別設定；認証バイパスホストのホワイトリスト；SIP 音声チャネル；セッション右クリックメニュー；ブラウザ起動パラメータと Shell コマンドタイムアウト設定；DeepSeek V4 モデル。
-  - **[v1.1.4] 変更**：ツールガード承認システム；Docker ビルドの改善；動的プラグイン登録。
-  - **[v1.1.4] 新規コントリビューター**：@shadowabi、@shaohuaxi、@vincentyzhj、@hlgone、@twz915、@Nioolek の皆さん、ありがとうございます。
-
-- [2026-04-22] **v1.1.3** をリリースしました！詳細は [v1.1.3 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
-
-- [2026-04-17] **v1.1.2** をリリースしました！詳細は [v1.1.2 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
-
-- [2026-04-14] **v1.1.1** をリリースしました！詳細は [v1.1.1 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
-
-[2026-04-12] **CoPaw は正式に QwenPaw へリブランディングしました**。オープンソース開発の次のフェーズへ進むうえでの、重要な一歩です。
+- [2026-04-12] **CoPaw は正式に QwenPaw へリブランディングしました**。オープンソース開発の次のフェーズへ進むうえでの、重要な一歩です。
 
 新しい名前は、私たちが築いているオープンなエコシステムと、これからも追求していく大きな方向性を、より的確に表しています。
 
@@ -384,6 +383,7 @@ qwenpaw app    # サービスを起動
 | [モデル](https://qwenpaw.agentscope.io/docs/models)                         | クラウド・ローカル・カスタムプロバイダーの設定       |
 | [チャネル](https://qwenpaw.agentscope.io/docs/channels)                      | DingTalk、Feishu、QQ、Discord、iMessageなど         |
 | [スキル](https://qwenpaw.agentscope.io/docs/skills)                          | 機能の拡張とカスタマイズ                             |
+| [プラグイン](https://qwenpaw.agentscope.io/docs/plugins)                     | プラグインシステム                                   |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                                | MCPクライアントの管理                               |
 | [メモリ](https://qwenpaw.agentscope.io/docs/memory)                          | 長期記憶                              |
 | [記憶進化＆プロアクティブ](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | エージェントの記憶進化とプロアクティブインタラクション |

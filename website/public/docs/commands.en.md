@@ -542,7 +542,12 @@ Send `/daemon <subcommand>` or short names (e.g., `/status`) in chat, or run `qw
 | `/daemon reload-config`             | Re-read and validate configuration file                                                   | ✅   | ✅       |
 | `/daemon version`                   | Version number, working directory, and log path                                           | ✅   | ✅       |
 | `/daemon logs` or `/daemon logs 50` | View last N lines of log (default 100, max 2000, from `qwenpaw.log` in working directory) | ✅   | ✅       |
-| `/daemon approve`                   | Approve pending tool execution (tool-guard scenario)                                      | ✅   | ❌       |
+| `/approval approve [request_id]`    | Approve pending tool execution (or queue head if no ID)                                   | ✅   | ❌       |
+| `/approval deny [request_id]`       | Deny pending tool execution with optional reason                                          | ✅   | ❌       |
+| `/approval list`                    | List all pending approval requests                                                        | ✅   | ❌       |
+| `/approval cancel <request_id>`     | Cancel a specific approval request                                                        | ✅   | ❌       |
+| `/approve`                          | Shorthand for `/approval approve`                                                         | ✅   | ❌       |
+| `/deny`                             | Shorthand for `/approval deny`                                                            | ✅   | ❌       |
 
 ---
 
@@ -631,23 +636,36 @@ qwenpaw daemon logs -n 200   # From terminal, specify 200 lines
 
 ---
 
-### /daemon approve - Approve Tool Execution
+### /approval - Tool Execution Approval Commands
 
-Quickly approve pending tool execution. When tool execution requires manual approval (tool-guard scenario), use this command to approve.
+Manage tool guard approval requests. When `approval_level` is set to `STRICT` or `SMART`, tools with CRITICAL or HIGH findings enter a pending-approval flow. Use these commands to approve, deny, list, or cancel requests.
 
 **Usage:**
 
 ```
-/daemon approve            # In chat
+/approval approve [request_id]           # Approve specific request or queue head
+/approval deny [request_id] [reason]     # Deny with optional reason
+/approval list                           # List pending approvals (current session)
+/approval list --all                     # List all pending approvals (all sessions)
+/approval cancel <request_id>            # Cancel a specific request
 ```
 
-> 💡 **Tip**: This command only works in chat. When the Agent prompts for tool execution approval, send this command to quickly approve.
+**Shorthands:**
+
+```
+/approve                                 # Same as /approval approve
+/approve <request_id>                    # Same as /approval approve <request_id>
+/deny                                    # Same as /approval deny
+/deny <request_id> <reason>              # Same as /approval deny <request_id> <reason>
+```
+
+> `/approval list` shows pending approvals for the current session (including child sessions). Use `--all` or `-a` to see all sessions for this agent.
 
 ---
 
 ### Terminal Usage
 
-All daemon commands support terminal usage (except `/stop` and `/daemon approve` which only work in chat):
+All daemon commands support terminal usage (except `/stop` and `/approval` which only work in chat):
 
 ```bash
 qwenpaw daemon status
@@ -882,6 +900,17 @@ Please fix the PRD format before confirming.
 | ---------------- | ------------------------- | ------------------------------ | ------------------------ |
 | **Normal Chat**  | Simple tasks, quick fixes | Single agent executes directly | All tools available      |
 | **Mission Mode** | Complex, long-term tasks  | Master dispatches workers      | Master has limited tools |
+
+---
+
+## Plan Mode
+
+Plan Mode provides structured task planning and step-by-step execution. For full documentation, see [Plan Mode](./plan).
+
+| Command               | Description                                                    | Chat |
+| --------------------- | -------------------------------------------------------------- | ---- |
+| `/plan`               | Show plan mode status (enabled/disabled) and current plan info | ✅   |
+| `/plan <description>` | Create a new structured plan and begin step-by-step execution  | ✅   |
 
 ---
 

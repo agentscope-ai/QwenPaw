@@ -10,7 +10,6 @@ import asyncio
 import logging
 import os
 import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -53,12 +52,6 @@ async def _process_single_file_block(
     elif isinstance(source, dict) and source.get("type") == "url":
         url = source.get("url", "")
         if url:
-            parsed = urllib.parse.urlparse(url)
-            if parsed.scheme == "file":
-                try:
-                    local_path = urllib.request.url2pathname(parsed.path)
-                except Exception:
-                    return None
             local_path = await download_file_from_url(
                 url,
                 filename,

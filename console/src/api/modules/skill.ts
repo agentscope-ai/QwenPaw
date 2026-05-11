@@ -102,7 +102,13 @@ async function _uploadZip(
   });
 
   if (!response.ok) {
-    throw new Error(await response.text());
+    const text = await response.text();
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      // Format like request.ts so parseErrorDetail() can extract structured fields
+      throw new Error(`${response.status} ${response.statusText} - ${text}`);
+    }
+    throw new Error(text || `Request failed: ${response.status}`);
   }
 
   return await response.json();
@@ -244,7 +250,24 @@ export const skillApi = {
     }),
 
   batchEnableSkills: (skillNames: string[]) =>
-    request<void>("/skills/batch-enable", {
+    request<{
+      results: Record<
+        string,
+        {
+          success?: boolean;
+          reason?: string;
+          detail?: unknown;
+        }
+      >;
+    }>("/skills/batch-enable", {
+      method: "POST",
+      body: JSON.stringify(skillNames),
+    }),
+
+  batchDisableSkills: (skillNames: string[]) =>
+    request<{
+      results: Record<string, { success: boolean; reason?: string }>;
+    }>("/skills/batch-disable", {
       method: "POST",
       body: JSON.stringify(skillNames),
     }),

@@ -331,22 +331,6 @@ export function JobDrawer({
           }}
         </Form.Item>
 
-        <Form.Item
-          name={["request", "session_id"]}
-          label={t("cronJobs.requestSessionId")}
-          tooltip={t("cronJobs.requestSessionIdTooltip")}
-        >
-          <Input placeholder="default" />
-        </Form.Item>
-
-        <Form.Item
-          name={["request", "user_id"]}
-          label={t("cronJobs.requestUserId")}
-          tooltip={t("cronJobs.requestUserIdTooltip")}
-        >
-          <Input placeholder="system" />
-        </Form.Item>
-
         <Form.Item name={["dispatch", "type"]} label="DispatchType" hidden>
           <Input disabled value="channel" />
         </Form.Item>
@@ -391,6 +375,15 @@ export function JobDrawer({
             <Select.Option value="stream">stream</Select.Option>
             <Select.Option value="final">final</Select.Option>
           </Select>
+        </Form.Item>
+
+        <Form.Item
+          name={["runtime", "share_session"]}
+          label={t("cronJobs.runtimeShareSession")}
+          valuePropName="checked"
+          tooltip={t("cronJobs.shareSessionTooltip")}
+        >
+          <Switch defaultChecked />
         </Form.Item>
 
         <Form.Item
