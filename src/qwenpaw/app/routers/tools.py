@@ -151,12 +151,31 @@ async def list_tools(
         manifest = tool_to_manifest.get(tool_config.name)
         if manifest and "meta" in manifest:
             meta = manifest["meta"]
-            tool_info.requires_config = meta.get(
-                "requires_config",
-                False,
-            )
+
+            # Try to get tool-specific config first (from meta.tools array)
+            config_fields_data = None
+            requires_config = False
+
+            tools = meta.get("tools", [])
+            if isinstance(tools, list):
+                for tool in tools:
+                    if (
+                        isinstance(tool, dict)
+                        and tool.get("name") == tool_config.name
+                    ):
+                        # Found tool-specific config
+                        requires_config = tool.get("requires_config", False)
+                        config_fields_data = tool.get("config_fields", [])
+                        break
+
+            # Fallback to global config if tool-specific not found
+            if config_fields_data is None:
+                requires_config = meta.get("requires_config", False)
+                config_fields_data = meta.get("config_fields", [])
+
+            tool_info.requires_config = requires_config
+
             # Convert config_fields to Pydantic models
-            config_fields_data = meta.get("config_fields", [])
             if config_fields_data:
                 tool_info.config_fields = [
                     ToolConfigField(**field) for field in config_fields_data
@@ -315,7 +334,24 @@ async def get_tool_config(
     if plugin_id:
         manifest = registry.get_plugin_manifest(plugin_id)
         if manifest and "meta" in manifest:
-            config_fields = manifest["meta"].get("config_fields", [])
+            meta = manifest["meta"]
+
+            # Try to get tool-specific config fields first
+            config_fields = None
+            tools = meta.get("tools", [])
+            if isinstance(tools, list):
+                for tool in tools:
+                    if (
+                        isinstance(tool, dict)
+                        and tool.get("name") == tool_name
+                    ):
+                        config_fields = tool.get("config_fields", [])
+                        break
+
+            # Fallback to global config fields
+            if config_fields is None:
+                config_fields = meta.get("config_fields", [])
+
             masked_config = dict(config)
             for field in config_fields:
                 if (
@@ -361,7 +397,23 @@ async def update_tool_config(
     if plugin_id:
         manifest = registry.get_plugin_manifest(plugin_id)
         if manifest and "meta" in manifest:
-            config_fields = manifest["meta"].get("config_fields", [])
+            meta = manifest["meta"]
+
+            # Try to get tool-specific config fields first
+            config_fields = None
+            tools = meta.get("tools", [])
+            if isinstance(tools, list):
+                for tool in tools:
+                    if (
+                        isinstance(tool, dict)
+                        and tool.get("name") == tool_name
+                    ):
+                        config_fields = tool.get("config_fields", [])
+                        break
+
+            # Fallback to global config fields
+            if config_fields is None:
+                config_fields = meta.get("config_fields", [])
 
             # Get existing config
             existing_config = (

@@ -17,12 +17,70 @@
       {
         "name": "generate_image_gpt",
         "description": "Generate high-quality images from text prompts using GPT Image 2",
-        "icon": "🎨"
+        "icon": "🎨",
+        "requires_config": true,
+        "config_fields": [
+          {
+            "name": "api_key",
+            "label": "OpenAI API Key",
+            "type": "password",
+            "required": true,
+            "placeholder": "sk-...",
+            "help": "Get your API key from platform.openai.com"
+          },
+          {
+            "name": "endpoint",
+            "label": "API Endpoint",
+            "type": "text",
+            "required": false,
+            "placeholder": "https://api.openai.com/v1/images/generations",
+            "help": "Custom API endpoint (leave empty to use default /images/generations)"
+          },
+          {
+            "name": "timeout",
+            "label": "Request Timeout (seconds)",
+            "type": "number",
+            "required": false,
+            "placeholder": "60",
+            "min": 10,
+            "max": 300,
+            "help": "HTTP request timeout in seconds (default: 60)"
+          }
+        ]
       },
       {
         "name": "edit_image_gpt",
         "description": "Edit or generate images using reference images with GPT Image 2",
-        "icon": "🖼️"
+        "icon": "🖼️",
+        "requires_config": true,
+        "config_fields": [
+          {
+            "name": "api_key",
+            "label": "OpenAI API Key",
+            "type": "password",
+            "required": true,
+            "placeholder": "sk-...",
+            "help": "Get your API key from platform.openai.com"
+          },
+          {
+            "name": "endpoint",
+            "label": "API Endpoint",
+            "type": "text",
+            "required": false,
+            "placeholder": "https://api.openai.com/v1/images/edits",
+            "help": "Custom API endpoint (leave empty to use default /images/edits)"
+          },
+          {
+            "name": "timeout",
+            "label": "Request Timeout (seconds)",
+            "type": "number",
+            "required": false,
+            "placeholder": "60",
+            "min": 10,
+            "max": 300,
+            "help": "HTTP request timeout in seconds (default: 60)"
+          }
+        ]
       }
     ],
     "api_key_url": "https://platform.openai.com/api-keys",
@@ -43,7 +101,7 @@
         "label": "API Endpoint",
         "type": "text",
         "required": false,
-        "placeholder": "Leave empty to use default (/generations or /edits)",
+        "placeholder": "Leave empty to use default",
         "help": "Custom API endpoint (leave empty for auto-detection based on tool)"
       },
       {
