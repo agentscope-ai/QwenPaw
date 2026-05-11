@@ -39,6 +39,17 @@ export default function AgentSelector({
         return a.enabled ? -1 : 1;
       });
       setAgents(sortedAgents);
+
+      const currentSelectedAgent = useAgentStore.getState().selectedAgent;
+      const configuredActiveAgent = sortedAgents.find(
+        (agent) => agent.id === data.active_agent && agent.enabled,
+      );
+      if (
+        configuredActiveAgent &&
+        currentSelectedAgent !== configuredActiveAgent.id
+      ) {
+        setSelectedAgent(configuredActiveAgent.id);
+      }
     } catch (error) {
       console.error("Failed to load agents:", error);
       message.error(t("agent.loadFailed"));

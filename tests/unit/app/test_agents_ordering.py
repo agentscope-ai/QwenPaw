@@ -89,6 +89,24 @@ async def test_list_agents_appends_missing_ids(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_list_agents_returns_active_agent(monkeypatch):
+    """List response should expose the configured active agent."""
+    config = _build_config(["default", "alpha"])
+    config.agents.active_agent = "alpha"
+
+    monkeypatch.setattr(agents_router, "load_config", lambda: config)
+    monkeypatch.setattr(
+        agents_router,
+        "load_agent_config",
+        _agent_config,
+    )
+
+    response = await agents_router.list_agents()
+
+    assert response.active_agent == "alpha"
+
+
+@pytest.mark.asyncio
 async def test_reorder_agents_rejects_incomplete_payload(monkeypatch):
     """Reorder should reject lists that omit configured agents."""
     config = _build_config(
