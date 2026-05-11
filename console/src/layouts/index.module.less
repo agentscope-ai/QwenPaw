@@ -389,6 +389,42 @@
   color: rgba(0, 0, 0, 0.88) !important;
 }
 
+@media (max-width: 768px) {
+  .sider {
+    height: calc(100vh - 56px);
+    padding: 0 8px;
+    flex: 0 0 auto !important;
+    max-width: 240px !important;
+
+    &.siderCollapsed {
+      padding: 0 6px;
+
+      .collapseToggleContainer {
+        width: calc(100% + 12px);
+        margin: 0 -6px;
+      }
+    }
+  }
+
+  .collapsedNav {
+    gap: 2px;
+    padding: 2px 0;
+  }
+
+  .collapsedNavItem {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+  }
+
+  .collapseToggleContainer {
+    width: calc(100% + 16px);
+    margin: 0 -8px;
+    padding: 8px 0;
+    justify-content: center;
+  }
+}
+
 // ─── Update Modal ─────────────────────────────────────────────────────────────
 .updateModal {
   :global(.qwenpaw-modal-content) {
