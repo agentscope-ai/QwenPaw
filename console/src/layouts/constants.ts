@@ -39,6 +39,7 @@ export const KEY_TO_PATH: Record<string, string> = {
   "voice-transcription": "/voice-transcription",
   debug: "/debug",
   backups: "/backups",
+  "plugin-manager": "/plugin-manager",
 };
 
 export const KEY_TO_LABEL: Record<string, string> = {

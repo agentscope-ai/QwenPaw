@@ -40,6 +40,7 @@ import {
   SparkDebugLine,
   SparkSaveLine,
 } from "@agentscope-ai/icons";
+import { Package } from "lucide-react";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import { usePlugins } from "../plugins/PluginContext";
@@ -264,6 +265,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       path: "/debug",
       label: t("nav.debug", "Debug"),
     },
+    {
+      key: "plugin-manager",
+      icon: <Package size={18} />,
+      path: "/plugin-manager",
+      label: t("nav.pluginManager", "Plugin Manager"),
+    },
     // Append plugin nav items dynamically
     ...pluginRoutes.map((route) => ({
       key: route.path.replace(/^\//, ""),
@@ -401,6 +408,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           key: "debug",
           label: collapsed ? null : t("nav.debug", "Debug"),
           icon: <SparkDebugLine size={16} />,
+        },
+        {
+          key: "plugin-manager",
+          label: collapsed ? null : t("nav.pluginManager", "Plugin Manager"),
+          icon: <Package size={16} />,
         },
       ],
     },

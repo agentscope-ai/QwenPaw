@@ -63,7 +63,8 @@
     "voiceTranscription": "语音转写",
     "debug": "调试",
     "plugins": "插件",
-    "backups": "备份"
+    "backups": "备份",
+    "pluginManager": "插件管理"
   },
   "debug": {
     "title": "调试",
@@ -1898,5 +1899,35 @@
       "done": "已完成",
       "abandoned": "已放弃"
     }
+  },
+  "pluginManager": {
+    "title": "插件管理",
+    "description": "安装、管理和卸载插件，无需重启服务。",
+    "installed": "已安装插件",
+    "noPlugins": "暂无已安装插件",
+    "installBtn": "安装插件",
+    "installTitle": "安装插件",
+    "tabUrl": "从 URL 安装",
+    "tabUpload": "上传 ZIP",
+    "urlLabel": "插件路径或 URL",
+    "urlPlaceholder": "本地路径 或 https://example.com/plugin.zip",
+    "urlHint": "支持本地目录路径或可下载的 ZIP 文件 URL",
+    "uploadLabel": "选择插件 ZIP 文件",
+    "uploadHint": "仅支持 .zip 格式",
+    "installing": "安装中...",
+    "installSuccess": "插件安装成功",
+    "installFailed": "插件安装失败",
+    "uninstall": "卸载",
+    "uninstallConfirm": "确定要卸载插件 \"{{name}}\"？卸载后将立即生效，无法撤销。",
+    "uninstalling": "卸载中...",
+    "uninstallSuccess": "插件卸载成功",
+    "uninstallFailed": "插件卸载失败",
+    "statusLoaded": "运行中",
+    "statusUnloaded": "未加载",
+    "version": "版本",
+    "author": "作者",
+    "unknown": "未知",
+    "loadFailed": "加载插件列表失败",
+    "confirmTitle": "确认卸载"
   }
 }

@@ -9,29 +9,183 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
+from typing import Optional
 
 import click
 
 logger = logging.getLogger(__name__)
 
 
-def _check_qwenpaw_not_running():
-    """Check if QwenPaw is not running, exit if it is."""
+# ── Live-API helpers ──────────────────────────────────────────────────────
+
+
+def _get_api_base() -> Optional[str]:
+    """Return the base URL of the running QwenPaw API, or None.
+
+    Returns:
+        Base URL string such as ``http://127.0.0.1:8088/api`` if the
+        app is running, otherwise ``None``.
+    """
+    from ..config.utils import read_last_api
+
+    api_info = read_last_api()
+    if api_info is None:
+        return None
+    host, port = api_info
+    return f"http://{host}:{port}/api"
+
+
+def _api_install_plugin(source: str) -> bool:
+    """Send a hot-install request to the running QwenPaw API.
+
+    Uses the localhost auth-bypass so no credentials are required.
+
+    Args:
+        source: Local directory path or HTTP(S) URL of the plugin
+
+    Returns:
+        ``True`` on success, ``False`` otherwise
+    """
+    base = _get_api_base()
+    if base is None:
+        return False
+
+    url = f"{base}/plugins/install"
+    payload = json.dumps({"source": source}).encode()
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310
+            body = json.loads(resp.read())
+        name = body.get("name", source)
+        click.echo(
+            f"✅ Plugin '{name}' installed and loaded (hot reload).",
+        )
+        return True
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read()).get("detail", str(exc))
+        except Exception:
+            detail = str(exc)
+        click.echo(f"❌ API install failed: {detail}", err=True)
+        return False
+    except Exception as exc:
+        click.echo(f"❌ API request failed: {exc}", err=True)
+        return False
+
+
+def _api_upload_plugin(zip_path: Path) -> bool:
+    """Send a ZIP file to the running QwenPaw API for hot-install.
+
+    Args:
+        zip_path: Path to the plugin .zip archive
+
+    Returns:
+        ``True`` on success, ``False`` otherwise
+    """
+    base = _get_api_base()
+    if base is None:
+        return False
+
+    # Build a minimal multipart/form-data body by hand so we avoid
+    # depending on the ``requests`` library.
+    boundary = "----QwenPawPluginUpload"
+    content = zip_path.read_bytes()
+    body = (
+        (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="file"; '
+            f'filename="{zip_path.name}"\r\n'
+            f"Content-Type: application/zip\r\n\r\n"
+        ).encode()
+        + content
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
+
+    url = f"{base}/plugins/upload"
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Content-Length": str(len(body)),
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310
+            result = json.loads(resp.read())
+        name = result.get("name", zip_path.name)
+        click.echo(
+            f"✅ Plugin '{name}' installed and loaded (hot reload).",
+        )
+        return True
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read()).get("detail", str(exc))
+        except Exception:
+            detail = str(exc)
+        click.echo(f"❌ API upload failed: {detail}", err=True)
+        return False
+    except Exception as exc:
+        click.echo(f"❌ API request failed: {exc}", err=True)
+        return False
+
+
+def _api_uninstall_plugin(plugin_id: str) -> bool:
+    """Send a hot-uninstall request to the running QwenPaw API.
+
+    Args:
+        plugin_id: ID of the plugin to remove
+
+    Returns:
+        ``True`` on success, ``False`` otherwise
+    """
+    base = _get_api_base()
+    if base is None:
+        return False
+
+    url = f"{base}/plugins/{plugin_id}"
+    req = urllib.request.Request(url, method="DELETE")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
+            body = json.loads(resp.read())
+        click.echo(
+            body.get(
+                "message",
+                f"✅ Plugin '{plugin_id}' uninstalled.",
+            ),
+        )
+        return True
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read()).get("detail", str(exc))
+        except Exception:
+            detail = str(exc)
+        click.echo(f"❌ API uninstall failed: {detail}", err=True)
+        return False
+    except Exception as exc:
+        click.echo(f"❌ API request failed: {exc}", err=True)
+        return False
+
+
+def _is_running() -> bool:
+    """Return whether QwenPaw is currently running.
+
+    Returns:
+        ``True`` if the API is reachable, ``False`` otherwise.
+    """
     from ..config.utils import is_qwenpaw_running
 
-    if is_qwenpaw_running():
-        click.echo(
-            "❌ QwenPaw is currently running. Please stop it first:",
-            err=True,
-        )
-        click.echo("   qwenpaw shutdown", err=True)
-        click.echo(
-            "\n💡 Plugin operations are only allowed when QwenPaw is stopped.",
-        )
-        raise click.Abort()
+    return is_qwenpaw_running()
 
 
 def _safe_extract_zip(zip_ref: zipfile.ZipFile, extract_path: Path):
@@ -230,17 +384,48 @@ def plugin():
 def install(source: str, force: bool):
     """Install a plugin from local path or URL.
 
+    When QwenPaw is running, the plugin is hot-loaded immediately via
+    the API (no restart required).  When QwenPaw is stopped, the
+    plugin files are copied and will be loaded on next start.
+
     Examples:
         qwenpaw plugin install examples/plugins/idealab-provider
         qwenpaw plugin install /path/to/plugin
         qwenpaw plugin install https://example.com/plugin.zip
     """
+    # If the app is running, delegate to the live API for hot-install
+    if _is_running():
+        click.echo(
+            "QwenPaw is running — using hot-install via API...",
+        )
+        is_url = source.startswith(("http://", "https://"))
+        if is_url:
+            # API accepts URLs directly
+            _api_install_plugin(source)
+        else:
+            # Check whether the local path is a directory or a zip
+            source_path = Path(source).resolve()
+            if not source_path.exists():
+                click.echo(
+                    f"❌ Path not found: {source}",
+                    err=True,
+                )
+                return
+            if source_path.is_file() and source_path.suffix == ".zip":
+                _api_upload_plugin(source_path)
+            elif source_path.is_dir():
+                _api_install_plugin(str(source_path))
+            else:
+                click.echo(
+                    "❌ Source must be a directory or a .zip file.",
+                    err=True,
+                )
+        return
+
+    # ── Offline install (app is not running) ─────────────────────────
+
     from ..config.utils import get_plugins_dir
 
-    # Check if QwenPaw is running
-    _check_qwenpaw_not_running()
-
-    # Check if source is a URL
     is_url = source.startswith(("http://", "https://"))
     temp_dir = None
 
@@ -251,19 +436,16 @@ def install(source: str, force: bool):
             click.echo(f"❌ Failed to download plugin: {e}", err=True)
             return
     else:
-        # Local path
         source_path = Path(source).resolve()
         if not source_path.exists():
             click.echo(f"❌ Path not found: {source}", err=True)
             return
 
-    # Check for plugin.json
     manifest_path = source_path / "plugin.json"
     if not manifest_path.exists():
         click.echo(f"❌ plugin.json not found in {source}", err=True)
         return
 
-    # Read plugin info
     try:
         with open(manifest_path, encoding="utf-8") as f:
             manifest = json.load(f)
@@ -278,17 +460,18 @@ def install(source: str, force: bool):
     plugin_name = manifest.get("name")
 
     if not plugin_id or not plugin_name:
-        click.echo("❌ plugin.json missing required fields: id, name", err=True)
+        click.echo(
+            "❌ plugin.json missing required fields: id, name",
+            err=True,
+        )
         return
 
-    click.echo(f"📦 Installing plugin: {plugin_name} ({plugin_id})")
+    click.echo(f"Installing plugin: {plugin_name} ({plugin_id})")
 
-    # Target directory
     plugin_dir = get_plugins_dir()
     plugin_dir.mkdir(parents=True, exist_ok=True)
     target_dir = plugin_dir / plugin_id
 
-    # Check if already exists
     if target_dir.exists() and not force:
         click.echo(
             f"❌ Plugin '{plugin_id}' already exists. "
@@ -297,10 +480,8 @@ def install(source: str, force: bool):
         )
         return
 
-    # Validate plugin structure before installation
-    click.echo("🔍 Validating plugin structure...")
+    click.echo("Validating plugin structure...")
     try:
-        # Check if backend entry point exists in source
         backend_entry = manifest.get("entry", {}).get("backend")
         if backend_entry:
             backend_path = source_path / backend_entry
@@ -309,7 +490,6 @@ def install(source: str, force: bool):
                     f"Backend entry point not found: {backend_entry}",
                 )
 
-            # Try to import the module to check for syntax errors
             import importlib.util
 
             spec = importlib.util.spec_from_file_location(
@@ -320,46 +500,34 @@ def install(source: str, force: bool):
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
 
-                # Check for required plugin export (class or instance)
                 has_plugin_class = hasattr(module, "Plugin")
                 has_plugin_instance = hasattr(module, "plugin")
 
                 if not (has_plugin_class or has_plugin_instance):
                     raise AttributeError(
-                        "Plugin module must export a 'Plugin' class or "
-                        "'plugin' instance",
+                        "Plugin module must export a 'Plugin' class "
+                        "or 'plugin' instance",
                     )
 
-        click.echo("✓ Plugin validation successful")
+        click.echo("Plugin validation successful")
     except Exception as e:
         click.echo(f"❌ Plugin validation failed: {e}", err=True)
-        click.echo(
-            "⚠️  Plugin not installed. Fix the issues and try again.",
-            err=True,
-        )
         return
 
-    # Remove old version
     if target_dir.exists():
-        click.echo("🗑️  Removing old version...")
         shutil.rmtree(target_dir)
 
-    # Copy plugin files
-    click.echo("📁 Copying plugin files...")
+    click.echo("Copying plugin files...")
     try:
         shutil.copytree(source_path, target_dir)
     except Exception as e:
         click.echo(f"❌ Failed to copy plugin files: {e}", err=True)
         return
 
-    # Install dependencies
     requirements_file = target_dir / "requirements.txt"
     if requirements_file.exists():
-        click.echo("📦 Installing dependencies...")
+        click.echo("Installing dependencies...")
         try:
-            # Use sys.executable to ensure we use the correct Python
-            # environment
-            # This works across different platforms (Windows, Linux, macOS)
             _ = subprocess.run(
                 [
                     sys.executable,
@@ -373,40 +541,36 @@ def install(source: str, force: bool):
                 capture_output=True,
                 text=True,
             )
-            click.echo("✓ Dependencies installed")
+            click.echo("Dependencies installed")
         except subprocess.CalledProcessError as e:
             click.echo("❌ Failed to install dependencies:", err=True)
             click.echo(f"  {e.stderr}", err=True)
-            # Clean up the failed installation
             if target_dir.exists():
                 shutil.rmtree(target_dir)
             return
         except FileNotFoundError:
             click.echo(
-                "⚠️  pip not found. Please install dependencies manually:",
+                "pip not found. Please install dependencies manually:",
                 err=True,
             )
             click.echo(f"   pip install -r {requirements_file}")
-            # Clean up the failed installation
             if target_dir.exists():
                 shutil.rmtree(target_dir)
             return
 
     click.echo(f"\n✅ Plugin '{plugin_name}' installed successfully!")
-    click.echo(f"📍 Location: {target_dir}")
+    click.echo(f"Location: {target_dir}")
 
-    # Sync tool plugins to all agents
     _sync_tool_plugin_to_agents(manifest)
 
-    # Clean up temporary directory if source was downloaded
     if is_url and temp_dir:
         try:
             shutil.rmtree(temp_dir)
         except Exception:
-            pass  # Ignore cleanup errors
+            pass
 
-    click.echo("\n💡 Next steps:")
-    click.echo("   1. Restart QwenPaw to load the plugin")
+    click.echo("\nNext steps:")
+    click.echo("   1. Start QwenPaw to load the plugin")
     click.echo("   2. Configure the plugin in the web UI")
 
 
@@ -503,11 +667,28 @@ def info(plugin_id: str):
 @plugin.command()
 @click.argument("plugin_id")
 def uninstall(plugin_id: str):
-    """Uninstall a plugin."""
-    from ..config.utils import get_plugins_dir
+    """Uninstall a plugin.
 
-    # Check if QwenPaw is running
-    _check_qwenpaw_not_running()
+    When QwenPaw is running, the plugin is unloaded immediately via
+    the API (no restart required).  When QwenPaw is stopped, only the
+    plugin files are removed from disk.
+    """
+    # If the app is running, delegate to the live API for hot-uninstall
+    if _is_running():
+        click.echo(
+            "QwenPaw is running — using hot-uninstall via API...",
+        )
+        if not click.confirm(
+            f"Uninstall plugin '{plugin_id}'?",
+        ):
+            click.echo("Cancelled.")
+            return
+        _api_uninstall_plugin(plugin_id)
+        return
+
+    # ── Offline uninstall (app is not running) ────────────────────────
+
+    from ..config.utils import get_plugins_dir
 
     plugin_dir = get_plugins_dir() / plugin_id
 
@@ -515,7 +696,6 @@ def uninstall(plugin_id: str):
         click.echo(f"❌ Plugin '{plugin_id}' not found", err=True)
         return
 
-    # Read manifest before deletion for tool cleanup
     manifest_path = plugin_dir / "plugin.json"
     manifest = None
     if manifest_path.exists():
@@ -525,23 +705,18 @@ def uninstall(plugin_id: str):
         except Exception as e:
             logger.warning(f"Failed to read plugin manifest: {e}")
 
-    # Confirm
     if not click.confirm(
-        f"Are you sure you want to uninstall '{plugin_id}'?",
+        f"Uninstall plugin '{plugin_id}'?",
     ):
         click.echo("Cancelled.")
         return
 
-    # Remove tool from all agents if this is a tool plugin
     if manifest:
         _remove_tool_plugin_from_agents(manifest)
 
-    # Delete directory
     try:
         shutil.rmtree(plugin_dir)
-
         click.echo(f"✅ Plugin '{plugin_id}' uninstalled successfully")
-        click.echo("💡 Restart QwenPaw to apply changes")
     except Exception as e:
         click.echo(f"❌ Failed to uninstall plugin: {e}", err=True)
 

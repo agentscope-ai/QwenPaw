@@ -63,7 +63,8 @@
     "voiceTranscription": "Voice Transcription",
     "debug": "Debug",
     "plugins": "Plugins",
-    "backups": "Backups"
+    "backups": "Backups",
+    "pluginManager": "Plugin Manager"
   },
   "debug": {
     "title": "Debug",
@@ -1890,5 +1891,35 @@
       "done": "Done",
       "abandoned": "Abandoned"
     }
+  },
+  "pluginManager": {
+    "title": "Plugin Manager",
+    "description": "Install, manage, and remove plugins without restarting the service.",
+    "installed": "Installed Plugins",
+    "noPlugins": "No plugins installed yet",
+    "installBtn": "Install Plugin",
+    "installTitle": "Install Plugin",
+    "tabUrl": "From URL / Path",
+    "tabUpload": "Upload ZIP",
+    "urlLabel": "Plugin path or URL",
+    "urlPlaceholder": "Local path or https://example.com/plugin.zip",
+    "urlHint": "Local directory path or a downloadable ZIP URL",
+    "uploadLabel": "Select plugin ZIP file",
+    "uploadHint": "Only .zip archives are supported",
+    "installing": "Installing...",
+    "installSuccess": "Plugin installed successfully",
+    "installFailed": "Plugin installation failed",
+    "uninstall": "Uninstall",
+    "uninstallConfirm": "Uninstall plugin \"{{name}}\"? This takes effect immediately and cannot be undone.",
+    "uninstalling": "Uninstalling...",
+    "uninstallSuccess": "Plugin uninstalled successfully",
+    "uninstallFailed": "Plugin uninstallation failed",
+    "statusLoaded": "Running",
+    "statusUnloaded": "Not loaded",
+    "version": "Version",
+    "author": "Author",
+    "unknown": "Unknown",
+    "loadFailed": "Failed to load plugin list",
+    "confirmTitle": "Confirm Uninstall"
   }
 }

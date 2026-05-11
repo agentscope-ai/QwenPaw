@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 """Plugin loader for discovering and loading plugins."""
 
+import asyncio
 import importlib.util
 import inspect
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -256,6 +259,238 @@ class PluginLoader:
                 logger.error(f"Failed to load plugin '{manifest.id}': {e}")
 
         return self._loaded_plugins
+
+    def _install_requirements(
+        self,
+        requirements_file: Path,
+        plugin_id: str,
+    ) -> None:
+        """Install Python dependencies for a plugin (blocking).
+
+        Intended to be called via ``asyncio.to_thread`` so that pip
+        does not block the event loop.
+
+        Args:
+            requirements_file: Path to requirements.txt
+            plugin_id: Plugin identifier (for log messages)
+
+        Raises:
+            RuntimeError: If pip exits with a non-zero return code
+        """
+        logger.info(
+            f"Installing dependencies for plugin '{plugin_id}'...",
+        )
+        result = subprocess.run(  # pylint: disable=subprocess-run-check
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "-r",
+                str(requirements_file),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Dependency installation failed for '{plugin_id}': "
+                f"{result.stderr}",
+            )
+        logger.info(
+            f"Dependencies installed for plugin '{plugin_id}'",
+        )
+
+    async def load_plugin_from_path(
+        self,
+        source_path: Path,
+        config: Optional[Dict] = None,
+        install_dir: Optional[Path] = None,
+    ) -> PluginRecord:
+        """Copy plugin files, install deps, and load plugin at runtime.
+
+        The plugin directory is copied into ``install_dir`` (defaults
+        to the first entry of ``self.plugin_dirs``) when it is not
+        already located there.  Python dependencies listed in
+        ``requirements.txt`` are installed before loading.
+
+        Args:
+            source_path: Directory that contains ``plugin.json``
+            config: Optional plugin configuration dict
+            install_dir: Target plugins directory.  Defaults to the
+                first directory in ``self.plugin_dirs``.
+
+        Returns:
+            Loaded PluginRecord
+
+        Raises:
+            FileNotFoundError: If ``plugin.json`` not found
+            ValueError: If the plugin is already loaded
+            RuntimeError: If dependency installation fails
+        """
+        source_path = Path(source_path).resolve()
+        manifest_path = source_path / "plugin.json"
+        if not manifest_path.exists():
+            raise FileNotFoundError(
+                f"plugin.json not found in {source_path}",
+            )
+
+        manifest = self._load_manifest(manifest_path)
+        plugin_id = manifest.id
+
+        if plugin_id in self._loaded_plugins:
+            raise ValueError(
+                f"Plugin '{plugin_id}' is already loaded. "
+                "Uninstall it first before reinstalling.",
+            )
+
+        # Determine target directory
+        if install_dir is None:
+            if not self.plugin_dirs:
+                raise RuntimeError("No plugin directories configured")
+            install_dir = self.plugin_dirs[0]
+        install_dir = Path(install_dir)
+        target_dir = (install_dir / plugin_id).resolve()
+
+        # Copy files when source is not already the target
+        if source_path != target_dir:
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+            shutil.copytree(source_path, target_dir)
+            logger.info(
+                f"Copied plugin '{plugin_id}' to {target_dir}",
+            )
+
+        # Install Python dependencies (off the event loop)
+        requirements_file = target_dir / "requirements.txt"
+        if requirements_file.exists():
+            await asyncio.to_thread(
+                self._install_requirements,
+                requirements_file,
+                plugin_id,
+            )
+
+        # Re-read manifest from the installed location so that
+        # source_path in the record points to the correct directory
+        installed_manifest = self._load_manifest(target_dir / "plugin.json")
+        return await self.load_plugin(installed_manifest, target_dir, config)
+
+    async def unload_plugin(
+        self,
+        plugin_id: str,
+        delete_files: bool = False,
+    ) -> None:
+        """Unload a plugin from memory and optionally remove its files.
+
+        Executes any registered shutdown hooks, removes the plugin
+        module from ``sys.modules``, cleans up the plugin registry, and
+        removes the plugin's tools from ``qwenpaw.agents.tools``.
+
+        Args:
+            plugin_id: Plugin identifier to unload
+            delete_files: When ``True``, delete the plugin directory
+                from disk after unloading.
+
+        Raises:
+            KeyError: If the plugin is not currently loaded
+        """
+        record = self._loaded_plugins.get(plugin_id)
+        if record is None:
+            raise KeyError(
+                f"Plugin '{plugin_id}' is not loaded",
+            )
+
+        # Execute shutdown hooks registered by this plugin
+        shutdown_hooks = [
+            h
+            for h in self.registry.get_shutdown_hooks()
+            if h.plugin_id == plugin_id
+        ]
+        for hook in shutdown_hooks:
+            try:
+                result = hook.callback()
+                if inspect.iscoroutine(result) or inspect.isawaitable(
+                    result,
+                ):
+                    await result
+            except Exception as exc:
+                logger.error(
+                    f"Error in shutdown hook '{hook.hook_name}' "
+                    f"for plugin '{plugin_id}': {exc}",
+                )
+
+        # Remove Python module so the next import gets a fresh copy
+        module_name = f"plugin_{plugin_id.replace('-', '_')}"
+        sys.modules.pop(module_name, None)
+
+        # Clear all in-memory registry entries for this plugin
+        self.registry.unregister_plugin(plugin_id)
+
+        # Remove from the loaded-plugins dict
+        del self._loaded_plugins[plugin_id]
+
+        # Remove tools that this plugin registered in agents.tools
+        self._cleanup_plugin_tools(plugin_id, record)
+
+        # Optionally delete files from disk
+        if delete_files:
+            source_path = record.source_path
+            if source_path.exists():
+                shutil.rmtree(source_path)
+                logger.info(
+                    f"Deleted plugin files at {source_path}",
+                )
+
+        logger.info(f"Unloaded plugin '{plugin_id}'")
+
+    def _cleanup_plugin_tools(
+        self,
+        plugin_id: str,
+        record: PluginRecord,
+    ) -> None:
+        """Remove plugin tools from ``qwenpaw.agents.tools``.
+
+        Uses ``sys.modules`` directly to avoid the parent-package
+        attribute cache that would bypass any test/runtime overrides.
+
+        Args:
+            plugin_id: Plugin identifier (for logging)
+            record: PluginRecord whose tools should be removed
+        """
+        try:
+            tools_module = sys.modules.get("qwenpaw.agents.tools")
+            if tools_module is None:
+                return
+
+            meta: Dict = record.manifest.meta or {}
+            tool_names: List[str] = []
+
+            # Legacy single-tool format: meta.tool_name
+            old_name = meta.get("tool_name")
+            if old_name and isinstance(old_name, str):
+                tool_names.append(old_name)
+
+            # Multi-tool format: meta.tools[].name
+            for tool in meta.get("tools", []):
+                if isinstance(tool, dict) and tool.get("name"):
+                    tool_names.append(tool["name"])
+
+            for tool_name in tool_names:
+                if hasattr(tools_module, tool_name):
+                    delattr(tools_module, tool_name)
+                if tool_name in tools_module.__all__:
+                    tools_module.__all__.remove(tool_name)
+
+            if tool_names:
+                logger.info(
+                    f"Removed tools {tool_names} from agents.tools "
+                    f"for plugin '{plugin_id}'",
+                )
+        except Exception as exc:
+            logger.warning(
+                f"Failed to clean up tools for plugin '{plugin_id}': "
+                f"{exc}",
+            )
 
     def get_loaded_plugin(self, plugin_id: str) -> Optional[PluginRecord]:
         """Get loaded plugin record.
