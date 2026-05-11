@@ -520,12 +520,33 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       .map(chatSpecToSession)
       .reverse();
 
+    // Track which existing sessions have already been matched so that
+    // sessions sharing the same sessionId (channel:user_id) don't all
+    // resolve to the same existing entry — the root cause of #3843.
+    const matchedExistingIds = new Set<string>();
+
     this.sessionList = newList.map((s) => {
-      const existing = this.sessionList.find(
-        (e) =>
-          (e as ExtendedSession).sessionId === (s as ExtendedSession).sessionId,
-      ) as ExtendedSession | undefined;
+      const sExt = s as ExtendedSession;
+
+      // 1) Exact match by backend UUID: s.id matches existing.id or existing.realId
+      let existing = this.sessionList.find((e) => {
+        if (matchedExistingIds.has(e.id)) return false;
+        const eExt = e as ExtendedSession;
+        return e.id === s.id || (eExt.realId != null && eExt.realId === s.id);
+      }) as ExtendedSession | undefined;
+
+      // 2) Fallback: match by sessionId, but only claim the first unmatched one
+      if (!existing) {
+        existing = this.sessionList.find((e) => {
+          if (matchedExistingIds.has(e.id)) return false;
+          return (e as ExtendedSession).sessionId === sExt.sessionId;
+        }) as ExtendedSession | undefined;
+      }
+
       if (!existing) return s;
+
+      matchedExistingIds.add(existing.id);
+
       const next = { ...s } as ExtendedSession;
       if (existing.realId) {
         next.id = existing.id;
