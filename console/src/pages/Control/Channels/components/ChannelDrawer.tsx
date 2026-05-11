@@ -208,7 +208,7 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item
               name="encryption"
-              label="Enable End-to-End Encryption (You need verfiy the device after enable E2EE)"
+              label="Enable End-to-End Encryption (You need verify the device after enable E2EE)"
               rules={[{ required: true }]}
             >
               <Switch />
