@@ -82,6 +82,7 @@ class MemoryDistillToolPlugin:
 
                 if not agent_config.tools:
                     from qwenpaw.config.config import ToolsConfig
+
                     agent_config.tools = ToolsConfig()
 
                 for func_name in tool_functions:
@@ -90,9 +91,8 @@ class MemoryDistillToolPlugin:
                         enabled=True,
                     )
                     existing_names = [
-                        t.name for t in (
-                            agent_config.tools.builtin_tools or []
-                        )
+                        t.name
+                        for t in (agent_config.tools.builtin_tools or [])
                     ]
                     if func_name not in existing_names:
                         if agent_config.tools.builtin_tools is None:

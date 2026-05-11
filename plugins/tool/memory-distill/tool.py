@@ -15,8 +15,7 @@ Key concepts:
   ``🔄 Auto Discovery`` section without rewriting existing content.
 """
 
-import asyncio
-import json
+
 import logging
 import os
 import re
@@ -34,45 +33,50 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────
 
 _DEFAULT_WORKING_DIR = os.getcwd()
-_KNOWN_TEMPLATE_TITLES = frozenset({
-    "persistent memory",
-    "reflection & logic",
-    "date information",
-    "summary of previous conversation",
-    "plan",
-    "task list",
-    "goal",
-    "progress",
-    "blocked",
-    "key decisions",
-    "context",
-    "next steps",
-    "记忆持久化",
-    "反思与逻辑",
-    "日期信息",
-    "以前的对话摘要",
-    "计划",
-    "任务列表",
-    "目标",
-    "进展",
-    "阻塞",
-    "关键决策",
-    "上下文",
-    "下一步",
-})
+_KNOWN_TEMPLATE_TITLES = frozenset(
+    {
+        "persistent memory",
+        "reflection & logic",
+        "date information",
+        "summary of previous conversation",
+        "plan",
+        "task list",
+        "goal",
+        "progress",
+        "blocked",
+        "key decisions",
+        "context",
+        "next steps",
+        "记忆持久化",
+        "反思与逻辑",
+        "日期信息",
+        "以前的对话摘要",
+        "计划",
+        "任务列表",
+        "目标",
+        "进展",
+        "阻塞",
+        "关键决策",
+        "上下文",
+        "下一步",
+    },
+)
 
-_SAFE_DIRS = frozenset({
-    "memory",
-    "backup",
-    "tools",
-    "skills",
-    "cron-reports",
-})
+_SAFE_DIRS = frozenset(
+    {
+        "memory",
+        "backup",
+        "tools",
+        "skills",
+        "cron-reports",
+    },
+)
 
 
 # ──────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────
+
 
 def _read_file(path: Path) -> str:
     """Read file with encoding fallback."""
@@ -123,24 +127,39 @@ async def _classify_and_format(
     """
     # Heuristic: rules/laws/policies are Tier 1
     rule_keywords = [
-        "rule", "law", "policy", "never", "always", "must", "铁律",
-        "规则", "禁止", "必须", "永远不",
+        "rule",
+        "law",
+        "policy",
+        "never",
+        "always",
+        "must",
+        "铁律",
+        "规则",
+        "禁止",
+        "必须",
+        "永远不",
     ]
     important_keywords = [
-        "path", "key", "important", "config", "credential", "api",
-        "路径", "关键", "重要", "配置", "凭证",
+        "path",
+        "key",
+        "important",
+        "config",
+        "credential",
+        "api",
+        "路径",
+        "关键",
+        "重要",
+        "配置",
+        "凭证",
     ]
 
     title_lower = title.lower()
     if any(kw in title_lower for kw in rule_keywords):
         emoji = "🔒"
-        tier = 1
     elif any(kw in title_lower for kw in important_keywords):
         emoji = "📌"
-        tier = 2
     else:
         emoji = "➕"
-        tier = 3
 
     lines = [f"- {emoji} **{title}**: {content_snippet[:200].strip()}"]
     return "\n".join(lines)
@@ -319,7 +338,8 @@ async def consolidate_memory(
         "🧠 **Memory Consolidation Pipeline**",
         "",
         f"Working dir: {wd}",
-        f"Window: {days} day(s) | Mode: {'🔍 DRY RUN' if dry_run else '✅ LIVE'}",
+        f"Window: {days} day(s) | "
+        f"Mode: {'🔍 DRY RUN' if dry_run else '✅ LIVE'}",
         "",
     ]
 
@@ -366,7 +386,7 @@ async def consolidate_memory(
     report.append("## 3️⃣ Cleanup")
     cleaned = 0
     # Safe files to clean: tool_results, screenshots, temp
-    for pattern, desc in [
+    for pattern, _desc in [
         (wd / "tool_results" / "*.txt", "tool_results"),
         (wd / "*.png", "screenshots"),
     ]:
@@ -385,8 +405,10 @@ async def consolidate_memory(
         text = _read_file(memory_file)
         line_count = len(text.splitlines())
         topic_count = len(_known_topics_in_memory(text))
-        report.append(f"  Size: {size:,} bytes | Lines: {line_count} | "
-                      f"Topics: {topic_count}")
+        report.append(
+            f"  Size: {size:,} bytes | Lines: {line_count} | "
+            f"Topics: {topic_count}",
+        )
         if size > 50_000:
             report.append(
                 "  ⚠️ MEMORY.md >50KB — consider manual review for "
@@ -399,7 +421,9 @@ async def consolidate_memory(
 
     report.append("")
     report.append("─" * 40)
-    report.append("Pipeline complete." if not dry_run else "DRY RUN — no changes made.")
+    report.append(
+        "Pipeline complete." if not dry_run else "DRY RUN — no changes made.",
+    )
 
     return ToolResponse(
         content=[
@@ -458,8 +482,12 @@ async def inspect_memory(
     if memory_dir.is_dir():
         notes = sorted(memory_dir.glob("????-??-??.md"), reverse=True)
         lines.append(f"**Daily Notes ({len(notes)} total)**")
-        recent = [n for n in notes if
-                  n.stat().st_mtime > (datetime.now() - timedelta(days=7)).timestamp()]
+        recent = [
+            n
+            for n in notes
+            if n.stat().st_mtime
+            > (datetime.now() - timedelta(days=7)).timestamp()
+        ]
         lines.append(f"  Recent (7d): {len(recent)}")
         total_size = sum(n.stat().st_size for n in notes)
         lines.append(f"  Total size: {total_size:,} bytes")
@@ -471,10 +499,14 @@ async def inspect_memory(
 
     lines.append("")
     lines.append("**Suggestions**")
-    lines.append("  - Run `consolidate_memory(dry_run=True)` for a full "
-                 "pipeline preview.")
-    lines.append("  - Run `distill_memory(dry_run=False)` to append "
-                 "new discoveries.")
+    lines.append(
+        "  - Run `consolidate_memory(dry_run=True)` for a full "
+        "pipeline preview.",
+    )
+    lines.append(
+        "  - Run `distill_memory(dry_run=False)` to append "
+        "new discoveries.",
+    )
     lines.append("  - Regular consolidation every 7-15 days is recommended.")
 
     return ToolResponse(
