@@ -2203,7 +2203,7 @@ class TestFeishuChannelUploadFile:
 
             result = await feishu_channel._upload_file(str(test_file))
 
-            assert result == f"file_key_{filename}"
+            assert result == (f"file_key_{filename}", expected_type)
 
     @pytest.mark.asyncio
     async def test_upload_file_rejects_large_file(
@@ -2262,7 +2262,7 @@ class TestFeishuChannelUploadFile:
             "https://example.com/file.txt",
         )
 
-        assert result == "file_key_from_url"
+        assert result == ("file_key_from_url", "stream")
 
     @pytest.mark.asyncio
     async def test_upload_file_missing_file(self, feishu_channel):
@@ -2328,7 +2328,7 @@ class TestFeishuChannelUploadFile:
 
         result = await feishu_channel._upload_file(str(test_file))
 
-        assert result == "file_key_xyz"
+        assert result == ("file_key_xyz", "stream")
 
 
 # =============================================================================
