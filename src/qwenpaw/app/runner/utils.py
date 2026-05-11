@@ -36,6 +36,7 @@ def build_env_context(
     channel: Optional[str] = None,
     working_dir: Optional[str] = None,
     add_hint: bool = True,
+    default_shell: Optional[str] = None,
 ) -> str:
     """
     Build environment context with current request context prepended.
@@ -48,6 +49,9 @@ def build_env_context(
         channel: Current channel name
         working_dir: Working directory path
         add_hint: Whether to add hint context
+        default_shell: Shell executable used by execute_shell_command.
+            When provided, included in the context so the LLM can
+            generate syntax appropriate for that shell.
     Returns:
         Formatted environment context string
     """
@@ -73,6 +77,9 @@ def build_env_context(
         f"- OS: {platform.system()} {platform.release()} "
         f"({platform.machine()})",
     )
+
+    if default_shell:
+        parts.append(f"- Default Shell: {default_shell}")
 
     if working_dir is not None:
         parts.append(f"- Working directory: {working_dir}")

@@ -879,6 +879,16 @@ class AgentsRunningConfig(BaseModel):
         ),
     )
 
+    shell_command_executable: str = Field(
+        default="",
+        description=(
+            "Path to the shell used by execute_shell_command on Unix/macOS "
+            "(e.g. /bin/bash, /bin/zsh). "
+            "When empty, falls back to the SHELL environment variable, "
+            "then to the system default (/bin/sh)."
+        ),
+    )
+
     @model_validator(mode="after")
     def validate_llm_retry_backoff(self) -> "AgentsRunningConfig":
         """Validate LLM retry backoff relationships."""

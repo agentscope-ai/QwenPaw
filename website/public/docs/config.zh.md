@@ -312,11 +312,12 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **基础运行参数：**
 
-| 字段                         | 类型  | 默认值  | 说明                                                                                      |
-| ---------------------------- | ----- | ------- | ----------------------------------------------------------------------------------------- |
-| `max_iters`                  | int   | `100`   | ReAct Agent 推理-执行循环的最大轮数（必须 ≥ 1）                                           |
-| `shell_command_timeout`      | float | `60.0`  | `execute_shell_command` 的默认超时时间（秒）。LLM 可在每次调用时通过 timeout 参数覆盖此值 |
-| `auto_continue_on_text_only` | bool  | `false` | 启用后,若模型只返回文本而未调用工具,Agent 会自动重试最多两轮推理                          |
+| 字段                         | 类型  | 默认值  | 说明                                                                                                                                                                                                                     |
+| ---------------------------- | ----- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `max_iters`                  | int   | `100`   | ReAct Agent 推理-执行循环的最大轮数（必须 ≥ 1）                                                                                                                                                                          |
+| `shell_command_timeout`      | float | `60.0`  | `execute_shell_command` 的默认超时时间（秒）。LLM 可在每次调用时通过 timeout 参数覆盖此值                                                                                                                                |
+| `shell_command_executable`   | str   | `""`    | `execute_shell_command` 在 Linux/macOS 上使用的 shell 路径（如 `/bin/bash`、`/bin/zsh`）。Windows 上支持 `powershell.exe` / `pwsh.exe`。留空时依次回退到 `$SHELL` 环境变量，再回退到 `/bin/sh`（Windows 上为 `cmd.exe`） |
+| `auto_continue_on_text_only` | bool  | `false` | 启用后,若模型只返回文本而未调用工具,Agent 会自动重试最多两轮推理                                                                                                                                                         |
 
 **LLM 重试与限流：**
 
