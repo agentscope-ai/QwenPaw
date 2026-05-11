@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Card,
   Switch,
@@ -73,6 +73,13 @@ function ToolConfigModal({
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const { t } = useTranslation();
+
+  // Reset form when tool or visibility changes
+  useEffect(() => {
+    if (visible && tool) {
+      form.setFieldsValue(tool.config_values || {});
+    }
+  }, [visible, tool, form]);
 
   const handleSave = async () => {
     try {
