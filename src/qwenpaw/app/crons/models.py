@@ -81,6 +81,7 @@ class ScheduleSpec(BaseModel):
 
         # 6 fields (seconds) or too short: reject
         raise ConfigurationException(
+            config_key="cron.schedule.cron",
             message=(
                 "cron must have 5 fields (or 4/3 fields that can be "
                 "normalized); seconds not supported"
@@ -149,12 +150,14 @@ class CronJobSpec(BaseModel):
         if self.task_type == "text":
             if not (self.text and self.text.strip()):
                 raise ConfigurationException(
+                    config_key="cron.text",
                     message="task_type is text but text is empty",
                 )
             self.request = None
         elif self.task_type == "agent":
             if self.request is None:
                 raise ConfigurationException(
+                    config_key="cron.request",
                     message="task_type is agent but request is missing",
                 )
             # Keep request.user_id and request.session_id in sync with target
