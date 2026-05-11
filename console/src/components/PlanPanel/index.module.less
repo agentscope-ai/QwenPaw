@@ -155,3 +155,84 @@
   background: var(--colorErrorBg, #fff2f0);
   color: var(--colorErrorText, #ff4d4f);
 }
+
+.planOutcome {
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
+}
+
+/* ─── Dark Mode ──────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .drawer {
+    :global {
+      .qwenpaw-drawer-body {
+        background-color: #1f1f1f;
+      }
+
+      .qwenpaw-drawer-content {
+        background-color: #1f1f1f;
+      }
+    }
+  }
+
+  .headerTitle {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .planName {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .planDesc {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .progressLabel {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .subtaskItem {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .subtaskName {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .subtaskDesc {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .subtaskOutcome {
+    color: #95de64;
+  }
+
+  .emptyState {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .planOutcome {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .stateTodo {
+    background: rgba(22, 119, 255, 0.15);
+    color: #69b1ff;
+  }
+
+  .stateInProgress {
+    background: rgba(250, 173, 20, 0.15);
+    color: #ffc53d;
+  }
+
+  .stateDone {
+    background: rgba(82, 196, 26, 0.15);
+    color: #95de64;
+  }
+
+  .stateAbandoned {
+    background: rgba(255, 77, 79, 0.15);
+    color: #ff7875;
+  }
+}

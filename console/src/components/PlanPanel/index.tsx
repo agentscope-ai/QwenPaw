@@ -202,7 +202,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
             </ul>
 
             {plan.outcome && (
-              <div style={{ marginTop: 16, fontSize: 13 }}>
+              <div className={styles.planOutcome}>
                 <strong>{t("plan.outcome", "Outcome")}:</strong> {plan.outcome}
               </div>
             )}
