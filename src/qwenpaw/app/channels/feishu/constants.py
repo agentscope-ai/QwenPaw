@@ -26,3 +26,7 @@ FEISHU_STALE_MSG_THRESHOLD_MS = 20 * 1000
 FEISHU_WS_INITIAL_RETRY_DELAY = 1.0  # seconds
 FEISHU_WS_MAX_RETRY_DELAY = 60.0  # seconds
 FEISHU_WS_BACKOFF_FACTOR = 2
+
+# If no data (including pong) received for this many seconds, force reconnect.
+# SDK pings every ~120s, so 240s ≈ 2 missed cycles.
+FEISHU_WS_RECV_TIMEOUT = 240
