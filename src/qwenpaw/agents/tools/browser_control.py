@@ -41,6 +41,7 @@ from .browser_snapshot import build_role_snapshot_from_aria
 
 logger = logging.getLogger(__name__)
 
+
 # Keywords used to validate executable_path — the binary filename must
 # contain at least one of these (case-insensitive) to be accepted.
 _TRUSTED_BROWSER_KEYWORDS = frozenset(
@@ -119,7 +120,10 @@ async def _configure_download_behavior(state: dict) -> None:
             },
         )
     except Exception:
-        logger.debug("Failed to configure browser download behavior", exc_info=True)
+        logger.debug(
+            "Failed to configure browser download behavior",
+            exc_info=True,
+        )
 
 
 # Hybrid mode detection: Windows + Uvicorn reload mode requires sync Playwright
@@ -542,8 +546,12 @@ async def _start_managed_cdp_browser(
             f"http://127.0.0.1:{chosen_cdp_port}",
         )
         contexts = browser.contexts
-        context = contexts[0] if contexts else await browser.new_context(
-            accept_downloads=True,
+        context = (
+            contexts[0]
+            if contexts
+            else await browser.new_context(
+                accept_downloads=True,
+            )
         )
         _attach_context_listeners(state, context)
         state["playwright"] = pw
@@ -1014,9 +1022,9 @@ async def _action_start(
                     # launch_persistent_context returns context directly; no separate browser object
                     _attach_context_listeners(state, context)
                     state["playwright"] = pw
-                    state[
-                        "browser"
-                    ] = None  # not needed for persistent context
+                    state["browser"] = (
+                        None  # not needed for persistent context
+                    )
                     state["context"] = context
                 else:
                     launch_kwargs = {"headless": state["headless"]}
@@ -2266,9 +2274,7 @@ async def _download_context_url(
         return status, ""
     headers = response.headers
     content_type = (
-        headers.get("content-type")
-        or headers.get("Content-Type")
-        or ""
+        headers.get("content-type") or headers.get("Content-Type") or ""
     )
     if _USE_SYNC_PLAYWRIGHT:
         body = await _run_sync(response.body)
@@ -2285,14 +2291,16 @@ async def _action_file_download(  # pylint: disable=too-many-branches,too-many-r
     ref: str = "",
     url: str = "",
     wait_time: float = 0.0,
-    frame_selector: str = "",
 ) -> ToolResponse:
     """Save a browser download event or a page resource to a local file."""
     file_path = (file_path or "").strip()
     if not file_path:
         return _tool_response(
             json.dumps(
-                {"ok": False, "error": "path or filename required for file_download"},
+                {
+                    "ok": False,
+                    "error": "path or filename required for file_download",
+                },
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -2318,11 +2326,7 @@ async def _action_file_download(  # pylint: disable=too-many-branches,too-many-r
         # file_download with url saves the target resource directly through
         # the browser context, so cookies/session state are preserved.
         if url:
-            source_url = (
-                page.url
-                if url in {"current", "current_url", "page"}
-                else urljoin(getattr(page, "url", ""), url)
-            )
+            source_url = urljoin(getattr(page, "url", ""), url)
             status, content_type = await _download_context_url(
                 page,
                 source_url,
@@ -2385,7 +2389,6 @@ async def _action_file_download(  # pylint: disable=too-many-branches,too-many-r
             page,
             page_id,
             ref,
-            frame_selector,
         )
         if locator is None:
             return _tool_response(
@@ -2419,7 +2422,9 @@ async def _action_file_download(  # pylint: disable=too-many-branches,too-many-r
                 )
         else:
             try:
-                async with page.expect_download(timeout=timeout_ms) as download_info:
+                async with page.expect_download(
+                    timeout=timeout_ms,
+                ) as download_info:
                     await locator.click()
                     download = await download_info.value
             except Exception as exc:
@@ -2467,9 +2472,8 @@ async def _action_file_download(  # pylint: disable=too-many-branches,too-many-r
                     "ok": False,
                     "error": f"File download failed: {e!s}",
                     "hint": (
-                        "Pass ref to click a download control, or pass url "
-                        "to save a resource directly. If a file opens inline, "
-                        "pass url='current'."
+                        "Pass ref to click a download control, or pass an "
+                        "explicit url to save a resource directly."
                     ),
                 },
                 ensure_ascii=False,
@@ -2504,10 +2508,7 @@ async def _file_download_click_fallback(
             current_page_id = candidate_id
             break
     current_url = getattr(current_page, "url", "")
-    if (
-        current_url
-        and (current_url != before_url or new_page_id is not None)
-    ):
+    if current_url and (current_url != before_url or new_page_id is not None):
         status, content_type = await _download_context_url(
             current_page,
             current_url,
@@ -2551,8 +2552,8 @@ async def _file_download_click_fallback(
                 "current_url": current_url,
                 "original_error": str(original_error),
                 "hint": (
-                    "If the browser opened an inline PDF/file page, call "
-                    "file_download with url='current'."
+                    "If the browser opened an inline PDF/file page, retry "
+                    "with the explicit file URL."
                 ),
             },
             ensure_ascii=False,
@@ -3613,9 +3614,9 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
                 )
 
             else:
-                step_result[
-                    "error"
-                ] = f"Unknown batch sub-action: {sub_action}"
+                step_result["error"] = (
+                    f"Unknown batch sub-action: {sub_action}"
+                )
 
             # Parse helper response into step_result
             if resp is not None and resp.content:
@@ -3626,9 +3627,9 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
                     if isinstance(resp_data, dict):
                         step_result.update(resp_data)
                 except (json.JSONDecodeError, AttributeError, IndexError):
-                    step_result[
-                        "error"
-                    ] = "Failed to parse sub-action response"
+                    step_result["error"] = (
+                        "Failed to parse sub-action response"
+                    )
 
         except Exception as e:
             step_result["error"] = str(e)
@@ -3908,8 +3909,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
             URL to open. Required for action=open or navigate. For
             cookies_get, optional URL or JSON array of URLs to filter
             cookies by domain. For action=file_download, save this URL
-            directly through the browser context; use "current" to save the
-            current page/resource.
+            directly through the browser context.
         page_id (str):
             Page/tab identifier, default "default". Use different page_id for
             multiple tabs.
@@ -4177,10 +4177,9 @@ async def browser_use(  # pylint: disable=R0911,R0912
                 state,
                 page_id,
                 path or filename,
-                ref,
-                url,
-                wait_time,
-                frame_selector,
+                ref=ref,
+                url=url,
+                wait_time=wait_time,
             )
         if action == "fill_form":
             return await _action_fill_form(state, page_id, fields_json)
