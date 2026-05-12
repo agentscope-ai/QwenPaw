@@ -9,7 +9,15 @@ import tempfile
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, Form, HTTPException, Request, UploadFile, File
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    File,
+)
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from ...backup import (
@@ -30,11 +38,40 @@ from ...backup.models import (
     DeleteBackupsResponse,
     RestoreBackupRequest,
 )
+from ...config import load_config
 from ...constant import BACKUP_DIR
+from ..auth import has_registered_users, is_auth_enabled
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/backups", tags=["backups"])
+
+def _require_backup_operator(request: Request) -> None:
+    """Allow backup APIs only for authenticated or trusted-local callers."""
+    if is_auth_enabled() and has_registered_users():
+        # AuthMiddleware already protects non-public /api/* routes. If a
+        # request reaches this router in auth-enabled mode, it was either
+        # authenticated or matched the explicit no-auth host allowlist.
+        return
+
+    client_host = request.client.host if request.client else ""
+    allowed_hosts = load_config().security.allow_no_auth_hosts
+    if client_host in allowed_hosts:
+        return
+
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "Backup operations require authentication or "
+            "a trusted local host"
+        ),
+    )
+
+
+router = APIRouter(
+    prefix="/backups",
+    tags=["backups"],
+    dependencies=[Depends(_require_backup_operator)],
+)
 
 _UPLOAD_TMP_MAX_AGE = 3600  # 1 hour
 
