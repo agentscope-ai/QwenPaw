@@ -4,7 +4,7 @@
 
 Single tool with action-based API matching browser MCP: start, stop, open,
 navigate, navigate_back, screenshot, snapshot, click, type, eval, evaluate,
-resize, console_messages, handle_dialog, file_upload, fill_form, install,
+resize, console_messages, handle_dialog, file_upload, file_download, fill_form, install,
 press_key, network_requests, run_code, drag, hover, select_option, tabs,
 wait_for, pdf, close. Uses refs from snapshot for ref-based actions.
 """
@@ -14,6 +14,7 @@ import atexit
 from concurrent import futures
 import json
 import logging
+import re
 import shlex
 from pathlib import Path
 import signal
@@ -22,6 +23,7 @@ import subprocess
 import sys
 import time
 from typing import Any, Optional
+from urllib.parse import urljoin
 from urllib import request as urllib_request
 
 from agentscope.message import TextBlock
@@ -81,6 +83,43 @@ def _resolve_output_path(path: str) -> str:
     base_dir = (get_current_workspace_dir() or WORKING_DIR) / "browser"
     base_dir.mkdir(parents=True, exist_ok=True)
     return str(base_dir / path)
+
+
+def _safe_download_filename(filename: Any, default: str = "download") -> str:
+    """Return a filesystem-safe filename for browser downloads."""
+    name = Path(str(filename or "")).name.strip()
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", name)
+    name = name.strip(" .")
+    return name or default
+
+
+def _browser_output_dir(state: dict, name: str) -> Path:
+    """Return workspace browser output directory and create it if needed."""
+    workspace_dir = state.get("workspace_dir")
+    base_dir = Path(workspace_dir) if workspace_dir else WORKING_DIR
+    output_dir = base_dir / "browser" / name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir
+
+
+async def _configure_download_behavior(state: dict) -> None:
+    """Configure Chromium CDP download path when available."""
+    context = _get_context(state)
+    page = next(iter(state["pages"].values()), None)
+    if context is None or page is None or _USE_SYNC_PLAYWRIGHT:
+        return
+    try:
+        cdp = await context.new_cdp_session(page)
+        await cdp.send(
+            "Browser.setDownloadBehavior",
+            {
+                "behavior": "allow",
+                "downloadPath": str(_browser_output_dir(state, "downloads")),
+                "eventsEnabled": True,
+            },
+        )
+    except Exception:
+        logger.debug("Failed to configure browser download behavior", exc_info=True)
 
 
 # Hybrid mode detection: Windows + Uvicorn reload mode requires sync Playwright
@@ -149,6 +188,7 @@ def _make_fresh_state(workspace_id: str, workspace_dir: str) -> dict[str, Any]:
         "_idle_task": None,  # background asyncio.Task for idle watchdog
         "_last_browser_error": None,  # message when launch failed (for user-facing error)
         "workspace_id": workspace_id,
+        "workspace_dir": workspace_dir,
         "user_data_dir": user_data_dir,
         "connected_via_cdp": False,
         "cdp_url": None,
@@ -380,6 +420,7 @@ def _sync_browser_launch(
                 headless=state["headless"],
                 executable_path=exe,
                 args=extra_args if extra_args else [],
+                accept_downloads=True,
             )
             _attach_context_listeners(state, context)
             return pw, None, context
@@ -396,7 +437,7 @@ def _sync_browser_launch(
             launch_kwargs["args"] = extra_args
         browser = pw.chromium.launch(**launch_kwargs)
 
-    context = browser.new_context()
+    context = browser.new_context(accept_downloads=True)
     _attach_context_listeners(state, context)
     return pw, browser, context
 
@@ -501,7 +542,9 @@ async def _start_managed_cdp_browser(
             f"http://127.0.0.1:{chosen_cdp_port}",
         )
         contexts = browser.contexts
-        context = contexts[0] if contexts else await browser.new_context()
+        context = contexts[0] if contexts else await browser.new_context(
+            accept_downloads=True,
+        )
         _attach_context_listeners(state, context)
         state["playwright"] = pw
         state["browser"] = browser
@@ -807,6 +850,7 @@ async def _ensure_browser(
         state["_last_browser_error"] = None
         _touch_activity(state)
         _start_idle_watchdog(state)
+        await _configure_download_behavior(state)
         return True
     except Exception as e:
         state["_last_browser_error"] = str(e)
@@ -965,6 +1009,7 @@ async def _action_start(
                         headless=state["headless"],
                         executable_path=exe if exe else None,
                         args=extra_args if extra_args else [],
+                        accept_downloads=True,
                     )
                     # launch_persistent_context returns context directly; no separate browser object
                     _attach_context_listeners(state, context)
@@ -979,7 +1024,9 @@ async def _action_start(
                         launch_kwargs["args"] = extra_args
                     launch_kwargs["executable_path"] = exe
                     pw_browser = await pw.chromium.launch(**launch_kwargs)
-                    context = await pw_browser.new_context()
+                    context = await pw_browser.new_context(
+                        accept_downloads=True,
+                    )
                     _attach_context_listeners(state, context)
                     state["playwright"] = pw
                     state["browser"] = pw_browser
@@ -988,7 +1035,7 @@ async def _action_start(
                 pw_browser = await pw.webkit.launch(
                     headless=state["headless"],
                 )
-                context = await pw_browser.new_context()
+                context = await pw_browser.new_context(accept_downloads=True)
                 _attach_context_listeners(state, context)
                 state["playwright"] = pw
                 state["browser"] = pw_browser
@@ -998,7 +1045,7 @@ async def _action_start(
                 if extra_args:
                     launch_kwargs["args"] = extra_args
                 pw_browser = await pw.chromium.launch(**launch_kwargs)
-                context = await pw_browser.new_context()
+                context = await pw_browser.new_context(accept_downloads=True)
                 _attach_context_listeners(state, context)
                 state["playwright"] = pw
                 state["browser"] = pw_browser
@@ -1011,6 +1058,7 @@ async def _action_start(
             state["launch_mode"] = "playwright"
         _touch_activity(state)
         _start_idle_watchdog(state)
+        await _configure_download_behavior(state)
         # Store launch config for _ensure_browser fallback restarts
         state["_browser_args"] = browser_args
         state["_executable_path"] = executable_path
@@ -1201,6 +1249,7 @@ async def _action_open(state: dict, url: str, page_id: str) -> ToolResponse:
             page = await state["context"].new_page()
 
         _register_page(state, page, page_id)
+        await _configure_download_behavior(state)
 
         if _USE_SYNC_PLAYWRIGHT:
             loop = asyncio.get_event_loop()
@@ -2203,6 +2252,315 @@ async def _action_file_upload(
         )
 
 
+async def _download_context_url(
+    page,
+    source_url: str,
+    destination: str,
+) -> tuple[int, str]:
+    if _USE_SYNC_PLAYWRIGHT:
+        response = await _run_sync(page.context.request.get, source_url)
+    else:
+        response = await page.context.request.get(source_url)
+    status = response.status
+    if not response.ok:
+        return status, ""
+    headers = response.headers
+    content_type = (
+        headers.get("content-type")
+        or headers.get("Content-Type")
+        or ""
+    )
+    if _USE_SYNC_PLAYWRIGHT:
+        body = await _run_sync(response.body)
+    else:
+        body = await response.body()
+    Path(destination).write_bytes(body)
+    return status, content_type
+
+
+async def _action_file_download(  # pylint: disable=too-many-branches,too-many-return-statements,too-many-statements
+    state: dict,
+    page_id: str,
+    file_path: str,
+    ref: str = "",
+    url: str = "",
+    wait_time: float = 0.0,
+    frame_selector: str = "",
+) -> ToolResponse:
+    """Save a browser download event or a page resource to a local file."""
+    file_path = (file_path or "").strip()
+    if not file_path:
+        return _tool_response(
+            json.dumps(
+                {"ok": False, "error": "path or filename required for file_download"},
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+    resolved = _resolve_output_path(file_path)
+    Path(resolved).parent.mkdir(parents=True, exist_ok=True)
+
+    page = _get_page(state, page_id)
+    if not page:
+        return _tool_response(
+            json.dumps(
+                {"ok": False, "error": f"Page '{page_id}' not found"},
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    ref = (ref or "").strip()
+    url = (url or "").strip()
+    timeout_ms = max(float(wait_time or 30.0), 0.1) * 1000
+
+    try:
+        # file_download with url saves the target resource directly through
+        # the browser context, so cookies/session state are preserved.
+        if url:
+            source_url = (
+                page.url
+                if url in {"current", "current_url", "page"}
+                else urljoin(getattr(page, "url", ""), url)
+            )
+            status, content_type = await _download_context_url(
+                page,
+                source_url,
+                resolved,
+            )
+            if not content_type:
+                return _tool_response(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "error": (
+                                "File download failed: browser-context request "
+                                f"returned HTTP {status}"
+                            ),
+                            "page_id": page_id,
+                            "url": source_url,
+                            "status": status,
+                            "file_path": resolved,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                )
+            _touch_activity(state)
+            return _tool_response(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "message": "Download saved",
+                        "page_id": page_id,
+                        "file_path": resolved,
+                        "url": source_url,
+                        "status": status,
+                        "content_type": content_type,
+                        "download_method": "browser_context_request",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+
+        before_url = getattr(page, "url", "")
+
+        if not ref:
+            return _tool_response(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "ref or url required for file_download",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+
+        # file_download with ref clicks a snapshot element and waits for the
+        # browser download event from that click.
+        locator = _get_locator_by_ref(
+            state,
+            page,
+            page_id,
+            ref,
+            frame_selector,
+        )
+        if locator is None:
+            return _tool_response(
+                json.dumps(
+                    {"ok": False, "error": f"Unknown ref: {ref}"},
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+
+        before_page_ids = set(state["pages"].keys())
+        if _USE_SYNC_PLAYWRIGHT:
+            try:
+                download = await _run_sync(
+                    lambda: _sync_click_and_expect_download(
+                        page,
+                        locator,
+                        timeout_ms,
+                    ),
+                )
+            except Exception as exc:
+                return await _file_download_click_fallback(
+                    state,
+                    page,
+                    page_id,
+                    ref,
+                    resolved,
+                    before_url,
+                    before_page_ids,
+                    exc,
+                )
+        else:
+            try:
+                async with page.expect_download(timeout=timeout_ms) as download_info:
+                    await locator.click()
+                    download = await download_info.value
+            except Exception as exc:
+                return await _file_download_click_fallback(
+                    state,
+                    page,
+                    page_id,
+                    ref,
+                    resolved,
+                    before_url,
+                    before_page_ids,
+                    exc,
+                )
+        suggested_filename = _safe_download_filename(
+            getattr(download, "suggested_filename", ""),
+        )
+        if _USE_SYNC_PLAYWRIGHT:
+            await _run_sync(download.save_as, resolved)
+        else:
+            await download.save_as(resolved)
+        try:
+            source_url = download.url
+        except Exception:
+            source_url = ""
+        _touch_activity(state)
+        return _tool_response(
+            json.dumps(
+                {
+                    "ok": True,
+                    "message": "Download saved",
+                    "page_id": page_id,
+                    "file_path": resolved,
+                    "suggested_filename": suggested_filename,
+                    "url": source_url,
+                    "download_method": "click_ref_download_event",
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+    except Exception as e:
+        return _tool_response(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": f"File download failed: {e!s}",
+                    "hint": (
+                        "Pass ref to click a download control, or pass url "
+                        "to save a resource directly. If a file opens inline, "
+                        "pass url='current'."
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+
+def _sync_click_and_expect_download(page, locator, timeout_ms: float):
+    with page.expect_download(timeout=timeout_ms) as download_info:
+        locator.click()
+    return download_info.value
+
+
+async def _file_download_click_fallback(
+    state: dict,
+    page,
+    page_id: str,
+    ref: str,
+    resolved: str,
+    before_url: str,
+    before_page_ids: set[str],
+    original_error: Exception,
+) -> ToolResponse:
+    new_page_id = None
+    current_page = page
+    current_page_id = page_id
+    for candidate_id, candidate in state["pages"].items():
+        if candidate_id not in before_page_ids:
+            new_page_id = candidate_id
+            current_page = candidate
+            current_page_id = candidate_id
+            break
+    current_url = getattr(current_page, "url", "")
+    if (
+        current_url
+        and (current_url != before_url or new_page_id is not None)
+    ):
+        status, content_type = await _download_context_url(
+            current_page,
+            current_url,
+            resolved,
+        )
+        if content_type:
+            _touch_activity(state)
+            payload = {
+                "ok": True,
+                "message": "Download saved from current page URL after click",
+                "page_id": page_id,
+                "current_page_id": current_page_id,
+                "file_path": resolved,
+                "url": current_url,
+                "status": status,
+                "content_type": content_type,
+                "download_method": (
+                    "browser_context_request_after_inline_navigation"
+                ),
+                "note": (
+                    "The click navigated to an inline resource instead of "
+                    "firing a browser download event."
+                ),
+            }
+            if new_page_id is not None:
+                payload["tabs"] = list(state["pages"].keys())
+            return _tool_response(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+            )
+    return _tool_response(
+        json.dumps(
+            {
+                "ok": False,
+                "error": (
+                    "File download failed after click: no browser download "
+                    "event occurred."
+                ),
+                "page_id": page_id,
+                "ref": ref,
+                "current_page_id": current_page_id,
+                "current_url": current_url,
+                "original_error": str(original_error),
+                "hint": (
+                    "If the browser opened an inline PDF/file page, call "
+                    "file_download with url='current'."
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+    )
+
+
 async def _action_fill_form(
     state: dict,
     page_id: str,
@@ -2822,6 +3180,7 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
             new_id = _next_page_id(state)
             _register_page(state, page, new_id)
             state["current_page_id"] = new_id
+            await _configure_download_behavior(state)
             return _tool_response(
                 json.dumps(
                     {
@@ -3418,7 +3777,7 @@ async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
         if contexts:
             context = contexts[0]
         else:
-            context = await browser.new_context()
+            context = await browser.new_context(accept_downloads=True)
         _attach_context_listeners(state, context)
         state["playwright"] = pw
         state["browser"] = browser
@@ -3442,6 +3801,7 @@ async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
             state["current_page_id"] = page_id
         _touch_activity(state)
         _start_idle_watchdog(state)
+        await _configure_download_behavior(state)
         return _tool_response(
             json.dumps(
                 {
@@ -3528,9 +3888,10 @@ async def browser_use(  # pylint: disable=R0911,R0912
             Required. Action type. Values: start, stop, open, navigate,
             navigate_back, snapshot, screenshot, click, type, eval, evaluate,
             resize, console_messages, network_requests, handle_dialog,
-            file_upload, fill_form, install, press_key, run_code, drag, hover,
-            select_option, tabs, wait_for, pdf, close, cookies_get, cookies_set,
-            cookies_clear, connect_cdp, list_cdp_targets, clear_browser_cache,
+            file_upload, file_download, fill_form, install, press_key,
+            run_code, drag, hover, select_option, tabs, wait_for, pdf, close,
+            cookies_get, cookies_set, cookies_clear, connect_cdp,
+            list_cdp_targets, clear_browser_cache,
             batch. batch executes multiple sub-actions sequentially from
             actions_json; supported sub-actions: navigate, click, type,
             press_key, evaluate, eval, snapshot, screenshot, wait_for, hover,
@@ -3546,7 +3907,9 @@ async def browser_use(  # pylint: disable=R0911,R0912
         url (str):
             URL to open. Required for action=open or navigate. For
             cookies_get, optional URL or JSON array of URLs to filter
-            cookies by domain.
+            cookies by domain. For action=file_download, save this URL
+            directly through the browser context; use "current" to save the
+            current page/resource.
         page_id (str):
             Page/tab identifier, default "default". Use different page_id for
             multiple tabs.
@@ -3558,7 +3921,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
         code (str):
             JavaScript code. Required for action=eval, evaluate, or run_code.
         path (str):
-            File path for screenshot save or PDF export.
+            File path for screenshot save, PDF export, or file_download output.
         wait (int):
             Milliseconds to wait after click. Used with action=click.
         full_page (bool):
@@ -3572,7 +3935,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
             action=console_messages.
         filename (str):
             Filename for saving logs or screenshot. Used with
-            console_messages, network_requests, screenshot.
+            console_messages, network_requests, screenshot, file_download.
         accept (bool):
             Whether to accept dialog (true) or dismiss (false). Used with
             action=handle_dialog.
@@ -3581,7 +3944,9 @@ async def browser_use(  # pylint: disable=R0911,R0912
             dialog is prompt.
         ref (str):
             Element ref from snapshot output; use for stable targeting. Prefer
-            ref for click/type/hover/screenshot/evaluate/select_option.
+            ref for click/type/hover/screenshot/evaluate/select_option. For
+            action=file_download, click this ref and save the browser download
+            produced by that click.
         element (str):
             Element description for evaluate etc. Prefer ref when available.
         paths_json (str):
@@ -3635,7 +4000,9 @@ async def browser_use(  # pylint: disable=R0911,R0912
         index (int):
             Tab index for tabs select, zero-based. Used with action=tabs.
         wait_time (float):
-            Seconds to wait. Used with action=wait_for.
+            Seconds to wait. Used with action=wait_for and as the download
+            event timeout for action=file_download. Defaults to 30 seconds for
+            file_download when omitted.
         text_gone (str):
             Wait until this text disappears from page. Used with
             action=wait_for.
@@ -3805,6 +4172,16 @@ async def browser_use(  # pylint: disable=R0911,R0912
             )
         if action == "file_upload":
             return await _action_file_upload(state, page_id, paths_json)
+        if action == "file_download":
+            return await _action_file_download(
+                state,
+                page_id,
+                path or filename,
+                ref,
+                url,
+                wait_time,
+                frame_selector,
+            )
         if action == "fill_form":
             return await _action_fill_form(state, page_id, fields_json)
         if action == "install":
