@@ -13,8 +13,8 @@ _PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _load_tool_module():
-    """Load tool.py from this plugin's directory via importlib."""
-    tool_path = os.path.join(_PLUGIN_DIR, "tool.py")
+    """Load wan27_tool.py from this plugin's directory via importlib."""
+    tool_path = os.path.join(_PLUGIN_DIR, "wan27_tool.py")
     spec = importlib.util.spec_from_file_location(
         "wan27_tool",
         tool_path,

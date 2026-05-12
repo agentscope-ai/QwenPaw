@@ -13,8 +13,8 @@ _PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _load_tool_module():
-    """Load tool.py from this plugin's directory via importlib."""
-    tool_path = os.path.join(_PLUGIN_DIR, "tool.py")
+    """Load qwen_image_tool.py from this plugin's directory via importlib."""
+    tool_path = os.path.join(_PLUGIN_DIR, "qwen_image_tool.py")
     spec = importlib.util.spec_from_file_location(
         "qwen_image_tool",
         tool_path,

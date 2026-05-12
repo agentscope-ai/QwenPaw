@@ -13,8 +13,8 @@ _PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _load_tool_module():
-    """Load tool.py from this plugin's directory via importlib."""
-    tool_path = os.path.join(_PLUGIN_DIR, "tool.py")
+    """Load gpt_image2_tool.py from this plugin's directory via importlib."""
+    tool_path = os.path.join(_PLUGIN_DIR, "gpt_image2_tool.py")
     spec = importlib.util.spec_from_file_location(
         "gpt_image2_tool",
         tool_path,
