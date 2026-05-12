@@ -29,7 +29,7 @@ from ...config.config import (
 )
 from ...config.utils import load_config, save_config
 from ...agents.utils import copy_workspace_md_files, normalize_agent_language
-from ...agents.skills_manager import SkillPoolService, get_workspace_skills_dir
+from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
 

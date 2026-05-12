@@ -359,11 +359,12 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **Basic Runtime:**
 
-| Field                        | Type  | Default | Description                                                                                                                 |
-| ---------------------------- | ----- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `max_iters`                  | int   | `100`   | Maximum number of reasoning-acting iterations for ReAct agent (must be ≥ 1)                                                 |
-| `shell_command_timeout`      | float | `60.0`  | Default timeout in seconds for `execute_shell_command`. The LLM may still override this per-call via the timeout parameter  |
-| `auto_continue_on_text_only` | bool  | `false` | When enabled, the agent automatically retries up to two extra reasoning passes if the model responds with text but no tools |
+| Field                        | Type  | Default | Description                                                                                                                                                                                                                      |
+| ---------------------------- | ----- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `max_iters`                  | int   | `100`   | Maximum number of reasoning-acting iterations for ReAct agent (must be ≥ 1)                                                                                                                                                      |
+| `shell_command_timeout`      | float | `60.0`  | Default timeout in seconds for `execute_shell_command`. The LLM may still override this per-call via the timeout parameter                                                                                                       |
+| `shell_command_executable`   | str   | `""`    | Path to the shell used by `execute_shell_command` on Unix/macOS (e.g. `/bin/bash`, `/bin/zsh`). On Windows, supports `powershell.exe` / `pwsh.exe`. When empty, falls back to `$SHELL`, then `/bin/sh` (or `cmd.exe` on Windows) |
+| `auto_continue_on_text_only` | bool  | `false` | When enabled, the agent automatically retries up to two extra reasoning passes if the model responds with text but no tools                                                                                                      |
 
 **LLM Retry & Rate Limiting:**
 

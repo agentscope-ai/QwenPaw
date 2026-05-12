@@ -199,7 +199,7 @@ def _stage_secrets(zf: zipfile.ZipFile, staged_dirs: list[Path]) -> None:
 def _stage_skill_pool(zf: zipfile.ZipFile, staged_dirs: list[Path]) -> None:
     """Stage skill pool directory from *zf*; appends to *staged_dirs* on
     success."""
-    from ...agents.skills_manager import get_skill_pool_dir
+    from ...agents.skill_system.store import get_skill_pool_dir
 
     if not _zip_has_prefix(zf, PREFIX_SKILL_POOL):
         logger.warning(

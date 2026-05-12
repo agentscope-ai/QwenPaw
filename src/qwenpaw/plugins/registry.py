@@ -290,6 +290,42 @@ class PluginRegistry:
         """
         return self._plugin_manifests.get(plugin_id)
 
+    def unregister_plugin(self, plugin_id: str) -> None:
+        """Remove all in-memory registrations for a plugin.
+
+        Clears manifest, providers, hooks, and control commands
+        that were registered under the given plugin_id.  Does not
+        touch disk or agent configurations.
+
+        Args:
+            plugin_id: Plugin identifier to remove
+        """
+        self._plugin_manifests.pop(plugin_id, None)
+
+        providers_to_remove = [
+            pid
+            for pid, reg in self._providers.items()
+            if reg.plugin_id == plugin_id
+        ]
+        for pid in providers_to_remove:
+            del self._providers[pid]
+            logger.info(
+                f"Unregistered provider '{pid}' " f"for plugin '{plugin_id}'",
+            )
+
+        self._startup_hooks = [
+            h for h in self._startup_hooks if h.plugin_id != plugin_id
+        ]
+        self._shutdown_hooks = [
+            h for h in self._shutdown_hooks if h.plugin_id != plugin_id
+        ]
+        self._control_commands = [
+            c for c in self._control_commands if c.plugin_id != plugin_id
+        ]
+        logger.info(
+            f"Unregistered all entries for plugin '{plugin_id}'",
+        )
+
     def get_plugin_id_for_tool(self, tool_name: str) -> Optional[str]:
         """Get plugin ID that provides a specific tool.
 

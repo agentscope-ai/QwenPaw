@@ -273,8 +273,6 @@ docker run -p 127.0.0.1:8088:8088 \
 >   agentscope/qwenpaw:latest
 > ```
 > ポートマッピング（`-p`）は不要で、コンテナはホストネットワークを直接共有します。ただし、コンテナの全ポートがホスト上に公開されるため、使用中のポートと競合する可能性があります。
->
-> **ヒント：** `/app/working` のみをマウントし `/app/working.secret` を別途マウントしない場合、エントリポイントスクリプトが自動的にsecretsを `/app/working/.secret` にリダイレクトし、同じボリュームに永続化します。
 
 イメージはゼロからビルドされています。自分でイメージをビルドする場合は、`scripts/README.md` の [Build Docker image](scripts/README.md#build-docker-image) セクションを参照し、レジストリにプッシュしてください。
 

@@ -398,6 +398,38 @@ export function ChannelDrawer({
                 </Select.Option>
               </Select>
             </Form.Item>
+            <ConfigProvider prefixCls="ant">
+              <Alert
+                type="info"
+                showIcon
+                message={t("channels.feishuScanGuide")}
+                style={{ marginBottom: 16 }}
+              />
+            </ConfigProvider>
+            <QrcodeAuthBlock
+              label={t("channels.feishuScanLogin")}
+              buttonText={t("channels.feishuGetQrcode")}
+              imageAlt="Feishu QR Code"
+              hintText={t("channels.feishuScanHint")}
+              channel="feishu"
+              successStatus="success"
+              successCredentialKey="app_id"
+              pollInterval={2000}
+              onSuccess={(credentials) => {
+                form.setFieldsValue({
+                  app_id: credentials.app_id,
+                  app_secret: credentials.app_secret,
+                });
+                message.success(t("channels.feishuAuthSuccess"));
+              }}
+              onError={(type) => {
+                if (type === "expired") {
+                  message.warning(t("channels.feishuQrcodeExpired"));
+                } else {
+                  message.error(t("channels.feishuQrcodeFailed"));
+                }
+              }}
+            />
             <Form.Item
               name="app_id"
               label="App ID"
@@ -1202,6 +1234,7 @@ export function ChannelDrawer({
       onClose={onClose}
       destroyOnClose
       footer={drawerFooter}
+      key={activeKey} // Force remount when switching channels
     >
       {activeKey && (
         <Form

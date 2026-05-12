@@ -289,7 +289,7 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             _sanitize_tool_schemas(schemas),
         )
 
-    # pylint: disable=too-many-branches
+    # pylint: disable=too-many-branches, too-many-statements
     async def _parse_openai_stream_response(
         self,
         start_datetime: datetime,
@@ -309,6 +309,18 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             response=sanitized_response,
             structured_model=structured_model,
         ):
+            # Filter out malformed tool_use blocks (null id or empty name)
+            # emitted by some OpenAI-compatible models, to prevent bad entries
+            # from being persisted into session history (issue #4185).
+            parsed.content = [
+                b
+                for b in parsed.content
+                if not (
+                    b.get("type") == "tool_use"
+                    and (not isinstance(b.get("id"), str) or not b.get("name"))
+                )
+            ]
+
             # Attach extra_content (Gemini thought_signature) to tool_use
             # blocks.
             if sanitized_response.extra_contents:

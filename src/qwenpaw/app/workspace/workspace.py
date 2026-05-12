@@ -356,7 +356,7 @@ class Workspace:
 
         logger.info(f"Starting workspace: {self.agent_id}")
 
-        from ...agents.skills_manager import (
+        from ...agents.skill_system import (
             ensure_skill_pool_initialized,
         )
 

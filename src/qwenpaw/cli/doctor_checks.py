@@ -20,7 +20,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ..__version__ import __version__
-from ..agents.skills_manager import (
+from ..agents.skill_system import (
     get_workspace_skills_dir,
     read_skill_manifest,
 )

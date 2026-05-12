@@ -561,6 +561,47 @@ class EmbeddingModelConfig(BaseModel):
     )
 
 
+class ADBPGMemoryConfig(BaseModel):
+    """ADBPG (AnalyticDB for PostgreSQL) memory configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    # Database connection
+    host: str = ""
+    port: int = 5432
+    user: str = ""
+    password: str = ""
+    dbname: str = ""
+
+    # LLM for server-side fact extraction
+    llm_model: str = ""
+    llm_api_key: str = ""
+    llm_base_url: str = ""
+
+    # Embedding
+    embedding_model: str = ""
+    embedding_api_key: str = ""
+    embedding_base_url: str = ""
+    embedding_dims: int = 1024
+
+    # API mode
+    api_mode: str = Field(
+        default="rest",
+        description="API mode: 'sql' (direct psycopg2) or 'rest' (HTTP API)",
+    )
+    rest_api_key: str = ""
+    rest_base_url: str = ""
+
+    # Behavior
+    memory_isolation: bool = Field(
+        default=True,
+        description="Per-agent memory isolation (True) or shared (False)",
+    )
+    search_timeout: float = 10.0
+    pool_minconn: int = 1
+    pool_maxconn: int = 5
+
+
 class ReMeLightMemoryConfig(BaseModel):
     """ReMeLight memory manager configuration."""
 
@@ -879,6 +920,19 @@ class AgentsRunningConfig(BaseModel):
         ),
     )
 
+    shell_command_executable: str = Field(
+        default="",
+        description=(
+            "Path to the shell used by execute_shell_command. "
+            "Linux/macOS: e.g. /bin/bash, /bin/zsh. "
+            "Windows: supports powershell.exe, pwsh.exe, or POSIX-like "
+            "shells such as Git Bash. "
+            "When empty, falls back to the $SHELL environment variable, "
+            "then to the platform default (/bin/sh on Unix, cmd.exe on "
+            "Windows)."
+        ),
+    )
+
     @model_validator(mode="after")
     def validate_llm_retry_backoff(self) -> "AgentsRunningConfig":
         """Validate LLM retry backoff relationships."""
@@ -921,6 +975,12 @@ class AgentsRunningConfig(BaseModel):
     )
 
     memory_manager_backend: str = Field(default="remelight")
+
+    adbpg_memory_config: Optional[ADBPGMemoryConfig] = Field(
+        default=None,
+        description="ADBPG memory configuration (used when "
+        "memory_manager_backend='adbpg')",
+    )
 
     reme_light_memory_config: ReMeLightMemoryConfig = Field(
         default_factory=ReMeLightMemoryConfig,

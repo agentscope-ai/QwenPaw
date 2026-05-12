@@ -389,6 +389,194 @@ class DingtalkQRCodeAuthHandler(QRCodeAuthHandler):
 
 
 # ---------------------------------------------------------------------------
+# Feishu/Lark (Device Authorization Grant - RFC 8628) handler
+# ---------------------------------------------------------------------------
+
+_FEISHU_ACCOUNTS_DOMAIN = "https://accounts.feishu.cn"
+_LARK_ACCOUNTS_DOMAIN = "https://accounts.larksuite.com"
+_FEISHU_REGISTER_ENDPOINT = "/oauth/v1/app/registration"
+
+
+class FeishuQRCodeAuthHandler(QRCodeAuthHandler):
+    """QR code auth handler for Feishu/Lark bot registration via Device Flow.
+
+    Uses the OAuth 2.0 Device Authorization Grant (RFC 8628) protocol
+    to enable one-click app creation by scanning a QR code.
+
+    Flow (stateless, similar to DingTalk):
+    1. POST action=init   → get supported auth methods
+    2. POST action=begin  → device_code + verification_uri_complete
+    3. POST action=poll   → client_id + client_secret on SUCCESS
+    """
+
+    async def _get_domain(self, request: Request) -> str:
+        """Determine if using Feishu (China) or Lark (International) domain."""
+        try:
+            from ..agent_context import get_agent_for_request
+
+            agent = await get_agent_for_request(request)
+            channels = agent.config.channels
+            if channels is not None:
+                feishu_cfg = getattr(channels, "feishu", None)
+                if feishu_cfg is not None:
+                    domain = getattr(feishu_cfg, "domain", "feishu")
+                    return domain if domain in ("feishu", "lark") else "feishu"
+        except Exception:
+            pass
+        return "feishu"
+
+    def _get_accounts_domain(self, domain: str) -> str:
+        """Get accounts domain based on feishu/lark selection."""
+        return (
+            _LARK_ACCOUNTS_DOMAIN
+            if domain == "lark"
+            else _FEISHU_ACCOUNTS_DOMAIN
+        )
+
+    async def fetch_qrcode(self, request: Request) -> QRCodeResult:
+        """Initiate device authorization flow and return QR code."""
+        import httpx
+        from urllib.parse import urlencode
+
+        domain = await self._get_domain(request)
+        base_url = self._get_accounts_domain(domain)
+        endpoint = base_url + _FEISHU_REGISTER_ENDPOINT
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                # Step 1: init - get supported auth methods
+                init_resp = await client.post(
+                    endpoint,
+                    content=urlencode({"action": "init"}),
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                )
+                init_resp.raise_for_status()
+                init_data = init_resp.json()
+
+                methods = init_data.get("supported_auth_methods", [])
+                if "client_secret" not in methods:
+                    raise HTTPException(
+                        status_code=502,
+                        detail="Feishu: unsupported auth methods",
+                    )
+
+                # Step 2: begin - get device_code and QR URL
+                begin_resp = await client.post(
+                    endpoint,
+                    content=urlencode(
+                        {
+                            "action": "begin",
+                            "archetype": "PersonalAgent",
+                            "auth_method": "client_secret",
+                            "request_user_info": "open_id",
+                        },
+                    ),
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                )
+                begin_resp.raise_for_status()
+                begin_data = begin_resp.json()
+
+                device_code = begin_data.get("device_code", "")
+                verification_uri = begin_data.get(
+                    "verification_uri_complete",
+                    "",
+                )
+
+                if not device_code or not verification_uri:
+                    raise HTTPException(
+                        status_code=502,
+                        detail="Feishu: missing device_code or QR URL",
+                    )
+
+                # Build the final QR code URL with source parameter
+                if "?" in verification_uri:
+                    scan_url = f"{verification_uri}&source={PROJECT_NAME}"
+                else:
+                    scan_url = f"{verification_uri}?source={PROJECT_NAME}"
+
+                return QRCodeResult(
+                    scan_url=scan_url,
+                    poll_token=device_code,
+                )
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Feishu QR code fetch failed: {exc}",
+            ) from exc
+
+    async def poll_status(self, token: str, request: Request) -> PollResult:
+        """Poll authorization status using device_code."""
+        import httpx
+        from urllib.parse import urlencode
+
+        domain = await self._get_domain(request)
+        base_url = self._get_accounts_domain(domain)
+        endpoint = base_url + _FEISHU_REGISTER_ENDPOINT
+
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    endpoint,
+                    content=urlencode(
+                        {
+                            "action": "poll",
+                            "device_code": token,
+                        },
+                    ),
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                )
+                data = resp.json()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Feishu status check failed: {exc}",
+            ) from exc
+
+        # Check for success
+        if data.get("client_id") and data.get("client_secret"):
+            user_info = data.get("user_info", {})
+            return PollResult(
+                status="success",
+                credentials={
+                    "app_id": data["client_id"],
+                    "app_secret": data["client_secret"],
+                    "open_id": user_info.get("open_id", ""),
+                    "tenant_brand": user_info.get("tenant_brand", "feishu"),
+                },
+            )
+
+        # Check for OAuth errors
+        error = data.get("error", "")
+        if error in ("expired_token", "invalid_grant"):
+            return PollResult(
+                status="expired",
+                credentials={"fail_reason": "QR code expired"},
+            )
+        elif error == "access_denied":
+            return PollResult(
+                status="fail",
+                credentials={"fail_reason": "User denied authorization"},
+            )
+        elif error and error not in ("authorization_pending", "slow_down"):
+            return PollResult(
+                status="fail",
+                credentials={"fail_reason": error},
+            )
+
+        # Default: waiting (authorization_pending, slow_down, or no error)
+        return PollResult(status="waiting", credentials={})
+
+
+# ---------------------------------------------------------------------------
 # Handler registry – add new channels here
 # ---------------------------------------------------------------------------
 
@@ -396,4 +584,5 @@ QRCODE_AUTH_HANDLERS: Dict[str, QRCodeAuthHandler] = {
     "wechat": WeChatQRCodeAuthHandler(),
     "wecom": WecomQRCodeAuthHandler(),
     "dingtalk": DingtalkQRCodeAuthHandler(),
+    "feishu": FeishuQRCodeAuthHandler(),
 }

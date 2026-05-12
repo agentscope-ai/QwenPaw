@@ -23,39 +23,43 @@ from agentscope_runtime.engine.schemas.exception import (
     AppBaseException,
 )
 
-from ...agents.skills_hub import (
+from ...agents.skill_system.hub import (
     SkillImportCancelled,
     search_hub_skills,
     import_pool_skill_from_hub,
     install_skill_from_hub,
 )
-from ...agents.skills_manager import (
-    _BUILTIN_SKILL_LANGUAGES,
+from ...agents.skill_system import (
     SkillConflictError,
     SkillPoolService,
-    SkillInfo,
     SkillService,
+)
+from ...agents.skill_system.models import SkillInfo
+from ...agents.skill_system.registry import (
+    _BUILTIN_SKILL_LANGUAGES,
+    get_pool_builtin_update_notice,
+    get_pool_builtin_sync_status,
+    import_builtin_skills,
+    list_builtin_import_candidates,
+    list_workspaces,
+    reconcile_pool_manifest,
+    reconcile_workspace_manifest,
+    update_single_builtin,
+)
+from ...agents.skill_system.store import (
     _default_pool_manifest,
     _default_workspace_manifest,
     _get_skill_mtime,
     _mutate_json,
     _normalize_skill_manifest_entry,
     _read_skill_from_dir,
-    get_pool_builtin_update_notice,
-    get_pool_builtin_sync_status,
     get_pool_skill_manifest_path,
     get_skill_pool_dir,
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
-    import_builtin_skills,
-    list_builtin_import_candidates,
-    list_workspaces,
     read_skill_pool_manifest,
     read_skill_manifest,
-    reconcile_pool_manifest,
-    reconcile_workspace_manifest,
     suggest_conflict_name,
-    update_single_builtin,
 )
 from ...security.skill_scanner import SkillScanError
 from ..utils import schedule_agent_reload

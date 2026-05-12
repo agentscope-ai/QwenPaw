@@ -23,14 +23,12 @@ import frontmatter
 import yaml
 
 from agentscope_runtime.engine.schemas.exception import ConfigurationException
-from ..exceptions import SkillsError
-from .skills_manager import (
-    SkillConflictError,
-    SkillPoolService,
-    SkillService,
-    suggest_conflict_name,
-)
-from ..constant import EnvVarLoader
+from ...exceptions import SkillsError
+from ...constant import EnvVarLoader
+from .models import SkillConflictError
+from .pool_service import SkillPoolService
+from .store import suggest_conflict_name
+from .workspace_service import SkillService
 
 logger = logging.getLogger(__name__)
 
@@ -252,6 +250,7 @@ def _read_response_bytes(
     _ensure_not_cancelled()
     if max_bytes is not None and max_bytes <= 0:
         raise ConfigurationException(
+            config_key="skills_hub.max_bytes",
             message="max_bytes must be greater than 0",
         )
 
@@ -1162,7 +1161,10 @@ def _fetch_bundle_from_skills_sh_url(
 ) -> tuple[Any, str]:
     spec = _extract_skills_sh_spec(bundle_url)
     if spec is None:
-        raise ConfigurationException(message="Invalid skills.sh URL format")
+        raise ConfigurationException(
+            config_key="skills_hub.bundle_url",
+            message="Invalid skills.sh URL format",
+        )
     owner, repo, skill = spec
     default_branch = _github_get_default_branch(owner, repo) or "main"
     bundle, source_url = _fetch_bundle_from_repo_and_skill_hint(
@@ -1289,6 +1291,7 @@ def _fetch_bundle_from_github_url(
     spec = _extract_github_spec(bundle_url)
     if spec is None:
         raise ConfigurationException(
+            config_key="skills_hub.bundle_url",
             message="Invalid GitHub URL format. Use a repo or path URL, e.g. "
             "https://github.com/owner/repo or "
             "https://github.com/owner/repo/tree/branch/path/to/skill",
@@ -1321,7 +1324,10 @@ def _fetch_bundle_from_skillsmp_url(
 ) -> tuple[Any, str]:
     spec = _extract_skillsmp_spec(bundle_url)
     if spec is None:
-        raise ConfigurationException(message="Invalid skillsmp URL format")
+        raise ConfigurationException(
+            config_key="skills_hub.bundle_url",
+            message="Invalid skillsmp URL format",
+        )
     owner, repo, skill_hint = spec
     return _fetch_bundle_from_repo_and_skill_hint(
         owner=owner,
@@ -1397,6 +1403,7 @@ def _fetch_bundle_from_modelscope_url(
     spec = _extract_modelscope_skill_spec(bundle_url)
     if spec is None:
         raise ConfigurationException(
+            config_key="skills_hub.bundle_url",
             message="Invalid ModelScope URL format. Use URL like "
             "https://modelscope.cn/skills/@owner/skill-name",
         )
@@ -1480,6 +1487,7 @@ def _fetch_bundle_from_lobehub_url(
     identifier = _extract_lobehub_identifier(bundle_url)
     if not identifier:
         raise ConfigurationException(
+            config_key="skills_hub.bundle_url",
             message="Invalid LobeHub skill URL format",
         )
     params = (
@@ -1510,6 +1518,7 @@ def _fetch_bundle_from_clawhub_slug(
 ) -> tuple[Any, str]:
     if not slug:
         raise ConfigurationException(
+            config_key="skills_hub.slug",
             message="slug is required for clawhub install",
         )
     base = _hub_base_url()
@@ -1605,6 +1614,7 @@ def install_skill_from_hub(
 ) -> HubInstallResult:
     if not bundle_url or not _is_http_url(bundle_url):
         raise ConfigurationException(
+            config_key="skills_hub.bundle_url",
             message="bundle_url must be a valid http(s) URL",
         )
     with _with_cancel_checker(cancel_checker):
@@ -1664,6 +1674,7 @@ def import_pool_skill_from_hub(
 ) -> HubInstallResult:
     if not bundle_url or not _is_http_url(bundle_url):
         raise ConfigurationException(
+            config_key="skills_hub.bundle_url",
             message="bundle_url must be a valid http(s) URL",
         )
 

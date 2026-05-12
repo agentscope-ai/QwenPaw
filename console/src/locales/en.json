@@ -63,7 +63,8 @@
     "voiceTranscription": "Voice Transcription",
     "debug": "Debug",
     "plugins": "Plugins",
-    "backups": "Backups"
+    "backups": "Backups",
+    "pluginManager": "Plugin Manager"
   },
   "debug": {
     "title": "Debug",
@@ -830,6 +831,13 @@
     "feishuRegionTooltip": "Choose Feishu for China or Lark for International",
     "feishuChina": "Feishu (China)",
     "feishuInternational": "Lark (International)",
+    "feishuScanGuide": "Scan the QR code with Feishu to create a bot instantly. A Feishu app will be created automatically and App ID / App Secret will be filled in.",
+    "feishuScanLogin": "Scan to Create Bot",
+    "feishuGetQrcode": "Get Feishu QR Code",
+    "feishuScanHint": "Scan the QR code above with Feishu. App ID and App Secret will be filled in automatically after authorization.",
+    "feishuAuthSuccess": "Feishu bot created. App ID and App Secret have been filled in.",
+    "feishuQrcodeExpired": "QR code expired, please get a new one.",
+    "feishuQrcodeFailed": "Failed to get Feishu QR code. Please try again.",
     "wechatSetupGuide": "WeChat personal account Bot (iLink protocol). On first start without a Bot Token, a QR code login URL will be printed; scan to authorize. The token is saved locally for future use.",
     "wechatContextTokenLimit": "WeChat iLink platform limitation: each user message's context_token allows a maximum of 10 reply messages. This is a hard limit enforced by the platform. It is recommended to disable thinking and tool output, or enable Message Merge to avoid exceeding the limit and causing message send failures.",
     "wechatBotToken": "Bot Token",
@@ -911,7 +919,11 @@
   "modelSelector": {
     "selectModel": "Select model",
     "noConfiguredModels": "No configured models",
-    "switchFailed": "Failed to switch model"
+    "switchFailed": "Failed to switch model",
+    "searchModels": "Search models...",
+    "noModelsFound": "No matching models found",
+    "free": "Free",
+    "vision": "Vision"
   },
   "tokenUsage": {
     "title": "Token Usage",
@@ -1296,7 +1308,7 @@
     "llmAcquireTimeoutGtPauseJitter": "Slot acquire timeout must be greater than rate limit pause + jitter",
     "contextManagementTitle": "Context Management",
     "memoryManagerBackend": "Memory Manager Backend",
-    "memoryManagerBackendTooltip": "Backend for the memory manager. Currently only remelight is supported.",
+    "memoryManagerBackendTooltip": "Backend for the memory manager. Choose remelight (local files) or adbpg (cloud database).",
     "memoryManagerBackendRestartWarning": "Switching the memory manager backend does not support hot reload. Save and restart QwenPaw for changes to take effect.",
     "maxIters": "Max Iterations",
     "maxItersTooltip": "Maximum number of reasoning-acting iterations for ReAct agent",
@@ -1312,6 +1324,9 @@
     "shellCommandTimeoutPlaceholder": "Enter timeout",
     "shellCommandTimeoutRequired": "Shell command timeout is required",
     "shellCommandTimeoutMin": "Shell command timeout must be at least 1 second",
+    "shellCommandExecutable": "Shell Executable",
+    "shellCommandExecutableTooltip": "Path to the shell used by execute_shell_command. Linux/macOS: e.g. /bin/bash, /bin/zsh. Windows: supports powershell.exe, pwsh.exe, or POSIX-like shells such as Git Bash. When empty, falls back to the $SHELL environment variable, then to the platform default (/bin/sh on Unix, cmd.exe on Windows).",
+    "shellCommandExecutablePlaceholder": "e.g. /bin/bash or powershell.exe (empty = auto-detect)",
     "planMode": "Plan Mode",
     "planModeTooltip": "Enable plan mode to use /plan <description> for structured task planning. When enabled, plan tools are registered and the plan panel becomes available.",
     "maxInputLength": "Max Input Length",
@@ -1479,7 +1494,28 @@
     "recursiveFileWatcherTooltip": "Watch the memory directory recursively. Enable to include files in subdirectories like memory/subdirectory/* in vector search indexing.",
     "contextManagerBackend": "Context Manager Backend",
     "contextManagerBackendTooltip": "Backend type for the context manager. Currently only Light is supported.",
-    "backendRestartWarning": "Switching backends does not support hot reload. Save and restart QwenPaw for changes to take effect."
+    "backendRestartWarning": "Switching backends does not support hot reload. Save and restart QwenPaw for changes to take effect.",
+    "adbpgMemoryTitle": "ADBPG Long-term Memory",
+    "adbpgConfig": {
+      "title": "ADBPG Memory Configuration",
+      "apiMode": "API Mode",
+      "host": "Host",
+      "port": "Port",
+      "user": "Username",
+      "password": "Password",
+      "dbname": "Database",
+      "llmModel": "LLM Model",
+      "llmApiKey": "LLM API Key",
+      "llmBaseUrl": "LLM Base URL",
+      "embeddingModel": "Embedding Model",
+      "embeddingApiKey": "Embedding API Key",
+      "embeddingBaseUrl": "Embedding Base URL",
+      "embeddingDims": "Embedding Dimensions",
+      "restBaseUrl": "REST Base URL",
+      "restApiKey": "REST API Key",
+      "memoryIsolation": "Memory Isolation (per-agent)",
+      "searchTimeout": "Search Timeout"
+    }
   },
   "tools": {
     "title": "Built-in Tools",
@@ -1890,5 +1926,37 @@
       "done": "Done",
       "abandoned": "Abandoned"
     }
+  },
+  "pluginManager": {
+    "title": "Plugin Manager",
+    "description": "Install, manage, and remove plugins without restarting the service.",
+    "installed": "Installed Plugins",
+    "noPlugins": "No plugins installed yet",
+    "installBtn": "Install Plugin",
+    "installTitle": "Install Plugin",
+    "dropPrimary": "Drop folder or ZIP here",
+    "dropSecondary": "or click to browse a ZIP file",
+    "orFromUrl": "or from URL",
+    "installFromUrl": "Install from URL",
+    "urlPlaceholder": "https://example.com/plugin.zip",
+    "zipOnly": "Only ZIP files can be dropped as files — drag a folder for directory install",
+    "dropFailed": "Failed to read dropped folder",
+    "restartHint": "Some plugins (e.g. hooks, monkey-patches) may require an app restart to fully take effect or be removed.",
+    "installing": "Installing...",
+    "installSuccess": "Plugin installed successfully",
+    "installFailed": "Plugin installation failed",
+    "uninstall": "Uninstall",
+    "uninstallConfirm": "Uninstall plugin \"{{name}}\"? This cannot be undone. Some plugins may require an app restart to be fully removed.",
+    "uninstalling": "Uninstalling...",
+    "uninstallSuccess": "Plugin uninstalled successfully",
+    "uninstallFailed": "Plugin uninstallation failed",
+    "statusLoaded": "Running",
+    "statusUnloaded": "Not loaded",
+    "type": "Type",
+    "version": "Version",
+    "author": "Author",
+    "unknown": "Unknown",
+    "loadFailed": "Failed to load plugin list",
+    "confirmTitle": "Confirm Uninstall"
   }
 }

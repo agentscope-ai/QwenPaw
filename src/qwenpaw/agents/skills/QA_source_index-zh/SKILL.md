@@ -24,7 +24,7 @@ metadata:
 |---------------------|-----------------------------------|-----------------------------------|
 | 安装、依赖、首次使用 | `quickstart`、`intro` | `src/qwenpaw/cli/`、`pyproject.toml` |
 | 配置、config.json、环境变量 | `config` | `src/qwenpaw/config/config.py`、`src/qwenpaw/constant.py` |
-| 技能、SKILL、skill_pool、内置技能 | `skills` | `src/qwenpaw/agents/skills_manager.py`、`src/qwenpaw/agents/skills/` |
+| 技能、SKILL、skill_pool、内置技能 | `skills` | `src/qwenpaw/agents/skill_system/`、`src/qwenpaw/agents/skills/` |
 | MCP、插件 | `mcp` | `src/qwenpaw/app/routers/`（按需 grep `mcp`） |
 | 多智能体、工作区、agent、内置 QA | `multi-agent` | `src/qwenpaw/app/routers/agents.py`、`src/qwenpaw/app/migration.py`、`src/qwenpaw/constant.py`（`BUILTIN_QA_AGENT_ID` 等） |
 | 记忆、MEMORY、memory_search | `memory` | `src/qwenpaw/agents/memory/memory_manager.py`、`src/qwenpaw/agents/tools/memory_search.py` |

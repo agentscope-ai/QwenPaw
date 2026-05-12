@@ -1988,6 +1988,33 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             f"with {len(default_models)} default model(s)",
         )
 
+    def unregister_plugin_provider(self, provider_id: str) -> bool:
+        """Remove a plugin provider from memory.
+
+        Removes the provider from ``self.plugin_providers`` so it no
+        longer appears in the model list.  The persisted configuration
+        file (``plugin_path/{provider_id}.json``) is intentionally
+        kept on disk so that user-configured keys survive a
+        reinstall.
+
+        Args:
+            provider_id: Plugin provider identifier to remove.
+
+        Returns:
+            ``True`` if the provider was found and removed,
+            ``False`` if it was not registered.
+        """
+        if provider_id not in self.plugin_providers:
+            logger.warning(
+                f"unregister_plugin_provider: '{provider_id}' not found",
+            )
+            return False
+        del self.plugin_providers[provider_id]
+        logger.info(
+            f"Unregistered plugin provider '{provider_id}' from memory",
+        )
+        return True
+
     @staticmethod
     def get_instance() -> "ProviderManager":
         """Get the singleton instance of ProviderManager."""

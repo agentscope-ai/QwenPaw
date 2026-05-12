@@ -357,6 +357,7 @@ class CronManager:
         parts = [p for p in spec.schedule.cron.split() if p]
         if len(parts) != 5:
             raise ConfigurationException(
+                config_key="cron.schedule.cron",
                 message=(
                     f"cron must have 5 fields, "
                     f"got {len(parts)}: {spec.schedule.cron}"

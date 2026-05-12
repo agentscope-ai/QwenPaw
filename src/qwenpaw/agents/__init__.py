@@ -15,7 +15,7 @@ Example:
     >>> model, formatter = create_model_and_formatter()
 """
 
-# QwenPawAgent is lazy-loaded so that importing agents.skills_manager (e.g.
+# QwenPawAgent is lazy-loaded so that importing agents.skill_system (e.g.
 # from CLI init_cmd/skills_cmd) does not pull react_agent, agentscope, tools.
 # pylint: disable=undefined-all-variable
 __all__ = ["QwenPawAgent", "create_model_and_formatter"]

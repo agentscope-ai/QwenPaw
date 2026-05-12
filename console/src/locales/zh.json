@@ -63,7 +63,8 @@
     "voiceTranscription": "语音转写",
     "debug": "调试",
     "plugins": "插件",
-    "backups": "备份"
+    "backups": "备份",
+    "pluginManager": "插件管理"
   },
   "debug": {
     "title": "调试",
@@ -693,6 +694,13 @@
     "feishuRegionTooltip": "国内用户选择飞书，海外用户选择 Lark",
     "feishuChina": "飞书（国内）",
     "feishuInternational": "Lark（海外）",
+    "feishuScanGuide": "使用飞书扫码一键创建机器人。扫码后将自动创建飞书应用并获取 App ID 和 App Secret。",
+    "feishuScanLogin": "扫码创建机器人",
+    "feishuGetQrcode": "获取飞书二维码",
+    "feishuScanHint": "请使用飞书扫描上方二维码，完成授权后 App ID 与 App Secret 将自动填入。",
+    "feishuAuthSuccess": "飞书机器人创建成功，App ID 与 App Secret 已自动填入",
+    "feishuQrcodeExpired": "二维码已过期，请重新获取",
+    "feishuQrcodeFailed": "获取飞书二维码失败，请稍后重试",
     "wechatSetupGuide": "微信个人账号 Bot（iLink 协议）。首次启动时若未配置 Bot Token，系统将打印二维码链接，请扫码登录；Token 将自动保存到本地文件供后续使用。",
     "wechatContextTokenLimit": "微信 iLink 平台限制：每条用户消息对应的 context_token 最多只能回复 10 条消息，这是平台侧的硬性限制。建议关闭思考及工具输出，或者使用消息合并功能以避免超出限制导致消息发送失败。",
     "wechatBotToken": "Bot Token",
@@ -833,7 +841,11 @@
   "modelSelector": {
     "selectModel": "选择模型",
     "noConfiguredModels": "暂无已配置模型",
-    "switchFailed": "切换模型失败"
+    "switchFailed": "切换模型失败",
+    "searchModels": "搜索模型...",
+    "noModelsFound": "未找到匹配的模型",
+    "free": "免费",
+    "vision": "视觉"
   },
   "models": {
     "llmConfiguration": "LLM 配置",
@@ -1159,7 +1171,7 @@
     "llmAcquireTimeoutGtPauseJitter": "槽位获取超时必须大于限流暂停时长与抖动范围之和",
     "contextManagementTitle": "上下文管理",
     "memoryManagerBackend": "记忆管理后端",
-    "memoryManagerBackendTooltip": "记忆管理器的后端类型，目前仅支持 remelight",
+    "memoryManagerBackendTooltip": "记忆管理器的后端类型，可选 remelight（本地文件）或 adbpg（云端数据库）",
     "memoryManagerBackendRestartWarning": "切换记忆管理后端不支持热更新，保存后需要重启 QwenPaw 才能生效",
     "maxIters": "最大迭代次数",
     "maxItersTooltip": "ReAct 智能体的最大推理-行动迭代次数",
@@ -1175,6 +1187,9 @@
     "shellCommandTimeoutPlaceholder": "请输入超时时间",
     "shellCommandTimeoutRequired": "Shell 命令超时为必填项",
     "shellCommandTimeoutMin": "Shell 命令超时至少为 1 秒",
+    "shellCommandExecutable": "Shell 可执行程序",
+    "shellCommandExecutableTooltip": "execute_shell_command 使用的 shell 路径。Linux/macOS：如 /bin/bash、/bin/zsh。Windows：支持 powershell.exe、pwsh.exe 或类 POSIX shell（如 Git Bash）。留空时依次回退到 $SHELL 环境变量，再回退到平台默认值（Unix 为 /bin/sh，Windows 为 cmd.exe）。",
+    "shellCommandExecutablePlaceholder": "例如 /bin/bash 或 powershell.exe（留空 = 自动检测）",
     "planMode": "计划模式",
     "planModeTooltip": "启用后可使用 /plan <描述> 进行结构化任务规划。启用时会注册 plan 相关工具，并显示计划面板。",
     "maxInputLength": "最大输入长度",
@@ -1342,7 +1357,28 @@
     "recursiveFileWatcherTooltip": "是否递归监听记忆目录。开启后将包含 memory/subdirectory/* 等子目录中的文件到向量搜索索引。",
     "contextManagerBackend": "上下文管理后端",
     "contextManagerBackendTooltip": "上下文管理器的后端类型，目前仅支持 Light",
-    "backendRestartWarning": "切换后端不支持热更新，保存后需要重启 QwenPaw 才能生效"
+    "backendRestartWarning": "切换后端不支持热更新，保存后需要重启 QwenPaw 才能生效",
+    "adbpgMemoryTitle": "ADBPG 长期记忆",
+    "adbpgConfig": {
+      "title": "ADBPG 记忆配置",
+      "apiMode": "API 模式",
+      "host": "主机地址",
+      "port": "端口",
+      "user": "用户名",
+      "password": "密码",
+      "dbname": "数据库名",
+      "llmModel": "LLM 模型",
+      "llmApiKey": "LLM API Key",
+      "llmBaseUrl": "LLM Base URL",
+      "embeddingModel": "Embedding 模型",
+      "embeddingApiKey": "Embedding API Key",
+      "embeddingBaseUrl": "Embedding Base URL",
+      "embeddingDims": "Embedding 维度",
+      "restBaseUrl": "REST Base URL",
+      "restApiKey": "REST API Key",
+      "memoryIsolation": "记忆隔离（按 Agent）",
+      "searchTimeout": "搜索超时"
+    }
   },
   "tools": {
     "title": "内置工具",
@@ -1898,5 +1934,37 @@
       "done": "已完成",
       "abandoned": "已放弃"
     }
+  },
+  "pluginManager": {
+    "title": "插件管理",
+    "description": "安装、管理和卸载插件，无需重启服务。",
+    "installed": "已安装插件",
+    "noPlugins": "暂无已安装插件",
+    "installBtn": "安装插件",
+    "installTitle": "安装插件",
+    "dropPrimary": "拖入文件夹或 ZIP 文件",
+    "dropSecondary": "或点击选择 ZIP 文件",
+    "orFromUrl": "或通过 URL 安装",
+    "installFromUrl": "从 URL 安装",
+    "urlPlaceholder": "https://example.com/plugin.zip",
+    "zipOnly": "直接拖入文件时仅支持 ZIP，如需安装文件夹请直接拖入文件夹",
+    "dropFailed": "读取拖入的文件夹失败",
+    "restartHint": "部分插件（如 hook、monkey-patch 类型）安装或卸载后可能需要重启应用才能完全生效。",
+    "installing": "安装中...",
+    "installSuccess": "插件安装成功",
+    "installFailed": "插件安装失败",
+    "uninstall": "卸载",
+    "uninstallConfirm": "确定要卸载插件 \"{{name}}\"？操作无法撤销。部分插件可能需要重启应用才能完全移除。",
+    "uninstalling": "卸载中...",
+    "uninstallSuccess": "插件卸载成功",
+    "uninstallFailed": "插件卸载失败",
+    "statusLoaded": "运行中",
+    "statusUnloaded": "未加载",
+    "type": "类型",
+    "version": "版本",
+    "author": "作者",
+    "unknown": "未知",
+    "loadFailed": "加载插件列表失败",
+    "confirmTitle": "确认卸载"
   }
 }

@@ -40,6 +40,7 @@ import {
   SparkDebugLine,
   SparkSaveLine,
 } from "@agentscope-ai/icons";
+import { Package } from "lucide-react";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import { usePlugins } from "../plugins/PluginContext";
@@ -50,6 +51,15 @@ import { KEY_TO_PATH, DEFAULT_OPEN_KEYS } from "./constants";
 // ── Layout ────────────────────────────────────────────────────────────────
 
 const { Sider } = Layout;
+const MOBILE_SIDEBAR_QUERY = "(max-width: 768px)";
+
+function isMobileSidebarViewport() {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia(MOBILE_SIDEBAR_QUERY).matches
+  );
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -70,6 +80,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountForm] = Form.useForm();
   const [collapsed, setCollapsed] = useState(false);
+  const [isMobile, setIsMobile] = useState(isMobileSidebarViewport);
 
   // ── Effects ──────────────────────────────────────────────────────────────
 
@@ -78,6 +89,30 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       .getStatus()
       .then((res) => setAuthEnabled(res.enabled))
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia(MOBILE_SIDEBAR_QUERY);
+    const syncMobileSidebar = () => {
+      setIsMobile(mediaQuery.matches);
+      if (mediaQuery.matches) {
+        setCollapsed(true);
+      }
+    };
+
+    syncMobileSidebar();
+    mediaQuery.addEventListener("change", syncMobileSidebar);
+
+    return () => {
+      mediaQuery.removeEventListener("change", syncMobileSidebar);
+    };
   }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -264,6 +299,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       path: "/debug",
       label: t("nav.debug", "Debug"),
     },
+    {
+      key: "plugin-manager",
+      icon: <Package size={18} />,
+      path: "/plugin-manager",
+      label: t("nav.pluginManager", "Plugin Manager"),
+    },
     // Append plugin nav items dynamically
     ...pluginRoutes.map((route) => ({
       key: route.path.replace(/^\//, ""),
@@ -276,11 +317,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   // ── Menu items — agent-scoped (Chat + Control + Workspace) ──────────────
 
   const agentMenuItems: MenuProps["items"] = [
-    {
-      key: "chat",
-      label: collapsed ? null : t("nav.chat"),
-      icon: <SparkChatTabFill size={16} />,
-    },
     {
       key: "control-group",
       label: collapsed ? null : t("nav.control"),
@@ -402,6 +438,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           label: collapsed ? null : t("nav.debug", "Debug"),
           icon: <SparkDebugLine size={16} />,
         },
+        {
+          key: "plugin-manager",
+          label: collapsed ? null : t("nav.pluginManager", "Plugin Manager"),
+          icon: <Package size={16} />,
+        },
       ],
     },
   ];
@@ -421,9 +462,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  const siderWidth = collapsed ? (isMobile ? 56 : 72) : 240;
+
   return (
     <Sider
-      width={collapsed ? 72 : 240}
+      width={siderWidth}
       className={`${styles.sider}${
         collapsed ? ` ${styles.siderCollapsed}` : ""
       }${isDark ? ` ${styles.siderDark}` : ""}`}
@@ -460,6 +503,18 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           <div className={styles.agentScopedSection}>
             <div className={styles.agentSelectorContainer}>
               <AgentSelector collapsed={collapsed} />
+              {/* Chat entry — sticky together with agent selector */}
+              <button
+                className={`${styles.stickyChatButton}${
+                  selectedKey === "chat"
+                    ? ` ${styles.stickyChatButtonActive}`
+                    : ""
+                }`}
+                onClick={() => navigate("/chat")}
+              >
+                <SparkChatTabFill size={16} />
+                <span>{t("nav.chat")}</span>
+              </button>
             </div>
             <Menu
               mode="inline"

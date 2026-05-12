@@ -48,16 +48,13 @@ ActiveModelReadScope = Literal["effective", "global", "agent"]
 ActiveModelWriteScope = Literal["global", "agent"]
 
 
-def get_provider_manager(request: Request) -> ProviderManager:
+async def get_provider_manager(request: Request) -> ProviderManager:
     """Get the provider manager from app state.
 
     Args:
         request: FastAPI request object
     """
-    provider_manager = getattr(request.app.state, "provider_manager", None)
-    if provider_manager is None:
-        provider_manager = ProviderManager.get_instance()
-    return provider_manager
+    return request.app.state.provider_manager
 
 
 class ProviderConfigRequest(BaseModel):

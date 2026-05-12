@@ -204,7 +204,7 @@ def init_cmd(
     click.echo("✓ Builtin QA agent workspace ensured")
 
     # --- Ensure local skill hub exists ---
-    from ..agents.skills_manager import ensure_skill_pool_initialized
+    from ..agents.skill_system import ensure_skill_pool_initialized
 
     if ensure_skill_pool_initialized():
         click.echo("✓ Skill pool initialized")
@@ -361,7 +361,7 @@ def init_cmd(
     # --- skills (prompt if needed) ---
     if use_defaults:
         # Using --defaults: download all pool skills into workspace, then enable
-        from ..agents.skills_manager import (
+        from ..agents.skill_system import (
             SkillPoolService,
             SkillService,
         )
@@ -391,7 +391,7 @@ def init_cmd(
         )
 
         if skills_choice == "all":
-            from ..agents.skills_manager import (
+            from ..agents.skill_system import (
                 SkillPoolService,
                 SkillService,
             )
