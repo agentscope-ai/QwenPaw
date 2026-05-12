@@ -117,6 +117,7 @@ export function ChannelDrawer({
   const currentLang = i18n.language?.startsWith("zh") ? "zh" : "en";
   const label = activeKey ? getChannelLabel(activeKey, t) : activeLabel;
   const { message } = useAppMessage();
+  const matrixE2eeEnabled = Form.useWatch("encryption", form) === true;
 
   // ── Access control fields (shared across multiple channels) ──────────────
 
@@ -194,8 +195,15 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item
               name="access_token"
-              label="Access Token (optional, or use password login)"
-              rules={[{ required: false }]}
+              label="Access Token"
+              dependencies={["encryption"]}
+              rules={[
+                {
+                  required: !matrixE2eeEnabled,
+                  message: "Please enter access token",
+                },
+              ]}
+              hidden={matrixE2eeEnabled}
             >
               <Input.Password placeholder="syt_..." />
             </Form.Item>
@@ -216,16 +224,30 @@ export function ChannelDrawer({
             <Form.Item
               name="username"
               label="Username"
-              rules={[{ required: false }]}
+              dependencies={["encryption"]}
+              rules={[
+                {
+                  required: matrixE2eeEnabled,
+                  message: "Please enter username",
+                },
+              ]}
+              hidden={!matrixE2eeEnabled}
             >
-              <Input placeholder="Matrix Username (optional, blank to use user_id)" />
+              <Input placeholder="Matrix localpart or full MXID" />
             </Form.Item>
             <Form.Item
               name="password"
               label="Password"
-              rules={[{ required: false }]}
+              dependencies={["encryption"]}
+              rules={[
+                {
+                  required: matrixE2eeEnabled,
+                  message: "Please enter password",
+                },
+              ]}
+              hidden={!matrixE2eeEnabled}
             >
-              <Input.Password placeholder="Matrix Password (optional, for password login)" />
+              <Input.Password placeholder="Account password for login" />
             </Form.Item>
           </>
         );

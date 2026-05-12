@@ -406,18 +406,13 @@ class MatrixChannel(BaseChannel):
         # When token or username/password is explicitly configured, do not
         # restore cached token, otherwise we may accidentally bypass the
         # intended auth path.
-        has_explicit_identity = has_password_creds or has_token_cred or self._cfg.user_id
+        has_explicit_identity = (
+            has_password_creds or has_token_cred or self._cfg.user_id
+        )
         self._load_auth_state(
             restore_token=False,
             restore_identity=not has_explicit_identity,
         )
-        else:
-            # Do not auto-restore access_token from cache; stale tokens can
-            # cause endless M_UNKNOWN_TOKEN loops when credentials are absent.
-            self._load_auth_state(
-                restore_token=False,
-                restore_identity=True,
-            )
 
     def _init_async_client(self, resolved_device_id: str) -> None:
         # E2EE: when encryption is enabled, provide store_path so matrix-nio
@@ -613,7 +608,6 @@ class MatrixChannel(BaseChannel):
                         "(token may lack device scope)",
                     )
                     self._cfg.encryption = False
-            return True
         logger.error("MatrixChannel: token login failed: %s", whoami)
         return False
 
@@ -683,6 +677,11 @@ class MatrixChannel(BaseChannel):
                 "MatrixChannel: homeserver not configured, skipping",
             )
             return
+        if self._cfg.encryption:
+            logger.info(
+                "MatrixChannel: E2EE enabled,"
+                "ensuring libolm and python bindings are installed",
+            )
         login_user = (self._cfg.username or self._cfg.user_id or "").strip()
         has_password_creds = bool(login_user and self._cfg.password)
         has_token_cred = bool(self._cfg.access_token)
