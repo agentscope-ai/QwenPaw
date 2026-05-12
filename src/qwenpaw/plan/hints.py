@@ -54,11 +54,11 @@ def set_plan_gate(  # pylint: disable=protected-access
 def clear_plan_awaiting_user_confirm(  # pylint: disable=protected-access
     plan_notebook,
 ) -> None:
-    """Clear the post-``create_plan`` / revise lock before a new user turn.
+    """Clear the post-`create_plan` / post-revise confirmation lock.
 
-    Each incoming user message starts a new runner invocation; the agent
-    must not keep blocking execution tools across turns after the user has
-    had a chance to respond.
+    The runner calls this after the classifier treats the user's message as
+    confirmation, when loading session state without a pending gate, or when
+    the classifier leaves the plan in an unlocked state.
     """
     if plan_notebook is not None:
         plan_notebook._plan_awaiting_user_confirm = False
@@ -67,15 +67,15 @@ def clear_plan_awaiting_user_confirm(  # pylint: disable=protected-access
 def check_plan_tool_gate(
     plan_notebook,
     tool_name: str,
-):  # pylint: disable=protected-access,too-many-return-statements
-    """Return an error string if *tool_name* must be blocked, else ``None``.
+):  # pylint: disable=protected-access
+    """Return an error string if *tool_name* must be blocked, else `None`.
 
-    When a ``/plan`` request is pending (gate set by the runner), only
-    ``create_plan`` may run.  The gate is cleared once a plan exists.
+    When a `/plan` request is pending (gate set by the runner), only
+    `create_plan` may run.  The gate is cleared once a plan exists.
 
-    Immediately after ``create_plan`` or ``revise_current_plan`` (same run),
-    only plan-management tools may run until the next user message — see
-    ``clear_plan_awaiting_user_confirm`` in the runner.
+    Immediately after `create_plan` or `revise_current_plan` (same run),
+    only plan-management tools may run until the runner clears
+    `_plan_awaiting_user_confirm` (user confirmation path).
     """
     if plan_notebook is None:
         return None
@@ -112,23 +112,20 @@ def should_skip_auto_continue(  # pylint: disable=protected-access
 ) -> bool:
     """True when auto-continue must be suppressed for the current turn.
 
-    After ``create_plan`` or ``revise_current_plan`` the notebook sets
-    ``_plan_just_mutated`` so the agent can present the plan and wait for
+    After `create_plan` or `revise_current_plan` the notebook sets
+    `_plan_just_mutated` so the agent can present the plan and wait for
     confirmation without auto-continue injecting an extra reasoning pass.
+    Also suppresses when `_plan_awaiting_user_confirm` is set.
     """
     if plan_notebook is None:
         return False
 
+    if getattr(plan_notebook, "_plan_awaiting_user_confirm", False):
+        return True
+
     val = bool(getattr(plan_notebook, "_plan_just_mutated", False))
     if val:
         plan_notebook._plan_just_mutated = False
-        return True
-
-    if (
-        bool(getattr(plan_notebook, "_plan_recently_finished", False))
-        and not bool(getattr(plan_notebook, "_plan_tool_gate", False))
-        and getattr(plan_notebook, "current_plan", None) is None
-    ):
         return True
 
     return False
@@ -254,7 +251,8 @@ if _HAS_DEFAULT_HINT:
             "structured plan with subtasks. Each subtask needs: name, "
             "description, expected_outcome. Order by dependency.\n"
             "After 'create_plan' succeeds, present the plan and wait for "
-            "user confirmation.\n"
+            "user confirmation. Do not call any other tool after "
+            "'create_plan' in the same turn.\n"
         )
 
         at_the_beginning_after_mutation: str = (

@@ -49,6 +49,58 @@ logger = logging.getLogger(__name__)
 _PRINT_END_SIGNAL = "[END]"
 
 
+async def _classify_plan_confirmation(
+    *,
+    model: Any,
+    user_text: str,
+    plan,
+) -> str:
+    """Classify user reply: confirm, modify, cancel, ambiguous, other."""
+    if model is None or not user_text:
+        return "other"
+    prompt = (
+        "Classify the user's reply about a plan into ONE of:\n"
+        '- "confirm": approves AS-IS (e.g. start, go ahead, lgtm; '
+        "any language).\n"
+        '- "modify": any change request (add, remove, adjust, replace).\n'
+        '- "cancel": abandon the plan.\n'
+        '- "ambiguous": unclear intent.\n'
+        '- "other": unrelated to the plan.\n'
+        "If the reply both approves AND requests changes, return 'modify'.\n"
+        "Return strict JSON only (no markdown):\n"
+        '{"decision":"<category>","confidence":<0.0-1.0>}\n\n'
+        f"PLAN:\n{plan.to_markdown()}\n\nUSER:\n{user_text}"
+    )
+    try:
+        response = await model(messages=[{"role": "user", "content": prompt}])
+        if hasattr(response, "__aiter__"):
+            prev = None
+            async for chunk in response:
+                prev = chunk
+            response = prev
+        content = getattr(response, "content", "") if response else ""
+        if isinstance(content, list):
+            text = "".join(
+                str(b.get("text", ""))
+                for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
+            )
+        else:
+            text = str(content or getattr(response, "text", "") or "")
+        i, j = text.find("{"), text.rfind("}")
+        if i < 0 or j <= i:
+            logger.warning("Plan classifier: no JSON: %s", text[:200])
+            return "other"
+        data = json.loads(text[i : j + 1])
+        decision = str(data.get("decision", "")).lower()
+        conf = float(data.get("confidence", 0))
+    except Exception:
+        logger.warning("Plan classification failed", exc_info=True)
+        return "other"
+    labels = {"confirm", "modify", "cancel", "ambiguous"}
+    return decision if decision in labels and conf >= 0.85 else "other"
+
+
 async def _cancel_streaming_agent_task(task: asyncio.Task) -> None:
     if task.done():
         return
@@ -486,6 +538,7 @@ class AgentRunner(Runner):
 
             # --- Plan Mode ------------------------------------------
             plan_notebook = None
+            plan_requires_confirmation = False
             plan_enabled = getattr(
                 getattr(agent_config, "plan", None),
                 "enabled",
@@ -535,12 +588,11 @@ class AgentRunner(Runner):
                             cur_id = plan.id
                             if not had_plan or cur_id != prev_id:
                                 nb._plan_just_mutated = True
-                                nb._plan_awaiting_user_confirm = True
                             nb._qp_prev_plan_id = cur_id
                         else:
                             if had_plan:
                                 nb._plan_recently_finished = True
-                            nb._plan_awaiting_user_confirm = False
+                                nb._plan_awaiting_user_confirm = False
                             nb._qp_prev_plan_id = None
                         nb._qp_had_plan = plan is not None
 
@@ -643,6 +695,9 @@ class AgentRunner(Runner):
                         allow_not_exist=True,
                     )
                     _agent_st = _states.get("agent", {})
+                    plan_requires_confirmation = bool(
+                        _agent_st.get("plan_requires_confirmation", False),
+                    )
                     _nb_val = _agent_st.get("plan_notebook")
                     if _agent_st and (
                         "plan_notebook" not in _agent_st
@@ -680,7 +735,52 @@ class AgentRunner(Runner):
             if plan_notebook is not None:
                 from ...plan.hints import clear_plan_awaiting_user_confirm
 
-                clear_plan_awaiting_user_confirm(plan_notebook)
+                decision: str | None = None
+                cur = getattr(plan_notebook, "current_plan", None)
+                if plan_requires_confirmation and cur is not None:
+                    decision = await _classify_plan_confirmation(
+                        model=getattr(agent, "model", None),
+                        user_text=query or "",
+                        plan=cur,
+                    )
+                um = query or ""
+                if decision == "confirm":
+                    clear_plan_awaiting_user_confirm(plan_notebook)
+                    self._rewrite_last_message_text(
+                        msgs,
+                        "The user confirmed the current plan. "
+                        "Start executing it.",
+                    )
+                elif decision is None:
+                    clear_plan_awaiting_user_confirm(plan_notebook)
+                else:
+                    # pylint: disable-next=protected-access
+                    plan_notebook._plan_awaiting_user_confirm = True
+                    if decision == "modify":
+                        self._rewrite_last_message_text(
+                            msgs,
+                            (
+                                "The user wants to MODIFY the plan. Call "
+                                "'finish_plan' with state='abandoned', then "
+                                "call 'create_plan' to build a NEW plan "
+                                "that incorporates the user's request "
+                                "below. Do NOT call 'update_subtask_state' "
+                                "or any execution tool yet.\n"
+                                f"User's request: {um}"
+                            ),
+                        )
+                    elif decision == "cancel":
+                        self._rewrite_last_message_text(
+                            msgs,
+                            (
+                                "The user wants to CANCEL the current plan. "
+                                "Call 'finish_plan' with state='abandoned'. "
+                                "Then briefly acknowledge to the user. Do "
+                                "NOT call 'update_subtask_state' or any "
+                                "execution tool.\n"
+                                f"User's request: {um}"
+                            ),
+                        )
 
             # Rebuild system prompt so it always reflects the latest
             # AGENTS.md / SOUL.md / PROFILE.md, not the stale one saved
@@ -798,6 +898,28 @@ class AgentRunner(Runner):
                     channel=channel,
                     agent=agent,
                 )
+                if plan_notebook is not None:
+                    try:
+                        nb = plan_notebook
+                        lock = getattr(
+                            nb,
+                            "_plan_awaiting_user_confirm",
+                            False,
+                        )
+                        curp = getattr(nb, "current_plan", None)
+                        await self.session.update_session_state(
+                            session_id=session_id,
+                            key="agent.plan_requires_confirmation",
+                            value=bool(lock and curp is not None),
+                            user_id=user_id,
+                            channel=channel,
+                            create_if_not_exist=False,
+                        )
+                    except Exception:
+                        logger.debug(
+                            "Failed to persist plan confirmation gate",
+                            exc_info=True,
+                        )
 
             if self._chat_manager is not None and chat is not None:
                 await self._chat_manager.touch_chat(chat.id)

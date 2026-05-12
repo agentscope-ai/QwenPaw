@@ -746,6 +746,17 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             self._fix_stringified_json_args(tool_call)
 
         nb = getattr(self, "plan_notebook", None)
+
+        # Lock BEFORE executing create_plan / revise_current_plan so that
+        # parallel tool calls (asyncio.gather) cannot sneak an execution
+        # tool past the gate before the lock is set.
+        # pylint: disable=protected-access
+        if nb is not None and tool_name in {
+            "create_plan",
+            "revise_current_plan",
+        }:
+            nb._plan_awaiting_user_confirm = True
+
         if nb is not None:
             err = check_plan_tool_gate(nb, tool_name)
             if err:
@@ -769,10 +780,15 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
         result = await super()._acting(tool_call)
 
-        if nb is not None and tool_name == "revise_current_plan":
-            nb._plan_just_mutated = True  # pylint: disable=protected-access
-            # pylint: disable-next=protected-access
-            nb._plan_awaiting_user_confirm = True
+        if nb is not None and tool_name in {
+            "create_plan",
+            "revise_current_plan",
+        }:
+            # Force the next post-plan reasoning pass to be text-only.  This
+            # prevents models from emitting other tools in the same turn
+            # run before the user has confirmed the plan or modified it.
+            # pylint: disable=protected-access
+            nb._plan_text_only_after_mutation = True
 
         return result
 
@@ -920,6 +936,36 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             return
         setattr(formatter, "_qwenpaw_force_strip_media", enabled)
 
+    @staticmethod
+    def _filter_plan_tools(msg: Msg, nb: Any) -> Msg:
+        """Strip non-plan tool_use blocks when awaiting user confirmation."""
+        if nb is None or not isinstance(msg.content, list):
+            return msg
+
+        from ..plan.hints import _PLAN_TOOLS_WHILE_AWAITING_USER_CONFIRM
+
+        wl = _PLAN_TOOLS_WHILE_AWAITING_USER_CONFIRM
+        mut = ("create_plan", "revise_current_plan")
+        if any(
+            isinstance(b, dict)
+            and b.get("type") == "tool_use"
+            and b.get("name", "") in mut
+            for b in msg.content
+        ):
+            # pylint: disable-next=protected-access
+            nb._plan_awaiting_user_confirm = True
+        if getattr(nb, "_plan_awaiting_user_confirm", False):
+            kept = [
+                b
+                for b in msg.content
+                if not isinstance(b, dict)
+                or b.get("type") != "tool_use"
+                or b.get("name", "") in wl
+            ]
+            if len(kept) != len(msg.content):
+                msg.content = kept
+        return msg
+
     # pylint: disable=too-many-branches
     async def _reasoning(
         self,
@@ -939,6 +985,16 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         Calls ``super()._reasoning`` to keep the ToolGuardMixin
         interception active.
         """
+        nb = getattr(self, "plan_notebook", None)
+        if nb is not None and getattr(
+            nb,
+            "_plan_text_only_after_mutation",
+            False,
+        ):
+            # pylint: disable=protected-access
+            nb._plan_text_only_after_mutation = False
+            tool_choice = "none"
+
         # --- Proactive filtering layer ---
         should_strip = (
             not get_active_model_supports_multimodal()
@@ -1021,6 +1077,8 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         finally:
             if should_strip and self._uses_request_time_media_normalization():
                 self._set_formatter_media_strip(False)
+
+        msg = self._filter_plan_tools(msg, nb)
 
         return await self._auto_continue_if_text_only(msg, tool_choice)
 
