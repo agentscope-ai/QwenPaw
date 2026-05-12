@@ -84,7 +84,7 @@ important notifications.
 Approval-required actions triggered from any agent chat in the Console channel
 appear in the Inbox approval page.
 
-![todo](https://img.alicdn.com/imgextra/i1/O1CN01SYaJiY1iBLX2ue6K6_!!6000000004374-2-tps-2966-1858.png)
+![todo](https://img.alicdn.com/imgextra/i3/O1CN01sVXgDs1uRd07B7u7a_!!6000000006034-2-tps-2926-1860.png)
 
 You can handle approvals from all agents in one place (approve / reject /
 cancel task). Approval cards include a countdown; if no action is taken before
@@ -95,7 +95,7 @@ with approval popups in chat.
 For cron jobs and heartbeat, users can choose whether execution results should
 be pushed to Inbox. Click a message to view execution details, including traces.
 
-![todo](https://img.alicdn.com/imgextra/i3/O1CN014IeD9J1xljELLdZL9_!!6000000006484-2-tps-2984-1882.png)
+![todo](https://img.alicdn.com/imgextra/i2/O1CN01iC21Ec20wD8uObwi2_!!6000000006913-2-tps-2886-1878.png)
 
 ---
 

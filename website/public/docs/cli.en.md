@@ -524,6 +524,7 @@ Two task types:
 # Text: send "Good morning!" to DingTalk every day at 9:00 (default agent)
 qwenpaw cron create \
   --type text \
+  --schedule-type cron \
   --name "Daily 9am" \
   --cron "0 9 * * *" \
   --channel dingtalk \
@@ -535,16 +536,52 @@ qwenpaw cron create \
 qwenpaw cron create \
   --agent-id abc123 \
   --type agent \
+  --schedule-type cron \
   --name "Check todos" \
   --cron "0 */2 * * *" \
   --channel dingtalk \
   --target-user "your_user_id" \
   --target-session "session_id" \
   --text "What are my todo items?"
+
+# Scheduled one-time task (no repeat)
+qwenpaw cron create \
+  --type text \
+  --schedule-type scheduled \
+  --name "One-time morning reminder" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --channel dingtalk \
+  --target-user "your_user_id" \
+  --target-session "session_id" \
+  --text "Standup starts at 09:00." \
+  --save-result-to-inbox
+
+# Calendar-style task: start at a specific time, then repeat daily for 14 runs
+qwenpaw cron create \
+  --type text \
+  --schedule-type scheduled \
+  --name "Two-week standup reminder" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --repeat-every-days 1 \
+  --repeat-end-type count \
+  --repeat-count 14 \
+  --channel dingtalk \
+  --target-user "your_user_id" \
+  --target-session "session_id" \
+  --text "Standup starts at 09:00." \
+  --save-result-to-inbox
 ```
 
-Required: `--type`, `--name`, `--cron`, `--channel`, `--target-user`,
-`--target-session`, `--text`.
+Required fields depend on schedule type:
+
+- `--schedule-type cron`: `--type`, `--name`, `--cron`, `--channel`, `--target-user`, `--target-session`, `--text`
+- `--schedule-type scheduled`: `--type`, `--name`, `--run-at`, `--channel`, `--target-user`, `--target-session`, `--text`
+
+For repeating `scheduled` tasks, additionally pass:
+
+- `--repeat-every-days`
+- one end condition: `--repeat-end-type count --repeat-count N` or `--repeat-end-type until --repeat-until <ISO8601>`
+- or `--repeat-end-type never` for no end
 
 **Option 2 — JSON file (complex or batch)**
 
@@ -556,12 +593,17 @@ JSON structure matches the output of `qwenpaw cron get <job_id>`.
 
 ### Additional options
 
-| Option                       | Default       | Description                                                              |
-| ---------------------------- | ------------- | ------------------------------------------------------------------------ |
-| `--timezone`                 | user timezone | Timezone for the cron schedule (defaults to `user_timezone` from config) |
-| `--enabled` / `--no-enabled` | enabled       | Create enabled or disabled                                               |
-| `--mode`                     | `final`       | `stream` (incremental) or `final` (complete response)                    |
-| `--base-url`                 | auto          | Override the API base URL                                                |
+| Option                                                 | Default       | Description                                                                 |
+| ------------------------------------------------------ | ------------- | --------------------------------------------------------------------------- |
+| `--timezone`                                           | user timezone | Schedule timezone (defaults to `user_timezone` from config)                 |
+| `--enabled` / `--no-enabled`                           | enabled       | Create enabled or disabled                                                  |
+| `--mode`                                               | `final`       | `stream` (incremental) or `final` (complete response)                       |
+| `--save-result-to-inbox` / `--no-save-result-to-inbox` | server rules  | Save execution results to Inbox (if omitted, server-side defaults are used) |
+| `--repeat-every-days`                                  | no repeat     | `--schedule-type scheduled` only; repeat every N days                       |
+| `--repeat-end-type`                                    | `never`       | For repeated scheduled jobs: `never` / `until` / `count`                    |
+| `--repeat-until`                                       | —             | Required when `--repeat-end-type until`; ISO 8601 end datetime              |
+| `--repeat-count`                                       | —             | Required when `--repeat-end-type count`; max run count                      |
+| `--base-url`                                           | auto          | Override the API base URL                                                   |
 
 ### Cron expression cheat sheet
 

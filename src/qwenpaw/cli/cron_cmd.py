@@ -122,12 +122,107 @@ def job_state(
         print_json(r.json())
 
 
+def _validate_and_apply_scheduled_repeat(
+    schedule: dict,
+    repeat_every_days: Optional[int],
+    repeat_end_type: Optional[str],
+    repeat_until: Optional[str],
+    repeat_count: Optional[int],
+) -> None:
+    if repeat_end_type and repeat_every_days is None:
+        raise click.UsageError(
+            "--repeat-end-type requires --repeat-every-days",
+        )
+    if repeat_until and (
+        repeat_end_type != "until" or repeat_every_days is None
+    ):
+        raise click.UsageError(
+            "--repeat-until requires --repeat-every-days and "
+            "--repeat-end-type until",
+        )
+    if repeat_count is not None and (
+        repeat_end_type != "count" or repeat_every_days is None
+    ):
+        raise click.UsageError(
+            "--repeat-count requires --repeat-every-days and "
+            "--repeat-end-type count",
+        )
+    if repeat_every_days is None:
+        return
+
+    schedule["repeat_every_days"] = repeat_every_days
+    end_type = repeat_end_type or "never"
+    schedule["repeat_end_type"] = end_type
+    if end_type == "until":
+        if not (repeat_until and repeat_until.strip()):
+            raise click.UsageError(
+                "--repeat-until is required when --repeat-end-type is 'until'",
+            )
+        schedule["repeat_until"] = repeat_until.strip()
+    elif end_type == "count":
+        if repeat_count is None:
+            raise click.UsageError(
+                "--repeat-count is required when --repeat-end-type is 'count'",
+            )
+        schedule["repeat_count"] = repeat_count
+
+
+def _build_schedule_from_cli(
+    schedule_type: str,
+    cron: str,
+    run_at: Optional[str],
+    timezone: str,
+    repeat_every_days: Optional[int],
+    repeat_end_type: Optional[str],
+    repeat_until: Optional[str],
+    repeat_count: Optional[int],
+) -> dict:
+    if schedule_type == "scheduled":
+        if not (run_at and run_at.strip()):
+            raise click.UsageError(
+                "--run-at is required when schedule type is 'scheduled'",
+            )
+        schedule = {
+            "type": "once",
+            "run_at": run_at.strip(),
+            "timezone": timezone,
+        }
+        _validate_and_apply_scheduled_repeat(
+            schedule=schedule,
+            repeat_every_days=repeat_every_days,
+            repeat_end_type=repeat_end_type,
+            repeat_until=repeat_until,
+            repeat_count=repeat_count,
+        )
+        return schedule
+
+    if not (cron and cron.strip()):
+        raise click.UsageError(
+            "--cron is required when schedule type is 'cron'",
+        )
+    if (
+        repeat_every_days is not None
+        or repeat_end_type is not None
+        or repeat_until is not None
+        or repeat_count is not None
+    ):
+        raise click.UsageError(
+            "--repeat-* options are only supported when "
+            "--schedule-type is 'scheduled'",
+        )
+    return {"type": "cron", "cron": cron, "timezone": timezone}
+
+
 def _build_spec_from_cli(
     task_type: str,
     schedule_type: str,
     name: str,
     cron: str,
     run_at: Optional[str],
+    repeat_every_days: Optional[int],
+    repeat_end_type: Optional[str],
+    repeat_until: Optional[str],
+    repeat_count: Optional[int],
     channel: str,
     target_user: str,
     target_session: str,
@@ -135,21 +230,20 @@ def _build_spec_from_cli(
     timezone: str,
     enabled: bool,
     mode: str,
+    save_result_to_inbox: Optional[bool] = None,
     share_session: bool = True,
 ) -> dict:
     """Build CronJobSpec JSON payload from CLI args (no id)."""
-    if schedule_type == "once":
-        if not (run_at and run_at.strip()):
-            raise click.UsageError(
-                "--run-at is required when schedule type is 'once'",
-            )
-        schedule = {"type": "once", "run_at": run_at.strip()}
-    else:
-        if not (cron and cron.strip()):
-            raise click.UsageError(
-                "--cron is required when schedule type is 'cron'",
-            )
-        schedule = {"type": "cron", "cron": cron, "timezone": timezone}
+    schedule = _build_schedule_from_cli(
+        schedule_type=schedule_type,
+        cron=cron,
+        run_at=run_at,
+        timezone=timezone,
+        repeat_every_days=repeat_every_days,
+        repeat_end_type=repeat_end_type,
+        repeat_until=repeat_until,
+        repeat_count=repeat_count,
+    )
     dispatch = {
         "type": "channel",
         "channel": channel,
@@ -168,7 +262,7 @@ def _build_spec_from_cli(
             raise click.UsageError(
                 "--text is required when task type is 'text'",
             )
-        return {
+        payload = {
             "id": "",
             "name": name,
             "enabled": enabled,
@@ -179,13 +273,16 @@ def _build_spec_from_cli(
             "runtime": runtime,
             "meta": {},
         }
+        if save_result_to_inbox is not None:
+            payload["save_result_to_inbox"] = save_result_to_inbox
+        return payload
     if task_type == "agent":
         if not (text and text.strip()):
             raise click.UsageError(
                 "--text is required when task type is 'agent' "
                 "(the question/prompt sent to the agent)",
             )
-        return {
+        payload = {
             "id": "",
             "name": name,
             "enabled": enabled,
@@ -204,6 +301,9 @@ def _build_spec_from_cli(
             "runtime": runtime,
             "meta": {},
         }
+        if save_result_to_inbox is not None:
+            payload["save_result_to_inbox"] = save_result_to_inbox
+        return payload
     raise click.UsageError(f"Unsupported task type: {task_type}")
 
 
@@ -232,12 +332,12 @@ def _build_spec_from_cli(
 )
 @click.option(
     "--schedule-type",
-    type=click.Choice(["cron", "once"], case_sensitive=False),
+    type=click.Choice(["cron", "scheduled"], case_sensitive=False),
     default="cron",
     show_default=True,
     help=(
         "Schedule type: 'cron' for recurring jobs, "
-        "'once' for one-time jobs."
+        "'scheduled' for calendar-style jobs."
     ),
 )
 @click.option(
@@ -259,7 +359,45 @@ def _build_spec_from_cli(
     default=None,
     help=(
         "Run time for one-time jobs in ISO 8601 format, e.g. "
-        "'2026-04-21T15:30:00+08:00'. Required when --schedule-type is once."
+        "'2026-04-21T15:30:00+08:00'. "
+        "Required when --schedule-type is scheduled."
+    ),
+)
+@click.option(
+    "--repeat-every-days",
+    type=click.IntRange(min=1),
+    default=None,
+    help=(
+        "For --schedule-type scheduled only. "
+        "Repeat every N days (>=1). "
+        "If omitted, the job runs once."
+    ),
+)
+@click.option(
+    "--repeat-end-type",
+    type=click.Choice(["never", "until", "count"], case_sensitive=False),
+    default=None,
+    help=(
+        "For repeated scheduled jobs only. End condition: "
+        "'never', 'until', or 'count'. Defaults to 'never' "
+        "when --repeat-every-days is set."
+    ),
+)
+@click.option(
+    "--repeat-until",
+    default=None,
+    help=(
+        "For repeated scheduled jobs. End date-time in ISO 8601 format. "
+        "Required when --repeat-end-type is until."
+    ),
+)
+@click.option(
+    "--repeat-count",
+    type=click.IntRange(min=1),
+    default=None,
+    help=(
+        "For repeated scheduled jobs. Max run count (>=1). "
+        "Required when --repeat-end-type is count."
     ),
 )
 @click.option(
@@ -318,6 +456,14 @@ def _build_spec_from_cli(
     ),
 )
 @click.option(
+    "--save-result-to-inbox/--no-save-result-to-inbox",
+    default=None,
+    help=(
+        "Whether to save execution results to Inbox. "
+        "If omitted, server-side defaults are applied."
+    ),
+)
+@click.option(
     "--share-session/--no-share-session",
     default=True,
     help=(
@@ -344,6 +490,10 @@ def create_job(
     name: Optional[str],
     cron: Optional[str],
     run_at: Optional[str],
+    repeat_every_days: Optional[int],
+    repeat_end_type: Optional[str],
+    repeat_until: Optional[str],
+    repeat_count: Optional[int],
     channel: Optional[str],
     target_user: Optional[str],
     target_session: Optional[str],
@@ -351,6 +501,7 @@ def create_job(
     timezone: Optional[str],
     enabled: bool,
     mode: str,
+    save_result_to_inbox: Optional[bool],
     share_session: bool,
     base_url: Optional[str],
     agent_id: str,
@@ -387,7 +538,7 @@ def create_job(
                 )
         elif not (run_at and run_at.strip()):
             raise click.UsageError(
-                "When --schedule-type is once, --run-at is required",
+                "When --schedule-type is scheduled, --run-at is required",
             )
         payload = _build_spec_from_cli(
             task_type=task_type or "agent",
@@ -395,6 +546,10 @@ def create_job(
             name=name or "",
             cron=cron or "",
             run_at=run_at,
+            repeat_every_days=repeat_every_days,
+            repeat_end_type=repeat_end_type,
+            repeat_until=repeat_until,
+            repeat_count=repeat_count,
             channel=channel or DEFAULT_CHANNEL,
             target_user=target_user or "",
             target_session=target_session or "",
@@ -402,6 +557,7 @@ def create_job(
             timezone=timezone,
             enabled=enabled,
             mode=mode,
+            save_result_to_inbox=save_result_to_inbox,
             share_session=share_session,
         )
     with client(base_url) as c:

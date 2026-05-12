@@ -16,7 +16,7 @@
 - **循环任务**：强调“每隔多久”执行一次，例如每 15 分钟、每 2 小时、每天 9:00。
 - **日程任务**：强调“在什么日历时间点”执行，例如 2026 年 1 月 1 日 9:00。
 
-两者底层都由 Cron 表达式驱动，你可以按业务习惯选择“间隔视角”或“日程视角”来配置任务。
+两者底层都由统一调度器驱动：循环任务使用 Cron 表达式，日程任务使用指定起始时间与可选重复规则。你可以按业务习惯选择“间隔视角”或“日程视角”来配置任务。
 
 常见循环任务示例：
 
@@ -83,9 +83,9 @@
 
 ### 方式一：对话创建
 
-你也可以在目标频道直接对 QwenPaw 说：
+创建定时任务最简单的方式是直接与 QwenPaw 对话，让QwenPaw帮忙创建：
 
-> 帮我创建一个定时任务，每隔 5 分钟提醒我喝水。
+> 未来七天内，每天早上八点为我查询当天天气。
 
 创建成功后，可以在控制台任务列表中看到该任务。
 
@@ -97,9 +97,7 @@
 
 ### 方式三：CLI
 
-<!-- TODO: 看一下cli怎么创建，修改一下cron skill，然后回来改一下这一节 -->
-
-详见 [CLI](./cli) 里的 `qwenpaw cron` 章节。常用命令：
+详见 CLI的 [qwenpaw cron](./cli#qwenpaw-cron) 章节。常用命令：
 
 ```bash
 qwenpaw cron list
@@ -115,7 +113,9 @@ qwenpaw cron delete <job_id>
 
 ```bash
 qwenpaw cron create \
+  --agent-id default \
   --type text \
+  --schedule-type cron \
   --name "每日早安" \
   --cron "0 9 * * *" \
   --channel dingtalk \
@@ -128,7 +128,9 @@ qwenpaw cron create \
 
 ```bash
 qwenpaw cron create \
+  --agent-id default \
   --type agent \
+  --schedule-type cron \
   --name "待办巡检" \
   --cron "0 */2 * * *" \
   --channel dingtalk \
@@ -136,6 +138,48 @@ qwenpaw cron create \
   --target-session "你的会话ID" \
   --text "请检查我的待办，并输出优先级最高的三项。"
 ```
+
+示例（日程一次性：只执行一次）：
+
+```bash
+qwenpaw cron create \
+  --agent-id default \
+  --type text \
+  --schedule-type scheduled \
+  --name "明早组会提醒" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --channel dingtalk \
+  --target-user "你的用户ID" \
+  --target-session "你的会话ID" \
+  --text "9 点组会提醒" \
+  --save-result-to-inbox
+```
+
+示例（日程重复：未来两周每天 9 点，共 14 次）：
+
+```bash
+qwenpaw cron create \
+  --agent-id default \
+  --type text \
+  --schedule-type scheduled \
+  --name "未来两周组会提醒" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --repeat-every-days 1 \
+  --repeat-end-type count \
+  --repeat-count 14 \
+  --channel dingtalk \
+  --target-user "你的用户ID" \
+  --target-session "你的会话ID" \
+  --text "9 点组会提醒" \
+  --save-result-to-inbox
+```
+
+参数要点：
+
+- `--schedule-type cron`：需要 `--cron`
+- `--schedule-type scheduled`：需要 `--run-at`
+- `scheduled` 重复任务：需要 `--repeat-every-days`，并搭配结束条件（`count/until/never`）
+- 可选设置结果是否入收件箱：`--save-result-to-inbox` 或 `--no-save-result-to-inbox`
 
 ---
 
@@ -158,7 +202,7 @@ QwenPaw 使用五段式 Cron：**分 时 日 月 周**（无秒）。
 ## 相关页面
 
 - [控制台](./console) — 在 Web 界面管理定时任务
-- [CLI](./cli) — `qwenpaw cron` 命令详解
+- [CLI](./cli#qwenpaw-cron) — `qwenpaw cron` 命令详解
 - [心跳](./heartbeat) — 固定周期自检/摘要
 - [FAQ](./faq#定时任务错误排查) — 常见问题排查
 - [配置与工作目录](./config) — `jobs.json` 与工作目录说明

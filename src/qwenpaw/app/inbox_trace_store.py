@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -94,6 +95,79 @@ async def append_trace_event(
         )
         payload["events"] = events
         _write_trace(run_id, payload)
+
+
+def flatten_session_messages(content: Any) -> list[dict[str, Any]]:
+    if not isinstance(content, list):
+        return []
+    messages: list[dict[str, Any]] = []
+    for item in content:
+        if isinstance(item, dict):
+            messages.append(item)
+            continue
+        if isinstance(item, list) and item and isinstance(item[0], dict):
+            messages.append(item[0])
+    return messages
+
+
+def parse_session_timestamp(value: Any) -> float | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    formats = ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S")
+    for fmt in formats:
+        try:
+            dt = datetime.strptime(raw, fmt)
+            return dt.timestamp()
+        except ValueError:
+            continue
+    return None
+
+
+async def read_session_messages(
+    *,
+    runner: Any,
+    session_id: str,
+    user_id: str,
+    channel: str,
+) -> list[dict[str, Any]]:
+    session = getattr(runner, "session", None)
+    if session is None:
+        return []
+    try:
+        state = await session.get_session_state_dict(
+            session_id,
+            user_id,
+            channel,
+            allow_not_exist=True,
+        )
+    except Exception:  # pylint: disable=broad-except
+        return []
+    memory = state.get("agent", {}).get("memory", {})
+    return flatten_session_messages(memory.get("content"))
+
+
+async def append_trace_from_session_delta(
+    *,
+    run_id: str,
+    runner: Any,
+    session_id: str,
+    user_id: str,
+    channel: str,
+    baseline_count: int,
+) -> list[dict[str, Any]]:
+    messages = await read_session_messages(
+        runner=runner,
+        session_id=session_id,
+        user_id=user_id,
+        channel=channel,
+    )
+    baseline_count = max(baseline_count, 0)
+    delta = messages[baseline_count:]
+    for msg in delta:
+        at = parse_session_timestamp(msg.get("timestamp"))
+        await append_trace_event(run_id, msg, at=at)
+    return delta
 
 
 async def finalize_trace(

@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 import logging
 import uuid
 from typing import Any, Dict
 
 from ..inbox_trace_store import (
-    append_trace_event,
+    append_trace_from_session_delta,
     create_trace,
     finalize_trace,
+    read_session_messages,
 )
 from .models import CronJobSpec
 
@@ -21,74 +21,6 @@ class CronExecutor:
     def __init__(self, *, runner: Any, channel_manager: Any):
         self._runner = runner
         self._channel_manager = channel_manager
-
-    @staticmethod
-    def _flatten_session_messages(content: Any) -> list[dict[str, Any]]:
-        if not isinstance(content, list):
-            return []
-        messages: list[dict[str, Any]] = []
-        for item in content:
-            if isinstance(item, dict):
-                messages.append(item)
-                continue
-            if isinstance(item, list) and item and isinstance(item[0], dict):
-                messages.append(item[0])
-        return messages
-
-    @staticmethod
-    def _parse_session_timestamp(value: Any) -> float | None:
-        if not isinstance(value, str) or not value.strip():
-            return None
-        raw = value.strip()
-        formats = ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S")
-        for fmt in formats:
-            try:
-                dt = datetime.strptime(raw, fmt)
-                return dt.timestamp()
-            except ValueError:
-                continue
-        return None
-
-    async def _read_session_messages(
-        self,
-        *,
-        session_id: str,
-        user_id: str,
-        channel: str,
-    ) -> list[dict[str, Any]]:
-        session = getattr(self._runner, "session", None)
-        if session is None:
-            return []
-        try:
-            state = await session.get_session_state_dict(
-                session_id,
-                user_id,
-                channel,
-                allow_not_exist=True,
-            )
-        except Exception:  # pylint: disable=broad-except
-            return []
-        memory = state.get("agent", {}).get("memory", {})
-        return self._flatten_session_messages(memory.get("content"))
-
-    async def _append_trace_from_session_delta(
-        self,
-        *,
-        run_id: str,
-        session_id: str,
-        user_id: str,
-        channel: str,
-        baseline_count: int,
-    ) -> None:
-        messages = await self._read_session_messages(
-            session_id=session_id,
-            user_id=user_id,
-            channel=channel,
-        )
-        baseline_count = max(baseline_count, 0)
-        for msg in messages[baseline_count:]:
-            at = self._parse_session_timestamp(msg.get("timestamp"))
-            await append_trace_event(run_id, msg, at=at)
 
     # pylint: disable=too-many-statements
     async def execute(self, job: CronJobSpec) -> dict[str, Any]:
@@ -169,7 +101,8 @@ class CronExecutor:
             )
         run_id = str(uuid.uuid4())
         delivery_error: str | None = None
-        baseline_messages = await self._read_session_messages(
+        baseline_messages = await read_session_messages(
+            runner=self._runner,
             session_id=req["session_id"],
             user_id=req["user_id"],
             channel=target_channel,
@@ -214,8 +147,9 @@ class CronExecutor:
                 _run(),
                 timeout=job.runtime.timeout_seconds,
             )
-            await self._append_trace_from_session_delta(
+            await append_trace_from_session_delta(
                 run_id=run_id,
+                runner=self._runner,
                 session_id=req["session_id"],
                 user_id=req["user_id"],
                 channel=target_channel,
@@ -234,8 +168,9 @@ class CronExecutor:
                 job.id,
                 job.runtime.timeout_seconds,
             )
-            await self._append_trace_from_session_delta(
+            await append_trace_from_session_delta(
                 run_id=run_id,
+                runner=self._runner,
                 session_id=req["session_id"],
                 user_id=req["user_id"],
                 channel=target_channel,
@@ -249,8 +184,9 @@ class CronExecutor:
             raise
         except asyncio.CancelledError:
             logger.info("cron execute: job_id=%s cancelled", job.id)
-            await self._append_trace_from_session_delta(
+            await append_trace_from_session_delta(
                 run_id=run_id,
+                runner=self._runner,
                 session_id=req["session_id"],
                 user_id=req["user_id"],
                 channel=target_channel,
@@ -263,8 +199,9 @@ class CronExecutor:
             )
             raise
         except Exception as e:  # pylint: disable=broad-except
-            await self._append_trace_from_session_delta(
+            await append_trace_from_session_delta(
                 run_id=run_id,
+                runner=self._runner,
                 session_id=req["session_id"],
                 user_id=req["user_id"],
                 channel=target_channel,

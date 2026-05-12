@@ -29,9 +29,10 @@ from ...constant import (
 from ..channels.schema import DEFAULT_CHANNEL
 from ..inbox_store import append_event as append_inbox_event
 from ..inbox_trace_store import (
-    append_trace_event,
+    append_trace_from_session_delta,
     create_trace,
     finalize_trace,
+    read_session_messages,
 )
 from ..crons.models import _crontab_dow_to_name
 
@@ -127,79 +128,6 @@ def _in_active_hours(active_hours: Any) -> bool:
     if start_t <= end_t:
         return start_t <= now <= end_t
     return now >= start_t or now <= end_t
-
-
-def _flatten_session_messages(content: Any) -> list[dict[str, Any]]:
-    if not isinstance(content, list):
-        return []
-    messages: list[dict[str, Any]] = []
-    for item in content:
-        if isinstance(item, dict):
-            messages.append(item)
-            continue
-        if isinstance(item, list) and item and isinstance(item[0], dict):
-            messages.append(item[0])
-    return messages
-
-
-def _parse_session_timestamp(value: Any) -> float | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    raw = value.strip()
-    formats = ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S")
-    for fmt in formats:
-        try:
-            dt = datetime.strptime(raw, fmt)
-            return dt.timestamp()
-        except ValueError:
-            continue
-    return None
-
-
-async def _read_session_messages(
-    *,
-    runner: Any,
-    session_id: str,
-    user_id: str,
-    channel: str,
-) -> list[dict[str, Any]]:
-    session = getattr(runner, "session", None)
-    if session is None:
-        return []
-    try:
-        state = await session.get_session_state_dict(
-            session_id,
-            user_id,
-            channel,
-            allow_not_exist=True,
-        )
-    except Exception:  # pylint: disable=broad-except
-        return []
-    memory = state.get("agent", {}).get("memory", {})
-    return _flatten_session_messages(memory.get("content"))
-
-
-async def _append_trace_from_session_delta(
-    *,
-    run_id: str,
-    runner: Any,
-    session_id: str,
-    user_id: str,
-    channel: str,
-    baseline_count: int,
-) -> list[dict[str, Any]]:
-    messages = await _read_session_messages(
-        runner=runner,
-        session_id=session_id,
-        user_id=user_id,
-        channel=channel,
-    )
-    baseline_count = max(baseline_count, 0)
-    delta = messages[baseline_count:]
-    for msg in delta:
-        at = _parse_session_timestamp(msg.get("timestamp"))
-        await append_trace_event(run_id, msg, at=at)
-    return delta
 
 
 def _extract_message_preview(msg: dict[str, Any]) -> str | None:
@@ -326,7 +254,7 @@ async def run_heartbeat_once(
 
     if target == HEARTBEAT_TARGET_INBOX:
         run_id = str(uuid.uuid4())
-        baseline_messages = await _read_session_messages(
+        baseline_messages = await read_session_messages(
             runner=runner,
             session_id=req["session_id"],
             user_id=req["user_id"],
@@ -353,7 +281,7 @@ async def run_heartbeat_once(
 
         try:
             await asyncio.wait_for(_run_only(), timeout=120)
-            delta = await _append_trace_from_session_delta(
+            delta = await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=runner,
                 session_id=req["session_id"],
@@ -382,7 +310,7 @@ async def run_heartbeat_once(
             )
         except asyncio.TimeoutError:
             logger.warning("heartbeat run timed out")
-            await _append_trace_from_session_delta(
+            await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=runner,
                 session_id=req["session_id"],
@@ -412,7 +340,7 @@ async def run_heartbeat_once(
             )
         except Exception as e:  # pylint: disable=broad-except
             logger.exception("heartbeat run failed (inbox target)")
-            await _append_trace_from_session_delta(
+            await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=runner,
                 session_id=req["session_id"],

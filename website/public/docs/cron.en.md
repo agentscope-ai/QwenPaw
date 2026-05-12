@@ -20,16 +20,17 @@ In practice, scheduled tasks are usually configured in two styles:
 - **Calendar tasks**: focus on exact calendar points (for example, 2026-01-01
   at 09:00).
 
-Both are powered by cron-based scheduling under the hood. Choose the style that
-best matches your workflow.
+Both are powered by a unified scheduler under the hood: recurring tasks use
+Cron expressions, while calendar tasks use a start time plus optional repeat
+rules. Choose the style that best matches your workflow.
 
 Common recurring task templates:
 
-![todo](https://img.alicdn.com/imgextra/i1/O1CN01KOSlHG1EBP6mzmTpr_!!6000000000313-2-tps-1734-936.png)
+![todo](https://img.alicdn.com/imgextra/i1/O1CN01nVpHql1zxISweZb3J_!!6000000006780-2-tps-1724-1000.png)
 
 Common calendar task templates:
 
-![todo](https://img.alicdn.com/imgextra/i3/O1CN01AJU7UV1G0zKh4JqRO_!!6000000000561-2-tps-1728-1266.png)
+![todo](https://img.alicdn.com/imgextra/i1/O1CN01z5WVDU1Pbvp2pnvcM_!!6000000001860-2-tps-1720-1294.png)
 
 Calendar tasks support **one-time runs / recurring runs with end date /
 recurring runs with run-count limits**.
@@ -43,7 +44,7 @@ recurring runs with run-count limits**.
 
 1. Click **Create Task**.
 
-![todo](https://img.alicdn.com/imgextra/i2/O1CN01bJJo2e1LoydlqxGxu_!!6000000001347-2-tps-1190-1984.png)
+![todo](https://img.alicdn.com/imgextra/i3/O1CN01TiMKlk1dSgRgu2B2B_!!6000000003735-2-tps-1164-1966.png)
 
 2. Fill in fields:
    - **Basic info**: set a task name and enable the task.
@@ -92,7 +93,7 @@ Disable the task first, click **Delete**, then confirm.
 The new **Calendar View** displays all calendar tasks by date so you can quickly
 review upcoming plans. Click a task to open its edit page.
 
-![todo](https://img.alicdn.com/imgextra/i4/O1CN01gMBL7O1MDFdAXkBDa_!!6000000001400-2-tps-2978-1662.png)
+![todo](https://img.alicdn.com/imgextra/i4/O1CN01CF6OTg22d5qFWYCSd_!!6000000007142-2-tps-2970-1686.png)
 
 ---
 
@@ -114,11 +115,11 @@ The new **Create from Template** flow lets you choose **Recurring Task** or
 message/request content. Default delivery goes to the Console `cron_job`
 session, with `default` as user ID.
 
-![todo](https://img.alicdn.com/imgextra/i1/O1CN01KOSlHG1EBP6mzmTpr_!!6000000000313-2-tps-1734-936.png)
+![todo](https://img.alicdn.com/imgextra/i1/O1CN01nVpHql1zxISweZb3J_!!6000000006780-2-tps-1724-1000.png)
 
 ### Method 3: CLI
 
-See [CLI](./cli) for the `qwenpaw cron` section. Common commands:
+See [CLI `qwenpaw cron` section](./cli#qwenpaw-cron). Common commands:
 
 ```bash
 qwenpaw cron list
@@ -134,7 +135,9 @@ Example (send fixed text every day at 09:00):
 
 ```bash
 qwenpaw cron create \
+  --agent-id default \
   --type text \
+  --schedule-type cron \
   --name "Daily Greeting" \
   --cron "0 9 * * *" \
   --channel dingtalk \
@@ -147,7 +150,9 @@ Example (ask QwenPaw every 2 hours and deliver the response):
 
 ```bash
 qwenpaw cron create \
+  --agent-id default \
   --type agent \
+  --schedule-type cron \
   --name "Todo Patrol" \
   --cron "0 */2 * * *" \
   --channel dingtalk \
@@ -155,6 +160,48 @@ qwenpaw cron create \
   --target-session "your_session_id" \
   --text "Please review my todos and list the top three priorities."
 ```
+
+Example (calendar task, one-time run only):
+
+```bash
+qwenpaw cron create \
+  --agent-id default \
+  --type text \
+  --schedule-type scheduled \
+  --name "Tomorrow Standup Reminder" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --channel dingtalk \
+  --target-user "your_user_id" \
+  --target-session "your_session_id" \
+  --text "Standup starts at 09:00." \
+  --save-result-to-inbox
+```
+
+Example (calendar task, every day for 14 runs):
+
+```bash
+qwenpaw cron create \
+  --agent-id default \
+  --type text \
+  --schedule-type scheduled \
+  --name "Two-week Standup Reminder" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --repeat-every-days 1 \
+  --repeat-end-type count \
+  --repeat-count 14 \
+  --channel dingtalk \
+  --target-user "your_user_id" \
+  --target-session "your_session_id" \
+  --text "Standup starts at 09:00." \
+  --save-result-to-inbox
+```
+
+Parameter notes:
+
+- `--schedule-type cron`: requires `--cron`
+- `--schedule-type scheduled`: requires `--run-at`
+- For repeating `scheduled` tasks, pass `--repeat-every-days` and an end condition (`count` / `until` / `never`)
+- To control Inbox delivery, explicitly pass `--save-result-to-inbox` or `--no-save-result-to-inbox`
 
 ---
 
@@ -177,7 +224,7 @@ QwenPaw uses five-field cron: **minute hour day month weekday** (no seconds).
 ## Related Pages
 
 - [Console](./console) — Manage scheduled tasks in the web UI
-- [CLI](./cli) — `qwenpaw cron` command reference
+- [CLI `qwenpaw cron` section](./cli#qwenpaw-cron) — command reference
 - [Heartbeat](./heartbeat) — Fixed periodic self-check / digest
 - [FAQ](./faq#scheduled-task-troubleshooting) — Common troubleshooting
 - [Config & working dir](./config) — `jobs.json` and workspace details
