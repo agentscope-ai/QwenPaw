@@ -1,4 +1,6 @@
 import { Card } from "@agentscope-ai/design";
+import { Button, Tooltip } from "@agentscope-ai/design";
+import { CopyOutlined, DeleteOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import React, { useState } from "react";
 import { ChannelIcon } from "./ChannelIcon";
@@ -9,12 +11,16 @@ interface ChannelCardProps {
   channelKey: ChannelKey;
   config: Record<string, unknown>;
   onClick: () => void;
+  onDuplicate?: (key: string) => void;
+  onDelete?: (key: string) => void;
 }
 
 export const ChannelCard = React.memo(function ChannelCard({
   channelKey,
   config,
   onClick,
+  onDuplicate,
+  onDelete,
 }: ChannelCardProps) {
   const { t } = useTranslation();
   const [isHover, setIsHover] = useState(false);
@@ -35,6 +41,8 @@ export const ChannelCard = React.memo(function ChannelCard({
     return `${styles.channelCard} ${styles.normal}`;
   };
 
+  const isConsole = channelKey === "console";
+
   return (
     <Card
       hoverable
@@ -44,7 +52,7 @@ export const ChannelCard = React.memo(function ChannelCard({
       className={getCardClassNames()}
       bodyStyle={{ padding: 24 }}
     >
-      {/* Top section: Icon and Status */}
+      {/* Top section: Icon, Status, Actions */}
       <div className={styles.cardTopSection}>
         <div className={styles.channelIcon}>{getChannelIcon()}</div>
         <div className={styles.statusIndicator}>
@@ -60,6 +68,35 @@ export const ChannelCard = React.memo(function ChannelCard({
           >
             {enabled ? t("common.enabled") : t("common.disabled")}
           </span>
+        </div>
+        <div style={{ display: "flex", gap: 4, opacity: isHover ? 1 : 0 }}>
+          {isBuiltin && !isConsole && onDuplicate && (
+            <Tooltip title={t("channels.duplicate")}>
+              <Button
+                size="small"
+                type="text"
+                icon={<CopyOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDuplicate(channelKey);
+                }}
+              />
+            </Tooltip>
+          )}
+          {!isBuiltin && onDelete && (
+            <Tooltip title={t("channels.delete")}>
+              <Button
+                size="small"
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(channelKey);
+                }}
+              />
+            </Tooltip>
+          )}
         </div>
       </div>
 

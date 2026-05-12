@@ -99,6 +99,43 @@ function ChannelsPage() {
     }
   };
 
+  const handleDuplicate = async (key: string) => {
+    try {
+      const result = await api.duplicateChannel(key);
+      message.success(t("channels.duplicateSuccess"));
+      await fetchChannels();
+      setActiveKey(result.key as ChannelKey);
+      setDrawerOpen(true);
+      const newConfig = channels[result.key] || {
+        enabled: false,
+        bot_prefix: "",
+      };
+      form.setFieldsValue({
+        ...newConfig,
+        filter_tool_messages: !newConfig.filter_tool_messages,
+        filter_thinking: !newConfig.filter_thinking,
+      });
+    } catch (error) {
+      console.error("❌ Failed to duplicate channel:", error);
+      message.error(t("channels.duplicateFailed"));
+    }
+  };
+
+  const handleDelete = async (key: string) => {
+    try {
+      await api.deleteChannel(key);
+      message.success(t("channels.deleteSuccess"));
+      if (activeKey === key) {
+        setDrawerOpen(false);
+        setActiveKey(null);
+      }
+      await fetchChannels();
+    } catch (error) {
+      console.error("❌ Failed to delete channel:", error);
+      message.error(t("channels.deleteFailed"));
+    }
+  };
+
   const activeLabel = activeKey ? getChannelLabel(activeKey, t) : "";
 
   const FILTER_TABS: { key: FilterType; label: string }[] = [
@@ -140,6 +177,8 @@ function ChannelsPage() {
                 channelKey={key}
                 config={config}
                 onClick={() => handleCardClick(key)}
+                onDuplicate={handleDuplicate}
+                onDelete={handleDelete}
               />
             ))}
           </div>
