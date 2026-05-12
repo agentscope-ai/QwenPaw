@@ -65,8 +65,6 @@ dependencies = [
     # Pure-Python wrapper around a prebuilt Rust binary; PyPI distributes
     # wheels for all three OSes.
     "ast-grep-cli>=0.20",
-    # System tray support (Windows)
-    "pystray>=0.19.0",
 ]
 
 [tool.setuptools.dynamic]
@@ -119,6 +117,8 @@ desktop_win32 = [
     # Windows IPC support (named pipes)
     # for desktop-systray pywebview process
     "pywin32>=306; sys_platform == 'win32'",
+    # System tray support (Windows)
+    "pystray>=0.19.0",
 ]
 local = [
     "huggingface_hub>=0.20.0",

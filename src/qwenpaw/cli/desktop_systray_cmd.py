@@ -19,40 +19,22 @@ from ..utils.logging import setup_logger
 
 logger = logging.getLogger(__name__)
 
-# Platform check - only support Windows
-if sys.platform != "win32":
-    click.echo(
-        "Error: System tray is currently only supported on Windows. "
-        "Use 'qwenpaw app' or 'qwenpaw desktop' for other platforms.",
-        err=True,
-    )
-    sys.exit(1)
 
 # Windows-only imports - check pywin32 first
 try:
     import win32file
     import win32pipe
-except ImportError as g_imp_e:
-    click.echo(
-        "Error: Required dependency pywin32 not installed. "
-        "Please install with: pip install pywin32\n"
-        f"(Details: {g_imp_e})",
-        err=True,
-    )
-    sys.exit(1)
+except ImportError:
+    win32file = None  # type: ignore[assignment]
+    win32pipe = None  # type: ignore[assignment]
 
 # Other Windows-only imports
 try:
     import pystray
     from PIL import Image
-except ImportError as g_imp_e:
-    click.echo(
-        f"Error: Required dependencies not installed. "
-        f"Please install with: "
-        f"pip install pystray Pillow\n(Details: {g_imp_e})",
-        err=True,
-    )
-    sys.exit(1)
+except ImportError:
+    pystray = None  # type: ignore[assignment]
+    Image = None  # type: ignore[assignment]
 
 try:
     import webview
@@ -109,17 +91,17 @@ class TrayIconManager:
         """
         return pystray.Menu(
             pystray.MenuItem(
-                "显示窗口",
+                "Show Window",
                 lambda icon, item: self._on_show_window(),
                 default=True,
             ),
             pystray.MenuItem(
-                "隐藏窗口",
+                "Hide Window",
                 lambda icon, item: self._on_hide_window(),
             ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(
-                "退出",
+                "Quit",
                 lambda icon, item: self._on_quit(),
             ),
         )
@@ -406,7 +388,6 @@ class WindowProcess:
         self._socket_name = f"qwenpaw_window_{uuid.uuid4().hex[:8]}"
         if sys.platform == "win32":
             # On Windows, use a named pipe path
-            # Construct path to avoid escaping issues
             self._control_socket_path = "\\\\.\\pipe\\" + self._socket_name
         else:
             # On Unix, use a Unix domain socket
@@ -415,21 +396,22 @@ class WindowProcess:
                 f"{self._socket_name}.sock",
             )
 
-        # Pass socket path to subprocess - escape backslashes for Windows
-        socket_path_escaped = (
-            self._control_socket_path.replace("\\", "\\\\")
-            if sys.platform == "win32"
-            else self._control_socket_path
-        )
-
-        self._script = f"""
-import sys
-sys.path.insert(0, '{Path(__file__).parent.parent.parent}')
-from qwenpaw.cli.desktop_systray_cmd import _run_webview_window
-_run_webview_window(
-    '{self._url}', '{self._log_level}', '{socket_path_escaped}'
-)
-        """.strip()
+        # Build command line for child process using Click
+        # This avoids the need for embedded script
+        #  strings and sys.path manipulation
+        self._command_args = [
+            sys.executable,
+            "-m",
+            "qwenpaw",
+            "desktop-systray",
+            "--log-level",
+            self._log_level,
+            "--_window-child",  # child process mode
+            "--_window-url",
+            self._url,
+            "--_window-socket-path",
+            self._control_socket_path,
+        ]
 
     def start(self) -> bool:
         """Start the window process.
@@ -445,11 +427,7 @@ _run_webview_window(
             # long process, keep it running
             # pylint: disable=consider-using-with
             self._process = subprocess.Popen(
-                [
-                    sys.executable,
-                    "-c",
-                    self._script,
-                ],
+                self._command_args,
                 stdin=subprocess.DEVNULL,
                 stdout=None,  # Let output go to console for debugging
                 stderr=None,  # Let errors go to console for debugging
@@ -804,7 +782,7 @@ def _handle_pipe_connection(pipe: Any) -> bool:
                 break
     except Exception as e:
         # Connection error - client disconnected or pipe error
-        logger.debug(f"Connection error: {e}")
+        logger.debug(f"Client disconnected or Connection error: {e}")
         # Should continue accepting new connections
     finally:
         win32file.CloseHandle(pipe)
@@ -992,12 +970,35 @@ def _run_webview_window(
     show_default=True,
     help="Log level for the app process.",
 )
+# Internal parameters for window child process mode
+@click.option(
+    "--_window-child",
+    "window_child",
+    is_flag=True,
+    hidden=True,
+    help="Internal: run in window child process mode",
+)
+@click.option(
+    "--_window-url",
+    "window_url",
+    hidden=True,
+    help="Internal: URL for window child process",
+)
+@click.option(
+    "--_window-socket-path",
+    "window_socket_path",
+    hidden=True,
+    help="Internal: Socket path for window child process",
+)
 # main entry point
 # pylint: disable=too-many-statements
 def desktop_systray_cmd(
     host: str,
     port: int | None,
     log_level: str,
+    window_child: bool = False,
+    window_url: str | None = None,
+    window_socket_path: str | None = None,
 ) -> None:
     """Run QwenPaw app with system tray icon.
 
@@ -1007,7 +1008,54 @@ def desktop_systray_cmd(
     Closing the window does not quit the application - use the tray menu
     to exit.
     """
-    # Setup logger
+    # Platform check - only support Windows
+    if sys.platform != "win32":
+        click.echo(
+            "Error: System tray is currently only supported on Windows. "
+            "Use 'qwenpaw app' or 'qwenpaw desktop' for other platforms.",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Lazy imports - Windows-only dependencies (moved from module level)
+
+    if win32file is None or win32pipe is None:
+        click.echo(
+            "Error: Required dependency pywin32 not installed. "
+            "Please install with: pip install pywin32",
+            err=True,
+        )
+        sys.exit(1)
+
+    # If running in window child mode, execute window server directly
+    if window_child:
+        if not window_url or not window_socket_path:
+            click.echo(
+                "Error: --_window-url and --_window-socket-path "
+                "are required in child mode",
+                err=True,
+            )
+            sys.exit(1)
+
+        # Setup logger and run window server
+        setup_logger(log_level)
+        _run_webview_window(
+            url=window_url,
+            log_level=log_level,
+            control_socket_path=window_socket_path,
+        )
+        return
+
+    if pystray is None or Image is None:
+        click.echo(
+            "Error: Required dependencies not installed. "
+            "Please install with: "
+            "pip install pystray Pillow",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Setup logger for normal tray icon mode
     setup_logger(log_level)
 
     # Initialize process managers
@@ -1120,7 +1168,7 @@ def desktop_systray_cmd(
         logger.info("Starting initial window process...")
         window_mgr.start()
     else:
-        logger.warning("pywebview not available, no window will be shown")
+        logger.error("pywebview not available, no window will be shown")
 
     # Define setup function for tray icon
     def tray_setup(icon: pystray.Icon) -> None:
