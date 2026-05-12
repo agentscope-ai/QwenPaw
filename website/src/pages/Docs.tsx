@@ -156,6 +156,7 @@ const DOC_GROUPS: DocGroup[] = [
     titleKey: "docs.groupWelcome",
     children: [
       { slug: "intro", titleKey: "docs.intro" },
+      { slug: "architecture", titleKey: "docs.architecture" },
       { slug: "quickstart", titleKey: "docs.quickstart" },
       { slug: "desktop", titleKey: "docs.desktop" },
     ],

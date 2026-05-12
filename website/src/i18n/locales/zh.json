@@ -252,6 +252,7 @@
   },
   "docs": {
     "intro": "项目介绍",
+    "architecture": "设计理念与架构",
     "quickstart": "快速开始",
     "desktop": "桌面应用",
     "console": "控制台",

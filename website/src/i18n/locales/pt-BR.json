@@ -252,6 +252,7 @@
   },
   "docs": {
     "intro": "Introducao",
+    "architecture": "Filosofia de Design",
     "quickstart": "Inicio rapido",
     "desktop": "App Desktop",
     "console": "Console",
