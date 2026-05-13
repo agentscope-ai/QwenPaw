@@ -213,22 +213,50 @@ cleanup_console() {
     fi
 }
 
+## Ensure docs are available in src/qwenpaw/docs/ for source installs.
+_DOCS_COPIED=0
+prepare_docs() {
+    local repo_dir="$1"
+    local docs_src="$repo_dir/website/public/docs"
+    local docs_dest="$repo_dir/src/qwenpaw/docs"
+
+    if [ -d "$docs_dest" ] && ls "$docs_dest"/*.md >/dev/null 2>&1; then
+        return
+    fi
+
+    if [ -d "$docs_src" ] && ls "$docs_src"/*.md >/dev/null 2>&1; then
+        mkdir -p "$docs_dest"
+        cp "$docs_src/"*.md "$docs_dest/"
+        _DOCS_COPIED=1
+    fi
+}
+
+cleanup_docs() {
+    local repo_dir="$1"
+    if [ "$_DOCS_COPIED" = 1 ]; then
+        rm -rf "$repo_dir/src/qwenpaw/docs"
+    fi
+}
+
 if [ "$FROM_SOURCE" = true ]; then
     if [ -n "$SOURCE_DIR" ]; then
         info "Installing QwenPaw from local source: $SOURCE_DIR"
         prepare_console "$SOURCE_DIR"
+        prepare_docs "$SOURCE_DIR"
         info "Installing package from source..."
         uv pip install "${SOURCE_DIR}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --prerelease=allow --index-url "$PYPI_MIRROR"
         cleanup_console "$SOURCE_DIR"
+        cleanup_docs "$SOURCE_DIR"
     else
         info "Installing QwenPaw from source (GitHub)..."
         CLONE_DIR="$(mktemp -d)"
         trap 'rm -rf "$CLONE_DIR"' EXIT
         git clone --depth 1 "$QWENPAW_REPO" "$CLONE_DIR"
         prepare_console "$CLONE_DIR"
+        prepare_docs "$CLONE_DIR"
         info "Installing package from source..."
         uv pip install "${CLONE_DIR}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --prerelease=allow --index-url "$PYPI_MIRROR"
-        # CLONE_DIR is cleaned up by trap; no need for cleanup_console
+        # CLONE_DIR is cleaned up by trap; no need for cleanup_console/cleanup_docs
     fi
 else
     PACKAGE="qwenpaw"
