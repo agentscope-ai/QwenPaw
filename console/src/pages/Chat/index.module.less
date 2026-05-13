@@ -132,6 +132,20 @@
   }
 }
 
+/* Fix #4260: AI-sent file message image preview too small.
+ * The @agentscope-ai/chat Images component hard-codes 56×56.
+ * Override to a reasonable preview size for assistant bubbles. */
+.chatMessagesArea :global {
+  .qwenpaw-image,
+  .qwenpaw-image-img {
+    width: 500px !important;
+    height: auto !important;
+    min-height: 80px;
+    max-height: 500px;
+    object-fit: contain;
+  }
+}
+
 /* Dark mode scrollbar for disabled overlay */
 :global(.dark-mode) {
   .chatDisabledOverlay :global([class*="chat-anywhere-input"]),
