@@ -32,10 +32,10 @@ export default function BackendLoadingPage({
     status === "error"
       ? t("startup.error", "Backend failed to start.")
       : status === "checking"
-        ? elapsed === 0
-          ? t("startup.starting")
-          : t("startup.checking")
-        : t("startup.timeout", { seconds: elapsed });
+      ? elapsed === 0
+        ? t("startup.starting")
+        : t("startup.checking")
+      : t("startup.timeout", { seconds: elapsed });
 
   const percent = Math.min(Math.round((elapsed / totalSec) * 100), 100);
 
