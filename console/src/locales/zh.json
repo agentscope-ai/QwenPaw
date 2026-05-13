@@ -598,6 +598,7 @@
     "filterToolMessagesTooltip": "向用户显示工具调用和输出消息（关闭则隐藏）",
     "filterThinking": "显示思考过程",
     "filterThinkingTooltip": "向用户显示模型的思考/推理内容（关闭则隐藏）",
+    "streamingEnabled": "流式输出",
     "ackMessage": "即时确认消息",
     "ackMessageTooltip": "收到消息后立即发送一条确认回复，在 Agent 处理之前。留空则禁用。",
     "ackMessagePlaceholder": "⏳ 正在处理中...",

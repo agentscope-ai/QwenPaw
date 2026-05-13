@@ -1278,6 +1278,16 @@ export function ChannelDrawer({
             </>
           )}
 
+          {activeKey === "wecom" && (
+            <Form.Item
+              name="streaming_enabled"
+              label={t("channels.streamingEnabled")}
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
+          )}
+
           {isBuiltin
             ? renderBuiltinExtraFields(activeKey)
             : renderCustomExtraFields(initialValues)}

@@ -313,6 +313,7 @@ class WecomConfig(BaseChannelConfig):
     # False to isolate each member into their own chat.
     share_session_in_group: bool = True
     max_reconnect_attempts: int = -1
+    streaming_enabled: bool = False
 
 
 class MatrixConfig(BaseChannelConfig):
