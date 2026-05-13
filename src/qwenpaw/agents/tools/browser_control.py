@@ -126,6 +126,7 @@ async def _configure_download_behavior(state: dict) -> None:
     page = next(iter(state["pages"].values()), None)
     if context is None or page is None or _USE_SYNC_PLAYWRIGHT:
         return
+    cdp = None
     try:
         cdp = await context.new_cdp_session(page)
         await cdp.send(
@@ -141,6 +142,15 @@ async def _configure_download_behavior(state: dict) -> None:
             "Failed to configure browser download behavior",
             exc_info=True,
         )
+    finally:
+        if cdp is not None:
+            try:
+                await cdp.detach()
+            except Exception:
+                logger.debug(
+                    "Failed to detach download behavior CDP session",
+                    exc_info=True,
+                )
 
 
 # Hybrid mode detection: Windows + Uvicorn reload mode requires sync Playwright
@@ -3430,8 +3440,9 @@ async def _action_clear_browser_cache(state: dict) -> ToolResponse:
                     indent=2,
                 ),
             )
+        page = pages[0]
+        cdp = None
         try:
-            page = pages[0]
             if _USE_SYNC_PLAYWRIGHT:
                 loop = asyncio.get_event_loop()
                 cdp = await loop.run_in_executor(
@@ -3460,6 +3471,22 @@ async def _action_clear_browser_cache(state: dict) -> ToolResponse:
                     indent=2,
                 ),
             )
+        finally:
+            if cdp is not None:
+                try:
+                    if _USE_SYNC_PLAYWRIGHT:
+                        loop = asyncio.get_event_loop()
+                        await loop.run_in_executor(
+                            _get_executor(),
+                            cdp.detach,
+                        )
+                    else:
+                        await cdp.detach()
+                except Exception:
+                    logger.debug(
+                        "Failed to detach cache clear CDP session",
+                        exc_info=True,
+                    )
 
     # Browser stopped: remove cache dirs from disk
     import shutil
