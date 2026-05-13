@@ -139,7 +139,8 @@ class UnsupportedSandboxProvider:
 
 
 def _resolve_provider(
-    mode: str, configured_provider: str
+    mode: str,
+    configured_provider: str,
 ) -> ShellSandboxProvider:
     if configured_provider == "macos_sandbox_exec":
         return MacOSSandboxExecProvider()

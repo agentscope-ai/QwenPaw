@@ -94,7 +94,7 @@ def _check_regular_file_tools(
 
 
 def apply_file_guard_pre_hook(
-    tool_call: dict[str, Any]
+    tool_call: dict[str, Any],
 ) -> FileGuardPreHookResult:
     """Apply whitelist pre-hook and mutate tool input when needed."""
     tool_name = str(tool_call.get("name", ""))
