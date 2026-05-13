@@ -34,9 +34,16 @@ def _detect_install_method() -> str:
 
     if EnvVarLoader.get_bool("QWENPAW_RUNNING_IN_CONTAINER"):
         return "docker"
-    if EnvVarLoader.get_bool("QWENPAW_DESKTOP_APP"):
+    if _is_desktop_app():
         return "desktop"
     return "pip"
+
+
+def _is_desktop_app() -> bool:
+    from ..constant import EnvVarLoader
+    from ..desktop_env import DESKTOP_APP_ENV
+
+    return EnvVarLoader.get_bool(DESKTOP_APP_ENV)
 
 
 def get_system_info() -> dict[str, Any]:
@@ -217,6 +224,8 @@ def is_telemetry_opted_out(working_dir: Path) -> bool:
     """Check if the user has explicitly opted out of telemetry.
 
     Once opted out, telemetry is never collected again regardless of version.
+    Desktop runtime is treated as opted out at runtime without persisting
+    the marker file.
 
     Args:
         working_dir: Path to QwenPaw working directory
@@ -224,6 +233,9 @@ def is_telemetry_opted_out(working_dir: Path) -> bool:
     Returns:
         True if user has opted out, False otherwise
     """
+    if _is_desktop_app():
+        return True
+
     marker_file = working_dir / TELEMETRY_MARKER_FILE
     if not marker_file.exists():
         return False
@@ -292,6 +304,9 @@ def collect_and_upload_telemetry(working_dir: Path) -> bool:
     Returns:
         True if upload succeeded, False otherwise
     """
+    if _is_desktop_app():
+        return False
+
     # Collect system info
     info = get_system_info()
 
