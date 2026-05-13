@@ -725,11 +725,30 @@ async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
 class FileGuardResponse(BaseModel):
     enabled: bool = True
     paths: List[str] = []
+    whitelist_enabled: bool = False
+    whitelist_read_paths: List[str] = []
+    whitelist_write_paths: List[str] = []
+    shell_sandbox_mode: str = "audit"
+    shell_sandbox_provider: str = "auto"
 
 
 class FileGuardUpdateBody(BaseModel):
     enabled: Optional[bool] = None
     paths: Optional[List[str]] = None
+    whitelist_enabled: Optional[bool] = None
+    whitelist_read_paths: Optional[List[str]] = None
+    whitelist_write_paths: Optional[List[str]] = None
+    shell_sandbox_mode: Optional[str] = None
+    shell_sandbox_provider: Optional[str] = None
+
+
+_ALLOWED_SHELL_SANDBOX_MODES = {"enforce", "audit"}
+_ALLOWED_SHELL_SANDBOX_PROVIDERS = {
+    "auto",
+    "macos_sandbox_exec",
+    "linux_placeholder",
+    "windows_placeholder",
+}
 
 
 @router.get(
@@ -745,7 +764,23 @@ async def get_file_guard() -> FileGuardResponse:
     )
 
     paths = ensure_file_guard_paths(fg.sensitive_files or [])
-    return FileGuardResponse(enabled=fg.enabled, paths=paths)
+    return FileGuardResponse(
+        enabled=fg.enabled,
+        paths=paths,
+        whitelist_enabled=getattr(fg, "whitelist_enabled", False),
+        whitelist_read_paths=list(
+            getattr(fg, "whitelist_read_paths", []) or [],
+        ),
+        whitelist_write_paths=list(
+            getattr(fg, "whitelist_write_paths", []) or [],
+        ),
+        shell_sandbox_mode=str(
+            getattr(fg, "shell_sandbox_mode", "audit") or "audit",
+        ),
+        shell_sandbox_provider=str(
+            getattr(fg, "shell_sandbox_provider", "auto") or "auto",
+        ),
+    )
 
 
 @router.put(
@@ -767,6 +802,33 @@ async def put_file_guard(
         )
 
         fg.sensitive_files = ensure_file_guard_paths(body.paths)
+    if body.whitelist_enabled is not None:
+        fg.whitelist_enabled = body.whitelist_enabled
+    if body.whitelist_read_paths is not None:
+        fg.whitelist_read_paths = list(body.whitelist_read_paths)
+    if body.whitelist_write_paths is not None:
+        fg.whitelist_write_paths = list(body.whitelist_write_paths)
+    if body.shell_sandbox_mode is not None:
+        if body.shell_sandbox_mode not in _ALLOWED_SHELL_SANDBOX_MODES:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid shell_sandbox_mode. Allowed values: "
+                    "enforce, audit"
+                ),
+            )
+        fg.shell_sandbox_mode = body.shell_sandbox_mode
+    if body.shell_sandbox_provider is not None:
+        if body.shell_sandbox_provider not in _ALLOWED_SHELL_SANDBOX_PROVIDERS:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid shell_sandbox_provider. Allowed values: auto, "
+                    "macos_sandbox_exec, linux_placeholder, "
+                    "windows_placeholder"
+                ),
+            )
+        fg.shell_sandbox_provider = body.shell_sandbox_provider
 
     save_config(config)
 
@@ -778,6 +840,19 @@ async def put_file_guard(
     return FileGuardResponse(
         enabled=fg.enabled,
         paths=fg.sensitive_files,
+        whitelist_enabled=getattr(fg, "whitelist_enabled", False),
+        whitelist_read_paths=list(
+            getattr(fg, "whitelist_read_paths", []) or [],
+        ),
+        whitelist_write_paths=list(
+            getattr(fg, "whitelist_write_paths", []) or [],
+        ),
+        shell_sandbox_mode=str(
+            getattr(fg, "shell_sandbox_mode", "audit") or "audit",
+        ),
+        shell_sandbox_provider=str(
+            getattr(fg, "shell_sandbox_provider", "auto") or "auto",
+        ),
     )
 
 

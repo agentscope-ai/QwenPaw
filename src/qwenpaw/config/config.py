@@ -1673,6 +1673,43 @@ class FileGuardConfig(BaseModel):
 
     enabled: bool = True
     sensitive_files: List[str] = Field(default_factory=list)
+    whitelist_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable file path whitelist checks. "
+            "When disabled, legacy behavior is unchanged."
+        ),
+    )
+    whitelist_read_paths: List[str] = Field(
+        default_factory=list,
+        description="Whitelisted read paths for file tools and shell sandbox.",
+    )
+    whitelist_write_paths: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Whitelisted write paths for file tools and shell sandbox."
+        ),
+    )
+    shell_sandbox_mode: Literal["enforce", "audit"] = Field(
+        default="audit",
+        description=(
+            "Sandbox strategy hint. "
+            "When backend is unavailable, execution falls back to "
+            "original command with a warning."
+        ),
+    )
+    shell_sandbox_provider: Literal[
+        "auto",
+        "macos_sandbox_exec",
+        "linux_placeholder",
+        "windows_placeholder",
+    ] = Field(
+        default="auto",
+        description=(
+            "Platform sandbox backend selector. "
+            "linux/windows providers are placeholders for future support."
+        ),
+    )
 
 
 class SkillScannerWhitelistEntry(BaseModel):
