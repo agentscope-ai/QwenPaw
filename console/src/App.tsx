@@ -217,11 +217,11 @@ function AppInner() {
 function App() {
   return (
     <ThemeProvider>
-      <PluginProvider>
-        <BackendReadyGate>
+      <BackendReadyGate>
+        <PluginProvider>
           <AppInner />
-        </BackendReadyGate>
-      </PluginProvider>
+        </PluginProvider>
+      </BackendReadyGate>
     </ThemeProvider>
   );
 }

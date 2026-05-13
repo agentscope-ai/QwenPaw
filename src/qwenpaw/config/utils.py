@@ -38,6 +38,17 @@ from .config import (
 
 logger = logging.getLogger(__name__)
 
+RUNTIME_API_HOST_ENV = "QWENPAW_RUNTIME_API_HOST"
+RUNTIME_API_PORT_ENV = "QWENPAW_RUNTIME_API_PORT"
+# Sentinel written alongside the host/port when set_runtime_api() is called.
+# Prevents arbitrary shell exports of QWENPAW_RUNTIME_API_HOST/PORT from being
+# picked up by read_last_api() in web/CLI mode.  Only the desktop sidecar
+# process (and its children) will have all three variables set together.
+# This HOST / PORT / INTERNAL trio is an internal desktop protocol; users and
+# operators should not export it manually because it can reroute CLI commands to
+# a stale or nonexistent desktop backend.
+RUNTIME_API_INTERNAL_ENV = "QWENPAW_RUNTIME_API_INTERNAL"
+
 # Config cache with mtime tracking for reducing disk IO
 _config_cache: Optional[Config] = None
 _config_mtime: Optional[float] = None
@@ -771,11 +782,52 @@ def update_last_dispatch(
 
 
 def read_last_api() -> Optional[Tuple[str, int]]:
-    """Read last API host/port from config (via config load/save)."""
+    """Read current runtime API host/port, falling back to saved config."""
+    runtime_api = read_runtime_api()
+    if runtime_api:
+        return runtime_api
+
     config = load_config()
     host = config.last_api.host
     port = config.last_api.port
     if not host or port is None:
+        return None
+    return host, port
+
+
+def set_runtime_api(host: str, port: int) -> None:
+    """Set the current process API host/port without persisting it.
+
+    Also writes a sentinel variable so that read_runtime_api() can distinguish
+    values intentionally set by this function from arbitrary shell exports.
+    """
+    os.environ[RUNTIME_API_HOST_ENV] = host
+    os.environ[RUNTIME_API_PORT_ENV] = str(port)
+    os.environ[RUNTIME_API_INTERNAL_ENV] = "1"
+
+
+def clear_runtime_api() -> None:
+    """Clear the current process API host/port set by set_runtime_api()."""
+    os.environ.pop(RUNTIME_API_HOST_ENV, None)
+    os.environ.pop(RUNTIME_API_PORT_ENV, None)
+    os.environ.pop(RUNTIME_API_INTERNAL_ENV, None)
+
+
+def read_runtime_api() -> Optional[Tuple[str, int]]:
+    """Read the current process API host/port when available.
+
+    Only returns a value when all three sentinel + host + port variables are
+    present, preventing arbitrary shell exports from polluting read_last_api().
+    """
+    if os.environ.get(RUNTIME_API_INTERNAL_ENV) != "1":
+        return None
+    host = os.environ.get(RUNTIME_API_HOST_ENV)
+    port_raw = os.environ.get(RUNTIME_API_PORT_ENV)
+    if not host or not port_raw:
+        return None
+    try:
+        port = int(port_raw)
+    except ValueError:
         return None
     return host, port
 

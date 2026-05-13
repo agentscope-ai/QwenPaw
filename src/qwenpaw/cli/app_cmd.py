@@ -9,12 +9,14 @@ import uvicorn
 
 from ..app.auth import is_auth_enabled
 from ..constant import LOG_LEVEL_ENV
-from ..config.utils import write_last_api
+from ..config.utils import clear_runtime_api, set_runtime_api, write_last_api
+from ..desktop_env import DESKTOP_PORT_ENV
 from ..utils.http import is_loopback_host
 from ..utils.logging import setup_logger, SuppressPathAccessLogFilter
 
 
 logger = logging.getLogger(__name__)
+WILDCARD_HOSTS = {"0.0.0.0", "::", "[::]", "0:0:0:0:0:0:0:0"}
 
 
 def _format_bind_address(host: str, port: int) -> str:
@@ -82,6 +84,14 @@ Recommended:
     help="Path substrings to hide from uvicorn access log (repeatable).",
 )
 @click.option(
+    "--write-last-api/--no-write-last-api",
+    "persist_last_api",
+    default=True,
+    show_default=True,
+    hidden=True,
+    help="Persist API host/port for later CLI commands.",
+)
+@click.option(
     "--workers",
     type=int,
     default=None,
@@ -96,8 +106,14 @@ def app_cmd(
     workers: int,  # pylint: disable=unused-argument
     log_level: str,
     hide_access_paths: tuple[str, ...],
+    persist_last_api: bool,
 ) -> None:
     """Run QwenPaw FastAPI app."""
+    if not persist_last_api and not os.environ.get(DESKTOP_PORT_ENV):
+        raise click.ClickException(
+            "--no-write-last-api is only for desktop sidecar startup",
+        )
+
     # Handle deprecated --workers parameter
     if workers is not None:
         click.echo(
@@ -112,39 +128,47 @@ def app_cmd(
         )
         click.echo(err=True)
 
-    # Persist last used host/port for other terminals
-    if host == "0.0.0.0":
-        write_last_api("127.0.0.1", port)
-    else:
-        write_last_api(host, port)
-    os.environ[LOG_LEVEL_ENV] = log_level
+    api_host = "127.0.0.1" if host in WILDCARD_HOSTS else host
+    runtime_api_set = False
+    try:
+        if persist_last_api:
+            write_last_api(api_host, port)
+        else:
+            # Desktop / sidecar mode: keep the address in-process only so child
+            # processes (channels, tools) can discover it without touching disk.
+            set_runtime_api(api_host, port)
+            runtime_api_set = True
+        os.environ[LOG_LEVEL_ENV] = log_level
 
-    # Signal reload mode to browser_control.py for Windows
-    # compatibility: use sync Playwright + ThreadPool only when reload=True
-    if reload:
-        os.environ["QWENPAW_RELOAD_MODE"] = "1"
-    else:
-        os.environ.pop("QWENPAW_RELOAD_MODE", None)
+        # Signal reload mode to browser_control.py for Windows
+        # compatibility: use sync Playwright + ThreadPool only when reload=True
+        if reload:
+            os.environ["QWENPAW_RELOAD_MODE"] = "1"
+        else:
+            os.environ.pop("QWENPAW_RELOAD_MODE", None)
 
-    setup_logger(log_level)
-    if log_level in ("debug", "trace"):
-        from .main import log_init_timings
+        setup_logger(log_level)
+        if log_level in ("debug", "trace"):
+            from .main import log_init_timings
 
-        log_init_timings()
+            log_init_timings()
 
-    paths = [p for p in hide_access_paths if p]
-    if paths:
-        logging.getLogger("uvicorn.access").addFilter(
-            SuppressPathAccessLogFilter(paths),
+        paths = [p for p in hide_access_paths if p]
+        if paths:
+            logging.getLogger("uvicorn.access").addFilter(
+                SuppressPathAccessLogFilter(paths),
+            )
+
+        _warn_if_auth_off_non_loopback_bind(host, port)
+
+        uvicorn.run(
+            "qwenpaw.app._app:app",
+            host=host,
+            port=port,
+            reload=reload,
+            workers=1,
+            log_level=log_level,
         )
-
-    _warn_if_auth_off_non_loopback_bind(host, port)
-
-    uvicorn.run(
-        "qwenpaw.app._app:app",
-        host=host,
-        port=port,
-        reload=reload,
-        workers=1,
-        log_level=log_level,
-    )
+    finally:
+        if runtime_api_set:
+            clear_runtime_api()

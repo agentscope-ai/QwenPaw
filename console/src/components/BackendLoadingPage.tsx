@@ -5,12 +5,14 @@ import { useTranslation } from "react-i18next";
 interface BackendLoadingPageProps {
   status: "checking" | "ready" | "timeout";
   elapsed: number;
+  totalSec: number;
   onRetry?: () => void;
 }
 
 export default function BackendLoadingPage({
   status,
   elapsed,
+  totalSec,
   onRetry,
 }: BackendLoadingPageProps) {
   const { isDark } = useTheme();
@@ -28,9 +30,9 @@ export default function BackendLoadingPage({
       ? elapsed === 0
         ? t("startup.starting")
         : t("startup.checking")
-      : t("startup.timeout", {seconds: elapsed});
+      : t("startup.timeout", { seconds: elapsed });
 
-  const percent = Math.min(Math.round((elapsed / 120) * 100), 100);
+  const percent = Math.min(Math.round((elapsed / totalSec) * 100), 100);
 
   return (
     <>
@@ -62,15 +64,10 @@ export default function BackendLoadingPage({
             animation: "backend-loading-fadein 0.6s ease-out",
           }}
         >
-          {/* Logo */}
           <img
-            src={
-              isDark
-                ? "https://gw.alicdn.com/imgextra/i4/O1CN01L7e39724RlGeJYJ7l_!!6000000007388-55-tps-771-132.svg"
-                : "https://gw.alicdn.com/imgextra/i1/O1CN01sens5C1TuwioeGexL_!!6000000002443-55-tps-771-132.svg"
-            }
+            src="/qwenpaw.png"
             alt="QwenPaw"
-            style={{ height: 48, marginBottom: 32 }}
+            style={{ height: 72, marginBottom: 28 }}
           />
 
           {/* Progress Arc */}
@@ -79,11 +76,11 @@ export default function BackendLoadingPage({
             percent={percent}
             status={status === "timeout" ? "exception" : "active"}
             strokeColor="#ff7f16"
-            trailColor={
-              isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"
-            }
+            trailColor={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"}
             gapPosition="bottom"
-            format={() => <div style={{ color: textColor }}>{`${elapsed}s`}</div>}
+            format={() => (
+              <div style={{ color: textColor }}>{`${elapsed}s`}</div>
+            )}
             size={160}
             strokeWidth={8}
           />

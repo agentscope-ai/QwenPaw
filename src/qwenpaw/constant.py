@@ -36,7 +36,7 @@ class EnvVarLoader:
         """Get a boolean environment variable,
         interpreting common truthy values."""
         val = _get_env(env_var, str(default)).lower()
-        return val in ("true", "1", "yes")
+        return val in ("true", "1", "yes", "on")
 
     @staticmethod
     def get_float(

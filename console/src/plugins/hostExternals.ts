@@ -12,9 +12,7 @@ import React from "react";
 import ReactDOM from "react-dom";
 import * as antd from "antd";
 import * as antdIcons from "@ant-design/icons";
-import { getApiUrl, getApiToken } from "../api/config";
-
-declare const VITE_API_BASE_URL: string;
+import { getApiBaseUrl, getApiUrl, getApiToken } from "../api/config";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -26,7 +24,12 @@ export interface HostExternals {
   ReactDOM: typeof ReactDOM;
   antd: typeof antd;
   antdIcons: typeof antdIcons;
-  apiBaseUrl: string;
+  /**
+   * Live API base URL. Do not destructure or cache this value because the
+   * Tauri runtime resolves the actual backend port lazily. Prefer `getApiUrl()`
+   * for path-aware API URL composition.
+   */
+  readonly apiBaseUrl: string;
   getApiUrl: typeof getApiUrl;
   getApiToken: typeof getApiToken;
 }
@@ -141,7 +144,7 @@ export interface WindowNamespace {
 
 declare global {
   interface Window {
-    QwenPaw: WindowNamespace;
+    QwenPaw?: WindowNamespace;
   }
 }
 
@@ -150,11 +153,8 @@ declare global {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function installHostExternals(): void {
-  const apiBaseUrl =
-    typeof VITE_API_BASE_URL !== "undefined" ? VITE_API_BASE_URL : "";
-
   if (!window.QwenPaw) {
-    (window as any).QwenPaw = {} as WindowNamespace;
+    window.QwenPaw = {} as WindowNamespace;
   }
 
   if (!window.QwenPaw.host) {
@@ -163,7 +163,9 @@ export function installHostExternals(): void {
       ReactDOM,
       antd,
       antdIcons,
-      apiBaseUrl,
+      get apiBaseUrl() {
+        return getApiBaseUrl();
+      },
       getApiUrl,
       getApiToken,
     };
