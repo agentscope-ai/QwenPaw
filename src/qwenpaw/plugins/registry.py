@@ -45,6 +45,10 @@ def _mount_plugin_http_on_app(
             routes.insert(spa_idx, route)
     else:
         routes.extend(added)
+    # Invalidate the cached OpenAPI schema so the next /openapi.json
+    # request reflects the newly added plugin routes. FastAPI caches
+    # the schema on first access and never regenerates it otherwise.
+    app.openapi_schema = None
     return list(added)
 
 
