@@ -951,7 +951,16 @@
         "description": "Before each weekly meeting, summarize the last week's memory.",
         "frequency": "First run: 2026-01-02 08:30 | Every 7 days | Until 2026-03-01"
       }
-    }
+    },
+    "cronExpression": "Cron expression",
+    "cronFormat": "Format: minute hour day month weekday",
+    "dispatchType": "Dispatch Type",
+    "pleaseSelectAtLeastOneDay": "Please select at least one day",
+    "customValueHint": "Enter a custom value and press Enter",
+    "taskTypeText": "Text",
+    "taskTypeAgent": "Agent",
+    "dispatchModeStream": "Stream",
+    "dispatchModeFinal": "Final"
   },
   "channels": {
     "title": "Channels",
@@ -1105,7 +1114,15 @@
     "selectedItems": "Selected {{count}} items",
     "editSession": "Edit Session",
     "pleaseInputName": "Please input session name",
-    "sessionNamePlaceholder": "Session name"
+    "sessionNamePlaceholder": "Session name",
+    "id": "ID",
+    "name": "Name",
+    "sessionId": "Session ID",
+    "userId": "User ID",
+    "channel": "Channel",
+    "createdAt": "Created At",
+    "updatedAt": "Updated At",
+    "action": "Action"
   },
   "environments": {
     "parent": "Settings",

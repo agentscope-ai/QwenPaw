@@ -1,5 +1,4 @@
 import { Button, Tag } from "@agentscope-ai/design";
-import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ColumnsType } from "antd/es/table";
 import { formatTime, type Session } from "./constants";
@@ -24,35 +23,33 @@ const toUTCTime = (ts: string | null | undefined): number => {
 export const createColumns = (
   handlers: ColumnHandlers,
 ): ColumnsType<Session> => {
-  const { t } = useTranslation();
-
   return [
     {
-      title: "ID",
+      title: handlers.t("sessions.id"),
       dataIndex: "id",
       key: "id",
       width: 250,
     },
     {
-      title: "Name",
+      title: handlers.t("sessions.name"),
       dataIndex: "name",
       key: "name",
       width: 200,
     },
     {
-      title: "SessionID",
+      title: handlers.t("sessions.sessionId"),
       dataIndex: "session_id",
       key: "session_id",
       width: 180,
     },
     {
-      title: "UserID",
+      title: handlers.t("sessions.userId"),
       dataIndex: "user_id",
       key: "user_id",
       width: 150,
     },
     {
-      title: "Channel",
+      title: handlers.t("sessions.channel"),
       dataIndex: "channel",
       key: "channel",
       width: 120,
@@ -61,7 +58,7 @@ export const createColumns = (
       ),
     },
     {
-      title: "CreatedAt",
+      title: handlers.t("sessions.createdAt"),
       dataIndex: "created_at",
       key: "created_at",
       width: 180,
@@ -70,7 +67,7 @@ export const createColumns = (
         toUTCTime(a.created_at) - toUTCTime(b.created_at),
     },
     {
-      title: "UpdatedAt",
+      title: handlers.t("sessions.updatedAt"),
       dataIndex: "updated_at",
       key: "updated_at",
       width: 180,
@@ -80,7 +77,7 @@ export const createColumns = (
       defaultSortOrder: "descend",
     },
     {
-      title: "Action",
+      title: handlers.t("sessions.action"),
       key: "action",
       width: 180,
       fixed: "right",
@@ -91,7 +88,7 @@ export const createColumns = (
             size="small"
             onClick={() => handlers.onEdit(record)}
           >
-            {t("common.edit")}
+            {handlers.t("common.edit")}
           </Button>
           <Button
             type="link"
@@ -99,7 +96,7 @@ export const createColumns = (
             style={{ color: "#52c41a" }}
             onClick={() => handlers.onView(record)}
           >
-            {t("common.view")}
+            {handlers.t("common.view")}
           </Button>
           <Button
             type="link"
@@ -107,7 +104,7 @@ export const createColumns = (
             danger
             onClick={() => handlers.onDelete(record.id)}
           >
-            {t("common.delete")}
+            {handlers.t("common.delete")}
           </Button>
         </div>
       ),

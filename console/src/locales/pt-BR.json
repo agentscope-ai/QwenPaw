@@ -865,7 +865,16 @@
         "description": "Antes de cada reunião semanal, gerar um resumo de trabalho com base na memory da última semana.",
         "frequency": "Primeira execução: 2026-01-02 08:30 | A cada 7 dias | Até 2026-03-01"
       }
-    }
+    },
+    "cronExpression": "Expressão Cron",
+    "cronFormat": "Formato: minuto hora dia mês dia da semana",
+    "dispatchType": "Tipo de envio",
+    "pleaseSelectAtLeastOneDay": "Selecione pelo menos um dia",
+    "customValueHint": "Insira um valor personalizado e pressione Enter",
+    "taskTypeText": "Texto",
+    "taskTypeAgent": "Agente",
+    "dispatchModeStream": "Stream",
+    "dispatchModeFinal": "Final"
   },
   "channels": {
     "title": "Canais",
@@ -1019,7 +1028,15 @@
     "selectedItems": "Selecionado {{count}} items",
     "editSession": "Editar Session",
     "pleaseInputName": "Please input session Nome",
-    "sessionNamePlaceholder": "Session Nome"
+    "sessionNamePlaceholder": "Session Nome",
+    "id": "ID",
+    "name": "Nome",
+    "sessionId": "ID da sessão",
+    "userId": "ID do usuário",
+    "channel": "Canal",
+    "createdAt": "Criado em",
+    "updatedAt": "Atualizado em",
+    "action": "Ação"
   },
   "environments": {
     "parent": "Configuracoes",

@@ -427,7 +427,12 @@ export function JobDrawer({
                 <Form.Item
                   name="cronDaysOfWeek"
                   label={t("cronJobs.cronDaysOfWeek")}
-                  rules={[{ required: true, message: "请选择至少一天" }]}
+                  rules={[
+                    {
+                      required: true,
+                      message: t("cronJobs.pleaseSelectAtLeastOneDay"),
+                    },
+                  ]}
                 >
                   <Checkbox.Group
                     options={[
@@ -525,8 +530,12 @@ export function JobDrawer({
           tooltip={t("cronJobs.taskTypeTooltip")}
         >
           <Select>
-            <Select.Option value="text">text</Select.Option>
-            <Select.Option value="agent">agent</Select.Option>
+            <Select.Option value="text">
+              {t("cronJobs.taskTypeText")}
+            </Select.Option>
+            <Select.Option value="agent">
+              {t("cronJobs.taskTypeAgent")}
+            </Select.Option>
           </Select>
         </Form.Item>
 
@@ -608,7 +617,11 @@ export function JobDrawer({
           }}
         </Form.Item>
 
-        <Form.Item name={["dispatch", "type"]} label="DispatchType" hidden>
+        <Form.Item
+          name={["dispatch", "type"]}
+          label={t("cronJobs.dispatchType")}
+          hidden
+        >
           <Input disabled value="channel" />
         </Form.Item>
 
@@ -627,7 +640,7 @@ export function JobDrawer({
             options={channelOptions}
             onSearch={setChannelSearch}
             onBlur={() => setChannelSearch("")}
-            notFoundContent="输入自定义值后按 Enter"
+            notFoundContent={t("cronJobs.customValueHint")}
             filterOption={(input, option) =>
               (option?.label?.toString() || "")
                 .toLowerCase()
@@ -649,7 +662,7 @@ export function JobDrawer({
             options={userOptions}
             onSearch={setUserSearch}
             onBlur={() => setUserSearch("")}
-            notFoundContent="输入自定义值后按 Enter"
+            notFoundContent={t("cronJobs.customValueHint")}
             filterOption={(input, option) =>
               (option?.label?.toString() || "")
                 .toLowerCase()
@@ -673,7 +686,7 @@ export function JobDrawer({
             options={sessionOptions}
             onSearch={setSessionSearch}
             onBlur={() => setSessionSearch("")}
-            notFoundContent="输入自定义值后按 Enter"
+            notFoundContent={t("cronJobs.customValueHint")}
             filterOption={(input, option) =>
               (option?.label?.toString() || "")
                 .toLowerCase()
@@ -688,8 +701,12 @@ export function JobDrawer({
           tooltip={t("cronJobs.dispatchModeTooltip")}
         >
           <Select>
-            <Select.Option value="stream">stream</Select.Option>
-            <Select.Option value="final">final</Select.Option>
+            <Select.Option value="stream">
+              {t("cronJobs.dispatchModeStream")}
+            </Select.Option>
+            <Select.Option value="final">
+              {t("cronJobs.dispatchModeFinal")}
+            </Select.Option>
           </Select>
         </Form.Item>
 

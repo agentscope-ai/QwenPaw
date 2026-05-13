@@ -153,12 +153,14 @@ export const createColumns = (
           <Tooltip
             title={
               <div>
-                <div>Cron 表达式：{cron}</div>
+                <div>
+                  {handlers.t("cronJobs.cronExpression")}: {cron}
+                </div>
                 <div
                   className={styles.tableText}
                   style={{ opacity: 0.8, marginTop: 4 }}
                 >
-                  格式：分钟 小时 日 月 星期
+                  {handlers.t("cronJobs.cronFormat")}
                 </div>
               </div>
             }
@@ -175,7 +177,7 @@ export const createColumns = (
       width: 170,
     },
     {
-      title: "TaskType",
+      title: handlers.t("cronJobs.taskType"),
       dataIndex: "task_type",
       key: "task_type",
       width: 140,
@@ -252,49 +254,49 @@ export const createColumns = (
       },
     },
     {
-      title: "DispatchType",
+      title: handlers.t("cronJobs.dispatchType"),
       dataIndex: ["dispatch", "type"],
       key: "dispatch_type",
       width: 140,
     },
     {
-      title: "DispatchChannel",
+      title: handlers.t("cronJobs.dispatchChannel"),
       dataIndex: ["dispatch", "channel"],
       key: "channel",
       width: 150,
     },
     {
-      title: "DispatchTargetUserID",
+      title: handlers.t("cronJobs.dispatchTargetUserId"),
       dataIndex: ["dispatch", "target", "user_id"],
       key: "target_user_id",
       width: 190,
     },
     {
-      title: "DispatchTargetSessionID",
+      title: handlers.t("cronJobs.dispatchTargetSessionId"),
       dataIndex: ["dispatch", "target", "session_id"],
       key: "target_session_id",
       width: 210,
     },
     {
-      title: "DispatchMode",
+      title: handlers.t("cronJobs.dispatchMode"),
       dataIndex: ["dispatch", "mode"],
       key: "mode",
       width: 140,
     },
     {
-      title: "RuntimeMaxConcurrency",
+      title: handlers.t("cronJobs.runtimeMaxConcurrency"),
       dataIndex: ["runtime", "max_concurrency"],
       key: "max_concurrency",
       width: 210,
     },
     {
-      title: "RuntimeTimeoutSeconds",
+      title: handlers.t("cronJobs.runtimeTimeoutSeconds"),
       dataIndex: ["runtime", "timeout_seconds"],
       key: "timeout_seconds",
       width: 210,
     },
     {
-      title: "RuntimeMisfireGraceSeconds",
+      title: handlers.t("cronJobs.runtimeMisfireGraceSeconds"),
       dataIndex: ["runtime", "misfire_grace_seconds"],
       key: "misfire_grace_seconds",
       width: 240,

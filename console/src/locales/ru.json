@@ -677,7 +677,16 @@
         "description": "Перед каждой недельной встречей формировать рабочий итог на основе memory за последнюю неделю.",
         "frequency": "Первый запуск: 2026-01-02 08:30 | Каждые 7 дней | До 2026-03-01"
       }
-    }
+    },
+    "cronExpression": "Cron-выражение",
+    "cronFormat": "Формат: минута час день месяц день недели",
+    "dispatchType": "Тип доставки",
+    "pleaseSelectAtLeastOneDay": "Выберите хотя бы один день",
+    "customValueHint": "Введите пользовательское значение и нажмите Enter",
+    "taskTypeText": "Текст",
+    "taskTypeAgent": "Агент",
+    "dispatchModeStream": "Поток",
+    "dispatchModeFinal": "Финальный"
   },
   "channels": {
     "title": "Каналы",
@@ -827,7 +836,15 @@
     "selectedItems": "Выбрано {{count}} элементов",
     "editSession": "Редактировать сессию",
     "pleaseInputName": "Пожалуйста, введите название сессии",
-    "sessionNamePlaceholder": "Название сессии"
+    "sessionNamePlaceholder": "Название сессии",
+    "id": "ID",
+    "name": "Имя",
+    "sessionId": "ID сеанса",
+    "userId": "ID пользователя",
+    "channel": "Канал",
+    "createdAt": "Создано",
+    "updatedAt": "Обновлено",
+    "action": "Действие"
   },
   "environments": {
     "parent": "Настройки",

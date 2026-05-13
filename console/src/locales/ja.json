@@ -677,7 +677,16 @@
         "description": "毎週会議前に、直近1週間の memory をもとに業務サマリーを生成します。",
         "frequency": "初回：2026-01-02 08:30｜7日ごと｜2026-03-01まで"
       }
-    }
+    },
+    "cronExpression": "Cron式",
+    "cronFormat": "形式: 分 時 日 月 曜日",
+    "dispatchType": "配信タイプ",
+    "pleaseSelectAtLeastOneDay": "少なくとも1日選択してください",
+    "customValueHint": "カスタム値を入力して Enter を押してください",
+    "taskTypeText": "テキスト",
+    "taskTypeAgent": "エージェント",
+    "dispatchModeStream": "ストリーム",
+    "dispatchModeFinal": "最終"
   },
   "channels": {
     "title": "チャンネル",
@@ -827,7 +836,15 @@
     "selectedItems": "{{count}} 件選択中",
     "editSession": "セッションを編集",
     "pleaseInputName": "セッション名を入力してください",
-    "sessionNamePlaceholder": "セッション名"
+    "sessionNamePlaceholder": "セッション名",
+    "id": "ID",
+    "name": "名前",
+    "sessionId": "セッション ID",
+    "userId": "ユーザー ID",
+    "channel": "チャネル",
+    "createdAt": "作成日時",
+    "updatedAt": "更新日時",
+    "action": "操作"
   },
   "environments": {
     "parent": "設定",

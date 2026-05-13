@@ -805,7 +805,16 @@
         "description": "每次周会前基于最近一周 memory 生成工作总结。",
         "frequency": "首次执行：2026年1月2日 08:30｜每7天一次｜截止到2026年3月1日"
       }
-    }
+    },
+    "cronExpression": "Cron 表达式",
+    "cronFormat": "格式：分钟 小时 日 月 星期",
+    "dispatchType": "分发类型",
+    "pleaseSelectAtLeastOneDay": "请至少选择一天",
+    "customValueHint": "输入自定义值后按 Enter",
+    "taskTypeText": "文本",
+    "taskTypeAgent": "智能体",
+    "dispatchModeStream": "流式",
+    "dispatchModeFinal": "最终结果"
   },
   "channels": {
     "title": "频道",
@@ -968,7 +977,15 @@
     "selectedItems": "已选 {{count}} 项",
     "editSession": "编辑会话",
     "pleaseInputName": "请输入会话名称",
-    "sessionNamePlaceholder": "会话名称"
+    "sessionNamePlaceholder": "会话名称",
+    "id": "ID",
+    "name": "名称",
+    "sessionId": "会话 ID",
+    "userId": "用户 ID",
+    "channel": "渠道",
+    "createdAt": "创建时间",
+    "updatedAt": "更新时间",
+    "action": "操作"
   },
   "environments": {
     "parent": "设置",
