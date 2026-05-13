@@ -11,6 +11,24 @@ from typing import Protocol
 
 from .whitelist import FileWhitelistPolicy, normalize_access_path
 
+_MACOS_BASELINE_READ_ROOTS: tuple[str, ...] = (
+    "/private/var/select/",
+    "/bin/",
+    "/sbin/",
+    "/usr/bin/",
+    "/usr/sbin/",
+    "/usr/lib/",
+    "/usr/libexec/",
+    "/System/",
+    "/Library/",
+    "/dev/",
+)
+_MACOS_BASELINE_WRITE_ROOTS: tuple[str, ...] = (
+    "/tmp/",
+    "/private/tmp/",
+    "/private/var/tmp/",
+)
+
 
 @dataclass
 class SandboxPreparation:
@@ -46,18 +64,47 @@ class MacOSSandboxExecProvider:
     """macOS sandbox provider using sandbox-exec profile strings."""
 
     @staticmethod
+    def _normalized_roots(paths: list[str]) -> set[str]:
+        roots: set[str] = set()
+        for path in paths:
+            normalized = normalize_access_path(path)
+            if normalized:
+                roots.add(normalized)
+        return roots
+
+    @staticmethod
     def _profile_text(policy: FileWhitelistPolicy, working_dir: str) -> str:
         read_roots, write_roots = policy.allowed_roots_for_shell()
+        read_set = MacOSSandboxExecProvider._normalized_roots(read_roots)
+        write_set = MacOSSandboxExecProvider._normalized_roots(write_roots)
+
+        read_set.update(
+            MacOSSandboxExecProvider._normalized_roots(
+                list(_MACOS_BASELINE_READ_ROOTS),
+            ),
+        )
+        write_set.update(
+            MacOSSandboxExecProvider._normalized_roots(
+                list(_MACOS_BASELINE_WRITE_ROOTS),
+            ),
+        )
+
         wd = normalize_access_path(working_dir)
         if wd:
-            read_roots = sorted(set(read_roots) | {wd})
-            write_roots = sorted(set(write_roots) | {wd})
+            read_set.add(wd)
+            write_set.add(wd)
+        read_roots = sorted(read_set)
+        write_roots = sorted(write_set)
         lines = [
             "(version 1)",
             "(deny default)",
             '(import "system.sb")',
             "(allow process*)",
             "(allow sysctl-read)",
+            # Allow metadata reads globally so basic traversal operations
+            # (`ls -la`, resolving `..`, `find` walking) keep working,
+            # while file content access is still controlled by read/write roots.
+            "(allow file-read-metadata)",
         ]
         for root in read_roots:
             lines.append(f'(allow file-read* (subpath "{root}"))')
@@ -114,7 +161,7 @@ def prepare_sandboxed_shell_command(
     mode, configured_provider = _load_shell_sandbox_config()
 
     if mode not in ("enforce", "audit"):
-        mode = "enforce"
+        mode = "audit"
 
     provider = _resolve_provider(mode, configured_provider)
     return provider.prepare(command=command, working_dir=working_dir)
