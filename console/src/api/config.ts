@@ -1,7 +1,66 @@
-declare const VITE_API_BASE_URL: string;
-declare const TOKEN: string;
+// VITE_API_BASE_URL and TOKEN are declared globally in src/vite-env.d.ts.
 
 const AUTH_TOKEN_KEY = "qwenpaw_auth_token";
+
+declare global {
+  interface Window {
+    __TAURI__?: {
+      core?: {
+        invoke?: <T>(
+          command: string,
+          args?: Record<string, unknown>,
+        ) => Promise<T>;
+      };
+    };
+  }
+}
+
+let runtimeApiBaseUrl = "";
+let initRuntimeApiBaseUrlPromise: Promise<string> | null = null;
+
+export function getApiBaseUrl(): string {
+  return (
+    runtimeApiBaseUrl ||
+    (typeof VITE_API_BASE_URL !== "undefined" ? VITE_API_BASE_URL : "")
+  );
+}
+
+export function isTauriRuntime(): boolean {
+  return typeof window !== "undefined" && !!window.__TAURI__?.core?.invoke;
+}
+
+export function initRuntimeApiBaseUrl(): Promise<string> {
+  if (!initRuntimeApiBaseUrlPromise) {
+    initRuntimeApiBaseUrlPromise = resolveRuntimeApiBaseUrl().catch((err) => {
+      initRuntimeApiBaseUrlPromise = null;
+      throw err;
+    });
+  }
+  return initRuntimeApiBaseUrlPromise;
+}
+
+async function resolveRuntimeApiBaseUrl(): Promise<string> {
+  const baseUrl = getApiBaseUrl();
+  const invoke =
+    typeof window !== "undefined" ? window.__TAURI__?.core?.invoke : undefined;
+  if (baseUrl || !invoke) {
+    if (baseUrl && invoke) {
+      // VITE_API_BASE_URL is set while running inside a Tauri runtime.
+      // The Rust sidecar will start a second backend process that won't
+      // be used — set VITE_API_BASE_URL='' or leave it unset for desktop builds.
+      console.warn(
+        "[Tauri] VITE_API_BASE_URL is set; ignoring backend_port from Rust. " +
+          "You may have two backend processes running.",
+      );
+    }
+    return baseUrl;
+  }
+
+  const port = await invoke<number>("backend_port");
+  runtimeApiBaseUrl = `http://127.0.0.1:${port}`;
+
+  return runtimeApiBaseUrl;
+}
 
 /**
  * Get the full API URL with /api prefix
@@ -9,7 +68,7 @@ const AUTH_TOKEN_KEY = "qwenpaw_auth_token";
  * @returns Full API URL (e.g., "http://localhost:8088/api/models" or "/api/models")
  */
 export function getApiUrl(path: string): string {
-  const base = VITE_API_BASE_URL || "";
+  const base = getApiBaseUrl();
   const apiPrefix = "/api";
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${base}${apiPrefix}${normalizedPath}`;
