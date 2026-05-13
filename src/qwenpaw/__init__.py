@@ -3,6 +3,16 @@ import logging
 import os
 import time
 
+from .desktop_env import (
+    DESKTOP_APP_ENV,
+    DESKTOP_PORT_ENV,
+    ensure_desktop_cors_origins,
+)
+
+if os.environ.get(DESKTOP_APP_ENV) or os.environ.get(DESKTOP_PORT_ENV):
+    os.environ.setdefault(DESKTOP_APP_ENV, "1")
+    ensure_desktop_cors_origins()
+
 from .utils.logging import setup_logger
 
 # Fallback before we can safely read canonical constant definitions.

@@ -12,34 +12,40 @@ from qwenpaw.desktop_env import (
     DESKTOP_APP_ENV,
     DESKTOP_CORS_ORIGINS_ENV,
     DESKTOP_PORT_ENV,
-)
-
-DESKTOP_CORS_ORIGINS = (
-    "tauri://localhost",
-    "https://tauri.localhost",
-    "http://tauri.localhost",
-    "http://localhost:1420",
-    "http://127.0.0.1:1420",
+    ensure_desktop_cors_origins,
 )
 
 
 def _ensure_desktop_cors_origins() -> None:
-    origins = [
-        origin.strip()
-        for origin in os.environ.get(DESKTOP_CORS_ORIGINS_ENV, "").split(",")
-        if origin.strip()
-    ]
-    for origin in DESKTOP_CORS_ORIGINS:
-        if origin not in origins:
-            origins.append(origin)
-    os.environ[DESKTOP_CORS_ORIGINS_ENV] = ",".join(origins)
+    ensure_desktop_cors_origins()
 
 
-def _ensure_qwenpaw_constant_not_loaded() -> None:
-    if "qwenpaw.constant" in sys.modules:
+def _ensure_qwenpaw_app_not_loaded() -> None:
+    if "qwenpaw.app._app" in sys.modules:
         raise RuntimeError(
-            "qwenpaw.constant imported before desktop CORS origins were set",
+            "qwenpaw app imported before desktop CORS origins were set",
         )
+
+
+def _sync_loaded_qwenpaw_constant_cors_origins() -> None:
+    constant_module = sys.modules.get("qwenpaw.constant")
+    if constant_module is not None:
+        constant_module.CORS_ORIGINS = os.environ.get(
+            DESKTOP_CORS_ORIGINS_ENV,
+            "",
+        ).strip()
+
+
+def _ensure_utf8_stdio() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 
 def _run_click_command(
@@ -65,10 +71,12 @@ def _run_click_command(
 
 def main() -> None:
     os.environ.setdefault(DESKTOP_APP_ENV, "1")
-    # Must run before importing qwenpaw modules: qwenpaw.constant snapshots
-    # QWENPAW_CORS_ORIGINS at import time for FastAPI CORS setup.
-    _ensure_qwenpaw_constant_not_loaded()
+    _ensure_utf8_stdio()
+    # Must run before importing the FastAPI app: it applies CORS middleware
+    # from qwenpaw.constant.CORS_ORIGINS at import time.
+    _ensure_qwenpaw_app_not_loaded()
     _ensure_desktop_cors_origins()
+    _sync_loaded_qwenpaw_constant_cors_origins()
 
     from qwenpaw.cli.init_cmd import init_cmd
     from qwenpaw.cli.app_cmd import app_cmd

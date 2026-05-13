@@ -206,7 +206,11 @@ fn setup_backend(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
         }
     };
 
-    let command = command.env("QWENPAW_DESKTOP_PORT", backend_port.to_string());
+    let command = command
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("QWENPAW_DESKTOP_APP", "1")
+        .env("QWENPAW_DESKTOP_PORT", backend_port.to_string());
 
     let (mut rx, child) = match command.spawn() {
         Ok(child) => child,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import types
 
 import click
 import pytest
@@ -26,11 +27,21 @@ def test_ensure_desktop_cors_origins_preserves_existing_values(monkeypatch):
     assert "http://127.0.0.1:1420" in origins
 
 
-def test_ensure_qwenpaw_constant_not_loaded_rejects_late_cors(monkeypatch):
-    monkeypatch.setitem(sys.modules, "qwenpaw.constant", object())
+def test_ensure_qwenpaw_app_not_loaded_rejects_late_cors(monkeypatch):
+    monkeypatch.setitem(sys.modules, "qwenpaw.app._app", object())
 
     with pytest.raises(RuntimeError, match="desktop CORS origins"):
-        desktop_entry._ensure_qwenpaw_constant_not_loaded()
+        desktop_entry._ensure_qwenpaw_app_not_loaded()
+
+
+def test_sync_loaded_qwenpaw_constant_cors_origins(monkeypatch):
+    constant_module = types.SimpleNamespace(CORS_ORIGINS="")
+    monkeypatch.setitem(sys.modules, "qwenpaw.constant", constant_module)
+    monkeypatch.setenv(DESKTOP_CORS_ORIGINS_ENV, "tauri://localhost")
+
+    desktop_entry._sync_loaded_qwenpaw_constant_cors_origins()
+
+    assert constant_module.CORS_ORIGINS == "tauri://localhost"
 
 
 def test_run_click_command_wraps_click_exception(capsys):
