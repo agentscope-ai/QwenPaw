@@ -12,6 +12,12 @@ use tauri_plugin_shell::ShellExt;
 #[derive(Default)]
 struct BackendProcess(Mutex<Option<CommandChild>>);
 
+#[derive(Default)]
+struct BackendPort(Mutex<Option<u16>>);
+
+#[derive(Default)]
+struct BackendStartupError(Mutex<Option<String>>);
+
 impl BackendProcess {
     fn set(&self, child: CommandChild) {
         *self.0.lock().expect("backend process lock poisoned") = Some(child);
@@ -38,9 +44,50 @@ impl BackendProcess {
     }
 }
 
+impl BackendPort {
+    fn set(&self, port: u16) {
+        *self.0.lock().expect("backend port lock poisoned") = Some(port);
+    }
+
+    fn get(&self) -> Option<u16> {
+        *self.0.lock().expect("backend port lock poisoned")
+    }
+}
+
+impl BackendStartupError {
+    fn set(&self, message: String) {
+        *self
+            .0
+            .lock()
+            .expect("backend startup error lock poisoned") = Some(message);
+    }
+
+    fn clear(&self) {
+        self.0
+            .lock()
+            .expect("backend startup error lock poisoned")
+            .take();
+    }
+
+    fn get(&self) -> Option<String> {
+        self.0
+            .lock()
+            .expect("backend startup error lock poisoned")
+            .clone()
+    }
+}
+
 #[tauri::command]
-fn backend_port(port: tauri::State<'_, u16>) -> u16 {
-    *port
+fn backend_port(port: tauri::State<'_, BackendPort>) -> Result<u16, String> {
+    port.get()
+        .ok_or_else(|| "backend port was not initialized".to_string())
+}
+
+#[tauri::command]
+fn backend_startup_error(
+    error: tauri::State<'_, BackendStartupError>,
+) -> Option<String> {
+    error.get()
 }
 
 fn pick_backend_port() -> std::io::Result<(u16, TcpListener)> {
@@ -114,9 +161,18 @@ fn setup_backend(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
             .build(),
     )?;
 
-    let (backend_port, port_guard) =
-        pick_backend_port().map_err(|e| format!("failed to reserve backend port: {e}"))?;
-    app.manage(backend_port);
+    app.state::<BackendStartupError>().clear();
+
+    let (backend_port, port_guard) = match pick_backend_port() {
+        Ok(port) => port,
+        Err(err) => {
+            let message = format!("failed to reserve backend port: {err}");
+            log::error!("[backend] {message}");
+            app.state::<BackendStartupError>().set(message);
+            return Ok(());
+        }
+    };
+    app.state::<BackendPort>().set(backend_port);
 
     #[cfg(debug_assertions)]
     let command = {
@@ -140,16 +196,27 @@ fn setup_backend(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
         }
     };
     #[cfg(not(debug_assertions))]
-    let command = app
-        .shell()
-        .sidecar("qwenpaw-backend")
-        .map_err(|e| format!("failed to find sidecar binary: {e}"))?;
+    let command = match app.shell().sidecar("qwenpaw-backend") {
+        Ok(command) => command,
+        Err(err) => {
+            let message = format!("failed to find sidecar binary: {err}");
+            log::error!("[backend] {message}");
+            app.state::<BackendStartupError>().set(message);
+            return Ok(());
+        }
+    };
 
     let command = command.env("QWENPAW_DESKTOP_PORT", backend_port.to_string());
 
-    let (mut rx, child) = command
-        .spawn()
-        .map_err(|e| format!("failed to spawn backend: {e}"))?;
+    let (mut rx, child) = match command.spawn() {
+        Ok(child) => child,
+        Err(err) => {
+            let message = format!("failed to spawn backend: {err}");
+            log::error!("[backend] {message}");
+            app.state::<BackendStartupError>().set(message);
+            return Ok(());
+        }
+    };
 
     // Best-effort: holding the TcpListener until spawn() reduces (but does not
     // eliminate) the race between drop and the child binding the port.  There
@@ -185,8 +252,13 @@ fn setup_backend(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
 pub fn run() {
     let build_result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![backend_port])
+        .invoke_handler(tauri::generate_handler![
+            backend_port,
+            backend_startup_error,
+        ])
         .manage(BackendProcess::default())
+        .manage(BackendPort::default())
+        .manage(BackendStartupError::default())
         .setup(|app| setup_backend(app))
         .on_window_event(|window, event| {
             // The app currently has a single "main" window, so closing it

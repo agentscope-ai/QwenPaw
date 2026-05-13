@@ -54,6 +54,34 @@ def test_app_cmd_sets_runtime_api_without_persisting_last_api(monkeypatch):
     assert uvicorn_calls[0][1]["port"] == 19088
 
 
+@pytest.mark.parametrize("host", ["::", "[::]", "0:0:0:0:0:0:0:0"])
+def test_app_cmd_normalizes_ipv6_wildcard_for_runtime_api(
+    monkeypatch,
+    host,
+):
+    runtime_calls = []
+
+    monkeypatch.setenv(DESKTOP_PORT_ENV, "19088")
+    monkeypatch.setattr(
+        app_cmd_module,
+        "set_runtime_api",
+        lambda host, port: runtime_calls.append((host, port)),
+    )
+    monkeypatch.setattr(
+        app_cmd_module.uvicorn,
+        "run",
+        lambda *args, **kwargs: None,
+    )
+
+    result = CliRunner().invoke(
+        app_cmd_module.app_cmd,
+        ["--host", host, "--port", "19088", "--no-write-last-api"],
+    )
+
+    assert result.exit_code == 0
+    assert runtime_calls == [("127.0.0.1", 19088)]
+
+
 def test_app_cmd_rejects_runtime_api_outside_desktop(monkeypatch):
     def fail_uvicorn(*args, **kwargs):
         raise AssertionError("uvicorn should not start")
@@ -149,7 +177,7 @@ def test_read_last_api_prefers_runtime_api(monkeypatch):
 
 
 def test_read_runtime_api_ignores_env_without_sentinel(monkeypatch):
-    """Without the internal sentinel, shell-exported host/port must be ignored."""
+    """Shell-exported host/port must be ignored without the sentinel."""
     monkeypatch.setenv(config_utils.RUNTIME_API_HOST_ENV, "127.0.0.1")
     monkeypatch.setenv(config_utils.RUNTIME_API_PORT_ENV, "19088")
     monkeypatch.delenv(config_utils.RUNTIME_API_INTERNAL_ENV, raising=False)
@@ -168,7 +196,7 @@ def test_set_runtime_api_overwrites_previous_env(monkeypatch):
     assert config_utils.read_runtime_api() == ("127.0.0.1", 9999)
 
 
-def test_clear_runtime_api_removes_runtime_env(monkeypatch):
+def test_clear_runtime_api_removes_runtime_env():
     config_utils.set_runtime_api("127.0.0.1", 9999)
 
     config_utils.clear_runtime_api()

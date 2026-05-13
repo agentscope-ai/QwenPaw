@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Shared desktop sidecar environment variable names.
 
-Keep this module dependency-free: desktop_entry imports it before qwenpaw.constant
+Keep this dependency-free: desktop_entry imports it before qwenpaw.constant
 has read import-time environment variables.
 """
 

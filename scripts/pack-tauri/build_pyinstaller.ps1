@@ -42,11 +42,20 @@ Write-Host ""
 # Check prerequisites
 Write-Host "== Checking prerequisites ==" -ForegroundColor Yellow
 
+$UV_BIN = (Get-Command uv -ErrorAction SilentlyContinue).Source
 $PYTHON_BIN = Join-Path $REPO_ROOT ".venv\Scripts\python.exe"
 if (-not (Test-Path $PYTHON_BIN)) {
-    Write-Host ".venv not found, using system Python" -ForegroundColor Yellow
-    $PYTHON_BIN = (Get-Command python -ErrorAction SilentlyContinue).Source
-    if (-not $PYTHON_BIN) {
+    if ($UV_BIN) {
+        Write-Host ".venv not found, creating virtual environment with uv" -ForegroundColor Yellow
+        & $UV_BIN venv "$REPO_ROOT\.venv"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create virtual environment with uv"
+        }
+    } else {
+        Write-Host ".venv not found, using system Python" -ForegroundColor Yellow
+        $PYTHON_BIN = (Get-Command python -ErrorAction SilentlyContinue).Source
+    }
+    if (-not $PYTHON_BIN -or -not (Test-Path $PYTHON_BIN)) {
         Write-Host "ERROR: Python not found in .venv or PATH" -ForegroundColor Red
         Write-Host "Please create virtual environment first: python -m venv .venv"
         exit 1
@@ -58,13 +67,67 @@ Write-Host "Python: $pythonVersion" -ForegroundColor Green
 
 function Test-PythonImport {
     param([string]$Statement)
-    & $PYTHON_BIN -c $Statement 2>&1 | Out-Null
-    return $LASTEXITCODE -eq 0
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & $PYTHON_BIN -c $Statement *> $null
+        return $LASTEXITCODE -eq 0
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
 }
 
 function Assert-LastExit {
     param([string]$Message)
     if ($LASTEXITCODE -ne 0) { throw $Message }
+}
+
+function Install-PythonPackages {
+    param([string[]]$Packages)
+    if ($UV_BIN) {
+        & $UV_BIN pip install --python $PYTHON_BIN @Packages
+    } else {
+        & $PYTHON_BIN -m pip install @Packages
+    }
+    Assert-LastExit "Failed to install Python packages: $($Packages -join ', ')"
+}
+
+function Uninstall-PythonPackage {
+    param([string]$Package)
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        if ($UV_BIN) {
+            & $UV_BIN pip uninstall --python $PYTHON_BIN -y $Package *> $null
+        } else {
+            & $PYTHON_BIN -m pip uninstall -y $Package *> $null
+        }
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+}
+
+function Get-RustHostTriple {
+    $triple = (& rustc --print host-tuple 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $triple) {
+        return $triple.Trim()
+    }
+
+    $triple = (& rustc --print host-triple 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $triple) {
+        return $triple.Trim()
+    }
+
+    $verbose = (& rustc -Vv 2>$null)
+    if ($LASTEXITCODE -eq 0) {
+        foreach ($line in $verbose) {
+            if ($line -match '^host:\s*(\S+)\s*$') {
+                return $Matches[1]
+            }
+        }
+    }
+
+    throw "Failed to determine Rust host target triple"
 }
 
 # Install PyInstaller if not present
@@ -73,8 +136,7 @@ if (Test-PythonImport "import PyInstaller") {
     Write-Host "PyInstaller already installed" -ForegroundColor Green
 } else {
     Write-Host "Installing PyInstaller..."
-    & $PYTHON_BIN -m pip install "pyinstaller>=6.0.0"
-    Assert-LastExit "Failed to install PyInstaller"
+    Install-PythonPackages -Packages @("pyinstaller>=6.0.0")
     Write-Host "PyInstaller installed" -ForegroundColor Green
 }
 
@@ -83,8 +145,7 @@ if (Test-PythonImport "import dotenv") {
     Write-Host "python-dotenv already installed" -ForegroundColor Green
 } else {
     Write-Host "Installing python-dotenv..."
-    & $PYTHON_BIN -m pip install python-dotenv
-    Assert-LastExit "Failed to install python-dotenv"
+    Install-PythonPackages -Packages @("python-dotenv")
     Write-Host "python-dotenv installed" -ForegroundColor Green
 }
 
@@ -92,17 +153,15 @@ Write-Host ""
 
 # Install project dependencies (ensures ALL runtime deps are importable)
 Write-Host "== Installing project dependencies ==" -ForegroundColor Yellow
-& $PYTHON_BIN -m pip install -e .
-Assert-LastExit "Failed to install project dependencies"
+Install-PythonPackages -Packages @("-e", ".")
 Write-Host "Project dependencies installed" -ForegroundColor Green
 
 # Fix agent-client-protocol namespace collision
 # PyPI has an empty 'acp' stub that shadows the real package
 if (-not (Test-PythonImport "from acp import Agent")) {
     Write-Host "Fixing agent-client-protocol namespace..."
-    & $PYTHON_BIN -m pip uninstall -y acp 2>$null
-    & $PYTHON_BIN -m pip install agent-client-protocol
-    Assert-LastExit "Failed to install agent-client-protocol"
+    Uninstall-PythonPackage "acp"
+    Install-PythonPackages -Packages @("agent-client-protocol")
     Write-Host "agent-client-protocol installed" -ForegroundColor Green
 }
 
@@ -148,8 +207,7 @@ Write-Host "== Copying to Tauri binaries directory ==" -ForegroundColor Yellow
 $BINARIES_DIR = Join-Path $REPO_ROOT "console\src-tauri\binaries"
 New-Item -ItemType Directory -Force -Path $BINARIES_DIR | Out-Null
 
-$TARGET_TRIPLE = & rustc --print host-tuple 2>$null
-if (-not $TARGET_TRIPLE) { $TARGET_TRIPLE = "unknown" }
+$TARGET_TRIPLE = Get-RustHostTriple
 $DEST = Join-Path $BINARIES_DIR "qwenpaw-backend-${TARGET_TRIPLE}.exe"
 Copy-Item -Force $BACKEND_EXE $DEST
 Write-Host "Copied to: $DEST" -ForegroundColor Green

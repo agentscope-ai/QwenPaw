@@ -6,22 +6,27 @@ import {
   type ReactNode,
 } from "react";
 import BackendLoadingPage from "./BackendLoadingPage";
-import { initRuntimeApiBaseUrl, isTauriRuntime } from "../api/config";
+import {
+  getBackendStartupError,
+  initRuntimeApiBaseUrl,
+  isTauriRuntime,
+} from "../api/config";
 
 const POLL_INTERVAL = 1000;
-const POLL_TIMEOUT = 120;
-const REQUEST_TIMEOUT = 5000;
+const POLL_TIMEOUT = 180;
+const REQUEST_TIMEOUT = 2500;
 
 interface Props {
   children: ReactNode;
 }
 
 export default function BackendReadyGate({ children }: Props) {
-  const [status, setStatus] = useState<"checking" | "ready" | "timeout">(
-    "checking",
-  );
+  const [status, setStatus] = useState<
+    "checking" | "ready" | "timeout" | "error"
+  >("checking");
   const shouldGate = isTauriRuntime();
   const [elapsed, setElapsed] = useState(0);
+  const [errorMessage, setErrorMessage] = useState("");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
@@ -39,6 +44,7 @@ export default function BackendReadyGate({ children }: Props) {
 
     setStatus("checking");
     setElapsed(0);
+    setErrorMessage("");
 
     const start = Date.now();
 
@@ -67,6 +73,13 @@ export default function BackendReadyGate({ children }: Props) {
       }
 
       if (!mountedRef.current || pollRunRef.current !== runId) return;
+      const startupError = await getBackendStartupError().catch(() => "");
+      if (!mountedRef.current || pollRunRef.current !== runId) return;
+      if (startupError) {
+        setErrorMessage(startupError);
+        setStatus("error");
+        return;
+      }
       const sec = Math.round((Date.now() - start) / 1000);
       setElapsed(sec);
       if (sec >= POLL_TIMEOUT) {
@@ -83,6 +96,7 @@ export default function BackendReadyGate({ children }: Props) {
     if (mountedRef.current) {
       setStatus("checking");
       setElapsed(0);
+      setErrorMessage("");
     }
     initRuntimeApiBaseUrl()
       .then((apiBaseUrl) => {
@@ -93,8 +107,16 @@ export default function BackendReadyGate({ children }: Props) {
           setStatus("timeout");
         }
       })
-      .catch(() => {
-        if (mountedRef.current) setStatus("timeout");
+      .catch(async () => {
+        if (!mountedRef.current) return;
+        const startupError = await getBackendStartupError().catch(() => "");
+        if (!mountedRef.current) return;
+        if (startupError) {
+          setErrorMessage(startupError);
+          setStatus("error");
+        } else {
+          setStatus("timeout");
+        }
       });
   }, [startPolling]);
 
@@ -104,15 +126,23 @@ export default function BackendReadyGate({ children }: Props) {
 
     mountedRef.current = true;
     // In Tauri runtime isTauriRuntime() is true, so window.__TAURI__.core.invoke
-    // is always available. initRuntimeApiBaseUrl() will call invoke("backend_port")
-    // and always return a non-empty URL.
+    // is always available. initRuntimeApiBaseUrl() calls invoke("backend_port")
+    // and resolves once Rust has initialized the backend port.
     initRuntimeApiBaseUrl()
       .then((apiBaseUrl) => {
         if (!mountedRef.current) return;
         startPolling(apiBaseUrl);
       })
-      .catch(() => {
-        if (mountedRef.current) setStatus("timeout");
+      .catch(async () => {
+        if (!mountedRef.current) return;
+        const startupError = await getBackendStartupError().catch(() => "");
+        if (!mountedRef.current) return;
+        if (startupError) {
+          setErrorMessage(startupError);
+          setStatus("error");
+        } else {
+          setStatus("timeout");
+        }
       });
 
     return () => {
@@ -137,6 +167,7 @@ export default function BackendReadyGate({ children }: Props) {
       status={status}
       elapsed={elapsed}
       totalSec={POLL_TIMEOUT}
+      errorMessage={errorMessage}
       onRetry={retry}
     />
   );

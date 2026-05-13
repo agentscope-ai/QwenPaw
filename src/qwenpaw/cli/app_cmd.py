@@ -14,6 +14,8 @@ from ..desktop_env import DESKTOP_PORT_ENV
 from ..utils.http import is_loopback_host
 from ..utils.logging import setup_logger, SuppressPathAccessLogFilter
 
+WILDCARD_HOSTS = {"0.0.0.0", "::", "[::]", "0:0:0:0:0:0:0:0"}
+
 
 logger = logging.getLogger(__name__)
 WILDCARD_HOSTS = {"0.0.0.0", "::", "[::]", "0:0:0:0:0:0:0:0"}
@@ -135,7 +137,8 @@ def app_cmd(
             write_last_api(api_host, port)
         else:
             # Desktop / sidecar mode: keep the address in-process only so child
-            # processes (channels, tools) can discover it without touching disk.
+            # processes (channels, tools) can discover it without touching
+            # disk.
             set_runtime_api(api_host, port)
             runtime_api_set = True
         os.environ[LOG_LEVEL_ENV] = log_level

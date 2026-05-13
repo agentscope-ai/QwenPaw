@@ -31,5 +31,5 @@ def test_desktop_telemetry_skips_upload_without_marker(monkeypatch, tmp_path):
 
     assert telemetry.is_telemetry_opted_out(tmp_path) is True
     assert telemetry.collect_and_upload_telemetry(tmp_path) is False
-    assert upload_calls == []
+    assert not upload_calls
     assert not (tmp_path / telemetry.TELEMETRY_MARKER_FILE).exists()

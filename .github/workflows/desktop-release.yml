@@ -185,7 +185,7 @@ jobs:
 
       - name: Build Tauri Windows package
         shell: pwsh
-        run: powershell -ExecutionPolicy Bypass -File ./scripts/pack-tauri/build_win_pyinstaller.ps1
+        run: ./scripts/pack-tauri/build_win_pyinstaller.ps1
 
       - name: Upload Tauri Windows artifact
         uses: actions/upload-artifact@v4

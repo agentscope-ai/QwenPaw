@@ -97,7 +97,7 @@ Write-Host ""
 # Step 1: Build PyInstaller backend
 Write-Host "== Step 1: Building PyInstaller Backend ==" -ForegroundColor Yellow
 $PYINSTALLER_SCRIPT = Join-Path $REPO_ROOT "scripts\pack-tauri\build_pyinstaller.ps1"
-& powershell -ExecutionPolicy Bypass -File $PYINSTALLER_SCRIPT
+& $PYINSTALLER_SCRIPT
 
 if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller build failed"

@@ -45,8 +45,8 @@ RUNTIME_API_PORT_ENV = "QWENPAW_RUNTIME_API_PORT"
 # picked up by read_last_api() in web/CLI mode.  Only the desktop sidecar
 # process (and its children) will have all three variables set together.
 # This HOST / PORT / INTERNAL trio is an internal desktop protocol; users and
-# operators should not export it manually because it can reroute CLI commands to
-# a stale or nonexistent desktop backend.
+# operators should not export it manually because it can reroute CLI commands
+# to a stale or nonexistent desktop backend.
 RUNTIME_API_INTERNAL_ENV = "QWENPAW_RUNTIME_API_INTERNAL"
 
 # Config cache with mtime tracking for reducing disk IO

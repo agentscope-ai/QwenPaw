@@ -29,6 +29,12 @@ export function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && !!window.__TAURI__?.core?.invoke;
 }
 
+function getTauriInvoke() {
+  return typeof window !== "undefined"
+    ? window.__TAURI__?.core?.invoke
+    : undefined;
+}
+
 export function initRuntimeApiBaseUrl(): Promise<string> {
   if (!initRuntimeApiBaseUrlPromise) {
     initRuntimeApiBaseUrlPromise = resolveRuntimeApiBaseUrl().catch((err) => {
@@ -41,8 +47,7 @@ export function initRuntimeApiBaseUrl(): Promise<string> {
 
 async function resolveRuntimeApiBaseUrl(): Promise<string> {
   const baseUrl = getApiBaseUrl();
-  const invoke =
-    typeof window !== "undefined" ? window.__TAURI__?.core?.invoke : undefined;
+  const invoke = getTauriInvoke();
   if (baseUrl || !invoke) {
     if (baseUrl && invoke) {
       // VITE_API_BASE_URL is set while running inside a Tauri runtime.
@@ -60,6 +65,12 @@ async function resolveRuntimeApiBaseUrl(): Promise<string> {
   runtimeApiBaseUrl = `http://127.0.0.1:${port}`;
 
   return runtimeApiBaseUrl;
+}
+
+export async function getBackendStartupError(): Promise<string> {
+  const invoke = getTauriInvoke();
+  if (!invoke) return "";
+  return (await invoke<string | null>("backend_startup_error")) || "";
 }
 
 /**

@@ -3,9 +3,10 @@ import { useTheme } from "../contexts/ThemeContext";
 import { useTranslation } from "react-i18next";
 
 interface BackendLoadingPageProps {
-  status: "checking" | "ready" | "timeout";
+  status: "checking" | "ready" | "timeout" | "error";
   elapsed: number;
   totalSec: number;
+  errorMessage?: string;
   onRetry?: () => void;
 }
 
@@ -13,6 +14,7 @@ export default function BackendLoadingPage({
   status,
   elapsed,
   totalSec,
+  errorMessage,
   onRetry,
 }: BackendLoadingPageProps) {
   const { isDark } = useTheme();
@@ -25,12 +27,15 @@ export default function BackendLoadingPage({
     ? "0 4px 24px rgba(0,0,0,0.4)"
     : "0 4px 24px rgba(0,0,0,0.1)";
 
+  const hasFailed = status === "timeout" || status === "error";
   const statusText =
-    status === "checking"
-      ? elapsed === 0
-        ? t("startup.starting")
-        : t("startup.checking")
-      : t("startup.timeout", { seconds: elapsed });
+    status === "error"
+      ? t("startup.error", "Backend failed to start.")
+      : status === "checking"
+        ? elapsed === 0
+          ? t("startup.starting")
+          : t("startup.checking")
+        : t("startup.timeout", { seconds: elapsed });
 
   const percent = Math.min(Math.round((elapsed / totalSec) * 100), 100);
 
@@ -74,7 +79,7 @@ export default function BackendLoadingPage({
           <Progress
             type="dashboard"
             percent={percent}
-            status={status === "timeout" ? "exception" : "active"}
+            status={hasFailed ? "exception" : "active"}
             strokeColor="#ff7f16"
             trailColor={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"}
             gapPosition="bottom"
@@ -88,7 +93,7 @@ export default function BackendLoadingPage({
           {/* Status text */}
           <p
             style={{
-              color: status === "timeout" ? "#ff4d4f" : textColor,
+              color: hasFailed ? "#ff4d4f" : textColor,
               fontSize: 16,
               fontWeight: 500,
               margin: "16px 0 0",
@@ -97,8 +102,8 @@ export default function BackendLoadingPage({
             {statusText}
           </p>
 
-          {/* Timeout hint + retry */}
-          {status === "timeout" && (
+          {/* Failure hint + retry */}
+          {hasFailed && (
             <>
               <p
                 style={{
@@ -107,8 +112,35 @@ export default function BackendLoadingPage({
                   margin: "8px 0 24px",
                 }}
               >
-                {t("startup.timeoutHint")}
+                {status === "error"
+                  ? t(
+                      "startup.errorHint",
+                      "The backend process could not be launched. Check application logs for details.",
+                    )
+                  : t("startup.timeoutHint")}
               </p>
+              {errorMessage && (
+                <pre
+                  style={{
+                    maxHeight: 96,
+                    overflow: "auto",
+                    margin: "0 0 24px",
+                    padding: 12,
+                    borderRadius: 8,
+                    background: isDark
+                      ? "rgba(255,255,255,0.06)"
+                      : "rgba(0,0,0,0.04)",
+                    color: subTextColor,
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    textAlign: "left",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {errorMessage}
+                </pre>
+              )}
               <button
                 onClick={onRetry}
                 style={{

@@ -42,36 +42,58 @@ fi
 
 echo "Python: $("$PYTHON_BIN" --version)"
 
+install_python_packages() {
+    if command -v uv &>/dev/null; then
+        uv pip install --python "$PYTHON_BIN" "$@"
+    else
+        "$PYTHON_BIN" -m pip install "$@"
+    fi
+}
+
+uninstall_python_package() {
+    if command -v uv &>/dev/null; then
+        uv pip uninstall --python "$PYTHON_BIN" -y "$1" >/dev/null 2>&1 || true
+    else
+        "$PYTHON_BIN" -m pip uninstall -y "$1" >/dev/null 2>&1 || true
+    fi
+}
+
+rust_host_triple() {
+    local triple
+    if triple=$(rustc --print host-tuple 2>/dev/null) && [ -n "$triple" ]; then
+        printf '%s\n' "$triple"
+        return 0
+    fi
+    if triple=$(rustc --print host-triple 2>/dev/null) && [ -n "$triple" ]; then
+        printf '%s\n' "$triple"
+        return 0
+    fi
+    if triple=$(rustc -Vv 2>/dev/null | sed -n 's/^host: //p' | head -1) && [ -n "$triple" ]; then
+        printf '%s\n' "$triple"
+        return 0
+    fi
+    echo "ERROR: Failed to determine Rust host target triple" >&2
+    return 1
+}
+
 # Install PyInstaller if not present
 echo "== Installing PyInstaller =="
 if ! "$PYTHON_BIN" -c "import PyInstaller" 2> /dev/null; then
     echo "Installing PyInstaller..."
-    if command -v uv &>/dev/null; then
-        uv pip install "pyinstaller>=6.0.0"
-    else
-        "$PYTHON_BIN" -m pip install "pyinstaller>=6.0.0"
-    fi
+    install_python_packages "pyinstaller>=6.0.0"
 fi
 echo "PyInstaller installed"
 
 # Install project dependencies (ensures ALL runtime deps are importable)
 echo "== Installing project dependencies =="
-if command -v uv &>/dev/null; then
-    uv pip install -e .
-else
-    "$PYTHON_BIN" -m pip install -e .
-fi
+install_python_packages -e .
 
 # Fix agent-client-protocol namespace collision
 # PyPI has an empty 'acp' stub that shadows the real package
 if ! "$PYTHON_BIN" -c "from acp import Agent" 2> /dev/null; then
     echo "Fixing agent-client-protocol namespace..."
-    "$PYTHON_BIN" -m pip uninstall -y acp 2>/dev/null || true
-    if command -v uv &>/dev/null; then
-        uv pip install agent-client-protocol
-    else
-        "$PYTHON_BIN" -m pip install agent-client-protocol
-    fi
+    uninstall_python_package acp
+    install_python_packages agent-client-protocol
 fi
 echo ""
 
@@ -110,7 +132,7 @@ echo ""
 
 # Copy to Tauri binaries directory with target triple suffix
 echo "== Copying to Tauri binaries directory =="
-TARGET_TRIPLE=$(rustc --print host-tuple 2>/dev/null || echo "unknown")
+TARGET_TRIPLE=$(rust_host_triple)
 BINARIES_DIR="${REPO_ROOT}/console/src-tauri/binaries"
 mkdir -p "${BINARIES_DIR}"
 
