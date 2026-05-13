@@ -2,7 +2,7 @@
 name: guidance
 description: "回答用户关于 QwenPaw 安装与配置的问题：优先定位并阅读本地文档，再提炼答案；若本地信息不足，兜底访问官网文档。"
 metadata:
-  builtin_skill_version: "1.2"
+  builtin_skill_version: "1.3"
   qwenpaw:
     emoji: "🧭"
     requires: {}
@@ -22,6 +22,16 @@ metadata:
 
 
 ### 第一步：定位文档位置
+
+**优先使用内置路径解析（适用于所有安装方式）**
+
+```bash
+DOC_DIR=$(python3 -c "from qwenpaw.constant import DOCS_DIR; print(DOCS_DIR or '')" 2>/dev/null)
+```
+
+如果上面获取到了非空路径且目录存在，直接使用，跳到第二步。
+
+如果获取失败（例如旧版本未包含 DOCS_DIR），按以下顺序 fallback：
 
 **查找记忆中的文档目录**
 

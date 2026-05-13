@@ -2,7 +2,7 @@
 name: guidance
 description: "Answer user questions about QwenPaw installation and configuration: first locate and read local documentation, then distill the answer; if local information is insufficient, fall back to the official website documentation."
 metadata:
-  builtin_skill_version: "1.2"
+  builtin_skill_version: "1.3"
   qwenpaw:
     emoji: "🧭"
     requires: {}
@@ -21,6 +21,16 @@ Core principles:
 ## Standard Flow
 
 ### Step 1: Locate the Documentation Directory
+
+**Use built-in path resolution (works for all install methods)**
+
+```bash
+DOC_DIR=$(python3 -c "from qwenpaw.constant import DOCS_DIR; print(DOCS_DIR or '')" 2>/dev/null)
+```
+
+If the above returns a non-empty path and the directory exists, use it directly and skip to Step 2.
+
+If it fails (e.g., older version without DOCS_DIR), fall back in the following order:
 
 **Check for documentation directory in memory**
 
