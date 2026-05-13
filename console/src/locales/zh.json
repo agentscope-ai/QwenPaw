@@ -510,7 +510,6 @@
       "windowClosed": "授权窗口已关闭，请重试",
       "noUrl": "请先填写服务器 URL",
       "noClientKey": "请先创建客户端",
-      "createHint": "提示：授权后再创建客户端，Token 将自动注入",
       "showAdvanced": "高级选项",
       "hideAdvanced": "收起高级选项",
       "clientId": "Client ID（可选）",

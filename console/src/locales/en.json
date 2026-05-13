@@ -656,7 +656,6 @@
       "windowClosed": "Authorization window was closed. Please try again.",
       "noUrl": "Please enter a server URL first",
       "noClientKey": "Please create the client first",
-      "createHint": "Tip: Authorize first, then create the client — the token will be injected automatically",
       "showAdvanced": "Advanced options",
       "hideAdvanced": "Hide advanced options",
       "clientId": "Client ID (optional)",

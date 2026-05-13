@@ -81,6 +81,7 @@ function MCPPage() {
     deleteClient,
     createClient,
     updateClient,
+    refreshClients,
   } = useMCP();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"json" | "form">("json");
@@ -293,6 +294,7 @@ function MCPPage() {
               onToggle={handleToggleEnabled}
               onDelete={handleDelete}
               onUpdate={updateClient}
+              onRefresh={refreshClients}
             />
           ))}
         </div>
@@ -478,14 +480,6 @@ function MCPPage() {
                         autoSize={{ minRows: 2, maxRows: 5 }}
                       />
                     </div>
-                  )}
-
-                  {isHttpTransport && (
-                    <p
-                      style={{ fontSize: 12, color: "#888", margin: "4px 0 0" }}
-                    >
-                      {t("mcp.oauth.createHint")}
-                    </p>
                   )}
                 </div>
               ),

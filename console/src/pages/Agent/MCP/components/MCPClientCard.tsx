@@ -19,7 +19,7 @@ import {
 } from "@ant-design/icons";
 import { ShieldCheck, ShieldAlert, ShieldX, KeyRound } from "lucide-react";
 import api from "../../../../api";
-import { MCPOAuthSection, OAuthToggleRow } from "./MCPOAuthSection";
+import { MCPOAuthSection } from "./MCPOAuthSection";
 import styles from "../index.module.less";
 
 interface MCPClientUpdate {
@@ -40,6 +40,7 @@ interface MCPClientCardProps {
   onToggle: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onDelete: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onUpdate: (key: string, updates: MCPClientUpdate) => Promise<boolean>;
+  onRefresh?: () => Promise<void>;
 }
 
 export const MCPClientCard = React.memo(function MCPClientCard({
@@ -47,6 +48,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   onToggle,
   onDelete,
   onUpdate,
+  onRefresh,
 }: MCPClientCardProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
@@ -59,7 +61,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   const [toolsError, setToolsError] = useState<string | null>(null);
   const [editedJson, setEditedJson] = useState("");
   const [isEditing, setIsEditing] = useState(false);
-  const [oauthToggle, setOauthToggle] = useState(false);
+  const [oauthModalOpen, setOauthModalOpen] = useState(false);
   const [oauthClientId, setOauthClientId] = useState("");
   const [oauthScope, setOauthScope] = useState(
     client.oauth_status?.scope || "",
@@ -224,15 +226,38 @@ export const MCPClientCard = React.memo(function MCPClientCard({
               className={styles.toggleButton}
               onClick={(e) => {
                 e.stopPropagation();
-                setJsonModalOpen(true);
+                setOauthModalOpen(true);
               }}
+              style={
+                isOauthAuthorized
+                  ? {
+                      color: "#27ae60",
+                      borderColor: "#27ae60",
+                      background: "rgba(39,174,96,0.06)",
+                    }
+                  : isOauthExpired
+                  ? {
+                      color: "#e67e22",
+                      borderColor: "#e67e22",
+                      background: "rgba(230,126,34,0.06)",
+                    }
+                  : undefined
+              }
             >
               <span
                 style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
               >
-                <KeyRound size={13} />
+                {isOauthAuthorized ? (
+                  <ShieldCheck size={13} />
+                ) : isOauthExpired ? (
+                  <ShieldAlert size={13} />
+                ) : (
+                  <KeyRound size={13} />
+                )}
                 {isOauthAuthorized
                   ? t("mcp.oauth.authorized")
+                  : isOauthExpired
+                  ? t("mcp.oauth.expired")
                   : t("mcp.oauth.authorize")}
               </span>
             </Button>
@@ -368,40 +393,50 @@ export const MCPClientCard = React.memo(function MCPClientCard({
             {clientJson}
           </pre>
         )}
+      </Modal>
 
-        {/* OAuth section inside config modal for remote clients */}
-        {isRemote && (
-          <div
-            style={{
-              marginTop: 16,
-              borderTop: "1px solid #f0f0f0",
-              paddingTop: 14,
-            }}
-          >
-            <OAuthToggleRow
-              enabled={oauthToggle || hasOauth}
-              onChange={setOauthToggle}
-              label={t("mcp.oauth.manage")}
-            />
-            {(oauthToggle || hasOauth) && (
-              <MCPOAuthSection
-                url={client.url}
-                clientKey={client.key}
-                oauthEnabled
-                currentOAuthStatus={oauthStatus}
-                clientId={oauthClientId}
-                scope={oauthScope}
-                authEndpoint={oauthAuthEndpoint}
-                tokenEndpoint={oauthTokenEndpoint}
-                onClientIdChange={setOauthClientId}
-                onScopeChange={setOauthScope}
-                onAuthEndpointChange={setOauthAuthEndpoint}
-                onTokenEndpointChange={setOauthTokenEndpoint}
-                onTokenChange={() => undefined}
-              />
+      {/* Dedicated OAuth modal — opened only via the Authorize button */}
+      <Modal
+        title={
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {isOauthAuthorized ? (
+              <ShieldCheck size={16} style={{ color: "#27ae60" }} />
+            ) : isOauthExpired ? (
+              <ShieldAlert size={16} style={{ color: "#e67e22" }} />
+            ) : (
+              <ShieldX size={16} style={{ color: "#7f8c8d" }} />
             )}
+            {`${client.name} — ${t("mcp.oauth.manage")}`}
           </div>
-        )}
+        }
+        open={oauthModalOpen}
+        onCancel={() => setOauthModalOpen(false)}
+        footer={
+          <div style={{ textAlign: "right" }}>
+            <Button onClick={() => setOauthModalOpen(false)}>
+              {t("common.close")}
+            </Button>
+          </div>
+        }
+        width={560}
+      >
+        <MCPOAuthSection
+          url={client.url}
+          clientKey={client.key}
+          oauthEnabled
+          currentOAuthStatus={oauthStatus}
+          clientId={oauthClientId}
+          scope={oauthScope}
+          authEndpoint={oauthAuthEndpoint}
+          tokenEndpoint={oauthTokenEndpoint}
+          onClientIdChange={setOauthClientId}
+          onScopeChange={setOauthScope}
+          onAuthEndpointChange={setOauthAuthEndpoint}
+          onTokenEndpointChange={setOauthTokenEndpoint}
+          onTokenChange={() => {
+            onRefresh?.();
+          }}
+        />
       </Modal>
     </>
   );
