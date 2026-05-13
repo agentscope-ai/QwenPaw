@@ -67,6 +67,9 @@ include-package-data = true
     "security/skill_scanner/data/**",
 ]
 
+[tool.setuptools.data-files]
+"website/public/docs" = ["website/public/docs/*.md"]
+
 [build-system]
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
