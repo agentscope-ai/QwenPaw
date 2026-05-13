@@ -2178,5 +2178,12 @@
     "detailPayload": "Dados",
     "detailExecutionTrace": "Rastro de execução",
     "detailTraceEmpty": "Nenhum rastro de execução disponível"
+  },
+  "startup": {
+    "starting": "Iniciando backend...",
+    "checking": "Conectando ao backend...",
+    "timeout": "O backend nao iniciou em {{seconds}} segundos.",
+    "timeoutHint": "Falha ao iniciar o backend. Tente novamente ou verifique os logs do aplicativo.",
+    "retry": "Tentar novamente"
   }
 }

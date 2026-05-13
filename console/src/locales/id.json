@@ -662,5 +662,12 @@
       "refreshSuccess": "Log disegarkan",
       "copyBackend": "Salin log backend"
     }
+  },
+  "startup": {
+    "starting": "Memulai backend...",
+    "checking": "Menghubungkan ke backend...",
+    "timeout": "Backend gagal dimulai dalam {{seconds}} detik.",
+    "timeoutHint": "Backend gagal dimulai. Coba lagi, atau periksa log aplikasi untuk detail.",
+    "retry": "Coba lagi"
   }
 }
