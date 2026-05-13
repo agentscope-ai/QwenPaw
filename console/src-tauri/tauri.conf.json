@@ -54,6 +54,7 @@
         "installerIcon": "icons/icon.ico",
         "sidebarImage": "icons/nsis-sidebar.bmp",
         "headerImage": "icons/nsis-header.bmp",
+        "installerHooks": "nsis-hooks.nsh",
         "languages": [
           "English",
           "SimpChinese",
