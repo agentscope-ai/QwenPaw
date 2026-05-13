@@ -14,6 +14,7 @@ from legacy plaintext and transparently migrate on first access.
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import logging
 import os
 import secrets
@@ -68,25 +69,46 @@ def _should_skip_keyring() -> bool:
     return False
 
 
+_KEYRING_TIMEOUT = 10
+
+
 def _try_keyring_get() -> Optional[str]:
     """Read master key from OS keychain. Returns ``None`` on any failure.
 
     Skipped inside containers, headless Linux, and CI environments.
+    Uses a thread-based timeout to avoid hanging on systems that have
+    DISPLAY set but no keyring daemon running (e.g. Linux servers with
+    SSH X11 forwarding).
     """
     if _should_skip_keyring():
         return None
     try:
         import keyring
 
-        value = keyring.get_password(_KEYRING_SERVICE, _KEYRING_ACCOUNT)
-        if value:
-            return value
+        def _get() -> Optional[str]:
+            value = keyring.get_password(
+                _KEYRING_SERVICE,
+                _KEYRING_ACCOUNT,
+            )
+            if value:
+                return value
+            # Backward compatibility: read legacy CoPaw keyring entry.
+            return keyring.get_password(
+                _KEYRING_SERVICE_LEGACY,
+                _KEYRING_ACCOUNT,
+            )
 
-        # Backward compatibility: read legacy CoPaw keyring entry.
-        return keyring.get_password(
-            _KEYRING_SERVICE_LEGACY,
-            _KEYRING_ACCOUNT,
-        )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(_get)
+            try:
+                return future.result(timeout=_KEYRING_TIMEOUT)
+            except concurrent.futures.TimeoutError:
+                logger.debug(
+                    "keyring get timed out after %ds, "
+                    "falling back to file storage",
+                    _KEYRING_TIMEOUT,
+                )
+                return None
     except Exception:
         return None
 
@@ -95,14 +117,33 @@ def _try_keyring_set(key_hex: str) -> bool:
     """Store master key in OS keychain. Returns success flag.
 
     Skipped inside containers where no desktop keyring service exists.
+    Uses a thread-based timeout to avoid hanging when the keyring daemon
+    is unavailable.
     """
     if _should_skip_keyring():
         return False
     try:
         import keyring
 
-        keyring.set_password(_KEYRING_SERVICE, _KEYRING_ACCOUNT, key_hex)
-        return True
+        def _set() -> None:
+            keyring.set_password(
+                _KEYRING_SERVICE,
+                _KEYRING_ACCOUNT,
+                key_hex,
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(_set)
+            try:
+                future.result(timeout=_KEYRING_TIMEOUT)
+                return True
+            except concurrent.futures.TimeoutError:
+                logger.debug(
+                    "keyring set timed out after %ds, "
+                    "falling back to file storage",
+                    _KEYRING_TIMEOUT,
+                )
+                return False
     except Exception:
         logger.debug("keyring unavailable, falling back to file storage")
         return False
