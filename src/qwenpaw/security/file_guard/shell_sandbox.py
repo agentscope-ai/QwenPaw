@@ -103,7 +103,7 @@ class MacOSSandboxExecProvider:
             "(allow sysctl-read)",
             # Allow metadata reads globally so basic traversal operations
             # (`ls -la`, resolving `..`, `find` walking) keep working,
-            # while file content access is still controlled by read/write roots.
+            # while file content access stays limited by read/write roots.
             "(allow file-read-metadata)",
         ]
         for root in read_roots:
