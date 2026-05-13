@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./i18n";
+import { isTauriRuntime } from "./api/config";
 import { installHostExternals } from "./plugins/hostExternals";
 import { registerHostModulesEager } from "./plugins/dynamicModuleRegistry";
 
@@ -13,6 +14,10 @@ installHostExternals();
 registerHostModulesEager();
 
 if (typeof window !== "undefined") {
+  if (isTauriRuntime()) {
+    document.title = "QwenPaw Desktop";
+  }
+
   const originalError = console.error;
   const originalWarn = console.warn;
 
