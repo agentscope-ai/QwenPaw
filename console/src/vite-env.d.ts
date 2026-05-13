@@ -17,6 +17,11 @@ interface PyWebViewAPI {
 }
 
 declare global {
+  // Vite build-time constants injected via define in vite.config.ts
+  const VITE_API_BASE_URL: string;
+  const TOKEN: string;
+  const MOBILE: boolean;
+
   interface Window {
     pywebview?: {
       api: PyWebViewAPI;
