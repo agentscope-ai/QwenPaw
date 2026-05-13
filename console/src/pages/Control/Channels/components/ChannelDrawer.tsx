@@ -384,6 +384,42 @@ export function ChannelDrawer({
       case "feishu":
         return (
           <>
+            <ConfigProvider prefixCls="ant">
+              <Alert
+                type="info"
+                showIcon
+                message={t("channels.feishuSetupGuide")}
+                style={{ marginBottom: 16 }}
+              />
+            </ConfigProvider>
+            <QrcodeAuthBlock
+              label={t("channels.feishuScanAuth")}
+              buttonText={t("channels.loginFeishu")}
+              imageAlt="Feishu QR Code"
+              hintText={t("channels.feishuAuthHint")}
+              channel="feishu"
+              successStatus="success"
+              successCredentialKey="app_id"
+              pollInterval={3000}
+              onSuccess={(credentials) => {
+                form.setFieldsValue({
+                  app_id: credentials.app_id ?? credentials.client_id ?? "",
+                  app_secret:
+                    credentials.app_secret ??
+                    credentials.client_secret ??
+                    "",
+                  ...(credentials.domain
+                    ? { domain: credentials.domain }
+                    : credentials.tenant_brand
+                      ? { domain: credentials.tenant_brand }
+                      : {}),
+                });
+                message.success(t("channels.feishuAuthSuccess"));
+              }}
+              onError={() => {
+                message.error(t("channels.feishuAuthFailed"));
+              }}
+            />
             <Form.Item
               name="domain"
               label={t("channels.feishuRegion")}
@@ -399,38 +435,6 @@ export function ChannelDrawer({
                 </Select.Option>
               </Select>
             </Form.Item>
-            <ConfigProvider prefixCls="ant">
-              <Alert
-                type="info"
-                showIcon
-                message={t("channels.feishuScanGuide")}
-                style={{ marginBottom: 16 }}
-              />
-            </ConfigProvider>
-            <QrcodeAuthBlock
-              label={t("channels.feishuScanLogin")}
-              buttonText={t("channels.feishuGetQrcode")}
-              imageAlt="Feishu QR Code"
-              hintText={t("channels.feishuScanHint")}
-              channel="feishu"
-              successStatus="success"
-              successCredentialKey="app_id"
-              pollInterval={2000}
-              onSuccess={(credentials) => {
-                form.setFieldsValue({
-                  app_id: credentials.app_id,
-                  app_secret: credentials.app_secret,
-                });
-                message.success(t("channels.feishuAuthSuccess"));
-              }}
-              onError={(type) => {
-                if (type === "expired") {
-                  message.warning(t("channels.feishuQrcodeExpired"));
-                } else {
-                  message.error(t("channels.feishuQrcodeFailed"));
-                }
-              }}
-            />
             <Form.Item
               name="app_id"
               label="App ID"

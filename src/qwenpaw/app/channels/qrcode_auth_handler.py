@@ -544,13 +544,15 @@ class FeishuQRCodeAuthHandler(QRCodeAuthHandler):
         # Check for success
         if data.get("client_id") and data.get("client_secret"):
             user_info = data.get("user_info", {})
+            tenant_brand = user_info.get("tenant_brand", "feishu")
             return PollResult(
                 status="success",
                 credentials={
                     "app_id": data["client_id"],
                     "app_secret": data["client_secret"],
                     "open_id": user_info.get("open_id", ""),
-                    "tenant_brand": user_info.get("tenant_brand", "feishu"),
+                    "tenant_brand": tenant_brand,
+                    "domain": "lark" if tenant_brand == "lark" else "feishu",
                 },
             )
 
