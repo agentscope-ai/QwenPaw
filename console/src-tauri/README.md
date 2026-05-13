@@ -27,10 +27,10 @@ the loopback address only, so no remote origin is reachable.
 
 ## Supported platforms
 
-| Platform                      | Build target | Status                                           |
-| ----------------------------- | ------------ | ------------------------------------------------ |
-| macOS (Apple Silicon / Intel) | `dmg`, `app` | Supported                                        |
-| Windows 10/11 (x64)           | `nsis`       | Supported                                        |
+| Platform                      | Build target | Status                                               |
+| ----------------------------- | ------------ | ---------------------------------------------------- |
+| macOS (Apple Silicon / Intel) | `dmg`, `app` | Supported                                            |
+| Windows 10/11 (x64)           | `nsis`       | Supported                                            |
 | Linux                         | —            | Not packaged (dev mode only via `npm run dev:tauri`) |
 
 Windows installers use Tauri's WebView2 download bootstrapper in silent mode.
