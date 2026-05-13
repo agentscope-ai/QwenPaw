@@ -138,7 +138,9 @@ class UnsupportedSandboxProvider:
         return SandboxPreparation(command=command, warning=msg)
 
 
-def _resolve_provider(mode: str, configured_provider: str) -> ShellSandboxProvider:
+def _resolve_provider(
+    mode: str, configured_provider: str
+) -> ShellSandboxProvider:
     if configured_provider == "macos_sandbox_exec":
         return MacOSSandboxExecProvider()
     if configured_provider == "linux_placeholder":
