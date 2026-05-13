@@ -31,7 +31,7 @@ the loopback address only, so no remote origin is reachable.
 | ----------------------------- | ------------ | ------------------------------------------------ |
 | macOS (Apple Silicon / Intel) | `dmg`, `app` | Supported                                        |
 | Windows 10/11 (x64)           | `nsis`       | Supported                                        |
-| Linux                         | —            | Not packaged (dev mode only via `bun tauri dev`) |
+| Linux                         | —            | Not packaged (dev mode only via `npm run dev:tauri`) |
 
 Windows installers use Tauri's WebView2 download bootstrapper in silent mode.
 Machines without the Evergreen WebView2 Runtime need network access during
@@ -45,9 +45,9 @@ Windows users may see a SmartScreen warning on first launch.
 
 ## Version file
 
-`version/package.json` is generated automatically by
+`tauri.conf.json` is updated automatically by
 `scripts/pack-tauri/sync_tauri_version.mjs` before each build or `dev` run.
-It is listed in `.gitignore` — do not commit it.
+The script converts Python PEP 440 versions into Tauri-compatible SemVer.
 
 ## Single-window assumption
 

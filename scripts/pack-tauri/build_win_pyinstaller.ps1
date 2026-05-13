@@ -38,13 +38,13 @@ Write-Host ""
 Write-Host "== Step 0: Checking Prerequisites ==" -ForegroundColor Yellow
 $missing = @()
 
-# bun
-if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
-    Write-Host "  [MISSING] bun" -ForegroundColor Red
-    Write-Host "    Install: https://bun.sh" -ForegroundColor Gray
-    $missing += "bun"
+# npm
+if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+    Write-Host "  [MISSING] npm" -ForegroundColor Red
+    Write-Host "    Install Node.js: https://nodejs.org/" -ForegroundColor Gray
+    $missing += "npm"
 } else {
-    Write-Host "  [OK] bun ($(bun --version))" -ForegroundColor Green
+    Write-Host "  [OK] npm ($(npm --version))" -ForegroundColor Green
 }
 
 # rustc
@@ -112,13 +112,19 @@ Write-Host "== Step 2: Building Tauri App ==" -ForegroundColor Yellow
 Set-Location console
 
 Write-Host "Installing frontend dependencies..."
-bun install
+npm ci
 if ($LASTEXITCODE -ne 0) {
-    throw "bun install failed"
+    throw "npm ci failed"
+}
+
+Write-Host "Syncing Tauri version..."
+npm run sync:tauri-version
+if ($LASTEXITCODE -ne 0) {
+    throw "Tauri version sync failed"
 }
 
 Write-Host "Building for Windows..."
-bun tauri build
+npm exec -- tauri build
 $tauriExit = $LASTEXITCODE
 
 if ($tauriExit -ne 0) {

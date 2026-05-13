@@ -1,13 +1,13 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "QwenPaw Desktop",
-  "version": "version/package.json",
+  "version": "1.1.7-beta.1",
   "identifier": "io.agentscope.qwenpaw.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "bun run sync:tauri-version && bun dev:tauri",
-    "beforeBuildCommand": "bun run build:tauri"
+    "beforeDevCommand": "npm run sync:tauri-version && npm run dev:tauri",
+    "beforeBuildCommand": "npm run build:tauri"
   },
   "app": {
     "withGlobalTauri": true,

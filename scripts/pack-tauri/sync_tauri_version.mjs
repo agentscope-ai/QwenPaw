@@ -1,8 +1,5 @@
 // Sync the Python PEP 440 version from src/qwenpaw/__version__.py into
-// console/src-tauri/version/package.json as a SemVer string.
-//
-// tauri.conf.json already references "version/package.json" as its version
-// source, so no modification to tauri.conf.json is required here.
+// console/src-tauri/tauri.conf.json as a SemVer string.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,9 +7,9 @@ import { fileURLToPath } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../..");
 const versionFile = path.join(repoRoot, "src/qwenpaw/__version__.py");
-const tauriVersionPackageFile = path.join(
+const tauriConfigFile = path.join(
   repoRoot,
-  "console/src-tauri/version/package.json",
+  "console/src-tauri/tauri.conf.json",
 );
 
 function readPythonVersion() {
@@ -56,8 +53,7 @@ function updateJson(file, update) {
 
 const semver = toSemver(readPythonVersion());
 
-fs.mkdirSync(path.dirname(tauriVersionPackageFile), { recursive: true });
-updateJson(tauriVersionPackageFile, (data) => {
+updateJson(tauriConfigFile, (data) => {
   data.version = semver;
 });
 

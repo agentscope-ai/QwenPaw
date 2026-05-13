@@ -22,12 +22,12 @@ echo ""
 echo "== Step 0: Checking Prerequisites =="
 missing=()
 
-if command -v bun &>/dev/null; then
-    echo "  [OK] bun ($(bun --version))"
+if command -v npm &>/dev/null; then
+    echo "  [OK] npm ($(npm --version))"
 else
-    echo "  [MISSING] bun"
-    echo "    Install: https://bun.sh"
-    missing+=("bun")
+    echo "  [MISSING] npm"
+    echo "    Install Node.js: https://nodejs.org/"
+    missing+=("npm")
 fi
 
 if command -v rustc &>/dev/null; then
@@ -63,9 +63,11 @@ echo ""
 # Step 2: Build Tauri app
 echo "== Step 2: Building Tauri App =="
 cd console
-bun install
+npm ci
+echo "Syncing Tauri version..."
+npm run sync:tauri-version
 echo "Building for macOS..."
-bun tauri build
+npm exec -- tauri build
 cd ..
 echo "Tauri app built"
 echo ""
