@@ -50,6 +50,7 @@ docker run -p 127.0.0.1:8088:8088 \
 > 1. **如果你使用的是 CMD（.bat）：脚本执行成功但无法写入`Path`**
 >
 >    脚本已完成文件安装，由于 **受限语言模式** ，脚本无法自动写入环境变量，此时只需手动配置：
+>
 >    - **找到安装目录**：
 >      - 检查 `uv` 是否可用：在 CMD 中输入 `uv --version` ，如果显示版本号，则**只需配置 QwenPaw 路径**；如果提示 `'uv' 不是内部或外部命令，也不是可运行的程序或批处理文件。`，则需同时配置两者。
 >      - uv路径（任选其一，取决于安装位置，若`uv`不可用则填）：通常在`%USERPROFILE%\.local\bin`、`%USERPROFILE%\AppData\Local\uv`或 Python 安装目录下的 `Scripts` 文件夹
@@ -289,6 +290,7 @@ QwenPaw 内置的本地提供商均可接入 QwenPaw-Flash 模型：
 **Ollama**:
 
 1. 从 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 或 [Hugging Face](https://huggingface.co/agentscope-ai/models) 下载 QwenPaw-Flash 量化版模型，这些模型后缀为 `Q8_0` 或 `Q4_K_M`，例如 [QwenPaw-Flash-4B-Q4_K_M](https://www.modelscope.cn/models/AgentScope/QwenPaw-Flash-4B-Q4_K_M)。
+
    - 使用 ModelScope CLI 下载：
 
      ```bash
