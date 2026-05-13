@@ -164,7 +164,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
     "${DIST}\tauri-windows",
     $ZIP_NAME,
     [System.IO.Compression.CompressionLevel]::Optimal,
-    $true
+    $false
 )
 
 if (Test-Path $ZIP_NAME) {
