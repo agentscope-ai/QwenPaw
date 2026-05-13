@@ -1,4 +1,6 @@
-# Build QwenPaw Desktop: Windows (conda-pack + NSIS), macOS (conda-pack -> .app)
+# Build QwenPaw Desktop:
+# - Legacy desktop: Windows (conda-pack + NSIS), macOS (conda-pack -> .app)
+# - Tauri desktop: Windows/macOS app bundles with PyInstaller backend sidecar
 # Runs automatically on release publish; also manually via Actions tab.
 
 name: QwenPaw Desktop Build
@@ -132,8 +134,114 @@ jobs:
           name: QwenPaw-Desktop-macOS-${{ steps.version.outputs.version }}
           path: dist/QwenPaw-*.zip
 
+  build-tauri-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        shell: pwsh
+        run: |
+          $content = Get-Content src/qwenpaw/__version__.py -Raw
+          if ($content -match '__version__\s*=\s*"([^"]+)"') {
+            $v = $Matches[1]
+          } else {
+            throw "Failed to extract version from __version__.py"
+          }
+          "version<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $v | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install NSIS
+        uses: negrutiu/nsis-install@v2
+
+      - name: Clean dist directory
+        shell: pwsh
+        run: |
+          if (Test-Path dist) {
+            Remove-Item -Recurse -Force dist
+          }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+
+      - name: Build Tauri Windows package
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File ./scripts/pack-tauri/build_win_pyinstaller.ps1
+
+      - name: Upload Tauri Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QwenPaw-Desktop-Tauri-Windows-${{ steps.version.outputs.version }}
+          path: dist/QwenPaw-Tauri-*-Windows.zip
+
+  build-tauri-macos:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)" >> $GITHUB_OUTPUT
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Clean dist directory
+        run: rm -rf dist && mkdir -p dist
+
+      - name: Build Tauri macOS package
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+        run: |
+          chmod +x scripts/pack-tauri/build_macos_pyinstaller.sh
+          bash scripts/pack-tauri/build_macos_pyinstaller.sh
+
+      - name: Upload Tauri macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QwenPaw-Desktop-Tauri-macOS-${{ steps.version.outputs.version }}
+          path: dist/QwenPaw-Tauri-*-macOS.zip
+
   upload-release:
-    needs: [build-windows, build-macos]
+    needs: [build-windows, build-macos, build-tauri-windows, build-tauri-macos]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
@@ -146,13 +254,17 @@ jobs:
         run: |
           mv QwenPaw-Desktop-Windows-*/QwenPaw-Setup-*.exe . 2>/dev/null || true
           mv QwenPaw-Desktop-macOS-*/QwenPaw-*.zip . 2>/dev/null || true
+          mv QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows.zip . 2>/dev/null || true
+          mv QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip . 2>/dev/null || true
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             QwenPaw-Setup-*.exe
-            QwenPaw-*-macOS.zip
+            QwenPaw-[0-9]*-macOS.zip
+            QwenPaw-Tauri-*-Windows.zip
+            QwenPaw-Tauri-*-macOS.zip
           fail-on-unmatched-files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
