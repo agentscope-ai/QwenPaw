@@ -133,20 +133,10 @@ Write-Host ""
 Write-Host "== Step 3: Creating Distribution ==" -ForegroundColor Yellow
 
 $BUNDLE_DIR = "console\src-tauri\target\release\bundle"
-$MSI_PATH = $null
-
-if (Test-Path "$BUNDLE_DIR\msi") {
-    $MSI_PATH = Get-ChildItem "$BUNDLE_DIR\msi\*.msi" | Select-Object -First 1
-}
 
 New-Item -ItemType Directory -Force -Path "${DIST}\tauri-windows" | Out-Null
 
-if ($MSI_PATH) {
-    Copy-Item -Force $MSI_PATH.FullName "${DIST}\tauri-windows\"
-    Write-Host "MSI copied to ${DIST}\tauri-windows\" -ForegroundColor Green
-}
-
-# Also copy NSIS installer if present
+# Copy NSIS installer if present
 if (Test-Path "$BUNDLE_DIR\nsis") {
     $NSIS_EXE = Get-ChildItem "$BUNDLE_DIR\nsis\*.exe" | Select-Object -First 1
     if ($NSIS_EXE) {

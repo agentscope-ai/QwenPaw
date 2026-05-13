@@ -91,11 +91,6 @@ fi
     --clean \
     --noconfirm
 
-if [ $? -ne 0 ]; then
-    echo "ERROR: PyInstaller build failed"
-    exit 1
-fi
-
 echo "PyInstaller build complete"
 echo ""
 

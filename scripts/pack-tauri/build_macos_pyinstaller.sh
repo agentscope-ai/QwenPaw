@@ -57,41 +57,64 @@ echo ""
 # Step 1: Build PyInstaller backend
 echo "== Step 1: Building PyInstaller Backend =="
 bash scripts/pack-tauri/build_pyinstaller.sh
-
-if [ $? -ne 0 ]; then
-    echo "ERROR: PyInstaller rebuild failed"
-    exit 1
-fi
 echo "PyInstaller backend built"
 echo ""
 
 # Step 2: Build Tauri app
 echo "== Step 2: Building Tauri App =="
 cd console
-
 bun install
-if [ $? -ne 0 ]; then
-    echo "ERROR: bun install failed"
-    exit 1
-fi
-
 echo "Building for macOS..."
 bun tauri build
-
-if [ $? -ne 0 ]; then
-    echo "ERROR: Tauri build failed"
-    exit 1
-fi
-
 cd ..
 echo "Tauri app built"
+echo ""
+
+# Step 3: Collect distribution artifacts
+echo "== Step 3: Collecting Distribution Artifacts =="
+DIST="${DIST:-dist}"
+DIST_DIR="${REPO_ROOT}/${DIST}/tauri-macos"
+BUNDLE_DIR="${REPO_ROOT}/console/src-tauri/target/release/bundle"
+mkdir -p "${DIST_DIR}"
+
+# Copy DMG if present
+if ls "${BUNDLE_DIR}/dmg/"*.dmg &>/dev/null; then
+    cp "${BUNDLE_DIR}/dmg/"*.dmg "${DIST_DIR}/"
+    echo "DMG copied to ${DIST_DIR}/"
+fi
+
+# Copy .app if present
+APP_PATH="${BUNDLE_DIR}/macos/QwenPaw Desktop.app"
+if [ -d "${APP_PATH}" ]; then
+    cp -R "${APP_PATH}" "${DIST_DIR}/"
+    echo ".app copied to ${DIST_DIR}/"
+fi
+
+# Create ZIP archive
+ZIP_NAME="${REPO_ROOT}/${DIST}/QwenPaw-Tauri-${VERSION}-macOS.zip"
+if [ -f "${ZIP_NAME}" ]; then
+    rm -f "${ZIP_NAME}"
+fi
+cd "${DIST_DIR}"
+zip -r "${ZIP_NAME}" .
+cd "${REPO_ROOT}"
+
+if [ -f "${ZIP_NAME}" ]; then
+    SIZE=$(du -sh "${ZIP_NAME}" | cut -f1)
+    echo "Created ${ZIP_NAME} (${SIZE})"
+else
+    echo "ERROR: Failed to create ZIP archive"
+    exit 1
+fi
 echo ""
 
 echo ""
 echo "========================================="
 echo "Build Complete!"
 echo "========================================="
-echo "App: console/src-tauri/target/release/bundle/macos/qwenpaw-console.app"
+echo "App:          console/src-tauri/target/release/bundle/macos/QwenPaw Desktop.app"
+echo "Distribution: ${DIST_DIR}"
+echo "Archive:      ${ZIP_NAME}"
 echo ""
-echo "Test: open console/src-tauri/target/release/bundle/macos/qwenpaw-console.app"
+echo "Test: open \"${APP_PATH}\""
 echo ""

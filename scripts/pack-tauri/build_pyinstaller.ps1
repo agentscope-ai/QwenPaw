@@ -56,30 +56,35 @@ if (-not (Test-Path $PYTHON_BIN)) {
 $pythonVersion = & $PYTHON_BIN --version
 Write-Host "Python: $pythonVersion" -ForegroundColor Green
 
+function Test-PythonImport {
+    param([string]$Statement)
+    & $PYTHON_BIN -c $Statement 2>&1 | Out-Null
+    return $LASTEXITCODE -eq 0
+}
+
+function Assert-LastExit {
+    param([string]$Message)
+    if ($LASTEXITCODE -ne 0) { throw $Message }
+}
+
 # Install PyInstaller if not present
 Write-Host "== Installing PyInstaller ==" -ForegroundColor Yellow
-try {
-    & $PYTHON_BIN -c "import PyInstaller" 2>&1 | Out-Null
+if (Test-PythonImport "import PyInstaller") {
     Write-Host "PyInstaller already installed" -ForegroundColor Green
-} catch {
+} else {
     Write-Host "Installing PyInstaller..."
     & $PYTHON_BIN -m pip install "pyinstaller>=6.0.0"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to install PyInstaller"
-    }
+    Assert-LastExit "Failed to install PyInstaller"
     Write-Host "PyInstaller installed" -ForegroundColor Green
 }
 
 # Install python-dotenv if not present (required by PyInstaller collect_submodules)
-try {
-    & $PYTHON_BIN -c "import dotenv" 2>&1 | Out-Null
+if (Test-PythonImport "import dotenv") {
     Write-Host "python-dotenv already installed" -ForegroundColor Green
-} catch {
+} else {
     Write-Host "Installing python-dotenv..."
     & $PYTHON_BIN -m pip install python-dotenv
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to install python-dotenv"
-    }
+    Assert-LastExit "Failed to install python-dotenv"
     Write-Host "python-dotenv installed" -ForegroundColor Green
 }
 
@@ -88,22 +93,16 @@ Write-Host ""
 # Install project dependencies (ensures ALL runtime deps are importable)
 Write-Host "== Installing project dependencies ==" -ForegroundColor Yellow
 & $PYTHON_BIN -m pip install -e .
-if ($LASTEXITCODE -ne 0) {
-    throw "Failed to install project dependencies"
-}
+Assert-LastExit "Failed to install project dependencies"
 Write-Host "Project dependencies installed" -ForegroundColor Green
 
 # Fix agent-client-protocol namespace collision
 # PyPI has an empty 'acp' stub that shadows the real package
-try {
-    & $PYTHON_BIN -c "from acp import Agent" 2>&1 | Out-Null
-} catch {
+if (-not (Test-PythonImport "from acp import Agent")) {
     Write-Host "Fixing agent-client-protocol namespace..."
     & $PYTHON_BIN -m pip uninstall -y acp 2>$null
     & $PYTHON_BIN -m pip install agent-client-protocol
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to install agent-client-protocol"
-    }
+    Assert-LastExit "Failed to install agent-client-protocol"
     Write-Host "agent-client-protocol installed" -ForegroundColor Green
 }
 

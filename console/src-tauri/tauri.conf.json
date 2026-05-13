@@ -1,20 +1,23 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "qwenpaw-console",
-  "version": "0.1.0",
-  "identifier": "com.qwenpaw.desktop",
+  "productName": "QwenPaw Desktop",
+  "version": "version/package.json",
+  "identifier": "io.agentscope.qwenpaw.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "bun dev",
-    "beforeBuildCommand": "bun build:prod"
+    "beforeDevCommand": "bun run sync:tauri-version && bun dev:tauri",
+    "beforeBuildCommand": "bun run build:tauri"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
-        "title": "qwenpaw-console",
-        "width": 800,
-        "height": 600,
+        "title": "QwenPaw Desktop",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600,
         "resizable": true,
         "fullscreen": false
       }
@@ -22,7 +25,7 @@
     "security": {
       "csp": {
         "default-src": "'self'",
-        "connect-src": "'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* ipc: http://ipc.localhost",
+        "connect-src": "'self' http://127.0.0.1:* ws://127.0.0.1:* ipc: http://ipc.localhost",
         "script-src": "'self'",
         "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com",
         "font-src": "'self' https://fonts.gstatic.com",
@@ -41,6 +44,26 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/qwenpaw-backend"]
+    "externalBin": ["binaries/qwenpaw-backend"],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "sidebarImage": "icons/nsis-sidebar.bmp",
+        "headerImage": "icons/nsis-header.bmp",
+        "languages": [
+          "English",
+          "SimpChinese",
+          "TradChinese",
+          "Japanese",
+          "Russian",
+          "PortugueseBR"
+        ],
+        "displayLanguageSelector": false
+      }
+    }
   }
 }

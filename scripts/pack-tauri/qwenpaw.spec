@@ -11,9 +11,9 @@ REPO_ROOT = Path(SPECPATH).parent.parent
 
 SRC = REPO_ROOT / 'src' / 'qwenpaw'
 
-# Only include directories that exist (console/ is built in Step 2)
+# The frontend dist is bundled by Tauri (frontendDist in tauri.conf.json) and
+# must NOT be included here — PyInstaller only packages the Python backend.
 _data_dirs = [
-    # ('console', 'qwenpaw/console'),
     ('agents/skills', 'qwenpaw/agents/skills'),
     ('agents/md_files', 'qwenpaw/agents/md_files'),
     ('tokenizer', 'qwenpaw/tokenizer'),
@@ -28,6 +28,7 @@ datas += collect_data_files('reme')
 
 # Collect package metadata for packages that use importlib.metadata at runtime
 _metadata_pkgs = [
+    'qwenpaw',
     'fastmcp', 'mcp', 'httpx', 'httpcore', 'anyio', 'sniffio',
     'starlette', 'pydantic', 'pydantic-core', 'pydantic-settings',
     'uvicorn', 'openai', 'anthropic', 'tiktoken',
@@ -45,6 +46,7 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=[
+        # uvicorn internals (not auto-discovered by PyInstaller)
         'uvicorn.logging',
         'uvicorn.loops',
         'uvicorn.loops.auto',
@@ -55,21 +57,17 @@ a = Analysis(
         'uvicorn.protocols.websockets.auto',
         'uvicorn.lifespan',
         'uvicorn.lifespan.on',
-        'qwenpaw.app.channels.dingtalk',
-        'qwenpaw.app.channels.feishu',
-        'qwenpaw.app.channels.qq',
-        'qwenpaw.app.channels.telegram',
-        'qwenpaw.app.channels.matrix',
-        'qwenpaw.app.channels.wecom',
-        'qwenpaw.app.channels.mqtt',
-        'qwenpaw.app.channels.mattermost',
-        'qwenpaw.app.channels.console',
-        'qwenpaw.app.channels.discord_',
-        'qwenpaw.app.channels.weixin',
-        'qwenpaw.app.channels.imessage',
-        'qwenpaw.app.channels.onebot',
-        'qwenpaw.app.channels.xiaoyi',
-        'qwenpaw.app.channels.voice',
+        # All CLI sub-commands (dynamically loaded by Click)
+        *collect_submodules('qwenpaw.cli'),
+        # All channel adapters (imported on-demand at runtime)
+        *collect_submodules('qwenpaw.app.channels'),
+        # ASGI app entry points
+        'qwenpaw.app._app',
+        'qwenpaw.app.api',
+        'qwenpaw.app.middleware',
+        'qwenpaw.app.multi_agent_manager',
+        'qwenpaw.app.runner',
+        # Third-party packages that use dynamic imports
         *collect_submodules('dotenv'),
         'dotenv',
         'a2a',
@@ -80,41 +78,6 @@ a = Analysis(
         'psutil',
         'multipart',
         'websockets',
-        # CLI commands (dynamically loaded by Click)
-        'qwenpaw.cli.init_cmd',
-        'qwenpaw.cli.app_cmd',
-        'qwenpaw.cli.agents_cmd',
-        'qwenpaw.cli.auth_cmd',
-        'qwenpaw.cli.channels_cmd',
-        'qwenpaw.cli.chats_cmd',
-        'qwenpaw.cli.clean_cmd',
-        'qwenpaw.cli.cron_cmd',
-        'qwenpaw.cli.daemon_cmd',
-        'qwenpaw.cli.desktop_cmd',
-        'qwenpaw.cli.doctor_cmd',
-        'qwenpaw.cli.doctor_checks',
-        'qwenpaw.cli.doctor_connectivity',
-        'qwenpaw.cli.doctor_fix_runner',
-        'qwenpaw.cli.doctor_registry',
-        'qwenpaw.cli.env_cmd',
-        'qwenpaw.cli.mission_cmd',
-        'qwenpaw.cli.plugin_commands',
-        'qwenpaw.cli.process_utils',
-        'qwenpaw.cli.providers_cmd',
-        'qwenpaw.cli.shutdown_cmd',
-        'qwenpaw.cli.skills_cmd',
-        'qwenpaw.cli.task_cmd',
-        'qwenpaw.cli.uninstall_cmd',
-        'qwenpaw.cli.update_cmd',
-        'qwenpaw.cli.utils',
-        'qwenpaw.cli.http',
-        # ASGI app entry points
-        'qwenpaw.app._app',
-        'qwenpaw.app.api',
-        'qwenpaw.app.middleware',
-        'qwenpaw.app.multi_agent_manager',
-        'qwenpaw.app.runner',
-        # Additional runtime dependencies
         *collect_submodules('chromadb'),
     ],
     hookspath=[],
@@ -141,9 +104,9 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    console=True,
-    disable_windowed_traceback=False,
+    upx=False,  # UPX triggers antivirus false positives on Windows and can corrupt .pyd files
+    console=False,
+    disable_windowed_traceback=True,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
