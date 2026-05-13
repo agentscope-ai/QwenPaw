@@ -51,6 +51,7 @@ from .tools import (
     glob_search,
     grep_search,
     list_agents,
+    materialize_skill,
     read_file,
     send_file_to_user,
     set_user_timezone,
@@ -280,6 +281,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             "chat_with_agent": chat_with_agent,
             "submit_to_agent": submit_to_agent,
             "check_agent_task": check_agent_task,
+            "materialize_skill": materialize_skill,
         }
 
         # Track hardcoded built-in tools for backward compatibility

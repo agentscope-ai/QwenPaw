@@ -1831,6 +1831,9 @@
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
       },
+      "makeSkill": {
+        "description": "Save the current session as a reusable skill (requires a focus)"
+      },
       "plan": {
         "description": "Create a structured plan to decompose the task into subtasks"
       }

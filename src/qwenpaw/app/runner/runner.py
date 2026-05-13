@@ -500,6 +500,96 @@ class AgentRunner(Runner):
                     refresher + original,
                 )
 
+            # --- /make-skill → /plan rewrite -------------------------
+            if query and query.strip().lower().startswith("/make-skill "):
+                _focus = query.strip()[len("/make-skill ") :].strip()
+                _focus = "-".join(_focus.split())
+                if _focus:
+                    from ...agents.skill_system.make_skill.prompts import (
+                        build_make_skill_plan_prompt,
+                        SKILL_MAKER_NAME,
+                    )
+                    from ...agents.skill_system.make_skill.service import (
+                        name_conflict as _skill_name_conflict,
+                    )
+                    from ...agents.skill_system.registry import (
+                        resolve_effective_skills,
+                    )
+                    from ...agents.skill_system.store import (
+                        normalize_skill_dir_name,
+                    )
+
+                    try:
+                        _name = normalize_skill_dir_name(_focus)
+                    except Exception:  # pylint: disable=broad-except
+                        yield (
+                            Msg(
+                                name=self.agent_name,
+                                role="assistant",
+                                content=[
+                                    TextBlock(
+                                        type="text",
+                                        text=(
+                                            f"Cannot normalise "
+                                            f"`{_focus}` into a valid "
+                                            f"skill name. Try a "
+                                            f"different focus."
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            True,
+                        )
+                        return
+
+                    _conflict = _skill_name_conflict(
+                        self.workspace_dir,
+                        _name,
+                    )
+                    if _conflict:
+                        _conflict_name, _ = _conflict
+                        yield (
+                            Msg(
+                                name=self.agent_name,
+                                role="assistant",
+                                content=[
+                                    TextBlock(
+                                        type="text",
+                                        text=(
+                                            f"Skill `{_conflict_name}` "
+                                            f"already exists in this "
+                                            f"workspace."
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            True,
+                        )
+                        return
+
+                    _skill_available = (
+                        self.workspace_dir is not None
+                        and SKILL_MAKER_NAME
+                        in resolve_effective_skills(
+                            self.workspace_dir,
+                            channel,
+                        )
+                    )
+
+                    rewritten_query = "/plan " + build_make_skill_plan_prompt(
+                        focus=_focus,
+                        normalized_name=_name,
+                        skill_available=_skill_available,
+                    )
+                    self._rewrite_last_message_text(msgs, rewritten_query)
+                    query = rewritten_query
+                    logger.info(
+                        "MakeSkill: rewrote to /plan, focus=%s, "
+                        "skill_available=%s",
+                        _focus[:60],
+                        _skill_available,
+                    )
+
             # --- Plan Mode ------------------------------------------
             plan_notebook = None
             plan_enabled = getattr(

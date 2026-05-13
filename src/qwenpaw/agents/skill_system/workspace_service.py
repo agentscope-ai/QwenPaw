@@ -103,6 +103,7 @@ class SkillService:
         extra_files: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
         enable: bool = False,
+        source: str | None = None,
     ) -> str | None:
         validate_skill_content(content)
         skill_name = normalize_skill_dir_name(name)
@@ -126,16 +127,22 @@ class SkillService:
         def _update(payload: dict[str, Any]) -> None:
             payload.setdefault("skills", {})
             entry = payload["skills"].get(skill_name) or {}
-            if "source" in entry:
-                source = entry["source"]
+            # Explicit *source* wins (e.g. /make-skill stamps "agent");
+            # otherwise fall back to existing entry / builtin lookup
+            # / "customized" default. Separate local var so we don't
+            # rebind the outer kwarg inside this closure.
+            if source is not None:
+                resolved_source = source
+            elif "source" in entry:
+                resolved_source = entry["source"]
             elif skill_name in get_packaged_builtin_versions():
-                source = "builtin"
+                resolved_source = "builtin"
             else:
-                source = "customized"
+                resolved_source = "customized"
             metadata = build_skill_metadata(
                 skill_name,
                 skill_dir,
-                source=source,
+                source=resolved_source,
                 protected=False,
             )
             payload["skills"][skill_name] = {

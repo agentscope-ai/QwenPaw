@@ -30,6 +30,10 @@ from .agent_management import (
 )
 from .delegate_external_agent import delegate_external_agent
 
+# Registered via react_agent's hardcoded tool_functions; kept out of
+# __all__ so it's always enabled, not gated on agent config.
+from .make_skill_tools import materialize_skill  # noqa: F401
+
 __all__ = [
     "execute_python_code",
     "execute_shell_command",

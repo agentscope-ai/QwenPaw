@@ -139,6 +139,9 @@
       "skills": {
         "description": "Tampilkan skill yang tersedia untuk chat dan perintah skill eksplisit"
       },
+      "makeSkill": {
+        "description": "Simpan sesi saat ini sebagai skill yang dapat digunakan kembali (perlu focus)"
+      },
       "plan": {
         "description": "Buat rencana terstruktur untuk memecah tugas menjadi subtugas"
       }

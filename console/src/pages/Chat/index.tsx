@@ -1014,6 +1014,11 @@ export default function ChatPage() {
         value: "skills",
         description: t("chat.commands.skills.description"),
       },
+      {
+        command: "/make-skill",
+        value: "make-skill ",
+        description: t("chat.commands.makeSkill.description"),
+      },
     ];
     if (planEnabled) {
       commandSuggestions.push({

@@ -1694,6 +1694,9 @@
       "skills": {
         "description": "列出当前对话可用的技能，并显示可显式调用的技能命令"
       },
+      "makeSkill": {
+        "description": "把当前会话保存为可复用的 skill（需要指定 focus）"
+      },
       "plan": {
         "description": "创建结构化计划，将任务分解为多个子任务"
       }
