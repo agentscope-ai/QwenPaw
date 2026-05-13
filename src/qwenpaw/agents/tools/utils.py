@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 # Default truncation limit
 DEFAULT_MAX_BYTES = 50 * 1024
 
-# Maximum file size to read into memory (1GB)
-MAX_FILE_READ_BYTES = 1024 * 1024 * 1024
+# Maximum file size to read into memory (200MB)
+MAX_FILE_READ_BYTES = 200 * 1024 * 1024
 
 
 # pylint: disable=too-many-return-statements
