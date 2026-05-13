@@ -43,18 +43,23 @@ function toSemver(version) {
   }`;
 }
 
-function updateJson(file, update) {
-  const data = fs.existsSync(file)
-    ? JSON.parse(fs.readFileSync(file, "utf8"))
-    : {};
-  update(data);
-  fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
+function updateTauriVersion(file, version) {
+  const text = fs.readFileSync(file, "utf8");
+  const versionPattern = /("version"\s*:\s*)"[^"]+"/;
+  if (!versionPattern.test(text)) {
+    throw new Error(`Could not update version in ${file}`);
+  }
+
+  const nextText = text.replace(versionPattern, `$1"${version}"`);
+  if (nextText !== text) {
+    fs.writeFileSync(file, nextText);
+    return true;
+  }
+  return false;
 }
 
 const semver = toSemver(readPythonVersion());
 
-updateJson(tauriConfigFile, (data) => {
-  data.version = semver;
-});
+updateTauriVersion(tauriConfigFile, semver);
 
 console.log(`Synced Tauri version to ${semver}`);
