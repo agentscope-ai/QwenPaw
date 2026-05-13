@@ -52,6 +52,7 @@
       },
       "nsis": {
         "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
         "sidebarImage": "icons/nsis-sidebar.bmp",
         "headerImage": "icons/nsis-header.bmp",
         "installerHooks": "nsis-hooks.nsh",
@@ -63,6 +64,14 @@
           "Russian",
           "PortugueseBR"
         ],
+        "customLanguageFiles": {
+          "English": "nsis-languages/English.nsh",
+          "SimpChinese": "nsis-languages/SimpChinese.nsh",
+          "TradChinese": "nsis-languages/TradChinese.nsh",
+          "Japanese": "nsis-languages/Japanese.nsh",
+          "Russian": "nsis-languages/Russian.nsh",
+          "PortugueseBR": "nsis-languages/PortugueseBR.nsh"
+        },
         "displayLanguageSelector": false
       }
     }
