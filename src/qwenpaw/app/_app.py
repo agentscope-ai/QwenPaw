@@ -41,6 +41,11 @@ from .routers import router as api_router, create_agent_scoped_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
 from .routers.voice import voice_router
+from .console_base_path import (
+    BasePathMiddleware,
+    CONSOLE_BASE_PATH_ENV,
+    resolve_console_base_path,
+)
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
 from ..local_models.manager import LocalModelManager
@@ -556,6 +561,15 @@ if CORS_ORIGINS:
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["Content-Disposition"],
+    )
+
+_CONSOLE_BASE_PATH = resolve_console_base_path()
+if _CONSOLE_BASE_PATH:
+    app.add_middleware(BasePathMiddleware, base_path=_CONSOLE_BASE_PATH)
+    logger.info(
+        "%s=%s; serving app routes under this URL prefix as well.",
+        CONSOLE_BASE_PATH_ENV,
+        _CONSOLE_BASE_PATH,
     )
 
 

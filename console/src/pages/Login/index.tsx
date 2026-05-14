@@ -7,6 +7,7 @@ import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import { authApi } from "../../api/modules/auth";
 import { setAuthToken } from "../../api/config";
 import { useTheme } from "../../contexts/ThemeContext";
+import { withBuildBasePath } from "../../utils/basePath";
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -96,7 +97,9 @@ export default function LoginPage() {
       >
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <img
-            src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
+            src={withBuildBasePath(
+              isDark ? "/logo-dark.svg" : "/logo-light.svg",
+            )}
             alt="QwenPaw"
             style={{ height: 48, marginBottom: 12 }}
           />

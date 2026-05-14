@@ -14,13 +14,25 @@ const cssStubPlugin = {
   },
 };
 
+function normalizeBasePath(value?: string): string {
+  const raw = (value ?? "").trim();
+  if (!raw || raw === "/") return "/";
+  const normalized = `/${raw.replace(/^\/+|\/+$/g, "")}`;
+  return `${normalized}/`;
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
+  const basePath = normalizeBasePath(
+    env.VITE_BASE_PATH || env.QWENPAW_BASE_PATH || env.COPAW_BASE_PATH,
+  );
   // Empty = same-origin; frontend and backend served together, no hardcoded host.
   // Use a dedicated Vite-prefixed key so unrelated shell BASE_URL values don't leak into the build.
-  const apiBaseUrl = env.VITE_API_BASE_URL ?? "";
+  const apiBaseUrl =
+    env.VITE_API_BASE_URL ?? (basePath === "/" ? "" : basePath.slice(0, -1));
 
   return {
+    base: basePath,
     define: {
       VITE_API_BASE_URL: JSON.stringify(apiBaseUrl),
       TOKEN: JSON.stringify(env.TOKEN || ""),

@@ -31,6 +31,7 @@ const LoginPage = lazyImportWithRetry("./pages/Login/index");
 import { authApi } from "./api/modules/auth";
 import { languageApi } from "./api/modules/language";
 import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
+import { getRouterBasename, stripRuntimeBasePath } from "./utils/basePath";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 
@@ -105,15 +106,15 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   if (status === "auth-required")
     return (
       <Navigate
-        to={`/login?redirect=${encodeURIComponent(window.location.pathname)}`}
+        to={`/login?redirect=${encodeURIComponent(
+          stripRuntimeBasePath(
+            `${window.location.pathname}${window.location.search}`,
+          ),
+        )}`}
         replace
       />
     );
   return <>{children}</>;
-}
-
-function getRouterBasename(pathname: string): string | undefined {
-  return /^\/console(?:\/|$)/.test(pathname) ? "/console" : undefined;
 }
 
 function AppInner() {

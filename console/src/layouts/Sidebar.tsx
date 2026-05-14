@@ -46,6 +46,7 @@ import { usePlugins } from "../plugins/PluginContext";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
 import { KEY_TO_PATH, DEFAULT_OPEN_KEYS } from "./constants";
+import { withRuntimeBasePath } from "../utils/basePath";
 
 // ── Layout ────────────────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       setAccountModalOpen(false);
       accountForm.resetFields();
       clearAuthToken();
-      window.location.href = "/login";
+      window.location.href = withRuntimeBasePath("/login");
     } catch (err: unknown) {
       const raw = err instanceof Error ? err.message : "";
       let msg = t("account.updateFailed");
@@ -515,7 +516,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
             icon={<SparkExitFullscreenLine size={16} />}
             onClick={() => {
               clearAuthToken();
-              window.location.href = "/login";
+              window.location.href = withRuntimeBasePath("/login");
             }}
             block
             className={`${styles.authBtn} ${

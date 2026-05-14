@@ -21,6 +21,7 @@ import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CopyOutlined, CheckOutlined, TagOutlined } from "@ant-design/icons";
+import { withBuildBasePath } from "../utils/basePath";
 
 const { Header: AntHeader } = Layout;
 
@@ -154,7 +155,9 @@ export default function Header() {
       <AntHeader className={styles.header}>
         <div className={styles.logoWrapper}>
           <img
-            src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
+            src={withBuildBasePath(
+              isDark ? "/logo-dark.svg" : "/logo-light.svg",
+            )}
             alt="QwenPaw"
             className={styles.logoImg}
           />
