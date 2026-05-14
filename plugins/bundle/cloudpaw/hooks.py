@@ -504,17 +504,20 @@ def _patch_stream_task_timeout() -> None:
 
 
 def _patch_mission_master_prompt() -> None:
-    """Replace QwenPaw's build_master_prompt with CloudPaw's version.
+    """Conditionally replace QwenPaw's build_master_prompt for CloudPaw agents only.
 
-    Uses a custom master prompt template that integrates manage_prd tool
-    usage and CloudPaw-specific deployment instructions, while reusing
-    the upstream worker/verifier prompt templates and git section builder.
+    When the agent_id belongs to a CloudPaw agent (cloud-orchestrator,
+    cloud-executor, cloud-verifier), uses a custom master prompt template
+    that integrates manage_prd tool usage and CloudPaw-specific deployment
+    instructions.  For all other agents, the original upstream prompt
+    builder is called unchanged.
     """
     try:
         from qwenpaw.agents.mission import prompts as mission_prompts
         from qwenpaw.agents.mission.prompts import (
             WORKER_PROMPT_TEMPLATE,
             _build_git_sections,
+            build_master_prompt as _original_build_master_prompt,
             build_verifier_prompt,
         )
     except ImportError:
@@ -523,7 +526,18 @@ def _patch_mission_master_prompt() -> None:
         )
         return
 
+    from .constants import (
+        BUILTIN_ORCHESTRATION_AGENT_ID,
+        BUILTIN_EXECUTOR_AGENT_ID,
+        BUILTIN_VERIFIER_AGENT_ID,
+    )
     from .prompts.master_prompt import CLOUDPAW_MASTER_PROMPT
+
+    _CLOUDPAW_AGENT_IDS = frozenset({
+        BUILTIN_ORCHESTRATION_AGENT_ID,
+        BUILTIN_EXECUTOR_AGENT_ID,
+        BUILTIN_VERIFIER_AGENT_ID,
+    })
 
     def _patched_build_master_prompt(
         *,
@@ -536,6 +550,23 @@ def _patch_mission_master_prompt() -> None:
         git_context: dict | None = None,
         workspace_dir: str = "",
     ) -> str:
+        if agent_id not in _CLOUDPAW_AGENT_IDS:
+            logger.debug(
+                "[CloudPaw] agent_id=%s is not a CloudPaw agent, "
+                "using original build_master_prompt",
+                agent_id,
+            )
+            return _original_build_master_prompt(
+                loop_dir=loop_dir,
+                agent_id=agent_id,
+                max_iterations=max_iterations,
+                verify_commands=verify_commands,
+                prd_path=prd_path,
+                progress_path=progress_path,
+                git_context=git_context,
+                workspace_dir=workspace_dir,
+            )
+
         logger.info(
             "[CloudPaw] _patched_build_master_prompt called: "
             "loop_dir=%s, agent_id=%s",
@@ -595,4 +626,4 @@ def _patch_mission_master_prompt() -> None:
     except (ImportError, AttributeError) as exc:
         logger.warning("Failed to patch _PRD_FIX_PROMPT: %s", exc)
 
-    logger.info("[CloudPaw] Replaced build_master_prompt with CloudPaw version")
+    logger.info("[CloudPaw] Replaced build_master_prompt with CloudPaw version (CloudPaw agents only)")
