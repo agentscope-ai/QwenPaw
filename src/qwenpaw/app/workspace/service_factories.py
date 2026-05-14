@@ -47,12 +47,13 @@ async def create_chat_service(ws: "Workspace", service):
     if service is not None:
         # Reused ChatManager - just wire to new runner
         cm = service
+        cm.set_agent_id(ws.agent_id)
         logger.info(f"Reusing ChatManager for {ws.agent_id}")
     else:
         # Create new ChatManager
         chats_path = str(ws.workspace_dir / "chats.json")
         chat_repo = JsonChatRepository(chats_path)
-        cm = ChatManager(repo=chat_repo)
+        cm = ChatManager(repo=chat_repo, agent_id=ws.agent_id)
         ws._service_manager.services["chat_manager"] = cm
         logger.info(f"ChatManager created: {chats_path}")
 
