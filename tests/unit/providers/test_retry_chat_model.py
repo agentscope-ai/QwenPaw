@@ -145,7 +145,7 @@ def test_extract_retry_after_reads_direct_and_response_headers() -> None:
 def test_extract_retry_after_ignores_missing_or_invalid_values() -> None:
     assert (
         retry._extract_retry_after(
-            StatusError(429, headers={"Retry-After": ""})
+            StatusError(429, headers={"Retry-After": ""}),
         )
         is None
     )
