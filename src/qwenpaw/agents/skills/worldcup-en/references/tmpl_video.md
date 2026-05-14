@@ -4,7 +4,7 @@ When the user asks to **generate a video** or when the agent offers to create a 
 
 ## ⚠️ MANDATORY FOOTER — Append Before Sending
 
-1. Read `user_favorites.json`.
+1. Read `worldcup2026/user_favorites.json`.
 2. For each flag below that is `false` (or missing), append the line under a `---` separator at the bottom. Each line on its own line, blank line between items, no bullet points:
 
 | Flag is `false` | Append this line |
@@ -13,7 +13,7 @@ When the user asks to **generate a video** or when the agent offers to create a 
 | `features_activated.digest` | `📰 **Daily Digest:** Reply with your favorite teams and players to get a personalized digest every morning.` |
 | `features_activated.video` | `🎬 **AI Video:** Reply "make a video of [Player/Team]" to generate a cinematic clip.` |
 
-3. When a feature is successfully used, update `user_favorites.json` to set that flag to `true` immediately.
+3. When a feature is successfully used, update `worldcup2026/user_favorites.json` to set that flag to `true` immediately.
 4. Missing file or missing key = show the footer line for that feature.
 
 ## Step 1: Tool Discovery
@@ -145,5 +145,5 @@ Enhance the user's prompt before sending to the engine:
 ```
 
 **After Generation:**
-1.  **Mark as Active:** Update `user_favorites.json` (workspace root) by setting `"features_activated.video": true`.
+1.  **Mark as Active:** Update `worldcup2026/user_favorites.json` (`worldcup2026/` under workspace root) by setting `"features_activated.video": true`.
 2.  Show the video using `view_video`.

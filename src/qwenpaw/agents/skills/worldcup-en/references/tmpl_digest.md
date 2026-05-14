@@ -6,7 +6,7 @@ Generates a personalized World Cup news digest tailored to the user's favorite t
 
 ## ⚠️ MANDATORY FOOTER — Append Before Sending
 
-1. Read `user_favorites.json`.
+1. Read `worldcup2026/user_favorites.json`.
 2. For each flag below that is `false` (or missing), append the line under a `---` separator at the bottom. Each line on its own line, blank line between items, no bullet points:
 
 | Flag is `false` | Append this line |
@@ -15,7 +15,7 @@ Generates a personalized World Cup news digest tailored to the user's favorite t
 | `features_activated.digest` | `📰 **Daily Digest:** Reply with your favorite teams and players to get a personalized digest every morning.` |
 | `features_activated.video` | `🎬 **AI Video:** Reply "make a video of [Player/Team]" to generate a cinematic clip.` |
 
-3. When a feature is successfully used, update `user_favorites.json` to set that flag to `true` immediately.
+3. When a feature is successfully used, update `worldcup2026/user_favorites.json` to set that flag to `true` immediately.
 4. Missing file or missing key = show the footer line for that feature.
 
 ## Activation
@@ -25,12 +25,12 @@ Generates a personalized World Cup news digest tailored to the user's favorite t
 
 ## Data Gathering (Do ALL steps)
 
-1. **Read user preferences** from `user_favorites.json` (workspace root)
+1. **Read user preferences** from `worldcup2026/user_favorites.json` (`worldcup2026/` under workspace root)
    - Favorite teams (list)
    - Favorite players (list)
    - If no preferences stored (empty arrays) → run generic digest (top matches, trending news)
 
-2. **Search for today's matches** (use `schedule.json` (workspace root) + web search):
+2. **Search for today's matches** (use `worldcup2026/schedule.json` (`worldcup2026/` under workspace root) + web search):
    - `FIFA World Cup 2026 matches today`
    - Check if any favorite teams play today
 

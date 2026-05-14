@@ -8,23 +8,23 @@ metadata:
 
 ## ⛔ BOOTSTRAP — READ FIRST
 
-**🚨 FAILURE MODE:** If `.bootstrapped` does not exist and you answer a World Cup query anyway, you are reading from empty `group_stage: []` arrays. Every match lookup will return nothing. Your response will be **incomplete, wrong, and the user will call you out**. This has happened before. Do not repeat it.
+**🚨 FAILURE MODE:** If `worldcup2026/.bootstrapped` does not exist and you answer a World Cup query anyway, you are reading from empty `group_stage: []` arrays. Every match lookup will return nothing. Your response will be **incomplete, wrong, and the user will call you out**. This has happened before. Do not repeat it.
 
-**⛔ RULE:** If `.bootstrapped` is missing, bootstrap first. Not after. Not "while answering." **First.** Any answer before bootstrap is complete is a bug.
+**⛔ RULE:** If `worldcup2026/.bootstrapped` is missing, bootstrap first. Not after. Not "while answering." **First.** Any answer before bootstrap is complete is a bug.
 
-**Bootstrap steps** (only if `.bootstrapped` is missing):
-1. Check for `schedule.json`, `stadiums.json`, `user_favorites.json`, `predictions.json` in workspace root.
-2. For each missing file, copy `references/tpl_*.json` → workspace root (e.g. `tpl_schedule.json` → `schedule.json`).
+**Bootstrap steps** (only if `worldcup2026/.bootstrapped` is missing):
+1. Check for `worldcup2026/schedule.json`, `worldcup2026/stadiums.json`, `worldcup2026/user_favorites.json`, `worldcup2026/predictions.json` in `worldcup2026/` under workspace root.
+2. For each missing file, copy `references/tpl_*.json` → `worldcup2026/` under workspace root (e.g. `tpl_schedule.json` → `worldcup2026/schedule.json`).
 3. **IMMEDIATELY strip `_` keys.** Read each copied file, delete every top-level key starting with `_` (e.g. `"_delete_after_bootstrap"`, `"_instructions"`, `"_example"`), then write it back.
-4. **Populate `schedule.json` and `stadiums.json` with real data via web search.**
-   - **`schedule.json`:** Flat array. Every match: `{"match_id", "date", "time_et", "home", "away", "group", "venue", "city"}`. Knockout: `"match"` with descriptive text. Match IDs from FIFA.com (1=opener, 104=Final, 73–104=knockout).
-   - **`stadiums.json`:** Dictionary keyed by FIFA venue name. Each: `{"name", "city", "country", "tz", "capacity", "altitude_m"}`.
+4. **Populate `worldcup2026/schedule.json` and `worldcup2026/stadiums.json` with real data via web search.**
+   - **`worldcup2026/schedule.json`:** Flat array. Every match: `{"match_id", "date", "time_et", "home", "away", "group", "venue", "city"}`. Knockout: `"match"` with descriptive text. Match IDs from FIFA.com (1=opener, 104=Final, 73–104=knockout).
+   - **`worldcup2026/stadiums.json`:** Dictionary keyed by FIFA venue name. Each: `{"name", "city", "country", "tz", "capacity", "altitude_m"}`.
 5. **⚠️ VERIFICATION GATE** — After populating, verify with actual code. Do not eyeball it:
-   - `len(schedule.json["group_stage"]) == 72`
-   - `sum(len(schedule.json["knockout"][r]) for r in schedule.json["knockout"]) == 32`
-   - `len(stadiums.json) == 16`
-   - **ALL PASS →** `touch .bootstrapped` and proceed to the query.
-   - **ANY FAIL →** return to step 4. Do NOT create `.bootstrapped`. Do NOT proceed to the query.
+   - `len(worldcup2026/schedule.json["group_stage"]) == 72`
+   - `sum(len(worldcup2026/schedule.json["knockout"][r]) for r in schedule.json["knockout"]) == 32`
+   - `len(worldcup2026/stadiums.json) == 16`
+   - **ALL PASS →** `touch worldcup2026/.bootstrapped` and proceed to the query.
+   - **ANY FAIL →** return to step 4. Do NOT create `worldcup2026/.bootstrapped`. Do NOT proceed to the query.
 
 Do not answer the user until bootstrap is complete. If you catch yourself typing an answer before verification passes, stop. Bootstrap first.
 
@@ -35,10 +35,10 @@ A modular skill for all World Cup needs. Routing logic lives here; templates and
 ## 📦 File Architecture
 
 **Workspace root files** (user-specific, self-maintained):
-- `schedule.json` — match fixtures (auto-populated, flat array of 104 matches)
-- `stadiums.json` — venue data (dictionary keyed by FIFA name)
-- `user_favorites.json` — favorite teams/players, feature flags
-- `predictions.json` — user's score predictions
+- `worldcup2026/schedule.json` — match fixtures (auto-populated, flat array of 104 matches)
+- `worldcup2026/stadiums.json` — venue data (dictionary keyed by FIFA name)
+- `worldcup2026/user_favorites.json` — favorite teams/players, feature flags
+- `worldcup2026/predictions.json` — user's score predictions
 
 **Skill `references/` templates** (shipped with skill, read-only):
 - `references/tpl_schedule.json`
@@ -48,25 +48,25 @@ A modular skill for all World Cup needs. Routing logic lives here; templates and
 
 ## 🧭 Query Classification
 
-**⛔ STEP 0 — BEFORE CLASSIFYING:** Check if `.bootstrapped` exists. If NOT, go back to the **BOOTSTRAP** section above and complete it. Do not classify the query, do not read templates, do not answer — bootstrap first. If `.bootstrapped` exists, proceed to step 1.
+**⛔ STEP 0 — BEFORE CLASSIFYING:** Check if `worldcup2026/.bootstrapped` exists. If NOT, go back to the **BOOTSTRAP** section above and complete it. Do not classify the query, do not read templates, do not answer — bootstrap first. If `worldcup2026/.bootstrapped` exists, proceed to step 1.
 
-* **Team-only queries:** If the query mentions a specific team *without* referencing a specific match (e.g. "USA squad", "Brazil injuries", "How is South Korea doing?"), it is a **general topic**. Look up the team's fixtures in `schedule.json` to include in the response, then use `tmpl_general.md`. (This lookup ensures `schedule.json` is bootstrapped — same mechanism that works for match queries.)
-* **Match-specific queries:** If the query references a specific match, opening game, final, or fixture (e.g. "first game," "second match," "opener," "final," "game 3," "Brazil vs Morocco," "USA's first match") — it is a **match-specific query**. Ordinal rule: queries like "the second match" or "game 2" resolve to a specific fixture in `schedule.json`, then use the match template. Default to pre-match/post-match/live templates.
-* **General info:** For pure info requests (e.g. "how many groups?", "what cities host?", "who won in 2018?", "is Bolivia in the World Cup?"), first look up the topic in `schedule.json` and `stadiums.json` — this ensures the bootstrap has run. Then use `tmpl_general.md`.
+* **Team-only queries:** If the query mentions a specific team *without* referencing a specific match (e.g. "USA squad", "Brazil injuries", "How is South Korea doing?"), it is a **general topic**. Look up the team's fixtures in `worldcup2026/schedule.json` to include in the response, then use `tmpl_general.md`. (This lookup ensures `worldcup2026/schedule.json` is bootstrapped — same mechanism that works for match queries.)
+* **Match-specific queries:** If the query references a specific match, opening game, final, or fixture (e.g. "first game," "second match," "opener," "final," "game 3," "Brazil vs Morocco," "USA's first match") — it is a **match-specific query**. Ordinal rule: queries like "the second match" or "game 2" resolve to a specific fixture in `worldcup2026/schedule.json`, then use the match template. Default to pre-match/post-match/live templates.
+* **General info:** For pure info requests (e.g. "how many groups?", "what cities host?", "who won in 2018?", "is Bolivia in the World Cup?"), first look up the topic in `worldcup2026/schedule.json` and `worldcup2026/stadiums.json` — this ensures the bootstrap has run. Then use `tmpl_general.md`.
 
 1.  **Classify the query:**
     *   **Video request ("make a video of...", "generate video")?** → Read `references/tmpl_video.md`, then follow it.
     *   **Daily digest / "catch me up" / "today's news"?** → Read `references/tmpl_digest.md`, then follow it.
     *   **Specific upcoming match?** → Read `references/tmpl_pre_match.md`, then follow it.
     *   **Live match?** → Read `references/tmpl_live.md`, then follow it.
-    *   **Finished match?** → Read `references/tmpl_post_match.md` + check `predictions.json`, then follow it.
-    *   **General topic (injuries, groups, etc.)?** → Look up the team/country in `schedule.json` to find their fixtures. Then read `references/tmpl_general.md`, then follow it.
+    *   **Finished match?** → Read `references/tmpl_post_match.md` + check `worldcup2026/predictions.json`, then follow it.
+    *   **General topic (injuries, groups, etc.)?** → Look up the team/country in `worldcup2026/schedule.json` to find their fixtures. Then read `references/tmpl_general.md`, then follow it.
     *   **Prediction without match context?** → Ask which match.
 
 2.  **Checklists:**
     *   **Match-specific:** Verify timezones (User + Local), cross-check injuries from 2+ sources via web search, include Prediction CTA (Pre-Match only).
     *   **General Query:** Answer directly. **NO** forced templates. Cite sources.
-    *   **⚠️ Data sources:** Schedule/venue data comes from local files (`schedule.json`, `stadiums.json`). Everything else — injuries, form, odds, weather, breaking news — MUST come from web search, never from training data or memory.
+    *   **⚠️ Data sources:** Schedule/venue data comes from local files (`worldcup2026/schedule.json`, `worldcup2026/stadiums.json`). Everything else — injuries, form, odds, weather, breaking news — MUST come from web search, never from training data or memory.
 
 ## ⚠️ Footer
 
@@ -75,8 +75,8 @@ The footer (predictions, digest, video CTAs) is defined in each output template.
 ## Reference Files
 
 **Workspace root** (dynamic user data):
-* `schedule.json` (all 104 matches), `stadiums.json` (16 venues keyed by FIFA name).
-* `predictions.json` (user predictions), `user_favorites.json` (favorites & flags).
+* `worldcup2026/schedule.json` (all 104 matches), `worldcup2026/stadiums.json` (16 venues keyed by FIFA name).
+* `worldcup2026/predictions.json` (user predictions), `worldcup2026/user_favorites.json` (favorites & flags).
 * **Search web for:** Live scores, form, injuries, odds, weather, breaking news, **and schedule updates**.
 
 **Skill `references/`** (static templates & guides):
@@ -86,18 +86,18 @@ The footer (predictions, digest, video CTAs) is defined in each output template.
 
 ## 🔁 Hybrid Cache + Search (Auto-Update Logic)
 
-**`schedule.json` (workspace root) is a cache, not a static file.** Follow this flow for every schedule lookup:
+**`worldcup2026/schedule.json` (`worldcup2026/` under workspace root) is a cache, not a static file.** Follow this flow for every schedule lookup:
 
-1. **Read `schedule.json`** — Check if the requested match exists.
+1. **Read `worldcup2026/schedule.json`** — Check if the requested match exists.
 2. **If found** → Use the cached data. Proceed.
 3. **If NOT found** → The match may be a knockout fixture or newly confirmed:
     a. Search the web: `"FIFA World Cup 2026 [TeamA] vs [TeamB] schedule date venue"`
     b. Also search: `"World Cup 2026 knockout bracket confirmed matches"`
-    c. If confirmed, **update `schedule.json`** by appending the new match(es). Update the `"meta": {"last_updated": "YYYY-MM-DD"}` field.
+    c. If confirmed, **update `worldcup2026/schedule.json`** by appending the new match(es). Update the `"meta": {"last_updated": "YYYY-MM-DD"}` field.
     d. Proceed with the newly cached data.
-4. **Never reject a prediction** just because the match isn't in `schedule.json` — use the web search fallback first. Only reject if web search also cannot confirm the match.
+4. **Never reject a prediction** just because the match isn't in `worldcup2026/schedule.json` — use the web search fallback first. Only reject if web search also cannot confirm the match.
 
-**Schedule refresh rule:** If `"last_updated"` in `schedule.json` is older than 7 days, proactively search for any newly confirmed knockout fixtures and update the file before answering.
+**Schedule refresh rule:** If `"last_updated"` in `worldcup2026/schedule.json` is older than 7 days, proactively search for any newly confirmed knockout fixtures and update the file before answering.
 
 ---
 
@@ -116,7 +116,7 @@ The footer (predictions, digest, video CTAs) is defined in each output template.
 
 ### Export
 
-The `worldcup/` skill folder contains templates and guides. Users export this folder. Each user gets their own workspace root data files on first run via bootstrap.
+The `worldcup/` skill folder contains templates and guides. Users export this folder. Each user gets their own `worldcup2026/` data files on first run via bootstrap.
 
 ### ⚠️ Agent Capability Notes
 

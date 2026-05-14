@@ -1,14 +1,14 @@
 # Prediction System Guide
 
-**File:** `predictions.json` (workspace root)
+**File:** `worldcup2026/predictions.json` (`worldcup2026/` under workspace root)
 **Template:** `references/tpl_predictions.json`
 **Rule:** Always `read_file` first, then `write_file` to update.
-**Bootstrap:** If `predictions.json` doesn't exist at workspace root, copy `references/tpl_predictions.json` and rename.
+**Bootstrap:** If `worldcup2026/predictions.json` doesn't exist at `worldcup2026/` under workspace root, copy `references/tpl_predictions.json` and rename.
 
 ### Activation Tracking
 When the user makes their **first** prediction:
-1.  Update `predictions.json` as normal.
-2.  Update `user_favorites.json` by setting `"features_activated.predictions": true`.
+1.  Update `worldcup2026/predictions.json` as normal.
+2.  Update `worldcup2026/user_favorites.json` by setting `"features_activated.predictions": true`.
 3.  This ensures the Prediction Footer is suppressed in future responses.
 
 ## Scoring
@@ -92,13 +92,13 @@ When the user already predicted this match, show their current pick with a ✅ i
 > *I'll score your prediction right after the final whistle!*
 ```
 
-**How to detect:** Check `predictions.json` (workspace root) for a matching `match` or `match_id` entry. If `predicted_score` is set (non-null), show the "Already Predicted" variant.
+**How to detect:** Check `worldcup2026/predictions.json` (`worldcup2026/` under workspace root) for a matching `match` or `match_id` entry. If `predicted_score` is set (non-null), show the "Already Predicted" variant.
 
 ### Validation
 
-Before logging any prediction, verify the match exists in `schedule.json` (workspace root).
-- **Cache miss → Web search fallback:** If the match isn't in `schedule.json`, DO NOT immediately reject. Search the web for `"FIFA World Cup 2026 [TeamA] vs [TeamB] schedule confirmed"`. If the match is confirmed by FIFA or a reputable source, **update `schedule.json`** by appending the match and then log the prediction.
-- **Only reject** if both `schedule.json` AND web search cannot confirm the match exists.
+Before logging any prediction, verify the match exists in `worldcup2026/schedule.json` (`worldcup2026/` under workspace root).
+- **Cache miss → Web search fallback:** If the match isn't in `worldcup2026/schedule.json`, DO NOT immediately reject. Search the web for `"FIFA World Cup 2026 [TeamA] vs [TeamB] schedule confirmed"`. If the match is confirmed by FIFA or a reputable source, **update `worldcup2026/schedule.json`** by appending the match and then log the prediction.
+- **Only reject** if both `worldcup2026/schedule.json` AND web search cannot confirm the match exists.
 - **Match number requirement:** Assign a new `match_id` when appending a previously uncached match. Do not use `null`.
 - **Knockout placeholder:** For confirmed knockout fixtures (e.g., "Winner Group B vs Runner-up Group D"), log them with a placeholder format until teams are finalized.
 - **Duplicate match handling:** If two teams play each other more than once in the tournament (e.g., group stage + rematch in final):

@@ -6,7 +6,7 @@ When the user asks about a **finished match**.
 
 ## ⚠️ MANDATORY FOOTER — Append Before Sending
 
-1. Read `user_favorites.json`.
+1. Read `worldcup2026/user_favorites.json`.
 2. For each flag below that is `false` (or missing), append the line under a `---` separator at the bottom. Each line on its own line, blank line between items, no bullet points:
 
 | Flag is `false` | Append this line |
@@ -15,19 +15,19 @@ When the user asks about a **finished match**.
 | `features_activated.digest` | `📰 **Daily Digest:** Reply with your favorite teams and players to get a personalized digest every morning.` |
 | `features_activated.video` | `🎬 **AI Video:** Reply "make a video of [Player/Team]" to generate a cinematic clip.` |
 
-3. When a feature is successfully used, update `user_favorites.json` to set that flag to `true` immediately.
+3. When a feature is successfully used, update `worldcup2026/user_favorites.json` to set that flag to `true` immediately.
 4. Missing file or missing key = show the footer line for that feature.
 
 ## Steps
 
-1.  **Score Prediction:** Read `predictions.json` (workspace root). If the user predicted this match, calculate points and update the file *before* responding.
+1.  **Score Prediction:** Read `worldcup2026/predictions.json` (`worldcup2026/` under workspace root). If the user predicted this match, calculate points and update the file *before* responding.
 2.  **Output:** Present the match summary.
 
 ## Pre-Response Checklist
 
 Verify these items before generating output:
 
-- [ ] Read `predictions.json` (workspace root) and score any user prediction first
+- [ ] Read `worldcup2026/predictions.json` (`worldcup2026/` under workspace root) and score any user prediction first
 - [ ] Include `xG` in the Match Stats table
 - [ ] Include ⭐ **Player of the Match** section with reasoning
 - [ ] Include 🔄 **Turning Point** as a dedicated section if there exists a turning point
@@ -92,7 +92,7 @@ After the match summary (and any prediction score), include a closing prompt to 
 
 ### Variant A: Prediction was scored (user has a prediction record)
 
-Read `predictions.json` (workspace root) for the user's current record. Show:
+Read `worldcup2026/predictions.json` (`worldcup2026/` under workspace root) for the user's current record. Show:
 
 ```markdown
 ---
@@ -121,6 +121,6 @@ Just reply with a scoreline for any upcoming match (e.g. `Brazil 2-1` or `2-2` f
 ```
 
 ### Rules
-- Pick the variant that matches the user's current state. Check `predictions.json` (workspace root) for total predictions count.
+- Pick the variant that matches the user's current state. Check `worldcup2026/predictions.json` (`worldcup2026/` under workspace root) for total predictions count.
 - Append this after the post-match summary.
 - Keep it brief. One or two lines max.

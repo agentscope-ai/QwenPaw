@@ -4,7 +4,7 @@ When the user asks about World Cup topics **without referencing a specific match
 
 ## ⚠️ MANDATORY FOOTER — Append Before Sending
 
-1. Read `user_favorites.json`.
+1. Read `worldcup2026/user_favorites.json`.
 2. For each flag below that is `false` (or missing), append the line under a `---` separator at the bottom of your response. Each line on its own line, blank line between items, no bullet points:
 
 | Flag is `false` | Append this line |
@@ -13,7 +13,7 @@ When the user asks about World Cup topics **without referencing a specific match
 | `features_activated.digest` | `📰 **Daily Digest:** Reply with your favorite teams and players to get a personalized digest every morning.` |
 | `features_activated.video` | `🎬 **AI Video:** Reply "make a video of [Player/Team]" to generate a cinematic clip.` |
 
-3. When a feature is successfully used, update `user_favorites.json` to set that flag to `true` immediately so it stops appearing.
+3. When a feature is successfully used, update `worldcup2026/user_favorites.json` to set that flag to `true` immediately so it stops appearing.
 4. Missing file or missing key = show the footer line for that feature.
 
 ## Guidelines
