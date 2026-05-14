@@ -22,10 +22,17 @@ class AgentContextMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         """Extract agentId and root_session_id from path/headers."""
         import logging
-        from ..agent_context import set_current_agent_id
+        from ..agent_context import (
+            reset_current_agent_id,
+            reset_current_root_session_id,
+            set_current_agent_id,
+            set_current_root_session_id,
+        )
 
         logger = logging.getLogger(__name__)
         agent_id = None
+        agent_token = None
+        root_session_token = None
 
         # Priority 1: Extract agentId from path: /api/agents/{agentId}/...
         path_parts = request.url.path.split("/")
@@ -44,7 +51,7 @@ class AgentContextMiddleware(BaseHTTPMiddleware):
 
         # Set agent_id in context variable for use by runners
         if agent_id:
-            set_current_agent_id(agent_id)
+            agent_token = set_current_agent_id(agent_id)
 
         # Extract X-Root-Session-Id header for cross-session approval routing
         root_session_id = request.headers.get("X-Root-Session-Id")
@@ -53,14 +60,21 @@ class AgentContextMiddleware(BaseHTTPMiddleware):
             if not hasattr(request, "request_context"):
                 request.request_context = {}
             request.request_context["root_session_id"] = root_session_id
+            root_session_token = set_current_root_session_id(root_session_id)
             logger.debug(
                 "AgentContextMiddleware: root_session_id=%s from "
                 "X-Root-Session-Id header",
                 root_session_id[:12],
             )
 
-        response = await call_next(request)
-        return response
+        try:
+            response = await call_next(request)
+            return response
+        finally:
+            if root_session_token is not None:
+                reset_current_root_session_id(root_session_token)
+            if agent_token is not None:
+                reset_current_agent_id(agent_token)
 
 
 def create_agent_scoped_router() -> APIRouter:

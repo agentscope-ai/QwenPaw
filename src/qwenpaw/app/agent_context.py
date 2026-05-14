@@ -3,7 +3,7 @@
 
 Provides utilities to get the correct agent instance for each request.
 """
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from typing import Optional, TYPE_CHECKING
 from fastapi import Request
 from .multi_agent_manager import MultiAgentManager
@@ -131,13 +131,18 @@ def get_active_agent_id() -> str:
         return "default"
 
 
-def set_current_agent_id(agent_id: str) -> None:
+def set_current_agent_id(agent_id: str) -> Token:
     """Set current agent ID in context.
 
     Args:
         agent_id: Agent ID to set
     """
-    _current_agent_id.set(agent_id)
+    return _current_agent_id.set(agent_id)
+
+
+def reset_current_agent_id(token: Token) -> None:
+    """Restore the previous current agent ID context."""
+    _current_agent_id.reset(token)
 
 
 def get_current_agent_id() -> str:
@@ -152,21 +157,30 @@ def get_current_agent_id() -> str:
     return get_active_agent_id()
 
 
-def set_current_session_id(session_id: str) -> None:
-    _current_session_id.set(session_id)
+def set_current_session_id(session_id: str) -> Token:
+    return _current_session_id.set(session_id)
+
+
+def reset_current_session_id(token: Token) -> None:
+    _current_session_id.reset(token)
 
 
 def get_current_session_id() -> Optional[str]:
     return _current_session_id.get()
 
 
-def set_current_root_session_id(root_session_id: Optional[str]) -> None:
+def set_current_root_session_id(root_session_id: Optional[str]) -> Token:
     """Set current root session ID in context.
 
     Args:
         root_session_id: Root session ID to set
     """
-    _current_root_session_id.set(root_session_id)
+    return _current_root_session_id.set(root_session_id)
+
+
+def reset_current_root_session_id(token: Token) -> None:
+    """Restore the previous current root session ID context."""
+    _current_root_session_id.reset(token)
 
 
 def get_current_root_session_id() -> Optional[str]:

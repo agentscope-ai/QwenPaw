@@ -317,35 +317,51 @@ class AgentRunner(Runner):
         query = _get_last_user_text(msgs)
         session_id = getattr(request, "session_id", "") or ""
 
-        # Check if query is a command (including /approval)
-        logger.debug(f"Query: {query!r}, is_command: {_is_command(query)}")
-        if query and _is_command(query):
-            logger.info("Command path: %s", query.strip()[:50])
-            async for msg, last in run_command_path(request, msgs, self):
-                yield msg, last
-            return
-
         logger.debug(
             f"AgentRunner.stream_query: request={request}, "
             f"agent_id={self.agent_id}",
         )
 
-        # Set agent context for model creation
+        # Set agent context before command handling so control commands and
+        # tool approval paths do not fall back to another active agent.
         from ..agent_context import (
+            reset_current_agent_id,
+            reset_current_root_session_id,
+            reset_current_session_id,
             set_current_agent_id,
-            set_current_session_id,
             set_current_root_session_id,
+            set_current_session_id,
         )
 
-        set_current_agent_id(self.agent_id)
+        payload_root_session = getattr(request, "root_session_id", "")
+        if payload_root_session and isinstance(payload_root_session, str):
+            context_root_session_id = payload_root_session
+        else:
+            context_root_session_id = session_id
 
-        # Set session_id in context for token usage tracking
-        set_current_session_id(session_id)
+        agent_context_token = set_current_agent_id(self.agent_id)
+        session_context_token = set_current_session_id(session_id)
+        root_session_context_token = set_current_root_session_id(
+            context_root_session_id,
+        )
 
         agent = None
         chat = None
         session_state_loaded = False
+        base_request_context = {
+            "root_session_id": context_root_session_id,
+        }
         try:
+            # Check if query is a command (including /approval)
+            logger.debug(
+                f"Query: {query!r}, is_command: {_is_command(query)}",
+            )
+            if query and _is_command(query):
+                logger.info("Command path: %s", query.strip()[:50])
+                async for msg, last in run_command_path(request, msgs, self):
+                    yield msg, last
+                return
+
             session_id = request.session_id
             user_id = request.user_id
             channel = getattr(request, "channel", DEFAULT_CHANNEL)
@@ -415,10 +431,8 @@ class AgentRunner(Runner):
                 base_request_context.update(payload_context)
 
             # Extract root_session_id from request payload (agent chat)
-            payload_root_session = getattr(request, "root_session_id", "")
             if payload_root_session and isinstance(payload_root_session, str):
                 base_request_context["root_session_id"] = payload_root_session
-                set_current_root_session_id(payload_root_session)
                 root_preview = (
                     payload_root_session[:12]
                     if len(payload_root_session) >= 12
@@ -431,7 +445,6 @@ class AgentRunner(Runner):
             else:
                 # Current session is the root
                 base_request_context["root_session_id"] = session_id
-                set_current_root_session_id(session_id)
                 session_preview = (
                     session_id[:12] if len(session_id) >= 12 else session_id
                 )
@@ -826,16 +839,21 @@ class AgentRunner(Runner):
                     ) + converted.args[1:]
             raise converted from e
         finally:
-            if agent is not None and session_state_loaded:
-                await self.session.save_session_state(
-                    session_id=session_id,
-                    user_id=user_id,
-                    channel=channel,
-                    agent=agent,
-                )
+            try:
+                if agent is not None and session_state_loaded:
+                    await self.session.save_session_state(
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                        agent=agent,
+                    )
 
-            if self._chat_manager is not None and chat is not None:
-                await self._chat_manager.touch_chat(chat.id)
+                if self._chat_manager is not None and chat is not None:
+                    await self._chat_manager.touch_chat(chat.id)
+            finally:
+                reset_current_root_session_id(root_session_context_token)
+                reset_current_session_id(session_context_token)
+                reset_current_agent_id(agent_context_token)
 
     async def init_handler(self, *args, **kwargs):
         """
