@@ -19,12 +19,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# How often to poll (seconds)
 DEFAULT_POLL_INTERVAL = 2.0
 
 
 def _hash(obj: Any) -> Optional[int]:
-    """把配置对象hash成int，None就返回None"""
     if obj is None:
         return None
     return hash(str(obj.model_dump(mode="json")))
@@ -41,7 +39,6 @@ def _heartbeat_hash(hb: Optional["HeartbeatConfig"]) -> int:
 
 
 def _mcp_hash(mcp: Any) -> Optional[int]:
-    """mcp.clients 变了没？变了就返回不同hash"""
     if mcp is None:
         return None
     try:
@@ -50,7 +47,6 @@ def _mcp_hash(mcp: Any) -> Optional[int]:
             return hash(str(clients))
     except Exception:
         pass
-    # 取不到clients字段就整个dump
     try:
         return hash(str(mcp.model_dump(mode="json")))
     except Exception:
@@ -58,7 +54,6 @@ def _mcp_hash(mcp: Any) -> Optional[int]:
 
 
 def _skills_hash(skills: Any) -> Optional[int]:
-    """skills 改了没？改了就重载"""
     if skills is None:
         return None
     try:
@@ -68,8 +63,6 @@ def _skills_hash(skills: Any) -> Optional[int]:
 
 
 class AgentConfigWatcher:
-    """Poll ``agent.json`` and trigger a graceful workspace reload."""
-
     def __init__(
         self,
         agent_id: str,
@@ -93,7 +86,6 @@ class AgentConfigWatcher:
         self._disabled: bool = False
 
     async def start(self) -> None:
-        """记下初始状态，开始轮询"""
         self._snapshot()
         self._task = asyncio.create_task(
             self._poll_loop(),
@@ -105,7 +97,6 @@ class AgentConfigWatcher:
         )
 
     async def stop(self) -> None:
-        """Stop the polling task (no-op if already disabled)."""
         if self._disabled:
             return
         self._disabled = True
@@ -117,10 +108,6 @@ class AgentConfigWatcher:
                 pass
             self._task = None
         logger.info(f"AgentConfigWatcher stopped for agent {self._agent_id}")
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
 
     def _read_mtime(self) -> float:
         try:
@@ -166,7 +153,6 @@ class AgentConfigWatcher:
                 )
 
     async def _check(self) -> None:
-        """看看配置有没有变，变了就重载"""
         mtime = self._read_mtime()
         if mtime == self._last_mtime:
             return
