@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # pylint: disable=line-too-long
+import hashlib
 import os
 from pathlib import Path
 from typing import Optional
@@ -63,15 +64,31 @@ def _get_encoding_for_file(file_path: str) -> str:
     return "utf-8"
 
 
+def _line_hash(line_no: int, text: str) -> str:
+    """Return a short stable hash for one numbered line of text."""
+    payload = f"{line_no}:{text}"
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:8]
+
+
+def _format_lines_with_hashes(lines: list[str], start_line: int) -> str:
+    """Format lines with line numbers and stable hashes for precise edits."""
+    return "\n".join(
+        f"{line_no}:{_line_hash(line_no, line)}: {line}"
+        for line_no, line in enumerate(lines, start=start_line)
+    )
+
+
 async def read_file(  # pylint: disable=too-many-return-statements
     file_path: str,
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
+    include_line_hashes: bool = False,
 ) -> ToolResponse:
     """Read a file. Relative paths resolve from WORKING_DIR.
 
     Use start_line/end_line to read a specific line range (output includes
-    line numbers). Omit both to read the full file.
+    line numbers when include_line_hashes is true). Omit both to read the
+    full file.
 
     Args:
         file_path (`str`):
@@ -80,6 +97,9 @@ async def read_file(  # pylint: disable=too-many-return-statements
             First line to read (1-based, inclusive).
         end_line (`int`, optional):
             Last line to read (1-based, inclusive).
+        include_line_hashes (`bool`, optional):
+            When true, prefix each line as "<line>:<hash>: <text>" so
+            edit_file can target the same line_hash later.
     """
 
     # Convert start_line/end_line to int if they are strings
@@ -161,7 +181,11 @@ async def read_file(  # pylint: disable=too-many-return-statements
             )
 
         # Extract selected lines
-        selected_content = "\n".join(all_lines[s - 1 : e])
+        selected_lines = all_lines[s - 1 : e]
+        if include_line_hashes:
+            selected_content = _format_lines_with_hashes(selected_lines, s)
+        else:
+            selected_content = "\n".join(selected_lines)
 
         # Apply smart truncation (consistent with shell output format)
         max_bytes = get_current_recent_max_bytes() or DEFAULT_MAX_BYTES
@@ -258,9 +282,11 @@ async def edit_file(
     file_path: str,
     old_text: str,
     new_text: str,
+    line_hash: Optional[str] = None,
 ) -> ToolResponse:
     """Find-and-replace text in a file. All occurrences of old_text are
-    replaced with new_text. Relative paths resolve from WORKING_DIR.
+    replaced with new_text unless line_hash is provided. Relative paths
+    resolve from WORKING_DIR.
 
     Args:
         file_path (`str`):
@@ -269,6 +295,9 @@ async def edit_file(
             Exact text to find.
         new_text (`str`):
             Replacement text.
+        line_hash (`str`, optional):
+            Hash from read_file(include_line_hashes=True). When set, only the
+            matching line is edited.
     """
 
     if not file_path:
@@ -315,7 +344,29 @@ async def edit_file(
             ],
         )
 
-    if old_text not in content:
+    if line_hash:
+        lines = content.split("\n")
+        changed = False
+        for line_no, line in enumerate(lines, start=1):
+            if _line_hash(line_no, line) == line_hash and old_text in line:
+                lines[line_no - 1] = line.replace(old_text, new_text)
+                changed = True
+                break
+
+        if not changed:
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"Error: No line with hash {line_hash!r} "
+                            f"contains the requested text in {file_path}."
+                        ),
+                    ),
+                ],
+            )
+        new_content = "\n".join(lines)
+    elif old_text not in content:
         return ToolResponse(
             content=[
                 TextBlock(
@@ -324,8 +375,8 @@ async def edit_file(
                 ),
             ],
         )
-
-    new_content = content.replace(old_text, new_text)
+    else:
+        new_content = content.replace(old_text, new_text)
     write_response = await write_file(
         file_path=resolved_path,
         content=new_content,
