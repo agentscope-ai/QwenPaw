@@ -148,12 +148,19 @@
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
+        overflow: visible !important;
+      }
+
+      /* Ensure icon container allows badge overflow */
+      .qwenpaw-menu-item-icon,
+      .qwenpaw-menu-item .anticon {
+        overflow: visible !important;
       }
 
       /* Hide label text in collapsed mode */
       .qwenpaw-menu-title-content,
-      .qwenpaw-menu-item > span:not([role]),
-      .qwenpaw-menu-item-only-child > span {
+      .qwenpaw-menu-item > span:not([role]):not(.qwenpaw-badge),
+      .qwenpaw-menu-item-only-child > span:not(.qwenpaw-badge) {
         display: none !important;
       }
 

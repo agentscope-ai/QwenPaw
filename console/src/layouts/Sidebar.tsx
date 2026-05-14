@@ -215,7 +215,24 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     },
     {
       key: "inbox",
-      icon: <SparkEmailLine size={18} />,
+      icon: (
+        <span style={{ position: "relative", display: "inline-flex" }}>
+          <SparkEmailLine size={18} />
+          {hasInboxUnread && (
+            <span
+              style={{
+                position: "absolute",
+                top: -1,
+                right: -3,
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "rgba(255, 157, 77, 1)",
+              }}
+            />
+          )}
+        </span>
+      ),
       path: "/inbox",
       label: t("nav.inbox"),
     },
