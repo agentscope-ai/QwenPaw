@@ -16,9 +16,9 @@ describe("getAgentDisplayName", () => {
   });
 
   it('returns i18n key when id is "default" and name is empty', () => {
-    expect(
-      getAgentDisplayName({ id: "default", name: "" }, t as any),
-    ).toBe("agent.defaultDisplayName");
+    expect(getAgentDisplayName({ id: "default", name: "" }, t as any)).toBe(
+      "agent.defaultDisplayName",
+    );
   });
 
   it('returns custom name when id is "default" but name is customized', () => {

@@ -15,9 +15,7 @@ import { PageHeader } from "./index";
 
 describe("PageHeader", () => {
   it("renders parent and current as breadcrumb", () => {
-    renderWithProviders(
-      <PageHeader parent="Settings" current="Models" />,
-    );
+    renderWithProviders(<PageHeader parent="Settings" current="Models" />);
     expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(screen.getByText("Models")).toBeInTheDocument();
   });
