@@ -1,9 +1,9 @@
-//! Tauri sidecar process event handling and stderr capture.
+//! Sidecar process event handling and stderr capture.
 
 use tauri::Manager;
 use tauri_plugin_shell::process::{CommandEvent, TerminatedPayload};
 
-use super::SidecarState;
+use super::BackendState;
 
 const MAX_CAPTURED_STDERR_CHARS: usize = 4000;
 
@@ -23,7 +23,7 @@ pub(super) fn watch(
                 CommandEvent::Stderr(line) => record_stderr(&mut last_stderr, &line),
                 CommandEvent::Error(message) => {
                     log::error!("[backend] process event error: {message}");
-                    app.state::<SidecarState>().set_error_if_current(
+                    app.state::<BackendState>().set_error_if_current(
                         generation,
                         format!("backend process error: {message}"),
                     );
@@ -31,7 +31,7 @@ pub(super) fn watch(
                 CommandEvent::Terminated(payload) => {
                     let message = termination_message(payload, &last_stderr);
                     log::warn!("[backend] {message}");
-                    app.state::<SidecarState>()
+                    app.state::<BackendState>()
                         .set_error_if_current(generation, message);
                 }
                 _ => {}
@@ -39,7 +39,7 @@ pub(super) fn watch(
         }
 
         log::warn!("[backend] process exited");
-        app.state::<SidecarState>()
+        app.state::<BackendState>()
             .clear_child_if_current(generation);
     });
 }
