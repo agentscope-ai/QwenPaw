@@ -375,6 +375,100 @@ def test_anthropic_formatter_strips_extra_content(monkeypatch) -> None:
     assert "extra_content" not in normalized[0].content[0]
 
 
+def test_anthropic_formatter_converts_top_level_file_block() -> None:
+    """Anthropic payloads should not contain unsupported file blocks."""
+    if AnthropicChatFormatter is None:
+        pytest.skip("AnthropicChatFormatter not available")
+
+    formatted = model_factory._format_anthropic_messages(
+        [
+            Msg(
+                name="user",
+                role="user",
+                content=[
+                    {
+                        "type": "file",
+                        "source": {
+                            "type": "url",
+                            "url": "file:///tmp/report.md",
+                        },
+                        "filename": "report.md",
+                    },
+                ],
+            ),
+        ],
+    )
+
+    assert formatted == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        "File 'report.md' is available at: " "/tmp/report.md"
+                    ),
+                },
+            ],
+        },
+    ]
+
+
+def test_anthropic_formatter_converts_tool_result_file_block() -> None:
+    """File outputs from send_file_to_user should stay as text history."""
+    if AnthropicChatFormatter is None:
+        pytest.skip("AnthropicChatFormatter not available")
+
+    formatted = model_factory._format_anthropic_messages(
+        [
+            Msg(
+                name="assistant",
+                role="assistant",
+                content=[
+                    {
+                        "type": "tool_use",
+                        "id": "call_file",
+                        "name": "send_file_to_user",
+                        "input": {"path": "/tmp/report.md"},
+                    },
+                ],
+            ),
+            Msg(
+                name="system",
+                role="system",
+                content=[
+                    ToolResultBlock(
+                        type="tool_result",
+                        id="call_file",
+                        name="send_file_to_user",
+                        output=[
+                            {
+                                "type": "file",
+                                "source": {
+                                    "type": "url",
+                                    "url": "file:///tmp/report.md",
+                                },
+                                "filename": "report.md",
+                            },
+                        ],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    tool_result_msg = formatted[1]
+    tool_result_content = tool_result_msg["content"][0]
+    assert tool_result_content["type"] == "tool_result"
+    assert tool_result_content["tool_use_id"] == "call_file"
+    assert tool_result_content["content"] == [
+        {
+            "type": "text",
+            "text": "File 'report.md' is available at: /tmp/report.md",
+        },
+    ]
+
+
 def test_gemini_formatter_preserves_extra_content(monkeypatch) -> None:
     """Gemini formatter should keep extra_content on tool_use blocks."""
     if GeminiChatFormatter is None:

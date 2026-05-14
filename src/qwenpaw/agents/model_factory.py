@@ -302,6 +302,32 @@ def _media_source_key(block: dict) -> str | None:
     return url
 
 
+def _format_file_block_as_text(block: dict) -> dict:
+    """Convert a QwenPaw file block into Anthropic-compatible text."""
+    source = block.get("source", {})
+    file_url = (
+        (source.get("url") if isinstance(source, dict) else "")
+        or block.get("file_url", "")
+        or block.get("url", "")
+        or block.get(
+            "path",
+            "",
+        )
+    )
+    filename = (
+        block.get("filename")
+        or block.get("name")
+        or file_url.rsplit("/", 1)[-1]
+        or "unknown"
+    )
+    readable_path = file_url.removeprefix("file://")
+    if readable_path:
+        text = f"File '{filename}' is available at: {readable_path}"
+    else:
+        text = f"File '{filename}' is available."
+    return {"type": "text", "text": text}
+
+
 def _format_anthropic_output_items(
     output: list,
     seen_media: set[str] | None = None,
@@ -321,21 +347,7 @@ def _format_anthropic_output_items(
             # Anthropic tool_result content only supports 'text' and 'image';
             # convert file blocks to a readable text placeholder so the
             # conversation history stays intact without triggering a 400 error.
-            source = item.get("source", {})
-            file_url = source.get("url", "")
-            filename = (
-                item.get("filename")
-                or file_url.rsplit("/", 1)[-1]
-                or "unknown"
-            )
-            readable_path = file_url.removeprefix("file://")
-            result.append(
-                {
-                    "type": "text",
-                    "text": f"File '{filename}' is available at:"
-                    f" {readable_path}",
-                },
-            )
+            result.append(_format_file_block_as_text(item))
             continue
 
         if item_type not in ("image", "video"):
@@ -394,6 +406,9 @@ def _format_anthropic_messages(  # pylint: disable=too-many-branches
                 content_blocks.append(
                     _format_anthropic_media_block(block),
                 )
+
+            elif typ == "file":
+                content_blocks.append(_format_file_block_as_text(block))
 
             elif typ == "tool_use":
                 content_blocks.append(
