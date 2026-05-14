@@ -275,7 +275,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   upload-oss:
-    needs: [build-windows, build-macos]
+    needs: [build-windows, build-macos, build-tauri-windows, build-tauri-macos]
     # Run on: 1) release trigger, or 2) manual trigger with upload_to_oss checked
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')
     runs-on: ubuntu-latest
@@ -404,6 +404,68 @@ jobs:
 
           echo "✓ macOS artifacts uploaded"
 
+      - name: Process and upload Tauri artifacts
+        if: hashFiles('QwenPaw-Desktop-Tauri-*/*') != ''
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          upload_tauri_artifact() {
+            local dirs="$1"
+            local pattern="$2"
+            local platform="$3"
+            local versioned_name="$4"
+            local latest_name="$5"
+            local metadata="$6"
+
+            local artifact
+            artifact=$(find ${dirs} -name "${pattern}" 2>/dev/null | head -1 || true)
+            if [ -z "${artifact}" ]; then
+              echo "No ${platform} Tauri artifact found, skipping"
+              return 0
+            fi
+
+            echo "Processing ${platform} Tauri artifact: ${artifact}"
+            python scripts/pack/generate_oss_metadata.py \
+              --file "${artifact}" \
+              --product desktop \
+              --platform "${platform}" \
+              --version "${VERSION}" \
+              --output "${metadata}"
+
+            ossutil cp "${artifact}" \
+              "oss://qwenpaw-download/files/apps/desktop/${platform}/${versioned_name}" \
+              --acl public-read \
+              --force
+            ossutil cp "${artifact}" \
+              "oss://qwenpaw-download/files/apps/desktop/${platform}/${latest_name}" \
+              --acl public-read \
+              --force
+            ossutil cp "${metadata}" \
+              "oss://qwenpaw-download/metadata/apps/desktop/${platform}/${versioned_name}.json" \
+              --acl public-read \
+              --force
+            ossutil cp "${metadata}" \
+              "oss://qwenpaw-download/metadata/apps/desktop/${platform}/${latest_name}.json" \
+              --acl public-read \
+              --force
+          }
+
+          upload_tauri_artifact \
+            "QwenPaw-Desktop-Tauri-Windows-*" \
+            "QwenPaw-Tauri-*-Windows-setup.exe" \
+            "win-tauri" \
+            "QwenPaw-Tauri-${VERSION}-Windows-setup.exe" \
+            "QwenPaw-Tauri-latest-Windows-setup.exe" \
+            "win-tauri-metadata.json"
+
+          upload_tauri_artifact \
+            "QwenPaw-Desktop-Tauri-macOS-*" \
+            "QwenPaw-Tauri-*-macOS.zip" \
+            "mac-tauri" \
+            "QwenPaw-Tauri-${VERSION}-macOS.zip" \
+            "QwenPaw-Tauri-latest-macOS.zip" \
+            "mac-tauri-metadata.json"
+
       - name: Update desktop index
         run: |
           VERSION="${{ steps.version.outputs.version }}"
@@ -442,6 +504,35 @@ jobs:
               --merge-index desktop-index.json \
               --output-index desktop-index.json
           fi
+
+          merge_tauri_metadata() {
+            local metadata="$1"
+            local dirs="$2"
+            local pattern="$3"
+            local platform="$4"
+            if [ ! -f "${metadata}" ]; then
+              return 0
+            fi
+            python scripts/pack/generate_oss_metadata.py \
+              --file "$(find ${dirs} -name "${pattern}" | head -1)" \
+              --product desktop \
+              --platform "${platform}" \
+              --version "$VERSION" \
+              --output "${metadata}" \
+              --merge-index desktop-index.json \
+              --output-index desktop-index.json
+          }
+
+          merge_tauri_metadata \
+            "win-tauri-metadata.json" \
+            "QwenPaw-Desktop-Tauri-Windows-*" \
+            "QwenPaw-Tauri-*-Windows-setup.exe" \
+            "win-tauri"
+          merge_tauri_metadata \
+            "mac-tauri-metadata.json" \
+            "QwenPaw-Desktop-Tauri-macOS-*" \
+            "QwenPaw-Tauri-*-macOS.zip" \
+            "mac-tauri"
 
           # Upload updated desktop/index.json
           ossutil cp desktop-index.json \

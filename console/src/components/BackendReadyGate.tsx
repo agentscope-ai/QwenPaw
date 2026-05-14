@@ -10,6 +10,7 @@ import {
   getBackendStartupError,
   initRuntimeApiBaseUrl,
   isTauriRuntime,
+  restartBackend,
 } from "../api/config";
 
 const POLL_INTERVAL = 1000;
@@ -98,7 +99,7 @@ export default function BackendReadyGate({ children }: Props) {
       setElapsed(0);
       setErrorMessage("");
     }
-    initRuntimeApiBaseUrl()
+    restartBackend()
       .then((apiBaseUrl) => {
         if (!mountedRef.current) return;
         if (apiBaseUrl) {
@@ -155,7 +156,7 @@ export default function BackendReadyGate({ children }: Props) {
       abortRef.current?.abort();
       abortRef.current = null;
     };
-  }, [startPolling]);
+  }, [shouldGate, startPolling]);
 
   // Browser mode or backend ready.
   if (!shouldGate || status === "ready") {

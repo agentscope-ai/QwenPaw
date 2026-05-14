@@ -62,6 +62,8 @@ echo ""
 
 # Step 2: Build Tauri app
 echo "== Step 2: Building Tauri App =="
+BUNDLE_DIR="${REPO_ROOT}/console/src-tauri/target/release/bundle"
+rm -rf "${BUNDLE_DIR}/dmg" "${BUNDLE_DIR}/macos"
 cd console
 npm ci
 echo "Syncing Tauri version..."
@@ -75,14 +77,21 @@ echo ""
 # Step 3: Collect distribution artifacts
 echo "== Step 3: Collecting Distribution Artifacts =="
 DIST="${DIST:-dist}"
-DIST_DIR="${REPO_ROOT}/${DIST}/tauri-macos"
-BUNDLE_DIR="${REPO_ROOT}/console/src-tauri/target/release/bundle"
+if [[ "${DIST}" = /* ]]; then
+    DIST_ROOT="${DIST}"
+else
+    DIST_ROOT="${REPO_ROOT}/${DIST}"
+fi
+DIST_DIR="${DIST_ROOT}/tauri-macos"
+rm -rf "${DIST_DIR}"
 mkdir -p "${DIST_DIR}"
+artifact_count=0
 
 # Copy DMG if present
 if ls "${BUNDLE_DIR}/dmg/"*.dmg &>/dev/null; then
     cp "${BUNDLE_DIR}/dmg/"*.dmg "${DIST_DIR}/"
     echo "DMG copied to ${DIST_DIR}/"
+    artifact_count=$((artifact_count + 1))
 fi
 
 # Copy .app if present
@@ -90,10 +99,16 @@ APP_PATH="${BUNDLE_DIR}/macos/QwenPaw Desktop.app"
 if [ -d "${APP_PATH}" ]; then
     cp -R "${APP_PATH}" "${DIST_DIR}/"
     echo ".app copied to ${DIST_DIR}/"
+    artifact_count=$((artifact_count + 1))
+fi
+
+if [ "${artifact_count}" -eq 0 ]; then
+    echo "ERROR: No Tauri macOS artifacts found in ${BUNDLE_DIR}"
+    exit 1
 fi
 
 # Create ZIP archive
-ZIP_NAME="${REPO_ROOT}/${DIST}/QwenPaw-Tauri-${VERSION}-macOS.zip"
+ZIP_NAME="${DIST_ROOT}/QwenPaw-Tauri-${VERSION}-macOS.zip"
 if [ -f "${ZIP_NAME}" ]; then
     rm -f "${ZIP_NAME}"
 fi

@@ -73,6 +73,27 @@ export async function getBackendStartupError(): Promise<string> {
   return (await invoke<string | null>("backend_startup_error")) || "";
 }
 
+export async function restartBackend(): Promise<string> {
+  const invoke = getTauriInvoke();
+  const configuredBaseUrl =
+    typeof VITE_API_BASE_URL !== "undefined" ? VITE_API_BASE_URL : "";
+  if (!invoke) {
+    return getApiBaseUrl();
+  }
+
+  initRuntimeApiBaseUrlPromise = null;
+
+  if (configuredBaseUrl) {
+    return configuredBaseUrl;
+  }
+
+  runtimeApiBaseUrl = "";
+  const port = await invoke<number>("restart_backend");
+  runtimeApiBaseUrl = `http://127.0.0.1:${port}`;
+
+  return runtimeApiBaseUrl;
+}
+
 /**
  * Get the full API URL with /api prefix
  * @param path - API path (e.g., "/models", "/skills")

@@ -5,4 +5,3 @@
 tauri.version.conf.json
 # binaries/ is ignored at the repo root (.gitignore) to keep the rule visible
 # at the project level; no need to duplicate it here.
-
