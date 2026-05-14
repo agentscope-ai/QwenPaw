@@ -73,6 +73,8 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   status?: ChatStatus;
   /** ISO 8601 creation timestamp from backend. */
   createdAt?: string | null;
+  /** ISO 8601 last activity timestamp from backend. */
+  updatedAt?: string | null;
   /** Whether the backend is still generating a response for this session. */
   generating?: boolean;
   /** Whether the chat is pinned to the top. */
@@ -261,8 +263,16 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     meta: chat.meta || {},
     status: chat.status ?? "idle",
     createdAt: chat.created_at ?? null,
+    updatedAt: chat.updated_at ?? null,
     pinned: chat.pinned ?? false,
   }) as ExtendedSession;
+
+const chatActivityTime = (chat: ChatSpec): number => {
+  const raw = chat.updated_at ?? chat.created_at;
+  if (!raw) return 0;
+  const time = new Date(raw).getTime();
+  return Number.isNaN(time) ? 0 : time;
+};
 
 /** Returns true when id is a pure numeric local timestamp (not a backend UUID). */
 const isLocalTimestamp = (id: string): boolean => /^\d+$/.test(id);
@@ -528,8 +538,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   ): IAgentScopeRuntimeWebUISession[] {
     const newList = chats
       .filter((c) => c.id && c.id !== "undefined" && c.id !== "null")
-      .map(chatSpecToSession)
-      .reverse();
+      .sort((a, b) => chatActivityTime(b) - chatActivityTime(a))
+      .map(chatSpecToSession);
 
     // Track which existing sessions have already been matched so that
     // sessions sharing the same sessionId (channel:user_id) don't all

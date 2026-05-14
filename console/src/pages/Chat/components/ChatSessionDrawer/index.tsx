@@ -59,13 +59,14 @@ const SessionRow = React.memo(function SessionRow({
     ? getChannelLabel(channelKey, data.t)
     : undefined;
   const isEditing = data.editingSessionId === session.id;
+  const activityTime = session.updatedAt ?? session.createdAt ?? null;
 
   return (
     <div style={style}>
       <ChatSessionItem
         sessionId={session.id!}
         name={session.name || "New Chat"}
-        time={formatCreatedAt(session.createdAt ?? null)}
+        time={formatCreatedAt(activityTime)}
         channelKey={channelKey || undefined}
         channelLabel={channelLabel}
         chatStatus={session.status}
@@ -94,6 +95,7 @@ interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   userId?: string;
   channel?: string;
   createdAt?: string | null;
+  updatedAt?: string | null;
   meta?: Record<string, unknown>;
   status?: ChatStatus;
   generating?: boolean;
@@ -188,7 +190,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     string | null
   >(null);
 
-  /** Sessions sorted by pinned first, then by createdAt descending */
+  /** Sessions sorted by pinned first, then by latest activity descending */
   const sortedSessions = useMemo(() => {
     return [...sessions].sort((a, b) => {
       const extA = a as ExtendedChatSession;
@@ -197,8 +199,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       if (extA.pinned && !extB.pinned) return -1;
       if (!extA.pinned && extB.pinned) return 1;
 
-      const aTime = extA.createdAt;
-      const bTime = extB.createdAt;
+      const aTime = extA.updatedAt ?? extA.createdAt;
+      const bTime = extB.updatedAt ?? extB.createdAt;
       if (!aTime && !bTime) return 0;
       if (!aTime) return 1;
       if (!bTime) return -1;

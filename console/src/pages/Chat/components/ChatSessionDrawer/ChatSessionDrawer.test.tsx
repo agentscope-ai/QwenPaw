@@ -112,6 +112,7 @@ vi.mock("../ChatSessionItem", () => ({
   default: ({
     sessionId,
     name,
+    time,
     onClick,
     onEdit,
     onDelete,
@@ -121,6 +122,7 @@ vi.mock("../ChatSessionItem", () => ({
   }: any) => (
     <div data-testid="session-item">
       <span onClick={() => onClick?.(sessionId)}>{name}</span>
+      <span data-testid="session-time">{time}</span>
       <button data-testid="edit-btn" onClick={() => onEdit?.(sessionId, name)}>
         edit
       </button>
@@ -286,5 +288,36 @@ describe("ChatSessionDrawer", () => {
     const items = await screen.findAllByTestId("session-item");
     expect(items[0]).toHaveTextContent("Pinned");
     expect(items[1]).toHaveTextContent("Unpinned");
+  });
+
+  it("sorts and displays sessions by latest activity", async () => {
+    vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
+      sessions: [
+        {
+          id: "s1",
+          name: "Created Later",
+          createdAt: "2026-05-03T10:00:00",
+          updatedAt: "2026-05-03T10:00:00",
+        },
+        {
+          id: "s2",
+          name: "Updated Later",
+          createdAt: "2026-05-01T10:00:00",
+          updatedAt: "2026-05-04T11:22:33",
+        },
+      ] as any,
+      currentSessionId: null,
+      setCurrentSessionId: mockSetCurrentSessionId,
+      setSessions: mockSetSessions,
+    } as any);
+
+    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
+
+    const items = await screen.findAllByTestId("session-item");
+    expect(items[0]).toHaveTextContent("Updated Later");
+    expect(items[1]).toHaveTextContent("Created Later");
+
+    const times = screen.getAllByTestId("session-time");
+    expect(times[0]).toHaveTextContent("2026-05-04 11:22:33");
   });
 });
