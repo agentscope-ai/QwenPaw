@@ -69,6 +69,13 @@ npm ci
 echo "Syncing Tauri version..."
 npm run sync:tauri-version
 echo "Building for macOS..."
+if [ -z "${APPLE_SIGNING_IDENTITY:-}" ] && [ -z "${APPLE_CERTIFICATE:-}" ]; then
+    # The Tauri app and PyInstaller sidecar are native Mach-O executables.
+    # Keep their signature state consistent when no Developer ID certificate is
+    # configured; notarization is still required for fully trusted distribution.
+    export APPLE_SIGNING_IDENTITY="-"
+    echo "Using ad-hoc macOS code signing"
+fi
 npm exec -- tauri build --config src-tauri/tauri.version.conf.json
 cd ..
 echo "Tauri app built"
@@ -85,36 +92,31 @@ fi
 DIST_DIR="${DIST_ROOT}/tauri-macos"
 rm -rf "${DIST_DIR}"
 mkdir -p "${DIST_DIR}"
-artifact_count=0
 
-# Copy DMG if present
-if ls "${BUNDLE_DIR}/dmg/"*.dmg &>/dev/null; then
-    cp "${BUNDLE_DIR}/dmg/"*.dmg "${DIST_DIR}/"
-    echo "DMG copied to ${DIST_DIR}/"
-    artifact_count=$((artifact_count + 1))
-fi
-
-# Copy .app if present
+# Match the legacy macOS package shape: one zip containing one .app bundle.
+# The DMG remains in Tauri's build output for local debugging, but shipping
+# both doubles the public artifact size and changes the user-facing layout.
 APP_PATH="${BUNDLE_DIR}/macos/QwenPaw Desktop.app"
-if [ -d "${APP_PATH}" ]; then
-    cp -R "${APP_PATH}" "${DIST_DIR}/"
-    echo ".app copied to ${DIST_DIR}/"
-    artifact_count=$((artifact_count + 1))
-fi
-
-if [ "${artifact_count}" -eq 0 ]; then
-    echo "ERROR: No Tauri macOS artifacts found in ${BUNDLE_DIR}"
+if [ ! -d "${APP_PATH}" ]; then
+    echo "ERROR: No Tauri macOS app found at ${APP_PATH}"
     exit 1
 fi
+
+cp -R "${APP_PATH}" "${DIST_DIR}/"
+echo ".app copied to ${DIST_DIR}/"
 
 # Create ZIP archive
 ZIP_NAME="${DIST_ROOT}/QwenPaw-Tauri-${VERSION}-macOS.zip"
 if [ -f "${ZIP_NAME}" ]; then
     rm -f "${ZIP_NAME}"
 fi
-cd "${DIST_DIR}"
-zip -r "${ZIP_NAME}" .
-cd "${REPO_ROOT}"
+if command -v ditto &>/dev/null; then
+    ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "${ZIP_NAME}"
+else
+    cd "${DIST_DIR}"
+    zip -r "${ZIP_NAME}" "QwenPaw Desktop.app"
+    cd "${REPO_ROOT}"
+fi
 
 if [ -f "${ZIP_NAME}" ]; then
     SIZE=$(du -sh "${ZIP_NAME}" | cut -f1)
@@ -129,7 +131,7 @@ echo ""
 echo "========================================="
 echo "Build Complete!"
 echo "========================================="
-echo "App:          console/src-tauri/target/release/bundle/macos/QwenPaw Desktop.app"
+echo "App:          ${APP_PATH}"
 echo "Distribution: ${DIST_DIR}"
 echo "Archive:      ${ZIP_NAME}"
 echo ""
