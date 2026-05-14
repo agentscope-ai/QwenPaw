@@ -1,4 +1,4 @@
-//! Backend sidecar lifecycle for the Tauri desktop app.
+//! Tauri-side Python backend sidecar lifecycle.
 
 use std::{
     net::TcpListener,
@@ -15,16 +15,16 @@ use tauri_plugin_shell::process::CommandChild;
 mod command;
 mod events;
 
-/// Shared sidecar process state managed by Tauri.
+/// Shared Python sidecar process state managed by the Tauri shell.
 #[derive(Default)]
-pub(crate) struct BackendState {
+pub(crate) struct SidecarState {
     child: Mutex<Option<CommandChild>>,
     port: Mutex<Option<u16>>,
     error: Mutex<Option<String>>,
     generation: AtomicU64,
 }
 
-impl BackendState {
+impl SidecarState {
     fn next_generation(&self) -> u64 {
         self.generation.fetch_add(1, Ordering::SeqCst) + 1
     }
@@ -77,12 +77,12 @@ impl BackendState {
 }
 
 #[tauri::command]
-pub(crate) fn backend_port(state: tauri::State<'_, BackendState>) -> Result<u16, String> {
+pub(crate) fn backend_port(state: tauri::State<'_, SidecarState>) -> Result<u16, String> {
     state.port()
 }
 
 #[tauri::command]
-pub(crate) fn backend_startup_error(state: tauri::State<'_, BackendState>) -> Option<String> {
+pub(crate) fn backend_startup_error(state: tauri::State<'_, SidecarState>) -> Option<String> {
     state.error()
 }
 
@@ -92,11 +92,11 @@ pub(crate) fn restart_backend(app: tauri::AppHandle) -> Result<u16, String> {
     stop(&app);
     start(&app);
 
-    let state = app.state::<BackendState>();
+    let state = app.state::<SidecarState>();
     state.error().map_or_else(|| state.port(), Err)
 }
 
-/// Installs backend-related plugins and starts the sidecar during app setup.
+/// Installs Tauri-sidecar plugins and starts the Python sidecar during app setup.
 pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.handle().plugin(
         tauri_plugin_log::Builder::default()
@@ -112,12 +112,12 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
 
 /// Terminates the current sidecar process, if one is running.
 pub(crate) fn stop(app: &tauri::AppHandle) {
-    app.state::<BackendState>().stop();
+    app.state::<SidecarState>().stop();
 }
 
 /// Starts the sidecar and records startup failures for the frontend retry UI.
 fn start(app: &tauri::AppHandle) {
-    let state = app.state::<BackendState>();
+    let state = app.state::<SidecarState>();
     let generation = state.next_generation();
     state.clear_startup_state();
 

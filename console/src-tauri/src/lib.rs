@@ -1,4 +1,4 @@
-mod backend;
+mod tauri_sidecar;
 
 use tauri::{Manager, RunEvent, WindowEvent};
 
@@ -7,18 +7,18 @@ pub fn run() {
     let build_result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
-            backend::backend_port,
-            backend::backend_startup_error,
-            backend::restart_backend,
+            tauri_sidecar::backend_port,
+            tauri_sidecar::backend_startup_error,
+            tauri_sidecar::restart_backend,
         ])
-        .manage(backend::BackendState::default())
-        .setup(backend::setup)
+        .manage(tauri_sidecar::SidecarState::default())
+        .setup(tauri_sidecar::setup)
         .on_window_event(|window, event| {
             // The app currently has a single "main" window, so closing it
             // is equivalent to quitting. If a multi-window mode is introduced,
             // make this window-count aware and keep the exit-event fallback.
             if matches!(event, WindowEvent::CloseRequested { .. }) {
-                backend::stop(window.app_handle());
+                tauri_sidecar::stop(window.app_handle());
             }
         })
         .build(tauri::generate_context!());
@@ -27,7 +27,7 @@ pub fn run() {
         Ok(app) => {
             app.run(|app_handle, event| {
                 if let RunEvent::ExitRequested { .. } = event {
-                    backend::stop(app_handle);
+                    tauri_sidecar::stop(app_handle);
                 }
             });
         }
