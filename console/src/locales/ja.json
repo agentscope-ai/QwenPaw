@@ -1487,6 +1487,7 @@
   },
   "chat": {
     "modelSelectTooltip": "モデルを選択",
+    "contextUsageLabel": "コンテキスト",
     "newChatTooltip": "新しいチャット",
     "searchTooltip": "すべてのチャットを検索",
     "chatHistoryTooltip": "チャット履歴",

@@ -107,6 +107,7 @@
   },
   "chat": {
     "modelSelectTooltip": "Pilih model",
+    "contextUsageLabel": "Konteks",
     "newChatTooltip": "Chat baru",
     "searchTooltip": "Cari semua chat",
     "chatHistoryTooltip": "Riwayat chat",

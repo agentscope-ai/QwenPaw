@@ -1660,6 +1660,7 @@
   },
   "chat": {
     "modelSelectTooltip": "模型选择",
+    "contextUsageLabel": "上下文",
     "newChatTooltip": "新建聊天",
     "searchTooltip": "搜索所有聊天",
     "chatHistoryTooltip": "聊天历史",

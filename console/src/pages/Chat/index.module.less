@@ -77,6 +77,65 @@
   }
 }
 
+.contextUsageBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(260px, 34vw);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(31, 141, 78, 0.3);
+  background: rgba(31, 141, 78, 0.08);
+  color: #1f8d4e;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.contextUsageBadge[data-level="warning"] {
+  border-color: rgba(214, 137, 16, 0.35);
+  background: rgba(214, 137, 16, 0.1);
+  color: #ad6800;
+}
+
+.contextUsageBadge[data-level="danger"] {
+  border-color: rgba(207, 19, 34, 0.35);
+  background: rgba(207, 19, 34, 0.1);
+  color: #cf1322;
+}
+
+.contextUsageLabel {
+  font-weight: 600;
+}
+
+.contextUsageValue {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contextUsageTrack {
+  flex: 0 0 42px;
+  height: 4px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.contextUsageFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: currentcolor;
+  opacity: 1;
+}
+
+:global(.dark-mode) {
+  .contextUsageTrack {
+    background: rgba(255, 255, 255, 0.18);
+  }
+}
+
 .suggestionLabel {
   display: flex;
   align-items: flex-start;

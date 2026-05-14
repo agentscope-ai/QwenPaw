@@ -13,6 +13,7 @@ pretty-printed to the terminal.
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import os
 import sys
@@ -329,6 +330,35 @@ class ConsoleChannel(BaseChannel):
         logger.info("Usage for session %s (cleaned up): %s", session_id, usage)
         return usage
 
+    def _extract_context_usage(
+        self,
+        session_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        from ....context_usage import pop_context_usage_for_session
+
+        if not session_id:
+            return None
+
+        usage = pop_context_usage_for_session(session_id)
+        logger.info("Context usage for session %s: %s", session_id, usage)
+        return usage
+
+    @staticmethod
+    def _inject_context_usage(
+        data: str,
+        context_usage: Dict[str, Any],
+    ) -> str:
+        try:
+            payload = json.loads(data)
+        except (TypeError, json.JSONDecodeError):
+            return data
+
+        if not isinstance(payload, dict):
+            return data
+
+        payload["context_usage"] = context_usage
+        return json.dumps(payload, ensure_ascii=True, default=str)
+
     async def stream_one(self, payload: Any) -> AsyncGenerator[str, None]:
         """Process one payload and yield SSE-formatted events"""
         if isinstance(payload, dict) and "content_parts" in payload:
@@ -401,6 +431,13 @@ class ConsoleChannel(BaseChannel):
                         setattr(event, "usage", usage_data)
 
                 data = self._serialize_event_for_sse(event)
+                if obj == "response" and status == RunStatus.Completed:
+                    context_usage = self._extract_context_usage(session_id)
+                    if context_usage:
+                        data = self._inject_context_usage(
+                            data,
+                            context_usage,
+                        )
                 yield f"data: {data}\n\n"
 
                 if obj == "message" and status == RunStatus.Completed:

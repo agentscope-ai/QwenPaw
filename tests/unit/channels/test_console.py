@@ -582,6 +582,73 @@ class TestConsoleStreaming:
         assert "\\ud83d" not in events[0]
         assert "? broken" in events[0]
 
+    async def test_stream_one_injects_context_usage_on_completed_response(
+        self,
+        stream_channel,
+    ):
+        """Completed response SSE should include the latest context usage."""
+        import json
+
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            RunStatus,
+            TextContent,
+            ContentType,
+        )
+        from qwenpaw.context_usage import (
+            clear_context_usage,
+            record_context_usage,
+        )
+
+        clear_context_usage()
+        record_context_usage(
+            "chat-1",
+            total_tokens=3200,
+            max_input_length=128000,
+            total_messages=4,
+        )
+
+        class ResponseEvent:
+            object = "response"
+            status = RunStatus.Completed
+            type = "response.completed"
+            output = []
+
+            def model_dump_json(self):
+                return json.dumps(
+                    {
+                        "object": "response",
+                        "status": "completed",
+                        "output": [],
+                    },
+                )
+
+        mock_event = ResponseEvent()
+
+        async def mock_process(_request):
+            yield mock_event
+
+        stream_channel._process = mock_process
+
+        payload = {
+            "sender_id": "user123",
+            "content_parts": [
+                TextContent(
+                    type=ContentType.TEXT,
+                    text="Hello",
+                ),
+            ],
+            "meta": {"session_id": "chat-1"},
+        }
+
+        events = []
+        async for event in stream_channel.stream_one(payload):
+            events.append(event)
+            break
+
+        assert len(events) == 1
+        assert '"context_usage"' in events[0]
+        assert '"total_tokens": 3200' in events[0]
+
     async def test_consume_one_drain_stream(self, stream_channel):
         """consume_one should drain stream_one."""
         from unittest.mock import patch, AsyncMock

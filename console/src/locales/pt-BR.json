@@ -1675,6 +1675,7 @@
   },
   "chat": {
     "modelSelectTooltip": "Selecionar Modelo",
+    "contextUsageLabel": "Contexto",
     "newChatTooltip": "Novo Chat",
     "searchTooltip": "Pesquisar Todos chats",
     "chatHistoryTooltip": "Chat history",

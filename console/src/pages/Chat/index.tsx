@@ -32,6 +32,12 @@ import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { planApi } from "../../api/modules/plan";
+import {
+  contextUsageLevel,
+  formatContextTokens,
+  parseContextUsage,
+  type ContextUsage,
+} from "./contextUsage";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -131,6 +137,32 @@ function renderSuggestionLabel(command: string, description: string) {
     <div className={styles.suggestionLabel}>
       <span className={styles.suggestionCommand}>{command}</span>
       <span className={styles.suggestionDescription}>{description}</span>
+    </div>
+  );
+}
+
+function renderContextUsage(
+  usage: ContextUsage | null,
+  label: string,
+): React.ReactNode {
+  if (!usage) return null;
+
+  const pct = Math.max(0, Math.min(100, usage.pct));
+  const level = contextUsageLevel(pct);
+  const value = `${formatContextTokens(
+    usage.totalTokens,
+  )} / ${formatContextTokens(usage.maxInputLength)} (${Math.round(pct)}%)`;
+
+  return (
+    <div className={styles.contextUsageBadge} data-level={level} title={value}>
+      <span className={styles.contextUsageLabel}>{label}</span>
+      <span className={styles.contextUsageValue}>{value}</span>
+      <span className={styles.contextUsageTrack}>
+        <span
+          className={styles.contextUsageFill}
+          style={{ width: `${pct}%` }}
+        />
+      </span>
     </div>
   );
 }
@@ -507,6 +539,7 @@ export default function ChatPage() {
     return match?.[1];
   }, [location.pathname]);
   const [showModelPrompt, setShowModelPrompt] = useState(false);
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const { selectedAgent } = useAgentStore();
   const { toolRenderConfig } = usePlugins();
   const [refreshKey, setRefreshKey] = useState(0);
@@ -1042,6 +1075,7 @@ export default function ChatPage() {
             <RuntimeLoadingBridge bridgeRef={runtimeLoadingBridgeRef} />
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
+            {renderContextUsage(contextUsage, t("chat.contextUsageLabel"))}
             <ModelSelector />
             <ChatActionGroup planEnabled={planEnabled} />
           </>
@@ -1098,6 +1132,10 @@ export default function ChatPage() {
         fetch: customFetch,
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
+          const nextContextUsage = parseContextUsage(payload);
+          if (nextContextUsage) {
+            setContextUsage(nextContextUsage);
+          }
 
           if (payloadRequestsHistoryClear(payload)) {
             pendingClearHistoryRef.current = true;
@@ -1166,6 +1204,7 @@ export default function ChatPage() {
     toolRenderConfig,
     scheduleHistoryClear,
     planEnabled,
+    contextUsage,
   ]);
 
   return (

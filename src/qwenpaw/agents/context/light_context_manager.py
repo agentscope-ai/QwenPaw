@@ -32,6 +32,8 @@ from ..utils import get_token_counter
 from ..utils.estimate_token_counter import EstimatedTokenCounter
 from ...config.config import load_agent_config
 from ...constant import TRUNCATION_NOTICE_MARKER
+from ...context_usage import record_context_usage
+from ...app.agent_context import get_current_session_id
 
 if TYPE_CHECKING:
     from ..react_agent import QwenPawAgent
@@ -968,6 +970,43 @@ class LightContextManager(BaseContextManager):
 
         return None
 
+    async def _record_context_usage(
+        self,
+        agent: "QwenPawAgent",
+    ) -> None:
+        session_id = get_current_session_id()
+        if not session_id:
+            return
+
+        agent_config = load_agent_config(self.agent_id)
+        running_config = agent_config.running
+        token_counter = get_token_counter(agent_config)
+        memory = agent.memory
+        messages = await memory.get_memory(prepend_summary=False)
+        summary = memory.get_compressed_summary() or ""
+        system_prompt = agent.sys_prompt or ""
+
+        sys_token_count = await token_counter.count(
+            messages=[],
+            text=system_prompt,
+        )
+        summary_token_count = await token_counter.count(
+            messages=[],
+            text=summary,
+        )
+        msg_token_count = await AsMsgHandler(token_counter).count_msgs_token(
+            messages,
+        )
+
+        record_context_usage(
+            session_id,
+            total_tokens=(
+                sys_token_count + summary_token_count + msg_token_count
+            ),
+            max_input_length=running_config.max_input_length,
+            total_messages=len(messages),
+        )
+
     async def post_reply(
         self,
         agent: "QwenPawAgent",
@@ -980,6 +1019,11 @@ class LightContextManager(BaseContextManager):
         messages in the memory and triggers auto memory every N queries.
         """
         try:
+            try:
+                await self._record_context_usage(agent)
+            except Exception as e:
+                logger.warning("context usage recording failed: %s", e)
+
             memory_manager = agent.memory_manager
             if memory_manager is None:
                 return None

@@ -1502,6 +1502,7 @@
   },
   "chat": {
     "modelSelectTooltip": "Выбор модели",
+    "contextUsageLabel": "Контекст",
     "newChatTooltip": "Новый чат",
     "searchTooltip": "Поиск во всех чатах",
     "chatHistoryTooltip": "История чатов",
