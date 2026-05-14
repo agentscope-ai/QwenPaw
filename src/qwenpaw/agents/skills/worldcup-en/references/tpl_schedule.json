@@ -1,0 +1,27 @@
+{
+  "_delete_after_bootstrap": "Delete ALL keys prefixed with '_' (including this one, _instructions, _example_group, _example_knockout) after populating with real data. These are guides, not data.",
+  "_instructions": {
+    "structure": "Group stage: flat array (not nested by matchday). Knockout: one section per round. All 104 matches required.",
+    "venue_names": "Use FIFA venue names (e.g. 'New York New Jersey Stadium' not 'MetLife Stadium') — these cross-reference stadiums.json directly.",
+    "times": "All times in ET (Eastern Time).",
+    "knockout": "Opponents unknown before earlier rounds resolve — use descriptive match fields like 'Winner B vs 3rd E/F/G/I/J'.",
+    "global": "tournament, hosts, total_matches, and format are boilerplate. Keep them."
+  },
+  "_example_group": {"match_id": 3, "date": "2026-06-12", "time_et": "15:00", "home": "Canada", "away": "Bosnia and Herzegovina", "group": "B", "venue": "Toronto Stadium", "city": "Toronto"},
+  "_example_knockout": {"match_id": 85, "date": "2026-07-02", "match": "Winner B vs 3rd E/F/G/I/J", "venue": "Vancouver Stadium"},
+
+  "tournament": "FIFA World Cup 2026",
+  "hosts": ["Canada", "Mexico", "USA"],
+  "total_matches": 104,
+  "format": "48 teams, 12 groups of 4. Top 2 advance + 8 best 3rd place teams = Round of 32.",
+  "meta": {"last_updated": "", "source": ""},
+  "group_stage": [],
+  "knockout": {
+    "round_of_32": [],
+    "round_of_16": [],
+    "quarterfinals": [],
+    "semifinals": [],
+    "third_place": [],
+    "final": []
+  }
+}

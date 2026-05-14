@@ -1,0 +1,26 @@
+{
+  "_delete_after_bootstrap": "Delete ALL keys prefixed with '_' (including this one, _instructions, _example) after populating with real data. These are guides, not data.",
+  "_instructions": {
+    "match_id": "Corresponds to 'match_id' in schedule.json. Required for scoping predictions to the correct match, especially when teams meet multiple times.",
+    "date": "Match date in YYYY-MM-DD.",
+    "match": "Descriptive string, e.g. 'Canada vs Qatar'.",
+    "predicted_score": "User's scoreline, e.g. '2-1'. null until user predicts.",
+    "actual_score": "Final result, e.g. '2-1'. null until match concludes.",
+    "points": "Points awarded per scoring rules. null for pending matches.",
+    "status": "One of: pending, correct_exact, correct_winner, wrong_winner."
+  },
+  "_example": {"match_id": 3, "date": "2026-06-12", "match": "Canada vs Bosnia and Herzegovina", "predicted_score": "2-1", "actual_score": null, "points": null, "status": "pending"},
+
+  "user": "",
+  "total_points": 0,
+  "stats": {
+    "total_predictions": 0,
+    "correct_exact": 0,
+    "correct_winner": 0,
+    "wrong_winner": 0,
+    "wrong_score": 0,
+    "accuracy_winner_pct": 0.0,
+    "accuracy_exact_pct": 0.0
+  },
+  "predictions": []
+}

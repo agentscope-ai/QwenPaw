@@ -1,0 +1,14 @@
+{
+  "_delete_after_bootstrap": "Delete ALL keys prefixed with '_' (including this one, _instructions, _example) after populating with real data. These are guides, not data.",
+  "_instructions": "Key each venue by its FIFA name (not sponsor/brand name). Each value is a flat object — no nesting, no optional fields beyond these six. Fill with real data via web search.",
+  "_example": {
+    "Vancouver Stadium": {
+      "name": "BC Place",
+      "city": "Vancouver",
+      "country": "Canada",
+      "tz": "America/Vancouver",
+      "capacity": 54500,
+      "altitude_m": 2
+    }
+  }
+}

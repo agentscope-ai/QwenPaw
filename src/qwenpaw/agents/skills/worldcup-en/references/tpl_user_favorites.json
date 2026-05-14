@@ -1,0 +1,25 @@
+{
+  "_delete_after_bootstrap": "Delete ALL keys prefixed with '_' (including this one, _instructions, _example) after populating with real data. These are guides, not data.",
+  "_instructions": {
+    "teams": "Array of team names the user supports, e.g. ['Canada', 'USA']. Used to personalize the daily digest.",
+    "players": "Array of player names the user follows, e.g. ['Alphonso Davies', 'Jonathan David']. Used to personalize the daily digest.",
+    "features_activated": "Flags that control the universal footer. Set each to true when the user engages: predictions (first prediction), digest (sets up digest), video (requests first video). When a flag is true, its footer line stops appearing."
+  },
+  "_example": {
+    "teams": ["Canada", "Brazil"],
+    "players": ["Alphonso Davies", "Vinícius Júnior"],
+    "features_activated": {
+      "digest": false,
+      "video": false,
+      "predictions": false
+    }
+  },
+
+  "teams": [],
+  "players": [],
+  "features_activated": {
+    "digest": false,
+    "video": false,
+    "predictions": false
+  }
+}

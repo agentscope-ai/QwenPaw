@@ -87,6 +87,7 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
    | **pdf**                       | PDF 相关操作：阅读、提取文字/表格、合并/拆分、旋转、水印、创建、填表、加密/解密、OCR 等。          | https://github.com/anthropics/skills/tree/main/skills/pdf      |
    | **pptx**                      | PPT（.pptx）的创建、阅读、编辑，含模板、版式、备注与批注等。                                       | https://github.com/anthropics/skills/tree/main/skills/pptx     |
    | **xlsx**                      | 表格（.xlsx、.xlsm、.csv、.tsv）的读取、编辑、创建与格式整理，支持公式与数据分析。                 | https://github.com/anthropics/skills/tree/main/skills/xlsx     |
+   | **worldcup**                  | 2026 世界杯比赛伴侣 — 赛程、预测、实时比分、球队信息和视频生成。任何世界杯相关问题均可触发。       | 内置                                                           |
 
    在技能池页面里，内置技能可能显示 **最新** / **已过期** 之类状态。
    用 **更新内置技能** 可以补回缺失内置技能或将已过期的内置技能刷新到当前
