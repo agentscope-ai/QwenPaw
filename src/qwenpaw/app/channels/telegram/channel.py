@@ -936,9 +936,11 @@ class TelegramChannel(BaseChannel):
         use_html: bool = False,
     ) -> bool:
         """Edit an existing message; return True on success."""
-        if not self._application:
-            return False
-        bot = self._application.bot
+        bot = (
+            getattr(self._application, "bot", None)
+            if self._application
+            else None
+        )
         if not bot:
             return False
         # Telegram rejects empty text
@@ -961,11 +963,15 @@ class TelegramChannel(BaseChannel):
             if use_html:
                 # Fallback: strip HTML tags and retry as plain text
                 logger.debug(
-                    "telegram: HTML edit failed, retrying plain: %s", exc,
+                    "telegram: HTML edit failed, retrying plain: %s",
+                    exc,
                 )
                 plain_text = html.unescape(re.sub(r"<[^>]+>", "", text))
                 return await self._edit_stream_message(
-                    chat_id, message_id, plain_text, use_html=False,
+                    chat_id,
+                    message_id,
+                    plain_text,
+                    use_html=False,
                 )
             logger.debug("telegram: edit_message_text failed: %s", exc)
             return False
@@ -1009,7 +1015,9 @@ class TelegramChannel(BaseChannel):
         message_thread_id = send_meta.get("message_thread_id")
         state = self._get_stream_state(send_meta)
         msg_id = await self._send_placeholder(
-            chat_id, message_thread_id, stream_type,
+            chat_id,
+            message_thread_id,
+            stream_type,
         )
         if msg_id:
             state["message_ids"][stream_type] = msg_id
@@ -1037,12 +1045,19 @@ class TelegramChannel(BaseChannel):
         if not chat_id:
             return
         prefix = "💭 " if stream_type == "reasoning" else ""
-        display_text = f"{prefix}{accumulated_text}" if prefix else accumulated_text
+        display_text = (
+            f"{prefix}{accumulated_text}" if prefix else accumulated_text
+        )
         # If text exceeds Telegram limit, show only the tail portion
         if len(display_text) > TELEGRAM_MAX_MESSAGE_LENGTH:
-            display_text = "..." + display_text[-(TELEGRAM_MAX_MESSAGE_LENGTH - 4):]
+            display_text = (
+                "..." + display_text[-(TELEGRAM_MAX_MESSAGE_LENGTH - 4) :]
+            )
         success = await self._edit_stream_message(
-            chat_id, msg_id, display_text, use_html=False,
+            chat_id,
+            msg_id,
+            display_text,
+            use_html=False,
         )
         if success:
             state["last_edit_ts"][stream_type] = now
@@ -1070,17 +1085,25 @@ class TelegramChannel(BaseChannel):
         if not chat_id:
             return
         prefix = "💭 " if stream_type == "reasoning" else ""
-        final_text = f"{prefix}{accumulated_text}" if prefix else accumulated_text
+        final_text = (
+            f"{prefix}{accumulated_text}" if prefix else accumulated_text
+        )
 
         # If text fits in a single message, edit in place
         if len(final_text) <= TELEGRAM_SEND_CHUNK_SIZE:
             html_text = markdown_to_telegram_html(final_text)
             success = await self._edit_stream_message(
-                chat_id, msg_id, html_text, use_html=True,
+                chat_id,
+                msg_id,
+                html_text,
+                use_html=True,
             )
             if not success:
                 await self._edit_stream_message(
-                    chat_id, msg_id, final_text, use_html=False,
+                    chat_id,
+                    msg_id,
+                    final_text,
+                    use_html=False,
                 )
             return
 
