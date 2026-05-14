@@ -2094,47 +2094,69 @@ function ensureDefaultAgent() {
   if (localStorage.getItem(FIRST_INSTALL_KEY)) return;
 
   localStorage.setItem(FIRST_INSTALL_KEY, "true");
-  localStorage.setItem(LAST_USED_KEY, CLOUDPAW_MASTER_AGENT_ID);
 
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      parsed.state = parsed.state || {};
-      parsed.state.selectedAgent = CLOUDPAW_MASTER_AGENT_ID;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
-    } else {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          version: 0,
-          state: {
-            selectedAgent: CLOUDPAW_MASTER_AGENT_ID,
-            agents: [],
-            lastChatIdByAgent: {},
-          },
-        }),
-      );
+  function writeAgentToStorage() {
+    localStorage.setItem(LAST_USED_KEY, CLOUDPAW_MASTER_AGENT_ID);
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        parsed.state = parsed.state || {};
+        parsed.state.selectedAgent = CLOUDPAW_MASTER_AGENT_ID;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+      } else {
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({
+            version: 0,
+            state: {
+              selectedAgent: CLOUDPAW_MASTER_AGENT_ID,
+              agents: [],
+              lastChatIdByAgent: {},
+            },
+          }),
+        );
+      }
+    } catch {
+      /* ignore */
     }
-  } catch {
-    /* ignore */
+    try {
+      const sessionRaw = sessionStorage.getItem(STORAGE_KEY);
+      if (sessionRaw) {
+        const parsed = JSON.parse(sessionRaw);
+        parsed.state = parsed.state || {};
+        parsed.state.selectedAgent = CLOUDPAW_MASTER_AGENT_ID;
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+      } else {
+        sessionStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({
+            version: 0,
+            state: {
+              selectedAgent: CLOUDPAW_MASTER_AGENT_ID,
+              agents: [],
+              lastChatIdByAgent: {},
+            },
+          }),
+        );
+      }
+    } catch {
+      /* ignore */
+    }
   }
 
-  try {
-    sessionStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        version: 0,
-        state: {
-          selectedAgent: CLOUDPAW_MASTER_AGENT_ID,
-          agents: [],
-          lastChatIdByAgent: {},
-        },
-      }),
-    );
-  } catch {
-    /* ignore */
-  }
+  writeAgentToStorage();
+
+  // Zustand persist middleware may overwrite storage with its in-memory
+  // state (selectedAgent="default") between now and the actual page unload.
+  // Re-apply our write right before the page unloads to win the race.
+  window.addEventListener(
+    "beforeunload",
+    () => {
+      writeAgentToStorage();
+    },
+    { once: true },
+  );
 
   console.info(
     "[cloudpaw] Set default agent to cloud-orchestrator for first-time user",
@@ -2163,16 +2185,16 @@ function patchWelcomeAndTheme() {
     "https://gw.alicdn.com/imgextra/i2/O1CN01pyXzjQ1EL1PuZMlSd_!!6000000000334-2-tps-288-288.png";
 
   const greetings: Record<string, string> = {
-    zh: "Hi, 我是 CloudPaw",
-    en: "Hi, I'm CloudPaw",
-    ja: "こんにちは、CloudPaw です",
-    ru: "Привет, я CloudPaw",
+    zh: "CloudPaw 插件提示",
+    en: "CloudPaw Plugin Tips",
+    ja: "CloudPaw プラグインのヒント",
+    ru: "Подсказки плагина CloudPaw",
   };
   const descriptions: Record<string, string> = {
-    zh: "我可以帮助你部署云资源、管理基础设施，并在阿里云上编排服务。请在左上角下拉框选择「CloudPaw-Master」开启任务。对于复杂的长程任务，建议使用 /mission 命令启动 Mission Mode 来自动拆解和执行。",
-    en: "I can help you deploy cloud resources, manage infrastructure, and orchestrate services on Alibaba Cloud. Please select 'CloudPaw-Master' from the dropdown in the top-left corner to get started. For complex, multi-step tasks, use /mission to start Mission Mode for automated decomposition and execution.",
-    ja: "クラウドリソースのデプロイ、インフラの管理、Alibaba Cloudでのサービスオーケストレーションをお手伝いします。左上のドロップダウンから「CloudPaw-Master」を選択してタスクを開始してください。複雑なタスクには /mission コマンドで Mission Mode を起動し、自動分解・実行できます。",
-    ru: "Я могу помочь вам развернуть облачные ресурсы и управлять инфраструктурой на Alibaba Cloud. Выберите 'CloudPaw-Master' в выпадающем списке в левом верхнем углу, чтобы начать. Для сложных задач используйте /mission для автоматической декомпозиции и выполнения.",
+    zh: "告诉 CloudPaw 你想做什么，它会自动帮你完成云资源管理、基础设施编排与应用创建上云等任务。\n⚠️ 使用前请在左上角下拉框切换到「CloudPaw-Master」，否则功能无法正常使用！\n对于复杂的长程任务，建议使用 /mission 命令启动 Mission Mode 来自动拆解和执行。",
+    en: "Tell CloudPaw what you want to do — it will automatically handle cloud resource management, infrastructure orchestration, and application deployment.\n⚠️ Please switch to 'CloudPaw-Master' from the dropdown in the top-left corner before use — features won't work otherwise!\nFor complex, multi-step tasks, use /mission to start Mission Mode for automated decomposition and execution.",
+    ja: "CloudPaw にやりたいことを伝えるだけで、クラウドリソース管理、インフラ構成、アプリケーションのデプロイなどを自動で行います。\n⚠️ 使用前に左上のドロップダウンから「CloudPaw-Master」に切り替えてください。切り替えないと機能が正常に動作しません！\n複雑なタスクには /mission コマンドで Mission Mode を起動し、自動分解・実行できます。",
+    ru: "Расскажите CloudPaw, что вы хотите сделать — он автоматически выполнит управление облачными ресурсами, оркестрацию инфраструктуры и развёртывание приложений.\n⚠️ Перед началом переключитесь на 'CloudPaw-Master' в выпадающем списке в левом верхнем углу — иначе функции не будут работать!\nДля сложных задач используйте /mission для автоматической декомпозиции и выполнения.",
   };
   const promptSets: Record<string, Array<{ label: string; value: string }>> = {
     zh: [
@@ -2229,6 +2251,20 @@ function patchWelcomeAndTheme() {
       },
     };
   };
+
+  // Inject style so \n in the description renders as a line break
+  if (!document.getElementById("cloudpaw-welcome-style")) {
+    const style = document.createElement("style");
+    style.id = "cloudpaw-welcome-style";
+    style.textContent = `
+      [class*="chat-anywhere-welcome-default"] [class*="description"],
+      [class*="message-list-welcome"] [class*="description"] {
+        white-space: pre-line !important;
+        text-align: center !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
 
   console.info("[cloudpaw] Patched welcome config & theme via configProvider");
 }

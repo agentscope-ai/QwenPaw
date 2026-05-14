@@ -78,13 +78,17 @@ class A2AListCommandHandler(BaseControlCommandHandler):
                 line += f"\n   状态: {status}"
             lines.append(line)
 
-        lines.append("\n---\n使用 `/a2a <agent_name> <message>` 直接向远程 Agent 发送消息，例如：")
+        lines.append(
+            "\n---\n使用 `/a2a <agent_name> <message>` 直接向远程 Agent 发送消息，例如："
+        )
         for alias in agents_cfg:
             lines.append(f"  `/a2a {alias} 如何部署 ECS？`")
 
         return "\n".join(lines)
 
-    async def _handle_direct_call(self, agents_cfg: dict[str, dict], raw_args: str) -> str:
+    async def _handle_direct_call(
+        self, agents_cfg: dict[str, dict], raw_args: str
+    ) -> str:
         from .a2a_call import a2a_call
 
         parts = raw_args.split(None, 1)
@@ -113,7 +117,12 @@ class A2AListCommandHandler(BaseControlCommandHandler):
                             accumulated_text = payload.get("response_text", "")
                             if payload.get("error"):
                                 last_error = payload["error"]
-                            if payload.get("task_state") in ("completed", "failed", "error", "canceled"):
+                            if payload.get("task_state") in (
+                                "completed",
+                                "failed",
+                                "error",
+                                "canceled",
+                            ):
                                 break
                         except json.JSONDecodeError:
                             accumulated_text = block["text"]
