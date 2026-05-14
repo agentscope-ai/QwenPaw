@@ -173,6 +173,7 @@ async def test_download_rejects_unsupported_platform(
     )
 
     with pytest.raises(
-        RuntimeError, match="No cloudflared download available"
+        RuntimeError,
+        match="No cloudflared download available",
     ):
         await binary_manager.BinaryManager(tmp_path)._download()
