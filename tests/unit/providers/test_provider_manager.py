@@ -148,6 +148,25 @@ def test_default_annotations_apply_to_extra_models(
     assert model.probe_source == "documentation"
 
 
+def test_zhipu_vision_extra_model_gets_multimodal_annotation(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("zhipu-cn")
+    assert provider is not None
+    provider.extra_models = [
+        ModelInfo(id="glm-4.6v-flash", name="GLM-4.6V Flash"),
+    ]
+
+    manager._apply_default_annotations()
+
+    model = provider.extra_models[0]
+    assert model.supports_multimodal is True
+    assert model.supports_image is True
+    assert model.supports_video is False
+    assert model.probe_source == "documentation"
+
+
 async def test_add_custom_provider_and_reload_from_storage(
     isolated_secret_dir,
 ) -> None:
