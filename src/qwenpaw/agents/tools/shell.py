@@ -23,6 +23,15 @@ from ...config.context import (
     get_current_shell_command_timeout,
     get_current_workspace_dir,
 )
+from ...envs.store import load_envs
+
+
+_PROTECTED_SHELL_ENV_KEYS = frozenset(
+    {
+        "QWENPAW_WORKING_DIR",
+        "QWENPAW_SECRET_DIR",
+    },
+)
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -208,6 +217,41 @@ def _extract_powershell_command(cmd: str) -> tuple[str | None, str]:
     if len(inner) >= 2 and inner[0] == '"' and inner[-1] == '"':
         inner = inner[1:-1]
     return ps_exe, inner
+
+
+def _expand_path_placeholders(path_value: str, base_path: str) -> str:
+    """Expand common PATH placeholders in persisted env configuration."""
+    expanded = path_value
+    for placeholder in ("${PATH}", "$PATH", "%PATH%", "%Path%"):
+        expanded = expanded.replace(placeholder, base_path)
+    return expanded
+
+
+def _build_shell_env() -> dict[str, str]:
+    """Build the subprocess environment for ``execute_shell_command``."""
+    env = os.environ.copy()
+    process_path = env.get("PATH", "")
+
+    try:
+        persisted_env = load_envs()
+    except Exception:
+        persisted_env = {}
+
+    for key, value in persisted_env.items():
+        if key in _PROTECTED_SHELL_ENV_KEYS:
+            continue
+        if key == "PATH":
+            env["PATH"] = _expand_path_placeholders(value, process_path)
+        elif key not in env:
+            env[key] = value
+
+    python_bin_dir = str(Path(sys.executable).parent)
+    existing_path = env.get("PATH", "")
+    if existing_path:
+        env["PATH"] = python_bin_dir + os.pathsep + existing_path
+    else:
+        env["PATH"] = python_bin_dir
+    return env
 
 
 # pylint: disable=too-many-branches, too-many-statements
@@ -403,14 +447,8 @@ async def execute_shell_command(
     else:
         working_dir = get_current_workspace_dir() or WORKING_DIR
 
-    # Ensure the venv Python is on PATH for subprocesses
-    env = os.environ.copy()
-    python_bin_dir = str(Path(sys.executable).parent)
-    existing_path = env.get("PATH", "")
-    if existing_path:
-        env["PATH"] = python_bin_dir + os.pathsep + existing_path
-    else:
-        env["PATH"] = python_bin_dir
+    # Ensure envs.json PATH is honored and venv Python remains first.
+    env = _build_shell_env()
 
     shell_executable = (
         get_current_shell_command_executable()
