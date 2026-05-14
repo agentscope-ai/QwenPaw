@@ -23,6 +23,7 @@ from ...config.context import (
     get_current_shell_command_timeout,
     get_current_workspace_dir,
 )
+from .shell_context import get_shell_command_context_env
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -180,6 +181,21 @@ def _is_powershell(executable: str) -> bool:
 def _is_cmd(executable: str) -> bool:
     """Check if the given executable path is cmd.exe."""
     return _shell_basename(executable) in ("cmd", "cmd.exe")
+
+
+def _build_subprocess_env() -> dict[str, str]:
+    """Build the environment passed to shell subprocesses."""
+    env = os.environ.copy()
+    env.update(get_shell_command_context_env())
+
+    # Ensure the venv Python is on PATH for subprocesses
+    python_bin_dir = str(Path(sys.executable).parent)
+    existing_path = env.get("PATH", "")
+    if existing_path:
+        env["PATH"] = python_bin_dir + os.pathsep + existing_path
+    else:
+        env["PATH"] = python_bin_dir
+    return env
 
 
 _PS_CMD_RE = re.compile(
@@ -403,14 +419,7 @@ async def execute_shell_command(
     else:
         working_dir = get_current_workspace_dir() or WORKING_DIR
 
-    # Ensure the venv Python is on PATH for subprocesses
-    env = os.environ.copy()
-    python_bin_dir = str(Path(sys.executable).parent)
-    existing_path = env.get("PATH", "")
-    if existing_path:
-        env["PATH"] = python_bin_dir + os.pathsep + existing_path
-    else:
-        env["PATH"] = python_bin_dir
+    env = _build_subprocess_env()
 
     shell_executable = (
         get_current_shell_command_executable()

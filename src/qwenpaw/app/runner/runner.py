@@ -189,7 +189,7 @@ class AgentRunner(Runner):
             if close < 0:
                 return None
             name = rest[1:close].strip().lower()
-            user_input = rest[close + 1 :].strip()
+            user_input = rest[close + 1:].strip()
             return (name, user_input) if name else None
 
         # /name input — plain form
@@ -336,6 +336,10 @@ class AgentRunner(Runner):
             set_current_session_id,
             set_current_root_session_id,
         )
+        from ...agents.tools.shell_context import (
+            reset_shell_command_context,
+            set_shell_command_context,
+        )
 
         set_current_agent_id(self.agent_id)
 
@@ -345,6 +349,7 @@ class AgentRunner(Runner):
         agent = None
         chat = None
         session_state_loaded = False
+        shell_context_token = None
         try:
             session_id = request.session_id
             user_id = request.user_id
@@ -370,6 +375,15 @@ class AgentRunner(Runner):
             if not isinstance(channel_meta, dict):
                 channel_meta = {}
             user_name = channel_meta.get("user_name")
+
+            shell_context = {
+                "session_id": session_id,
+                "user_id": channel_meta.get("sender_id") or user_id,
+                "channel": channel,
+                "room_id": channel_meta.get("room_id"),
+                "event_id": channel_meta.get("event_id"),
+            }
+            shell_context_token = set_shell_command_context(shell_context)
 
             # Load agent-specific configuration
             agent_config = load_agent_config(self.agent_id)
@@ -800,6 +814,9 @@ class AgentRunner(Runner):
                     ) + converted.args[1:]
             raise converted from e
         finally:
+            if shell_context_token is not None:
+                reset_shell_command_context(shell_context_token)
+
             if agent is not None and session_state_loaded:
                 await self.session.save_session_state(
                     session_id=session_id,
