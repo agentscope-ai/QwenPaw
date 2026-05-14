@@ -264,6 +264,63 @@ class ExpectedCapabilityRegistry:
         )
 
         # ---------------------------------------------------------------
+        # Aliyun Token Plan
+        # ---------------------------------------------------------------
+        _atp_doc = (
+            "https://help.aliyun.com/zh/model-studio/token-plan-quickstart"
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="aliyun-tokenplan",
+                model_id="qwen3.6-plus",
+                expected_image=True,
+                expected_video=True,
+                doc_url=_atp_doc,
+                note="Qwen3.6-Plus is natively multimodal (image+video)",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="aliyun-tokenplan",
+                model_id="glm-5",
+                expected_image=False,
+                expected_video=False,
+                doc_url=_atp_doc,
+                note="GLM-5 is text/code model, no vision input",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="aliyun-tokenplan",
+                model_id="MiniMax-M2.5",
+                expected_image=False,
+                expected_video=False,
+                doc_url=_atp_doc,
+                note="MiniMax models are text-only",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="aliyun-tokenplan",
+                model_id="kimi-k2.5",
+                expected_image=True,
+                expected_video=True,
+                doc_url=_atp_doc,
+                note="Kimi K2.5 supports image and video input",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="aliyun-tokenplan",
+                model_id="deepseek-v3.2",
+                expected_image=False,
+                expected_video=False,
+                doc_url=_atp_doc,
+                note="DeepSeek V3 series is text-only",
+            ),
+        )
+
+        # ---------------------------------------------------------------
         # Zhipu (BigModel)
         # ---------------------------------------------------------------
         _zhipu_cn_doc = "https://docs.bigmodel.cn/"

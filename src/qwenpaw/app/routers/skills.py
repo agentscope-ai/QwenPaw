@@ -23,39 +23,43 @@ from agentscope_runtime.engine.schemas.exception import (
     AppBaseException,
 )
 
-from ...agents.skills_hub import (
+from ...agents.skill_system.hub import (
     SkillImportCancelled,
     search_hub_skills,
     import_pool_skill_from_hub,
     install_skill_from_hub,
 )
-from ...agents.skills_manager import (
-    _BUILTIN_SKILL_LANGUAGES,
+from ...agents.skill_system import (
     SkillConflictError,
     SkillPoolService,
-    SkillInfo,
     SkillService,
+)
+from ...agents.skill_system.models import SkillInfo
+from ...agents.skill_system.registry import (
+    _BUILTIN_SKILL_LANGUAGES,
+    get_pool_builtin_update_notice,
+    get_pool_builtin_sync_status,
+    import_builtin_skills,
+    list_builtin_import_candidates,
+    list_workspaces,
+    reconcile_pool_manifest,
+    reconcile_workspace_manifest,
+    update_single_builtin,
+)
+from ...agents.skill_system.store import (
     _default_pool_manifest,
     _default_workspace_manifest,
     _get_skill_mtime,
     _mutate_json,
     _normalize_skill_manifest_entry,
     _read_skill_from_dir,
-    get_pool_builtin_update_notice,
-    get_pool_builtin_sync_status,
     get_pool_skill_manifest_path,
     get_skill_pool_dir,
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
-    import_builtin_skills,
-    list_builtin_import_candidates,
-    list_workspaces,
     read_skill_pool_manifest,
     read_skill_manifest,
-    reconcile_pool_manifest,
-    reconcile_workspace_manifest,
     suggest_conflict_name,
-    update_single_builtin,
 )
 from ...security.skill_scanner import SkillScanError
 from ..utils import schedule_agent_reload
@@ -1287,9 +1291,14 @@ async def batch_disable_skills(
     request: Request,
     skills: list[str],
 ) -> dict[str, Any]:
-    workspace_dir = await _request_workspace_dir(request)
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
     service = SkillService(workspace_dir)
     results = {skill: service.disable_skill(skill) for skill in skills}
+    if any(result.get("success") for result in results.values()):
+        schedule_agent_reload(request, workspace.agent_id)
     return {"results": results}
 
 
@@ -1305,7 +1314,10 @@ async def batch_enable_skills(
         first item and ``reason="security_scan_failed"`` for the second,
         rather than aborting the entire batch.
     """
-    workspace_dir = await _request_workspace_dir(request)
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
     service = SkillService(workspace_dir)
     results: dict[str, Any] = {}
     for skill in skills:
@@ -1317,6 +1329,11 @@ async def batch_enable_skills(
                 "reason": "security_scan_failed",
                 "detail": _scan_error_payload(exc),
             }
+    if any(
+        isinstance(result, dict) and result.get("success")
+        for result in results.values()
+    ):
+        schedule_agent_reload(request, workspace.agent_id)
     return {"results": results}
 
 

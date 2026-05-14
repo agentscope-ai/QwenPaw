@@ -1,0 +1,90 @@
+.messageCard {
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+}
+
+.unread {
+  border-color: rgba(255, 127, 22, 0.45);
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.channelInfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.channelName {
+  font-weight: 600;
+}
+
+.senderInfo {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.unreadDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ff7f16;
+}
+
+.cardBody {
+  margin-top: 14px;
+}
+
+.messageTitle {
+  margin-bottom: 10px;
+  line-height: 1.35;
+}
+
+.messageContent {
+  color: rgba(0, 0, 0, 0.75);
+  margin-bottom: 0;
+  line-height: 1.7;
+}
+
+.cardFooter {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .messageCard {
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  }
+
+  .senderInfo {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .messageContent {
+    color: rgba(255, 255, 255, 0.78);
+  }
+}

@@ -14,7 +14,6 @@ import aiofiles.os
 import orjson
 
 from ..app.runner.repo import JsonChatRepository
-from ..app.runner.session import sanitize_filename
 from ..token_usage import get_token_usage_manager
 from .models import (
     AgentStatsSummary,
@@ -216,20 +215,11 @@ class AgentStatsService:
         active_sessions: dict[str, set[str]] = {}
         total_active_sessions = 0
 
-        session_file_to_channel: dict[str, str] = {}
         if chats_file.exists():
             try:
                 repo = JsonChatRepository(chats_file)
                 chats = await repo.list_chats()
                 for chat in chats:
-                    ch = chat.channel or "console"
-                    safe_sid = sanitize_filename(chat.session_id)
-                    safe_uid = (
-                        sanitize_filename(chat.user_id) if chat.user_id else ""
-                    )
-                    session_file_to_channel[safe_sid] = ch
-                    if safe_uid:
-                        session_file_to_channel[f"{safe_uid}_{safe_sid}"] = ch
                     if chat.created_at is None:
                         continue
                     chat_date = chat.created_at.date()
@@ -239,14 +229,30 @@ class AgentStatsService:
             except Exception as e:
                 logger.warning("Failed to load chat statistics: %s", e)
 
+        # pylint: disable=too-many-nested-blocks
         if sessions_dir.exists():
             try:
-                session_names = await aiofiles.os.listdir(sessions_dir)
-                session_files = [
-                    sessions_dir / name
-                    for name in session_names
-                    if name.endswith(".json")
-                ]
+                session_files = []
+
+                # Scan root sessions directory for legacy files
+                channel_names = await aiofiles.os.listdir(sessions_dir)
+                for channel_name in channel_names:
+                    channel_path = sessions_dir / channel_name
+                    if await aiofiles.os.path.isdir(channel_path):
+                        try:
+                            channel_files = await aiofiles.os.listdir(
+                                channel_path,
+                            )
+                            for channel_file in channel_files:
+                                session_file = channel_path / channel_file
+                                if session_file.name.endswith(".json"):
+                                    session_files.append(session_file)
+                        except Exception as e:
+                            logger.debug(
+                                "Failed to scan channel directory %s: %s",
+                                channel_path,
+                                e,
+                            )
 
                 session_fd_sem = asyncio.Semaphore((os.cpu_count() or 4) * 2)
 
@@ -282,7 +288,8 @@ class AgentStatsService:
                             return 0, False
 
                         stem = session_file.stem
-                        channel = session_file_to_channel.get(stem, "console")
+                        # Check if session is in a channel subdirectory
+                        channel = session_file.parent.name
 
                         return _process_session_file(
                             session_data,

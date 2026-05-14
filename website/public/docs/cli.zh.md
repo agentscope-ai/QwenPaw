@@ -511,6 +511,7 @@ qwenpaw agents chat \
 # text：每天 9 点发「早上好！」到钉钉（默认智能体）
 qwenpaw cron create \
   --type text \
+  --schedule-type cron \
   --name "每日早安" \
   --cron "0 9 * * *" \
   --channel dingtalk \
@@ -522,16 +523,52 @@ qwenpaw cron create \
 qwenpaw cron create \
   --agent-id abc123 \
   --type agent \
+  --schedule-type cron \
   --name "检查待办" \
   --cron "0 */2 * * *" \
   --channel dingtalk \
   --target-user "你的用户ID" \
   --target-session "会话ID" \
   --text "我有什么待办事项？"
+
+# 日程任务：一次性执行（不重复）
+qwenpaw cron create \
+  --type text \
+  --schedule-type scheduled \
+  --name "明早一次性提醒" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --channel dingtalk \
+  --target-user "你的用户ID" \
+  --target-session "会话ID" \
+  --text "9 点组会提醒" \
+  --save-result-to-inbox
+
+# 日程任务：从指定时间开始，每天执行，累计执行 14 次
+qwenpaw cron create \
+  --type text \
+  --schedule-type scheduled \
+  --name "未来两周组会提醒" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --repeat-every-days 1 \
+  --repeat-end-type count \
+  --repeat-count 14 \
+  --channel dingtalk \
+  --target-user "你的用户ID" \
+  --target-session "会话ID" \
+  --text "9 点组会提醒" \
+  --save-result-to-inbox
 ```
 
-必填：`--type`、`--name`、`--cron`、`--channel`、`--target-user`、
-`--target-session`、`--text`。
+必填分两类：
+
+- `--schedule-type cron`：`--type`、`--name`、`--cron`、`--channel`、`--target-user`、`--target-session`、`--text`
+- `--schedule-type scheduled`：`--type`、`--name`、`--run-at`、`--channel`、`--target-user`、`--target-session`、`--text`
+
+重复日程（`scheduled`）时再补：
+
+- `--repeat-every-days`
+- 结束条件二选一：`--repeat-end-type count --repeat-count N` 或 `--repeat-end-type until --repeat-until <ISO8601>`
+- 或使用 `--repeat-end-type never`（不设结束）
 
 **方式二——JSON 文件（适合复杂或批量）**
 
@@ -543,12 +580,17 @@ JSON 结构见 `qwenpaw cron get <job_id>` 的返回。
 
 ### 额外选项
 
-| 选项                         | 默认值   | 说明                                                  |
-| ---------------------------- | -------- | ----------------------------------------------------- |
-| `--timezone`                 | 用户时区 | Cron 调度时区（默认使用 config 中的 `user_timezone`） |
-| `--enabled` / `--no-enabled` | 启用     | 创建时启用或禁用                                      |
-| `--mode`                     | `final`  | `stream`（逐步发送）或 `final`（完成后一次性发送）    |
-| `--base-url`                 | 自动     | 覆盖 API 地址                                         |
+| 选项                                                   | 默认值   | 说明                                                              |
+| ------------------------------------------------------ | -------- | ----------------------------------------------------------------- |
+| `--timezone`                                           | 用户时区 | 调度时区（默认使用 config 中的 `user_timezone`）                  |
+| `--enabled` / `--no-enabled`                           | 启用     | 创建时启用或禁用                                                  |
+| `--mode`                                               | `final`  | `stream`（逐步发送）或 `final`（完成后一次性发送）                |
+| `--save-result-to-inbox` / `--no-save-result-to-inbox` | 自动规则 | 是否将执行结果写入收件箱（省略时由服务端默认策略决定）            |
+| `--repeat-every-days`                                  | 不重复   | 仅 `--schedule-type scheduled` 可用；每 N 天重复                  |
+| `--repeat-end-type`                                    | `never`  | 仅重复日程可用；`never` / `until` / `count`                       |
+| `--repeat-until`                                       | —        | 当 `--repeat-end-type until` 时必填；ISO 8601 结束时间            |
+| `--repeat-count`                                       | —        | 当 `--repeat-end-type count` 时必填；最大执行次数（不含手动执行） |
+| `--base-url`                                           | 自动     | 覆盖 API 地址                                                     |
 
 ### Cron 表达式速查
 

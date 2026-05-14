@@ -14,6 +14,7 @@ from qwenpaw.token_usage.buffer import (
     _apply_event,
 )
 from qwenpaw.token_usage.manager import (
+    TokenUsageByDateModel,
     TokenUsageByModel,
     TokenUsageManager,
     TokenUsageRecord,
@@ -235,7 +236,7 @@ class TestTokenUsageStats:
 
 
 class TestTokenUsageModels:
-    """Test TokenUsageRecord, TokenUsageByModel, TokenUsageSummary models."""
+    """Test TokenUsage models."""
 
     def test_create_record(self):
         """Should create record with all fields."""
@@ -249,6 +250,7 @@ class TestTokenUsageModels:
         )
         assert record.date == "2026-04-24"
         assert record.provider_id == "openai"
+        assert record.model == "gpt-4"
 
     def test_empty_summary(self):
         """Should create empty summary with defaults."""
@@ -256,7 +258,7 @@ class TestTokenUsageModels:
         assert summary.total_prompt_tokens == 0
         assert summary.total_completion_tokens == 0
         assert summary.total_calls == 0
-        assert summary.by_model == {}
+        assert summary.by_date == {}
 
     def test_summary_with_data(self):
         """Should accept populated data."""
@@ -264,22 +266,6 @@ class TestTokenUsageModels:
             total_prompt_tokens=500,
             total_completion_tokens=250,
             total_calls=10,
-            by_model={
-                "openai:gpt-4": TokenUsageByModel(
-                    provider_id="openai",
-                    model="gpt-4",
-                    prompt_tokens=300,
-                    completion_tokens=150,
-                    call_count=6,
-                ),
-            },
-            by_provider={
-                "openai": TokenUsageStats(
-                    prompt_tokens=500,
-                    completion_tokens=250,
-                    call_count=10,
-                ),
-            },
             by_date={
                 "2026-04-24": TokenUsageStats(
                     prompt_tokens=500,
@@ -289,7 +275,31 @@ class TestTokenUsageModels:
             },
         )
         assert summary.total_prompt_tokens == 500
-        assert len(summary.by_model) == 1
+        assert len(summary.by_date) == 1
+
+    def test_token_usage_by_model(self):
+        """Should create TokenUsageByModel with provider_id."""
+        by_model = TokenUsageByModel(
+            provider_id="openai",
+            model="gpt-4",
+            prompt_tokens=300,
+            completion_tokens=150,
+            call_count=6,
+        )
+        assert by_model.provider_id == "openai"
+        assert by_model.model == "gpt-4"
+
+    def test_token_usage_by_date_model(self):
+        """Should create TokenUsageByDateModel."""
+        by_date_model = TokenUsageByDateModel(
+            provider_id="dashscope",
+            model="qwen3-max",
+            prompt_tokens=200,
+            completion_tokens=100,
+            call_count=4,
+        )
+        assert by_date_model.provider_id == "dashscope"
+        assert by_date_model.model == "qwen3-max"
 
 
 # =============================================================================
@@ -376,6 +386,71 @@ class TestTokenUsageManagerCore:
         assert summary.total_prompt_tokens == 0
         assert summary.total_completion_tokens == 0
         assert summary.total_calls == 0
+        assert summary.by_date == {}
+
+        await manager.stop()
+
+    @pytest.mark.asyncio
+    async def test_get_details_empty(self, tmp_path, monkeypatch):
+        """Should return empty list when no data."""
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.WORKING_DIR",
+            tmp_path,
+        )
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
+            "test_token_usage.json",
+        )
+
+        manager = TokenUsageManager()
+        manager.start(flush_interval=10)
+
+        details = await manager.get_details()
+
+        assert details == []
+
+        await manager.stop()
+
+    @pytest.mark.asyncio
+    async def test_get_details_with_data(self, tmp_path, monkeypatch):
+        """Should return raw records for frontend aggregation."""
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.WORKING_DIR",
+            tmp_path,
+        )
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
+            "test_token_usage.json",
+        )
+
+        manager = TokenUsageManager()
+        manager.start(flush_interval=10)
+
+        # Record some usage
+        await manager.record(
+            provider_id="openai",
+            model_name="gpt-4",
+            prompt_tokens=100,
+            completion_tokens=50,
+        )
+        await manager.record(
+            provider_id="dashscope",
+            model_name="qwen3-max",
+            prompt_tokens=200,
+            completion_tokens=100,
+        )
+
+        await asyncio.sleep(0.2)
+
+        details = await manager.get_details()
+
+        # Should have 2 records
+        assert len(details) == 2
+
+        # Verify structure
+        models = {r.model for r in details}
+        assert "gpt-4" in models
+        assert "qwen3-max" in models
 
         await manager.stop()
 

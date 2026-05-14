@@ -27,7 +27,7 @@ tests/
     ├── test_telegram.py        # TelegramChannel unit tests (93 tests)
     ├── test_voice.py           # VoiceChannel unit tests (37 tests)
     ├── test_wecom.py           # WecomChannel unit tests (69 tests)
-    ├── test_weixin.py          # WeixinChannel unit tests (78 tests)
+    ├── test_wechat.py          # WeChatChannel unit tests (78 tests)
     └── test_xiaoyi.py          # XiaoyiChannel unit tests (57 tests)
 ```
 
@@ -50,7 +50,7 @@ Both test types are required to pass in CI.
 | QQ | 116 | 2,096 | High | ✅ Complete |
 | Telegram | 93 | 1,798 | Medium-High | ✅ Complete |
 | Mattermost | 82 | 1,990 | Medium-High | ✅ Complete |
-| Weixin | 78 | 1,617 | Medium | ✅ Complete |
+| WeChat | 78 | 1,617 | Medium | ✅ Complete |
 | Wecom | 69 | 1,504 | Medium | ✅ Complete |
 | Base (test_base_core.py) | 68 | 1,390 | Core | ✅ Complete |
 | Console | 26 | 567 | Simple | ✅ Complete |

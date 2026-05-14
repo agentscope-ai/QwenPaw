@@ -565,6 +565,39 @@ async def put_heartbeat(
     return hb.model_dump(mode="json", by_alias=True)
 
 
+@router.post(
+    "/heartbeat/run",
+    summary="Run heartbeat now",
+    description="Trigger one heartbeat execution immediately",
+)
+async def run_heartbeat_now(request: Request) -> Any:
+    """Trigger one heartbeat run in background for quick testing."""
+    from ..agent_context import get_agent_for_request
+    from ..crons.heartbeat import run_heartbeat_once
+    import asyncio
+    import logging
+
+    agent = await get_agent_for_request(request)
+
+    async def _run_once_bg() -> None:
+        try:
+            workspace_dir = getattr(agent.runner, "workspace_dir", None)
+            await run_heartbeat_once(
+                runner=agent.runner,
+                channel_manager=agent.channel_manager,
+                agent_id=agent.agent_id,
+                workspace_dir=workspace_dir,
+            )
+        except Exception as e:  # pylint: disable=broad-except
+            logging.getLogger(__name__).exception(
+                "manual heartbeat run failed: %s",
+                e,
+            )
+
+    asyncio.create_task(_run_once_bg())
+    return {"started": True}
+
+
 @router.get(
     "/agents/llm-routing",
     response_model=AgentsLLMRoutingConfig,

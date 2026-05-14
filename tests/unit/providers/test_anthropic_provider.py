@@ -66,6 +66,38 @@ def test_get_chat_model_instance_uses_default_max_tokens_when_unset(
     assert captured["max_tokens"] == 16384
 
 
+def test_get_chat_model_instance_does_not_mutate_generate_kwargs(
+    monkeypatch,
+) -> None:
+    captured: list[dict[str, object]] = []
+
+    class FakeAnthropicChatModel:
+        def __init__(self, **kwargs) -> None:
+            captured.append(kwargs)
+
+    monkeypatch.setattr(
+        "agentscope.model.AnthropicChatModel",
+        FakeAnthropicChatModel,
+    )
+
+    provider = _make_provider()
+    provider.generate_kwargs = {
+        "max_tokens": 32768,
+        "temperature": 0.2,
+    }
+
+    provider.get_chat_model_instance("claude-3-5-sonnet")
+    provider.get_chat_model_instance("claude-3-5-sonnet")
+
+    assert [call["max_tokens"] for call in captured] == [32768, 32768]
+    assert provider.generate_kwargs == {
+        "max_tokens": 32768,
+        "temperature": 0.2,
+    }
+    assert captured[0]["generate_kwargs"] == {"temperature": 0.2}
+    assert captured[1]["generate_kwargs"] == {"temperature": 0.2}
+
+
 async def test_check_connection_success(monkeypatch) -> None:
     provider = _make_provider()
     called = {"count": 0}

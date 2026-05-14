@@ -95,8 +95,9 @@ class MCPClientManager:
     ) -> None:
         """Replace or add a client with new configuration.
 
-        Flow: connect new (outside lock) → swap + close old (inside lock).
-        This ensures minimal lock holding time.
+        Flow: connect new (outside lock) → atomic swap (inside lock) →
+        close old (outside lock).
+        The lock is held only for the dict swap, not during the slow close().
 
         Args:
             key: Client identifier (from config)
@@ -114,21 +115,24 @@ class MCPClientManager:
             await self._force_cleanup_client(new_client)
             raise
 
-        # 2. Swap and close old client inside lock
+        # 2. Atomically swap inside lock (dict ops only — no async I/O here)
         async with self._lock:
             old_client = self._clients.get(key)
             self._clients[key] = new_client
-
-            if old_client is not None:
-                logger.debug(f"Closing old MCP client: {key}")
-                try:
-                    await old_client.close()
-                except Exception as e:
-                    logger.warning(
-                        f"Error closing old MCP client '{key}': {e}",
-                    )
-            else:
+            if old_client is None:
                 logger.debug(f"Added new MCP client: {key}")
+
+        # 3. Close old client outside lock — close() may await for up to
+        #    a full reconnect sleep (≥1 s) and should not block get_clients()
+        #    / get_client() / close_all().  Matches remove_client() pattern.
+        if old_client is not None:
+            logger.debug(f"Closing old MCP client: {key}")
+            try:
+                await old_client.close()
+            except Exception as e:
+                logger.warning(
+                    f"Error closing old MCP client '{key}': {e}",
+                )
 
     async def remove_client(self, key: str) -> None:
         """Remove and close a client.
@@ -191,41 +195,52 @@ class MCPClientManager:
     async def _force_cleanup_client(client: Any) -> None:
         """Force-close a client whose ``connect()`` was interrupted.
 
-        ``StatefulClientBase.close()`` refuses to run when
-        ``is_connected`` is still ``False`` (which is the case when
-        ``connect()`` times out or raises).  We bypass that guard by
-        closing the ``AsyncExitStack`` directly — this triggers the
-        ``stdio_client`` finally-block that sends SIGTERM/SIGKILL to
-        the child process.
+        Called when ``connect()`` raises (timeout or other error) so that
+        any background lifecycle task and subprocess are torn down.
 
-        The ``ClientSession`` is registered on the same stack via
-        ``enter_async_context``, so ``stack.aclose()`` exits it in
-        LIFO order — no separate session teardown is needed.
+        For ``StdIOStatefulClient`` / ``HttpStatefulClient`` the
+        ``connect()`` timeout path already calls ``_stop_event.set()``
+        and ``await _lifecycle_task`` before re-raising, so by the time
+        this helper runs the task is already done and ``close()`` returns
+        early as a no-op.  The call is kept for correctness in edge-cases
+        and for compatibility with other client implementations.
         """
         if client is None:
             return
-
-        stack = getattr(client, "stack", None)
-        if stack is None:
-            return
-
         try:
-            await stack.aclose()
+            await client.close(ignore_errors=True)
         except Exception:
             logger.debug(
                 "Error during force-cleanup of MCP client",
                 exc_info=True,
             )
-        finally:
-            for attr, default in (
-                ("stack", None),
-                ("session", None),
-                ("is_connected", False),
-            ):
-                try:
-                    setattr(client, attr, default)
-                except Exception:
-                    pass
+
+    @staticmethod
+    def _inject_oauth_token(
+        headers: dict,
+        client_config: "MCPClientConfig",
+    ) -> dict:
+        """Inject OAuth Bearer token into headers if available and valid."""
+        import time as _time
+
+        oauth = client_config.oauth
+        if not oauth or not oauth.access_token:
+            return headers
+
+        # Skip injection when token is expired. Token refresh is not yet
+        # implemented, so injecting an expired token would only cause 401s.
+        # expires_at=0 means no expiry was provided; treat as non-expiring.
+        if oauth.expires_at > 0 and oauth.expires_at < _time.time():
+            logger.warning(
+                f"OAuth token for MCP client '{client_config.name}' "
+                "has expired; skipping Authorization header injection. "
+                "Please re-authorize via the UI.",
+            )
+            return headers
+
+        result = dict(headers)
+        result["Authorization"] = f"Bearer {oauth.access_token}"
+        return result
 
     @staticmethod
     def _build_client(client_config: "MCPClientConfig") -> Any:
@@ -252,9 +267,14 @@ class MCPClientManager:
             setattr(client, "_qwenpaw_rebuild_info", rebuild_info)
             return client
 
-        headers = client_config.headers
-        if headers:
-            headers = {k: os.path.expandvars(v) for k, v in headers.items()}
+        headers: dict = dict(client_config.headers or {})
+        headers = {k: os.path.expandvars(v) for k, v in headers.items()}
+
+        # Inject OAuth access token (overrides any manually set Authorization)
+        headers = MCPClientManager._inject_oauth_token(
+            headers,
+            client_config,
+        )
 
         client = HttpStatefulClient(
             name=client_config.name,

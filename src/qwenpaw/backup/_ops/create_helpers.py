@@ -114,7 +114,7 @@ def add_skill_pool(zf: zipfile.ZipFile, stop_event=None) -> bool:
     Returns ``False`` if *stop_event* was set before or during the operation
     (cancelled), ``True`` otherwise.
     """
-    from ...agents.skills_manager import get_skill_pool_dir
+    from ...agents.skill_system.store import get_skill_pool_dir
 
     skill_pool_dir = get_skill_pool_dir()
     if not skill_pool_dir.is_dir():

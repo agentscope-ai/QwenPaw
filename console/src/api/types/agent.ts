@@ -64,10 +64,33 @@ export interface AutoTitleConfig {
   timeout_seconds: number;
 }
 
+export interface ADBPGMemoryConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  dbname: string;
+  llm_model: string;
+  llm_api_key: string;
+  llm_base_url: string;
+  embedding_model: string;
+  embedding_api_key: string;
+  embedding_base_url: string;
+  embedding_dims: number;
+  api_mode: string;
+  rest_api_key: string;
+  rest_base_url: string;
+  memory_isolation: boolean;
+  search_timeout: number;
+  pool_minconn: number;
+  pool_maxconn: number;
+}
+
 export interface AgentsRunningConfig {
   max_iters: number;
   auto_continue_on_text_only: boolean;
   shell_command_timeout: number;
+  shell_command_executable: string;
   llm_retry_enabled: boolean;
   llm_max_retries: number;
   llm_backoff_base: number;
@@ -82,6 +105,7 @@ export interface AgentsRunningConfig {
   context_manager_backend: string;
   light_context_config: LightContextConfig;
   memory_manager_backend: string;
+  adbpg_memory_config?: ADBPGMemoryConfig | null;
   reme_light_memory_config: ReMeLightMemoryConfig;
   approval_level?: string;
   auto_title_config: AutoTitleConfig;

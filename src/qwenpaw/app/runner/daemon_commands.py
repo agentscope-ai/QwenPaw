@@ -60,6 +60,7 @@ class DaemonContext:
     agent_id: Optional[str] = None
     # Session ID for approval commands.
     session_id: str = ""
+    agent_name: str = "QwenPaw"
 
 
 def _get_last_lines(
@@ -235,7 +236,7 @@ class DaemonCommandHandlerMixin:
         parsed = parse_daemon_query(query)
         if not parsed:
             return Msg(
-                name="Friday",
+                name=context.agent_name,
                 role="assistant",
                 content=[
                     TextBlock(type="text", text="Unknown daemon command."),
@@ -261,7 +262,7 @@ class DaemonCommandHandlerMixin:
             text = "Unknown daemon subcommand."
         logger.info("handle_daemon_command %s completed", query)
         return Msg(
-            name="Friday",
+            name=context.agent_name,
             role="assistant",
             content=[TextBlock(type="text", text=text)],
         )

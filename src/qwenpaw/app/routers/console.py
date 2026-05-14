@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import AsyncGenerator, Union
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
@@ -22,6 +23,12 @@ from ..runner.title_generator import generate_and_update_title
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/console", tags=["console"])
+
+
+class MarkInboxReadRequest(BaseModel):
+    event_ids: list[str] = []
+    all: bool = False
+
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_DEBUG_LOG_LINES = 1000
@@ -374,6 +381,7 @@ async def get_push_messages(
             "request_id": p.request_id,
             "session_id": p.session_id,
             "root_session_id": p.root_session_id,
+            "owner_agent_id": p.owner_agent_id,
             "agent_id": p.agent_id,
             "tool_name": p.tool_name,
             "severity": p.severity,
@@ -387,3 +395,64 @@ async def get_push_messages(
     ]
 
     return {"messages": messages, "pending_approvals": approvals_data}
+
+
+@router.get("/inbox/events")
+async def get_inbox_events(
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    source_type: str | None = Query(None),
+    status: str | None = Query(None),
+    agent_id: str | None = Query(None),
+    unread_only: bool = Query(False),
+):
+    from ..inbox_store import list_events
+
+    events = await list_events(
+        limit=limit,
+        offset=offset,
+        source_type=source_type,
+        status=status,
+        agent_id=agent_id,
+        unread_only=unread_only,
+    )
+    return {"events": events}
+
+
+@router.post("/inbox/read")
+async def post_mark_inbox_read(payload: MarkInboxReadRequest):
+    from ..inbox_store import mark_all_read, mark_read
+
+    if payload.all:
+        updated = await mark_all_read()
+    else:
+        updated = await mark_read(payload.event_ids)
+    return {"updated": updated}
+
+
+@router.delete("/inbox/events/{event_id}")
+async def delete_inbox_event(event_id: str):
+    from ..inbox_store import delete_event
+    from ..inbox_trace_store import delete_trace
+
+    deleted, run_id, run_id_still_referenced = await delete_event(event_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="event not found")
+    trace_deleted = False
+    if run_id and not run_id_still_referenced:
+        trace_deleted = await delete_trace(run_id)
+    return {
+        "deleted": True,
+        "trace_deleted": trace_deleted,
+        "run_id": run_id,
+    }
+
+
+@router.get("/inbox/traces/{run_id}")
+async def get_inbox_trace(run_id: str):
+    from ..inbox_trace_store import get_trace
+
+    trace = await get_trace(run_id)
+    if trace is None:
+        raise HTTPException(status_code=404, detail="trace not found")
+    return trace

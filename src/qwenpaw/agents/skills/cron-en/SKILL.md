@@ -2,7 +2,7 @@
 name: cron
 description: Use this skill only for scheduled or recurring tasks. Manage jobs with qwenpaw cron list/create/get/state/pause/resume/delete/run, and always pass --agent-id explicitly.
 metadata:
-  builtin_skill_version: "1.4"
+  builtin_skill_version: "1.5"
   qwenpaw:
     emoji: "⏰"
 ---
@@ -83,10 +83,25 @@ Two types are supported:
 - **text**: Send a fixed message on a schedule
 - **agent**: Ask an agent a question on a schedule and send the reply to the target channel
 
+Two schedule modes are supported:
+- **cron** (`--schedule-type cron`): classic cron recurrence (for example, daily 09:00 or every 2 hours)
+- **scheduled** (`--schedule-type scheduled`): calendar-style schedule starting from `--run-at`, either one-time or repeating by day
+
+### Schedule Selection Rules (Must Follow)
+- If user intent is generic recurrence ("hourly/daily/weekly") without a specific start date, prefer `cron`
+- If user intent includes a concrete start date ("tomorrow", "next Monday", "starting from <date>", "for the next two weeks"), prefer `scheduled`
+- For one-time `scheduled` tasks: pass only `--run-at` and do not pass any `--repeat-*` options
+- For repeating `scheduled` tasks: pass `--repeat-every-days` and choose an end condition:
+  - fixed count: `--repeat-end-type count --repeat-count N`
+  - end datetime: `--repeat-end-type until --repeat-until <ISO8601>`
+  - no end: `--repeat-end-type never`
+
 ### Minimum Information Required Before Creating
 - `--type`
 - `--name`
-- `--cron`
+- `--schedule-type`
+- `--cron` (when `--schedule-type cron`)
+- `--run-at` (when `--schedule-type scheduled`)
 - `--channel`
 - `--target-user`
 - `--target-session`
@@ -98,9 +113,11 @@ If any of this information is missing, confirm with the user before creating the
 ### Creation Examples
 
 ```bash
+# Recurring task (--schedule-type cron)
 qwenpaw cron create \
   --agent-id <agent_id> \
   --type text \
+  --schedule-type cron \
   --name "Daily Greeting" \
   --cron "0 9 * * *" \
   --channel imessage \
@@ -110,15 +127,50 @@ qwenpaw cron create \
 ```
 
 ```bash
+# Recurring task (--schedule-type cron)
 qwenpaw cron create \
   --agent-id <agent_id> \
   --type agent \
+  --schedule-type cron \
   --name "Check Todos" \
   --cron "0 */2 * * *" \
   --channel dingtalk \
   --target-user "CHANGEME" \
   --target-session "CHANGEME" \
   --text "What are my pending tasks?"
+```
+
+```bash
+# Scheduled one-time: remind at 9 AM tomorrow (no repeat)
+qwenpaw cron create \
+  --agent-id <agent_id> \
+  --type text \
+  --schedule-type scheduled \
+  --name "Tomorrow Morning Reminder" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --channel dingtalk \
+  --target-user "CHANGEME" \
+  --target-session "CHANGEME" \
+  --text "Standup starts at 9:00." \
+  --save-result-to-inbox
+```
+
+```bash
+# Scheduled repeating: next two weeks, every day at 9 AM (14 runs)
+qwenpaw cron create \
+  --agent-id <agent_id> \
+  --type text \
+  --schedule-type scheduled \
+  --name "Two-week Standup Reminder" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --repeat-every-days 1 \
+  --repeat-end-type count \
+  --repeat-count 14 \
+  --channel dingtalk \
+  --target-user "CHANGEME" \
+  --target-session "CHANGEME" \
+  --text "Standup starts at 9:00." \
+  --save-result-to-inbox
 ```
 
 ### Create from JSON
@@ -186,6 +238,8 @@ to find the correct `job_id`.
 - Before modifying/pausing/deleting, run `qwenpaw cron list --agent-id <agent_id>` first
 - To troubleshoot issues, use `qwenpaw cron state <job_id> --agent-id <agent_id>`
 - When showing commands to the user, provide complete, copy-pasteable versions
+- If the user mentions "save to inbox" (or not), explicitly include `--save-result-to-inbox` or `--no-save-result-to-inbox`
+- Before creating, you can run `qwenpaw chats list --agent-id <agent_id>` to get valid `target-user` and `target-session`
 
 ---
 

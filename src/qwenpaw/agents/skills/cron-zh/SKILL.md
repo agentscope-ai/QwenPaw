@@ -2,7 +2,7 @@
 name: cron
 description: 仅在需要未来定时执行或周期执行任务时，使用本 skill。使用 qwenpaw cron list/create/get/state/pause/resume/delete/run 管理任务，并始终显式传入 --agent-id。
 metadata:
-  builtin_skill_version: "1.4"
+  builtin_skill_version: "1.5"
   qwenpaw:
     emoji: "⏰"
 ---
@@ -83,10 +83,25 @@ qwenpaw cron run <job_id> --agent-id <agent_id>
 - **text**：定时发送固定消息
 - **agent**：定时向 agent 提问，并把回复发送到目标 channel
 
+支持两种调度形态：
+- **cron**（`--schedule-type cron`）：经典 cron 周期（如每天 9 点、每 2 小时），与循环任务相对应
+- **scheduled**（`--schedule-type scheduled`）：日程任务（从 `--run-at` 开始，可一次性或按天重复）
+
+### 调度选择规则（必须遵守）
+- 用户表达“每小时/每天/每周”且不强调具体起始日时，优先用 `cron`
+- 用户表达“明天/下周一/从某天开始/未来两周/有明确截止时间”时，优先用 `scheduled`
+- `scheduled` 不重复时（即一次性任务）：只传 `--run-at`，不要传 `--repeat-*`
+- `scheduled` 重复时：传 `--repeat-every-days`，并根据结束条件传：
+  - 限定次数：`--repeat-end-type count --repeat-count N`
+  - 限定结束时间：`--repeat-end-type until --repeat-until <ISO8601>`
+  - 不设结束：`--repeat-end-type never`
+
 ### 创建前最少要确认
 - `--type`
 - `--name`
-- `--cron`
+- `--schedule-type`
+- `--cron`（当 `--schedule-type cron`）
+- `--run-at`（当 `--schedule-type scheduled`）
 - `--channel`
 - `--target-user`
 - `--target-session`
@@ -98,9 +113,11 @@ qwenpaw cron run <job_id> --agent-id <agent_id>
 ### 创建示例
 
 ```bash
+# 循环任务（对应 --schedule-type cron）
 qwenpaw cron create \
   --agent-id <agent_id> \
   --type text \
+  --schedule-type cron \
   --name "每日早安" \
   --cron "0 9 * * *" \
   --channel imessage \
@@ -110,15 +127,50 @@ qwenpaw cron create \
 ```
 
 ```bash
+# 循环任务（对应 --schedule-type cron）
 qwenpaw cron create \
   --agent-id <agent_id> \
   --type agent \
+  --schedule-type cron \
   --name "检查待办" \
   --cron "0 */2 * * *" \
   --channel dingtalk \
   --target-user "CHANGEME" \
   --target-session "CHANGEME" \
   --text "我有什么待办事项？"
+```
+
+```bash
+# 日程一次性：明天 9 点提醒（不重复）
+qwenpaw cron create \
+  --agent-id <agent_id> \
+  --type text \
+  --schedule-type scheduled \
+  --name "明早提醒" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --channel dingtalk \
+  --target-user "CHANGEME" \
+  --target-session "CHANGEME" \
+  --text "9 点开组会" \
+  --save-result-to-inbox
+```
+
+```bash
+# 日程重复：未来两周每天 9 点（共 14 次）
+qwenpaw cron create \
+  --agent-id <agent_id> \
+  --type text \
+  --schedule-type scheduled \
+  --name "未来两周组会提醒" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --repeat-every-days 1 \
+  --repeat-end-type count \
+  --repeat-count 14 \
+  --channel dingtalk \
+  --target-user "CHANGEME" \
+  --target-session "CHANGEME" \
+  --text "9 点开组会" \
+  --save-result-to-inbox
 ```
 
 ### 从 JSON 创建
@@ -186,6 +238,7 @@ qwenpaw cron list --agent-id <agent_id>
 - 修改/暂停/删除前，先 `qwenpaw cron list --agent-id <agent_id>`
 - 排查问题时，用 `qwenpaw cron state <job_id> --agent-id <agent_id>`
 - 给用户展示命令时，提供完整、可直接复制的版本
+- 用户提到“结果进收件箱/不进收件箱”时，显式加 `--save-result-to-inbox` 或 `--no-save-result-to-inbox`，否则不要添加该项。
 
 ---
 

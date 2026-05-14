@@ -72,10 +72,12 @@ async def is_last_message_proactive(workspace: Any) -> bool:
 
         session_id = latest_session.session_id
         user_id = latest_session.user_id
+        channel = latest_session.channel
 
         state = await workspace.runner.session.get_session_state_dict(
             session_id,
             user_id,
+            channel,
         )
 
         memories_data = state.get("agent", {}).get("memory", [])

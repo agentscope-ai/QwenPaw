@@ -340,15 +340,15 @@ def _do_migrate_legacy_skills() -> bool:
     """Internal implementation of legacy skills migration."""
     from datetime import datetime, timezone
 
-    from ..agents.skills_manager import (
+    from ..agents.skill_system import ensure_skill_pool_initialized
+    from ..agents.skill_system.registry import reconcile_workspace_manifest
+    from ..agents.skill_system.store import (
         _copy_skill_dir,
         _default_workspace_manifest,
         _mutate_json,
-        ensure_skill_pool_initialized,
         get_pool_skill_manifest_path,
         get_workspace_skill_manifest_path,
         get_workspace_skills_dir,
-        reconcile_workspace_manifest,
     )
 
     import hashlib

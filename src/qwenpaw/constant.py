@@ -166,6 +166,7 @@ HEARTBEAT_FILE = EnvVarLoader.get_str("QWENPAW_HEARTBEAT_FILE", "HEARTBEAT.md")
 HEARTBEAT_DEFAULT_EVERY = "6h"
 HEARTBEAT_DEFAULT_TARGET = "main"
 HEARTBEAT_TARGET_LAST = "last"
+HEARTBEAT_TARGET_INBOX = "inbox"
 
 # Debug history file for /dump_history and /load_history commands
 DEBUG_HISTORY_FILE = EnvVarLoader.get_str(
@@ -235,11 +236,6 @@ MEMORY_COMPACT_RATIO = EnvVarLoader.get_float(
     0.7,
     min_value=0,
     allow_inf=False,
-)
-
-DASHSCOPE_BASE_URL = EnvVarLoader.get_str(
-    "DASHSCOPE_BASE_URL",
-    "https://dashscope.aliyuncs.com/compatible-mode/v1",
 )
 
 # CORS configuration — comma-separated list of allowed origins for dev mode.

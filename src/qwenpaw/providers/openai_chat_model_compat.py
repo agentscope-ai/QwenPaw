@@ -188,11 +188,108 @@ class _SanitizedStream:
                     self.extra_contents[tc_id] = extra
 
 
+def _sanitize_boolean_schemas(schema: Any) -> Any:
+    """Recursively replace boolean JSON Schema values with proper objects.
+
+    Some MCP servers emit boolean schemas such as ``true`` (any value) or
+    ``false`` (no valid value), which is legal per JSON Schema spec but
+    rejected by strict LLM providers like DeepSeek V4.  This function
+    converts them to their object equivalents:
+
+        true  → {}           (empty schema = accept anything)
+        false → {"not": {}}  (impossible schema = reject everything)
+
+    It also strips problematic but common non-standard usages:
+    - ``additionalProperties: true``  → removed (it's the default)
+    - ``required: true`` inside a property definition → removed
+      (non-standard; real JSON Schema uses ``required: ["field"]`` on the
+       parent object, not a boolean inside the property itself)
+    """
+    if schema is True:
+        return {}
+    if schema is False:
+        return {"not": {}}
+    if not isinstance(schema, dict):
+        return schema
+
+    result: dict[str, Any] = {}
+    for key, value in schema.items():
+        # Strip `additionalProperties: true` — it is the default and
+        # some strict validators reject the explicit boolean form.
+        if key == "additionalProperties" and value is True:
+            continue
+        # Strip `required: <bool>` inside property schemas.
+        # Some MCP servers (e.g. reetp14/openalex-mcp) mistakenly write
+        # `"required": true` inside a property definition instead of
+        # listing the field in the parent object's `required` array.
+        # DeepSeek V4 reports: "true is not of type 'array'"
+        if key == "required" and isinstance(value, bool):
+            continue
+        if isinstance(value, bool):
+            result[key] = {} if value else {"not": {}}
+        elif isinstance(value, dict):
+            result[key] = _sanitize_boolean_schemas(value)
+        elif isinstance(value, list):
+            result[key] = [
+                _sanitize_boolean_schemas(item)
+                if isinstance(item, (dict, bool))
+                else item
+                for item in value
+            ]
+        else:
+            result[key] = value
+    return result
+
+
+def _sanitize_tool_schemas(
+    tools: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Sanitize tool function schemas to be compatible with strict providers.
+
+    Walks the ``parameters`` of each tool's function definition and replaces
+    boolean JSON Schema values that providers like DeepSeek V4 reject.
+    """
+    sanitized = []
+    for tool in tools:
+        if not isinstance(tool, dict):
+            sanitized.append(tool)
+            continue
+        func = tool.get("function")
+        if not isinstance(func, dict):
+            sanitized.append(tool)
+            continue
+        params = func.get("parameters")
+        if not isinstance(params, dict):
+            sanitized.append(tool)
+            continue
+        sanitized_params = _sanitize_boolean_schemas(params)
+        sanitized.append(
+            {**tool, "function": {**func, "parameters": sanitized_params}},
+        )
+    return sanitized
+
+
 class OpenAIChatModelCompat(OpenAIChatModel):
     """OpenAIChatModel with robust parsing for malformed tool-call chunks
     and transparent ``extra_content`` (Gemini thought_signature) relay."""
 
-    # pylint: disable=too-many-branches
+    def _format_tools_json_schemas(
+        self,
+        schemas: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Format tool schemas while stripping boolean sub-schemas.
+
+        Some MCP servers declare parameters using JSON Schema boolean values
+        (e.g. ``additionalProperties: true``, ``items: true``) which are valid
+        per spec but rejected by strict providers such as DeepSeek V4 with the
+        error ``true is not of type 'array'``.  This override sanitizes the
+        schemas before forwarding them to the base implementation.
+        """
+        return super()._format_tools_json_schemas(
+            _sanitize_tool_schemas(schemas),
+        )
+
+    # pylint: disable=too-many-branches, too-many-statements
     async def _parse_openai_stream_response(
         self,
         start_datetime: datetime,
@@ -212,6 +309,18 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             response=sanitized_response,
             structured_model=structured_model,
         ):
+            # Filter out malformed tool_use blocks (null id or empty name)
+            # emitted by some OpenAI-compatible models, to prevent bad entries
+            # from being persisted into session history (issue #4185).
+            parsed.content = [
+                b
+                for b in parsed.content
+                if not (
+                    b.get("type") == "tool_use"
+                    and (not isinstance(b.get("id"), str) or not b.get("name"))
+                )
+            ]
+
             # Attach extra_content (Gemini thought_signature) to tool_use
             # blocks.
             if sanitized_response.extra_contents:

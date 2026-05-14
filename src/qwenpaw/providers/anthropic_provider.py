@@ -22,8 +22,15 @@ from qwenpaw.providers.provider import ModelInfo, Provider
 
 logger = logging.getLogger(__name__)
 
-DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+DASHSCOPE_BASE_URLS = (
+    "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+)
 CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
+TOKEN_PLAN_BASE_URL = (
+    "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+)
 
 
 class AnthropicProvider(Provider):
@@ -131,7 +138,7 @@ class AnthropicProvider(Provider):
         from agentscope.model import AnthropicChatModel
 
         client_kwargs = {"base_url": self.base_url}
-        if self.base_url == DASHSCOPE_BASE_URL:
+        if self.base_url in DASHSCOPE_BASE_URLS:
             client_kwargs["default_headers"] = {
                 "x-dashscope-agentapp": json.dumps(
                     {
@@ -155,13 +162,23 @@ class AnthropicProvider(Provider):
                     ensure_ascii=False,
                 ),
             }
+        elif self.base_url == TOKEN_PLAN_BASE_URL:
+            client_kwargs["default_headers"] = {
+                "X-DashScope-Cdpl": json.dumps(
+                    {
+                        "agentType": "QwenPaw",
+                        "deployType": "UnKnown",
+                        "moduleCode": "model",
+                        "agentCode": "UnKnown",
+                    },
+                    ensure_ascii=False,
+                ),
+            }
 
-        self.generate_kwargs = self.get_effective_generate_kwargs(model_id)
-
-        if "max_tokens" in self.generate_kwargs:
-            max_tokens = self.generate_kwargs.pop("max_tokens")
-        else:
-            max_tokens = 16384
+        effective_generate_kwargs = self.get_effective_generate_kwargs(
+            model_id,
+        )
+        max_tokens = effective_generate_kwargs.pop("max_tokens", 16384)
 
         return AnthropicChatModel(
             model_name=model_id,
@@ -170,7 +187,7 @@ class AnthropicProvider(Provider):
             api_key=self.api_key,
             stream_tool_parsing=False,
             client_kwargs=client_kwargs,
-            generate_kwargs=self.get_effective_generate_kwargs(model_id),
+            generate_kwargs=effective_generate_kwargs,
         )
 
     async def probe_model_multimodal(

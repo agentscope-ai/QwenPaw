@@ -300,6 +300,110 @@ Configure the memory storage backend via the `MEMORY_STORE_BACKEND` environment 
 
 ---
 
+## Other Memory Backends
+
+QwenPaw's memory system uses a pluggable backend architecture. In addition to the default ReMeLight (local file storage), you can switch to other backends via `memory_manager_backend`.
+
+### ADBPG (AnalyticDB for PostgreSQL)
+
+A long-term memory backend backed by a cloud vector database. Suitable for scenarios that need cross-device sharing or large-scale semantic retrieval.
+
+**Key features:**
+
+- **Cross-session persistence** — Memories are stored in a cloud database, retained across restarts, and shareable across devices.
+- **Server-side fact extraction** — Fact extraction is performed by the LLM built into ADBPG, with no extra client-side overhead.
+- **Dual API modes** — Supports both direct SQL connection and REST API access.
+- **Graceful degradation** — When ADBPG is unreachable, the agent keeps running normally; only the long-term memory feature is temporarily disabled.
+
+**How to configure:**
+
+Open the agent's "Running Config" tab in the Console, locate the "Memory Manager Backend" dropdown, choose `adbpg`, and fill in the parameters under `adbpg_memory_config` according to the API mode you select.
+
+![adbpg-backend](https://img.alicdn.com/imgextra/i3/O1CN01bH1Rj41wwQs3v04U6_!!6000000006372-2-tps-2954-1484.png)
+
+> ⚠️ Switching the backend does not support hot reload. After saving, restart QwenPaw for the change to take effect (the page also shows a yellow banner reminder).
+
+#### REST Mode (Recommended)
+
+Connect to the ADBPG memory service over HTTP API — no additional Python dependencies required.
+
+Switch to the "ADBPG Long-term Memory" tab, set "API Mode" to `REST API`, and fill in `REST Base URL` and `REST API Key`:
+
+![adbpg-rest-mode](https://img.alicdn.com/imgextra/i4/O1CN01gTvYJI238hAc4fcvr_!!6000000007211-2-tps-2996-1478.png)
+
+| Field              | Description                                                     | Default  |
+| ------------------ | --------------------------------------------------------------- | -------- |
+| `api_mode`         | API mode, set to `"rest"`                                       | `"rest"` |
+| `rest_base_url`    | REST API URL of the ADBPG memory service                        | `""`     |
+| `rest_api_key`     | Access key for the REST API                                     | `""`     |
+| `memory_isolation` | Memory isolation mode: `true` for per-agent, `false` for shared | `true`   |
+| `search_timeout`   | Memory search timeout (seconds)                                 | `10.0`   |
+
+#### SQL Mode
+
+Connect directly to the ADBPG database via psycopg2. Requires installing an extra dependency: `pip install qwenpaw[adbpg]`.
+
+Switch to the "ADBPG Long-term Memory" tab, set "API Mode" to `SQL (Direct)`, and fill in the database connection info (host / port / user / password / dbname) along with LLM and Embedding parameters:
+
+![adbpg-sql-mode](https://img.alicdn.com/imgextra/i2/O1CN01K8Og0P27WkQvGWHvZ_!!6000000007805-2-tps-2988-1498.png)
+
+| Field                | Description                                    | Default |
+| -------------------- | ---------------------------------------------- | ------- |
+| `api_mode`           | API mode, set to `"sql"`                       | `"sql"` |
+| `host`               | ADBPG database host                            | `""`    |
+| `port`               | Database port                                  | `5432`  |
+| `user`               | Database user                                  | `""`    |
+| `password`           | Database password                              | `""`    |
+| `dbname`             | Database name                                  | `""`    |
+| `llm_model`          | LLM model used for server-side fact extraction | `""`    |
+| `llm_api_key`        | API Key for the LLM service                    | `""`    |
+| `llm_base_url`       | Base URL of the LLM service                    | `""`    |
+| `embedding_model`    | Embedding model name                           | `""`    |
+| `embedding_api_key`  | API Key for the Embedding service              | `""`    |
+| `embedding_base_url` | Base URL of the Embedding service              | `""`    |
+| `embedding_dims`     | Vector dimensions                              | `1024`  |
+| `memory_isolation`   | Memory isolation mode                          | `true`  |
+| `search_timeout`     | Memory search timeout (seconds)                | `10.0`  |
+| `pool_minconn`       | Minimum connections in the pool                | `1`     |
+| `pool_maxconn`       | Maximum connections in the pool                | `5`     |
+
+**Configuration example:**
+
+The full configuration can be written into `running.adbpg_memory_config` of `agent.json`:
+
+```json
+{
+  "running": {
+    "memory_manager_backend": "adbpg",
+    "adbpg_memory_config": {
+      "host": "gp-xxxxxxxxx-master.gpdb.rds.aliyuncs.com",
+      "port": 5432,
+      "user": "your_db_user",
+      "password": "your_db_password",
+      "dbname": "your_db_name",
+      "llm_model": "qwen-plus",
+      "llm_api_key": "sk-xxxxxxxx",
+      "llm_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "embedding_model": "text-embedding-v3",
+      "embedding_api_key": "sk-xxxxxxxx",
+      "embedding_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "embedding_dims": 1024,
+      "api_mode": "sql",
+      "rest_api_key": "",
+      "rest_base_url": "",
+      "memory_isolation": true,
+      "search_timeout": 10.0,
+      "pool_minconn": 1,
+      "pool_maxconn": 5
+    }
+  }
+}
+```
+
+> 💡 When you fill these fields in the Console "Running Config" page, the framework writes them into `agent.json` automatically — no need to edit the file by hand.
+
+---
+
 ## Related Pages
 
 - [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive.en.md) — Auto-Memory, Auto-Dream, Auto-Memory-Search, Proactive complete workflow

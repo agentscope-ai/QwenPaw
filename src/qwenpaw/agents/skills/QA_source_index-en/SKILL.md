@@ -24,7 +24,7 @@ When answering questions about **installation, configuration, or behavioral prin
 |---------------------|-----------------------------------|-----------------------------------|
 | Installation, dependencies, getting started | `quickstart`, `intro` | `src/qwenpaw/cli/`, `pyproject.toml` |
 | Configuration, config.json, environment variables | `config` | `src/qwenpaw/config/config.py`, `src/qwenpaw/constant.py` |
-| Skills, SKILL, skill_pool, built-in skills | `skills` | `src/qwenpaw/agents/skills_manager.py`, `src/qwenpaw/agents/skills/` |
+| Skills, SKILL, skill_pool, built-in skills | `skills` | `src/qwenpaw/agents/skill_system/`, `src/qwenpaw/agents/skills/` |
 | MCP, plugins | `mcp` | `src/qwenpaw/app/routers/` (grep `mcp` as needed) |
 | Multi-agent, workspace, agent, built-in QA | `multi-agent` | `src/qwenpaw/app/routers/agents.py`, `src/qwenpaw/app/migration.py`, `src/qwenpaw/constant.py` (`BUILTIN_QA_AGENT_ID`, etc.) |
 | Memory, MEMORY, memory_search | `memory` | `src/qwenpaw/agents/memory/memory_manager.py`, `src/qwenpaw/agents/tools/memory_search.py` |

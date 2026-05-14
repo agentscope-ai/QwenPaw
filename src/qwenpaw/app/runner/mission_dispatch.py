@@ -37,6 +37,7 @@ async def maybe_handle_mission_command(
     agent_id: str,
     rewrite_fn: Callable[[list, str], None],
     session_id: str = "",
+    agent_name: str = "QwenPaw",
 ) -> Msg | dict[str, Any] | None:
     """Handle ``/mission`` if the query matches.
 
@@ -60,7 +61,7 @@ async def maybe_handle_mission_command(
 
     if isinstance(result, str):
         return Msg(
-            name="Friday",
+            name=agent_name,
             role="assistant",
             content=[TextBlock(type="text", text=result)],
         )

@@ -11,7 +11,7 @@ from pathlib import Path
 import frontmatter as fm
 
 from .base import BaseControlCommandHandler, ControlContext
-from ....agents.skills_manager import (
+from ....agents.skill_system import (
     get_workspace_skills_dir,
     reconcile_workspace_manifest,
 )

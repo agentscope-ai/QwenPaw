@@ -122,6 +122,16 @@
   }
 }
 
+/* Fix #4216: Preserve newlines in user message bubbles.
+ * The Raw text renderer (used when raw=true) renders \n as plain React
+ * children which HTML collapses into whitespace. pre-wrap keeps them. */
+.chatMessagesArea :global {
+  [class*="bubble-end"] [class*="markdown"],
+  [class*="bubble-user"] [class*="markdown"] {
+    white-space: pre-wrap;
+  }
+}
+
 /* Dark mode scrollbar for disabled overlay */
 :global(.dark-mode) {
   .chatDisabledOverlay :global([class*="chat-anywhere-input"]),

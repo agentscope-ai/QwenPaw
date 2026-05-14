@@ -4,6 +4,7 @@ export const providerIcon = (provider: string) => {
       return "https://gw.alicdn.com/imgextra/i4/O1CN01exenB61EAwhgY4pmA_!!6000000000312-2-tps-400-400.png";
     case "aliyun-codingplan":
     case "aliyun-codingplan-intl":
+    case "aliyun-tokenplan":
       return "https://gw.alicdn.com/imgextra/i4/O1CN01nEmGhQ1we71GXW6eo_!!6000000006332-2-tps-400-400.png";
     case "deepseek":
       return "https://gw.alicdn.com/imgextra/i4/O1CN01YfmXc81ogO3pR0aW8_!!6000000005254-2-tps-400-400.png";
@@ -41,6 +42,9 @@ export const providerIcon = (provider: string) => {
       return "https://gw.alicdn.com/imgextra/i4/O1CN01oX74jS1ciQR9xBtZ2_!!6000000003634-2-tps-252-252.png";
     case "opencode":
       return "https://gw.alicdn.com/imgextra/i1/O1CN01d3RfoB28G5dbN4i97_!!6000000007904-2-tps-30-30.png";
+    case "volcengine-cn":
+    case "volcengine-cn-codingplan":
+      return "https://img.alicdn.com/imgextra/i1/O1CN01KusRg42AJPkUV5ken_!!6000000008182-2-tps-1892-1660.png";
     default:
       return "https://gw.alicdn.com/imgextra/i4/O1CN01IWnlOw1lebfpiFrIL_!!6000000004844-0-tps-100-100.jpg";
   }

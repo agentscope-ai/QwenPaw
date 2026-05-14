@@ -3,6 +3,7 @@ const PROVIDER_LETTER_COLORS: Record<string, string> = {
   modelscope: "#6236FF",
   "aliyun-codingplan": "#FF6A00",
   "aliyun-codingplan-intl": "#FF6A00",
+  "aliyun-tokenplan": "#FF6A00",
   deepseek: "#4D6BFE",
   gemini: "#4285F4",
   "azure-openai": "#0078D4",

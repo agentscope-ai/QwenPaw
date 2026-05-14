@@ -73,6 +73,31 @@ def register_command(handler: BaseControlCommandHandler) -> None:
     )
 
 
+def unregister_command(command_name: str) -> bool:
+    """Remove a plugin control command handler from the global registry.
+
+    Only plugin-registered commands should be removed at runtime.
+    Default built-in handlers (/stop, /model, etc.) are never removed.
+
+    Args:
+        command_name: Command name to remove (e.g. ``"mystatus"``
+            or ``"/mystatus"``; leading slash is stripped).
+
+    Returns:
+        ``True`` if the command was found and removed, ``False``
+        otherwise.
+    """
+    key = command_name.lstrip("/").lower()
+    if key not in _COMMAND_REGISTRY:
+        logger.warning(
+            f"unregister_command: '{command_name}' not found in registry",
+        )
+        return False
+    del _COMMAND_REGISTRY[key]
+    logger.info(f"Unregistered control command: /{key}")
+    return True
+
+
 def _extract_command_token(query: str | None) -> str | None:
     """Extract the command token from a query string.
 
@@ -228,4 +253,5 @@ __all__ = [
     "is_control_command",
     "handle_control_command",
     "register_command",
+    "unregister_command",
 ]

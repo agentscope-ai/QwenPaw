@@ -3,10 +3,6 @@
   height: 100vh;
 }
 
-.pageContainer {
-  // inherits from .page-container global class; add local overrides here if needed
-}
-
 // ─── Header ───────────────────────────────────────────────────────────────────
 .header {
   height: 56px;
@@ -69,12 +65,41 @@
       }
     }
   }
-  // AgentSelector container - fixed at top
+  // AgentSelector + Chat container - sticky at top
   .agentSelectorContainer {
     position: sticky;
     top: 0;
     z-index: 10;
     margin-bottom: 4px;
+    // Opaque background so scrolled content is hidden behind
+    background: #f9f7f3;
+    border-radius: 12px 12px 0 0;
+  }
+
+  // Sticky Chat button — matches menu item appearance
+  .stickyChatButton {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    height: 40px;
+    padding: 0 8px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: rgba(0, 0, 0, 0.88);
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.2s;
+    padding-left: 12px;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.06);
+    }
+  }
+
+  .stickyChatButtonActive {
+    background: rgba(43, 18, 0, 0.08);
   }
 
   // Menu takes remaining space
@@ -212,6 +237,26 @@
   .agentScopedSection {
     background: rgba(255, 255, 255, 0.04);
     border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  // Sticky container background (dark mode)
+  .agentSelectorContainer {
+    background: #1e1e1e;
+  }
+
+  // Chat button (dark mode)
+  .stickyChatButton {
+    color: rgba(255, 255, 255, 0.75);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.95);
+    }
+  }
+
+  .stickyChatButtonActive {
+    background: rgba(255, 127, 22, 0.5);
+    color: #ff7f16;
   }
 
   :global {
@@ -387,6 +432,42 @@
 .collapsedNavItemActive {
   background: rgba(43, 18, 0, 0.08) !important;
   color: rgba(0, 0, 0, 0.88) !important;
+}
+
+@media (max-width: 768px) {
+  .sider {
+    height: calc(100vh - 56px);
+    padding: 0 8px;
+    flex: 0 0 auto !important;
+    max-width: 240px !important;
+
+    &.siderCollapsed {
+      padding: 0 6px;
+
+      .collapseToggleContainer {
+        width: calc(100% + 12px);
+        margin: 0 -6px;
+      }
+    }
+  }
+
+  .collapsedNav {
+    gap: 2px;
+    padding: 2px 0;
+  }
+
+  .collapsedNavItem {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+  }
+
+  .collapseToggleContainer {
+    width: calc(100% + 16px);
+    margin: 0 -8px;
+    padding: 8px 0;
+    justify-content: center;
+  }
 }
 
 // ─── Update Modal ─────────────────────────────────────────────────────────────

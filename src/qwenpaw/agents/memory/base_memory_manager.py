@@ -127,6 +127,58 @@ class BaseMemoryManager(ABC):
         """
         return None
 
+    async def auto_memory_search(
+        self,
+        messages: list[Msg] | Msg,
+        agent_name: str = "",
+        **kwargs,
+    ) -> dict | None:
+        """Auto-search memory before replying (pre_reply phase).
+
+        Implementations should check internal config to decide whether
+        auto search is enabled, and if so, retrieve relevant memory context.
+
+        Args:
+            messages: The incoming user message(s).
+            agent_name: Name of the owning agent.
+
+        Returns:
+            None if auto-search is disabled or no relevant memory found.
+            dict with updated kwargs if memory context should be merged.
+        """
+        return None
+
+    async def summarize_when_compact(
+        self,
+        messages: list[Msg],
+        **kwargs,
+    ) -> None:
+        """Trigger memory summarization when context compaction occurs.
+
+        Called during pre_reasoning after compaction. Implementations should
+        check internal config and schedule a summarize task if appropriate.
+
+        Args:
+            messages: The messages that were compacted.
+        """
+        return None
+
+    async def auto_memory(
+        self,
+        all_messages: list[Msg],
+        **kwargs,
+    ) -> None:
+        """Periodically auto-extract memory from conversation.
+
+        Called during post_reply. Implementations should check internal
+        config (e.g. auto_memory_interval) and trigger memory extraction
+        at the configured cadence.
+
+        Args:
+            all_messages: All conversation messages.
+        """
+        return None
+
     async def _summarize_worker(self) -> None:
         """Background worker that processes summarize tasks serially."""
         while True:

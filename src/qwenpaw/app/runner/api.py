@@ -162,6 +162,7 @@ async def get_chat(
     state = await session.get_session_state_dict(
         chat_spec.session_id,
         chat_spec.user_id,
+        chat_spec.channel,
     )
     status = await workspace.task_tracker.get_status(chat_id)
     if not state:

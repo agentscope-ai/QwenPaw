@@ -30,7 +30,7 @@ from .prompt import (
     build_system_prompt_from_working_dir,
     get_active_model_supports_multimodal,
 )
-from .skills_manager import (
+from .skill_system import (
     apply_skill_config_env_overrides,
     ensure_skills_initialized,
     get_workspace_skills_dir,
@@ -171,7 +171,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         )
         # Initialize parent ReActAgent
         init_kwargs: dict[str, Any] = {
-            "name": "Friday",
+            "name": agent_config.name or "QwenPaw",
             "model": model,
             "sys_prompt": sys_prompt,
             "toolkit": toolkit,
@@ -242,13 +242,16 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 enabled_tools = {
                     name: tool.enabled for name, tool in builtin_tools.items()
                 }
-                # Only execute_shell_command supports async_execution
+                # Only selected long-running tools support async_execution.
+                async_capable_tool_names = {
+                    "execute_shell_command",
+                    "delegate_external_agent",
+                }
                 async_execution_tools = {
-                    "execute_shell_command": builtin_tools.get(
-                        "execute_shell_command",
-                    ).async_execution
-                    if "execute_shell_command" in builtin_tools
-                    else False,
+                    name: builtin_tools.get(name).async_execution
+                    if name in builtin_tools
+                    else False
+                    for name in async_capable_tool_names
                 }
         except Exception as e:
             logger.warning(
@@ -256,7 +259,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 "all tools will be disabled",
             )
 
-        # Map of tool functions
+        # Map of tool functions (hardcoded builtin tools)
         tool_functions = {
             "execute_shell_command": execute_shell_command,
             "read_file": read_file,
@@ -279,10 +282,44 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             "check_agent_task": check_agent_task,
         }
 
-        # Register only enabled tools
+        # Track hardcoded built-in tools for backward compatibility
+        hardcoded_builtin_tools = set(tool_functions.keys())
+
+        # Dynamically load plugin-registered tools
+        from . import tools as tools_module
+
+        plugin_tools = set()
+        for tool_name in getattr(tools_module, "__all__", []):
+            if tool_name not in tool_functions:
+                tool_func = getattr(tools_module, tool_name, None)
+                if callable(tool_func):
+                    tool_functions[tool_name] = tool_func
+                    plugin_tools.add(tool_name)
+                    logger.debug(
+                        "Discovered plugin tool: %s",
+                        tool_name,
+                    )
+
+        # Register tools with appropriate defaults
         for tool_name, tool_func in tool_functions.items():
-            # If tool not in config, enable by default (backward compatibility)
-            if not enabled_tools.get(tool_name, True):
+            # For plugin tools: skip if not in config (security)
+            # For hardcoded tools: default to enabled (backward compatibility)
+            if tool_name in plugin_tools:
+                if tool_name not in enabled_tools:
+                    logger.debug(
+                        "Skipped unconfigured plugin tool: %s",
+                        tool_name,
+                    )
+                    continue
+            else:
+                # Hardcoded built-in tool: use default-to-enabled
+                pass
+
+            # Check if tool is enabled
+            if not enabled_tools.get(
+                tool_name,
+                tool_name in hardcoded_builtin_tools,
+            ):
                 logger.debug("Skipped disabled tool: %s", tool_name)
                 continue
 
@@ -1287,6 +1324,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             set_current_workspace_dir,
             set_current_recent_max_bytes,
             set_current_shell_command_timeout,
+            set_current_shell_command_executable,
         )
 
         set_current_workspace_dir(self._workspace_dir)
@@ -1297,6 +1335,9 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         )
         set_current_shell_command_timeout(
             self._agent_config.running.shell_command_timeout,
+        )
+        set_current_shell_command_executable(
+            self._agent_config.running.shell_command_executable or None,
         )
 
         # Process file and media blocks in messages

@@ -253,6 +253,110 @@ Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_con
 
 ---
 
+## 其他 Memory Backend
+
+QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeLight（本地文件存储）外，还支持通过 `memory_manager_backend` 切换到其他后端。
+
+### ADBPG（AnalyticDB for PostgreSQL）
+
+基于云端向量数据库的长期记忆后端，适合需要跨设备共享、大规模语义检索的场景。
+
+**核心特点：**
+
+- **跨会话持久化** — 记忆存储在云端数据库，重启后不丢失，支持多设备共享
+- **服务端事实抽取** — 由 ADBPG 内置 LLM 完成事实提取，客户端无额外开销
+- **双 API 模式** — 支持 SQL 直连和 REST API 两种接入方式
+- **优雅降级** — ADBPG 不可达时 Agent 正常运行，仅长期记忆功能暂时禁用
+
+**配置方式：**
+
+进入 Agent 配置页面的「运行配置」标签，找到「记忆管理后端」下拉框，选择 `adbpg`，并在下方的 `adbpg_memory_config` 中根据所选 API 模式填写对应参数。
+
+![adbpg-backend](https://img.alicdn.com/imgextra/i3/O1CN01bH1Rj41wwQs3v04U6_!!6000000006372-2-tps-2954-1484.png)
+
+> ⚠️ 切换后端不支持热更新，保存后需要重启 QwenPaw 才能生效（页面也会以黄色横幅提醒）。
+
+#### REST 模式（推荐）
+
+通过 HTTP API 接入 ADBPG 记忆服务，无需额外 Python 依赖。
+
+切换到「ADBPG 长期记忆」Tab，将「API 模式」设为 `REST API`，并填写 `REST Base URL` 与 `REST API Key`：
+
+![adbpg-rest-mode](https://img.alicdn.com/imgextra/i4/O1CN01gTvYJI238hAc4fcvr_!!6000000007211-2-tps-2996-1478.png)
+
+| 配置项             | 说明                                                   | 默认值   |
+| ------------------ | ------------------------------------------------------ | -------- |
+| `api_mode`         | API 模式，设为 `"rest"`                                | `"rest"` |
+| `rest_base_url`    | ADBPG 记忆服务的 REST API 地址                         | `""`     |
+| `rest_api_key`     | REST API 的访问密钥                                    | `""`     |
+| `memory_isolation` | 记忆隔离模式，`true` 为每个 Agent 独立，`false` 为共享 | `true`   |
+| `search_timeout`   | 记忆搜索超时时间（秒）                                 | `10.0`   |
+
+#### SQL 模式
+
+通过 psycopg2 直连 ADBPG 数据库，需额外安装依赖：`pip install qwenpaw[adbpg]`。
+
+切换到「ADBPG 长期记忆」Tab，将「API 模式」设为 `SQL (Direct)`，并填写数据库连接信息（主机地址 / 端口 / 用户名 / 密码 / 数据库名）以及 LLM、Embedding 相关参数：
+
+![adbpg-sql-mode](https://img.alicdn.com/imgextra/i2/O1CN01K8Og0P27WkQvGWHvZ_!!6000000007805-2-tps-2988-1498.png)
+
+| 配置项               | 说明                            | 默认值  |
+| -------------------- | ------------------------------- | ------- |
+| `api_mode`           | API 模式，设为 `"sql"`          | `"sql"` |
+| `host`               | ADBPG 数据库地址                | `""`    |
+| `port`               | 数据库端口                      | `5432`  |
+| `user`               | 数据库用户名                    | `""`    |
+| `password`           | 数据库密码                      | `""`    |
+| `dbname`             | 数据库名称                      | `""`    |
+| `llm_model`          | 服务端事实抽取使用的 LLM 模型名 | `""`    |
+| `llm_api_key`        | LLM 服务的 API Key              | `""`    |
+| `llm_base_url`       | LLM 服务的 Base URL             | `""`    |
+| `embedding_model`    | Embedding 模型名称              | `""`    |
+| `embedding_api_key`  | Embedding 服务的 API Key        | `""`    |
+| `embedding_base_url` | Embedding 服务的 Base URL       | `""`    |
+| `embedding_dims`     | 向量维度                        | `1024`  |
+| `memory_isolation`   | 记忆隔离模式                    | `true`  |
+| `search_timeout`     | 记忆搜索超时时间（秒）          | `10.0`  |
+| `pool_minconn`       | 连接池最小连接数                | `1`     |
+| `pool_maxconn`       | 连接池最大连接数                | `5`     |
+
+**配置示例：**
+
+完整配置可写入 `agent.json` 的 `running.adbpg_memory_config` 字段：
+
+```json
+{
+  "running": {
+    "memory_manager_backend": "adbpg",
+    "adbpg_memory_config": {
+      "host": "gp-xxxxxxxxx-master.gpdb.rds.aliyuncs.com",
+      "port": 5432,
+      "user": "your_db_user",
+      "password": "your_db_password",
+      "dbname": "your_db_name",
+      "llm_model": "qwen-plus",
+      "llm_api_key": "sk-xxxxxxxx",
+      "llm_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "embedding_model": "text-embedding-v3",
+      "embedding_api_key": "sk-xxxxxxxx",
+      "embedding_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "embedding_dims": 1024,
+      "api_mode": "sql",
+      "rest_api_key": "",
+      "rest_base_url": "",
+      "memory_isolation": true,
+      "search_timeout": 10.0,
+      "pool_minconn": 1,
+      "pool_maxconn": 5
+    }
+  }
+}
+```
+
+> 💡 通过 Console 「运行配置」页面填写时，框架会自动将这些字段写入 `agent.json`，无需手动编辑文件。
+
+---
+
 ## 相关页面
 
 - [智能体记忆进化](./memory-evolving-and-proactive.zh.md) — Auto-Memory、Auto-Dream、Auto-Memory-Search、Proactive 完整工作流

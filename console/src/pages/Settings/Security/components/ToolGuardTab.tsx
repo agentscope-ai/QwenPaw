@@ -15,6 +15,7 @@ interface ToolGuardTabProps {
   toolOptions: { label: string; value: string }[];
   mergedRules: MergedRule[];
   toggleRule: (ruleId: string, currentlyDisabled: boolean) => void;
+  toggleAutoDeny: (ruleId: string, currentlyAutoDeny: boolean) => void;
   onPreviewRule: (rule: MergedRule) => void;
   onEditRule: (rule: MergedRule) => void;
   onDeleteRule: (ruleId: string) => void;
@@ -31,6 +32,7 @@ export function ToolGuardTab({
   toolOptions,
   mergedRules,
   toggleRule,
+  toggleAutoDeny,
   onPreviewRule,
   onEditRule,
   onDeleteRule,
@@ -122,6 +124,7 @@ export function ToolGuardTab({
             rules={mergedRules}
             enabled={enabled}
             onToggleRule={toggleRule}
+            onToggleAutoDeny={toggleAutoDeny}
             onPreviewRule={onPreviewRule}
             onEditRule={onEditRule}
             onDeleteRule={onDeleteRule}

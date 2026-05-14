@@ -126,6 +126,36 @@ def resolve_denied_tools(
     return set()
 
 
+def resolve_auto_denied_rules(
+    user_defined: set[str] | list[str] | tuple[str, ...] | None = None,
+) -> set[str]:
+    """Resolve rule IDs that should trigger unconditional auto-deny.
+
+    Priority:
+    1) constructor-provided ``user_defined``
+    2) ``QWENPAW_TOOL_GUARD_AUTO_DENIED_RULES`` env var (comma-separated)
+    3) ``config.json`` -> ``security.tool_guard.auto_denied_rules``
+    4) built-in default (empty)
+
+    Returns
+    -------
+    set[str]
+        Rule IDs that should auto-reject tool calls once matched.
+    """
+    if user_defined is not None:
+        return {r.strip() for r in user_defined if r and r.strip()}
+
+    raw = EnvVarLoader.get_str("QWENPAW_TOOL_GUARD_AUTO_DENIED_RULES") or None
+    if raw is not None:
+        return {r.strip() for r in raw.split(",") if r.strip()}
+
+    cfg = _load_config_tool_guard()
+    if cfg is not None and cfg.auto_denied_rules:
+        return {r.strip() for r in cfg.auto_denied_rules if r.strip()}
+
+    return set()
+
+
 def log_findings(tool_name: str, result: "ToolGuardResult") -> None:
     """Emit structured logs for each finding."""
     from .models import GuardSeverity

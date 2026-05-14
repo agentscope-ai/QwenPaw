@@ -312,6 +312,7 @@ class WecomConfig(BaseChannelConfig):
     # False to isolate each member into their own chat.
     share_session_in_group: bool = True
     max_reconnect_attempts: int = -1
+    streaming_enabled: bool = False
 
 
 class MatrixConfig(BaseChannelConfig):
@@ -398,12 +399,12 @@ class XiaoYiConfig(BaseChannelConfig):
     task_timeout_ms: int = 3600000  # 1 hour task timeout
 
 
-class WeixinConfig(BaseChannelConfig):
+class WeChatConfig(BaseChannelConfig):
     """WeChat (iLink Bot) personal account channel config.
 
     bot_token:              Bearer token obtained after QR code login.
     bot_token_file:         Path to persist/load the bot_token
-                            (default ~/.qwenpaw/weixin_bot_token).
+                            (default ~/.qwenpaw/wechat_bot_token).
     base_url:               iLink API base URL (leave empty to use default).
     media_dir:              Local directory for downloaded media files.
     message_merge_enabled:  When True, merge multiple outgoing text messages
@@ -444,8 +445,25 @@ class ChannelConfig(BaseModel):
     sip: SIPChannelConfig = SIPChannelConfig()
     wecom: WecomConfig = WecomConfig()
     xiaoyi: XiaoYiConfig = XiaoYiConfig()
-    weixin: WeixinConfig = WeixinConfig()
+    wechat: WeChatConfig = WeChatConfig()
     onebot: OneBotConfig = OneBotConfig()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_weixin_key(cls, data: Any) -> Any:
+        """One-shot migration: legacy ``weixin`` key -> canonical ``wechat``.
+
+        Older config files used ``weixin`` as the WeChat channel key. The
+        canonical key is now ``wechat``. When an old config is loaded we
+        rename the key in-place so validation succeeds. The on-disk file is
+        rewritten by ``load_config`` right after validation (see utils.py).
+        """
+        if isinstance(data, dict) and "weixin" in data:
+            data = dict(data)
+            legacy = data.pop("weixin")
+            if "wechat" not in data:
+                data["wechat"] = legacy
+        return data
 
 
 class LastApiConfig(BaseModel):
@@ -541,6 +559,47 @@ class EmbeddingModelConfig(BaseModel):
         default=10,
         description="Maximum batch size for embedding",
     )
+
+
+class ADBPGMemoryConfig(BaseModel):
+    """ADBPG (AnalyticDB for PostgreSQL) memory configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    # Database connection
+    host: str = ""
+    port: int = 5432
+    user: str = ""
+    password: str = ""
+    dbname: str = ""
+
+    # LLM for server-side fact extraction
+    llm_model: str = ""
+    llm_api_key: str = ""
+    llm_base_url: str = ""
+
+    # Embedding
+    embedding_model: str = ""
+    embedding_api_key: str = ""
+    embedding_base_url: str = ""
+    embedding_dims: int = 1024
+
+    # API mode
+    api_mode: str = Field(
+        default="rest",
+        description="API mode: 'sql' (direct psycopg2) or 'rest' (HTTP API)",
+    )
+    rest_api_key: str = ""
+    rest_base_url: str = ""
+
+    # Behavior
+    memory_isolation: bool = Field(
+        default=True,
+        description="Per-agent memory isolation (True) or shared (False)",
+    )
+    search_timeout: float = 10.0
+    pool_minconn: int = 1
+    pool_maxconn: int = 5
 
 
 class ReMeLightMemoryConfig(BaseModel):
@@ -861,6 +920,19 @@ class AgentsRunningConfig(BaseModel):
         ),
     )
 
+    shell_command_executable: str = Field(
+        default="",
+        description=(
+            "Path to the shell used by execute_shell_command. "
+            "Linux/macOS: e.g. /bin/bash, /bin/zsh. "
+            "Windows: supports powershell.exe, pwsh.exe, or POSIX-like "
+            "shells such as Git Bash. "
+            "When empty, falls back to the $SHELL environment variable, "
+            "then to the platform default (/bin/sh on Unix, cmd.exe on "
+            "Windows)."
+        ),
+    )
+
     @model_validator(mode="after")
     def validate_llm_retry_backoff(self) -> "AgentsRunningConfig":
         """Validate LLM retry backoff relationships."""
@@ -903,6 +975,12 @@ class AgentsRunningConfig(BaseModel):
     )
 
     memory_manager_backend: str = Field(default="remelight")
+
+    adbpg_memory_config: Optional[ADBPGMemoryConfig] = Field(
+        default=None,
+        description="ADBPG memory configuration (used when "
+        "memory_manager_backend='adbpg')",
+    )
 
     reme_light_memory_config: ReMeLightMemoryConfig = Field(
         default_factory=ReMeLightMemoryConfig,
@@ -1144,6 +1222,23 @@ class LastDispatchConfig(BaseModel):
     session_id: str = ""
 
 
+class MCPOAuthConfig(BaseModel):
+    """OAuth 2.1 configuration for a remote MCP client.
+
+    Stores OAuth credentials and endpoints discovered via RFC 8414 /
+    RFC 9728.  Tokens are masked in API responses; stored plain-text in
+    agent.json (file is local to the user's workspace).
+    """
+
+    client_id: str = ""
+    scope: str = ""
+    access_token: str = ""
+    refresh_token: str = ""
+    expires_at: float = 0.0
+    token_endpoint: str = ""
+    auth_endpoint: str = ""
+
+
 class MCPClientConfig(BaseModel):
     """Configuration for a single MCP client."""
 
@@ -1159,6 +1254,7 @@ class MCPClientConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     cwd: str = ""
+    oauth: Optional[MCPOAuthConfig] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -1261,11 +1357,20 @@ class BuiltinToolConfig(BaseModel):
         default=None,
         description="Emoji icon for the tool",
     )
+    config: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Tool-specific configuration (e.g., API keys)",
+    )
 
 
+# pylint: disable=too-many-nested-blocks
 def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
-    """Return a fresh copy of the canonical built-in tool definitions."""
-    return {
+    """Return a fresh copy of the canonical built-in tool definitions.
+
+    This includes both hardcoded tools and dynamically registered tools
+    from plugins.
+    """
+    tools = {
         "execute_shell_command": BuiltinToolConfig(
             name="execute_shell_command",
             enabled=True,
@@ -1387,6 +1492,54 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
         ),
     }
 
+    # Merge dynamically registered tools from plugins
+    try:
+        from ..plugins.registry import PluginRegistry
+
+        registry = PluginRegistry()
+        # Access manifests via public method
+        all_manifests = registry.get_all_plugin_manifests()
+        for plugin_id, manifest in all_manifests.items():
+            meta = manifest.get("meta", {})
+            # Support old format: meta.tool_name
+            if meta.get("tool_name"):
+                tool_name = meta["tool_name"]
+                if tool_name not in tools:
+                    tools[tool_name] = BuiltinToolConfig(
+                        name=tool_name,
+                        enabled=False,
+                        description=meta.get(
+                            "tool_description",
+                            f"Tool from plugin {plugin_id}",
+                        ),
+                        display_to_user=True,
+                        async_execution=False,
+                        icon=meta.get("tool_icon", "🔧"),
+                    )
+            # Support new format: meta.tools array
+            tools_list = meta.get("tools", [])
+            if isinstance(tools_list, list):
+                for tool_info in tools_list:
+                    if isinstance(tool_info, dict) and "name" in tool_info:
+                        tool_name = tool_info["name"]
+                        if tool_name not in tools:
+                            tools[tool_name] = BuiltinToolConfig(
+                                name=tool_name,
+                                enabled=False,
+                                description=tool_info.get(
+                                    "description",
+                                    f"Tool from plugin {plugin_id}",
+                                ),
+                                display_to_user=True,
+                                async_execution=False,
+                                icon=tool_info.get("icon", "🔧"),
+                            )
+    except Exception:
+        # Plugins not loaded yet, return hardcoded tools only
+        pass
+
+    return tools
+
 
 class ToolsConfig(BaseModel):
     """Built-in tools management configuration."""
@@ -1502,6 +1655,7 @@ class ToolGuardConfig(BaseModel):
     enabled: bool = True
     guarded_tools: Optional[List[str]] = None
     denied_tools: List[str] = Field(default_factory=list)
+    auto_denied_rules: List[str] = Field(default_factory=list)
     custom_rules: List[ToolGuardRuleConfig] = Field(default_factory=list)
     disabled_rules: List[str] = Field(default_factory=list)
     shell_evasion_checks: Dict[str, bool] = Field(
@@ -1614,7 +1768,7 @@ ChannelConfigUnion = Union[
     SIPChannelConfig,
     WecomConfig,
     XiaoYiConfig,
-    WeixinConfig,
+    WeChatConfig,
 ]
 
 
@@ -1734,9 +1888,44 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
         with open(agent_config_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        # One-shot migration: rename legacy ``channels.weixin`` key to
+        # ``channels.wechat`` and rewrite the file on disk so future loads
+        # see the canonical key directly. This rewrite must happen BEFORE
+        # any in-memory normalization (e.g. ~/.copaw path rewriting) so we
+        # only persist the key rename, not unrelated runtime transforms.
+        channels = data.get("channels")
+        if isinstance(channels, dict) and "weixin" in channels:
+            legacy = channels.pop("weixin")
+            if "wechat" not in channels:
+                channels["wechat"] = legacy
+            try:
+                import uuid as _uuid
+                import shutil as _shutil
+
+                backup_path = agent_config_path.with_suffix(
+                    f".{_uuid.uuid4().hex[:8]}.weixin-migrate.bak",
+                )
+                _shutil.copy2(agent_config_path, backup_path)
+                with open(
+                    agent_config_path,
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                # Refresh mtime cache key after rewriting the file so the
+                # cached config still reflects the on-disk state.
+                try:
+                    current_mtime = agent_config_path.stat().st_mtime
+                except OSError:
+                    pass
+            except OSError:
+                pass
+
         # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
         # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json
         # contains older hard-coded paths like "~/.copaw/media".
+        # NOTE: this transform is applied in-memory only; it must not be
+        # persisted back to disk.
         try:
             from .utils import _normalize_working_dir_bound_paths
 

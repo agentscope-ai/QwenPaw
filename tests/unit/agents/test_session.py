@@ -152,6 +152,7 @@ async def test_update_corrupted_json(sess, tmp_session_dir):
         key="memory.content",
         value=["updated"],
         user_id="",
+        channel="",
     )
 
     # Verify the file is now clean JSON

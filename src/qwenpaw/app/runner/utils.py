@@ -32,9 +32,11 @@ logger = logging.getLogger(__name__)
 def build_env_context(
     session_id: Optional[str] = None,
     user_id: Optional[str] = None,
+    user_name: Optional[str] = None,
     channel: Optional[str] = None,
     working_dir: Optional[str] = None,
     add_hint: bool = True,
+    default_shell: Optional[str] = None,
 ) -> str:
     """
     Build environment context with current request context prepended.
@@ -42,9 +44,14 @@ def build_env_context(
     Args:
         session_id: Current session ID
         user_id: Current user ID
+        user_name: Optional human-readable sender name (e.g. IM nickname).
+            Only rendered when provided by the channel via channel_meta.
         channel: Current channel name
         working_dir: Working directory path
         add_hint: Whether to add hint context
+        default_shell: Shell executable used by execute_shell_command.
+            When provided, included in the context so the LLM can
+            generate syntax appropriate for that shell.
     Returns:
         Formatted environment context string
     """
@@ -61,6 +68,8 @@ def build_env_context(
         parts.append(f"- Session ID: {session_id}")
     if user_id is not None:
         parts.append(f"- User ID: {user_id}")
+    if user_name:
+        parts.append(f"- User Name: {user_name}")
     if channel is not None:
         parts.append(f"- Channel: {channel}")
 
@@ -68,6 +77,9 @@ def build_env_context(
         f"- OS: {platform.system()} {platform.release()} "
         f"({platform.machine()})",
     )
+
+    if default_shell:
+        parts.append(f"- Default Shell: {default_shell}")
 
     if working_dir is not None:
         parts.append(f"- Working directory: {working_dir}")

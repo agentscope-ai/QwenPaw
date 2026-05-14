@@ -251,7 +251,14 @@ def load_envs_into_environ() -> dict[str, str]:
         Full persisted mapping from envs.json, including protected keys
         that are intentionally not injected into ``os.environ``.
     """
-    envs = load_envs()
+    from qwenpaw.backup._utils.safe_swap import (
+        cleanup_stale_restore_artifacts,
+        restore_process_lock,
+    )
+
+    with restore_process_lock():
+        cleanup_stale_restore_artifacts(_BOOTSTRAP_SECRET_DIR)
+        envs = load_envs()
     bootstrap_envs = {
         key: value
         for key, value in envs.items()

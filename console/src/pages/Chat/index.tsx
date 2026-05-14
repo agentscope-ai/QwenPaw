@@ -220,7 +220,29 @@ function useMultimodalCapabilities(
     supportsVideo: boolean;
   }>({ supportsMultimodal: false, supportsImage: false, supportsVideo: false });
 
+  const updateCapsIfChanged = useCallback(
+    (next: {
+      supportsMultimodal: boolean;
+      supportsImage: boolean;
+      supportsVideo: boolean;
+    }) => {
+      setMultimodalCaps((prev) =>
+        prev.supportsMultimodal === next.supportsMultimodal &&
+        prev.supportsImage === next.supportsImage &&
+        prev.supportsVideo === next.supportsVideo
+          ? prev
+          : next,
+      );
+    },
+    [],
+  );
+
   const fetchMultimodalCaps = useCallback(async () => {
+    const noCaps = {
+      supportsMultimodal: false,
+      supportsImage: false,
+      supportsVideo: false,
+    };
     try {
       const [providers, activeModels] = await Promise.all([
         providerApi.listProviders(),
@@ -232,22 +254,14 @@ function useMultimodalCapabilities(
       const activeProviderId = activeModels?.active_llm?.provider_id;
       const activeModelId = activeModels?.active_llm?.model;
       if (!activeProviderId || !activeModelId) {
-        setMultimodalCaps({
-          supportsMultimodal: false,
-          supportsImage: false,
-          supportsVideo: false,
-        });
+        updateCapsIfChanged(noCaps);
         return;
       }
       const provider = (providers as ProviderInfo[]).find(
         (p) => p.id === activeProviderId,
       );
       if (!provider) {
-        setMultimodalCaps({
-          supportsMultimodal: false,
-          supportsImage: false,
-          supportsVideo: false,
-        });
+        updateCapsIfChanged(noCaps);
         return;
       }
       const allModels: ModelInfo[] = [
@@ -255,19 +269,15 @@ function useMultimodalCapabilities(
         ...(provider.extra_models ?? []),
       ];
       const model = allModels.find((m) => m.id === activeModelId);
-      setMultimodalCaps({
+      updateCapsIfChanged({
         supportsMultimodal: model?.supports_multimodal ?? false,
         supportsImage: model?.supports_image ?? false,
         supportsVideo: model?.supports_video ?? false,
       });
     } catch {
-      setMultimodalCaps({
-        supportsMultimodal: false,
-        supportsImage: false,
-        supportsVideo: false,
-      });
+      updateCapsIfChanged(noCaps);
     }
-  }, [selectedAgent]);
+  }, [selectedAgent, updateCapsIfChanged]);
 
   // Fetch caps on mount and whenever refreshKey changes
   useEffect(() => {
@@ -366,6 +376,7 @@ function useMessageHistoryNavigation(
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isChatActive()) return;
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
 
       const target = e.target as HTMLElement;
       const isChatSender =
@@ -501,7 +512,7 @@ export default function ChatPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const { message } = useAppMessage();
-  const { approvals } = useApprovalContext();
+  const { approvals, setApprovals } = useApprovalContext();
   const [approvalRequests, setApprovalRequests] = useState<
     Map<string, ApprovalMessageData>
   >(new Map());
@@ -526,55 +537,38 @@ export default function ChatPage() {
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
 
-  // Consume approvals from Context and filter by current session
+  // Consume approvals from Context and filter by current session.
+  // Uses a serialized key to avoid creating a new Map (and triggering
+  // re-renders of the entire Chat tree) when the filtered result is identical.
+  const prevApprovalKeyRef = useRef("");
+
   useEffect(() => {
-    // Get current session ID from multiple sources
-    // During new session creation, chatId may be empty but window.currentSessionId gets set
     const currentSessionId = window.currentSessionId || chatId || "";
 
-    // Filter approvals by root_session_id (includes children sessions)
-    console.debug(
-      "[Approval] Filtering approvals:",
-      "currentSessionId=",
-      currentSessionId,
-      "chatId=",
-      chatId,
-      "window.currentSessionId=",
-      window.currentSessionId,
-      "approvals=",
-      approvals.map((a) => ({
-        tool: a.tool_name,
-        session: a.session_id.slice(0, 8),
-        root: a.root_session_id.slice(0, 8),
-      })),
-    );
-
-    // If no session ID yet, check if we have approvals that could tell us the session
-    // (e.g., first message sent, approval arrives before session ID is set in window)
+    // When no session ID is available yet, use the first approval's
+    // root_session_id as a hint (handles the race where approval arrives
+    // before the session ID is propagated).
     let effectiveSessionId = currentSessionId;
     if (!effectiveSessionId && approvals.length > 0) {
-      // Use the root_session_id from the first approval as a hint
-      // This handles the race condition where approval arrives before session ID is propagated
       effectiveSessionId = approvals[0].root_session_id;
-      console.log(
-        "[Approval] No session ID yet, using first approval's root_session_id:",
-        effectiveSessionId,
-      );
     }
 
     const sessionApprovals = effectiveSessionId
       ? approvals.filter(
           (approval) => approval.root_session_id === effectiveSessionId,
         )
-      : approvals; // Show all if no session ID (fallback)
+      : approvals;
 
-    console.debug(
-      "[Approval] After filtering:",
-      sessionApprovals.length,
-      "approval(s)",
-    );
+    // Build a stable key from the filtered request IDs so we can skip
+    // the Map rebuild when nothing changed (avoids re-render every 2.5s poll).
+    const approvalKey = sessionApprovals
+      .map((a) => a.request_id)
+      .sort()
+      .join(",");
 
-    // Convert to map for display
+    if (approvalKey === prevApprovalKeyRef.current) return;
+    prevApprovalKeyRef.current = approvalKey;
+
     const newMap = new Map<string, ApprovalMessageData>();
     for (const approval of sessionApprovals) {
       newMap.set(approval.request_id, {
@@ -597,27 +591,12 @@ export default function ChatPage() {
 
   const handleApprove = useCallback(
     async (requestId: string) => {
-      console.log("[Approval] handleApprove called:", requestId);
-      console.log(
-        "[Approval] Current requests map size:",
-        approvalRequests.size,
-      );
       const request = approvalRequests.get(requestId);
-      if (!request) {
-        console.error("[Approval] Request not found:", requestId);
-        return;
-      }
+      if (!request) return;
 
-      // Use currentSessionId (root session) instead of request.sessionId (sub-agent session)
       const rootSessionId = window.currentSessionId || chatId || "";
-      console.log("[Approval] Sending approve command:", {
-        requestId,
-        rootSessionId,
-        subAgentSessionId: request.sessionId,
-      });
 
       try {
-        // Add exit animation class
         const cardElement = document.querySelector(
           `[data-approval-id="${requestId}"]`,
         );
@@ -630,24 +609,25 @@ export default function ChatPage() {
           requestId,
           rootSessionId,
         );
-        console.log("[Approval] Approve command sent successfully");
+        setApprovals((prev) =>
+          prev.filter((item) => item.request_id !== requestId),
+        );
         message.success(t("approval.approved"));
 
-        // Delay removal to let animation complete
-        // Backend will remove from pending list, next poll will update UI
+        // Delay removal to let exit animation complete
         setTimeout(() => {
           setApprovalRequests((prev) => {
             const next = new Map(prev);
             next.delete(requestId);
             return next;
           });
-        }, 300); // Match animation duration
+        }, 300);
       } catch (error) {
         message.error(t("approval.approveFailed"));
-        console.error("[Approval] Failed to approve:", error);
+        console.error("Failed to approve:", error);
       }
     },
-    [approvalRequests, chatId, t, message],
+    [approvalRequests, chatId, t, message, setApprovals],
   );
 
   const handleDeny = useCallback(
@@ -668,6 +648,9 @@ export default function ChatPage() {
         }
 
         await commandsApi.sendApprovalCommand("deny", requestId, rootSessionId);
+        setApprovals((prev) =>
+          prev.filter((item) => item.request_id !== requestId),
+        );
         message.success(t("approval.denied"));
 
         // Delay removal to let animation complete
@@ -684,7 +667,7 @@ export default function ChatPage() {
         console.error("Failed to deny:", error);
       }
     },
-    [approvalRequests, chatId, t, message],
+    [approvalRequests, chatId, t, message, setApprovals],
   );
 
   // Use custom hooks for better separation of concerns
@@ -1060,7 +1043,7 @@ export default function ChatPage() {
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
             <ModelSelector />
-            <ChatActionGroup />
+            <ChatActionGroup planEnabled={planEnabled} />
           </>
         ),
       },
@@ -1080,6 +1063,7 @@ export default function ChatPage() {
           />
         ) : undefined,
         attachments: {
+          multiple: true,
           trigger: function (props: any) {
             const tooltipKey = multimodalCaps.supportsMultimodal
               ? multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
@@ -1127,25 +1111,12 @@ export default function ChatPage() {
           return toDisplayUrl(url);
         },
         cancel(data: { session_id: string }) {
-          console.log(
-            "[Cancel] Cancel button clicked, session_id:",
-            data.session_id,
-          );
-          const chatId =
+          const resolvedChatId =
             sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
-          console.log("[Cancel] Resolved chat_id:", chatId);
-          if (chatId) {
-            console.log("[Cancel] Calling stopChat API...");
-            chatApi
-              .stopChat(chatId)
-              .then(() => {
-                console.log("[Cancel] stopChat API succeeded");
-              })
-              .catch((err) => {
-                console.error("[Cancel] Failed to stop chat:", err);
-              });
-          } else {
-            console.warn("[Cancel] No chat_id found, cannot stop");
+          if (resolvedChatId) {
+            chatApi.stopChat(resolvedChatId).catch((err) => {
+              console.error("Failed to stop chat:", err);
+            });
           }
         },
         async reconnect(data: { session_id: string; signal?: AbortSignal }) {
@@ -1230,6 +1201,7 @@ export default function ChatPage() {
         >
           <ApprovalCard
             requestId={request.requestId}
+            agentId={request.agentId}
             toolName={request.toolName}
             severity={request.severity}
             findingsCount={request.findingsCount}
@@ -1242,26 +1214,12 @@ export default function ChatPage() {
             onApprove={handleApprove}
             onDeny={handleDeny}
             onCancel={() => {
-              console.log("[Chat] onCancel called for approval card");
-              const sessionId = window.currentSessionId || "";
-
-              // Use the same fallback chain as customFetch:
-              // 1. sessionApi.getRealIdForSession (UUID from backend)
-              // 2. chatIdRef.current (URL param)
-              // 3. sessionId (timestamp fallback)
+              const sessionId =
+                request.rootSessionId || window.currentSessionId || "";
               const resolvedChatId =
                 sessionApi.getRealIdForSession(sessionId) ??
                 chatIdRef.current ??
                 sessionId;
-
-              console.log(
-                "[Chat] Resolved chat_id for stop:",
-                resolvedChatId,
-                "from session_id:",
-                sessionId,
-                "chatIdRef:",
-                chatIdRef.current,
-              );
 
               if (resolvedChatId) {
                 console.log("[Chat] Calling stopChat with:", resolvedChatId);
@@ -1269,6 +1227,12 @@ export default function ChatPage() {
                   .stopChat(resolvedChatId)
                   .then(() => {
                     console.log("[Chat] stopChat succeeded");
+                    setApprovals((prev) =>
+                      prev.filter(
+                        (item) =>
+                          item.root_session_id !== request.rootSessionId,
+                      ),
+                    );
                   })
                   .catch((err) => {
                     console.error("[Chat] stopChat failed:", err);

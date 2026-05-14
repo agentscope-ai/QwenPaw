@@ -132,21 +132,6 @@ def main() -> int:
                 "-y",
             ],
         )
-        _run(
-            [
-                conda,
-                "run",
-                "-n",
-                env_name,
-                "python",
-                "-m",
-                "pip",
-                "install",
-                "--upgrade",
-                "pip",
-            ],
-        )
-
         # Install qwenpaw with all dependencies
         # Scope CMAKE_ARGS to this specific command to avoid affecting other
         # CMake-based packages. Only set if we need to compile from source.
@@ -201,6 +186,23 @@ def main() -> int:
                     str(wheels_cache),
                 ],
             )
+        # pip may uninstall/reinstall files owned by conda while resolving
+        # qwenpaw[full]. Restore conda-managed packaging tools before packing.
+        _run(
+            [
+                conda,
+                "run",
+                "-n",
+                env_name,
+                conda,
+                "install",
+                "-y",
+                "--force-reinstall",
+                "pip",
+                "setuptools",
+                "wheel",
+            ],
+        )
         _run(
             [
                 conda,

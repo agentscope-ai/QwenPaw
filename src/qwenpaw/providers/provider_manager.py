@@ -39,7 +39,6 @@ from ..security.secret_store import (
 
 logger = logging.getLogger(__name__)
 
-
 # -------------------------------------------------------
 # Built-in provider definitions and their default models.
 # -------------------------------------------------------
@@ -81,6 +80,44 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         name="DeepSeek-V3.2",
         supports_image=False,
         supports_video=False,
+        probe_source="documentation",
+    ),
+]
+
+ALIYUN_TOKENPLAN_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="qwen3.6-plus",
+        name="Qwen3.6 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5",
+        name="GLM-5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.5",
+        name="MiniMax M2.5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-v3.2",
+        name="DeepSeek-V3.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="kimi-k2.5",
+        name="Kimi K2.5",
+        supports_image=True,
+        supports_video=True,
         probe_source="documentation",
     ),
 ]
@@ -447,6 +484,145 @@ DEEPSEEK_MODELS: List[ModelInfo] = [
     ),
 ]
 
+VOLCENGINE_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="doubao-seed-2-0-code-preview-260215",
+        name="Doubao-Seed-2.0-Code",
+        supports_image=True,
+        supports_video=True,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="doubao-seed-2-0-pro-260215",
+        name="Doubao-Seed-2.0-pro",
+        supports_image=True,
+        supports_video=True,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="doubao-seed-2-0-lite-260428",
+        name="Doubao-Seed-2.0-lite",
+        supports_image=True,
+        supports_video=True,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="doubao-seed-code-preview-251028",
+        name="Doubao-Seed-Code",
+        supports_image=True,
+        supports_video=True,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="glm-4-7-251222",
+        name="GLM-4.7",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-v3-2-251201",
+        name="DeepSeek-V3.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="doubao-seed-1-8-251228",
+        name="Doubao-Seed-1.8",
+        supports_image=True,
+        supports_video=True,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="doubao-seed-2-0-mini-260428",
+        name="Doubao-Seed-2.0-mini",
+        supports_image=True,
+        supports_video=True,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="doubao-seed-character-251128",
+        name="Doubao-Seed-Character",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+]
+
+VOLCENGINE_CODINGPLAN_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="doubao-seed-2-0-code-preview-260215",
+        name="Doubao-Seed-2.0-Code",
+        supports_image=True,
+        supports_video=True,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="doubao-seed-2-0-pro-260215",
+        name="Doubao-Seed-2.0-pro",
+        supports_image=True,
+        supports_video=True,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="doubao-seed-2-0-lite-260428",
+        name="Doubao-Seed-2.0-lite",
+        supports_image=True,
+        supports_video=True,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="doubao-seed-code-preview-251028",
+        name="Doubao-Seed-Code",
+        supports_image=True,
+        supports_video=True,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="glm-5.1",
+        name="GLM-5.1",
+        supports_image=False,
+        supports_video=False,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="minimax-m2.7",
+        name="MiniMax-M2.7",
+        supports_image=False,
+        supports_video=False,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="kimi-k2.6",
+        name="Kimi-K2.6",
+        supports_image=False,
+        supports_video=False,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="kimi-k2.5",
+        name="Kimi-K2.5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="glm-4-7-251222",
+        name="GLM-4.7",
+        supports_image=False,
+        supports_video=False,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="deepseek-v3-2-251201",
+        name="DeepSeek-V3.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="probed",
+    ),
+]
+
 ANTHROPIC_MODELS: List[ModelInfo] = []
 
 GEMINI_MODELS: List[ModelInfo] = [
@@ -516,7 +692,25 @@ PROVIDER_DASHSCOPE = OpenAIProvider(
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
     api_key_prefix="sk",
     models=DASHSCOPE_MODELS,
-    freeze_url=True,
+    meta={
+        "base_url_options": [
+            {
+                "label": "China (Beijing)",
+                "value": "https://dashscope.aliyuncs.com/"
+                "compatible-mode/v1",
+            },
+            {
+                "label": "International (Singapore)",
+                "value": "https://dashscope-intl.aliyuncs.com/"
+                "compatible-mode/v1",
+            },
+            {
+                "label": "US (Virginia)",
+                "value": "https://dashscope-us.aliyuncs.com/"
+                "compatible-mode/v1",
+            },
+        ],
+    },
 )
 
 PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
@@ -537,6 +731,18 @@ PROVIDER_ALIYUN_CODINGPLAN_INTL = OpenAIProvider(
     api_key_prefix="sk-sp",
     models=ALIYUN_CODINGPLAN_MODELS,
     # This provider doesn't support connection check without model config
+    support_connection_check=False,
+    freeze_url=True,
+)
+
+PROVIDER_ALIYUN_TOKENPLAN = OpenAIProvider(
+    id="aliyun-tokenplan",
+    name="Aliyun Token Plan",
+    base_url=(
+        "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+    ),
+    api_key_prefix="sk-sp",
+    models=ALIYUN_TOKENPLAN_MODELS,
     support_connection_check=False,
     freeze_url=True,
 )
@@ -730,6 +936,27 @@ PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
     require_api_key=True,
 )
 
+PROVIDER_VOLCENGINE_CN = OpenAIProvider(
+    id="volcengine-cn",
+    name="Volcano Engine",
+    base_url="https://ark.cn-beijing.volces.com/api/v3",
+    api_key_prefix="",
+    models=VOLCENGINE_MODELS,
+    freeze_url=True,
+    support_model_discovery=False,
+)
+
+PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
+    id="volcengine-cn-codingplan",
+    name="Volcano Engine Coding Plan",
+    base_url="https://ark.cn-beijing.volces.com/api/coding/v3",
+    api_key_prefix="",
+    models=VOLCENGINE_CODINGPLAN_MODELS,
+    support_connection_check=False,
+    freeze_url=True,
+    support_model_discovery=False,
+)
+
 
 class ProviderManager:  # pylint: disable=too-many-public-methods
     """A manager class to handle all providers,
@@ -780,6 +1007,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN_INTL)
+        self._add_builtin(PROVIDER_ALIYUN_TOKENPLAN)
         self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
@@ -796,6 +1024,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_ZHIPU_INTL_CODINGPLAN)
         self._add_builtin(PROVIDER_SILICONFLOW_CN)
         self._add_builtin(PROVIDER_SILICONFLOW_INTL)
+        self._add_builtin(PROVIDER_VOLCENGINE_CN)
+        self._add_builtin(PROVIDER_VOLCENGINE_CN_CODINGPLAN)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider
@@ -1757,6 +1987,33 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             f"✓ Registered plugin provider: {provider_id} "
             f"with {len(default_models)} default model(s)",
         )
+
+    def unregister_plugin_provider(self, provider_id: str) -> bool:
+        """Remove a plugin provider from memory.
+
+        Removes the provider from ``self.plugin_providers`` so it no
+        longer appears in the model list.  The persisted configuration
+        file (``plugin_path/{provider_id}.json``) is intentionally
+        kept on disk so that user-configured keys survive a
+        reinstall.
+
+        Args:
+            provider_id: Plugin provider identifier to remove.
+
+        Returns:
+            ``True`` if the provider was found and removed,
+            ``False`` if it was not registered.
+        """
+        if provider_id not in self.plugin_providers:
+            logger.warning(
+                f"unregister_plugin_provider: '{provider_id}' not found",
+            )
+            return False
+        del self.plugin_providers[provider_id]
+        logger.info(
+            f"Unregistered plugin provider '{provider_id}' from memory",
+        )
+        return True
 
     @staticmethod
     def get_instance() -> "ProviderManager":
