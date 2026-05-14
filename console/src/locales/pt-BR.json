@@ -1711,6 +1711,10 @@
         "description": "Create a structured plan to decompose the task into subtasks"
       }
     },
+    "codeBlock": {
+      "collapse": "Recolher bloco de código",
+      "expand": "Expandir bloco de código"
+    },
     "attachments": {
       "tooltip": "Supports documents, images, videos, audio and more formats, single file up to {{limit}}MB",
       "tooltipImageOnly": "Current model supports image upload only, single file up to {{limit}}MB",

@@ -28,6 +28,7 @@ import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
+import { useCollapsibleCodeBlocks } from "./hooks/useCollapsibleCodeBlocks";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
@@ -517,6 +518,11 @@ export default function ChatPage() {
     Map<string, ApprovalMessageData>
   >(new Map());
   const [planEnabled, setPlanEnabled] = useState(false);
+  const chatMessagesAreaRef = useRef<HTMLDivElement>(null);
+  const collapsibleCodeBlocks = useCollapsibleCodeBlocks(chatMessagesAreaRef, {
+    collapse: t("chat.codeBlock.collapse"),
+    expand: t("chat.codeBlock.expand"),
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -1177,12 +1183,13 @@ export default function ChatPage() {
         flexDirection: "column",
       }}
     >
-      <div className={styles.chatMessagesArea}>
+      <div ref={chatMessagesAreaRef} className={styles.chatMessagesArea}>
         <AgentScopeRuntimeWebUI
           ref={chatRef}
           key={refreshKey}
           options={options}
         />
+        {collapsibleCodeBlocks}
       </div>
 
       {/* Render approval cards as overlays */}

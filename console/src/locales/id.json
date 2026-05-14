@@ -143,6 +143,10 @@
         "description": "Buat rencana terstruktur untuk memecah tugas menjadi subtugas"
       }
     },
+    "codeBlock": {
+      "collapse": "Ciutkan blok kode",
+      "expand": "Bentangkan blok kode"
+    },
     "attachments": {
       "tooltip": "Mendukung dokumen, gambar, video, audio, dan format lain, satu file hingga {{limit}}MB",
       "tooltipImageOnly": "Model saat ini hanya mendukung unggahan gambar, satu file hingga {{limit}}MB",

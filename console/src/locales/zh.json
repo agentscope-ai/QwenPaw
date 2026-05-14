@@ -1696,6 +1696,10 @@
         "description": "创建结构化计划，将任务分解为多个子任务"
       }
     },
+    "codeBlock": {
+      "collapse": "折叠代码块",
+      "expand": "展开代码块"
+    },
     "attachments": {
       "tooltip": "支持文档、图片、视频、音频等多种格式，单文件不超过 {{limit}}MB",
       "tooltipImageOnly": "当前模型仅支持图片上传，单文件不超过 {{limit}}MB",

@@ -130,10 +130,79 @@
   [class*="bubble-user"] [class*="markdown"] {
     white-space: pre-wrap;
   }
+
+  [data-qwenpaw-code-collapsible="true"] .qwenpaw-codeHighlighter-code {
+    position: relative;
+    transition: max-height 0.16s ease;
+  }
+
+  [data-qwenpaw-code-collapsible="true"][data-qwenpaw-code-collapsed="true"]
+    .qwenpaw-codeHighlighter-code {
+    max-height: calc(var(--qwenpaw-code-collapsed-lines, 5) * 2em + 8px);
+    overflow: hidden;
+  }
+
+  [data-qwenpaw-code-collapsible="true"][data-qwenpaw-code-collapsed="true"]
+    .qwenpaw-codeHighlighter-code::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 28px;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0),
+      var(--ant-color-bg-container, #fff)
+    );
+  }
+
+  [data-qwenpaw-code-collapsible="true"][data-qwenpaw-code-collapsed="false"]
+    .qwenpaw-codeHighlighter-code {
+    max-height: none;
+    overflow: auto;
+  }
+}
+
+.codeCollapseToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1;
+
+  &:hover {
+    color: #ff7f16;
+    background: rgba(255, 127, 22, 0.12);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #ff7f16;
+    outline-offset: 2px;
+  }
 }
 
 /* Dark mode scrollbar for disabled overlay */
 :global(.dark-mode) {
+  .chatMessagesArea :global {
+    [data-qwenpaw-code-collapsible="true"][data-qwenpaw-code-collapsed="true"]
+      .qwenpaw-codeHighlighter-code::after {
+      background: linear-gradient(
+        to bottom,
+        rgba(31, 31, 31, 0),
+        var(--ant-color-bg-container, #1f1f1f)
+      );
+    }
+  }
+
   .chatDisabledOverlay :global([class*="chat-anywhere-input"]),
   .chatDisabledOverlay :global([class*="chat-input"]),
   .chatDisabledOverlay :global(textarea),
