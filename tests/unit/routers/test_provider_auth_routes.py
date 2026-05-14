@@ -37,18 +37,6 @@ class _MockModule(types.ModuleType):
         return value
 
 
-agent_context_module = _MockModule("qwenpaw.app.agent_context")
-agent_context_module.get_agent_for_request = MagicMock()
-sys.modules["qwenpaw.app.agent_context"] = agent_context_module
-
-app_utils_module = _MockModule("qwenpaw.app.utils")
-app_utils_module.schedule_agent_reload = MagicMock()
-sys.modules["qwenpaw.app.utils"] = app_utils_module
-
-routers_pkg = types.ModuleType("qwenpaw.app.routers")
-routers_pkg.__path__ = []
-sys.modules.setdefault("qwenpaw.app.routers", routers_pkg)
-
 _ROUTER_PATH = (
     Path(__file__).resolve().parents[3]
     / "src"
@@ -57,16 +45,36 @@ _ROUTER_PATH = (
     / "routers"
     / "providers.py"
 )
-_SPEC = importlib.util.spec_from_file_location(
-    "qwenpaw.app.routers.providers_auth_test",
-    _ROUTER_PATH,
-)
-assert _SPEC is not None and _SPEC.loader is not None
-providers_router = importlib.util.module_from_spec(_SPEC)
-sys.modules[_SPEC.name] = providers_router
-_SPEC.loader.exec_module(providers_router)
 
 pytestmark = pytest.mark.anyio
+
+
+def _load_providers_router(monkeypatch):
+    agent_context_module = _MockModule("qwenpaw.app.agent_context")
+    agent_context_module.get_agent_for_request = MagicMock()
+    monkeypatch.setitem(
+        sys.modules,
+        "qwenpaw.app.agent_context",
+        agent_context_module,
+    )
+
+    app_utils_module = _MockModule("qwenpaw.app.utils")
+    app_utils_module.schedule_agent_reload = MagicMock()
+    monkeypatch.setitem(sys.modules, "qwenpaw.app.utils", app_utils_module)
+
+    routers_pkg = types.ModuleType("qwenpaw.app.routers")
+    routers_pkg.__path__ = []
+    monkeypatch.setitem(sys.modules, "qwenpaw.app.routers", routers_pkg)
+
+    spec = importlib.util.spec_from_file_location(
+        "qwenpaw.app.routers.providers_auth_test",
+        _ROUTER_PATH,
+    )
+    assert spec is not None and spec.loader is not None
+    providers_router = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, providers_router)
+    spec.loader.exec_module(providers_router)
+    return providers_router
 
 
 @pytest.fixture
@@ -145,7 +153,8 @@ def _provider(
 
 
 @pytest.fixture
-def api_client(tmp_path: Path):
+def api_client(tmp_path: Path, monkeypatch):
+    providers_router = _load_providers_router(monkeypatch)
     registry = ProviderAuthRegistry()
     registry.register(FakeAuthAdapter())
     fake_manager = FakeProviderManager(
