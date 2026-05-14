@@ -92,6 +92,14 @@ class OAuthCredentialStore:
             self._path_for(provider_id).unlink()
         except FileNotFoundError:
             return
+        except OSError as exc:
+            logger.warning(
+                "Failed to delete OAuth credential for provider '%s'; "
+                "ignoring cleanup error: %s",
+                provider_id,
+                exc,
+                exc_info=True,
+            )
 
     def exists(self, provider_id: str) -> bool:
         """Return whether a credential file exists."""
