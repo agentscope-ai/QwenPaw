@@ -1,10 +1,7 @@
 """Watch agent.json and trigger a graceful workspace reload on change.
 
-Delegates to ``MultiAgentManager.reload_agent`` so disk-edit reloads
-go through the same atomic workspace swap as frontend saves and wait
-for in-flight tasks. Only triggers when ``channels``, ``heartbeat``,
-``mcp.clients`` or ``skills`` hashes change, so runtime bookkeeping
-rewrites (e.g. ``last_dispatch``) do not cause spurious reloads.
+Only watches channels, heartbeat, mcp.clients and skills sections.
+Other runtime bookkeeping (like last_dispatch) won't trigger reloads.
 """
 
 from __future__ import annotations
@@ -27,7 +24,7 @@ DEFAULT_POLL_INTERVAL = 2.0
 
 
 def _hash(obj: Any) -> Optional[int]:
-    """Safely hash any config object to a stable int, or None."""
+    """把配置对象hash成int，None就返回None"""
     if obj is None:
         return None
     return hash(str(obj.model_dump(mode="json")))
@@ -44,17 +41,16 @@ def _heartbeat_hash(hb: Optional["HeartbeatConfig"]) -> int:
 
 
 def _mcp_hash(mcp: Any) -> Optional[int]:
-    """Hash of mcp / mcp.clients section for change detection."""
+    """mcp.clients 变了没？变了就返回不同hash"""
     if mcp is None:
         return None
     try:
-        # Pydantic model: mcp.clients is a field
         clients = getattr(mcp, "clients", None)
         if clients is not None:
             return hash(str(clients))
     except Exception:
         pass
-    # Fallback: dump entire mcp section
+    # 取不到clients字段就整个dump
     try:
         return hash(str(mcp.model_dump(mode="json")))
     except Exception:
@@ -62,7 +58,7 @@ def _mcp_hash(mcp: Any) -> Optional[int]:
 
 
 def _skills_hash(skills: Any) -> Optional[int]:
-    """Hash of skills section for change detection."""
+    """skills 改了没？改了就重载"""
     if skills is None:
         return None
     try:
@@ -97,7 +93,7 @@ class AgentConfigWatcher:
         self._disabled: bool = False
 
     async def start(self) -> None:
-        """Take initial snapshot and start the polling task."""
+        """记下初始状态，开始轮询"""
         self._snapshot()
         self._task = asyncio.create_task(
             self._poll_loop(),
@@ -170,7 +166,7 @@ class AgentConfigWatcher:
                 )
 
     async def _check(self) -> None:
-        """Check for meaningful config changes and trigger a reload."""
+        """看看配置有没有变，变了就重载"""
         mtime = self._read_mtime()
         if mtime == self._last_mtime:
             return
