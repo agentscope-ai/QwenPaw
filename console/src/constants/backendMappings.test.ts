@@ -52,9 +52,7 @@ describe("MEMORY_MANAGER_BACKEND_MAPPINGS", () => {
   });
 
   it("each mapping has configField, label, and tabKey", () => {
-    for (const [, mapping] of Object.entries(
-      MEMORY_MANAGER_BACKEND_MAPPINGS,
-    )) {
+    for (const [, mapping] of Object.entries(MEMORY_MANAGER_BACKEND_MAPPINGS)) {
       expect(mapping).toHaveProperty("configField");
       expect(mapping).toHaveProperty("label");
       expect(mapping).toHaveProperty("tabKey");

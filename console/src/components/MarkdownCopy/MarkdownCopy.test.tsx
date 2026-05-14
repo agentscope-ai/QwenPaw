@@ -7,7 +7,7 @@
  * - Renders without crash when content is empty
  * - Renders in raw mode when showMarkdown is false
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
 
@@ -35,7 +35,10 @@ Object.defineProperty(navigator, "clipboard", {
   configurable: true,
 });
 
-Object.defineProperty(window, "isSecureContext", { value: true, writable: true });
+Object.defineProperty(window, "isSecureContext", {
+  value: true,
+  writable: true,
+});
 
 import { MarkdownCopy } from "./MarkdownCopy";
 
@@ -60,7 +63,9 @@ describe("MarkdownCopy", () => {
   });
 
   it("renders textarea when showMarkdown is false", () => {
-    renderWithProviders(<MarkdownCopy content="raw text" showMarkdown={false} />);
+    renderWithProviders(
+      <MarkdownCopy content="raw text" showMarkdown={false} />,
+    );
     expect(screen.getByRole("textbox")).toBeInTheDocument();
   });
 });

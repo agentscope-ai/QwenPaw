@@ -38,12 +38,17 @@ export const Input = Object.assign(
   },
 );
 
-export const Switch = ({ checked, onChange, ...props }: Record<string, unknown>) =>
+export const Switch = ({
+  checked,
+  onChange,
+  ...props
+}: Record<string, unknown>) =>
   React.createElement("input", {
     type: "checkbox",
     role: "switch",
     checked,
-    onChange: (e: any) => onChange?.(e.target.checked),
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+      (onChange as ((v: boolean) => void) | undefined)?.(e.target.checked),
     ...props,
   });
 

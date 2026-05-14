@@ -37,7 +37,6 @@ vi.mock("@vvo/tzdb", () => ({
 }));
 
 import { getTimezoneOptions } from "./timezone";
-import type { TimezoneOption } from "./timezone";
 
 describe("getTimezoneOptions", () => {
   it("returns an array of TimezoneOption", () => {

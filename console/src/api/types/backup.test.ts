@@ -60,9 +60,9 @@ describe("isFullBackup", () => {
   });
 
   it("returns false when include_global_config is false", () => {
-    expect(
-      isFullBackup({ ...fullScope, include_global_config: false }),
-    ).toBe(false);
+    expect(isFullBackup({ ...fullScope, include_global_config: false })).toBe(
+      false,
+    );
   });
 
   it("returns false when include_secrets is false", () => {
@@ -70,9 +70,9 @@ describe("isFullBackup", () => {
   });
 
   it("returns false when include_skill_pool is false", () => {
-    expect(
-      isFullBackup({ ...fullScope, include_skill_pool: false }),
-    ).toBe(false);
+    expect(isFullBackup({ ...fullScope, include_skill_pool: false })).toBe(
+      false,
+    );
   });
 
   it("returns false when all flags are false", () => {
