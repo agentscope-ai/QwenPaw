@@ -86,7 +86,8 @@ echo "PyInstaller installed"
 
 # Install project dependencies (ensures ALL runtime deps are importable)
 echo "== Installing project dependencies =="
-install_python_packages -e .
+install_python_packages -e ".[full]"
+echo "Project dependencies installed with full extras"
 
 # Fix agent-client-protocol namespace collision
 # PyPI has an empty 'acp' stub that shadows the real package

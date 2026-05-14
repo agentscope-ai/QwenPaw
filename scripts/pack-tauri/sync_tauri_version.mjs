@@ -1,5 +1,6 @@
-// Sync the Python PEP 440 version from src/qwenpaw/__version__.py into
-// console/src-tauri/tauri.conf.json as a SemVer string.
+// Sync the Python PEP 440 version from src/qwenpaw/__version__.py into a
+// gitignored Tauri config override. Do not write the tracked tauri.conf.json:
+// its version would otherwise become a stale generated value after rebases.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,9 +8,9 @@ import { fileURLToPath } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../..");
 const versionFile = path.join(repoRoot, "src/qwenpaw/__version__.py");
-const tauriConfigFile = path.join(
+const tauriVersionConfigFile = path.join(
   repoRoot,
-  "console/src-tauri/tauri.conf.json",
+  "console/src-tauri/tauri.version.conf.json",
 );
 
 function readPythonVersion() {
@@ -43,23 +44,15 @@ function toSemver(version) {
   }`;
 }
 
-function updateTauriVersion(file, version) {
-  const text = fs.readFileSync(file, "utf8");
-  const versionPattern = /("version"\s*:\s*)"[^"]+"/;
-  if (!versionPattern.test(text)) {
-    throw new Error(`Could not update version in ${file}`);
-  }
-
-  const nextText = text.replace(versionPattern, `$1"${version}"`);
-  if (nextText !== text) {
-    fs.writeFileSync(file, nextText);
-    return true;
-  }
-  return false;
+function writeTauriVersionConfig(file, version) {
+  const config = {
+    version,
+  };
+  fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
 }
 
 const semver = toSemver(readPythonVersion());
 
-updateTauriVersion(tauriConfigFile, semver);
+writeTauriVersionConfig(tauriVersionConfigFile, semver);
 
-console.log(`Synced Tauri version to ${semver}`);
+console.log(`Wrote Tauri version override ${semver}`);

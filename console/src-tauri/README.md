@@ -45,9 +45,11 @@ Windows users may see a SmartScreen warning on first launch.
 
 ## Version file
 
-`tauri.conf.json` is updated automatically by
-`scripts/pack-tauri/sync_tauri_version.mjs` before each build or `dev` run.
-The script converts Python PEP 440 versions into Tauri-compatible SemVer.
+The tracked `tauri.conf.json` intentionally does not contain `version`.
+`scripts/pack-tauri/sync_tauri_version.mjs` converts the Python PEP 440
+version from `src/qwenpaw/__version__.py` into a gitignored
+`tauri.version.conf.json` override. Build and dev commands must pass it with
+`--config src-tauri/tauri.version.conf.json`.
 
 ## Single-window assumption
 

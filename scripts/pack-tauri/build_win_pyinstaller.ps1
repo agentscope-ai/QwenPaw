@@ -109,6 +109,12 @@ Write-Host ""
 # Note: Tauri caches NSIS/Wix tools in target/.tauri/ via useLocalToolsDir
 # in tauri.conf.json — no LOCALAPPDATA redirect needed.
 Write-Host "== Step 2: Building Tauri App ==" -ForegroundColor Yellow
+$BUNDLE_DIR = Join-Path $REPO_ROOT "console\src-tauri\target\release\bundle"
+$NSIS_DIR = Join-Path $BUNDLE_DIR "nsis"
+if (Test-Path $NSIS_DIR) {
+    Remove-Item -Recurse -Force $NSIS_DIR
+}
+
 Set-Location console
 
 Write-Host "Installing frontend dependencies..."
@@ -124,7 +130,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Building for Windows..."
-npm exec -- tauri build
+npm exec -- tauri build --config src-tauri/tauri.version.conf.json
 $tauriExit = $LASTEXITCODE
 
 if ($tauriExit -ne 0) {
@@ -138,16 +144,20 @@ Write-Host ""
 # Step 3: Create distribution
 Write-Host "== Step 3: Creating Distribution ==" -ForegroundColor Yellow
 
-$BUNDLE_DIR = "console\src-tauri\target\release\bundle"
-
-New-Item -ItemType Directory -Force -Path "${DIST}\tauri-windows" | Out-Null
+$DIST_TAURI_DIR = Join-Path $DIST "tauri-windows"
+if (Test-Path $DIST_TAURI_DIR) {
+    Remove-Item -Recurse -Force $DIST_TAURI_DIR
+}
+New-Item -ItemType Directory -Force -Path $DIST_TAURI_DIR | Out-Null
 
 # Copy NSIS installer if present
-if (Test-Path "$BUNDLE_DIR\nsis") {
-    $NSIS_EXE = Get-ChildItem "$BUNDLE_DIR\nsis\*.exe" | Select-Object -First 1
+if (Test-Path $NSIS_DIR) {
+    $NSIS_EXE = Get-ChildItem -Path $NSIS_DIR -Filter "*.exe" -File |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
     if ($NSIS_EXE) {
-        Copy-Item -Force $NSIS_EXE.FullName "${DIST}\tauri-windows\"
-        Write-Host "NSIS installer copied to ${DIST}\tauri-windows\" -ForegroundColor Green
+        Copy-Item -Force $NSIS_EXE.FullName $DIST_TAURI_DIR
+        Write-Host "NSIS installer copied to ${DIST_TAURI_DIR}\" -ForegroundColor Green
     }
 }
 
@@ -161,7 +171,7 @@ if (Test-Path $ZIP_NAME) {
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory(
-    "${DIST}\tauri-windows",
+    $DIST_TAURI_DIR,
     $ZIP_NAME,
     [System.IO.Compression.CompressionLevel]::Optimal,
     $false
@@ -180,6 +190,6 @@ Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "Build Complete!" -ForegroundColor Green
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "Output:"
-Write-Host "  Directory: ${DIST}\tauri-windows\"
+Write-Host "  Directory: ${DIST_TAURI_DIR}\"
 Write-Host "  Distribution: $ZIP_NAME"
 Write-Host ""

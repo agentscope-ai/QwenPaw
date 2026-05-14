@@ -25,6 +25,7 @@ datas = [(str(SRC / src), dst) for src, dst in _data_dirs if (SRC / src).is_dir(
 
 # Include reme package data files (configs, tool yamls, etc.)
 datas += collect_data_files('reme')
+datas += collect_data_files('whisper')
 
 # Collect package metadata for packages that use importlib.metadata at runtime
 _metadata_pkgs = [
@@ -33,6 +34,7 @@ _metadata_pkgs = [
     'starlette', 'pydantic', 'pydantic-core', 'pydantic-settings',
     'uvicorn', 'openai', 'anthropic', 'tiktoken',
     'agentscope', 'agentscope-runtime',
+    'huggingface_hub', 'modelscope', 'openai-whisper',
 ]
 for _pkg in _metadata_pkgs:
     try:
@@ -78,17 +80,16 @@ a = Analysis(
         'psutil',
         'multipart',
         'websockets',
+        'modelscope',
+        'modelscope.hub.api',
+        'modelscope.hub.snapshot_download',
+        *collect_submodules('whisper'),
         *collect_submodules('chromadb'),
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[
-        'llama_cpp',
-        'mlx',
-        'mlx_lm',
-        'whisper',
-    ],
+    excludes=[],
     noarchive=False,
 )
 

@@ -67,7 +67,7 @@ npm ci
 echo "Syncing Tauri version..."
 npm run sync:tauri-version
 echo "Building for macOS..."
-npm exec -- tauri build
+npm exec -- tauri build --config src-tauri/tauri.version.conf.json
 cd ..
 echo "Tauri app built"
 echo ""

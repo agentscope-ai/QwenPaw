@@ -153,8 +153,8 @@ Write-Host ""
 
 # Install project dependencies (ensures ALL runtime deps are importable)
 Write-Host "== Installing project dependencies ==" -ForegroundColor Yellow
-Install-PythonPackages -Packages @("-e", ".")
-Write-Host "Project dependencies installed" -ForegroundColor Green
+Install-PythonPackages -Packages @("-e", ".[full]")
+Write-Host "Project dependencies installed with full extras" -ForegroundColor Green
 
 # Fix agent-client-protocol namespace collision
 # PyPI has an empty 'acp' stub that shadows the real package

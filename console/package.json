@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
     "dev:tauri": "vite --mode tauri",
+    "tauri:dev": "npm run sync:tauri-version && tauri dev --config src-tauri/tauri.version.conf.json",
+    "tauri:build": "npm run sync:tauri-version && tauri build --config src-tauri/tauri.version.conf.json",
     "sync:tauri-version": "node ../scripts/pack-tauri/sync_tauri_version.mjs",
     "build": "tsc -b && vite build",
     "build:prod": "tsc -b && vite build --mode production",
