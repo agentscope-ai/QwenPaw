@@ -23,6 +23,24 @@ DEFAULT_SYS_PROMPT = """
 You are a helpful assistant.
 """
 
+RUNTIME_RELOAD_GUIDANCE = """
+# Runtime Config Reload Guidance
+
+When advising users after QwenPaw configuration changes, do not recommend a
+full process restart by default.
+
+- Channel and heartbeat changes are watched and normally reload automatically.
+- MCP client changes are managed by the MCP hot-reload watcher.
+- Prompt files and skill configuration are re-read on new agent
+  initialization; use `/reload-config` or `/daemon reload-config` when a
+  manual refresh is needed.
+- Cron task changes may require recreating or restarting the task; verify the
+  task status before suggesting a full service restart.
+- Reserve a full process restart for upgrades, dependency installation, static
+  frontend asset changes, daemon reload failure, or config areas without a
+  supported reload path.
+"""
+
 # Backward compatibility alias
 SYS_PROMPT = DEFAULT_SYS_PROMPT
 
@@ -37,6 +55,11 @@ class PromptConfig:
         "SOUL.md",
         "PROFILE.md",
     ]
+
+
+def build_runtime_reload_guidance() -> str:
+    """Build runtime reload guidance for the agent system prompt."""
+    return RUNTIME_RELOAD_GUIDANCE.strip()
 
 
 class PromptBuilder:
@@ -307,6 +330,7 @@ def build_system_prompt_from_working_dir(
         memory_manager=memory_manager,
     )
     prompt = builder.build()
+    prompt = prompt.rstrip() + "\n\n" + build_runtime_reload_guidance()
 
     # Add agent identity information at the beginning of the prompt
     if agent_id:
@@ -471,6 +495,7 @@ def format_multimodal_hint(model_info, _model_name: str) -> str:
 __all__ = [
     "build_system_prompt_from_working_dir",
     "build_bootstrap_guidance",
+    "build_runtime_reload_guidance",
     "build_multimodal_hint",
     "format_multimodal_hint",
     "get_active_model_supports_multimodal",

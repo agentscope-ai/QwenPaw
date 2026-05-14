@@ -96,3 +96,22 @@ def test_prompt_identity_format(temp_workspace):  # pylint: disable=W0621
         "This is your unique identifier in the multi-agent system.\n\n"
     )
     assert expected_header in prompt
+
+
+def test_prompt_includes_runtime_reload_guidance(
+    temp_workspace,
+):  # pylint: disable=W0621
+    """Test that agents receive config reload guidance."""
+    agents_md = temp_workspace / "AGENTS.md"
+    agents_md.write_text("You are a helpful assistant.", encoding="utf-8")
+
+    prompt = build_system_prompt_from_working_dir(
+        working_dir=temp_workspace,
+        agent_id="default",
+    )
+
+    assert "Runtime Config Reload Guidance" in prompt
+    assert "do not recommend a" in prompt
+    assert "full process restart by default" in prompt
+    assert "MCP client changes" in prompt
+    assert "`/daemon reload-config`" in prompt
