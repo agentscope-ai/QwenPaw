@@ -2,7 +2,8 @@
   "id": "cloudpaw",
   "name": "CloudPaw",
   "version": "0.0.1",
-  "description": "CloudPaw plugin for QwenPaw - provides Alibaba Cloud deployment orchestration with ROS templates, multi-agent collaboration, Terraform integration, and ACP support.",
+  "type": "general",
+  "description": "CloudPaw —— 阿里云智能部署助手插件。安装后请完成以下配置：1) 在「环境变量」中配置阿里云 AK-SK（ALIBABA_CLOUD_ACCESS_KEY_ID / ALIBABA_CLOUD_ACCESS_KEY_SECRET）；2) 配置 iac-code 的模型（首次运行 iac-code 命令会引导配置，或编辑 ~/.iac-code/settings.yml）；3) 安装完成后请刷新当前页面以加载插件。",
   "author": "CloudPaw Team",
   "entry": {
     "frontend": "ui/dist/index.js",

@@ -1,55 +1,55 @@
-function mt() {
+function ft() {
   var je, Me, Ne, He;
-  const { React: e, antd: z, antdIcons: b, getApiUrl: L, getApiToken: H } = window.QwenPaw.host, {
-    Card: B,
-    Table: le,
-    Tag: c,
-    Typography: d,
-    Space: A,
-    Button: x,
-    Input: S,
-    Radio: fe,
-    Collapse: ht,
-    Descriptions: Y,
+  const { React: e, antd: O, antdIcons: $, getApiUrl: H, getApiToken: W } = window.QwenPaw.host, {
+    Card: L,
+    Table: ue,
+    Tag: T,
+    Typography: de,
+    Space: j,
+    Button: B,
+    Input: F,
+    Radio: me,
+    Collapse: yt,
+    Descriptions: Q,
     Tooltip: be,
     Spin: pe,
-    message: ke
-  } = z, { Text: D } = d, { TextArea: Ke } = S, { useState: C, useMemo: ae, useCallback: V, useRef: Et } = e, {
-    InfoCircleOutlined: ve,
+    message: ve
+  } = O, { Text: _ } = de, { TextArea: Ke } = F, { useState: E, useMemo: le, useCallback: Y, useRef: ht } = e, {
+    InfoCircleOutlined: ge,
     DownOutlined: Ie,
     RightOutlined: qe,
-    CheckCircleOutlined: ge,
-    FieldTimeOutlined: ye,
-    FileTextOutlined: _e
-  } = b || {};
-  function Te(t) {
-    var a, f;
-    const n = (f = (a = t == null ? void 0 : t.content) == null ? void 0 : a[0]) == null ? void 0 : f.data, s = n == null ? void 0 : n.arguments;
-    if (typeof s == "string")
+    CheckCircleOutlined: ye,
+    FieldTimeOutlined: he,
+    FileTextOutlined: Te
+  } = $ || {};
+  function _e(t) {
+    var a, u;
+    const n = (u = (a = t == null ? void 0 : t.content) == null ? void 0 : a[0]) == null ? void 0 : u.data, l = n == null ? void 0 : n.arguments;
+    if (typeof l == "string")
       try {
-        return JSON.parse(s);
+        return JSON.parse(l);
       } catch {
         return {};
       }
-    return s ?? {};
+    return l ?? {};
   }
-  function Qe() {
+  function Ge() {
     return window.currentSessionId ?? null;
   }
-  function X(t) {
+  function V(t) {
     return typeof t == "string" ? t : t && typeof t == "object" && "text" in t ? t.text : String(t ?? "");
   }
-  function Ge(t) {
+  function Qe(t) {
     if (t == null) return !0;
-    const n = X(t).trim();
+    const n = V(t).trim();
     return !!(!n || /^[¥$]?0+(\.0+)?$/.test(n) || /^[-–—]+$/.test(n));
   }
   async function Ye(t, n) {
     try {
-      const s = H(), a = {
+      const l = W(), a = {
         "Content-Type": "application/json"
       };
-      return s && (a.Authorization = `Bearer ${s}`), (await fetch(L("/interaction"), {
+      return l && (a.Authorization = `Bearer ${l}`), (await fetch(H("/interaction"), {
         method: "POST",
         headers: a,
         body: JSON.stringify({ session_id: t, result: n })
@@ -64,32 +64,37 @@ function mt() {
       try {
         const n = JSON.parse(t);
         if (Array.isArray(n)) {
-          const s = n.find((a) => (a == null ? void 0 : a.type) === "text" && (a == null ? void 0 : a.text));
-          return (s == null ? void 0 : s.text) ?? null;
+          const l = n.find(
+            (a) => (a == null ? void 0 : a.type) === "text" && (a == null ? void 0 : a.text)
+          );
+          return (l == null ? void 0 : l.text) ?? null;
         }
         if (typeof n == "string") return n;
       } catch {
         return t;
       }
     if (Array.isArray(t)) {
-      const n = t.find((s) => (s == null ? void 0 : s.type) === "text" && (s == null ? void 0 : s.text));
+      const n = t.find((l) => (l == null ? void 0 : l.type) === "text" && (l == null ? void 0 : l.text));
       return (n == null ? void 0 : n.text) ?? null;
     }
     return null;
   }
   function Ve(t) {
-    var l, r;
+    var s, r;
     if (!t || t.length < 2) return null;
-    const n = (r = (l = t[1]) == null ? void 0 : l.data) == null ? void 0 : r.output, s = ze(n);
-    if (!s) return null;
-    if (s.startsWith("Error:")) return s;
-    const a = s.match(/^用户选择了「(.+?)」并确认部署$/);
+    const n = (r = (s = t[1]) == null ? void 0 : s.data) == null ? void 0 : r.output, l = ze(n);
+    if (!l) return null;
+    if (l.startsWith("Error:")) return l;
+    const a = l.match(/^用户选择了「(.+?)」并确认部署$/);
     if (a) return `已确认部署「${a[1]}」`;
-    const f = s.match(/^用户选择「(.+?)」并要求调整[：:](.+)$/);
-    if (f) return `已选择「${f[1]}」并调整：${f[2]}`;
-    if (s === "用户确认部署") return "已确认部署";
-    const p = s.match(/^用户要求调整资源[：:](.+)$/);
-    return p ? `已反馈调整意见：${p[1]}` : "已确认";
+    const u = l.match(
+      /^用户选择「(.+?)」并要求调整[：:](.+)$/
+    );
+    if (u)
+      return `已选择「${u[1]}」并调整：${u[2]}`;
+    if (l === "用户确认部署") return "已确认部署";
+    const m = l.match(/^用户要求调整资源[：:](.+)$/);
+    return m ? `已反馈调整意见：${m[1]}` : "已确认";
   }
   const Pe = [
     "资源类型",
@@ -102,93 +107,117 @@ function mt() {
     "原价",
     "优惠",
     "预估算费用"
-  ], Xe = new Set(Pe.map((t) => t.toLowerCase()));
-  function Se(t) {
+  ], Xe = new Set(
+    Pe.map((t) => t.toLowerCase())
+  );
+  function Ce(t) {
     if (!Array.isArray(t) || t.length !== 10) return !1;
-    const n = X(t[0]).trim().toLowerCase();
+    const n = V(t[0]).trim().toLowerCase();
     return Xe.has(n);
   }
-  function $e(t) {
+  function Re(t) {
     if (!Array.isArray(t) || t.length !== 10) return !1;
-    const n = X(t[0]).trim();
+    const n = V(t[0]).trim();
     return /^(合计|总计|total)/i.test(n);
   }
   function Ze(t) {
     const n = [];
-    let s = [];
+    let l = [];
     for (const a of t)
-      s.push(a), $e(a) && (n.push(s), s = []);
-    return s.length > 0 && (n.length > 0 ? n[n.length - 1].push(...s) : n.push(s)), n.length > 0 ? n : [t];
+      l.push(a), Re(a) && (n.push(l), l = []);
+    return l.length > 0 && (n.length > 0 ? n[n.length - 1].push(...l) : n.push(l)), n.length > 0 ? n : [t];
   }
   function et(t) {
-    return typeof t == "string" ? t : t && typeof t == "object" && t.text ? t.url ? e.createElement("a", {
-      href: t.url,
-      target: "_blank",
-      rel: "noopener noreferrer"
-    }, t.text) : t.text : String(t ?? "");
+    return typeof t == "string" ? t : t && typeof t == "object" && t.text ? t.url ? e.createElement(
+      "a",
+      {
+        href: t.url,
+        target: "_blank",
+        rel: "noopener noreferrer"
+      },
+      t.text
+    ) : t.text : String(t ?? "");
   }
   function tt({ data: t }) {
-    var Je, Fe, Ue;
-    const [n, s] = C("confirm"), [a, f] = C(""), [p, l] = C(!1), [r, P] = C(null), [j, F] = C({}), U = e.useRef(!1), M = e.useRef(null), [, te] = C(0), J = t == null ? void 0 : t.content, k = J && J.length >= 2 && ((Fe = (Je = J[1]) == null ? void 0 : Je.data) == null ? void 0 : Fe.output), v = ae(
-      () => Ve(J),
-      [J]
-    ), N = U.current || k || v !== null, i = ae(() => {
-      const w = Te(t), h = w == null ? void 0 : w.data;
-      if (!h) return null;
+    var We, Fe, Je;
+    const [n, l] = E("confirm"), [a, u] = E(""), [m, s] = E(!1), [r, k] = E(null), [z, M] = E(
+      {}
+    ), N = e.useRef(!1), P = e.useRef(null), [, ee] = E(0), D = t == null ? void 0 : t.content, x = D && D.length >= 2 && ((Fe = (We = D[1]) == null ? void 0 : We.data) == null ? void 0 : Fe.output), S = le(
+      () => Ve(D),
+      [D]
+    ), R = N.current || x || S !== null, i = le(() => {
+      const h = _e(t), g = h == null ? void 0 : h.data;
+      if (!g) return null;
       try {
-        const y = typeof h == "string" ? JSON.parse(h) : h;
-        let I;
-        if (w.strategy_names)
+        const p = typeof g == "string" ? JSON.parse(g) : g;
+        let w;
+        if (h.strategy_names)
           try {
-            const T = typeof w.strategy_names == "string" ? JSON.parse(w.strategy_names) : w.strategy_names;
-            I = Array.isArray(T) ? T : [];
+            const C = typeof h.strategy_names == "string" ? JSON.parse(h.strategy_names) : h.strategy_names;
+            w = Array.isArray(C) ? C : [];
           } catch {
-            I = [];
+            w = [];
           }
-        else y != null && y.proposal_names ? I = y.proposal_names : I = [];
-        const re = I.length >= 2 ? I.length : 0;
-        let _;
-        if (Array.isArray(y) && y.length > 0)
-          if (Array.isArray(y[0]) && y[0].length === 10 && !Array.isArray(y[0][0])) {
-            const O = y.filter((se) => !Se(se));
-            if (O.filter((se) => $e(se)).length >= 2)
-              _ = Ze(O);
-            else if (re >= 2 && O.length >= re * 2) {
-              const se = Math.ceil(O.length / re);
-              _ = [];
-              for (let de = 0; de < O.length; de += se)
-                _.push(O.slice(de, de + se));
-            } else
-              _ = [O];
-          } else
-            _ = y.map(
-              (O) => O.filter((ue) => Array.isArray(ue) && ue.length === 10 && !Se(ue))
+        else p != null && p.proposal_names ? w = p.proposal_names : w = [];
+        const ne = w.length >= 2 ? w.length : 0;
+        let A;
+        if (Array.isArray(p) && p.length > 0)
+          if (Array.isArray(p[0]) && p[0].length === 10 && !Array.isArray(p[0][0])) {
+            const I = p.filter(
+              (re) => !Ce(re)
             );
-        else if (y != null && y.proposals)
-          _ = y.proposals.map(
-            (T) => T.filter((O) => !Se(O))
+            if (I.filter(
+              (re) => Re(re)
+            ).length >= 2)
+              A = Ze(I);
+            else if (ne >= 2 && I.length >= ne * 2) {
+              const re = Math.ceil(I.length / ne);
+              A = [];
+              for (let ce = 0; ce < I.length; ce += re)
+                A.push(I.slice(ce, ce + re));
+            } else
+              A = [I];
+          } else
+            A = p.map(
+              (I) => I.filter(
+                (ie) => Array.isArray(ie) && ie.length === 10 && !Ce(ie)
+              )
+            );
+        else if (p != null && p.proposals)
+          A = p.proposals.map(
+            (C) => C.filter((I) => !Ce(I))
           );
         else
           return null;
-        if (_ = _.filter((T) => T.length > 0), _.length === 0) return null;
+        if (A = A.filter((C) => C.length > 0), A.length === 0) return null;
         const Ae = ["方案一", "方案二", "方案三", "方案四", "方案五"];
-        if (I.length < _.length)
-          for (let T = I.length; T < _.length; T++)
-            I.push(Ae[T] || `方案${T + 1}`);
-        return { proposals: _, names: I };
+        if (w.length < A.length)
+          for (let C = w.length; C < A.length; C++)
+            w.push(Ae[C] || `方案${C + 1}`);
+        return { proposals: A, names: w };
       } catch {
         return null;
       }
-    }, [t]), m = Qe(), u = (((Ue = i == null ? void 0 : i.proposals) == null ? void 0 : Ue.length) ?? 0) > 1, $ = V(async () => {
-      if (!m || N || !i) return;
-      const w = u ? r : 0, h = i.names[w ?? 0] || `方案${(w ?? 0) + 1}`;
-      let y;
-      n === "confirm" ? y = `用户选择了「${h}」并确认部署` : y = `用户选择「${h}」并要求调整：${a.trim() || "未填写具体要求"}`, l(!0);
-      const I = await Ye(m, y);
-      l(!1), I ? (U.current = !0, n === "confirm" ? M.current = `已确认部署「${h}」` : M.current = `已选择「${h}」并调整：${a.trim()}`, te((re) => re + 1), ke.success(n === "confirm" ? "已确认部署方案" : "已提交调整意见")) : ke.error("操作失败，请重试");
-    }, [m, N, i, n, a, r, u]), me = (t == null ? void 0 : t.status) === "in_progress" || (t == null ? void 0 : t.status) === "created";
+    }, [t]), d = Ge(), c = (((Je = i == null ? void 0 : i.proposals) == null ? void 0 : Je.length) ?? 0) > 1, b = Y(async () => {
+      if (!d || R || !i) return;
+      const h = c ? r : 0, g = i.names[h ?? 0] || `方案${(h ?? 0) + 1}`;
+      let p;
+      n === "confirm" ? p = `用户选择了「${g}」并确认部署` : p = `用户选择「${g}」并要求调整：${a.trim() || "未填写具体要求"}`, s(!0);
+      const w = await Ye(d, p);
+      s(!1), w ? (N.current = !0, n === "confirm" ? P.current = `已确认部署「${g}」` : P.current = `已选择「${g}」并调整：${a.trim()}`, ee((ne) => ne + 1), ve.success(
+        n === "confirm" ? "已确认部署方案" : "已提交调整意见"
+      )) : ve.error("操作失败，请重试");
+    }, [
+      d,
+      R,
+      i,
+      n,
+      a,
+      r,
+      c
+    ]), fe = (t == null ? void 0 : t.status) === "in_progress" || (t == null ? void 0 : t.status) === "created";
     if (!i)
-      return me ? e.createElement(
+      return fe ? e.createElement(
         "div",
         {
           style: {
@@ -206,104 +235,129 @@ function mt() {
         },
         e.createElement(pe, { size: "default" }),
         e.createElement(
-          D,
+          _,
           { type: "secondary", style: { fontSize: 13 } },
           "正在生成资源方案..."
         )
       ) : e.createElement(
-        B,
+        L,
         { size: "small", style: { margin: "4px 0" } },
-        e.createElement(D, { type: "secondary" }, "无法解析方案数据")
+        e.createElement(_, { type: "secondary" }, "无法解析方案数据")
       );
-    const { proposals: ne, names: ie } = i, ce = Pe.map((w, h) => ({
-      title: w,
-      dataIndex: `col_${h}`,
-      key: `col_${h}`,
-      render: (y) => et(y),
-      ellipsis: h < 3
+    const { proposals: te, names: ae } = i, oe = Pe.map((h, g) => ({
+      title: h,
+      dataIndex: `col_${g}`,
+      key: `col_${g}`,
+      render: (p) => et(p),
+      ellipsis: g < 3
     }));
-    let W = "待确认", K = "processing";
-    N && (K = "success", W = M.current || v || "已确认");
-    const q = e.createElement(c, {
-      color: K,
-      style: { marginLeft: 4 }
-    }, W), R = e.createElement(
-      A,
+    let J = "待确认", U = "processing";
+    R && (U = "success", J = P.current || S || "已确认");
+    const K = e.createElement(
+      T,
+      {
+        color: U,
+        style: { marginLeft: 4 }
+      },
+      J
+    ), v = e.createElement(
+      j,
       { size: 8 },
       e.createElement("span", null, "☁️"),
       e.createElement(
-        D,
+        _,
         { strong: !0, style: { fontSize: 14 } },
-        N ? "资源配置方案" : "请确认您的资源配置方案"
+        R ? "资源配置方案" : "请确认您的资源配置方案"
       ),
-      q
-    ), Q = ne.map((w, h) => {
-      const y = u ? r === h : !0, I = j[h] || !1, re = (E) => {
-        const ee = X(E[0] || "").trim();
-        return /^合计|^总计|^total/i.test(ee);
-      }, _ = w.find(re), Ae = w.filter((E) => !re(E)), T = Ae.map((E) => ({
-        type: X(E[0] || ""),
-        purpose: X(E[1] || ""),
-        spec: X(E[2] || ""),
-        cost: E[9] ?? null
-      })), O = _ ? X(_[9] ?? "") : "", ue = w.map((E, ee) => {
-        const We = { key: ee };
-        return E.forEach((dt, ft) => {
-          We[`col_${ft}`] = dt;
-        }), We;
-      }), se = y ? "2px solid #1677ff" : "1px solid #e8e8e8", de = y ? "0 0 0 2px #e6f4ff" : "none";
+      K
+    ), q = te.map((h, g) => {
+      const p = c ? r === g : !0, w = z[g] || !1, ne = (y) => {
+        const Z = V(y[0] || "").trim();
+        return /^合计|^总计|^total/i.test(Z);
+      }, A = h.find(ne), Ae = h.filter((y) => !ne(y)), C = Ae.map((y) => ({
+        type: V(y[0] || ""),
+        purpose: V(y[1] || ""),
+        spec: V(y[2] || ""),
+        cost: y[9] ?? null
+      })), I = A ? V(A[9] ?? "") : "", ie = h.map((y, Z) => {
+        const Ue = { key: Z };
+        return y.forEach((dt, mt) => {
+          Ue[`col_${mt}`] = dt;
+        }), Ue;
+      }), re = p ? "2px solid #1677ff" : "1px solid #e8e8e8", ce = p ? "0 0 0 2px #e6f4ff" : "none";
       return e.createElement(
         "div",
         {
-          key: h,
+          key: g,
           style: {
             flex: 1,
             minWidth: 240,
-            border: se,
+            border: re,
             borderRadius: 8,
-            cursor: u ? "pointer" : "default",
+            cursor: c ? "pointer" : "default",
             transition: "all 0.2s ease",
-            boxShadow: de,
+            boxShadow: ce,
             background: "#fff"
           },
-          onClick: u ? () => P(h) : void 0
+          onClick: c ? () => k(g) : void 0
         },
         e.createElement(
           "div",
           { style: { padding: "10px 12px" } },
           // Proposal name
-          e.createElement(D, {
-            strong: !0,
-            style: { fontSize: 14, display: "block", marginBottom: 8 }
-          }, ie[h]),
-          ...T.map(
-            (E, ee) => e.createElement(
+          e.createElement(
+            _,
+            {
+              strong: !0,
+              style: { fontSize: 14, display: "block", marginBottom: 8 }
+            },
+            ae[g]
+          ),
+          ...C.map(
+            (y, Z) => e.createElement(
               "div",
               {
-                key: ee,
+                key: Z,
                 style: {
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
                   padding: "4px 0",
-                  borderBottom: ee < T.length - 1 ? "1px solid #f5f5f5" : "none"
+                  borderBottom: Z < C.length - 1 ? "1px solid #f5f5f5" : "none"
                 }
               },
               e.createElement(
                 "div",
                 { style: { flex: 1, minWidth: 0 } },
-                e.createElement("span", { style: { fontSize: 12, color: "#262626" } }, E.type),
-                E.spec && e.createElement("span", {
-                  style: { fontSize: 11, color: "#8c8c8c", marginLeft: 6 }
-                }, E.spec)
+                e.createElement(
+                  "span",
+                  { style: { fontSize: 12, color: "#262626" } },
+                  y.type
+                ),
+                y.spec && e.createElement(
+                  "span",
+                  {
+                    style: { fontSize: 11, color: "#8c8c8c", marginLeft: 6 }
+                  },
+                  y.spec
+                )
               ),
-              !Ge(E.cost) && e.createElement("span", {
-                style: { fontSize: 12, color: "#595959", flexShrink: 0, marginLeft: 8 }
-              }, X(E.cost))
+              !Qe(y.cost) && e.createElement(
+                "span",
+                {
+                  style: {
+                    fontSize: 12,
+                    color: "#595959",
+                    flexShrink: 0,
+                    marginLeft: 8
+                  }
+                },
+                V(y.cost)
+              )
             )
           ),
           // Total cost
-          O && e.createElement(
+          I && e.createElement(
             "div",
             {
               style: {
@@ -315,10 +369,18 @@ function mt() {
                 borderTop: "1px dashed #e8e8e8"
               }
             },
-            e.createElement("span", { style: { fontSize: 12, fontWeight: 500 } }, "合计"),
-            e.createElement("span", {
-              style: { fontSize: 14, fontWeight: 700, color: "#fa541c" }
-            }, O)
+            e.createElement(
+              "span",
+              { style: { fontSize: 12, fontWeight: 500 } },
+              "合计"
+            ),
+            e.createElement(
+              "span",
+              {
+                style: { fontSize: 14, fontWeight: 700, color: "#fa541c" }
+              },
+              I
+            )
           ),
           // Details toggle
           e.createElement(
@@ -333,24 +395,34 @@ function mt() {
                 cursor: "pointer",
                 marginTop: 6
               },
-              onClick: (E) => {
-                E.stopPropagation(), F((ee) => ({ ...ee, [h]: !ee[h] }));
+              onClick: (y) => {
+                y.stopPropagation(), M((Z) => ({
+                  ...Z,
+                  [g]: !Z[g]
+                }));
               }
             },
-            e.createElement(I && Ie ? Ie : qe || "span", {
-              style: { fontSize: 10 }
-            }),
-            e.createElement("span", null, `明细 · ${Ae.length} 项`)
+            e.createElement(
+              w && Ie ? Ie : qe || "span",
+              {
+                style: { fontSize: 10 }
+              }
+            ),
+            e.createElement(
+              "span",
+              null,
+              `明细 · ${Ae.length} 项`
+            )
           ),
-          I && e.createElement(
+          w && e.createElement(
             "div",
             {
-              onClick: (E) => E.stopPropagation(),
+              onClick: (y) => y.stopPropagation(),
               style: { marginTop: 4, maxHeight: 260, overflow: "auto" }
             },
-            e.createElement(le, {
-              columns: ce,
-              dataSource: ue,
+            e.createElement(ue, {
+              columns: oe,
+              dataSource: ie,
               pagination: !1,
               size: "small",
               scroll: { x: "max-content" }
@@ -372,17 +444,33 @@ function mt() {
           gap: 8
         }
       },
-      ve ? e.createElement(ve, { style: { color: "#faad14", fontSize: 14, flexShrink: 0, marginTop: 1 } }) : e.createElement("span", null, "⚠️"),
-      e.createElement("span", {
-        style: { fontSize: 12, color: "#8c6e00", lineHeight: 1.5 }
-      }, "在服务部署与配置过程中，可能因实际资源需求变化导致资源变配及费用调整，请及时关注实际资源使用情况与账单详情。")
-    ), g = !N && m && !(u && r === null) && e.createElement(
+      ge ? e.createElement(ge, {
+        style: {
+          color: "#faad14",
+          fontSize: 14,
+          flexShrink: 0,
+          marginTop: 1
+        }
+      }) : e.createElement("span", null, "⚠️"),
+      e.createElement(
+        "span",
+        {
+          style: { fontSize: 12, color: "#8c6e00", lineHeight: 1.5 }
+        },
+        "在服务部署与配置过程中，可能因实际资源需求变化导致资源变配及费用调整，请及时关注实际资源使用情况与账单详情。"
+      )
+    ), f = !R && d && !(c && r === null) && e.createElement(
       "div",
       null,
       e.createElement(
         "div",
         {
-          style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }
+          style: {
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            marginBottom: 8
+          }
         },
         // Confirm option
         e.createElement(
@@ -401,10 +489,14 @@ function mt() {
               gap: 8,
               background: n === "confirm" ? "#e6f4ff" : "transparent"
             },
-            onClick: () => s("confirm")
+            onClick: () => l("confirm")
           },
-          e.createElement(fe, { checked: n === "confirm" }),
-          e.createElement("span", { style: { fontSize: 13 } }, "确认部署")
+          e.createElement(me, { checked: n === "confirm" }),
+          e.createElement(
+            "span",
+            { style: { fontSize: 13 } },
+            "确认部署"
+          )
         ),
         // Adjust option
         e.createElement(
@@ -423,15 +515,24 @@ function mt() {
           e.createElement(
             "div",
             {
-              style: { display: "flex", alignItems: "center", gap: 8, cursor: "pointer" },
-              onClick: () => s("adjust")
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                cursor: "pointer"
+              },
+              onClick: () => l("adjust")
             },
-            e.createElement(fe, { checked: n === "adjust" }),
-            e.createElement("span", { style: { fontSize: 13 } }, "调整资源")
+            e.createElement(me, { checked: n === "adjust" }),
+            e.createElement(
+              "span",
+              { style: { fontSize: 13 } },
+              "调整资源"
+            )
           ),
           n === "adjust" && e.createElement(Ke, {
             value: a,
-            onChange: (w) => f(w.target.value),
+            onChange: (h) => u(h.target.value),
             placeholder: "请输入调整要求",
             autoSize: { minRows: 1, maxRows: 3 },
             style: { fontSize: 12, marginTop: 6 }
@@ -450,21 +551,34 @@ function mt() {
           }
         },
         e.createElement(
-          D,
+          _,
           { type: "secondary", style: { fontSize: 11 } },
-          u ? "一小时后未操作将自动选择第一个方案" : "一小时后未操作将自动确认部署"
+          c ? "一小时后未操作将自动选择第一个方案" : "一小时后未操作将自动确认部署"
         ),
-        e.createElement(x, {
-          type: "primary",
-          size: "small",
-          loading: p,
-          onClick: $,
-          disabled: n === "adjust" && !a.trim()
-        }, n === "confirm" ? "确认部署" : "提交调整")
+        e.createElement(
+          B,
+          {
+            type: "primary",
+            size: "small",
+            loading: m,
+            onClick: b,
+            disabled: n === "adjust" && !a.trim()
+          },
+          n === "confirm" ? "确认部署" : "提交调整"
+        )
       )
-    ), G = u && r === null && !N && e.createElement("div", {
-      style: { textAlign: "center", padding: "8px 0 4px", color: "rgba(0,0,0,0.45)", fontSize: 12 }
-    }, "请点击选择一个方案后继续操作");
+    ), G = c && r === null && !R && e.createElement(
+      "div",
+      {
+        style: {
+          textAlign: "center",
+          padding: "8px 0 4px",
+          color: "rgba(0,0,0,0.45)",
+          fontSize: 12
+        }
+      },
+      "请点击选择一个方案后继续操作"
+    );
     return e.createElement(
       "div",
       {
@@ -479,51 +593,60 @@ function mt() {
         }
       },
       // Header
-      e.createElement("div", { style: { marginBottom: 10 } }, R),
+      e.createElement("div", { style: { marginBottom: 10 } }, v),
       // Proposals grid
-      e.createElement("div", {
-        style: { display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }
-      }, ...Q),
+      e.createElement(
+        "div",
+        {
+          style: {
+            display: "flex",
+            gap: 10,
+            marginBottom: 12,
+            flexWrap: "wrap"
+          }
+        },
+        ...q
+      ),
       G,
       o,
-      !N && g
+      !R && f
     );
   }
   function nt({ data: t }) {
-    const [n, s] = C(null), [a, f] = C(!1), p = (t == null ? void 0 : t.status) === "in_progress" || (t == null ? void 0 : t.status) === "created", l = ae(() => {
-      const i = Te(t);
+    const [n, l] = E(null), [a, u] = E(!1), m = (t == null ? void 0 : t.status) === "in_progress" || (t == null ? void 0 : t.status) === "created", s = le(() => {
+      const i = _e(t);
       return (i == null ? void 0 : i.loop_dir) || null;
-    }, [t]), r = ae(() => {
-      var m, u, $;
-      const i = ze(($ = (u = (m = t == null ? void 0 : t.content) == null ? void 0 : m[1]) == null ? void 0 : u.data) == null ? void 0 : $.output);
+    }, [t]), r = le(() => {
+      var d, c, b;
+      const i = ze((b = (c = (d = t == null ? void 0 : t.content) == null ? void 0 : d[1]) == null ? void 0 : c.data) == null ? void 0 : b.output);
       if (!i) return null;
       try {
         return JSON.parse(i);
       } catch {
         return null;
       }
-    }, [t]), P = (r == null ? void 0 : r.status) === "ok", j = (r == null ? void 0 : r.status) === "error", F = j ? (r == null ? void 0 : r.message) || "未知错误" : null, U = V(async () => {
-      if (l)
+    }, [t]), k = (r == null ? void 0 : r.status) === "ok", z = (r == null ? void 0 : r.status) === "error", M = z ? (r == null ? void 0 : r.message) || "未知错误" : null, N = Y(async () => {
+      if (s)
         try {
-          const i = H(), m = {};
-          i && (m.Authorization = `Bearer ${i}`);
-          const u = await fetch(
-            L(`/prd?loop_dir=${encodeURIComponent(l)}`),
-            { headers: m }
+          const i = W(), d = {};
+          i && (d.Authorization = `Bearer ${i}`);
+          const c = await fetch(
+            H(`/prd?loop_dir=${encodeURIComponent(s)}`),
+            { headers: d }
           );
-          if (!u.ok) {
-            f(!0);
+          if (!c.ok) {
+            u(!0);
             return;
           }
-          const $ = await u.json();
-          $ && Array.isArray($.userStories) ? (s($), f(!1)) : f(!0);
+          const b = await c.json();
+          b && Array.isArray(b.userStories) ? (l(b), u(!1)) : u(!0);
         } catch {
-          f(!0);
+          u(!0);
         }
-    }, [l]);
+    }, [s]);
     if (e.useEffect(() => {
-      !p && P && l && U();
-    }, [p, P, l, U]), p)
+      !m && k && s && N();
+    }, [m, k, s, N]), m)
       return e.createElement(
         "div",
         {
@@ -542,12 +665,12 @@ function mt() {
         },
         e.createElement(pe, { size: "default" }),
         e.createElement(
-          D,
+          _,
           { type: "secondary", style: { fontSize: 13 } },
           "正在更新 PRD..."
         )
       );
-    if (j)
+    if (z)
       return e.createElement(
         "div",
         {
@@ -564,25 +687,31 @@ function mt() {
           }
         },
         e.createElement(
-          D,
+          _,
           { type: "danger", style: { fontSize: 13 } },
-          `PRD 格式错误，将会修正：${F}`
+          `PRD 格式错误，将会修正：${M}`
         )
       );
-    if (!P || a || !n) return null;
-    const M = n.userStories, te = [...M].sort((i, m) => (i.priority || 99) - (m.priority || 99)), J = M.filter((i) => i.passes).length, k = [
+    if (!k || a || !n) return null;
+    const P = n.userStories, ee = [...P].sort(
+      (i, d) => (i.priority || 99) - (d.priority || 99)
+    ), D = P.filter((i) => i.passes).length, x = [
       {
         title: "状态",
         key: "status",
         width: 50,
         align: "center",
-        render: (i, m) => {
-          if (m.passes) {
-            const $ = ge ? e.createElement(ge, { style: { color: "#52c41a", fontSize: 18 } }) : "✅";
-            return e.createElement(be, { title: "已完成" }, $);
+        render: (i, d) => {
+          if (d.passes) {
+            const b = ye ? e.createElement(ye, {
+              style: { color: "#52c41a", fontSize: 18 }
+            }) : "✅";
+            return e.createElement(be, { title: "已完成" }, b);
           }
-          const u = ye ? e.createElement(ye, { style: { color: "#faad14", fontSize: 18 } }) : "🕐";
-          return e.createElement(be, { title: "待处理" }, u);
+          const c = he ? e.createElement(he, {
+            style: { color: "#faad14", fontSize: 18 }
+          }) : "🕐";
+          return e.createElement(be, { title: "待处理" }, c);
         }
       },
       {
@@ -590,21 +719,25 @@ function mt() {
         dataIndex: "id",
         key: "id",
         width: 85,
-        render: (i) => e.createElement(c, { color: "blue" }, i)
+        render: (i) => e.createElement(T, { color: "blue" }, i)
       },
       {
         title: "标题",
         dataIndex: "title",
         key: "title",
-        render: (i) => e.createElement(D, { strong: !0 }, i)
+        render: (i) => e.createElement(_, { strong: !0 }, i)
       },
       {
         title: "优先级",
         key: "priority",
         width: 70,
-        render: (i, m) => {
-          const u = m.priority;
-          return e.createElement(c, { color: "default" }, u != null ? String(u) : "-");
+        render: (i, d) => {
+          const c = d.priority;
+          return e.createElement(
+            T,
+            { color: "default" },
+            c != null ? String(c) : "-"
+          );
         }
       },
       {
@@ -617,31 +750,33 @@ function mt() {
         title: "验收标准",
         key: "acceptance",
         width: 200,
-        render: (i, m) => {
-          const u = m.acceptanceCriteria;
-          return typeof u == "string" ? e.createElement(
+        render: (i, d) => {
+          const c = d.acceptanceCriteria;
+          return typeof c == "string" ? e.createElement(
             "div",
-            { style: { fontSize: 12, color: "#666", whiteSpace: "pre-wrap" } },
-            u.length > 100 ? u.slice(0, 100) + "..." : u
-          ) : Array.isArray(u) ? e.createElement(
+            {
+              style: { fontSize: 12, color: "#666", whiteSpace: "pre-wrap" }
+            },
+            c.length > 100 ? c.slice(0, 100) + "..." : c
+          ) : Array.isArray(c) ? e.createElement(
             "div",
             { style: { fontSize: 12, color: "#666" } },
-            u.length > 2 ? u.slice(0, 2).join(", ") + "..." : u.join(", ")
+            c.length > 2 ? c.slice(0, 2).join(", ") + "..." : c.join(", ")
           ) : "-";
         }
       }
-    ], v = e.createElement(
-      A,
+    ], S = e.createElement(
+      j,
       { size: 8 },
-      _e ? e.createElement(_e, { style: { color: "#1677ff" } }) : null,
+      Te ? e.createElement(Te, { style: { color: "#1677ff" } }) : null,
       e.createElement(
         "span",
         { style: { fontSize: 14 } },
-        e.createElement(D, { strong: !0 }, n.project || "PRD")
+        e.createElement(_, { strong: !0 }, n.project || "PRD")
       )
-    ), N = e.createElement(le, {
-      columns: k,
-      dataSource: te.map((i) => ({ ...i, key: i.id })),
+    ), R = e.createElement(ue, {
+      columns: x,
+      dataSource: ee.map((i) => ({ ...i, key: i.id })),
       size: "small",
       pagination: !1,
       scroll: { x: "max-content" },
@@ -660,94 +795,113 @@ function mt() {
           margin: "4px 0"
         }
       },
-      e.createElement("div", { style: { marginBottom: 8 } }, v),
-      e.createElement(Y, {
+      e.createElement("div", { style: { marginBottom: 8 } }, S),
+      e.createElement(Q, {
         size: "small",
         column: { xs: 1, sm: 2, md: 3 },
         style: { marginBottom: 12 },
         bordered: !1,
         items: [
-          { key: "progress", label: "进度", children: `${J}/${M.length} 完成` }
+          {
+            key: "progress",
+            label: "进度",
+            children: `${D}/${P.length} 完成`
+          }
         ]
       }),
-      N,
+      R,
       e.createElement(
         "div",
-        { style: { fontSize: 11, color: "#8c8c8c", display: "flex", alignItems: "center", gap: 8 } },
-        ge ? e.createElement(ge, { style: { color: "#52c41a", fontSize: 14 } }) : "✅",
+        {
+          style: {
+            fontSize: 11,
+            color: "#8c8c8c",
+            display: "flex",
+            alignItems: "center",
+            gap: 8
+          }
+        },
+        ye ? e.createElement(ye, {
+          style: { color: "#52c41a", fontSize: 14 }
+        }) : "✅",
         e.createElement("span", null, "已完成"),
         e.createElement("span", { style: { margin: "0 4px" } }, "·"),
-        ye ? e.createElement(ye, { style: { color: "#faad14", fontSize: 14 } }) : "🕐",
+        he ? e.createElement(he, {
+          style: { color: "#faad14", fontSize: 14 }
+        }) : "🕐",
         e.createElement("span", null, "待处理")
       )
     );
   }
   function rt({ data: t }) {
-    var ne, ie, ce;
-    const n = (t == null ? void 0 : t.status) || "", s = n === "in_progress" || n === "created", a = n === "completed" || n === "canceled" || n === "failed", f = e.useRef(null), p = ae(() => {
-      var K, q, R;
-      const W = (R = (q = (K = t == null ? void 0 : t.content) == null ? void 0 : K[0]) == null ? void 0 : q.data) == null ? void 0 : R.arguments;
-      if (!W) return null;
+    var te, ae, oe;
+    const n = (t == null ? void 0 : t.status) || "", l = n === "in_progress" || n === "created", a = n === "completed" || n === "canceled" || n === "failed", u = e.useRef(null), m = le(() => {
+      var U, K, v;
+      const J = (v = (K = (U = t == null ? void 0 : t.content) == null ? void 0 : U[0]) == null ? void 0 : K.data) == null ? void 0 : v.arguments;
+      if (!J) return null;
       try {
-        return JSON.parse(W);
+        return JSON.parse(J);
       } catch {
         return null;
       }
-    }, [(ce = (ie = (ne = t == null ? void 0 : t.content) == null ? void 0 : ne[0]) == null ? void 0 : ie.data) == null ? void 0 : ce.arguments]), l = ae(() => {
-      var K;
-      if (a && f.current) return f.current;
-      const W = t == null ? void 0 : t.content;
-      if (!Array.isArray(W)) return null;
-      for (const q of W) {
-        const R = (K = q == null ? void 0 : q.data) == null ? void 0 : K.output;
-        if (!R) continue;
-        let Q = "";
-        if (Array.isArray(R)) {
-          const o = R.find((g) => (g == null ? void 0 : g.type) === "text" && (g == null ? void 0 : g.text));
-          Q = (o == null ? void 0 : o.text) || "";
-        } else if (typeof R == "string")
+    }, [(oe = (ae = (te = t == null ? void 0 : t.content) == null ? void 0 : te[0]) == null ? void 0 : ae.data) == null ? void 0 : oe.arguments]), s = le(() => {
+      var U;
+      if (a && u.current) return u.current;
+      const J = t == null ? void 0 : t.content;
+      if (!Array.isArray(J)) return null;
+      for (const K of J) {
+        const v = (U = K == null ? void 0 : K.data) == null ? void 0 : U.output;
+        if (!v) continue;
+        let q = "";
+        if (Array.isArray(v)) {
+          const o = v.find(
+            (f) => (f == null ? void 0 : f.type) === "text" && (f == null ? void 0 : f.text)
+          );
+          q = (o == null ? void 0 : o.text) || "";
+        } else if (typeof v == "string")
           try {
-            const o = JSON.parse(R);
-            if (typeof o == "object" && (o != null && o.response_text)) return o;
+            const o = JSON.parse(v);
+            if (typeof o == "object" && (o != null && o.response_text))
+              return o;
             if (Array.isArray(o)) {
-              const g = o.find((G) => (G == null ? void 0 : G.type) === "text" && (G == null ? void 0 : G.text));
-              g != null && g.text && (Q = g.text);
+              const f = o.find((G) => (G == null ? void 0 : G.type) === "text" && (G == null ? void 0 : G.text));
+              f != null && f.text && (q = f.text);
             }
           } catch {
-            Q = R;
+            q = v;
           }
-        if (Q)
+        if (q)
           try {
-            const o = JSON.parse(Q);
-            return a && (f.current = o), o;
+            const o = JSON.parse(q);
+            return a && (u.current = o), o;
           } catch {
             return null;
           }
       }
       return null;
-    }, [t == null ? void 0 : t.content, a]), r = (p == null ? void 0 : p.agent_alias) || "", P = (p == null ? void 0 : p.agent_url) || "", j = r || P || "远程 Agent", F = (l == null ? void 0 : l.response_text) || "", U = (l == null ? void 0 : l.task_state) || "", M = (l == null ? void 0 : l.error) || "", te = (l == null ? void 0 : l.event_count) || 0, J = {
+    }, [t == null ? void 0 : t.content, a]), r = (m == null ? void 0 : m.agent_alias) || "", k = (m == null ? void 0 : m.agent_url) || "", z = r || k || "远程 Agent", M = (s == null ? void 0 : s.response_text) || "", N = (s == null ? void 0 : s.task_state) || "", P = (s == null ? void 0 : s.error) || "", ee = (s == null ? void 0 : s.event_count) || 0, D = {
       completed: "#52c41a",
       failed: "#ff4d4f",
       error: "#ff4d4f",
       canceled: "#faad14",
       working: "#1677ff"
-    }, k = {
+    }, x = {
       completed: "已完成",
       failed: "失败",
       error: "出错",
       canceled: "已取消",
       working: "执行中"
-    }, v = s ? "#1677ff" : J[U] || "#d9d9d9", N = s ? "执行中..." : k[U] || U || "完成", i = M ? `错误: ${M}` : F || "等待响应...", m = e.createElement(
-      A,
+    }, S = l ? "#1677ff" : D[N] || "#d9d9d9", R = l ? "执行中..." : x[N] || N || "完成", i = P ? `错误: ${P}` : M || "等待响应...", d = e.createElement(
+      j,
       { size: 8 },
       e.createElement("span", null, "🔗"),
       e.createElement(
-        D,
+        _,
         { strong: !0, style: { fontSize: 14 } },
-        `A2A 调用: ${j}`
+        `A2A 调用: ${z}`
       ),
-      e.createElement(c, { color: v }, N)
-    ), u = s && !F ? e.createElement(
+      e.createElement(T, { color: S }, R)
+    ), c = l && !M ? e.createElement(
       "div",
       {
         style: {
@@ -763,11 +917,11 @@ function mt() {
       },
       e.createElement(pe, { size: "small" }),
       e.createElement(
-        D,
+        _,
         { style: { fontSize: 12, color: "#52c41a" } },
-        `正在连接 ${j}...`
+        `正在连接 ${z}...`
       )
-    ) : null, $ = s && F ? e.createElement(
+    ) : null, b = l && M ? e.createElement(
       "div",
       {
         style: {
@@ -779,11 +933,11 @@ function mt() {
         }
       },
       e.createElement(
-        D,
+        _,
         { style: { fontSize: 12, color: "#1677ff" } },
-        `实时进度 (已接收 ${te} 个事件):`
+        `实时进度 (已接收 ${ee} 个事件):`
       )
-    ) : null, me = e.createElement(
+    ) : null, fe = e.createElement(
       "div",
       {
         style: {
@@ -794,8 +948,14 @@ function mt() {
         }
       },
       e.createElement(
-        D,
-        { style: { fontSize: 12, whiteSpace: "pre-wrap", wordBreak: "break-word" } },
+        _,
+        {
+          style: {
+            fontSize: 12,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word"
+          }
+        },
         i
       )
     );
@@ -812,83 +972,94 @@ function mt() {
           margin: "4px 0"
         }
       },
-      e.createElement("div", { style: { marginBottom: 12 } }, m),
-      u,
-      $,
-      me,
+      e.createElement("div", { style: { marginBottom: 12 } }, d),
+      c,
+      b,
+      fe,
       e.createElement(
         "div",
         {
           style: { fontSize: 11, color: "#8c8c8c", marginTop: 8 }
         },
-        `事件数: ${te}`,
-        l != null && l.task_id ? ` | 任务ID: ${l.task_id.slice(0, 12)}...` : "",
-        l != null && l.context_id ? ` | 会话: ${l.context_id.slice(0, 12)}...` : ""
+        `事件数: ${ee}`,
+        s != null && s.task_id ? ` | 任务ID: ${s.task_id.slice(0, 12)}...` : "",
+        s != null && s.context_id ? ` | 会话: ${s.context_id.slice(0, 12)}...` : ""
       )
     );
   }
   const {
-    Form: Z,
-    Select: he,
-    Drawer: st,
-    Modal: lt,
+    Form: X,
+    Select: Ee,
+    Drawer: lt,
+    Modal: st,
     Empty: at,
-    Badge: Re,
+    Badge: Oe,
     Divider: ot,
-    message: oe
-  } = z, {
-    ApiOutlined: xt,
-    PlusOutlined: Oe,
-    ReloadOutlined: Ee,
-    DeleteOutlined: Le,
-    LinkOutlined: Be,
-    DisconnectOutlined: wt
-  } = b || {}, { useEffect: De } = e, xe = "/a2a/agents";
-  function Ce() {
+    message: se
+  } = O, {
+    ApiOutlined: Et,
+    PlusOutlined: $e,
+    ReloadOutlined: xe,
+    DeleteOutlined: Be,
+    LinkOutlined: De,
+    DisconnectOutlined: xt
+  } = $ || {}, { useEffect: Le } = e, Se = "/a2a/agents";
+  function ke() {
     var t;
     try {
       const n = sessionStorage.getItem("qwenpaw-agent-storage") || localStorage.getItem("qwenpaw-agent-storage");
       if (n) {
-        const s = JSON.parse(n);
-        return ((t = s == null ? void 0 : s.state) == null ? void 0 : t.selectedAgent) || null;
+        const l = JSON.parse(n);
+        return ((t = l == null ? void 0 : l.state) == null ? void 0 : t.selectedAgent) || null;
       }
     } catch {
     }
     return null;
   }
   async function we(t, n) {
-    const s = L(t), a = H == null ? void 0 : H(), f = Ce(), p = {
+    const l = H(t), a = W == null ? void 0 : W(), u = ke(), m = {
       "Content-Type": "application/json",
       ...a ? { Authorization: `Bearer ${a}` } : {},
-      ...f ? { "X-Agent-Id": f } : {}
-    }, l = await fetch(s, { ...n, headers: { ...p, ...(n == null ? void 0 : n.headers) || {} } });
-    if (!l.ok) {
-      const r = await l.text().catch(() => "");
-      throw new Error(r || `HTTP ${l.status}`);
+      ...u ? { "X-Agent-Id": u } : {}
+    }, s = await fetch(l, {
+      ...n,
+      headers: { ...m, ...(n == null ? void 0 : n.headers) || {} }
+    });
+    if (!s.ok) {
+      const r = await s.text().catch(() => "");
+      throw new Error(r || `HTTP ${s.status}`);
     }
-    return l.status === 204 || l.headers.get("content-length") === "0" ? null : l.json();
+    return s.status === 204 || s.headers.get("content-length") === "0" ? null : s.json();
   }
   function it(t) {
     var r;
-    const { agent: n, onClick: s } = t, a = n.status === "connected", f = a ? "#52c41a" : n.status === "error" ? "#ff4d4f" : "#d9d9d9", p = a ? "已连接" : n.status === "error" ? "错误" : "未连接", l = {
+    const { agent: n, onClick: l } = t, a = n.status === "connected", u = a ? "#52c41a" : n.status === "error" ? "#ff4d4f" : "#d9d9d9", m = a ? "已连接" : n.status === "error" ? "错误" : "未连接", s = {
       gateway: "阿里云Agent Hub",
       bearer: "Bearer Token",
       api_key: "API Key"
     };
     return e.createElement(
-      B,
+      L,
       {
         hoverable: !0,
-        onClick: s,
+        onClick: l,
         size: "small",
         style: { cursor: "pointer" },
         title: e.createElement(
-          A,
+          j,
           null,
-          e.createElement(Re, { color: f }),
-          e.createElement("span", null, n.name || n.alias || n.url)
+          e.createElement(Oe, { color: u }),
+          e.createElement(
+            "span",
+            null,
+            n.name || n.alias || n.url
+          )
         ),
-        extra: n.auth_type ? e.createElement(c, { color: "blue" }, l[n.auth_type] || n.auth_type) : null
+        extra: n.auth_type ? e.createElement(
+          T,
+          { color: "blue" },
+          s[n.auth_type] || n.auth_type
+        ) : null
       },
       e.createElement(
         "div",
@@ -896,88 +1067,108 @@ function mt() {
         e.createElement(
           "div",
           { style: { marginBottom: 4 } },
-          Be ? e.createElement(Be, { style: { marginRight: 4 } }) : null,
+          De ? e.createElement(De, { style: { marginRight: 4 } }) : null,
           n.url
         ),
-        n.description ? e.createElement("div", { style: { marginBottom: 4, color: "#999" } }, n.description) : null,
+        n.description ? e.createElement(
+          "div",
+          { style: { marginBottom: 4, color: "#999" } },
+          n.description
+        ) : null,
         ((r = n.skills) == null ? void 0 : r.length) > 0 ? e.createElement(
           "div",
           null,
           n.skills.slice(0, 3).map(
-            (P, j) => e.createElement(c, { key: j, style: { fontSize: 11 } }, P.name)
+            (k, z) => e.createElement(
+              T,
+              { key: z, style: { fontSize: 11 } },
+              k.name
+            )
           ),
-          n.skills.length > 3 ? e.createElement(c, { style: { fontSize: 11 } }, `+${n.skills.length - 3}`) : null
+          n.skills.length > 3 ? e.createElement(
+            T,
+            { style: { fontSize: 11 } },
+            `+${n.skills.length - 3}`
+          ) : null
         ) : null,
         e.createElement(
           "div",
-          { style: { marginTop: 4, color: f, fontSize: 11 } },
-          p,
+          { style: { marginTop: 4, color: u, fontSize: 11 } },
+          m,
           n.error ? ` - ${n.error}` : ""
         )
       )
     );
   }
   function ct() {
-    const t = e.useRef(Ce()), [n, s] = C(t.current);
-    return De(() => {
+    const t = e.useRef(ke()), [n, l] = E(t.current);
+    return Le(() => {
       const a = () => {
-        const p = Ce();
-        p !== t.current && (t.current = p, s(p));
-      }, f = setInterval(a, 200);
+        const m = ke();
+        m !== t.current && (t.current = m, l(m));
+      }, u = setInterval(a, 200);
       return window.addEventListener("storage", a), () => {
-        clearInterval(f), window.removeEventListener("storage", a);
+        clearInterval(u), window.removeEventListener("storage", a);
       };
     }, []), n;
   }
   function ut() {
-    var R, Q;
-    const t = ct(), [n, s] = C([]), [a, f] = C(!0), [p, l] = C(!1), [r, P] = C(null), [j, F] = C(!1), [U, M] = C(!1), [te, J] = C(!1), [k] = Z.useForm(), v = V(async () => {
-      f(!0);
+    var v, q;
+    const t = ct(), [n, l] = E([]), [a, u] = E(!0), [m, s] = E(!1), [r, k] = E(null), [z, M] = E(!1), [N, P] = E(!1), [ee, D] = E(!1), [x] = X.useForm(), S = Y(async () => {
+      u(!0);
       try {
-        const o = await we(xe);
-        s((o == null ? void 0 : o.agents) || []);
+        const o = await we(Se);
+        l((o == null ? void 0 : o.agents) || []);
       } catch {
-        s([]);
+        l([]);
       } finally {
-        f(!1);
+        u(!1);
       }
     }, []);
-    De(() => {
-      v();
+    Le(() => {
+      S();
     }, [t]);
-    const N = V(() => {
-      F(!0), P(null), l(!0), k.resetFields(), k.setFieldsValue({ url: "", alias: "", auth_type: "", auth_token: "" });
-    }, [k]), i = V((o) => {
-      F(!1), P(o), l(!0);
-    }, []), m = V(() => {
-      l(!1), P(null), F(!1), k.resetFields();
-    }, [k]), u = V(async () => {
+    const R = Y(() => {
+      M(!0), k(null), s(!0), x.resetFields(), x.setFieldsValue({
+        url: "",
+        alias: "",
+        auth_type: "",
+        auth_token: ""
+      });
+    }, [x]), i = Y((o) => {
+      M(!1), k(o), s(!0);
+    }, []), d = Y(() => {
+      s(!1), k(null), M(!1), x.resetFields();
+    }, [x]), c = Y(async () => {
       let o;
       try {
-        o = await k.validateFields();
+        o = await x.validateFields();
       } catch {
         return;
       }
-      const g = {
+      const f = {
         url: String(o.url || "").trim(),
         alias: String(o.alias || "").trim() || void 0,
         auth_type: String(o.auth_type || ""),
         auth_token: String(o.auth_token || "")
       };
-      if (g.url) {
-        M(!0);
+      if (f.url) {
+        P(!0);
         try {
-          await we(xe, { method: "POST", body: JSON.stringify(g) }), oe.success("A2A Agent 注册成功"), await v(), m();
+          await we(Se, {
+            method: "POST",
+            body: JSON.stringify(f)
+          }), se.success("A2A Agent 注册成功"), await S(), d();
         } catch (G) {
-          oe.error(G.message || "注册失败");
+          se.error(G.message || "注册失败");
         } finally {
-          M(!1);
+          P(!1);
         }
       }
-    }, [k, v, m]), $ = V(async () => {
+    }, [x, S, d]), b = Y(async () => {
       if (!r) return;
       const o = r.alias || r.url;
-      lt.confirm({
+      st.confirm({
         title: `删除 ${o}`,
         content: "确定删除该远程 A2A Agent 吗？此操作不可撤销。",
         okText: "删除",
@@ -985,99 +1176,158 @@ function mt() {
         okButtonProps: { danger: !0 },
         async onOk() {
           try {
-            await we(`${xe}/${encodeURIComponent(o)}`, { method: "DELETE" }), oe.success("A2A Agent 已删除"), await v(), m();
-          } catch (g) {
-            oe.error(g.message || "删除失败");
+            await we(`${Se}/${encodeURIComponent(o)}`, {
+              method: "DELETE"
+            }), se.success("A2A Agent 已删除"), await S(), d();
+          } catch (f) {
+            se.error(f.message || "删除失败");
           }
         }
       });
-    }, [r, v, m]), me = V(async () => {
+    }, [r, S, d]), fe = Y(async () => {
       if (!r) return;
       const o = r.alias || r.url;
-      J(!0);
+      D(!0);
       try {
-        const g = await we(`${xe}/${encodeURIComponent(o)}/refresh`, {
-          method: "POST"
-        });
-        oe.success("Agent Card 已刷新"), await v(), g && P(g);
-      } catch (g) {
-        oe.error(g.message || "刷新失败");
+        const f = await we(
+          `${Se}/${encodeURIComponent(o)}/refresh`,
+          {
+            method: "POST"
+          }
+        );
+        se.success("Agent Card 已刷新"), await S(), f && k(f);
+      } catch (f) {
+        se.error(f.message || "刷新失败");
       } finally {
-        J(!1);
+        D(!1);
       }
-    }, [r, v]), ne = ((R = Z.useWatch) == null ? void 0 : R.call(Z, "auth_type", k)) ?? "", ie = e.createElement(
-      Z,
-      { form: k, layout: "vertical" },
+    }, [r, S]), te = ((v = X.useWatch) == null ? void 0 : v.call(X, "auth_type", x)) ?? "", ae = e.createElement(
+      X,
+      { form: x, layout: "vertical" },
       e.createElement(
-        Z.Item,
-        { name: "url", label: "Agent URL", rules: [{ required: !0, message: "请输入 Agent URL" }] },
-        e.createElement(S, { placeholder: "https://agent.example.com" })
+        X.Item,
+        {
+          name: "url",
+          label: "Agent URL",
+          rules: [{ required: !0, message: "请输入 Agent URL" }]
+        },
+        e.createElement(F, {
+          placeholder: "https://agent.example.com"
+        })
       ),
       e.createElement(
-        Z.Item,
+        X.Item,
         { name: "alias", label: "别名" },
-        e.createElement(S, { placeholder: "输入别名（可选）" })
+        e.createElement(F, { placeholder: "输入别名（可选）" })
       ),
       e.createElement(
-        Z.Item,
+        X.Item,
         { name: "auth_type", label: "认证类型" },
         e.createElement(
-          he,
+          Ee,
           { allowClear: !0, placeholder: "无认证" },
-          e.createElement(he.Option, { value: "bearer" }, "Bearer Token"),
-          e.createElement(he.Option, { value: "api_key" }, "API Key"),
-          e.createElement(he.Option, { value: "gateway" }, "阿里云Agent Hub")
+          e.createElement(
+            Ee.Option,
+            { value: "bearer" },
+            "Bearer Token"
+          ),
+          e.createElement(Ee.Option, { value: "api_key" }, "API Key"),
+          e.createElement(
+            Ee.Option,
+            { value: "gateway" },
+            "阿里云Agent Hub"
+          )
         )
       ),
-      ne === "gateway" ? e.createElement(
+      te === "gateway" ? e.createElement(
         "div",
-        { style: { marginBottom: 16, padding: "8px 12px", background: "#f6ffed", border: "1px solid #b7eb8f", borderRadius: 6, fontSize: 12, color: "#52c41a" } },
+        {
+          style: {
+            marginBottom: 16,
+            padding: "8px 12px",
+            background: "#f6ffed",
+            border: "1px solid #b7eb8f",
+            borderRadius: 6,
+            fontSize: 12,
+            color: "#52c41a"
+          }
+        },
         "阿里云Agent Hub 模式将自动使用环境变量中的 AK-SK 换取 Bearer Token"
       ) : null,
-      ne && ne !== "gateway" ? e.createElement(
-        Z.Item,
+      te && te !== "gateway" ? e.createElement(
+        X.Item,
         { name: "auth_token", label: "认证凭证" },
-        e.createElement(S.Password, { placeholder: "Bearer Token 或 API Key" })
+        e.createElement(F.Password, {
+          placeholder: "Bearer Token 或 API Key"
+        })
       ) : null
-    ), ce = r ? e.createElement(
+    ), oe = r ? e.createElement(
       "div",
       null,
       e.createElement(
-        Y,
+        Q,
         { column: 1, bordered: !0, size: "small" },
-        e.createElement(Y.Item, { label: "URL" }, r.url),
-        e.createElement(Y.Item, { label: "别名" }, r.alias || "-"),
-        e.createElement(Y.Item, { label: "Agent 名称" }, r.name || "-"),
         e.createElement(
-          Y.Item,
+          Q.Item,
+          { label: "URL" },
+          r.url
+        ),
+        e.createElement(
+          Q.Item,
+          { label: "别名" },
+          r.alias || "-"
+        ),
+        e.createElement(
+          Q.Item,
+          { label: "Agent 名称" },
+          r.name || "-"
+        ),
+        e.createElement(
+          Q.Item,
           { label: "状态" },
-          e.createElement(Re, {
+          e.createElement(Oe, {
             color: r.status === "connected" ? "#52c41a" : r.status === "error" ? "#ff4d4f" : "#d9d9d9",
             text: r.status === "connected" ? "已连接" : r.status === "error" ? "错误" : "未连接"
           })
         ),
         e.createElement(
-          Y.Item,
+          Q.Item,
           { label: "认证类型" },
           r.auth_type ? e.createElement(
-            c,
+            T,
             { color: "blue" },
-            { gateway: "阿里云Agent Hub", bearer: "Bearer Token", api_key: "API Key" }[r.auth_type] || r.auth_type
+            {
+              gateway: "阿里云Agent Hub",
+              bearer: "Bearer Token",
+              api_key: "API Key"
+            }[r.auth_type] || r.auth_type
           ) : "无认证"
         ),
-        e.createElement(Y.Item, { label: "描述" }, r.description || "-"),
-        e.createElement(Y.Item, { label: "版本" }, r.version || "-")
+        e.createElement(
+          Q.Item,
+          { label: "描述" },
+          r.description || "-"
+        ),
+        e.createElement(
+          Q.Item,
+          { label: "版本" },
+          r.version || "-"
+        )
       ),
-      ((Q = r.skills) == null ? void 0 : Q.length) > 0 ? e.createElement(
+      ((q = r.skills) == null ? void 0 : q.length) > 0 ? e.createElement(
         "div",
         { style: { marginTop: 16 } },
         e.createElement("h4", null, "技能"),
         ...r.skills.map(
-          (o, g) => e.createElement(
-            B,
-            { key: g, size: "small", style: { marginBottom: 8 } },
+          (o, f) => e.createElement(
+            L,
+            { key: f, size: "small", style: { marginBottom: 8 } },
             e.createElement("strong", null, o.name),
-            o.description ? e.createElement("div", { style: { color: "#666", fontSize: 12 } }, o.description) : null
+            o.description ? e.createElement(
+              "div",
+              { style: { color: "#666", fontSize: 12 } },
+              o.description
+            ) : null
           )
         )
       ) : null,
@@ -1086,79 +1336,134 @@ function mt() {
         { style: { marginTop: 16 } },
         e.createElement("h4", null, "能力"),
         e.createElement(
-          A,
+          j,
           null,
-          e.createElement(c, { color: r.capabilities.streaming ? "green" : "default" }, "Streaming"),
-          e.createElement(c, { color: r.capabilities.push_notifications ? "green" : "default" }, "Push Notifications")
+          e.createElement(
+            T,
+            {
+              color: r.capabilities.streaming ? "green" : "default"
+            },
+            "Streaming"
+          ),
+          e.createElement(
+            T,
+            {
+              color: r.capabilities.push_notifications ? "green" : "default"
+            },
+            "Push Notifications"
+          )
         )
       ) : null,
       r.error ? e.createElement(
         "div",
-        { style: { marginTop: 16, padding: "8px 12px", background: "#fff2f0", border: "1px solid #ffccc7", borderRadius: 6, fontSize: 12, color: "#ff4d4f" } },
+        {
+          style: {
+            marginTop: 16,
+            padding: "8px 12px",
+            background: "#fff2f0",
+            border: "1px solid #ffccc7",
+            borderRadius: 6,
+            fontSize: 12,
+            color: "#ff4d4f"
+          }
+        },
         r.error
       ) : null,
       e.createElement(ot, null),
       e.createElement(
-        A,
+        j,
         null,
         e.createElement(
-          x,
+          B,
           {
             type: "primary",
-            icon: Ee ? e.createElement(Ee) : null,
-            loading: te,
-            onClick: me
+            icon: xe ? e.createElement(xe) : null,
+            loading: ee,
+            onClick: fe
           },
           "刷新 Agent Card"
         ),
         e.createElement(
-          x,
+          B,
           {
             danger: !0,
-            icon: Le ? e.createElement(Le) : null,
-            onClick: $
+            icon: Be ? e.createElement(Be) : null,
+            onClick: b
           },
           "删除"
         )
       )
-    ) : null, W = e.createElement(
-      st,
+    ) : null, J = e.createElement(
+      lt,
       {
-        title: j ? "注册远程 A2A Agent" : (r == null ? void 0 : r.name) || (r == null ? void 0 : r.alias) || "Agent 详情",
-        open: p,
-        onClose: m,
+        title: z ? "注册远程 A2A Agent" : (r == null ? void 0 : r.name) || (r == null ? void 0 : r.alias) || "Agent 详情",
+        open: m,
+        onClose: d,
         width: 480,
-        footer: j ? e.createElement(
-          A,
+        footer: z ? e.createElement(
+          j,
           { style: { float: "right" } },
-          e.createElement(x, { onClick: m }, "取消"),
-          e.createElement(x, { type: "primary", loading: U, onClick: u }, "注册")
+          e.createElement(B, { onClick: d }, "取消"),
+          e.createElement(
+            B,
+            { type: "primary", loading: N, onClick: c },
+            "注册"
+          )
         ) : null
       },
-      j ? ie : ce
-    ), K = e.createElement(
+      z ? ae : oe
+    ), U = e.createElement(
       "div",
-      { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 } },
-      e.createElement("h2", { style: { margin: 0 } }, "A2A 远程 Agent"),
+      { style: { marginBottom: 16 } },
       e.createElement(
-        A,
-        null,
+        "div",
+        {
+          style: {
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center"
+          }
+        },
+        e.createElement("h2", { style: { margin: 0 } }, "A2A 远程 Agent"),
         e.createElement(
-          x,
-          { icon: Ee ? e.createElement(Ee) : null, onClick: v, loading: a },
-          "刷新列表"
-        ),
-        e.createElement(
-          x,
-          {
-            type: "primary",
-            icon: Oe ? e.createElement(Oe) : null,
-            onClick: N
-          },
-          "注册 Agent"
+          j,
+          null,
+          e.createElement(
+            B,
+            {
+              icon: xe ? e.createElement(xe) : null,
+              onClick: S,
+              loading: a
+            },
+            "刷新列表"
+          ),
+          e.createElement(
+            B,
+            {
+              type: "primary",
+              icon: $e ? e.createElement($e) : null,
+              onClick: R
+            },
+            "注册 Agent"
+          )
         )
+      ),
+      e.createElement(
+        "div",
+        {
+          style: {
+            marginTop: 8,
+            fontSize: 12,
+            color: "#8c8c8c",
+            lineHeight: 1.6
+          }
+        },
+        ge ? e.createElement(ge, {
+          style: { marginRight: 4, color: "#faad14" }
+        }) : null,
+        "当前 A2A 功能仅支持 CloudPaw 插件连接阿里云 Skills 门户 Agent，连接其他 Agent 可能存在不兼容问题。"
       )
-    ), q = a ? e.createElement(
+    ), K = a ? e.createElement(
       "div",
       { style: { textAlign: "center", padding: 60 } },
       e.createElement(pe, { size: "large" })
@@ -1182,9 +1487,9 @@ function mt() {
     return e.createElement(
       "div",
       { style: { padding: 24 } },
+      U,
       K,
-      q,
-      W
+      J
     );
   }
   (Me = (je = window.QwenPaw).registerToolRender) == null || Me.call(je, "cloudpaw", {
@@ -1199,97 +1504,72 @@ function mt() {
       icon: "🔗",
       priority: 10
     }
-  ]), gt(), yt(), pt();
+  ]), pt(), gt();
 }
 function pt() {
-  const e = window.QwenPaw, { getApiUrl: z } = e.host, b = (c, d) => `[A2A_DIRECT_CALL] 用户通过 /${c} 指定了远程 A2A Agent。请立即使用 a2a_call 工具将以下问题原样转发给 agent 别名 "${c}"，不要自己回答、不要修改内容、不要添加额外解释。用户原始问题如下：
----
-${d}
----
-请仅使用 a2a_call(agent_alias="${c}", message="上述用户原始问题") 来转发，然后将远程 agent 的回复结果返回给用户。`;
-  function L(c) {
-    const d = c.match(/^\/([\w.-]+)\s+(.+)$/s);
-    return d ? { alias: d[1], cleanMsg: d[2] } : null;
-  }
-  function H(c) {
-    if (typeof c == "string") {
-      const d = L(c.trim());
-      return d && d.cleanMsg ? b(d.alias, d.cleanMsg) : c;
-    }
-    return Array.isArray(c) ? c.map((d) => {
-      if (d.type === "text" && typeof d.text == "string") {
-        const A = L(d.text.trim());
-        if (A && A.cleanMsg)
-          return { ...d, text: b(A.alias, A.cleanMsg) };
-      }
-      return d;
-    }) : c;
-  }
-  const B = z("/console/chat"), le = window.fetch.bind(window);
-  window.fetch = async function(c, d) {
-    if ((typeof c == "string" ? c : c instanceof Request ? c.url : String(c)) === B && (d != null && d.body))
-      try {
-        const x = JSON.parse(d.body);
-        x.input && Array.isArray(x.input) && (x.input = x.input.map((S) => S.role === "user" && S.content ? { ...S, content: H(S.content) } : S), d = { ...d, body: JSON.stringify(x) });
-      } catch {
-      }
-    return le(c, d);
-  }, console.info("[cloudpaw] / A2A slash command system-hint injection initialized");
-}
-function gt() {
-  const e = "qwenpaw-last-used-agent", z = "qwenpaw-agent-storage", b = "cloudpaw-first-install", L = "cloud-orchestrator";
-  if (!localStorage.getItem(b)) {
-    localStorage.setItem(b, "true"), localStorage.setItem(e, L);
+  const e = "qwenpaw-last-used-agent", O = "qwenpaw-agent-storage", $ = "cloudpaw-first-install", H = "cloud-orchestrator";
+  if (!localStorage.getItem($)) {
+    localStorage.setItem($, "true"), localStorage.setItem(e, H);
     try {
-      const H = localStorage.getItem(z);
-      if (H) {
-        const B = JSON.parse(H);
-        B.state = B.state || {}, B.state.selectedAgent = L, localStorage.setItem(z, JSON.stringify(B));
+      const W = localStorage.getItem(O);
+      if (W) {
+        const L = JSON.parse(W);
+        L.state = L.state || {}, L.state.selectedAgent = H, localStorage.setItem(O, JSON.stringify(L));
       } else
-        localStorage.setItem(z, JSON.stringify({
+        localStorage.setItem(
+          O,
+          JSON.stringify({
+            version: 0,
+            state: {
+              selectedAgent: H,
+              agents: [],
+              lastChatIdByAgent: {}
+            }
+          })
+        );
+    } catch {
+    }
+    try {
+      sessionStorage.setItem(
+        O,
+        JSON.stringify({
           version: 0,
           state: {
-            selectedAgent: L,
+            selectedAgent: H,
             agents: [],
             lastChatIdByAgent: {}
           }
-        }));
+        })
+      );
     } catch {
     }
-    try {
-      sessionStorage.setItem(z, JSON.stringify({
-        version: 0,
-        state: {
-          selectedAgent: L,
-          agents: [],
-          lastChatIdByAgent: {}
-        }
-      }));
-    } catch {
-    }
-    console.info("[cloudpaw] Set default agent to cloud-orchestrator for first-time user"), window.location.reload();
+    console.info(
+      "[cloudpaw] Set default agent to cloud-orchestrator for first-time user"
+    ), window.location.reload();
   }
 }
-function yt() {
-  var A;
-  const e = (A = window.QwenPaw) == null ? void 0 : A.modules;
+function gt() {
+  var j;
+  const e = (j = window.QwenPaw) == null ? void 0 : j.modules;
   if (!e) return;
-  const z = e["Chat/OptionsPanel/defaultConfig"];
-  if (!(z != null && z.configProvider)) {
-    console.warn("[cloudpaw] configProvider not found — skipping welcome/theme patch");
+  const O = e["Chat/OptionsPanel/defaultConfig"];
+  if (!(O != null && O.configProvider)) {
+    console.warn(
+      "[cloudpaw] configProvider not found — skipping welcome/theme patch"
+    );
     return;
   }
-  const b = z.configProvider, L = b.getConfig.bind(b), H = "https://gw.alicdn.com/imgextra/i2/O1CN01pyXzjQ1EL1PuZMlSd_!!6000000000334-2-tps-288-288.png", B = {
+  const $ = O.configProvider, H = $.getConfig.bind($), W = "https://gw.alicdn.com/imgextra/i2/O1CN01pyXzjQ1EL1PuZMlSd_!!6000000000334-2-tps-288-288.png", L = {
     zh: "Hi, 我是 CloudPaw",
     en: "Hi, I'm CloudPaw",
     ja: "こんにちは、CloudPaw です",
     ru: "Привет, я CloudPaw"
-  }, le = {
+  }, ue = {
     zh: "我可以帮助你部署云资源、管理基础设施，并在阿里云上编排服务。请在左上角下拉框选择「CloudPaw-Master」开启任务。对于复杂的长程任务，建议使用 /mission 命令启动 Mission Mode 来自动拆解和执行。",
     en: "I can help you deploy cloud resources, manage infrastructure, and orchestrate services on Alibaba Cloud. Please select 'CloudPaw-Master' from the dropdown in the top-left corner to get started. For complex, multi-step tasks, use /mission to start Mission Mode for automated decomposition and execution.",
     ja: "クラウドリソースのデプロイ、インフラの管理、Alibaba Cloudでのサービスオーケストレーションをお手伝いします。左上のドロップダウンから「CloudPaw-Master」を選択してタスクを開始してください。複雑なタスクには /mission コマンドで Mission Mode を起動し、自動分解・実行できます。",
     ru: "Я могу помочь вам развернуть облачные ресурсы и управлять инфраструктурой на Alibaba Cloud. Выберите 'CloudPaw-Master' в выпадающем списке в левом верхнем углу, чтобы начать. Для сложных задач используйте /mission для автоматической декомпозиции и выполнения."
-  }, c = {
+  }, T = {
     zh: [
       {
         label: "创建个人主页并部署到云端",
@@ -1311,27 +1591,27 @@ function yt() {
       }
     ]
   };
-  function d() {
-    const x = localStorage.getItem("language") || "";
-    return x ? x.split("-")[0] : (navigator.language || "").split("-")[0] || "en";
+  function de() {
+    const B = localStorage.getItem("language") || "";
+    return B ? B.split("-")[0] : (navigator.language || "").split("-")[0] || "en";
   }
-  b.getGreeting = () => B[d()] || B.en, b.getDescription = () => le[d()] || le.en, b.getPrompts = () => c[d()] || c.en, b.getConfig = function(x) {
-    var fe;
-    const S = L(x);
+  $.getGreeting = () => L[de()] || L.en, $.getDescription = () => ue[de()] || ue.en, $.getPrompts = () => T[de()] || T.en, $.getConfig = function(B) {
+    var me;
+    const F = H(B);
     return {
-      ...S,
+      ...F,
       theme: {
-        ...S.theme,
+        ...F.theme,
         leftHeader: {
-          ...(fe = S.theme) == null ? void 0 : fe.leftHeader,
+          ...(me = F.theme) == null ? void 0 : me.leftHeader,
           title: "Work with CloudPaw"
         }
       },
       welcome: {
-        ...S.welcome,
-        avatar: H
+        ...F.welcome,
+        avatar: W
       }
     };
   }, console.info("[cloudpaw] Patched welcome config & theme via configProvider");
 }
-mt();
+ft();

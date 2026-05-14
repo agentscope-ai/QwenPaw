@@ -1888,36 +1888,56 @@ function buildPlugin() {
 
     const headerEl = React.createElement(
       "div",
-      {
-        style: {
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 16,
-        },
-      },
-      React.createElement("h2", { style: { margin: 0 } }, "A2A 远程 Agent"),
+      { style: { marginBottom: 16 } },
       React.createElement(
-        Space,
-        null,
-        React.createElement(
-          Button,
-          {
-            icon: ReloadOutlined ? React.createElement(ReloadOutlined) : null,
-            onClick: fetchAgents,
-            loading,
+        "div",
+        {
+          style: {
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
           },
-          "刷新列表",
-        ),
+        },
+        React.createElement("h2", { style: { margin: 0 } }, "A2A 远程 Agent"),
         React.createElement(
-          Button,
-          {
-            type: "primary",
-            icon: PlusOutlined ? React.createElement(PlusOutlined) : null,
-            onClick: handleCreateClick,
-          },
-          "注册 Agent",
+          Space,
+          null,
+          React.createElement(
+            Button,
+            {
+              icon: ReloadOutlined ? React.createElement(ReloadOutlined) : null,
+              onClick: fetchAgents,
+              loading,
+            },
+            "刷新列表",
+          ),
+          React.createElement(
+            Button,
+            {
+              type: "primary",
+              icon: PlusOutlined ? React.createElement(PlusOutlined) : null,
+              onClick: handleCreateClick,
+            },
+            "注册 Agent",
+          ),
         ),
+      ),
+      React.createElement(
+        "div",
+        {
+          style: {
+            marginTop: 8,
+            fontSize: 12,
+            color: "#8c8c8c",
+            lineHeight: 1.6,
+          },
+        },
+        InfoCircleOutlined
+          ? React.createElement(InfoCircleOutlined, {
+              style: { marginRight: 4, color: "#faad14" },
+            })
+          : null,
+        "当前 A2A 功能仅支持 CloudPaw 插件连接阿里云 Skills 门户 Agent，连接其他 Agent 可能存在不兼容问题。",
       ),
     );
 
