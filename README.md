@@ -60,6 +60,14 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
+- [2026-05-14] We've released **v1.1.7**! See the full [v1.1.7 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+
+  - **[v1.1.7] Added**: Inbox (approvals & push messages); cron job enhancements (one-time execution, calendar view, built-in templates, execution history & traces); Browser Use batch actions & file download; remote MCP OAuth 2.1 auth; console plugin management; Qwen-Image & Wan 2.7 plugins; external agent async execution.
+  - **[v1.1.7] Changed**: Model selector redesigned as a searchable flat list; floating chat button.
+  - **[v1.1.7] Performance**: Optimized memory usage for file reads; keyring timeout protection.
+  - **[v1.1.7] Fixed**: Session history routing; Volcengine model IDs; Feishu WebSocket keepalive.
+  - **[v1.1.7] New Contributors**: @weixizi, @StarTrekking, @aqilaziz, @suntp.
+
 - [2026-05-09] We've released **v1.1.6**! See the full [v1.1.6 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
   - **[v1.1.6] Added**: LLM-generated session titles; token usage trends; Mermaid diagram rendering; Feishu/WeCom interactive approval cards; Volcano Engine & Aliyun Token Plan providers; skill install/uninstall/test CLI; agent status API; cron session isolation; GPT Image 2 plugin.

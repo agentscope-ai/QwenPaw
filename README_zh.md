@@ -60,6 +60,14 @@
 
 ## 新闻
 
+- [2026-05-14] 我们发布了 **v1.1.7**！完整更新说明见 [v1.1.7 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+
+  - **[v1.1.7] 新增**：收件箱（审批与推送消息）；定时任务增强（一次性执行、日历视图、内置模板、执行历史与追踪）；Browser Use 批量操作与文件下载；远程 MCP OAuth 2.1 认证；控制台插件管理；Qwen-Image 与 Wan 2.7 插件；外部 Agent 异步执行。
+  - **[v1.1.7] 变更**：模型选择器重设计为可搜索平铺列表；聊天浮动按钮。
+  - **[v1.1.7] 性能**：文件读取时内存占用优化；Keyring 超时保护。
+  - **[v1.1.7] 修复**：会话历史路由；火山引擎模型 ID；飞书 WebSocket 保活。
+  - **[v1.1.7] 感谢新贡献者**：@weixizi、@StarTrekking、@aqilaziz、@suntp。
+
 - [2026-05-09] 我们发布了 **v1.1.6**！完整更新说明见 [v1.1.6 发布说明](https://qwenpaw.agentscope.io/release-notes)。
 
   - **[v1.1.6] 新增**：LLM 自动生成会话标题；Token 用量趋势图；Mermaid 图表渲染；飞书/企业微信交互式审批卡片；火山引擎与阿里云 Token Plan 服务商；技能安装/卸载/测试 CLI；Agent 状态 API；定时任务会话隔离；GPT Image 2 插件。
