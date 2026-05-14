@@ -69,6 +69,53 @@ mimetypes.add_type("application/wasm", ".wasm")
 load_envs_into_environ()
 
 
+_AGENTSCOPE_TRACING_URL_ENV = "AGENTSCOPE_TRACING_URL"
+_AGENTSCOPE_TRACING_PROJECT_ENV = "AGENTSCOPE_TRACING_PROJECT"
+_AGENTSCOPE_TRACING_NAME_ENV = "AGENTSCOPE_TRACING_NAME"
+_AGENTSCOPE_TRACING_RUN_ID_ENV = "AGENTSCOPE_TRACING_RUN_ID"
+
+
+def _env_str(name: str, default: str | None = None) -> str | None:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    value = value.strip()
+    return value or default
+
+
+def _init_agentscope_tracing_from_env() -> bool:
+    """Enable AgentScope tracing when AGENTSCOPE_TRACING_URL is configured."""
+    tracing_url = _env_str(_AGENTSCOPE_TRACING_URL_ENV)
+    if not tracing_url:
+        return False
+
+    try:
+        import agentscope
+
+        agentscope.init(
+            project=_env_str(
+                _AGENTSCOPE_TRACING_PROJECT_ENV,
+                PROJECT_NAME,
+            ),
+            name=_env_str(_AGENTSCOPE_TRACING_NAME_ENV, "qwenpaw-app"),
+            run_id=_env_str(_AGENTSCOPE_TRACING_RUN_ID_ENV),
+            logging_level=os.environ.get(LOG_LEVEL_ENV, "info").upper(),
+            tracing_url=tracing_url,
+        )
+    except Exception:
+        logger.warning(
+            "AgentScope tracing initialization skipped due to error",
+            exc_info=True,
+        )
+        return False
+
+    logger.info(
+        "AgentScope tracing enabled from %s",
+        _AGENTSCOPE_TRACING_URL_ENV,
+    )
+    return True
+
+
 # Dynamic runner that selects the correct workspace runner based on request
 class DynamicMultiAgentRunner:
     """Runner wrapper that dynamically routes to the correct workspace runner.
@@ -240,6 +287,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         )
         logger.error(message, exc_info=True)
         raise RuntimeError(f"{message} Original error: {exc}") from exc
+
+    _init_agentscope_tracing_from_env()
 
     auto_register_from_env()
 
