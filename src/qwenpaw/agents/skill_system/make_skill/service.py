@@ -91,8 +91,7 @@ def render_skill_md(
     description: str,
     body: str,
 ) -> str:
-    """Render a full ``SKILL.md`` (frontmatter + body).
-    """
+    """Render a full ``SKILL.md`` (frontmatter + body)."""
     post = frontmatter.Post(body or "")
     post["name"] = proposed_name
     post["description"] = description
@@ -133,6 +132,6 @@ def materialize_workspace_skill(
     if not skill_name:
         raise RuntimeError(
             f"Skill '{proposed_name}' was created concurrently. "
-            "Re-run /make-skill with a different focus."
+            "Re-run /make-skill with a different focus.",
         )
     return skill_name

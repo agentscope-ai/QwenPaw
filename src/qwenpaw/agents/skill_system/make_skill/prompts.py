@@ -37,7 +37,7 @@ SKILL_MAKER_NAME = "skill-maker"
 _MATERIALIZE_CONTRACT = (
     "Call `materialize_skill` with:\n"
     "   - name = <plan.name>\n"
-    "   - description = a tight \"Use this skill when …\" string "
+    '   - description = a tight "Use this skill when …" string '
     "distilled from plan.description Part 1 (the trigger preview). "
     "<= 200 chars; preserve synonyms / adjacent phrasings — LLMs "
     "tend to under-trigger skills.\n"
@@ -53,15 +53,14 @@ _MATERIALIZE_CONTRACT = (
 
 
 def _build_with_skill(focus: str) -> str:
-    """Subtask body when `skill-maker` is available.
-    """
+    """Subtask body when `skill-maker` is available."""
     return (
         f"Use the `{SKILL_MAKER_NAME}` agent skill to write and "
         f"persist a SKILL.md capturing how `{focus}` was accomplished "
         f"in THIS session.\n"
         f"\n"
         f"Runtime context to apply:\n"
-        f"- focus = \"{focus}\"\n"
+        f'- focus = "{focus}"\n'
         f"\n"
         f"Read the `{SKILL_MAKER_NAME}` SKILL.md (its path appears "
         f"in the `# Agent Skills` section of your system prompt) "
@@ -108,9 +107,9 @@ def _build_fallback(focus: str) -> str:
         f"call — copy the real values from the session, not "
         f"placeholders.\n"
         f"  - Errors hit on this path AND how to avoid them, "
-        f"phrased preventively (e.g. \"Note: endpoint returns 429 "
+        f'phrased preventively (e.g. "Note: endpoint returns 429 '
         f"if called more than once per second — pass `delay=2` "
-        f"from the start.\").\n"
+        f'from the start.").\n'
         f"  - If multiple paths were tried and one worked, document "
         f"only the winning path in full. Mention failed paths as "
         f"terse `avoid X` reminders.\n"
@@ -131,8 +130,7 @@ def _build_fallback(focus: str) -> str:
         f"matches what actually happened. No invented facts.\n"
         f"- **Concise**: no redundancy; don't restate what's "
         f"already obvious from earlier steps.\n"
-        f"\n"
-        + _MATERIALIZE_CONTRACT
+        f"\n" + _MATERIALIZE_CONTRACT
     )
 
 
@@ -198,14 +196,14 @@ def build_make_skill_plan_prompt(
 
     return (
         f"Make our current session into a reusable workspace skill "
-        f"(focus: \"{focus}\").\n"
+        f'(focus: "{focus}").\n'
         f"\n"
         f"Construct the plan as a COMPACT human preview of the skill. "
         f"When the user reviews the plan they are deciding whether "
         f"the skill proposal is right. Confirming approves the "
         f"proposal; refining means call `revise_current_plan` with "
         f"feedback baked into name / description; cancelling means "
-        f"call `finish_plan` with state=\"abandoned\".\n"
+        f'call `finish_plan` with state="abandoned".\n'
         f"\n"
         f"Fill in:\n"
         f"\n"
@@ -247,7 +245,7 @@ def build_make_skill_plan_prompt(
         f"\n"
         f"The plan must have exactly ONE subtask:\n"
         f"\n"
-        f"  name: \"Write and materialize skill\"\n"
+        f'  name: "Write and materialize skill"\n'
         f"\n"
         f"  description: use the following text as the subtask "
         f"description. You may translate it to match the user's "
@@ -258,8 +256,8 @@ def build_make_skill_plan_prompt(
         f"{subtask_desc}\n"
         f"  ---\n"
         f"\n"
-        f"  expected_outcome: \"Skill created and visible via "
-        f"/skills.\"\n"
+        f'  expected_outcome: "Skill created and visible via '
+        f'/skills."\n'
         f"\n"
         f"Write plan.name and plan.description in the same language "
         f"as the user's recent messages.\n"

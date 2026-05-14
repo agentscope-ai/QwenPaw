@@ -519,6 +519,25 @@ class AgentRunner(Runner):
                         normalize_skill_dir_name,
                     )
 
+                    if self.workspace_dir is None:
+                        yield (
+                            Msg(
+                                name=self.agent_name,
+                                role="assistant",
+                                content=[
+                                    TextBlock(
+                                        type="text",
+                                        text=(
+                                            "No workspace directory; "
+                                            "cannot create a skill."
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            True,
+                        )
+                        return
+
                     try:
                         _name = normalize_skill_dir_name(_focus)
                     except Exception:  # pylint: disable=broad-except
@@ -567,10 +586,8 @@ class AgentRunner(Runner):
                         )
                         return
 
-                    _skill_available = (
-                        self.workspace_dir is not None
-                        and SKILL_MAKER_NAME
-                        in resolve_effective_skills(
+                    _skill_available = SKILL_MAKER_NAME in (
+                        resolve_effective_skills(
                             self.workspace_dir,
                             channel,
                         )

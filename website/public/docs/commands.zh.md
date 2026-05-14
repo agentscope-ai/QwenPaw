@@ -305,6 +305,43 @@ skill。
 
 ---
 
+## Skill 创建命令 (Beta)
+
+### /make-skill - 把当前会话保存为可复用 skill
+
+刚在对话里跑通一个工作流？用这个命令把它沉淀成 workspace skill，下次直接调用。
+
+```
+/make-skill <focus>
+```
+
+- `<focus>` 必填，会作为 skill 名。内部空格折叠为 `-`（例如
+  `view image debug` → `view-image-debug`），其它字符（中文、大小写、
+  数字）保留原样。
+- 会弹出一张计划卡，展示这个 skill 的简介和步骤大纲。用自然语言
+  **确认**、**修改**或**取消**，与普通 [`/plan`](./plan) 一致。
+- 确认后，新 skill 会写入当前 workspace 并**默认启用**。后续用
+  `/<focus>` 调用。
+
+**示例：**
+
+```
+/make-skill 烹饪
+```
+
+确认预览后会创建 `烹饪` skill，下次直接 `/烹饪 <输入>` 即可。
+
+**如果同名 skill 已存在**，命令会立即返回错误。换一个 focus 或者先
+删掉旧 skill 再试。当前版本**不支持**覆盖。
+
+**小贴士：** 在 workspace 启用内建 `skill-maker` skill 可以让 Agent
+产出质量更好的 skill 正文。
+
+更多操作见 skills 页的
+[通过 /make-skill 从当前会话创建](./skills#workspace) 章节。
+
+---
+
 ## 模型管理命令
 
 管理和切换 AI 模型的命令，无需通过 Agent 理解意图，直接执行。

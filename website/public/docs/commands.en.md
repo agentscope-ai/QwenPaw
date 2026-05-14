@@ -306,6 +306,47 @@ Notes:
 
 ---
 
+## Skill Creation Command (Beta)
+
+### /make-skill - Save the current session as a reusable skill
+
+Turn a workflow you just walked through in chat into a workspace skill,
+so future sessions can replay it.
+
+```
+/make-skill <focus>
+```
+
+- `<focus>` is required and becomes the skill name. Internal spaces are
+  collapsed to `-` (e.g. `view image debug` → `view-image-debug`). Other
+  characters (Chinese, case, digits) are kept as-is.
+- A plan card appears with a short preview of what the skill will do and
+  its step outline. Reply naturally to **approve**, **refine**, or
+  **cancel**. Same flow as regular [`/plan`](./plan).
+- After approval, the new skill is written into your workspace and
+  **enabled by default**. Invoke it later via `/<focus>`.
+
+**Example:**
+
+```
+/make-skill cooking
+```
+
+Confirm the preview, and a `cooking` skill is created. Next time, just
+type `/cooking <input>`.
+
+**If the name is already taken**, the command returns an immediate error.
+Pick a different focus, or delete the existing skill first. There is no
+overwrite mode in this version.
+
+**Tip:** Enabling the built-in `skill-maker` skill in your workspace
+gives the agent richer guidance when writing the skill body.
+
+See [Create from current session](./skills#workspace) on the skills page
+for more.
+
+---
+
 ## Model Management Commands
 
 Commands for managing and switching AI models. These commands execute directly without going through the Agent.

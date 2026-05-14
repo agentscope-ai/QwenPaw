@@ -25,6 +25,11 @@ from ..skill_system.store import normalize_skill_dir_name
 logger = logging.getLogger(__name__)
 
 
+def _text_response(text: str) -> ToolResponse:
+    """Wrap text in a single-TextBlock ToolResponse."""
+    return ToolResponse(content=[TextBlock(type="text", text=text)])
+
+
 async def materialize_skill(
     name: str,
     description: str,
@@ -45,19 +50,21 @@ async def materialize_skill(
         body: The SKILL.md body, no frontmatter.
     """
     if not name or not description or not body:
-        return ToolResponse(content=[TextBlock(type="text", text=(
+        return _text_response(
             "**materialize_skill is missing required input**\n\n"
-            "Need non-empty `name`, `description`, and `body`. Re-derive "
-            "them from `plan.name` and `plan.description` and call "
-            "`materialize_skill` again. Do NOT call `finish_subtask` yet."
-        ))])
+            "Need non-empty `name`, `description`, and `body`. "
+            "Re-derive them from `plan.name` and `plan.description` "
+            "and call `materialize_skill` again. "
+            "Do NOT call `finish_subtask` yet.",
+        )
 
     workspace_dir = get_current_workspace_dir()
     if workspace_dir is None:
-        return ToolResponse(content=[TextBlock(type="text", text=(
+        return _text_response(
             "**Workspace directory not set in context**; cannot "
-            "materialize. This is an internal error — abandon the plan."
-        ))])
+            "materialize. This is an internal error — abandon "
+            "the plan.",
+        )
 
     # Defence in depth: runner already normalised and checked conflict
     # on the focus before rewriting to /plan. Re-normalise here in case
@@ -65,23 +72,24 @@ async def materialize_skill(
     try:
         normalized_name = normalize_skill_dir_name(name)
     except Exception as e:  # pylint: disable=broad-except
-        return ToolResponse(content=[TextBlock(type="text", text=(
+        return _text_response(
             f"**Invalid skill name** `{name}`: {e}\n\n"
-            "Call `revise_current_plan` to fix `plan.name` and try "
-            "again."
-        ))])
+            "Call `revise_current_plan` to fix `plan.name` and "
+            "try again.",
+        )
 
     conflict = name_conflict(workspace_dir, normalized_name)
     if conflict:
         conflict_name, suggested = conflict
-        return ToolResponse(content=[TextBlock(type="text", text=(
-            f"**Skill named `{conflict_name}` already exists in this "
-            f"workspace.**\n\nCall `revise_current_plan` to switch "
-            f"`plan.name` to `{suggested}` (or another fresh name) "
-            f"and update the body accordingly. If the user wants to "
-            f"keep the existing skill, call `finish_plan` with "
-            f"state='abandoned'."
-        ))])
+        return _text_response(
+            f"**Skill named `{conflict_name}` already exists in "
+            f"this workspace.**\n\n"
+            f"Call `revise_current_plan` to switch `plan.name` to "
+            f"`{suggested}` (or another fresh name) and update the "
+            f"body accordingly. If the user wants to keep the "
+            f"existing skill, call `finish_plan` with "
+            f"state='abandoned'.",
+        )
 
     content = render_skill_md(
         proposed_name=normalized_name,
@@ -95,29 +103,35 @@ async def materialize_skill(
             proposed_name=normalized_name,
             skill_md=content,
         )
-    except SkillsError as e:
-        return ToolResponse(content=[TextBlock(type="text", text=(
-            f"**Skill format error**: {e}\n\n"
-            "Fix the SKILL.md content (frontmatter fields, body sections, "
-            "etc.) and call `materialize_skill` again. Do NOT call "
-            "`finish_subtask` until materialize_skill returns success."
-        ))])
-    except SkillScanError as e:
-        return ToolResponse(content=[TextBlock(type="text", text=(
-            f"**Skill creation rejected by security scan**\n\n{e}\n\n"
-            "Remove the flagged patterns from the body and call "
-            "`materialize_skill` again. Do NOT call `finish_subtask` "
-            "until materialize_skill returns success."
-        ))])
     except Exception as e:  # pylint: disable=broad-except
-        logger.exception("materialize_skill failed")
-        return ToolResponse(content=[TextBlock(type="text", text=(
-            f"**Skill creation failed**: {e}\n\n"
-            "Adjust the inputs and call `materialize_skill` again, or "
-            "abandon the plan if the failure is not recoverable."
-        ))])
+        if isinstance(e, SkillsError):
+            text = (
+                f"**Skill format error**: {e}\n\n"
+                "Fix the SKILL.md content (frontmatter fields, "
+                "body sections, etc.) and call `materialize_skill` "
+                "again. Do NOT call `finish_subtask` until "
+                "materialize_skill returns success."
+            )
+        elif isinstance(e, SkillScanError):
+            text = (
+                f"**Skill creation rejected by security scan**"
+                f"\n\n{e}\n\n"
+                "Remove the flagged patterns from the body and "
+                "call `materialize_skill` again. Do NOT call "
+                "`finish_subtask` until materialize_skill returns "
+                "success."
+            )
+        else:
+            logger.exception("materialize_skill failed")
+            text = (
+                f"**Skill creation failed**: {e}\n\n"
+                "Adjust the inputs and call `materialize_skill` "
+                "again, or abandon the plan if the failure is "
+                "not recoverable."
+            )
+        return _text_response(text)
 
-    return ToolResponse(content=[TextBlock(type="text", text=(
+    return _text_response(
         f"**Skill created and enabled**: `{skill_name}`\n\n"
-        f"Visible via `/skills`; invoke with `/{skill_name}`."
-    ))])
+        f"Visible via `/skills`; invoke with `/{skill_name}`.",
+    )
