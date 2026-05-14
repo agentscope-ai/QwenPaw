@@ -9,6 +9,55 @@ export interface ModelInfo {
   generate_kwargs: Record<string, unknown>;
 }
 
+export type ProviderAuthType =
+  | "none"
+  | "api_key"
+  | "oauth_device_code"
+  | "oauth_authorization_code"
+  | "oauth_vendor_user_code";
+
+export type ProviderAuthStatus =
+  | "not_required"
+  | "not_configured"
+  | "pending"
+  | "authenticated"
+  | "expired"
+  | "error";
+
+export interface ProviderAuthInfo {
+  type: ProviderAuthType;
+  status: ProviderAuthStatus;
+  account_label?: string;
+  expires_at?: number | null;
+  scopes?: string[];
+  supports_logout?: boolean;
+  message?: string;
+}
+
+export interface AuthStartRequest {
+  redirect_uri?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AuthStartResult {
+  flow_id: string;
+  flow_type: "device_code" | "authorization_code" | "vendor_user_code";
+  user_code?: string | null;
+  verification_uri?: string | null;
+  authorization_url?: string | null;
+  expires_at?: number | null;
+  interval?: number | null;
+  message?: string;
+}
+
+export interface AuthStatusResult {
+  status: ProviderAuthStatus;
+  account_label?: string;
+  expires_at?: number | null;
+  scopes?: string[];
+  message?: string;
+}
+
 export interface ProviderInfo {
   id: string;
   name: string;
@@ -28,6 +77,10 @@ export interface ProviderInfo {
   freeze_url: boolean;
   /** True when an API key is required for this provider. */
   require_api_key: boolean;
+  /** Authentication mechanism used by this provider. */
+  auth_type?: ProviderAuthType;
+  /** Safe provider authentication status metadata. */
+  auth?: ProviderAuthInfo | null;
   api_key: string;
   base_url: string;
   generate_kwargs: Record<string, unknown>;

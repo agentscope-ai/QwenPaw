@@ -2,6 +2,9 @@ import { request } from "../request";
 import type {
   ProviderInfo,
   ProviderConfigRequest,
+  AuthStartRequest,
+  AuthStartResult,
+  AuthStatusResult,
   ActiveModelsInfo,
   GetActiveModelsRequest,
   ModelSlotRequest,
@@ -55,6 +58,32 @@ export const providerApi = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+
+  startProviderAuth: (providerId: string, body?: AuthStartRequest) =>
+    request<AuthStartResult>(
+      `/models/${encodeURIComponent(providerId)}/auth/start`,
+      {
+        method: "POST",
+        body: body ? JSON.stringify(body) : undefined,
+      },
+    ),
+
+  getProviderAuthStatus: (providerId: string, flowId?: string) => {
+    const url = new URL(
+      `/models/${encodeURIComponent(providerId)}/auth/status`,
+      window.location.origin,
+    );
+    if (flowId) {
+      url.searchParams.set("flow_id", flowId);
+    }
+    return request<AuthStatusResult>(url.pathname + url.search);
+  },
+
+  logoutProviderAuth: (providerId: string) =>
+    request<AuthStatusResult>(
+      `/models/${encodeURIComponent(providerId)}/auth/logout`,
+      { method: "POST" },
+    ),
 
   getActiveModels: (params?: GetActiveModelsRequest) => {
     const key = buildActiveModelQuery(params);
