@@ -34,12 +34,12 @@ def _install_plugin_skills() -> None:
     from .constants import PLUGIN_DIR, _PLUGIN_SKILLS
 
     try:
-        from qwenpaw.agents.skills_manager import (
+        from qwenpaw.agents.skill_system import (
             get_skill_pool_dir,
             ensure_skill_pool_initialized,
         )
     except ImportError:
-        logger.error("Cannot import skills_manager; skill installation skipped")
+        logger.error("Cannot import skill_system; skill installation skipped")
         return
 
     try:

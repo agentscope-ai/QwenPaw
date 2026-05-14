@@ -253,7 +253,7 @@ def _initialize_agent_workspace(
     language: str = "zh",
 ) -> None:
     """Initialize agent workspace with persona md files and skills."""
-    from qwenpaw.agents.skills_manager import get_workspace_skills_dir
+    from qwenpaw.agents.skill_system import get_workspace_skills_dir
 
     (workspace_dir / "sessions").mkdir(exist_ok=True)
     (workspace_dir / "memory").mkdir(exist_ok=True)
@@ -316,10 +316,12 @@ def _install_workspace_skills(
 ) -> None:
     """Install skills from pool into agent workspace and enable them."""
     try:
-        from qwenpaw.agents.skills_manager import (
+        from qwenpaw.agents.skill_system import (
             get_skill_pool_dir,
             get_workspace_skills_dir,
             reconcile_workspace_manifest,
+        )
+        from qwenpaw.agents.skill_system.store import (
             get_workspace_skill_manifest_path,
         )
     except ImportError:
