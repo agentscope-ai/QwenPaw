@@ -88,7 +88,10 @@ async def _stream_printing_messages_interruptible(
     try:
         while True:
             printing_msg = await queue.get()
-            if isinstance(printing_msg, str) and printing_msg == _PRINT_END_SIGNAL:
+            if (
+                isinstance(printing_msg, str)
+                and printing_msg == _PRINT_END_SIGNAL
+            ):
                 break
             msg, last, _ = printing_msg
             yield msg, last
@@ -113,7 +116,9 @@ class AgentRunner(Runner):
         super().__init__()
         self.framework_type = "agentscope"
         self.agent_id = agent_id  # Store agent_id for config loading
-        self.workspace_dir = workspace_dir  # Store workspace_dir for prompt building
+        self.workspace_dir = (
+            workspace_dir  # Store workspace_dir for prompt building
+        )
         self._chat_manager = None  # Store chat_manager reference
         self._mcp_manager = None  # MCP client manager for hot-reload
         self._workspace: Any = None  # Workspace instance for control commands
@@ -220,7 +225,11 @@ class AgentRunner(Runner):
 
         # Lookup by folder name
         skill = next(
-            (s for s in skills.values() if Path(s["dir"]).name.lower() == name),
+            (
+                s
+                for s in skills.values()
+                if Path(s["dir"]).name.lower() == name
+            ),
             None,
         )
         if not skill:
@@ -379,7 +388,9 @@ class AgentRunner(Runner):
             # Load agent-specific configuration
             agent_config = load_agent_config(self.agent_id)
 
-            _configured_shell = agent_config.running.shell_command_executable or None
+            _configured_shell = (
+                agent_config.running.shell_command_executable or None
+            )
             _default_shell = (
                 _configured_shell
                 or os.environ.get("SHELL")
@@ -391,7 +402,9 @@ class AgentRunner(Runner):
                 user_name=user_name,
                 channel=channel,
                 working_dir=(
-                    str(self.workspace_dir) if self.workspace_dir else str(WORKING_DIR)
+                    str(self.workspace_dir)
+                    if self.workspace_dir
+                    else str(WORKING_DIR)
                 ),
                 default_shell=_default_shell,
             )
@@ -747,8 +760,10 @@ class AgentRunner(Runner):
             from ..approvals.service import get_approval_service
 
             approval_svc = get_approval_service()
-            cancelled_count = await approval_svc.cancel_all_pending_by_root_session(
-                root_session_id,
+            cancelled_count = (
+                await approval_svc.cancel_all_pending_by_root_session(
+                    root_session_id,
+                )
             )
             if cancelled_count > 0:
                 logger.info(
@@ -779,7 +794,9 @@ class AgentRunner(Runner):
                 exc=converted,
                 locals_=locals(),
             )
-            path_hint = f"\n(Details:  {debug_dump_path})" if debug_dump_path else ""
+            path_hint = (
+                f"\n(Details:  {debug_dump_path})" if debug_dump_path else ""
+            )
             logger.exception(f"Error in query handler: {converted}{path_hint}")
             if debug_dump_path:
                 setattr(converted, "debug_dump_path", debug_dump_path)
@@ -794,9 +811,9 @@ class AgentRunner(Runner):
                 ):
                     converted.message += suffix
                 elif converted.args:
-                    converted.args = (f"{converted.args[0]}{suffix}",) + converted.args[
-                        1:
-                    ]
+                    converted.args = (
+                        f"{converted.args[0]}{suffix}",
+                    ) + converted.args[1:]
             raise converted from e
         finally:
             if shell_context_token is not None:
@@ -830,7 +847,8 @@ class AgentRunner(Runner):
             )
 
         session_dir = str(
-            (self.workspace_dir if self.workspace_dir else WORKING_DIR) / "sessions",
+            (self.workspace_dir if self.workspace_dir else WORKING_DIR)
+            / "sessions",
         )
         self.session = SafeJSONSession(save_dir=session_dir)
 
