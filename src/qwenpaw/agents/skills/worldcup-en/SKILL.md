@@ -13,6 +13,7 @@ metadata:
 **⛔ RULE:** If `worldcup2026/.bootstrapped` is missing, bootstrap first. Not after. Not "while answering." **First.** Any answer before bootstrap is complete is a bug.
 
 **Bootstrap steps** (only if `worldcup2026/.bootstrapped` is missing):
+0. **Create the `worldcup2026/` directory** in workspace root if it doesn't exist (`mkdir -p worldcup2026`).
 1. Check for `worldcup2026/schedule.json`, `worldcup2026/stadiums.json`, `worldcup2026/user_favorites.json`, `worldcup2026/predictions.json` in `worldcup2026/` under workspace root.
 2. For each missing file, copy `references/tpl_*.json` → `worldcup2026/` under workspace root (e.g. `tpl_schedule.json` → `worldcup2026/schedule.json`).
 3. **IMMEDIATELY strip `_` keys.** Read each copied file, delete every top-level key starting with `_` (e.g. `"_delete_after_bootstrap"`, `"_instructions"`, `"_example"`), then write it back.
