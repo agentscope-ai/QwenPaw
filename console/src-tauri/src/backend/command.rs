@@ -1,4 +1,4 @@
-//! Tauri sidecar command construction for development and packaged builds.
+//! Backend command construction for development and packaged builds.
 
 #[cfg(debug_assertions)]
 use std::path::{Path, PathBuf};
