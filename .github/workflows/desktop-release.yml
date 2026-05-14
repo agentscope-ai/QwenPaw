@@ -184,11 +184,22 @@ jobs:
         shell: pwsh
         run: ./scripts/pack-tauri/build_win_pyinstaller.ps1
 
+      - name: Stage Tauri Windows installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "console/src-tauri/target/release/bundle/nsis/*.exe" | Select-Object -First 1
+          if (-not $installer) {
+            throw "No Tauri Windows installer found"
+          }
+          $target = "dist/QwenPaw-Tauri-${{ steps.version.outputs.version }}-Windows-setup.exe"
+          Copy-Item -Force $installer.FullName $target
+          Write-Host "Staged Tauri Windows installer: $target"
+
       - name: Upload Tauri Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: QwenPaw-Desktop-Tauri-Windows-${{ steps.version.outputs.version }}
-          path: dist/QwenPaw-Tauri-*-Windows.zip
+          path: dist/QwenPaw-Tauri-*-Windows-setup.exe
 
   build-tauri-macos:
     runs-on: macos-14
@@ -248,7 +259,7 @@ jobs:
         run: |
           mv QwenPaw-Desktop-Windows-*/QwenPaw-Setup-*.exe . 2>/dev/null || true
           mv QwenPaw-Desktop-macOS-*/QwenPaw-*.zip . 2>/dev/null || true
-          mv QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows.zip . 2>/dev/null || true
+          mv QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip . 2>/dev/null || true
 
       - name: Upload to Release
@@ -257,7 +268,7 @@ jobs:
           files: |
             QwenPaw-Setup-*.exe
             QwenPaw-[0-9]*-macOS.zip
-            QwenPaw-Tauri-*-Windows.zip
+            QwenPaw-Tauri-*-Windows-setup.exe
             QwenPaw-Tauri-*-macOS.zip
           fail-on-unmatched-files: false
         env:
