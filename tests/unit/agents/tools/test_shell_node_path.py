@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Regression tests for shell Node.js PATH discovery."""
+"""Regression tests for shell PATH discovery."""
 from __future__ import annotations
 
 import os
@@ -11,6 +11,7 @@ from qwenpaw.agents.tools.shell import (
     _build_subprocess_env,
     _dedupe_path_entries,
     _discover_node_bin_dirs,
+    _discover_user_bin_dirs,
 )
 
 
@@ -71,6 +72,40 @@ def test_build_subprocess_env_prepends_python_and_node_bins(
         "base",
     ]
     assert path_entries.count(str(node_bin)) == 1
+
+
+def test_discover_user_bin_dirs_finds_local_bin(tmp_path: Path) -> None:
+    user_bin = tmp_path / ".local" / "bin"
+    user_bin.mkdir(parents=True)
+
+    assert _discover_user_bin_dirs(home=tmp_path) == [str(user_bin)]
+
+
+def test_build_subprocess_env_prepends_user_local_bin(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    user_bin = tmp_path / ".local" / "bin"
+    user_bin.mkdir(parents=True)
+    monkeypatch.setenv("PATH", "base")
+
+    def discover_user_bin_dirs() -> list[str]:
+        return [str(user_bin)]
+
+    monkeypatch.setattr(
+        shell,
+        "_discover_user_bin_dirs",
+        discover_user_bin_dirs,
+    )
+    monkeypatch.setattr(shell, "_discover_node_bin_dirs", lambda: [])
+
+    path_entries = _build_subprocess_env()["PATH"].split(os.pathsep)
+
+    assert path_entries[:3] == [
+        str(Path(sys.executable).parent),
+        str(user_bin),
+        "base",
+    ]
 
 
 def test_dedupe_path_entries_preserves_order() -> None:

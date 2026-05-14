@@ -227,6 +227,22 @@ def _discover_node_bin_dirs(home: Path | None = None) -> list[str]:
     return [str(path) for path in candidates if _has_node_executable(path)]
 
 
+def _discover_user_bin_dirs(home: Path | None = None) -> list[str]:
+    """Find existing user-level command bin directories."""
+    if home is None:
+        expanded_home = os.path.expanduser("~")
+        if expanded_home == "~":
+            return []
+        home_dir = Path(expanded_home)
+    else:
+        home_dir = home
+
+    user_local_bin = home_dir / ".local" / "bin"
+    if user_local_bin.is_dir():
+        return [str(user_local_bin)]
+    return []
+
+
 def _dedupe_path_entries(entries: list[str]) -> list[str]:
     """Remove duplicate PATH entries while preserving order."""
     seen = set()
@@ -245,6 +261,7 @@ def _build_subprocess_env() -> dict[str, str]:
     python_bin_dir = str(Path(sys.executable).parent)
     existing_path = env.get("PATH", "")
     path_entries = [python_bin_dir]
+    path_entries.extend(_discover_user_bin_dirs())
     path_entries.extend(_discover_node_bin_dirs())
     if existing_path:
         path_entries.extend(existing_path.split(os.pathsep))
