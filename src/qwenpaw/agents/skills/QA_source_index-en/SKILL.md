@@ -16,12 +16,12 @@ When answering questions about **installation, configuration, or behavioral prin
 
 1. Extract the topic from the user's question (match against the left column or synonyms in the table below).
 2. Resolve **`$QWENPAW_ROOT`**: use `which qwenpaw` to get the executable path. If it is `…/.qwenpaw/bin/qwenpaw`, the source root is three levels up (consistent with the **guidance** skill); otherwise, determine it from the user-provided installation path.
-3. Resolve **`$DOC_DIR`** first (cross-install compatible): run `python3 -c "from qwenpaw.constant import DOCS_DIR; print(DOCS_DIR or '')" 2>/dev/null`. If it returns a valid path, use it directly. Otherwise, fallback to `$QWENPAW_ROOT/website/public/docs/`.
-4. **Read documentation first**: `$DOC_DIR/<topic>.<language>.md` (use the same language as the user: `zh` / `en`.). If that is insufficient, read the **source entry points** listed in the table.
+3. Resolve **`$DOCS_DIR`** first (cross-install compatible): run `python3 -c "from qwenpaw.constant import DOCS_DIR; print(DOCS_DIR or '')" 2>/dev/null`. If it returns a valid path, use it directly. Otherwise, fallback to `$QWENPAW_ROOT/website/public/docs/`.
+4. **Read documentation first**: `$DOCS_DIR/<topic>.<language>.md` (use the same language as the user: `zh` / `en`.). If that is insufficient, read the **source entry points** listed in the table.
 
 ## Topic / Keywords → Preferred Documentation and Source Code
 
-| Topic or Keywords (examples) | Preferred Documentation (`$DOC_DIR/`) | Common Source Entry Points (relative to `$QWENPAW_ROOT`) |
+| Topic or Keywords (examples) | Preferred Documentation (`$DOCS_DIR/`) | Common Source Entry Points (relative to `$QWENPAW_ROOT`) |
 |---------------------|-----------------------------------|-----------------------------------|
 | Installation, dependencies, getting started | `quickstart`, `intro` | `src/qwenpaw/cli/`, `pyproject.toml` |
 | Configuration, config.json, environment variables | `config` | `src/qwenpaw/config/config.py`, `src/qwenpaw/constant.py` |
@@ -42,7 +42,7 @@ When answering questions about **installation, configuration, or behavioral prin
 
 ## Conventions
 
-- Full documentation path: `$DOC_DIR/<topic>.<language>.md` (fall back to `.en.md` if the corresponding language file does not exist). Prefer `DOCS_DIR` from `qwenpaw.constant`; fallback to `$QWENPAW_ROOT/website/public/docs/`.
+- Full documentation path: `$DOCS_DIR/<topic>.<language>.md` (fall back to `.en.md` if the corresponding language file does not exist). Prefer `DOCS_DIR` from `qwenpaw.constant`; fallback to `$QWENPAW_ROOT/website/public/docs/`.
 - The **source entry points** in the table are starting points; use `read_file` or targeted `grep` to narrow down to specific symbols — do not read through an entire large directory listing at once.
 
 ## Notes
