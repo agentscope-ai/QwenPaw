@@ -41,7 +41,11 @@ jobs:
           cache-dependency-path: console/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci \
+            --fetch-retries=5 \
+            --fetch-retry-mintimeout=20000 \
+            --fetch-retry-maxtimeout=120000
 
       - name: Run unit tests
         run: npm run test:run
