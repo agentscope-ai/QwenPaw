@@ -2,6 +2,7 @@
 """Skills hub client and install helpers."""
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import os
@@ -277,13 +278,22 @@ def _read_response_bytes(
         _ensure_not_cancelled()
         chunk = resp.read(HTTP_READ_CHUNK_BYTES)
         if not chunk:
-            return bytes(body)
+            break
         body.extend(chunk)
         if max_bytes is not None and len(body) > max_bytes:
             raise SkillsError(
                 message=f"Response body too large from {full_url}: "
                 f"download exceeded limit {max_bytes}",
             )
+    if content_length is not None and len(body) != content_length:
+        # resp.read(N) does not raise IncompleteRead on truncation, so
+        # validate length explicitly. Raising HTTPException routes into
+        # the retry branch in _http_fetch.
+        raise http.client.IncompleteRead(
+            partial=bytes(body),
+            expected=content_length - len(body),
+        )
+    return bytes(body)
 
 
 # pylint: disable-next=too-many-branches,too-many-statements
@@ -371,6 +381,23 @@ def _http_fetch(
                 delay = _compute_backoff_seconds(attempt)
                 logger.warning(
                     "Hub URL error on %s (attempt %d/%d), "
+                    "retrying in %.2fs: %s",
+                    full_url,
+                    attempt,
+                    attempts,
+                    delay,
+                    e,
+                )
+                _ensure_not_cancelled()
+                time.sleep(delay)
+                continue
+            raise
+        except (http.client.HTTPException, ConnectionError) as e:
+            last_error = e
+            if attempt < attempts:
+                delay = _compute_backoff_seconds(attempt)
+                logger.warning(
+                    "Hub connection error on %s (attempt %d/%d), "
                     "retrying in %.2fs: %s",
                     full_url,
                     attempt,
