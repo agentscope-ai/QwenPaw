@@ -18,10 +18,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ..base import ContentType
 
-from .constants import (
-    DINGTALK_SESSION_ID_SUFFIX_LEN,
-    DINGTALK_TYPE_MAPPING,
-)
+from .constants import DINGTALK_TYPE_MAPPING
 
 
 _DATA_URL_RE = re.compile(
@@ -116,14 +113,6 @@ def conversation_type_from_chatbot_message(incoming_message: Any) -> str:
     if conv_type:
         return "group" if str(conv_type) == "2" else "dm"
     return "dm"
-
-
-def short_session_id_from_conversation_id(conversation_id: str) -> str:
-    """Use last N chars of conversation_id as session_id."""
-    n = DINGTALK_SESSION_ID_SUFFIX_LEN
-    return (
-        conversation_id[-n:] if len(conversation_id) >= n else conversation_id
-    )
 
 
 def session_param_from_webhook_url(url: str) -> Optional[str]:

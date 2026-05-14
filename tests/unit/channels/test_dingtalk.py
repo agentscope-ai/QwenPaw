@@ -890,8 +890,7 @@ class TestDingTalkResolveSession:
             channel_meta={"conversation_id": "cid_abc_xyz"},
         )
 
-        # Takes last 8 chars: DINGTALK_SESSION_ID_SUFFIX_LEN = 8
-        assert result == "_abc_xyz"
+        assert result == "cid_abc_xyz"
 
     def test_resolve_session_id_without_conversation_id(
         self,
