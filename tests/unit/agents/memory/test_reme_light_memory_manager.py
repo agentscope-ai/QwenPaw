@@ -30,6 +30,26 @@ for _mod in _MOCK_MODULES:
 _MOD = "qwenpaw.agents.memory.reme_light_memory_manager"
 
 
+class TestDetectMemoryManagerBackend:
+    """Backend auto-detection should avoid unsafe Chroma imports by default."""
+
+    def test_auto_defaults_to_local_backend(self):
+        with patch(f"{_MOD}.EnvVarLoader.get_str", return_value="auto"):
+            from qwenpaw.agents.memory.reme_light_memory_manager import (
+                _detect_memory_manager_backend,
+            )
+
+            assert _detect_memory_manager_backend() == "local"
+
+    def test_explicit_backend_is_preserved(self):
+        with patch(f"{_MOD}.EnvVarLoader.get_str", return_value="chroma"):
+            from qwenpaw.agents.memory.reme_light_memory_manager import (
+                _detect_memory_manager_backend,
+            )
+
+            assert _detect_memory_manager_backend() == "chroma"
+
+
 # ---------------------------------------------------------------------------
 # Helpers to build a minimal agent config mock
 # ---------------------------------------------------------------------------

@@ -3,7 +3,6 @@
 import importlib.metadata
 import json
 import logging
-import platform
 import shutil
 import uuid
 from datetime import datetime
@@ -42,9 +41,8 @@ def _detect_memory_manager_backend() -> str:
     """Detect the memory store backend from environment variables.
 
     Resolves ``MEMORY_STORE_BACKEND`` with the following priority:
-    - ``local``: always used on Windows
-    - ``chroma``: used when ``chromadb`` is importable (non-Windows)
-    - falls back to ``local`` when ``chromadb`` is unavailable
+    - any explicit value is used as-is, including ``chroma``
+    - ``auto`` uses the pure-Python ``local`` backend
 
     Returns:
         Backend name string: ``"local"``, ``"chroma"``, or any explicitly
@@ -54,24 +52,7 @@ def _detect_memory_manager_backend() -> str:
     if backend_env != "auto":
         return backend_env
 
-    if platform.system() == "Windows":
-        return "local"
-
-    try:
-        import chromadb  # noqa: F401 pylint: disable=unused-import
-
-        return "chroma"
-    except Exception as e:
-        logger.warning(
-            f"""
-chromadb import failed, falling back to `local` backend.
-This is often caused by an outdated system SQLite (requires >= 3.35).
-Please upgrade your system SQLite to >= 3.35.
-See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
-| Error: {e}
-            """,
-        )
-        return "local"
+    return "local"
 
 
 @memory_registry.register("remelight")
