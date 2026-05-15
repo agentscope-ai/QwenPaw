@@ -35,8 +35,6 @@ class A2AListCommandHandler(BaseControlCommandHandler):
     command_name = "/a2a"
 
     async def handle(self, context: ControlContext) -> str:
-        from modules.a2a.client_manager import get_a2a_manager
-
         workspace_dir = context.workspace.workspace_dir
         agents_cfg = _load_a2a_agents(workspace_dir)
         raw_args = context.args.get("_raw_args", "").strip()
@@ -80,7 +78,7 @@ class A2AListCommandHandler(BaseControlCommandHandler):
             lines.append(line)
 
         lines.append(
-            "\n---\n使用 `/a2a <agent_name> <message>` 直接向远程 Agent 发送消息，例如："
+            "\n---\n使用 `/a2a <agent_name> <message>` 直接向远程 Agent 发送消息，例如：",
         )
         for alias in agents_cfg:
             lines.append(f"  `/a2a {alias} 如何部署 ECS？`")
@@ -88,18 +86,23 @@ class A2AListCommandHandler(BaseControlCommandHandler):
         return "\n".join(lines)
 
     async def _handle_direct_call(
-        self, agents_cfg: dict[str, dict], raw_args: str
+        self,
+        agents_cfg: dict[str, dict],
+        raw_args: str,
     ) -> str:
         from .a2a_call import a2a_call
         from modules.a2a.call_stream import start_stream
 
         parts = raw_args.split(None, 1)
         if len(parts) < 2:
-            return "用法：`/a2a <agent_name> <message>`\n\n使用 `/a2a` 查看可用的 agent 列表。"
+            return (
+                "用法：`/a2a <agent_name> <message>`"
+                "\n\n使用 `/a2a` 查看可用的 agent 列表。"
+            )
 
         agent_name, message = parts[0].strip(), parts[1].strip()
         if not message:
-            return "用法：`/a2a <agent_name> <message>`\n\n消息内容不能为空。"
+            return "用法：`/a2a <agent_name> <message>`" "\n\n消息内容不能为空。"
 
         if agent_name not in agents_cfg:
             available = ", ".join(agents_cfg.keys()) if agents_cfg else "无"
@@ -130,6 +133,11 @@ class A2AListCommandHandler(BaseControlCommandHandler):
         try:
             await a2a_call_fn(message=message, agent_alias=agent_name)
         except Exception as e:
-            logger.error(
-                "A2A direct call failed for %s: %s", agent_name, e
-            )
+            logger.error("A2A direct call failed for %s: %s", agent_name, e)
+            last_error = str(e)
+
+        if last_error and not accumulated_text:
+            return f"[远程 Agent '{agent_name}' 调用失败]" f" 错误：{last_error}"
+        if last_error:
+            return f"{accumulated_text}" f"\n\n[调用完成，但有错误: {last_error}]"
+        return accumulated_text or f"[远程 Agent '{agent_name}' 返回空响应]"
