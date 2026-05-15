@@ -364,7 +364,9 @@ def _assert_restore_targets_available(targets: list[Path]) -> None:
                 exc_info=True,
             )
     if busy_paths:
-        locked_paths = [str(path) for path in _dedupe_restore_targets(busy_paths)]
+        locked_paths = [
+            str(path) for path in _dedupe_restore_targets(busy_paths)
+        ]
         raise BackupValidationError(
             "restore_target_busy",
             "Restore target is still in use after closing managed "

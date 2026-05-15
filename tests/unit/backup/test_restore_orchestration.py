@@ -93,7 +93,9 @@ def test_restore_preflight_failure_does_not_stop_agents(
         return True
 
     async def fake_stop_browsers(_workspace_dirs: list[str]) -> None:
-        raise AssertionError("browsers should not stop after preflight failure")
+        raise AssertionError(
+            "browsers should not stop after preflight failure",
+        )
 
     async def fake_restore(
         _backup_id: str,
@@ -115,7 +117,7 @@ def test_restore_preflight_failure_does_not_stop_agents(
             ),
         )
 
-    assert stopped == []
+    assert not stopped
 
 
 def test_restore_without_agents_does_not_stop_browsers(
