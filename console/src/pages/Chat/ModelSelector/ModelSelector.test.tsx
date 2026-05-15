@@ -51,6 +51,8 @@ const mockProvider = {
       supports_multimodal: false,
       supports_image: false,
       supports_video: false,
+      max_tokens: 8192,
+      max_input_length: 131072,
       generate_kwargs: {},
     },
     {
@@ -59,6 +61,8 @@ const mockProvider = {
       supports_multimodal: false,
       supports_image: false,
       supports_video: false,
+      max_tokens: 8192,
+      max_input_length: 131072,
       generate_kwargs: {},
     },
   ],

@@ -85,13 +85,10 @@ function ModelConfigEditor({
     setDirty(false);
   }, [initialText, model.max_tokens, model.max_input_length]);
 
-  const handleChange = useCallback(
-    (val: string) => {
-      setText(val);
-      setDirty(true);
-    },
-    [],
-  );
+  const handleChange = useCallback((val: string) => {
+    setText(val);
+    setDirty(true);
+  }, []);
 
   const handleMaxTokensChange = useCallback((val: number | null) => {
     setMaxTokens(val ?? 8192);
