@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for SafeJSONSession JSON corruption resilience."""
 # pylint: disable=redefined-outer-name
+import asyncio
 import json
 import os
 import pathlib
@@ -162,6 +163,39 @@ async def test_update_corrupted_json(sess, tmp_session_dir):
 
 
 # ── non-existent session ────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_update_session_state_preserves_concurrent_writes(sess):
+    """Concurrent updates to the same session file should not clobber."""
+    await sess.update_session_state(
+        "race:session",
+        key="agent.seed",
+        value=0,
+        user_id="user",
+    )
+
+    await asyncio.gather(
+        *[
+            sess.update_session_state(
+                "race:session",
+                key=f"agent.k{i}",
+                value=i,
+                user_id="user",
+            )
+            for i in range(50)
+        ],
+    )
+
+    result = await sess.get_session_state_dict(
+        "race:session",
+        user_id="user",
+    )
+    agent_state = result["agent"]
+
+    assert agent_state["seed"] == 0
+    for i in range(50):
+        assert agent_state[f"k{i}"] == i
 
 
 @pytest.mark.asyncio
