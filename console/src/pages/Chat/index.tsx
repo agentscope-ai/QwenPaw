@@ -2,8 +2,10 @@ import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
   type IAgentScopeRuntimeWebUIRef,
+  type IAgentScopeRuntimeWebUIMessage,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ReactDOM from "react-dom";
 import { Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
@@ -1170,13 +1172,159 @@ export default function ChatPage() {
             false,
           );
           if (res?.usage_note) {
-            chatRef.current?.messages?.updateMessage?.({
-              id: `usage-${Date.now()}`,
-              cards: [{ code: 'Text', data: { content: res.usage_note } }],
-              role: 'assistant',
-              msgStatus: 'finished',
+            const messagesApi = chatRef.current?.messages;
+            if (!messagesApi) {
+              console.warn("[Stop] messagesApi not available, saving note for next load");
+              sessionApi.setLastStopUsageNote(chatId, res.usage_note);
+              if (sessionId && sessionId !== chatId) {
+                sessionApi.setLastStopUsageNote(sessionId, res.usage_note);
+              }
+              return;
+            }
+
+            const allMessages = messagesApi.getMessages() || [];
+            // Find the last assistant message
+            let lastAssistantMsg: IAgentScopeRuntimeWebUIMessage | null = null;
+            for (let i = allMessages.length - 1; i >= 0; i--) {
+              if (allMessages[i].role === "assistant") {
+                lastAssistantMsg = allMessages[i];
+                break;
+              }
+            }
+
+            if (!lastAssistantMsg) {
+              console.warn("[Stop] No assistant message found, saving note for next load");
+              sessionApi.setLastStopUsageNote(chatId, res.usage_note);
+              if (sessionId && sessionId !== chatId) {
+                sessionApi.setLastStopUsageNote(sessionId, res.usage_note);
+              }
+              return;
+            }
+
+            // Save the preceding user message text so patchLastUserMessage can
+            // reconstruct it on session reload when backend history lags behind.
+            let interruptedTurnUserText = "";
+            for (let i = allMessages.length - 1; i >= 0; i--) {
+              if (allMessages[i].role === "user") {
+                const userInput = allMessages[i].cards?.[0]?.data?.input;
+                if (Array.isArray(userInput) && userInput.length > 0) {
+                  const content = userInput[0].content;
+                  const text =
+                    typeof content === "string"
+                      ? content
+                      : Array.isArray(content)
+                        ? content
+                            .filter(
+                              (c: Record<string, unknown>) => c.type === "text",
+                            )
+                            .map((c: Record<string, unknown>) => c.text || "")
+                            .join("")
+                        : "";
+                  if (text) {
+                    interruptedTurnUserText = text.trim();
+                    console.log("[Debug] handleStopChat setLastUserMessage chatId=%s sessionId=%s", chatId, sessionId);
+                    sessionApi.setLastUserMessage(chatId, text);
+                    if (sessionId && sessionId !== chatId) {
+                      sessionApi.setLastUserMessage(sessionId, text);
+                    }
+                  }
+                }
+                break;
+              }
+            }
+
+            // Guard against duplicate cancel calls (the library fires cancel twice)
+            const alreadyHasNote = lastAssistantMsg.cards?.some((card) => {
+              if (card?.code !== "AgentScopeRuntimeResponseCard") return false;
+              const output = card?.data?.output;
+              if (!Array.isArray(output)) return false;
+              return output.some((item: Record<string, unknown>) => {
+                const content = item?.content;
+                if (typeof content === "string") return content.includes(res.usage_note);
+                if (Array.isArray(content)) {
+                  return content.some(
+                    (c: Record<string, unknown>) =>
+                      typeof c?.text === "string" &&
+                      c.text.includes(res.usage_note),
+                  );
+                }
+                return false;
+              });
             });
+
+            // Deep clone so we don't mutate library state
+            const updatedMsg = JSON.parse(
+              JSON.stringify(lastAssistantMsg),
+            ) as IAgentScopeRuntimeWebUIMessage;
+
+            if (alreadyHasNote) {
+              console.log("[Stop] Usage note already present, skipping duplicate append");
+              sessionApi.saveInterruptedTurn(
+                chatId,
+                updatedMsg,
+                interruptedTurnUserText,
+              );
+              if (sessionId && sessionId !== chatId) {
+                sessionApi.saveInterruptedTurn(
+                  sessionId,
+                  updatedMsg,
+                  interruptedTurnUserText,
+                );
+              }
+              return;
+            }
+            const responseCard = (
+              updatedMsg.cards as Array<{
+                code?: string;
+                data?: { output?: Array<Record<string, unknown>> };
+              }>
+            )?.find(
+              (card) => card?.code === "AgentScopeRuntimeResponseCard",
+            );
+            if (responseCard?.data) {
+              if (!Array.isArray(responseCard.data.output)) {
+                responseCard.data.output = [];
+              }
+              responseCard.data.output.push({
+                id: `stop-usage-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "text",
+                    text: res.usage_note,
+                    status: "completed",
+                  },
+                ],
+                status: "completed",
+              });
+              ReactDOM.flushSync(() => {
+                messagesApi.updateMessage(updatedMsg);
+              });
+
+              // Save per user-turn so round 2+ interrupts do not overwrite round 1.
+              console.log("[Debug] handleStopChat saveInterruptedTurn chatId=%s sessionId=%s msg.id=%s", chatId, sessionId, updatedMsg.id);
+              sessionApi.saveInterruptedTurn(
+                chatId,
+                updatedMsg,
+                interruptedTurnUserText,
+              );
+              if (sessionId && sessionId !== chatId) {
+                console.log("[Debug] handleStopChat saveInterruptedTurn also as sessionId=%s", sessionId);
+                sessionApi.saveInterruptedTurn(
+                  sessionId,
+                  updatedMsg,
+                  interruptedTurnUserText,
+                );
+              }
+            }
           }
+
+          sessionApi.setLastStopUsageNote(chatId, res.usage_note);
+          if (sessionId && sessionId !== chatId) {
+            sessionApi.setLastStopUsageNote(sessionId, res.usage_note);
+          }
+          console.log("[Debug] handleStopChat setLastStopUsageNote chatId=%s sessionId=%s", chatId, sessionId);
           console.log("[Stop] stopChat API succeeded");
         })
         .catch((err) => {

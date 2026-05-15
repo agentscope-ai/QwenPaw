@@ -139,6 +139,7 @@ vi.mock("./sessionApi", () => ({
     onSessionCreated: null,
     getRealIdForSession: vi.fn(() => null),
     setLastUserMessage: vi.fn(),
+    clearInterruptedTurn: vi.fn(),
   },
 }));
 
