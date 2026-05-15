@@ -191,6 +191,10 @@ class WecomChannel(BaseChannel):
         # payload stays JSON-serializable).
         self._keepalive_tasks: Dict[str, "asyncio.Task[None]"] = {}
 
+        # Sessions with in-flight model responses (suppress extra
+        # "Thinking…" indicators).
+        self._processing_sessions: set[str] = set()
+
         # message_id dedup (ordered dict, trimmed when over limit)
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
         self._processed_ids_lock = threading.Lock()
@@ -357,15 +361,43 @@ class WecomChannel(BaseChannel):
         return request
 
     def merge_native_items(self, items: List[Any]) -> Any:
-        """Merge same-session native payloads: concat content_parts."""
+        """Merge same-session native payloads: concat content_parts.
+
+        Reuses the first processing_stream_id so the existing
+        "Thinking…" bubble is taken over by the real reply.
+        """
         if not items:
             return None
         first = items[0] if isinstance(items[0], dict) else {}
         merged_parts: List[Any] = []
+
+        # Reuse the first processing_stream_id; cancel extras.
+        reuse_sid = ""
+        reuse_frame = None
+        for item in items:
+            meta = (item if isinstance(item, dict) else {}).get("meta") or {}
+            sid = meta.get("wecom_processing_stream_id", "")
+            if sid and not reuse_sid:
+                reuse_sid = sid
+                reuse_frame = meta.get("wecom_frame")
+            elif sid:
+                # Extra processing indicator — cancel its keepalive.
+                task = self._keepalive_tasks.pop(sid, None)
+                if task is not None and not task.done():
+                    task.cancel()
+
         for it in items:
             p = it if isinstance(it, dict) else {}
             merged_parts.extend(p.get("content_parts") or [])
         last = items[-1] if isinstance(items[-1], dict) else {}
+
+        merged_meta = dict(last.get("meta") or {})
+
+        if reuse_sid:
+            merged_meta["wecom_processing_stream_id"] = reuse_sid
+            if reuse_frame is not None:
+                merged_meta["wecom_frame"] = reuse_frame
+
         return {
             "channel_id": first.get("channel_id") or self.channel,
             "sender_id": last.get(
@@ -378,7 +410,7 @@ class WecomChannel(BaseChannel):
                 first.get("session_id", ""),
             ),
             "content_parts": merged_parts,
-            "meta": dict(last.get("meta") or {}),
+            "meta": merged_meta,
         }
 
     # ------------------------------------------------------------------
@@ -679,9 +711,12 @@ class WecomChannel(BaseChannel):
                 )
                 return
 
-            # Send "processing" indicator only if message has text content
+            session_id = self.resolve_session_id(sender_id, meta)
+
+            # Only show "Thinking…" when session is idle.
             processing_stream_id = ""
-            if text_parts and self._client:
+            session_is_busy = session_id in self._processing_sessions
+            if text_parts and self._client and not session_is_busy:
                 processing_stream_id = generate_req_id("stream")
                 try:
                     await self._client.reply_stream(
@@ -693,8 +728,6 @@ class WecomChannel(BaseChannel):
                 except Exception:
                     logger.debug("wecom failed to send processing indicator")
                     processing_stream_id = ""
-
-            session_id = self.resolve_session_id(sender_id, meta)
             if processing_stream_id:
                 meta["wecom_processing_stream_id"] = processing_stream_id
                 # Keep stream alive while agent is generating.
@@ -1240,6 +1273,23 @@ class WecomChannel(BaseChannel):
             send_meta,
             skip_stream_detail=True,
         )
+
+    # ------------------------------------------------------------------
+    # Session processing state management
+    # ------------------------------------------------------------------
+
+    async def _consume_with_tracker(
+        self,
+        request: "AgentRequest",
+        payload: Any,
+    ) -> None:
+        """Override to track per-session busy state (TaskTracker path)."""
+        session_id = getattr(request, "session_id", "") or ""
+        self._processing_sessions.add(session_id)
+        try:
+            await super()._consume_with_tracker(request, payload)
+        finally:
+            self._processing_sessions.discard(session_id)
 
     # ------------------------------------------------------------------
     # Interactive cards (tool_guard approval, etc.)
