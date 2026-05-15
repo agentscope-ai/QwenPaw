@@ -122,9 +122,8 @@
   }
 }
 
-/* Fix #4216: Preserve newlines in user message bubbles.
- * The Raw text renderer (used when raw=true) renders \n as plain React
- * children which HTML collapses into whitespace. pre-wrap keeps them. */
+/* Preserve user-authored soft line breaks in message bubbles while allowing
+ * markdown block syntax to render normally. */
 .chatMessagesArea :global {
   [class*="bubble-end"] [class*="markdown"],
   [class*="bubble-user"] [class*="markdown"] {
