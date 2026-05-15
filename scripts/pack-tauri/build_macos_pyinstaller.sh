@@ -76,7 +76,9 @@ if [ -z "${APPLE_SIGNING_IDENTITY:-}" ] && [ -z "${APPLE_CERTIFICATE:-}" ]; then
     export APPLE_SIGNING_IDENTITY="-"
     echo "Using ad-hoc macOS code signing"
 fi
-npm exec -- tauri build --config src-tauri/tauri.version.conf.json
+npm exec -- tauri build \
+    --config src-tauri/tauri.version.conf.json \
+    --config '{"bundle":{"targets":["app"]}}'
 cd ..
 echo "Tauri app built"
 echo ""
@@ -103,7 +105,8 @@ if [ ! -d "${APP_PATH}" ]; then
 fi
 
 cp -R "${APP_PATH}" "${DIST_DIR}/"
-echo ".app copied to ${DIST_DIR}/"
+STAGED_APP_PATH="${DIST_DIR}/$(basename "${APP_PATH}")"
+echo ".app copied to ${STAGED_APP_PATH}"
 
 # Create ZIP archive
 ZIP_NAME="${DIST_ROOT}/QwenPaw-Tauri-${VERSION}-macOS.zip"
@@ -111,10 +114,10 @@ if [ -f "${ZIP_NAME}" ]; then
     rm -f "${ZIP_NAME}"
 fi
 if command -v ditto &>/dev/null; then
-    ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "${ZIP_NAME}"
+    ditto -c -k --sequesterRsrc --keepParent "${STAGED_APP_PATH}" "${ZIP_NAME}"
 else
     cd "${DIST_DIR}"
-    zip -r "${ZIP_NAME}" "QwenPaw Desktop.app"
+    zip -r "${ZIP_NAME}" "$(basename "${STAGED_APP_PATH}")"
     cd "${REPO_ROOT}"
 fi
 
@@ -135,5 +138,5 @@ echo "App:          ${APP_PATH}"
 echo "Distribution: ${DIST_DIR}"
 echo "Archive:      ${ZIP_NAME}"
 echo ""
-echo "Test: open \"${APP_PATH}\""
+echo "Test: open \"${STAGED_APP_PATH}\""
 echo ""
