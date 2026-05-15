@@ -76,7 +76,7 @@ class ProviderConfigRequest(BaseModel):
         default=None,
         description="Custom HTTP headers to include in every API request.",
     )
-    auth_mode: Optional[str] = Field(
+    auth_mode: Optional[Literal["api_key", "auth_token"]] = Field(
         default=None,
         description=(
             "Authentication mode: 'api_key' or 'auth_token'. "
@@ -269,7 +269,7 @@ class TestProviderRequest(BaseModel):
         default=None,
         description="Custom headers to use for this test request",
     )
-    auth_mode: Optional[str] = Field(
+    auth_mode: Optional[Literal["api_key", "auth_token"]] = Field(
         default=None,
         description="Authentication mode to use for this test request",
     )

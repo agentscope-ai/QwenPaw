@@ -39,6 +39,10 @@ class _StripApiKeyTransport(httpx.AsyncHTTPTransport):
 
     Used when auth_mode='auth_token' to avoid sending both x-api-key and
     Authorization headers simultaneously, which some proxies reject.
+
+    The request is reconstructed with ``extensions`` preserved so that
+    per-request configuration such as timeouts and SSE hints set by the
+    Anthropic SDK are not lost.
     """
 
     async def handle_async_request(
@@ -55,6 +59,7 @@ class _StripApiKeyTransport(httpx.AsyncHTTPTransport):
             url=request.url,
             headers=filtered,
             content=request.content,
+            extensions=request.extensions,
         )
         return await super().handle_async_request(new_request)
 
@@ -62,20 +67,30 @@ class _StripApiKeyTransport(httpx.AsyncHTTPTransport):
 class AnthropicProvider(Provider):
     """Provider implementation for Anthropic API."""
 
+    # Cached AsyncClient for auth_token mode; re-created when auth_mode
+    # changes so that the transport is always consistent with the current
+    # provider config.
+    _strip_http_client: httpx.AsyncClient | None = None
+
     def _build_default_headers(self) -> Dict[str, str]:
         return dict(self.custom_headers) if self.custom_headers else {}
+
+    def _get_strip_http_client(self) -> httpx.AsyncClient:
+        """Return a cached AsyncClient backed by _StripApiKeyTransport."""
+        if self._strip_http_client is None:
+            self._strip_http_client = httpx.AsyncClient(
+                transport=_StripApiKeyTransport(),
+            )
+        return self._strip_http_client
 
     def _client(self, timeout: float = 5) -> anthropic.AsyncAnthropic:
         default_headers = self._build_default_headers()
         if self.auth_mode == "auth_token":
-            http_client = httpx.AsyncClient(
-                transport=_StripApiKeyTransport(),
-            )
             return anthropic.AsyncAnthropic(
                 auth_token=self.api_key,
                 base_url=self.base_url,
                 default_headers=default_headers,
-                http_client=http_client,
+                http_client=self._get_strip_http_client(),
                 timeout=timeout,
             )
         return anthropic.AsyncAnthropic(
@@ -155,8 +170,10 @@ class AnthropicProvider(Provider):
             )
             return True, ""
         except anthropic.APIStatusError as e:
-            if e.status_code in (400, 422):
-                # Bad request → server reachable and auth works
+            # 400/404/422: server is reachable and auth is accepted –
+            # the model may simply not exist on this proxy, which is fine
+            # for a connection check.
+            if e.status_code in (400, 404, 422):
                 return True, ""
             return False, f"Anthropic API error: {e}"
         except anthropic.APIError as e:
