@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
+import aiofiles
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
@@ -18,6 +19,9 @@ from ...config.context import (
     get_current_recent_max_bytes,
 )
 from ...constant import WORKING_DIR, TRUNCATION_NOTICE_MARKER
+
+STREAMING_READ_CHUNK_BYTES = 64 * 1024
+STREAMING_READ_MIN_BYTES = 8 * 1024 * 1024
 
 
 def _resolve_file_path(file_path: str) -> str:
@@ -61,6 +65,134 @@ def _get_encoding_for_file(file_path: str) -> str:
     # Default: UTF-8 without BOM (safe for all other files)
     # This includes: .sh, .yaml, .json, .py, .js, .md, etc.
     return "utf-8"
+
+
+def _should_stream_read(file_path: str, max_bytes: int) -> bool:
+    """Return whether read_file should avoid loading the whole file."""
+    try:
+        file_size = os.path.getsize(file_path)
+    except OSError:
+        return False
+    return file_size > max(max_bytes * 4, STREAMING_READ_MIN_BYTES)
+
+
+def _decode_bytes(data: bytes, encoding: str) -> str:
+    """Decode bytes for tool output without failing on mixed encodings."""
+    return data.decode(encoding, errors="ignore")
+
+
+def _build_streaming_notice(
+    *,
+    file_path: str,
+    start_line: int,
+    read_from: int,
+    content_bytes: int,
+    file_size: int,
+    total_lines: int | None = None,
+) -> str:
+    """Build a truncation notice for streamed reads."""
+    if total_lines is None:
+        size_note = (
+            f"The file is {file_size} bytes, so the total line count was not "
+            "scanned before truncating this excerpt."
+        )
+    else:
+        size_note = (
+            "The full content is saved to the file "
+            f"and contains {total_lines} lines in total."
+        )
+
+    return (
+        TRUNCATION_NOTICE_MARKER + "\nThe output above was truncated."
+        f"\n{size_note}"
+        f"\nThis excerpt starts at line {start_line} and "
+        f"covers the next {content_bytes} bytes."
+        "\nIf the current content is not enough, "
+        f"call `read_file` with file_path={file_path} "
+        f"start_line={read_from} to read more."
+    )
+
+
+async def _read_file_streaming(  # pylint: disable=too-many-branches
+    file_path: str,
+    start_line: int,
+    end_line: int | None,
+    max_bytes: int,
+) -> str:
+    """Read large files without holding the full content in memory."""
+    encoding = _get_encoding_for_file(file_path)
+    file_size = os.path.getsize(file_path)
+    selected = bytearray()
+    current_line = 1
+    saw_bytes = False
+    truncated = False
+    range_has_more = False
+
+    async with aiofiles.open(file_path, "rb") as file:
+        while True:
+            chunk = await file.read(STREAMING_READ_CHUNK_BYTES)
+            if not chunk:
+                break
+
+            saw_bytes = True
+            parts = chunk.splitlines(keepends=True)
+            for index, part in enumerate(parts):
+                if end_line is not None and current_line > end_line:
+                    range_has_more = True
+                    break
+
+                in_range = current_line >= start_line
+                if in_range:
+                    remaining = max_bytes - len(selected)
+                    if remaining <= 0:
+                        truncated = True
+                        break
+
+                    if len(part) > remaining:
+                        selected.extend(part[:remaining])
+                        truncated = True
+                        break
+
+                    selected.extend(part)
+
+                if part.endswith((b"\n", b"\r")):
+                    current_line += 1
+
+                if (
+                    end_line is not None
+                    and current_line > end_line
+                    and index < len(parts) - 1
+                ):
+                    range_has_more = True
+                    break
+
+            if truncated or range_has_more:
+                break
+
+    total_lines = current_line if saw_bytes else 1
+    if start_line > total_lines:
+        return f"Error: start_line {start_line} exceeds file length ({total_lines} lines)."
+
+    text = _decode_bytes(bytes(selected), encoding)
+    if not truncated and not range_has_more:
+        return text
+
+    if range_has_more:
+        read_from = (end_line or current_line) + 1
+    else:
+        read_from = current_line
+        if read_from <= start_line:
+            read_from = start_line + 1
+
+    notice = _build_streaming_notice(
+        file_path=file_path,
+        start_line=start_line,
+        read_from=read_from,
+        content_bytes=len(selected),
+        file_size=file_size,
+        total_lines=None,
+    )
+    return text + notice
 
 
 async def read_file(  # pylint: disable=too-many-return-statements
@@ -132,12 +264,35 @@ async def read_file(  # pylint: disable=too-many-return-statements
         )
 
     try:
+        max_bytes = get_current_recent_max_bytes() or DEFAULT_MAX_BYTES
+        s = max(1, start_line if start_line is not None else 1)
+
+        if end_line is not None and s > end_line:
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: start_line ({s}) > end_line ({end_line}).",
+                    ),
+                ],
+            )
+
+        if _should_stream_read(file_path, max_bytes):
+            text = await _read_file_streaming(
+                file_path=file_path,
+                start_line=s,
+                end_line=end_line,
+                max_bytes=max_bytes,
+            )
+            return ToolResponse(
+                content=[TextBlock(type="text", text=text)],
+            )
+
         content = await read_file_safe(file_path)
         all_lines = content.split("\n")
         total = len(all_lines)
 
         # Determine read range
-        s = max(1, start_line if start_line is not None else 1)
         e = min(total, end_line if end_line is not None else total)
 
         if s > total:
@@ -164,7 +319,6 @@ async def read_file(  # pylint: disable=too-many-return-statements
         selected_content = "\n".join(all_lines[s - 1 : e])
 
         # Apply smart truncation (consistent with shell output format)
-        max_bytes = get_current_recent_max_bytes() or DEFAULT_MAX_BYTES
         text = truncate_text_output(
             selected_content,
             start_line=s,
