@@ -118,7 +118,68 @@ QwenPaw/
 - **Resource Proposal Selection**: Interactive multi-proposal comparison and selection with dedicated frontend rendering (`proposal_choice` tool)
 - **PRD Management Frontend Enhancement**: Custom frontend rendering for QwenPaw Mission Mode's PRD management (`manage_prd` tool)
 - **Multi-Agent Collaboration**: Orchestrate multiple agents for complex deployment tasks via QwenPaw Mission Mode
+- **A2A Remote Agent Invocation**: Connect and call remote agents via A2A protocol with real-time streaming display
 - **Auto-dependency Setup**: Automatically installs `iac-code` and Alibaba Cloud CLI during plugin startup
+
+## A2A Remote Agent Mode
+
+CloudPaw supports connecting and invoking remote agents via the **A2A (Agent-to-Agent) protocol**, enabling cross-agent collaboration.
+
+### What is A2A Mode
+
+A2A mode allows CloudPaw to act as a client, communicating with other remote agents that support the A2A protocol. You can bring remote agent capabilities into your local workflow for extended functionality.
+
+### Usage
+
+CloudPaw provides **two** ways to invoke A2A agents, suited for different scenarios:
+
+#### Method 1: `/a2a` Command Direct Call (Quick Mode)
+
+Send messages directly to a remote agent using the `/a2a` command in the chat box:
+
+```
+/a2a <alias> <message>
+```
+
+Example:
+
+```
+/a2a my-agent How do I deploy a Node.js app to ECS?
+```
+
+During the call, the response is **streamed character by character** in the chat interface — no need to wait for the complete result.
+
+> **Note**: This mode follows the control command path, bypassing the LLM. Therefore, call records are **not** saved to chat history. The conversation will be lost after page refresh.
+
+#### Method 2: LLM Invokes via `a2a_call` Tool (Smart Mode)
+
+Simply describe your needs in natural language, and the LLM will automatically determine whether to call a remote agent and execute it via the `a2a_call` tool:
+
+```
+Ask my-agent how to quickly deploy a Flask app to Alibaba Cloud?
+```
+
+In this mode:
+- The LLM understands user intent and automatically selects the appropriate remote agent
+- Calls are executed through the tool call path and **are** saved to chat history
+- Responses are also streamed, and history is available after page refresh
+- Suitable for scenarios requiring multi-turn conversations and context
+
+#### List Registered Agents
+
+Enter `/a2a` without arguments to list all registered remote agents and their connection status.
+
+### Typical Scenarios
+
+- **Capability Extension**: Connect specialized agents (e.g., database optimization, security audit) to supplement local capabilities
+- **Cross-Environment Collaboration**: Connect agents in different environments (dev / test / prod) for operations
+- **Third-Party Service Integration**: Integrate external AI services via the A2A protocol
+
+### Notes
+
+- A2A functionality only supports agents compliant with the A2A protocol, currently primarily compatible with Alibaba Cloud Skills Hub agents
+- When invoking remote agents, message content is sent to remote servers — please consider data security
+- Only one active A2A call is supported at a time
 
 ## Multi-Agent Architecture
 
