@@ -12,6 +12,7 @@ from .skills_stream import router as skills_stream_router
 from .workspace import router as workspace_router
 from .envs import router as envs_router
 from .mcp import router as mcp_router
+from .mcp_oauth import router as mcp_oauth_router
 from .tools import router as tools_router
 from ..crons.api import router as cron_router
 from ..runner.api import router as runner_router
@@ -34,6 +35,7 @@ router.include_router(console_router)
 router.include_router(cron_router)
 router.include_router(local_models_router)
 router.include_router(mcp_router)
+router.include_router(mcp_oauth_router)
 router.include_router(messages_router)
 router.include_router(providers_router)
 router.include_router(runner_router)

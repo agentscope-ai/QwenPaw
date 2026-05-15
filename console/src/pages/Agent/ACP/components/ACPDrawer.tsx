@@ -17,6 +17,7 @@ import {
 } from "../../../../api/types";
 import { getWebsiteLang } from "../../../../layouts/constants";
 import styles from "../../../Control/Channels/index.module.less";
+import { openExternalLink } from "../../../../utils/openExternalLink";
 
 interface ACPDrawerProps {
   open: boolean;
@@ -217,13 +218,7 @@ export function ACPDrawer({
             type="text"
             size="small"
             icon={<LinkOutlined />}
-            onClick={() =>
-              window.open(
-                getACPDocsUrl(i18n.language),
-                "_blank",
-                "noopener,noreferrer",
-              )
-            }
+            onClick={() => openExternalLink(getACPDocsUrl(i18n.language))}
             title={t("acp.docsHelp")}
             className={styles.dingtalkDocBtn}
             style={{ color: "#FF7F16" }}

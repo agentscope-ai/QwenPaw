@@ -547,7 +547,7 @@ export default function ChatPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const { message } = useAppMessage();
-  const { approvals } = useApprovalContext();
+  const { approvals, setApprovals } = useApprovalContext();
   const [approvalRequests, setApprovalRequests] = useState<
     Map<string, ApprovalMessageData>
   >(new Map());
@@ -763,7 +763,9 @@ export default function ChatPage() {
           requestId,
           rootSessionId,
         );
-        console.log("[Approval] Approve command sent successfully");
+        setApprovals((prev) =>
+          prev.filter((item) => item.request_id !== requestId),
+        );
         message.success(t("approval.approved"));
 
         // Delay removal to let animation complete
@@ -780,7 +782,7 @@ export default function ChatPage() {
         console.error("[Approval] Failed to approve:", error);
       }
     },
-    [approvalRequests, chatId, t, message],
+    [approvalRequests, chatId, t, message, setApprovals],
   );
 
   const handleDeny = useCallback(
@@ -801,6 +803,9 @@ export default function ChatPage() {
         }
 
         await commandsApi.sendApprovalCommand("deny", requestId, rootSessionId);
+        setApprovals((prev) =>
+          prev.filter((item) => item.request_id !== requestId),
+        );
         message.success(t("approval.denied"));
 
         // Delay removal to let animation complete
@@ -817,7 +822,7 @@ export default function ChatPage() {
         console.error("Failed to deny:", error);
       }
     },
-    [approvalRequests, chatId, t, message],
+    [approvalRequests, chatId, t, message, setApprovals],
   );
 
   // Use custom hooks for better separation of concerns
@@ -1386,6 +1391,7 @@ export default function ChatPage() {
           />
         ) : undefined,
         attachments: {
+          multiple: true,
           trigger: function (props: any) {
             const tooltipKey = multimodalCaps.supportsMultimodal
               ? multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
@@ -1539,6 +1545,7 @@ export default function ChatPage() {
         >
           <ApprovalCard
             requestId={request.requestId}
+            agentId={request.agentId}
             toolName={request.toolName}
             severity={request.severity}
             findingsCount={request.findingsCount}
@@ -1551,7 +1558,30 @@ export default function ChatPage() {
             onApprove={handleApprove}
             onDeny={handleDeny}
             onCancel={() => {
-              handleStopChat(window.currentSessionId || "");
+              const sessionId =
+                request.rootSessionId || window.currentSessionId || "";
+              const resolvedChatId =
+                sessionApi.getRealIdForSession(sessionId) ??
+                chatIdRef.current ??
+                sessionId;
+
+              if (resolvedChatId) {
+                chatApi
+                  .stopChat(resolvedChatId)
+                  .then(() => {
+                    setApprovals((prev) =>
+                      prev.filter(
+                        (item) =>
+                          item.root_session_id !== request.rootSessionId,
+                      ),
+                    );
+                  })
+                  .catch((err) => {
+                    console.error("[Chat] stopChat failed:", err);
+                  });
+              } else {
+                console.warn("[Chat] No chat_id resolved, cannot cancel task");
+              }
             }}
           />
         </div>

@@ -239,7 +239,7 @@ async def write_memory_file(
 @router.get(
     "/language",
     summary="Get agent language",
-    description="Get the language setting for agent MD files (en/zh/ru)",
+    description="Get the language setting for agent MD files.",
 )
 async def get_agent_language(request: Request) -> dict:
     """Get agent language setting for current agent."""
@@ -255,7 +255,7 @@ async def get_agent_language(request: Request) -> dict:
     "/language",
     summary="Update agent language",
     description=(
-        "Update the language for agent MD files (en/zh/ru). "
+        "Update the language for agent MD files. "
         "Optionally copies MD files for the new language to agent workspace."
     ),
 )
@@ -263,7 +263,7 @@ async def put_agent_language(
     request: Request,
     body: dict = Body(
         ...,
-        description='Language setting, e.g. {"language": "zh"}',
+        description='Language setting, e.g. {"language": "id"}',
     ),
 ) -> dict:
     """

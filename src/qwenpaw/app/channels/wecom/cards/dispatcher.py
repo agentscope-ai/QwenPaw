@@ -121,8 +121,16 @@ class WecomCardHandler:
         to_handle: str,
         event: Any,
         send_meta: Dict[str, Any],
+        *,
+        skip_stream_detail: bool = False,
     ) -> bool:
         """Render ``event`` as a template card if any kind matches.
+
+        Args:
+            skip_stream_detail: When *True*, injects a transient flag
+                into ``send_meta`` so the render function skips streaming
+                the body text (caller already sent it, e.g. streaming
+                path).
 
         Returns ``True`` when a card was sent so the caller can skip
         the default text rendering.
@@ -133,6 +141,9 @@ class WecomCardHandler:
         kind = self._by_message_type.get(str(meta.get("message_type") or ""))
         if kind is None:
             return False
+
+        if skip_stream_detail:
+            send_meta["_skip_stream_detail"] = True
         try:
             return await kind.render(
                 self._channel,

@@ -72,7 +72,8 @@ def _build_button_key(
     session_ctx: Dict[str, Any],
 ) -> str:
     """Encode action + ctx into a button ``key`` (≤1024 bytes per WeCom);
-    raises :class:`ValueError` when the payload would overflow."""
+    raises :class:`ValueError` when the payload would overflow.
+    """
     payload = json.dumps(
         {
             "a": action,
@@ -153,13 +154,13 @@ def build_resolved_card(
     ``type`` in {1, 2} (0 is rejected by the bot endpoint).  We provide
     a project URL so it stays meaningful when clicked.
     """
-    by_text = f" by {operator_display}" if operator_display else ""
+    by_text = f"by {operator_display}" if operator_display else ""
     if action == APPROVE_KEY:
         title = "✅ Approved"
-        desc = f"Tool {tool_name} approved{by_text}."
+        desc = f"{by_text}\n{tool_name}"
     elif action == DENY_KEY:
         title = "🚫 Denied"
-        desc = f"Tool {tool_name} denied{by_text}."
+        desc = f"{by_text}\n{tool_name}"
     else:
         title = "⌛ Expired"
         desc = f"Approval for {tool_name} has expired."
@@ -168,8 +169,8 @@ def build_resolved_card(
         "card_type": "text_notice",
         "task_id": task_id,
         "main_title": {
-            "title": title,
-            "desc": _truncate(desc, 30),
+            "title": _truncate(title, 36),
+            "desc": _truncate(desc, 44),
         },
         "card_action": {"type": 1, "url": _RESOLVED_CARD_URL},
     }
@@ -270,7 +271,9 @@ async def render(
         return False
 
     # Stream the guard details first, then post the button card.
-    await context.send_stream_detail(channel, frame, send_meta, body_text)
+    # Skip if the caller already streamed the content (streaming path).
+    if not send_meta.get("_skip_stream_detail"):
+        await context.send_stream_detail(channel, frame, send_meta, body_text)
     try:
         await channel._client.reply_template_card(
             frame,

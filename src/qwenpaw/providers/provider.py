@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Type
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Type
 from pydantic import BaseModel, Field
 from pydantic import ConfigDict
 
@@ -137,6 +137,18 @@ class ProviderInfo(BaseModel):
         default_factory=dict,
         description="Generation parameters for agentscope chat models.",
     )
+    custom_headers: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Custom HTTP headers to include in every API request.",
+    )
+    auth_mode: Literal["api_key", "auth_token"] = Field(
+        default="api_key",
+        description=(
+            "Authentication mode: 'api_key' sends x-api-key header, "
+            "'auth_token' sends Authorization: Bearer header. "
+            "Only applies to Anthropic-compatible providers."
+        ),
+    )
     meta: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional metadata for the provider "
@@ -224,6 +236,19 @@ class Provider(ProviderInfo, ABC):
             and isinstance(config["generate_kwargs"], dict)
         ):
             self.generate_kwargs = config["generate_kwargs"]
+        if (
+            "custom_headers" in config
+            and config["custom_headers"] is not None
+            and isinstance(config["custom_headers"], dict)
+        ):
+            self.custom_headers = {
+                str(k): str(v) for k, v in config["custom_headers"].items()
+            }
+        if "auth_mode" in config and config["auth_mode"] in (
+            "api_key",
+            "auth_token",
+        ):
+            self.auth_mode = config["auth_mode"]
         if "extra_models" in config and config["extra_models"] is not None:
             # Always go through model_validate with dict data to
             # avoid class-identity issues from dual module loading.
@@ -369,4 +394,7 @@ class Provider(ProviderInfo, ABC):
             freeze_url=self.freeze_url,
             require_api_key=self.require_api_key,
             generate_kwargs=self.generate_kwargs,
+            custom_headers=self.custom_headers,
+            auth_mode=self.auth_mode,
+            meta=self.meta or {},
         )

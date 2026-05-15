@@ -69,6 +69,17 @@ def _is_transport_error(exc: BaseException) -> bool:
     return isinstance(exc, _TRANSPORT_ERRORS)
 
 
+def _is_401_error(exc: BaseException) -> bool:
+    """Return True if exc (or any sub-exception) is HTTP 401."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code == 401
+    # ExceptionGroup wraps one or more sub-exceptions (Python 3.11+)
+    sub_excs = getattr(exc, "exceptions", None)
+    if sub_excs:
+        return any(_is_401_error(e) for e in sub_excs)
+    return False
+
+
 class _MCPClientMixin:
     """Mixin providing shared tool-call and lifecycle logic for both clients.
 
@@ -94,6 +105,7 @@ class _MCPClientMixin:
     name: str
     session: ClientSession | None
     is_connected: bool
+    _oauth_required: bool
     _cached_tools: Any
     _stop_event: asyncio.Event
     _reload_event: asyncio.Event
@@ -122,7 +134,7 @@ class _MCPClientMixin:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    async def _run_lifecycle(self) -> None:
+    async def _run_lifecycle(self) -> None:  # noqa: C901
         """Run MCP client lifecycle in a dedicated task.
 
         This ensures ``__aenter__`` and ``__aexit__`` are called in the
@@ -169,6 +181,17 @@ class _MCPClientMixin:
                 # AsyncExitStack exits here in THIS task — no cross-task issue.
 
             except Exception as e:
+                # 401 means the server requires OAuth; fail fast and signal
+                # connect() so it can raise instead of returning silently.
+                if _is_401_error(e):
+                    logger.info(
+                        f"MCP client '{self.name}': server requires OAuth "
+                        "(HTTP 401). Authorize via the UI to connect.",
+                    )
+                    self._oauth_required = True
+                    self._stop_event.set()
+                    self._ready_event.set()
+                    return
                 logger.error(
                     f"Error in MCP client lifecycle for {self.name}: {e}",
                     exc_info=True,
@@ -212,6 +235,7 @@ class _MCPClientMixin:
         # set from a previous connect/close cycle because the stop path
         # in _run_lifecycle does not clear it).
         self._stop_event.clear()
+        self._oauth_required = False
         self._ready_event.clear()
         self._lifecycle_task = asyncio.create_task(self._run_lifecycle())
 
@@ -225,6 +249,12 @@ class _MCPClientMixin:
             if self._lifecycle_task:
                 await self._lifecycle_task
             raise
+
+        if self._oauth_required:
+            raise RuntimeError(
+                f"MCP client '{self.name}' requires OAuth authorization "
+                "(HTTP 401). Please authorize via the UI before connecting.",
+            )
 
     async def reload(self, timeout: float = 30.0) -> None:
         """Reload the MCP client (tear down and reconnect).
@@ -497,6 +527,7 @@ class StdIOStatefulClient(_MCPClientMixin, StatefulClientBase):
         self._reload_event = asyncio.Event()
         self._ready_event = asyncio.Event()
         self._stop_event = asyncio.Event()
+        self._oauth_required = False
 
         # Session state
         self.session: ClientSession | None = None
@@ -583,6 +614,7 @@ class HttpStatefulClient(_MCPClientMixin, StatefulClientBase):
         self._reload_event = asyncio.Event()
         self._ready_event = asyncio.Event()
         self._stop_event = asyncio.Event()
+        self._oauth_required = False
 
         # Session state
         self.session: ClientSession | None = None

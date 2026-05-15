@@ -19,6 +19,13 @@ rm -rf "$CONSOLE_DEST"/*
 mkdir -p "$CONSOLE_DEST"
 cp -R "$CONSOLE_DIR/dist/"* "$CONSOLE_DEST/"
 
+echo "[wheel_build] Bundling website docs into package..."
+DOCS_SRC="$REPO_ROOT/website/public/docs"
+DOCS_DEST="$REPO_ROOT/src/qwenpaw/docs"
+rm -rf "$DOCS_DEST"
+mkdir -p "$DOCS_DEST"
+cp "$DOCS_SRC/"*.md "$DOCS_DEST/"
+
 echo "[wheel_build] Building wheel + sdist..."
 python3 -m pip install --quiet build
 rm -rf dist/*

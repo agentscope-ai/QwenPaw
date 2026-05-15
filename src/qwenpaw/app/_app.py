@@ -332,6 +332,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             plugin_loader = PluginLoader(plugin_dirs)
 
+            plugin_loader.registry.set_plugin_http_app(app)
+
             config = load_config(get_config_path())
             plugin_configs = (
                 config.plugins if hasattr(config, "plugins") else {}
@@ -531,6 +533,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         except Exception as e:
             logger.error(f"Error stopping TokenUsageManager: {e}")
 
+        # Stop all browser instances
+        from ..agents.tools.browser_control import stop_all_browsers
+
+        try:
+            await stop_all_browsers()
+        except Exception as e:
+            logger.error(f"Error stopping browsers during shutdown: {e}")
+
         logger.info("Application shutdown complete")
 
 
@@ -642,7 +652,6 @@ app.include_router(approval_router, prefix="/api")
 agent_scoped_router = create_agent_scoped_router()
 app.include_router(agent_scoped_router, prefix="/api")
 
-
 app.include_router(
     agent_app.router,
     prefix="/api/agent",
@@ -684,7 +693,10 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
 
     # SPA fallback: catch-all route for frontend routing
     # Must be registered AFTER all API routes to avoid conflicts
-    @app.get("/{full_path:path}")
+    @app.get(
+        "/{full_path:path}",
+        name="qwenpaw_console_spa_catchall",
+    )
     def _console_spa(full_path: str):
         # Prevent catching common system/special paths
         if full_path in ("docs", "redoc", "openapi.json"):

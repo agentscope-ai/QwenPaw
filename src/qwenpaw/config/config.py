@@ -229,6 +229,7 @@ class DingTalkConfig(BaseChannelConfig):
     media_dir: Optional[str] = None
     card_auto_layout: bool = False
     at_sender_on_reply: bool = False
+    streaming_enabled: bool = False
 
 
 class FeishuConfig(BaseChannelConfig):
@@ -267,6 +268,7 @@ class TelegramConfig(BaseChannelConfig):
     http_proxy: str = ""
     http_proxy_auth: str = ""
     show_typing: Optional[bool] = None
+    streaming_enabled: bool = False
 
 
 class MQTTConfig(BaseChannelConfig):
@@ -313,6 +315,7 @@ class WecomConfig(BaseChannelConfig):
     # False to isolate each member into their own chat.
     share_session_in_group: bool = True
     max_reconnect_attempts: int = -1
+    streaming_enabled: bool = False
 
 
 class MatrixConfig(BaseChannelConfig):
@@ -335,7 +338,6 @@ class MatrixConfig(BaseChannelConfig):
     # When False, images are surfaced as text placeholders (no vision URL).
     vision_enabled: bool = True
     history_limit: int = 50
-    username: str = ""
     password: str = ""
     device_name: str = "qwenpaw-worker"
     # matrix-nio sync long-poll timeout (ms); typical 30s
@@ -559,6 +561,47 @@ class EmbeddingModelConfig(BaseModel):
         default=10,
         description="Maximum batch size for embedding",
     )
+
+
+class ADBPGMemoryConfig(BaseModel):
+    """ADBPG (AnalyticDB for PostgreSQL) memory configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    # Database connection
+    host: str = ""
+    port: int = 5432
+    user: str = ""
+    password: str = ""
+    dbname: str = ""
+
+    # LLM for server-side fact extraction
+    llm_model: str = ""
+    llm_api_key: str = ""
+    llm_base_url: str = ""
+
+    # Embedding
+    embedding_model: str = ""
+    embedding_api_key: str = ""
+    embedding_base_url: str = ""
+    embedding_dims: int = 1024
+
+    # API mode
+    api_mode: str = Field(
+        default="rest",
+        description="API mode: 'sql' (direct psycopg2) or 'rest' (HTTP API)",
+    )
+    rest_api_key: str = ""
+    rest_base_url: str = ""
+
+    # Behavior
+    memory_isolation: bool = Field(
+        default=True,
+        description="Per-agent memory isolation (True) or shared (False)",
+    )
+    search_timeout: float = 10.0
+    pool_minconn: int = 1
+    pool_maxconn: int = 5
 
 
 class ReMeLightMemoryConfig(BaseModel):
@@ -879,6 +922,19 @@ class AgentsRunningConfig(BaseModel):
         ),
     )
 
+    shell_command_executable: str = Field(
+        default="",
+        description=(
+            "Path to the shell used by execute_shell_command. "
+            "Linux/macOS: e.g. /bin/bash, /bin/zsh. "
+            "Windows: supports powershell.exe, pwsh.exe, or POSIX-like "
+            "shells such as Git Bash. "
+            "When empty, falls back to the $SHELL environment variable, "
+            "then to the platform default (/bin/sh on Unix, cmd.exe on "
+            "Windows)."
+        ),
+    )
+
     @model_validator(mode="after")
     def validate_llm_retry_backoff(self) -> "AgentsRunningConfig":
         """Validate LLM retry backoff relationships."""
@@ -921,6 +977,12 @@ class AgentsRunningConfig(BaseModel):
     )
 
     memory_manager_backend: str = Field(default="remelight")
+
+    adbpg_memory_config: Optional[ADBPGMemoryConfig] = Field(
+        default=None,
+        description="ADBPG memory configuration (used when "
+        "memory_manager_backend='adbpg')",
+    )
 
     reme_light_memory_config: ReMeLightMemoryConfig = Field(
         default_factory=ReMeLightMemoryConfig,
@@ -1162,6 +1224,23 @@ class LastDispatchConfig(BaseModel):
     session_id: str = ""
 
 
+class MCPOAuthConfig(BaseModel):
+    """OAuth 2.1 configuration for a remote MCP client.
+
+    Stores OAuth credentials and endpoints discovered via RFC 8414 /
+    RFC 9728.  Tokens are masked in API responses; stored plain-text in
+    agent.json (file is local to the user's workspace).
+    """
+
+    client_id: str = ""
+    scope: str = ""
+    access_token: str = ""
+    refresh_token: str = ""
+    expires_at: float = 0.0
+    token_endpoint: str = ""
+    auth_endpoint: str = ""
+
+
 class MCPClientConfig(BaseModel):
     """Configuration for a single MCP client."""
 
@@ -1177,6 +1256,7 @@ class MCPClientConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     cwd: str = ""
+    oauth: Optional[MCPOAuthConfig] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -1285,6 +1365,7 @@ class BuiltinToolConfig(BaseModel):
     )
 
 
+# pylint: disable=too-many-nested-blocks
 def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
     """Return a fresh copy of the canonical built-in tool definitions.
 
@@ -1422,6 +1503,7 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
         all_manifests = registry.get_all_plugin_manifests()
         for plugin_id, manifest in all_manifests.items():
             meta = manifest.get("meta", {})
+            # Support old format: meta.tool_name
             if meta.get("tool_name"):
                 tool_name = meta["tool_name"]
                 if tool_name not in tools:
@@ -1436,6 +1518,24 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
                         async_execution=False,
                         icon=meta.get("tool_icon", "🔧"),
                     )
+            # Support new format: meta.tools array
+            tools_list = meta.get("tools", [])
+            if isinstance(tools_list, list):
+                for tool_info in tools_list:
+                    if isinstance(tool_info, dict) and "name" in tool_info:
+                        tool_name = tool_info["name"]
+                        if tool_name not in tools:
+                            tools[tool_name] = BuiltinToolConfig(
+                                name=tool_name,
+                                enabled=False,
+                                description=tool_info.get(
+                                    "description",
+                                    f"Tool from plugin {plugin_id}",
+                                ),
+                                display_to_user=True,
+                                async_execution=False,
+                                icon=tool_info.get("icon", "🔧"),
+                            )
     except Exception:
         # Plugins not loaded yet, return hardcoded tools only
         pass

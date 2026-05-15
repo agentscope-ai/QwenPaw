@@ -109,6 +109,13 @@ class BaseChannel(ABC):
         """
         return []
 
+    # If True, streaming delta events (reasoning + message) are dispatched
+    # to ``on_streaming_start`` / ``on_streaming_delta`` / ``on_streaming_end``
+    # hooks *in addition to* the existing completed-message path.
+    # Subclasses that support real-time text streaming should set this to True
+    # (either as class attr or via __init__ / from_config).
+    streaming_enabled: bool = False
+
     def __init__(
         self,
         process: ProcessHandler,
@@ -121,12 +128,14 @@ class BaseChannel(ABC):
         allow_from: Optional[list] = None,
         deny_message: str = "",
         require_mention: bool = False,
+        streaming_enabled: bool = False,
     ):
         self._process = process
         self._on_reply_sent = on_reply_sent
         self._show_tool_details = show_tool_details
         self._filter_tool_messages = filter_tool_messages
         self._filter_thinking = filter_thinking
+        self.streaming_enabled = streaming_enabled
         self.dm_policy = dm_policy or "open"
         self.group_policy = group_policy or "open"
         self.allow_from = set(allow_from or [])
@@ -460,20 +469,172 @@ class BaseChannel(ABC):
                 f"This should not happen with UnifiedQueueManager.",
             )
 
+    _STREAMABLE_TYPES = {"reasoning", "message"}
+
+    def _resolve_stream_type(self, event: Any) -> str:
+        """Map event.type to a stream_type string.
+
+        Returns ``"reasoning"`` or ``"message"`` for streamable text,
+        or the raw type string (e.g. ``"plugin_call"``) otherwise.
+        """
+        msg_type = getattr(event, "type", None)
+        if msg_type is None:
+            return "message"
+        type_str = (
+            msg_type.value if hasattr(msg_type, "value") else str(msg_type)
+        )
+        return type_str
+
+    async def _dispatch_streaming_event(
+        self,
+        request: "AgentRequest",
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        msg_id_to_stream_type: Dict[str, str],
+        streaming_buffers: Dict[str, str],
+    ) -> bool:
+        """Dispatch streaming hooks for reasoning / message events.
+
+        Returns *True* if the event was consumed by the streaming
+        path (so the caller should skip ``on_event_message_completed``).
+        Non-streamable types (e.g. ``plugin_call``) return *False*,
+        falling through to the normal non-streaming path.
+        """
+        obj = getattr(event, "object", None)
+        status = getattr(event, "status", None)
+
+        if obj == "message" and status == RunStatus.InProgress:
+            return await self._on_stream_msg_start(
+                request,
+                to_handle,
+                event,
+                send_meta,
+                msg_id_to_stream_type,
+                streaming_buffers,
+            )
+        if obj == "content" and status == RunStatus.InProgress:
+            return await self._on_stream_content_delta(
+                request,
+                to_handle,
+                event,
+                send_meta,
+                msg_id_to_stream_type,
+                streaming_buffers,
+            )
+        if obj == "message" and status == RunStatus.Completed:
+            return await self._on_stream_msg_end(
+                request,
+                to_handle,
+                event,
+                send_meta,
+                msg_id_to_stream_type,
+                streaming_buffers,
+            )
+        return False
+
+    async def _on_stream_msg_start(
+        self,
+        request: "AgentRequest",
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        msg_id_to_stream_type: Dict[str, str],
+        streaming_buffers: Dict[str, str],
+    ) -> bool:
+        stream_type = self._resolve_stream_type(event)
+        if stream_type not in self._STREAMABLE_TYPES:
+            return False
+        msg_id = getattr(event, "id", None)
+        if msg_id:
+            msg_id_to_stream_type[msg_id] = stream_type
+        if stream_type == "reasoning" and self._filter_thinking:
+            return True
+        streaming_buffers[stream_type] = ""
+        await self.on_streaming_start(
+            request,
+            to_handle,
+            event,
+            send_meta,
+            stream_type,
+            accumulated_text="",
+        )
+        return True
+
+    async def _on_stream_content_delta(
+        self,
+        request: "AgentRequest",
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        msg_id_to_stream_type: Dict[str, str],
+        streaming_buffers: Dict[str, str],
+    ) -> bool:
+        if not getattr(event, "delta", False):
+            return False
+        content_msg_id = getattr(event, "msg_id", None) or ""
+        stream_type = msg_id_to_stream_type.get(
+            content_msg_id,
+            "",
+        )
+        if not stream_type or stream_type not in self._STREAMABLE_TYPES:
+            return False
+        if stream_type not in streaming_buffers:
+            return False
+        if stream_type == "reasoning" and self._filter_thinking:
+            return True
+        delta_text = getattr(event, "text", "") or ""
+        streaming_buffers[stream_type] = (
+            streaming_buffers.get(stream_type, "") + delta_text
+        )
+        await self.on_streaming_delta(
+            request,
+            to_handle,
+            event,
+            send_meta,
+            stream_type,
+            accumulated_text=streaming_buffers[stream_type],
+        )
+        return True
+
+    async def _on_stream_msg_end(
+        self,
+        request: "AgentRequest",
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        msg_id_to_stream_type: Dict[str, str],
+        streaming_buffers: Dict[str, str],
+    ) -> bool:
+        stream_type = self._resolve_stream_type(event)
+        msg_id = getattr(event, "id", None)
+        if msg_id:
+            msg_id_to_stream_type.pop(msg_id, None)
+        if stream_type not in self._STREAMABLE_TYPES:
+            return False
+        if stream_type in streaming_buffers:
+            if stream_type == "reasoning" and self._filter_thinking:
+                streaming_buffers.pop(stream_type, None)
+                return True
+            accumulated = streaming_buffers.pop(stream_type, "")
+            await self.on_streaming_end(
+                request,
+                to_handle,
+                event,
+                send_meta,
+                stream_type,
+                accumulated_text=accumulated,
+            )
+        return True
+
     async def _stream_with_tracker(
         self,
         payload: Any,
     ) -> AsyncGenerator[str, None]:
-        """Stream events through TaskTracker for task tracking.
+        """Stream events via TaskTracker, yielding SSE strings.
 
-        This method wraps _process and yields SSE-formatted events.
-        Called by TaskTracker.attach_or_start to enable task cancellation.
-
-        Args:
-            payload: Message payload (dict or AgentRequest)
-
-        Yields:
-            SSE-formatted event strings
+        When ``streaming_enabled``, streaming hooks are invoked for
+        reasoning / message events alongside the normal path.
         """
         request = self._payload_to_request(payload)
 
@@ -498,6 +659,8 @@ class BaseChannel(ABC):
 
         last_response = None
         process_iterator = None
+        msg_id_to_stream_type: Dict[str, str] = {}
+        streaming_buffers: Dict[str, str] = {}
         try:
             process_iterator = self._process(request)
             async for event in process_iterator:
@@ -508,6 +671,21 @@ class BaseChannel(ABC):
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)
 
+                # --- streaming path ---
+                handled_by_streaming = False
+                if self.streaming_enabled:
+                    handled_by_streaming = (
+                        await self._dispatch_streaming_event(
+                            request,
+                            to_handle,
+                            event,
+                            send_meta,
+                            msg_id_to_stream_type,
+                            streaming_buffers,
+                        )
+                    )
+
+                # --- non-streaming / fallback path ---
                 if obj == "content":
                     if await self.on_event_content(
                         request,
@@ -517,12 +695,13 @@ class BaseChannel(ABC):
                     ):
                         continue
                 if obj == "message" and status == RunStatus.Completed:
-                    await self.on_event_message_completed(
-                        request,
-                        to_handle,
-                        event,
-                        send_meta,
-                    )
+                    if not handled_by_streaming:
+                        await self.on_event_message_completed(
+                            request,
+                            to_handle,
+                            event,
+                            send_meta,
+                        )
                 elif obj == "response":
                     last_response = event
                     await self.on_event_response(request, event)
@@ -1036,6 +1215,57 @@ class BaseChannel(ABC):
             send_meta,
         )
         return True
+
+    # ------------------------------------------------------------------
+    # Streaming hooks — override in subclasses
+    # ------------------------------------------------------------------
+
+    async def on_streaming_start(
+        self,
+        request: "AgentRequest",
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Called when a new streaming segment begins.
+
+        *stream_type* is ``"reasoning"`` or ``"message"``.
+        ``accumulated_text`` is always ``""`` at this point.
+        """
+
+    async def on_streaming_delta(
+        self,
+        request: "AgentRequest",
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Called for each incremental text chunk.
+
+        ``accumulated_text`` contains all text received so far
+        for this *stream_type*, including the current delta.
+        Useful for channels that overwrite the message bubble
+        with full text on each update (e.g. WeCom).
+        """
+
+    async def on_streaming_end(
+        self,
+        request: "AgentRequest",
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Called when a streaming segment completes.
+
+        ``accumulated_text`` is the final full text for this
+        *stream_type*.
+        """
 
     async def on_event_message_completed(
         self,

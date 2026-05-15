@@ -2,7 +2,7 @@
 name: guidance
 description: "Answer user questions about QwenPaw installation and configuration: first locate and read local documentation, then distill the answer; if local information is insufficient, fall back to the official website documentation."
 metadata:
-  builtin_skill_version: "1.2"
+  builtin_skill_version: "1.3"
   qwenpaw:
     emoji: "🧭"
     requires: {}
@@ -22,13 +22,23 @@ Core principles:
 
 ### Step 1: Locate the Documentation Directory
 
+**Use built-in path resolution (works for all install methods)**
+
+```bash
+DOCS_DIR=$(python3 -c "from qwenpaw.constant import DOCS_DIR; print(DOCS_DIR or '')" 2>/dev/null)
+```
+
+If the above returns a non-empty path and the directory exists, use it directly and skip to Step 2.
+
+If it fails (e.g., older version without DOCS_DIR), fall back in the following order:
+
 **Check for documentation directory in memory**
 
 First, check whether there is a documentation directory in memory. If found, use it directly; otherwise, proceed to the next step.
 
 ```bash
 # Get the documentation directory from memory
-DOC_DIR=$(find ~/.qwenpaw/memory/ -type d -name "docs")
+DOCS_DIR=$(find ~/.qwenpaw/memory/ -type d -name "docs")
 ```
 
 If there is no documentation directory in memory, continue with the following logic.
@@ -39,15 +49,15 @@ Run the following script logic to obtain the variable $QWENPAW_ROOT:
 
 ```bash
 # Get the absolute path of the binary
-COP_PATH=$(which qwenpaw 2>/dev/null || whereis qwenpaw | awk '{print $2}')
+QWENPAW_PATH=$(which qwenpaw 2>/dev/null || whereis qwenpaw | awk '{print $2}')
 
 # Logical deduction: if the path contains .qwenpaw/bin/qwenpaw, the root is three levels up
 # Example: /path/to/QwenPaw/.qwenpaw/bin/qwenpaw -> /path/to/QwenPaw
-if [[ "$COP_PATH" == *".qwenpaw/bin/qwenpaw" ]]; then
-    QWENPAW_ROOT=$(echo "$COP_PATH" | sed 's/\/\.qwenpaw\/bin\/qwenpaw//')
+if [[ "$QWENPAW_PATH" == *".qwenpaw/bin/qwenpaw" ]]; then
+    QWENPAW_ROOT=$(echo "$QWENPAW_PATH" | sed 's/\/\.qwenpaw\/bin\/qwenpaw//')
 else
     # Fallback: try to get the parent of the parent directory
-    QWENPAW_ROOT=$(dirname $(dirname "$COP_PATH") 2>/dev/null || echo ".")
+    QWENPAW_ROOT=$(dirname $(dirname "$QWENPAW_PATH") 2>/dev/null || echo ".")
 fi
 
 echo "Detected QwenPaw Root: $QWENPAW_ROOT"
@@ -58,11 +68,11 @@ Use the derived $QWENPAW_ROOT to locate the documentation:
 
 ```bash
 # Construct the standard documentation path
-DOC_DIR="$QWENPAW_ROOT/website/public/docs/"
+DOCS_DIR="$QWENPAW_ROOT/website/public/docs/"
 
 # Check if the path exists and list files
-if [ -d "$DOC_DIR" ]; then
-    find "$DOC_DIR" -type f -name "*.md" | head -n 100
+if [ -d "$DOCS_DIR" ]; then
+    find "$DOCS_DIR" -type f -name "*.md" | head -n 100
 else
     # If the derived path is incorrect, perform a global fuzzy search
     find "$QWENPAW_ROOT" -type d -name "docs" | grep "website/public/docs"
@@ -78,7 +88,7 @@ If documentation is still not found, search for available documentation content 
 FILE_PATH=$(find . -type f -name "faq.en.md" -o -name "config.zh.md" | head -n 1)
 if [ -n "$FILE_PATH" ]; then
     # Use dirname to get the directory containing the file
-    DOC_DIR=$(dirname "$FILE_PATH")
+    DOCS_DIR=$(dirname "$FILE_PATH")
 fi
 ```
 
@@ -86,7 +96,7 @@ If a documentation directory is found, save it in memory in this format:
 
 ```markdown
 # Documentation Directory
-$DOC_DIR = <doc_path>
+$DOCS_DIR = <doc_path>
 ```
 
 ### Step 2: Documentation Search and Matching
@@ -97,7 +107,7 @@ Use the find command to list all matching documents in the target directory, and
 
 ```bash
 # List all matching documents
-find $DOC_DIR -type f -name "*.md"
+find $DOCS_DIR -type f -name "*.md"
 ```
 
 If no suitable document is found, read all documentation contents in the next step.

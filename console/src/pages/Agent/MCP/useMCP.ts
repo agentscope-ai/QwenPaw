@@ -127,5 +127,6 @@ export function useMCP() {
     updateClient,
     toggleEnabled,
     deleteClient,
+    refreshClients: loadClients,
   };
 }

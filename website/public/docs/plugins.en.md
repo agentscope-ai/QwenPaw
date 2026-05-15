@@ -9,6 +9,7 @@ The plugin system supports the following extension capabilities:
 - **Provider Plugins**: Add new LLM providers and models
 - **Hook Plugins**: Execute custom code during application startup/shutdown
 - **Command Plugins**: Register custom `/command` magic commands
+- **HTTP API Plugins**: Expose custom REST endpoints under `/api` via a FastAPI `APIRouter`
 - **Frontend Page Plugins**: Add custom pages to the sidebar
 - **Tool Renderer Plugins**: Customize how Agent tool-call results are displayed
 - **Behavior Extension Plugins**: Replace methods in frontend internal modules via the module registry
@@ -896,6 +897,168 @@ cp -r . ~/.qwenpaw/plugins/custom-greeting-plugin/
 qwenpaw app
 ```
 
+### Example 7: Expose a FastAPI Endpoint
+
+Backend plugins can expose their own HTTP endpoints by registering a
+`fastapi.APIRouter`. The router is mounted under `/api` + your prefix
+and is served by the same FastAPI app as QwenPaw's core API, so it
+shares CORS settings, the auth layer, and is included in
+`/openapi.json` / `/docs`.
+
+In this example we add a small `/api/pets` endpoint that returns a
+list of pets and lets the user add new ones.
+
+#### 1. Create plugin directory
+
+```bash
+mkdir pet-api-plugin && cd pet-api-plugin
+```
+
+#### 2. Create plugin.json
+
+```json
+{
+  "id": "pet-api-plugin",
+  "name": "Pet API Plugin",
+  "version": "1.0.0",
+  "description": "Expose a small REST API under /api/pets",
+  "author": "Your Name",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "dependencies": [],
+  "min_version": "1.1.5"
+}
+```
+
+#### 3. Create plugin.py
+
+```python
+# -*- coding: utf-8 -*-
+"""Pet API Plugin Entry Point."""
+
+import logging
+from typing import List
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from qwenpaw.plugins.api import PluginApi
+
+logger = logging.getLogger(__name__)
+
+
+class Pet(BaseModel):
+    """Pet model."""
+
+    id: int
+    name: str
+    species: str
+
+
+class PetCreate(BaseModel):
+    """Pet creation payload."""
+
+    name: str
+    species: str
+
+
+_PETS: List[Pet] = [
+    Pet(id=1, name="Mochi", species="cat"),
+    Pet(id=2, name="Bao", species="dog"),
+]
+
+
+def build_router() -> APIRouter:
+    """Build the plugin's APIRouter.
+
+    Routes are mounted under ``/api`` + the prefix passed to
+    ``register_http_router``. With ``prefix="/pets"`` the handlers
+    below are served at ``/api/pets`` and ``/api/pets/{pet_id}``.
+    """
+    router = APIRouter()
+
+    @router.get("", response_model=List[Pet])
+    def list_pets() -> List[Pet]:
+        """Return all pets."""
+        return list(_PETS)
+
+    @router.get("/{pet_id}", response_model=Pet)
+    def get_pet(pet_id: int) -> Pet:
+        """Return a single pet by id."""
+        for pet in _PETS:
+            if pet.id == pet_id:
+                return pet
+        raise HTTPException(status_code=404, detail="Pet not found")
+
+    @router.post("", response_model=Pet, status_code=201)
+    def create_pet(payload: PetCreate) -> Pet:
+        """Create a new pet."""
+        new_id = (max((p.id for p in _PETS), default=0)) + 1
+        pet = Pet(id=new_id, name=payload.name, species=payload.species)
+        _PETS.append(pet)
+        return pet
+
+    return router
+
+
+class PetApiPlugin:
+    """Pet API Plugin."""
+
+    def register(self, api: PluginApi):
+        """Register the HTTP router.
+
+        Args:
+            api: PluginApi instance
+        """
+        logger.info("Registering Pet API plugin...")
+
+        api.register_http_router(
+            build_router(),
+            prefix="/pets",
+            tags=["pets"],
+        )
+
+        logger.info("✓ Pet API registered at /api/pets")
+
+
+# Export plugin instance
+plugin = PetApiPlugin()
+```
+
+#### 4. Install and try it out
+
+```bash
+qwenpaw plugin install pet-api-plugin
+```
+
+Once QwenPaw is running:
+
+```bash
+# List pets
+curl http://127.0.0.1:8088/api/pets
+
+# Get one pet
+curl http://127.0.0.1:8088/api/pets/1
+
+# Create a pet
+curl -X POST http://127.0.0.1:8088/api/pets \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Luna", "species": "rabbit"}'
+```
+
+**Notes:**
+
+- `prefix` must start with `/` and must not be just `/` — use a
+  descriptive segment such as `/pets`. The full URL is always
+  `/api` + your prefix.
+- Each prefix can only be claimed by one plugin. Registering the
+  same prefix twice raises `ValueError`.
+- `tags` is optional; when omitted, routes are tagged
+  `plugin:<plugin_id>` automatically for OpenAPI grouping.
+- Routes are unmounted automatically when the plugin is uninstalled
+  or disabled.
+
 ## Dependency Management
 
 ### Using requirements.txt
@@ -1073,6 +1236,22 @@ api.register_shutdown_hook(
     priority: int = 100, # Priority (lower = earlier)
 )
 ```
+
+### register_http_router
+
+Mount a `fastapi.APIRouter` under `/api` + _prefix_.
+
+```python
+api.register_http_router(
+    router: APIRouter,             # fastapi.APIRouter instance
+    *,
+    prefix: str,                   # Path under /api, e.g. "/pets"
+    tags: Optional[List[str]] = None,  # OpenAPI tags (optional)
+)
+```
+
+See [Example 7](#example-7-expose-a-fastapi-endpoint) for a full
+walkthrough.
 
 ## Advanced Features
 

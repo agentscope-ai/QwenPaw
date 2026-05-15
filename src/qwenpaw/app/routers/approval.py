@@ -220,6 +220,7 @@ async def get_approval_list(
                 "request_id": pending.request_id,
                 "session_id": pending.session_id,
                 "root_session_id": pending.root_session_id,
+                "owner_agent_id": pending.owner_agent_id,
                 "agent_id": pending.agent_id,
                 "tool_name": pending.tool_name,
                 "severity": pending.severity,

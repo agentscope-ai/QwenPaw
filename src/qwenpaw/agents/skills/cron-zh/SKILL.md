@@ -2,7 +2,7 @@
 name: cron
 description: 仅在需要未来定时执行或周期执行任务时，使用本 skill。使用 qwenpaw cron list/create/get/state/pause/resume/delete/run 管理任务，并始终显式传入 --agent-id。
 metadata:
-  builtin_skill_version: "1.4"
+  builtin_skill_version: "1.6"
   qwenpaw:
     emoji: "⏰"
 ---
@@ -44,7 +44,7 @@ metadata:
 --agent-id <your_agent_id>
 ```
 
-你的 agent_id 在系统提示中的 Agent Identity 部分（Your agent id is ...）。  
+你的 agent_id 在系统提示中的 Agent Identity 部分（Your agent id is ...）。
 不得省略，否则任务可能错误创建到 default agent 的 workspace。
 
 ---
@@ -83,24 +83,59 @@ qwenpaw cron run <job_id> --agent-id <agent_id>
 - **text**：定时发送固定消息
 - **agent**：定时向 agent 提问，并把回复发送到目标 channel
 
+支持两种调度形态：
+- **cron**（`--schedule-type cron`）：经典 cron 周期（如每天 9 点、每 2 小时），与循环任务相对应
+- **scheduled**（`--schedule-type scheduled`）：日程任务（从 `--run-at` 开始，可一次性或按天重复）
+
+### 调度选择规则（必须遵守）
+- 用户表达“每小时/每天/每周”且不强调具体起始日时，优先用 `cron`
+- 用户表达“明天/下周一/从某天开始/未来两周/有明确截止时间”时，优先用 `scheduled`
+- `scheduled` 不重复时（即一次性任务）：只传 `--run-at`，不要传 `--repeat-*`
+- `scheduled` 重复时：传 `--repeat-every-days`，并根据结束条件传：
+  - 限定次数：`--repeat-end-type count --repeat-count N`
+  - 限定结束时间：`--repeat-end-type until --repeat-until <ISO8601>`
+  - 不设结束：`--repeat-end-type never`
+
+### 超时设置
+
+默认超时 120 秒（2 分钟）。对于较长的 agent 任务，应显式设置更大的超时时间，避免任务被提前取消：
+
+```bash
+--timeout 600   # 10 分钟
+--timeout 3600   # 1 小时
+```
+
+**核心规则**：
+1. 如果 agent 任务涉及联网搜索、代码执行或多步工具调用，建议设置 `--timeout 600` 或更高
+2. **timeout 必须小于调度周期**，避免前一次执行未完成时下一次已触发，导致任务重叠运行。例如：
+   - 每 15 分钟执行：`--timeout` 不应超过 900 秒
+   - 每 10 分钟执行：`--timeout` 建议不超过间隔的 80%（即 480 秒）
+   - 每天执行：`--timeout` 可以设置较大，不需要特别限制
+3. 对于高频任务（间隔 ≤ 10 分钟），遵循 **timeout ≤ 调度间隔的 80%**；低频任务（每小时及以上）按实际需要设置即可
+
 ### 创建前最少要确认
 - `--type`
 - `--name`
-- `--cron`
+- `--schedule-type`
+- `--cron`（当 `--schedule-type cron`）
+- `--run-at`（当 `--schedule-type scheduled`）
 - `--channel`
 - `--target-user`
 - `--target-session`
 - `--text`
 - `--agent-id`
+- `--timeout`（对于 agent 类型任务，根据预期执行时间设置合适的超时）
 
 如果缺少这些信息，应先向用户确认，再创建任务。
 
 ### 创建示例
 
 ```bash
+# 循环任务（对应 --schedule-type cron）
 qwenpaw cron create \
   --agent-id <agent_id> \
   --type text \
+  --schedule-type cron \
   --name "每日早安" \
   --cron "0 9 * * *" \
   --channel imessage \
@@ -110,15 +145,51 @@ qwenpaw cron create \
 ```
 
 ```bash
+# 循环任务（对应 --schedule-type cron）
 qwenpaw cron create \
   --agent-id <agent_id> \
   --type agent \
+  --schedule-type cron \
   --name "检查待办" \
   --cron "0 */2 * * *" \
   --channel dingtalk \
   --target-user "CHANGEME" \
   --target-session "CHANGEME" \
-  --text "我有什么待办事项？"
+  --text "我有什么待办事项？" \
+  --timeout 600
+```
+
+```bash
+# 日程一次性：明天 9 点提醒（不重复）
+qwenpaw cron create \
+  --agent-id <agent_id> \
+  --type text \
+  --schedule-type scheduled \
+  --name "明早提醒" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --channel dingtalk \
+  --target-user "CHANGEME" \
+  --target-session "CHANGEME" \
+  --text "9 点开组会" \
+  --save-result-to-inbox
+```
+
+```bash
+# 日程重复：未来两周每天 9 点（共 14 次）
+qwenpaw cron create \
+  --agent-id <agent_id> \
+  --type text \
+  --schedule-type scheduled \
+  --name "未来两周组会提醒" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --repeat-every-days 1 \
+  --repeat-end-type count \
+  --repeat-count 14 \
+  --channel dingtalk \
+  --target-user "CHANGEME" \
+  --target-session "CHANGEME" \
+  --text "9 点开组会" \
+  --save-result-to-inbox
 ```
 
 ### 从 JSON 创建
@@ -186,6 +257,7 @@ qwenpaw cron list --agent-id <agent_id>
 - 修改/暂停/删除前，先 `qwenpaw cron list --agent-id <agent_id>`
 - 排查问题时，用 `qwenpaw cron state <job_id> --agent-id <agent_id>`
 - 给用户展示命令时，提供完整、可直接复制的版本
+- 用户提到“结果进收件箱/不进收件箱”时，显式加 `--save-result-to-inbox` 或 `--no-save-result-to-inbox`，否则不要添加该项。
 
 ---
 

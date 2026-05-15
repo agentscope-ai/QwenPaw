@@ -2,26 +2,28 @@
 
 ## Roadmap table
 
-| Area                                  | Item                                                                                                         | Status               |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------- |
-| **Horizontal Expansion**              | More channels, models, skills, MCPs — **community contributions welcome**                                    | Seeking Contributors |
-| **Existing Feature Extension**        | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome** | Seeking Contributors |
-| **Multi-agent**                       | HiClaw integration: multi-tenant, cross-domain collaboration                                                 | In Progress          |
-|                                       | Agent Swarm / Team                                                                                           | Planned              |
-| **Small + Large Model Collaboration** | Intelligent switching between on-device and cloud models                                                     | In Progress          |
-| **QwenPaw Custom Models**             | Multimodal model support                                                                                     | Planned              |
-| **Memory System**                     | Context-aware proactive delivery                                                                             | In Progress          |
-| **Context Management**                | Abstract design                                                                                              | In Progress          |
-|                                       | Intelligent context compression                                                                              | Planned              |
-|                                       | User-selectable compression (fine-grained control)                                                           | Planned              |
-| **Versioning & Migration**            | One-click packaging; multi-version / multi-device migration                                                  | In Progress          |
-|                                       | Agent protocol: QwenPaw → QwenPaw                                                                            | In Progress          |
-|                                       | Agent protocol: OpenClaw → QwenPaw                                                                           | Planned              |
-|                                       | File area / chat rollback                                                                                    | In Progress          |
-| **Reliability & Self-operations**     | Self-update                                                                                                  | Planned              |
-|                                       | Failure rollback                                                                                             | Planned              |
-| **Security**                          | Fine-grained security controls (rule-based)                                                                  | In Progress          |
-|                                       | LLM-based security controls                                                                                  | In Progress          |
+| Area                           | Item                                                                                                         | Status               |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------ | -------------------- |
+| **Horizontal Expansion**       | More channels, models, skills, MCPs — **community contributions welcome**                                    | Seeking Contributors |
+| **Existing Feature Extension** | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome** | Seeking Contributors |
+| **Client Experience**          | Install, update, and packaging improvements                                                                  | In Progress          |
+| **Models**                     | Intelligent on-device / cloud model switching                                                                | In Progress          |
+|                                | OAuth                                                                                                        | Planned              |
+|                                | Response API                                                                                                 | Planned              |
+| **Proactivity**                | Cron jobs and heartbeat upgrades                                                                             | In Progress          |
+|                                | Proactive briefings and custom push                                                                          | In Progress          |
+|                                | Insight system: discover needs via conversation and interaction                                              | Planned              |
+| **Workspace**                  | File access control with Sandbox integration                                                                 | In Progress          |
+|                                | Subfolder layout (config, production files, etc.)                                                            | Planned              |
+| **Coding**                     | LSP, dedicated prompts, workspace versioning, runtime, and supporting infra                                  | Planned              |
+|                                | Lightweight native APIs                                                                                      | Planned              |
+|                                | Tool self-evolution                                                                                          | Planned              |
+|                                | Compatibility with existing agents (e.g. Claude Code)                                                        | Planned              |
+| **Multi-agent**                | Group chat                                                                                                   | Planned              |
+|                                | Subagent                                                                                                     | Planned              |
+|                                | HiClaw enterprise capabilities                                                                               | Planned              |
+| **Context Management**         | Intelligent context compression                                                                              | In Progress          |
+|                                | User-selectable compression (fine-grained control)                                                           | Planned              |
 
 _Status:_ _In Progress_ — actively being worked on; _Planned_ — queued or under design, also welcome contributions; _Seeking Contributors_ — we strongly encourage community contributions.
 

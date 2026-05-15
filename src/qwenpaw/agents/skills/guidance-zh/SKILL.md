@@ -2,7 +2,7 @@
 name: guidance
 description: "回答用户关于 QwenPaw 安装与配置的问题：优先定位并阅读本地文档，再提炼答案；若本地信息不足，兜底访问官网文档。"
 metadata:
-  builtin_skill_version: "1.2"
+  builtin_skill_version: "1.3"
   qwenpaw:
     emoji: "🧭"
     requires: {}
@@ -23,13 +23,23 @@ metadata:
 
 ### 第一步：定位文档位置
 
+**优先使用内置路径解析（适用于所有安装方式）**
+
+```bash
+DOCS_DIR=$(python3 -c "from qwenpaw.constant import DOCS_DIR; print(DOCS_DIR or '')" 2>/dev/null)
+```
+
+如果上面获取到了非空路径且目录存在，直接使用，跳到第二步。
+
+如果获取失败（例如旧版本未包含 DOCS_DIR），按以下顺序 fallback：
+
 **查找记忆中的文档目录**
 
 首先你可以查看memory中是否有文档目录，如果有则直接使用，如果没有则继续执行下一步。
 
 ```bash
 # 获取memory中的文档目录
-DOC_DIR=$(find ~/.qwenpaw/memory/ -type d -name "docs")
+DOCS_DIR=$(find ~/.qwenpaw/memory/ -type d -name "docs")
 ```
 
 如果 memory 中没有文档目录，则继续执行下面的逻辑。
@@ -40,15 +50,15 @@ DOC_DIR=$(find ~/.qwenpaw/memory/ -type d -name "docs")
 
 ```bash
 # 获取二进制绝对路径
-COP_PATH=$(which qwenpaw 2>/dev/null || whereis qwenpaw | awk '{print $2}')
+QWENPAW_PATH=$(which qwenpaw 2>/dev/null || whereis qwenpaw | awk '{print $2}')
 
 # 逻辑推导：如果路径包含 .qwenpaw/bin/qwenpaw，则根目录在其上三层
 # 例如：/path/to/QwenPaw/.qwenpaw/bin/qwenpaw -> /path/to/QwenPaw
-if [[ "$COP_PATH" == *".qwenpaw/bin/qwenpaw" ]]; then
-    QWENPAW_ROOT=$(echo "$COP_PATH" | sed 's/\/\.qwenpaw\/bin\/qwenpaw//')
+if [[ "$QWENPAW_PATH" == *".qwenpaw/bin/qwenpaw" ]]; then
+    QWENPAW_ROOT=$(echo "$QWENPAW_PATH" | sed 's/\/\.qwenpaw\/bin\/qwenpaw//')
 else
     # 兜底：尝试获取所在目录的父目录
-    QWENPAW_ROOT=$(dirname $(dirname "$COP_PATH") 2>/dev/null || echo ".")
+    QWENPAW_ROOT=$(dirname $(dirname "$QWENPAW_PATH") 2>/dev/null || echo ".")
 fi
 
 echo "Detected QwenPaw Root: $QWENPAW_ROOT"
@@ -59,11 +69,11 @@ echo "Detected QwenPaw Root: $QWENPAW_ROOT"
 
 ```bash
 # 组合标准文档路径
-DOC_DIR="$QWENPAW_ROOT/website/public/docs/"
+DOCS_DIR="$QWENPAW_ROOT/website/public/docs/"
 
 # 检查路径是否存在并列出文件
-if [ -d "$DOC_DIR" ]; then
-    find "$DOC_DIR" -type f -name "*.md" | head -n 100
+if [ -d "$DOCS_DIR" ]; then
+    find "$DOCS_DIR" -type f -name "*.md" | head -n 100
 else
     # 如果推导路径不对，执行全局模糊搜索
     find "$QWENPAW_ROOT" -type d -name "docs" | grep "website/public/docs"
@@ -78,14 +88,14 @@ fi
 FILE_PATH=$(find . -type f -name "faq.en.md" -o -name "config.zh.md" | head -n 1)
 if [ -n "$FILE_PATH" ]; then
     # 使用 dirname 获取该文件所在的目录
-    DOC_DIR=$(dirname "$FILE_PATH")
+    DOCS_DIR=$(dirname "$FILE_PATH")
 fi
 ```
 如果找到了文档目录，请你记录在 memory 中，格式为：
 
 ```markdown
 # 文档目录
-$DOC_DIR = <doc_path>
+$DOCS_DIR = <doc_path>
 ```
 
 ### 第二步：文档检索与匹配
@@ -96,7 +106,7 @@ $DOC_DIR = <doc_path>
 
 ```bash
 # 列出所有符合后缀的文档
-find $DOC_DIR -type f -name "*.md"
+find $DOCS_DIR -type f -name "*.md"
 ```
 
 如果没有合适的文档，则在下一步阅读所有文档内容。

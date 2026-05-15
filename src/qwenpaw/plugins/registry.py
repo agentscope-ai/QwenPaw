@@ -6,7 +6,50 @@ from typing import Any, Callable, Dict, List, Optional, Type
 from dataclasses import dataclass, field
 import logging
 
+from fastapi import APIRouter
+
 logger = logging.getLogger(__name__)
+
+# Registered on the console SPA catch-all in ``_app.py`` so plugin HTTP
+# routes can be inserted *before* it (routes appended later would lose).
+_CONSOLE_SPA_CATCHALL_ROUTE_NAME = "qwenpaw_console_spa_catchall"
+
+
+def _find_console_spa_route_index(app: Any) -> Optional[int]:
+    """Return the index of the SPA ``/{full_path:path}`` route if present."""
+    routes = getattr(app.router, "routes", None)
+    if routes is None:
+        return None
+    for i, route in enumerate(routes):
+        if getattr(route, "name", None) == _CONSOLE_SPA_CATCHALL_ROUTE_NAME:
+            return i
+    return None
+
+
+def _mount_plugin_http_on_app(
+    app: Any,
+    router: APIRouter,
+    *,
+    full_path_prefix: str,
+    tags: Optional[List[Any]],
+) -> List[Any]:
+    """Include *router* on *app* so it matches before the console SPA route."""
+    routes = app.router.routes
+    spa_idx = _find_console_spa_route_index(app)
+    n_before = len(routes)
+    app.include_router(router, prefix=full_path_prefix, tags=tags)
+    added = routes[n_before:]
+    del routes[n_before:]
+    if spa_idx is not None:
+        for route in reversed(added):
+            routes.insert(spa_idx, route)
+    else:
+        routes.extend(added)
+    # Invalidate the cached OpenAPI schema so the next /openapi.json
+    # request reflects the newly added plugin routes. FastAPI caches
+    # the schema on first access and never regenerates it otherwise.
+    app.openapi_schema = None
+    return list(added)
 
 
 @dataclass
@@ -40,7 +83,16 @@ class ControlCommandRegistration:
     priority_level: int = 10
 
 
-class PluginRegistry:
+@dataclass
+class HttpRouterRegistration:
+    """HTTP routes contributed by a backend plugin under ``/api``."""
+
+    plugin_id: str
+    prefix: str
+    routes: List[Any]
+
+
+class PluginRegistry:  # pylint:disable=too-many-public-methods
     """Central plugin registry (Singleton).
 
     This registry manages all plugin registrations and provides
@@ -69,8 +121,130 @@ class PluginRegistry:
         self._control_commands: List[ControlCommandRegistration] = []
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
+        self._plugin_http_app: Optional[Any] = None
+        self._http_router_registrations: List[HttpRouterRegistration] = []
+        self._http_prefix_to_plugin: Dict[str, str] = {}
 
         self._initialized = True
+
+    def set_plugin_http_app(self, app: Any) -> None:
+        """Attach the FastAPI application used to mount plugin HTTP routes.
+
+        Must be called once before any ``register_http_router`` (typically
+        from application lifespan before ``load_all_plugins``).
+
+        Args:
+            app: The root ``FastAPI`` instance.
+        """
+        self._plugin_http_app = app
+
+    def register_http_router(
+        self,
+        plugin_id: str,
+        router: APIRouter,
+        *,
+        prefix: str,
+        tags: Optional[List[Any]] = None,
+    ) -> None:
+        """Mount a plugin ``APIRouter`` at ``/api`` + *prefix*.
+
+        Args:
+            plugin_id: Owning plugin id
+            router: Router defining plugin HTTP handlers
+            prefix: URL prefix under ``/api``, e.g. ``/pets`` for
+                ``GET /api/pets/...``. Must start with ``/`` and must not
+                end with ``/`` (except the single slash ``/`` is not allowed).
+            tags: Optional OpenAPI tags for included routes
+
+        Raises:
+            RuntimeError: If the FastAPI app was not configured.
+            ValueError: On invalid *prefix* or duplicate prefix.
+        """
+        http_app = self._plugin_http_app
+        if http_app is None:
+            raise RuntimeError(
+                "Cannot register plugin HTTP routes: FastAPI app was not "
+                "configured (internal setup error).",
+            )
+
+        normalized = prefix.strip()
+        if not normalized.startswith("/"):
+            normalized = "/" + normalized
+        normalized = normalized.rstrip("/") or "/"
+        if normalized == "/":
+            raise ValueError(
+                "Plugin HTTP prefix must not be '/' alone; use a path "
+                "segment such as '/pets'.",
+            )
+
+        if normalized in self._http_prefix_to_plugin:
+            owner = self._http_prefix_to_plugin[normalized]
+            raise ValueError(
+                f"Plugin HTTP prefix '{normalized}' is already registered "
+                f"by plugin '{owner}'",
+            )
+
+        effective_tags: Optional[List[Any]]
+        if tags is not None:
+            effective_tags = list(tags)
+        else:
+            effective_tags = [f"plugin:{plugin_id}"]
+
+        full_prefix = f"/api{normalized}"
+        added = _mount_plugin_http_on_app(
+            http_app,
+            router,
+            full_path_prefix=full_prefix,
+            tags=effective_tags,
+        )
+
+        self._http_router_registrations.append(
+            HttpRouterRegistration(
+                plugin_id=plugin_id,
+                prefix=normalized,
+                routes=added,
+            ),
+        )
+        self._http_prefix_to_plugin[normalized] = plugin_id
+        logger.info(
+            "Registered HTTP routes for plugin '%s' at prefix '/api%s'",
+            plugin_id,
+            normalized,
+        )
+
+    def get_http_router_registrations(self) -> List[HttpRouterRegistration]:
+        """Return a copy of HTTP router registrations (for diagnostics)."""
+        return list(self._http_router_registrations)
+
+    def _unregister_plugin_http_routes(self, plugin_id: str) -> None:
+        http_app = self._plugin_http_app
+        if http_app is None:
+            return
+
+        to_drop = [
+            reg
+            for reg in self._http_router_registrations
+            if reg.plugin_id == plugin_id
+        ]
+        routes = http_app.router.routes
+        for reg in to_drop:
+            self._http_prefix_to_plugin.pop(reg.prefix, None)
+            for route in reg.routes:
+                try:
+                    routes.remove(route)
+                except ValueError:
+                    logger.warning(
+                        "Could not remove plugin HTTP route %r for '%s' "
+                        "(already removed?)",
+                        getattr(route, "path", route),
+                        plugin_id,
+                    )
+
+        self._http_router_registrations = [
+            r
+            for r in self._http_router_registrations
+            if r.plugin_id != plugin_id
+        ]
 
     def register_provider(
         self,
@@ -290,6 +464,44 @@ class PluginRegistry:
         """
         return self._plugin_manifests.get(plugin_id)
 
+    def unregister_plugin(self, plugin_id: str) -> None:
+        """Remove all in-memory registrations for a plugin.
+
+        Clears manifest, providers, hooks, and control commands
+        that were registered under the given plugin_id.  Does not
+        touch disk or agent configurations.
+
+        Args:
+            plugin_id: Plugin identifier to remove
+        """
+        self._unregister_plugin_http_routes(plugin_id)
+
+        self._plugin_manifests.pop(plugin_id, None)
+
+        providers_to_remove = [
+            pid
+            for pid, reg in self._providers.items()
+            if reg.plugin_id == plugin_id
+        ]
+        for pid in providers_to_remove:
+            del self._providers[pid]
+            logger.info(
+                f"Unregistered provider '{pid}' " f"for plugin '{plugin_id}'",
+            )
+
+        self._startup_hooks = [
+            h for h in self._startup_hooks if h.plugin_id != plugin_id
+        ]
+        self._shutdown_hooks = [
+            h for h in self._shutdown_hooks if h.plugin_id != plugin_id
+        ]
+        self._control_commands = [
+            c for c in self._control_commands if c.plugin_id != plugin_id
+        ]
+        logger.info(
+            f"Unregistered all entries for plugin '{plugin_id}'",
+        )
+
     def get_plugin_id_for_tool(self, tool_name: str) -> Optional[str]:
         """Get plugin ID that provides a specific tool.
 
@@ -301,8 +513,18 @@ class PluginRegistry:
         """
         for plugin_id, manifest in self._plugin_manifests.items():
             meta = manifest.get("meta", {})
+            # Check old format: meta.tool_name
             if meta.get("tool_name") == tool_name:
                 return plugin_id
+            # Check new format: meta.tools array
+            tools = meta.get("tools", [])
+            if isinstance(tools, list):
+                for tool in tools:
+                    if (
+                        isinstance(tool, dict)
+                        and tool.get("name") == tool_name
+                    ):
+                        return plugin_id
         return None
 
     def get_tool_config(

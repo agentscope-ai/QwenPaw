@@ -8,6 +8,7 @@ import re
 import logging
 
 import aiofiles
+import aiofiles.os
 
 from ...constant import TRUNCATION_NOTICE_MARKER
 
@@ -17,8 +18,8 @@ logger = logging.getLogger(__name__)
 # Default truncation limit
 DEFAULT_MAX_BYTES = 50 * 1024
 
-# Maximum file size to read into memory (1GB)
-MAX_FILE_READ_BYTES = 1024 * 1024 * 1024
+# Maximum file size to read into memory (200MB)
+MAX_FILE_READ_BYTES = 200 * 1024 * 1024
 
 
 # pylint: disable=too-many-return-statements
@@ -219,6 +220,9 @@ async def read_file_safe(
     Returns:
         File content as string (up to max_bytes).
     """
+    stat_result = await aiofiles.os.stat(file_path)
+    read_size = min(stat_result.st_size, max_bytes)
+
     # Use utf-8-sig to auto-remove BOM if present, compatible with plain utf-8
     try:
         async with aiofiles.open(
@@ -226,7 +230,7 @@ async def read_file_safe(
             "r",
             encoding="utf-8-sig",
         ) as f:
-            return await f.read(max_bytes)
+            return await f.read(read_size)
     except UnicodeDecodeError:
         async with aiofiles.open(
             file_path,
@@ -234,4 +238,4 @@ async def read_file_safe(
             encoding="utf-8-sig",
             errors="ignore",
         ) as f:
-            return await f.read(max_bytes)
+            return await f.read(read_size)

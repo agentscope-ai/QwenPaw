@@ -112,6 +112,22 @@ SECRET_DIR = (
 
 PROJECT_NAME = "QwenPaw"
 
+
+def _resolve_docs_dir() -> Path | None:
+    """Find QwenPaw documentation directory across all install methods."""
+    _pkg_docs = Path(__file__).resolve().parent / "docs"
+    if _pkg_docs.is_dir() and any(_pkg_docs.glob("*.md")):
+        return _pkg_docs
+    _src_docs = (
+        Path(__file__).resolve().parents[2] / "website" / "public" / "docs"
+    )
+    if _src_docs.is_dir() and any(_src_docs.glob("*.md")):
+        return _src_docs
+    return None
+
+
+DOCS_DIR: Path | None = _resolve_docs_dir()
+
 # Default media directory for channels (cross-platform)
 DEFAULT_MEDIA_DIR = WORKING_DIR / "media"
 
@@ -166,6 +182,7 @@ HEARTBEAT_FILE = EnvVarLoader.get_str("QWENPAW_HEARTBEAT_FILE", "HEARTBEAT.md")
 HEARTBEAT_DEFAULT_EVERY = "6h"
 HEARTBEAT_DEFAULT_TARGET = "main"
 HEARTBEAT_TARGET_LAST = "last"
+HEARTBEAT_TARGET_INBOX = "inbox"
 
 # Debug history file for /dump_history and /load_history commands
 DEBUG_HISTORY_FILE = EnvVarLoader.get_str(

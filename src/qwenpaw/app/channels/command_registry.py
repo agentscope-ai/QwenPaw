@@ -258,6 +258,26 @@ class CommandRegistry:
         """
         return dict(self._command_to_level)
 
+    def unregister_command(self, command_prefix: str) -> bool:
+        """Remove a command from the priority registry.
+
+        Args:
+            command_prefix: Command prefix to remove (e.g. ``"/mystatus"``).
+
+        Returns:
+            ``True`` if the command was found and removed, ``False``
+            otherwise.
+        """
+        key = command_prefix.lower()
+        if key not in self._command_to_level:
+            logger.warning(
+                f"unregister_command: '{command_prefix}' not registered",
+            )
+            return False
+        del self._command_to_level[key]
+        logger.info(f"Unregistered command from priority registry: {key}")
+        return True
+
     def is_registered(self, command_prefix: str) -> bool:
         """Check if a command is registered.
 

@@ -53,6 +53,17 @@ class BackupMeta(BaseModel):
         default_factory=dict,
         description="System information (OS, Python version, etc.)",
     )
+    signature: Optional[str] = Field(
+        default=None,
+        description="Backup HMAC signature in '<scheme>:<hex>' format",
+    )
+    imported_via_trust_foreign: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Trust state marker: None=legacy/unknown, False=local signed, "
+            "True=trusted foreign/legacy backup."
+        ),
+    )
 
 
 class CreateBackupRequest(BaseModel):
@@ -106,6 +117,17 @@ class RestoreBackupRequest(BaseModel):
             "ghost entries when include_agents is False."
         ),
     )
+    preserve_local_protected_config: Optional[bool] = Field(
+        default=None,
+        description=(
+            "When None, preserve local critical settings for trusted-foreign "
+            "backups and fully restore local signed backups."
+        ),
+    )
+    trust_legacy: bool = Field(
+        default=False,
+        description="Explicitly trust and sign an unsigned legacy backup.",
+    )
 
 
 class DeleteBackupsRequest(BaseModel):
@@ -130,3 +152,18 @@ class BackupConflictError(Exception):
     def __init__(self, existing_meta: BackupMeta) -> None:
         self.existing_meta = existing_meta
         super().__init__(f"backup_conflict: {existing_meta.id}")
+
+
+class BackupValidationError(ValueError):
+    """Raised for user-actionable backup validation failures."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        details: dict[str, object] | None = None,
+    ) -> None:
+        self.code = code
+        self.message = message
+        self.details = details or {}
+        super().__init__(message)

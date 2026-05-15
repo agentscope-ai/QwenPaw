@@ -1,0 +1,121 @@
+{
+  "id": "wan27-tool",
+  "name": "Wan 2.7 Video Generation Tool",
+  "version": "1.0.0",
+  "description": "Generate videos using Alibaba Wan 2.7 models (text-to-video, image-to-video, reference-to-video)",
+  "author": "QwenPaw Team",
+  "entry": {
+    "backend": "wan27.py"
+  },
+  "dependencies": ["dashscope>=1.25.16", "httpx>=0.24.0"],
+  "min_version": "1.1.6",
+  "meta": {
+    "tools": [
+      {
+        "name": "text_to_video_wan",
+        "description": "Generate videos from text prompts using Wan 2.7",
+        "icon": "🎬",
+        "requires_config": true,
+        "config_fields": [
+          {
+            "name": "api_key",
+            "label": "DashScope API Key",
+            "type": "password",
+            "required": true,
+            "placeholder": "sk-...",
+            "help": "Get your API key from https://bailian.console.aliyun.com/"
+          },
+          {
+            "name": "endpoint",
+            "label": "API Endpoint",
+            "type": "text",
+            "required": false,
+            "placeholder": "https://dashscope.aliyuncs.com/api/v1",
+            "help": "Beijing: https://dashscope.aliyuncs.com/api/v1  Singapore: https://dashscope-intl.aliyuncs.com/api/v1"
+          },
+          {
+            "name": "timeout",
+            "label": "Request Timeout (seconds)",
+            "type": "number",
+            "required": false,
+            "placeholder": "600",
+            "min": 60,
+            "max": 1800,
+            "help": "Video generation usually takes 1-5 minutes. Default: 600s"
+          }
+        ]
+      },
+      {
+        "name": "image_to_video_wan",
+        "description": "Generate videos from images using Wan 2.7 (first-frame / first-last-frame / audio-driven / video-continuation modes)",
+        "icon": "🎞️",
+        "requires_config": true,
+        "config_fields": [
+          {
+            "name": "api_key",
+            "label": "DashScope API Key",
+            "type": "password",
+            "required": true,
+            "placeholder": "sk-...",
+            "help": "Get your API key from https://bailian.console.aliyun.com/"
+          },
+          {
+            "name": "endpoint",
+            "label": "API Endpoint",
+            "type": "text",
+            "required": false,
+            "placeholder": "https://dashscope.aliyuncs.com/api/v1",
+            "help": "Beijing: https://dashscope.aliyuncs.com/api/v1  Singapore: https://dashscope-intl.aliyuncs.com/api/v1"
+          },
+          {
+            "name": "timeout",
+            "label": "Request Timeout (seconds)",
+            "type": "number",
+            "required": false,
+            "placeholder": "600",
+            "min": 60,
+            "max": 1800,
+            "help": "Video generation usually takes 1-5 minutes. Default: 600s"
+          }
+        ]
+      },
+      {
+        "name": "reference_to_video_wan",
+        "description": "Generate videos with character/object references using Wan 2.7",
+        "icon": "🎭",
+        "requires_config": true,
+        "config_fields": [
+          {
+            "name": "api_key",
+            "label": "DashScope API Key",
+            "type": "password",
+            "required": true,
+            "placeholder": "sk-...",
+            "help": "Get your API key from https://bailian.console.aliyun.com/"
+          },
+          {
+            "name": "endpoint",
+            "label": "API Endpoint",
+            "type": "text",
+            "required": false,
+            "placeholder": "https://dashscope.aliyuncs.com/api/v1",
+            "help": "Beijing: https://dashscope.aliyuncs.com/api/v1  Singapore: https://dashscope-intl.aliyuncs.com/api/v1"
+          },
+          {
+            "name": "timeout",
+            "label": "Request Timeout (seconds)",
+            "type": "number",
+            "required": false,
+            "placeholder": "600",
+            "min": 60,
+            "max": 1800,
+            "help": "Video generation usually takes 1-5 minutes. Default: 600s"
+          }
+        ]
+      }
+    ],
+    "api_key_url": "https://bailian.console.aliyun.com/",
+    "api_key_hint": "Get your DashScope API key from Alibaba Cloud Bailian console",
+    "model_url": "https://help.aliyun.com/zh/model-studio/wanx-video-generation-api"
+  }
+}

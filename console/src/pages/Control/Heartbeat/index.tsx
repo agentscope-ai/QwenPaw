@@ -61,6 +61,7 @@ type HeartbeatFormValues = Omit<HeartbeatConfig, "every"> & {
 const TARGET_OPTIONS = [
   { value: "main", labelKey: "heartbeat.targetMain" },
   { value: "last", labelKey: "heartbeat.targetLast" },
+  { value: "inbox", labelKey: "heartbeat.targetInbox" },
 ];
 
 const EVERY_UNIT_OPTIONS: { value: EveryUnit; labelKey: string }[] = [

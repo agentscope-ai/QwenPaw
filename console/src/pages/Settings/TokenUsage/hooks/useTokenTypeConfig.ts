@@ -107,7 +107,8 @@ export function useTokenTypeConfig({
           tickCount,
           labelFormatter: (d: string) => {
             const date = dayjs(d);
-            return date.format("MM-DD");
+            const crossesYear = startDate.year() !== endDate.year();
+            return crossesYear ? date.format("YY/MM-DD") : date.format("MM-DD");
           },
           grid: null,
         },

@@ -29,10 +29,17 @@ logger = logging.getLogger(__name__)
 class GeminiProvider(Provider):
     """Provider implementation for Google Gemini API."""
 
+    def _build_default_headers(self) -> dict:
+        return dict(self.custom_headers) if self.custom_headers else {}
+
     def _client(self, timeout: float = 10) -> Any:
+        headers = self._build_default_headers() or None
         return genai.Client(
             api_key=self.api_key,
-            http_options=genai_types.HttpOptions(timeout=int(timeout * 1000)),
+            http_options=genai_types.HttpOptions(
+                timeout=int(timeout * 1000),
+                headers=headers,
+            ),
         )
 
     @staticmethod
@@ -134,10 +141,17 @@ class GeminiProvider(Provider):
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.model import GeminiChatModel
 
+        client_kwargs: dict = {}
+        headers = self._build_default_headers()
+        if headers:
+            client_kwargs["http_options"] = genai_types.HttpOptions(
+                headers=headers,
+            )
         return GeminiChatModel(
             model_name=model_id,
             stream=True,
             api_key=self.api_key,
+            client_kwargs=client_kwargs or None,
             generate_kwargs=self.get_effective_generate_kwargs(model_id),
         )
 

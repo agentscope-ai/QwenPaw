@@ -31,6 +31,10 @@ export interface ProviderInfo {
   api_key: string;
   base_url: string;
   generate_kwargs: Record<string, unknown>;
+  /** Custom HTTP headers sent with every request to this provider. */
+  custom_headers?: Record<string, string>;
+  /** Authentication mode: 'api_key' (x-api-key) or 'auth_token' (Authorization: Bearer). */
+  auth_mode?: "api_key" | "auth_token";
   /** Provider-specific metadata (e.g. base_url_options for region selection). */
   meta?: Record<string, unknown>;
 }
@@ -46,6 +50,8 @@ export interface ProviderConfigRequest {
   base_url?: string;
   chat_model?: string;
   generate_kwargs?: Record<string, unknown>;
+  custom_headers?: Record<string, string>;
+  auth_mode?: "api_key" | "auth_token";
 }
 
 export interface ModelSlotConfig {
@@ -172,6 +178,8 @@ export interface TestProviderRequest {
   chat_model?: string;
   generate_kwargs?: Record<string, unknown>;
   include_extended?: boolean;
+  custom_headers?: Record<string, string>;
+  auth_mode?: "api_key" | "auth_token";
 }
 
 export interface TestModelRequest {

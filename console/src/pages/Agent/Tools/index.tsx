@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Spin } from "antd";
 import {
   Card,
   Switch,
@@ -10,6 +11,7 @@ import {
   InputNumber,
   Select,
 } from "@agentscope-ai/design";
+import api from "../../../api";
 import {
   EyeOutlined,
   EyeInvisibleOutlined,
@@ -72,7 +74,31 @@ function ToolConfigModal({
 }) {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [loadingConfig, setLoadingConfig] = useState(false);
   const { t } = useTranslation();
+
+  // Fetch latest config from backend whenever the modal opens.
+  // Cleanup cancels stale in-flight requests on rapid tool switches.
+  useEffect(() => {
+    if (!visible || !tool) return;
+    form.resetFields();
+    setLoadingConfig(true);
+    let cancelled = false;
+    api
+      .getToolConfig(tool.name)
+      .then((config) => {
+        if (!cancelled) form.setFieldsValue(config || {});
+      })
+      .catch(() => {
+        // Leave form empty on error
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingConfig(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, tool.name, form]);
 
   const handleSave = async () => {
     try {
@@ -95,85 +121,84 @@ function ToolConfigModal({
       open={visible}
       onCancel={onClose}
       onOk={handleSave}
-      confirmLoading={saving}
+      confirmLoading={saving || loadingConfig}
+      okButtonProps={{ disabled: loadingConfig }}
       okText={t("common.save")}
       cancelText={t("common.cancel")}
     >
-      <Form
-        form={form}
-        layout="vertical"
-        initialValues={tool.config_values || {}}
-      >
-        {tool.config_fields?.map((field) => {
-          // Render different input types based on field type
-          const renderInput = () => {
-            switch (field.type) {
-              case "password":
-                return (
-                  <Input.Password
-                    placeholder={field.placeholder}
-                    autoComplete="off"
-                  />
-                );
+      <Spin spinning={loadingConfig}>
+        <Form form={form} layout="vertical">
+          {tool.config_fields?.map((field) => {
+            // Render different input types based on field type
+            const renderInput = () => {
+              switch (field.type) {
+                case "password":
+                  return (
+                    <Input.Password
+                      placeholder={field.placeholder}
+                      autoComplete="off"
+                    />
+                  );
 
-              case "number":
-                return (
-                  <InputNumber
-                    placeholder={field.placeholder}
-                    min={field.min}
-                    max={field.max}
-                    style={{ width: "100%" }}
-                  />
-                );
+                case "number":
+                  return (
+                    <InputNumber
+                      placeholder={field.placeholder}
+                      min={field.min}
+                      max={field.max}
+                      style={{ width: "100%" }}
+                    />
+                  );
 
-              case "boolean":
-                return <Switch />;
+                case "boolean":
+                  return <Switch />;
 
-              case "select":
-                return (
-                  <Select placeholder={field.placeholder}>
-                    {field.options?.map((option) => (
-                      <Select.Option key={option} value={option}>
-                        {option}
-                      </Select.Option>
-                    ))}
-                  </Select>
-                );
+                case "select":
+                  return (
+                    <Select placeholder={field.placeholder}>
+                      {field.options?.map((option) => (
+                        <Select.Option key={option} value={option}>
+                          {option}
+                        </Select.Option>
+                      ))}
+                    </Select>
+                  );
 
-              case "textarea":
-                return (
-                  <Input.TextArea
-                    placeholder={field.placeholder}
-                    rows={4}
-                    autoSize={{ minRows: 2, maxRows: 8 }}
-                  />
-                );
+                case "textarea":
+                  return (
+                    <Input.TextArea
+                      placeholder={field.placeholder}
+                      rows={4}
+                      autoSize={{ minRows: 2, maxRows: 8 }}
+                    />
+                  );
 
-              case "text":
-              default:
-                return <Input placeholder={field.placeholder} />;
-            }
-          };
+                case "text":
+                default:
+                  return <Input placeholder={field.placeholder} />;
+              }
+            };
 
-          return (
-            <Form.Item
-              key={field.name}
-              name={field.name}
-              label={field.label}
-              rules={[
-                {
-                  required: field.required,
-                  message: `${field.label} is required`,
-                },
-              ]}
-              help={field.help}
-              valuePropName={field.type === "boolean" ? "checked" : "value"}
-            >
-              {renderInput()}
-            </Form.Item>
-          );
-        })}
-      </Form>
+            return (
+              <Form.Item
+                key={field.name}
+                name={field.name}
+                label={field.label}
+                rules={[
+                  {
+                    required: field.required,
+                    message: `${field.label} is required`,
+                  },
+                ]}
+                help={field.help}
+                valuePropName={field.type === "boolean" ? "checked" : "value"}
+              >
+                {renderInput()}
+              </Form.Item>
+            );
+          })}
+        </Form>
+      </Spin>
     </Modal>
   );
 }
@@ -283,7 +308,10 @@ export default function ToolsPage() {
                 )}
 
                 <div className={styles.cardFooter}>
-                  {tool.name === "execute_shell_command" && (
+                  {[
+                    "execute_shell_command",
+                    "delegate_external_agent",
+                  ].includes(tool.name) && (
                     <Button
                       className={styles.toggleButton}
                       onClick={() => toggleAsyncExecution(tool)}
@@ -327,9 +355,10 @@ export default function ToolsPage() {
         )}
       </div>
 
-      {/* Config modal */}
+      {/* Config modal — key forces remount when switching tools */}
       {currentTool && (
         <ToolConfigModal
+          key={currentTool.name}
           tool={currentTool}
           visible={configModalVisible}
           onClose={() => setConfigModalVisible(false)}

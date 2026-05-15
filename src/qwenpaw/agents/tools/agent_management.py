@@ -223,6 +223,9 @@ def build_agent_chat_request(
                 "content": [{"type": "text", "text": final_text}],
             },
         ],
+        "request_context": {
+            "root_agent_id": caller_agent_id,
+        },
     }
 
     # Add root_session_id as top-level field for approval routing

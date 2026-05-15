@@ -371,7 +371,7 @@ def test_e2e_cli_no_guard_and_skills_dir(monkeypatch, tmp_path):
 def test_isolated_workspace_creates_overlay(tmp_path):
     """Overlay workspace symlinks skills and pre-populates manifest."""
     from qwenpaw.cli.task_cmd import _isolated_skills_workspace
-    from qwenpaw.agents.skills_manager import resolve_effective_skills
+    from qwenpaw.agents.skill_system import resolve_effective_skills
 
     skills_dir = tmp_path / "ext_skills"
     (skills_dir / "alpha").mkdir(parents=True)

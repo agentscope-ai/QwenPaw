@@ -42,11 +42,15 @@ class OllamaProvider(OpenAIProvider):
         self.base_url = self._normalize_base_url(self.base_url)
 
     def _client(self, timeout: float = 5) -> AsyncOpenAI:
-        return AsyncOpenAI(
-            base_url=self._openai_compatible_base_url(),
-            api_key=self.api_key,
-            timeout=timeout,
-        )
+        kwargs: dict = {
+            "base_url": self._openai_compatible_base_url(),
+            "api_key": self.api_key,
+            "timeout": timeout,
+        }
+        headers = self._build_default_headers()
+        if headers:
+            kwargs["default_headers"] = headers
+        return AsyncOpenAI(**kwargs)
 
     async def check_model_connection(
         self,
@@ -62,11 +66,15 @@ class OllamaProvider(OpenAIProvider):
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from .openai_chat_model_compat import OpenAIChatModelCompat
 
+        client_kwargs: dict = {"base_url": self._openai_compatible_base_url()}
+        headers = self._build_default_headers()
+        if headers:
+            client_kwargs["default_headers"] = headers
         return OpenAIChatModelCompat(
             model_name=model_id,
             stream=True,
             api_key=self.api_key,
             stream_tool_parsing=False,
-            client_kwargs={"base_url": self._openai_compatible_base_url()},
+            client_kwargs=client_kwargs,
             generate_kwargs=self.get_effective_generate_kwargs(model_id),
         )

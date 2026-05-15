@@ -9,4 +9,9 @@ export const heartbeatApi = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+
+  runHeartbeatNow: () =>
+    request<{ started: boolean }>("/config/heartbeat/run", {
+      method: "POST",
+    }),
 };

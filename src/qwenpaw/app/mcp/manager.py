@@ -216,6 +216,33 @@ class MCPClientManager:
             )
 
     @staticmethod
+    def _inject_oauth_token(
+        headers: dict,
+        client_config: "MCPClientConfig",
+    ) -> dict:
+        """Inject OAuth Bearer token into headers if available and valid."""
+        import time as _time
+
+        oauth = client_config.oauth
+        if not oauth or not oauth.access_token:
+            return headers
+
+        # Skip injection when token is expired. Token refresh is not yet
+        # implemented, so injecting an expired token would only cause 401s.
+        # expires_at=0 means no expiry was provided; treat as non-expiring.
+        if oauth.expires_at > 0 and oauth.expires_at < _time.time():
+            logger.warning(
+                f"OAuth token for MCP client '{client_config.name}' "
+                "has expired; skipping Authorization header injection. "
+                "Please re-authorize via the UI.",
+            )
+            return headers
+
+        result = dict(headers)
+        result["Authorization"] = f"Bearer {oauth.access_token}"
+        return result
+
+    @staticmethod
     def _build_client(client_config: "MCPClientConfig") -> Any:
         """Build MCP client instance by configured transport."""
         rebuild_info = {
@@ -240,9 +267,14 @@ class MCPClientManager:
             setattr(client, "_qwenpaw_rebuild_info", rebuild_info)
             return client
 
-        headers = client_config.headers
-        if headers:
-            headers = {k: os.path.expandvars(v) for k, v in headers.items()}
+        headers: dict = dict(client_config.headers or {})
+        headers = {k: os.path.expandvars(v) for k, v in headers.items()}
+
+        # Inject OAuth access token (overrides any manually set Authorization)
+        headers = MCPClientManager._inject_oauth_token(
+            headers,
+            client_config,
+        )
 
         client = HttpStatefulClient(
             name=client_config.name,

@@ -9,6 +9,7 @@ QwenPaw 提供了插件系统，允许用户扩展 QwenPaw 的功能。
 - **Provider 插件**：添加新的 LLM Provider 和模型
 - **Hook 插件**：在应用启动/关闭时执行自定义代码
 - **Command 插件**：注册自定义的 `/command` 魔法命令
+- **HTTP API 插件**：通过 FastAPI `APIRouter` 在 `/api` 下暴露自定义 REST 接口
 - **前端页面插件**：向侧边栏添加自定义页面
 - **对话工具渲染插件**：自定义对话工具调用结果的展示方式
 - **修改组件行为**：通过模块注册表修改前端已有组件行为
@@ -880,6 +881,160 @@ cp -r . ~/.qwenpaw/plugins/custom-greeting-plugin/
 qwenpaw app
 ```
 
+### 示例 7：暴露 FastAPI 接口
+
+后端插件可以通过注册 `fastapi.APIRouter` 暴露自己的 HTTP 接口。路由会挂载在
+`/api` 加上你指定的前缀下，与 QwenPaw 核心 API 使用同一个 FastAPI 应用，因此
+共享 CORS、鉴权等设置，并会出现在 `/openapi.json` 与 `/docs` 中。
+
+下面示例增加一个简单的 `/api/pets` 接口：列出宠物，并支持新增。
+
+#### 1. 创建插件目录
+
+```bash
+mkdir pet-api-plugin && cd pet-api-plugin
+```
+
+#### 2. 创建 plugin.json
+
+```json
+{
+  "id": "pet-api-plugin",
+  "name": "Pet API Plugin",
+  "version": "1.0.0",
+  "description": "Expose a small REST API under /api/pets",
+  "author": "Your Name",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "dependencies": [],
+  "min_version": "1.1.5"
+}
+```
+
+#### 3. 创建 plugin.py
+
+```python
+# -*- coding: utf-8 -*-
+"""Pet API Plugin Entry Point."""
+
+import logging
+from typing import List
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from qwenpaw.plugins.api import PluginApi
+
+logger = logging.getLogger(__name__)
+
+
+class Pet(BaseModel):
+    """Pet model."""
+
+    id: int
+    name: str
+    species: str
+
+
+class PetCreate(BaseModel):
+    """Pet creation payload."""
+
+    name: str
+    species: str
+
+
+_PETS: List[Pet] = [
+    Pet(id=1, name="Mochi", species="cat"),
+    Pet(id=2, name="Bao", species="dog"),
+]
+
+
+def build_router() -> APIRouter:
+    """Build the plugin's APIRouter.
+
+    Routes are mounted under ``/api`` + the prefix passed to
+    ``register_http_router``. With ``prefix="/pets"`` the handlers
+    below are served at ``/api/pets`` and ``/api/pets/{pet_id}``.
+    """
+    router = APIRouter()
+
+    @router.get("", response_model=List[Pet])
+    def list_pets() -> List[Pet]:
+        """Return all pets."""
+        return list(_PETS)
+
+    @router.get("/{pet_id}", response_model=Pet)
+    def get_pet(pet_id: int) -> Pet:
+        """Return a single pet by id."""
+        for pet in _PETS:
+            if pet.id == pet_id:
+                return pet
+        raise HTTPException(status_code=404, detail="Pet not found")
+
+    @router.post("", response_model=Pet, status_code=201)
+    def create_pet(payload: PetCreate) -> Pet:
+        """Create a new pet."""
+        new_id = (max((p.id for p in _PETS), default=0)) + 1
+        pet = Pet(id=new_id, name=payload.name, species=payload.species)
+        _PETS.append(pet)
+        return pet
+
+    return router
+
+
+class PetApiPlugin:
+    """Pet API Plugin."""
+
+    def register(self, api: PluginApi):
+        """Register the HTTP router.
+
+        Args:
+            api: PluginApi instance
+        """
+        logger.info("Registering Pet API plugin...")
+
+        api.register_http_router(
+            build_router(),
+            prefix="/pets",
+            tags=["pets"],
+        )
+
+        logger.info("✓ Pet API registered at /api/pets")
+
+
+# Export plugin instance
+plugin = PetApiPlugin()
+```
+
+#### 4. 安装并试用
+
+```bash
+qwenpaw plugin install pet-api-plugin
+```
+
+启动 QwenPaw 后，可在终端用 `curl` 测试（端口请按你本地实际为准，例如 `8088`）：
+
+```bash
+# 列出全部宠物
+curl http://127.0.0.1:8088/api/pets
+
+# 按 id 查询
+curl http://127.0.0.1:8088/api/pets/1
+
+# 新增宠物（POST 到集合路径 /api/pets）
+curl -X POST http://127.0.0.1:8088/api/pets \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Luna", "species": "rabbit"}'
+```
+
+**说明：**
+
+- `prefix` 必须以 `/` 开头，且不能仅为 `/`，应使用有语义的片段（如 `/pets`）。完整路径恒为 `/api` + 你的 `prefix`。
+- 每个前缀只能被一个插件占用；重复注册相同前缀会抛出 `ValueError`。
+- `tags` 可选；省略时路由在 OpenAPI 中会默认打上 `plugin:<插件 id>` 标签。
+- 插件卸载或禁用时会自动卸载对应路由。
+
 ## 依赖管理
 
 ### 使用 requirements.txt
@@ -1058,6 +1213,21 @@ api.register_shutdown_hook(
 )
 ```
 
+### register_http_router
+
+将 `fastapi.APIRouter` 挂载到 `/api` + _prefix_ 下。
+
+```python
+api.register_http_router(
+    router: APIRouter,             # fastapi.APIRouter 实例
+    *,
+    prefix: str,                   # /api 下的路径，例如 "/pets"
+    tags: Optional[List[str]] = None,  # OpenAPI 标签（可选）
+)
+```
+
+完整步骤见上文「示例 7：暴露 FastAPI 接口」。
+
 ## 高级功能
 
 ### Monkey Patch
@@ -1118,6 +1288,7 @@ A: 插件通过 `PluginApi` 访问核心功能，包括：
 
 - Provider 注册
 - Hook 注册
+- HTTP 路由注册（`register_http_router`）
 - Runtime helpers（provider_manager 等）
 
 ### Q: 插件可以修改 QwenPaw 的核心行为吗？

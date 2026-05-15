@@ -6,6 +6,7 @@
 import asyncio
 import locale
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -18,6 +19,7 @@ from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
 from ...config.context import (
+    get_current_shell_command_executable,
     get_current_shell_command_timeout,
     get_current_workspace_dir,
 )
@@ -160,12 +162,61 @@ def _read_temp_file(path: str) -> str:
         return ""
 
 
+def _shell_basename(executable: str) -> str:
+    """Extract lowercase basename from a path using both / and \\ separators."""
+    return executable.replace("\\", "/").rsplit("/", 1)[-1].lower()
+
+
+def _is_powershell(executable: str) -> bool:
+    """Check if the given executable path is a PowerShell variant."""
+    return _shell_basename(executable) in (
+        "powershell",
+        "powershell.exe",
+        "pwsh",
+        "pwsh.exe",
+    )
+
+
+def _is_cmd(executable: str) -> bool:
+    """Check if the given executable path is cmd.exe."""
+    return _shell_basename(executable) in ("cmd", "cmd.exe")
+
+
+_PS_CMD_RE = re.compile(
+    r"^(powershell(?:\.exe)?|pwsh(?:\.exe)?)"
+    r"((?:\s+-(?:NoProfile|NonInteractive|NoLogo))*)"
+    r"(?:\s+-ExecutionPolicy\s+\S+)?"
+    r"\s+-Command\s+",
+    re.IGNORECASE,
+)
+
+
+def _extract_powershell_command(cmd: str) -> tuple[str | None, str]:
+    """Detect ``powershell -Command <body>`` and return (exe, inner_body).
+
+    When *cmd* starts with a PowerShell invocation followed by ``-Command``,
+    extract the executable name and the inner command body (with a single
+    layer of surrounding double-quotes removed if present).
+
+    Returns ``(None, cmd)`` unchanged when no PowerShell prefix is found.
+    """
+    m = _PS_CMD_RE.match(cmd)
+    if not m:
+        return None, cmd
+    ps_exe = m.group(1)
+    inner = cmd[m.end() :]
+    if len(inner) >= 2 and inner[0] == '"' and inner[-1] == '"':
+        inner = inner[1:-1]
+    return ps_exe, inner
+
+
 # pylint: disable=too-many-branches, too-many-statements
 def _execute_subprocess_sync(
     cmd: str,
     cwd: str,
     timeout: float,
     env: dict | None = None,
+    shell_executable: str | None = None,
 ) -> tuple[int, str, str]:
     """Execute subprocess synchronously in a thread.
 
@@ -196,6 +247,9 @@ def _execute_subprocess_sync(
             The maximum time (in seconds) allowed for the command to run.
         env (`dict | None`):
             Environment variables for the subprocess.
+        shell_executable (`str | None`):
+            Path to the shell executable. When ``None``, defaults to
+            ``cmd.exe``.
 
     Returns:
         `tuple[int, str, str]`:
@@ -209,8 +263,24 @@ def _execute_subprocess_sync(
     stderr_file = None
 
     try:
-        cmd = _sanitize_win_cmd(cmd)
-        wrapped = f'cmd /D /S /C "{cmd}"'
+        if shell_executable and _is_powershell(shell_executable):
+            # Strip redundant powershell/pwsh -Command wrapper that the
+            # LLM may emit even though the shell is already PowerShell.
+            _, cmd = _extract_powershell_command(cmd)
+            wrapped = [
+                shell_executable,
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                cmd,
+            ]
+        elif not shell_executable or _is_cmd(shell_executable):
+            cmd = _sanitize_win_cmd(cmd)
+            shell_name = shell_executable or "cmd"
+            wrapped = f'{shell_name} /D /S /C "{cmd}"'
+        else:
+            # POSIX-like shell on Windows (e.g. Git Bash, MSYS2)
+            wrapped = [shell_executable, "-c", cmd]
 
         stdout_fd, stdout_path = tempfile.mkstemp(prefix="qwenpaw_out_")
         stderr_fd, stderr_path = tempfile.mkstemp(prefix="qwenpaw_err_")
@@ -291,9 +361,9 @@ async def execute_shell_command(
 ) -> ToolResponse:
     """Execute a shell command and return its output.
 
-    Platform shells: Windows uses cmd.exe; Linux/macOS use /bin/sh or /bin/bash.
-
-    IMPORTANT: Always consider the operating system before choosing commands.
+    IMPORTANT: Check the 'Default Shell' field to
+    determine which shell is active, and generate commands using the
+    appropriate syntax (e.g. bash vs PowerShell vs cmd.exe).
 
     Args:
         command (`str`):
@@ -342,6 +412,12 @@ async def execute_shell_command(
     else:
         env["PATH"] = python_bin_dir
 
+    shell_executable = (
+        get_current_shell_command_executable()
+        or os.environ.get("SHELL")
+        or None
+    )
+
     try:
         if sys.platform == "win32":
             # Windows: use thread pool to avoid asyncio subprocess limitations
@@ -351,6 +427,7 @@ async def execute_shell_command(
                 str(working_dir),
                 timeout,
                 env,
+                shell_executable,
             )
         else:
             proc = await asyncio.create_subprocess_shell(
@@ -361,6 +438,7 @@ async def execute_shell_command(
                 cwd=str(working_dir),
                 env=env,
                 start_new_session=True,
+                executable=shell_executable,
             )
 
             try:

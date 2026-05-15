@@ -12,6 +12,8 @@ export interface BackupMeta {
   created_at: string;
   scope: BackupScope;
   agent_count: number;
+  signature?: string | null;
+  imported_via_trust_foreign?: boolean | null;
 }
 
 export interface BackupDetail extends BackupMeta {
@@ -36,6 +38,13 @@ export interface RestoreBackupRequest {
   include_skill_pool: boolean;
   default_workspace_dir?: string | null;
   mode?: "full" | "custom";
+  preserve_local_protected_config?: boolean | null;
+  trust_legacy?: boolean;
+}
+
+export interface RestoreBackupResponse {
+  ok: boolean;
+  preserved_local_keys: string[];
 }
 
 /**
@@ -77,4 +86,10 @@ export interface BackupConflictResponse {
   detail: "backup_conflict";
   existing: BackupMeta;
   pending_token: string;
+}
+
+export interface BackupValidationDetail {
+  code: string;
+  message: string;
+  locked_paths?: string[];
 }

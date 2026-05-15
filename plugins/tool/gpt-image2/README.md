@@ -1,12 +1,14 @@
 # GPT Image 2 Tool Plugin
 
-A QwenPaw tool plugin that enables image generation using OpenAI's GPT Image 2 model.
+A QwenPaw tool plugin that enables image generation and editing using OpenAI's GPT Image 2 model.
 
 ## Features
 
-- Generate high-quality images from text prompts
-- Support for multiple image sizes (1024x1024, 1024x1792, 1792x1024)
+- **Generate images** from text prompts
+- **Edit/generate images** using reference images (1-16 images)
+- Support for multiple image sizes (1024x1024, 1024x1536, 1536x1024, auto)
 - Quality options: low, medium, high, auto
+- High fidelity image processing (automatic for gpt-image-2)
 - Pure backend implementation - no frontend code required
 
 ## Installation
@@ -25,25 +27,41 @@ qwenpaw plugin install gpt-image2-tool.zip
 
 1. Start QwenPaw application
 2. Navigate to Agent Settings → Tools
-3. Find the `generate_image_gpt` tool (🎨 icon)
-4. Click "Configure" button
+3. Find the GPT Image 2 tools:
+   - `generate_image_gpt` (🎨 icon) - Generate images from text
+   - `edit_image_gpt` (🖼️ icon) - Edit images with reference images
+4. Click "Configure" button for each tool
 5. Enter your OpenAI API Key (get it from https://platform.openai.com/api-keys)
 6. Save configuration
-7. Enable the tool
+7. Enable the tools you want to use
 
 ## Usage
 
-Once configured and enabled, the Agent can automatically call this tool when asked to generate images:
+Once configured and enabled, the Agent can automatically call these tools when asked to generate or edit images.
+
+### Example 1: Generate Image from Text
 
 **User**: Please generate an image of a serene mountain landscape at sunset
 
 **Agent**: [Calls generate_image_gpt tool with appropriate parameters]
 
+### Example 2: Edit Image with Reference
+
+**User**: I have a photo at /path/to/my/photo.jpg, please make it look like a watercolor painting
+
+**Agent**: [Calls edit_image_gpt tool with reference image and prompt]
+
+### Example 3: Generate from Multiple References
+
+**User**: Use these product images to create a gift basket: image1.png, image2.jpg, https://example.com/image3.png
+
+**Agent**: [Calls edit_image_gpt tool with multiple reference images]
+
 ## Tool Parameters
 
 ### generate_image_gpt
 
-Generate an image using OpenAI GPT Image 2 model.
+Generate an image using OpenAI GPT Image 2 model from text prompt only.
 
 **Parameters:**
 
@@ -53,8 +71,35 @@ Generate an image using OpenAI GPT Image 2 model.
 
 **Returns:**
 
-- ImageBlock with the generated image (base64-encoded as data URI)
+- ImageBlock with the generated image
 - TextBlock with generation metadata
+
+### edit_image_gpt
+
+Edit or generate image using reference images with OpenAI GPT Image 2 model.
+
+**Parameters:**
+
+- `prompt` (str, required): Text description of the desired image edit or generation
+- `reference_images` (List[str], required): List of 1-16 reference images. Each can be:
+  - Local file path (e.g., `/path/to/image.png`, `./photo.jpg`)
+  - Web URL (e.g., `https://example.com/image.png`)
+  - Note: Local files are automatically converted to base64
+- `size` (str, optional): Image size, one of "1024x1024", "1024x1536", "1536x1024", "auto" (default: "1024x1024")
+- `quality` (str, optional): Quality level, one of "low", "medium", "high", "auto" (default: "auto")
+
+**Note:** GPT Image 2 always processes images at high fidelity and does not support the `input_fidelity` parameter.
+
+**Returns:**
+
+- ImageBlock with the edited/generated image
+- TextBlock with editing metadata
+
+**Supported Image Formats:**
+
+- PNG (.png)
+- JPEG (.jpg, .jpeg)
+- WebP (.webp)
 
 ## Requirements
 

@@ -438,6 +438,9 @@ class ToolGuardMixin:
         root_session_id = str(
             self._request_context.get("root_session_id") or session_id,
         )
+        owner_agent_id = str(
+            self._request_context.get("root_agent_id") or agent_id,
+        )
 
         svc = self._tool_guard_approval_service
         tool_call_id = tool_call.get("id", "")
@@ -454,6 +457,7 @@ class ToolGuardMixin:
         pending = await svc.create_pending(
             session_id=session_id,
             root_session_id=root_session_id,
+            owner_agent_id=owner_agent_id,
             user_id=user_id,
             channel=channel,
             agent_id=agent_id,

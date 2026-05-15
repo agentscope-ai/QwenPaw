@@ -15,7 +15,6 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ..base import ContentType
 
-from .constants import SENT_VIA_AI_CARD, SENT_VIA_WEBHOOK
 from .content_utils import (
     conversation_id_from_chatbot_message,
     conversation_type_from_chatbot_message,
@@ -38,7 +37,7 @@ DEFAULT_FILENAME_HINT = "file.bin"
 
 class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
     """Internal handler: convert DingTalk message to native dict, enqueue via
-    manager (thread-safe), await reply_future, then reply."""
+    manager (thread-safe), ACK immediately."""
 
     def __init__(
         self,
@@ -48,6 +47,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
         download_url_fetcher,
         try_accept_message: Optional[Callable[[str], bool]] = None,
         check_allowlist: Optional[Callable[[str, bool], tuple]] = None,
+        require_mention: bool = False,
     ):
         super().__init__()
         self._main_loop = main_loop
@@ -56,6 +56,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
         self._download_url_fetcher = download_url_fetcher
         self._try_accept_message = try_accept_message
         self._check_allowlist = check_allowlist
+        self._require_mention = require_mention
 
     def _emit_native_threadsafe(self, native: dict) -> None:
         if self._enqueue_callback:
@@ -210,6 +211,177 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             logger.exception("failed to fetch richText download url(s)")
         return content
 
+    def _handle_quoted_media(
+        self,
+        replied_content: Any,
+        replied_msg_type: str,
+        robot_code: str,
+        text_parts: List[str],
+        content_parts: List[Any],
+    ) -> None:
+        """Handle quoted media message (picture/voice/audio/video/file)."""
+        quoted_type_mapping = {
+            "picture": "image",
+            "voice": "audio",
+            "audio": "audio",
+            "video": "video",
+            "file": "file",
+        }
+        mapped = quoted_type_mapping.get(replied_msg_type, "file")
+        dl_code = ""
+        if isinstance(replied_content, dict):
+            dl_code = (
+                replied_content.get("downloadCode")
+                or replied_content.get("download_code")
+                or ""
+            ).strip()
+        if not dl_code or not robot_code:
+            text_parts.insert(0, f"[quoted {mapped} message]")
+            return
+        # Prefer recognition text for voice messages.
+        if mapped == "audio" and isinstance(replied_content, dict):
+            recognition = (replied_content.get("recognition") or "").strip()
+            if recognition:
+                text_parts.insert(
+                    0,
+                    f"[quoted voice message: {recognition}]",
+                )
+                return
+        filename_hint = (
+            self._extract_filename_hint(replied_content)
+            if isinstance(replied_content, dict)
+            else None
+        )
+        part = self._fetch_download_url_and_content(
+            dl_code,
+            robot_code,
+            mapped,
+            filename_hint=filename_hint,
+        )
+        if part is not None:
+            content_parts.append(part)
+        else:
+            text_parts.insert(0, f"[quoted {mapped}: download failed]")
+
+    def _handle_quoted_rich_text(
+        self,
+        replied_content: Any,
+        robot_code: str,
+        text_parts: List[str],
+        content_parts: List[Any],
+    ) -> None:
+        """Handle quoted richText message (text + picture items)."""
+        rich_list = []
+        if isinstance(replied_content, dict):
+            rich_list = replied_content.get("richText") or []
+        has_content = False
+        for item in rich_list:
+            if not isinstance(item, dict):
+                continue
+            item_type = (item.get("msgType") or "").strip()
+            if item_type == "text":
+                item_text = (item.get("content") or "").strip()
+                if item_text:
+                    text_parts.insert(0, f"[quoted message: {item_text}]")
+                    has_content = True
+            elif item_type == "picture":
+                dl_code = (
+                    item.get("downloadCode")
+                    or item.get("download_code")
+                    or item.get("pictureDownloadCode")
+                    or item.get("picture_download_code")
+                    or ""
+                ).strip()
+                if dl_code and robot_code:
+                    part = self._fetch_download_url_and_content(
+                        dl_code,
+                        robot_code,
+                        "image",
+                    )
+                    if part is not None:
+                        content_parts.append(part)
+                        has_content = True
+                    else:
+                        text_parts.insert(
+                            0,
+                            "[quoted image: download failed]",
+                        )
+                        has_content = True
+        if not has_content:
+            text_parts.insert(0, "[quoted richText message]")
+
+    def _process_quoted_message(
+        self,
+        raw_data: Dict[str, Any],
+        text_parts: List[str],
+        content_parts: List[Any],
+    ) -> None:
+        """Process quoted (replied-to) message from DingTalk callback.
+
+        Only user messages carry retrievable content; bot messages
+        (interactiveCard) have no content in the callback payload.
+        """
+        text_data = raw_data.get("text")
+        if not isinstance(text_data, dict):
+            return
+        if not text_data.get("isReplyMsg"):
+            return
+
+        replied_msg = text_data.get("repliedMsg")
+        if not isinstance(replied_msg, dict):
+            return
+
+        replied_msg_type = (replied_msg.get("msgType") or "").strip()
+        replied_content = replied_msg.get("content")
+
+        # Bot message (e.g. interactiveCard): no content in payload.
+        if not replied_content:
+            text_parts.insert(
+                0,
+                "[quoted bot message: content unavailable]",
+            )
+            return
+
+        robot_code = (raw_data.get("robotCode") or "").strip()
+
+        if replied_msg_type == "text":
+            quoted_text = ""
+            if isinstance(replied_content, dict):
+                quoted_text = (replied_content.get("text") or "").strip()
+            elif isinstance(replied_content, str):
+                quoted_text = replied_content.strip()
+            if quoted_text:
+                text_parts.insert(0, f"[quoted message: {quoted_text}]")
+
+        elif replied_msg_type in (
+            "picture",
+            "voice",
+            "audio",
+            "video",
+            "file",
+        ):
+            self._handle_quoted_media(
+                replied_content,
+                replied_msg_type,
+                robot_code,
+                text_parts,
+                content_parts,
+            )
+
+        elif replied_msg_type == "richText":
+            self._handle_quoted_rich_text(
+                replied_content,
+                robot_code,
+                text_parts,
+                content_parts,
+            )
+
+        else:
+            text_parts.insert(
+                0,
+                f"[quoted {replied_msg_type or 'unknown'} message]",
+            )
+
     async def process(self, callback: CallbackMessage) -> tuple[int, str]:
         # pylint: disable=too-many-branches,too-many-statements
         try:
@@ -262,6 +434,28 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     0,
                     TextContent(type=ContentType.TEXT, text=text),
                 )
+            # Handle quoted (replied-to) message if present.
+            quoted_text_parts: List[str] = []
+            quoted_content_parts: List[Any] = []
+            self._process_quoted_message(
+                raw_data,
+                quoted_text_parts,
+                quoted_content_parts,
+            )
+            # Merge quoted parts into the main content list.
+            target_parts = content if content else content_parts
+            if quoted_text_parts:
+                quoted_combined = "\n".join(quoted_text_parts)
+                target_parts.insert(
+                    0,
+                    TextContent(type=ContentType.TEXT, text=quoted_combined),
+                )
+            if quoted_content_parts:
+                # Insert quoted media after quoted text but before user text.
+                insert_pos = 1 if quoted_text_parts else 0
+                for part in reversed(quoted_content_parts):
+                    target_parts.insert(insert_pos, part)
+
             # Use rich content (text + media with local paths) when present.
             parts_to_send = content if content else content_parts
 
@@ -296,12 +490,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
 
             is_bot_mentioned = bool(raw_data.get("isInAtList"))
 
-            loop = asyncio.get_running_loop()
-            reply_future: asyncio.Future[str] = loop.create_future()
             meta: Dict[str, Any] = {
-                "incoming_message": incoming_message,
-                "reply_future": reply_future,
-                "reply_loop": loop,
                 "conversation_type": conversation_type,
                 "is_group": is_group,
                 "sender_staff_id": getattr(
@@ -367,6 +556,15 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     "dingtalk recv: no sessionWebhook on incoming_message",
                 )
 
+            # Group mention check: skip if require_mention but not mentioned
+            if is_group and self._require_mention and not is_bot_mentioned:
+                logger.info(
+                    "dingtalk group mention skip: sender=%s",
+                    sender,
+                )
+                self.reply_text(" ", incoming_message)
+                return dingtalk_stream.AckMessage.STATUS_OK, "ok"
+
             # Dedup by message_id only.
             if self._try_accept_message and not self._try_accept_message(
                 raw_msg_id,
@@ -401,23 +599,11 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             logger.info("recv from=%s text=%s", sender, text[:100])
             self._emit_native_threadsafe(native)
 
-            response_text = await reply_future
-            if response_text == SENT_VIA_AI_CARD:
-                logger.info("sent to=%s via ai card", sender)
-                self.reply_text(" ", incoming_message)
-            elif response_text == SENT_VIA_WEBHOOK:
-                logger.info(
-                    "sent to=%s via sessionWebhook (multi-message)",
-                    sender,
-                )
-                # Stream connection still expects a reply frame;
-                # send minimal ack so the connection completes and next
-                # messages work.
-                self.reply_text(" ", incoming_message)
-            else:
-                out = self._bot_prefix + response_text
-                self.reply_text(out, incoming_message)
-                logger.info("sent to=%s text=%r", sender, out[:100])
+            # ACK immediately: all replies go through sessionWebhook or
+            # AI Card, so we never need reply_text to carry real content.
+            # This prevents DingTalk retry storms during long LLM runs.
+            self.reply_text(" ", incoming_message)
+            logger.info("dingtalk handler: ACK sent for sender=%s", sender)
             return dingtalk_stream.AckMessage.STATUS_OK, "ok"
 
         except Exception:

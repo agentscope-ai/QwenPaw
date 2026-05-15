@@ -523,6 +523,74 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             logger.exception(f"memory_search failed: {e}")
             return None
 
+    async def auto_memory_search(
+        self,
+        messages: list[Msg] | Msg,
+        agent_name: str = "",
+        **kwargs,
+    ) -> dict | None:
+        """Auto-search memory if auto_memory_search_config.enabled is True."""
+        agent_config = load_agent_config(self.agent_id)
+        rlmc = agent_config.running.reme_light_memory_config
+        ms = rlmc.auto_memory_search_config
+
+        if not ms.enabled:
+            return None
+
+        return await self.retrieve(messages, agent_name=agent_name)
+
+    async def summarize_when_compact(
+        self,
+        messages: list[Msg],
+        **kwargs,
+    ) -> None:
+        """Schedule summarize task if summarize_when_compact is enabled."""
+        if not messages:
+            return
+
+        agent_config = load_agent_config(self.agent_id)
+        rlmc = agent_config.running.reme_light_memory_config
+
+        if rlmc.summarize_when_compact:
+            self.add_summarize_task(messages=messages)
+
+    async def auto_memory(
+        self,
+        all_messages: list[Msg],
+        **kwargs,
+    ) -> None:
+        """Auto-extract memory every N user queries."""
+        agent_config = load_agent_config(self.agent_id)
+        rlmc = agent_config.running.reme_light_memory_config
+        auto_memory_interval = rlmc.auto_memory_interval
+
+        if auto_memory_interval is None or auto_memory_interval <= 0:
+            return
+
+        user_message_count = sum(
+            1 for msg in all_messages if msg.role == "user"
+        )
+
+        if (
+            user_message_count >= auto_memory_interval
+            and user_message_count % auto_memory_interval == 0
+        ):
+            # Find the start of the recent interval window
+            user_count = 0
+            start_idx = 0
+            for i, msg in enumerate(all_messages):
+                if msg.role == "user":
+                    user_count += 1
+                    if (
+                        user_count
+                        == user_message_count - auto_memory_interval + 1
+                    ):
+                        start_idx = i
+                        break
+            recent_messages = all_messages[start_idx:]
+            if recent_messages:
+                self.add_summarize_task(messages=recent_messages)
+
     async def dream(self, **kwargs) -> None:
         """Run one dream-based memory optimization pass."""
         logger.info("running dream-based memory optimization")

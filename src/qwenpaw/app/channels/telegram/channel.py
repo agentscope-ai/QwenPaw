@@ -8,6 +8,7 @@ import asyncio
 import html
 import logging
 import re
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
@@ -68,6 +69,11 @@ _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
     ("voice", AudioContent, ContentType.AUDIO, "data"),
     ("audio", AudioContent, ContentType.AUDIO, "data"),
 ]
+
+# Streaming: minimum interval between editMessageText calls (seconds).
+# Telegram rate-limits edits to ~1 msg/s per chat; use 1.5s for safety.
+_STREAM_EDIT_INTERVAL_S = 1.5
+_STREAM_PLACEHOLDER = "⏳"
 
 
 class _FileTooLargeError(Exception):
@@ -300,6 +306,7 @@ class TelegramChannel(BaseChannel):
         allow_from: Optional[list] = None,
         deny_message: str = "",
         require_mention: bool = False,
+        streaming_enabled: bool = False,
     ):
         super().__init__(
             process,
@@ -312,6 +319,7 @@ class TelegramChannel(BaseChannel):
             allow_from=allow_from,
             deny_message=deny_message,
             require_mention=require_mention,
+            streaming_enabled=streaming_enabled,
         )
         self.enabled = enabled
         self._bot_token = bot_token
@@ -625,6 +633,7 @@ class TelegramChannel(BaseChannel):
             allow_from=c.get("allow_from") or [],
             deny_message=c.get("deny_message") or "",
             require_mention=c.get("require_mention", False),
+            streaming_enabled=bool(c.get("streaming_enabled", False)),
         )
 
     def _chunk_text(self, text: str) -> list[str]:
@@ -873,6 +882,243 @@ class TelegramChannel(BaseChannel):
             )
         except Exception:
             logger.exception("telegram send_media failed")
+
+    # ------------------------------------------------------------------
+    # Streaming hooks — edit-in-place via Telegram editMessageText
+    # ------------------------------------------------------------------
+
+    def _get_stream_state(self, send_meta: Dict[str, Any]) -> Dict[str, Any]:
+        """Get or create the per-request streaming state dict in send_meta."""
+        state = send_meta.get("_tg_stream")
+        if state is None:
+            state = {
+                "message_ids": {},
+                "last_edit_ts": {},
+            }
+            send_meta["_tg_stream"] = state
+        return state
+
+    async def _send_placeholder(
+        self,
+        chat_id: str,
+        message_thread_id: Optional[int],
+        stream_type: str,
+    ) -> Optional[int]:
+        """Send a placeholder message and return its message_id."""
+        if not self._application:
+            return None
+        bot = self._application.bot
+        if not bot:
+            return None
+        prefix = "💭 " if stream_type == "reasoning" else ""
+        try:
+            kwargs: Dict[str, Any] = {
+                "chat_id": chat_id,
+                "text": f"{prefix}{_STREAM_PLACEHOLDER}",
+            }
+            if message_thread_id is not None:
+                kwargs["message_thread_id"] = message_thread_id
+            msg = await bot.send_message(**kwargs)
+            return msg.message_id
+        except Exception:
+            logger.debug(
+                "telegram: failed to send streaming placeholder to %s",
+                chat_id,
+            )
+            return None
+
+    async def _edit_stream_message(
+        self,
+        chat_id: str,
+        message_id: int,
+        text: str,
+        *,
+        use_html: bool = False,
+    ) -> bool:
+        """Edit an existing message; return True on success."""
+        bot = (
+            getattr(self._application, "bot", None)
+            if self._application
+            else None
+        )
+        if not bot:
+            return False
+        # Telegram rejects empty text
+        if not text.strip():
+            text = _STREAM_PLACEHOLDER
+        try:
+            kwargs: Dict[str, Any] = {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+            }
+            if use_html:
+                kwargs["parse_mode"] = ParseMode.HTML
+            await bot.edit_message_text(**kwargs)
+            return True
+        except BadRequest as exc:
+            # "Message is not modified" is benign (text unchanged)
+            if "not modified" in str(exc).lower():
+                return True
+            if use_html:
+                # Fallback: strip HTML tags and retry as plain text
+                logger.debug(
+                    "telegram: HTML edit failed, retrying plain: %s",
+                    exc,
+                )
+                plain_text = html.unescape(re.sub(r"<[^>]+>", "", text))
+                return await self._edit_stream_message(
+                    chat_id,
+                    message_id,
+                    plain_text,
+                    use_html=False,
+                )
+            logger.debug("telegram: edit_message_text failed: %s", exc)
+            return False
+        except Exception:
+            logger.debug(
+                "telegram: edit_message_text error chat=%s msg=%s",
+                chat_id,
+                message_id,
+            )
+            return False
+
+    async def _delete_message(self, chat_id: str, message_id: int) -> None:
+        """Delete a Telegram message (best effort)."""
+        if not self._application:
+            return
+        bot = self._application.bot
+        if not bot:
+            return
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except Exception:
+            logger.debug(
+                "telegram: delete_message failed chat=%s msg=%s",
+                chat_id,
+                message_id,
+            )
+
+    async def on_streaming_start(
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Send a placeholder message for the new streaming segment."""
+        chat_id = send_meta.get("chat_id") or to_handle
+        if not chat_id:
+            return
+        message_thread_id = send_meta.get("message_thread_id")
+        state = self._get_stream_state(send_meta)
+        msg_id = await self._send_placeholder(
+            chat_id,
+            message_thread_id,
+            stream_type,
+        )
+        if msg_id:
+            state["message_ids"][stream_type] = msg_id
+            state["last_edit_ts"][stream_type] = time.monotonic()
+
+    async def on_streaming_delta(
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Throttled plain-text edit to show incremental progress."""
+        state = self._get_stream_state(send_meta)
+        msg_id = state["message_ids"].get(stream_type)
+        if not msg_id:
+            return
+        now = time.monotonic()
+        last_ts = state["last_edit_ts"].get(stream_type, 0.0)
+        if now - last_ts < _STREAM_EDIT_INTERVAL_S:
+            return
+        chat_id = send_meta.get("chat_id") or to_handle
+        if not chat_id:
+            return
+        prefix = "💭 " if stream_type == "reasoning" else ""
+        display_text = (
+            f"{prefix}{accumulated_text}" if prefix else accumulated_text
+        )
+        # If text exceeds Telegram limit, show only the tail portion
+        if len(display_text) > TELEGRAM_MAX_MESSAGE_LENGTH:
+            display_text = (
+                "..." + display_text[-(TELEGRAM_MAX_MESSAGE_LENGTH - 4) :]
+            )
+        success = await self._edit_stream_message(
+            chat_id,
+            msg_id,
+            display_text,
+            use_html=False,
+        )
+        if success:
+            state["last_edit_ts"][stream_type] = now
+
+    async def on_streaming_end(
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Final edit with full Markdown→HTML rendering.
+
+        If the final text exceeds Telegram's 4096-char limit, delete the
+        placeholder and fall back to the normal chunked send path.
+        """
+        state = self._get_stream_state(send_meta)
+        msg_id = state["message_ids"].pop(stream_type, None)
+        state["last_edit_ts"].pop(stream_type, None)
+        chat_id = send_meta.get("chat_id") or to_handle
+        if not chat_id:
+            return
+        prefix = "💭 " if stream_type == "reasoning" else ""
+        final_text = (
+            f"{prefix}{accumulated_text}" if prefix else accumulated_text
+        )
+
+        # If placeholder was never sent (e.g. API error), fall back to
+        # normal send so the reply is not silently lost.
+        if not msg_id:
+            await self.send(to_handle, final_text, send_meta)
+            return
+
+        # If text fits in a single message, edit in place
+        if len(final_text) <= TELEGRAM_SEND_CHUNK_SIZE:
+            html_text = markdown_to_telegram_html(final_text)
+            success = await self._edit_stream_message(
+                chat_id,
+                msg_id,
+                html_text,
+                use_html=True,
+            )
+            if not success:
+                await self._edit_stream_message(
+                    chat_id,
+                    msg_id,
+                    final_text,
+                    use_html=False,
+                )
+            return
+
+        # Text too long for a single edit — delete placeholder and use
+        # the normal chunked send path (same as non-streaming).
+        await self._delete_message(chat_id, msg_id)
+        await self.send(to_handle, final_text, send_meta)
+
+    # ------------------------------------------------------------------
+    # Event hooks
+    # ------------------------------------------------------------------
 
     async def on_event_message_completed(
         self,

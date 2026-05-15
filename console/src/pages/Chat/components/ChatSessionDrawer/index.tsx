@@ -5,10 +5,14 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Drawer, Spin } from "antd";
+import { Drawer, Spin, Tooltip } from "antd";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import { IconButton } from "@agentscope-ai/design";
-import { SparkOperateRightLine } from "@agentscope-ai/icons";
+import {
+  SparkOperateRightLine,
+  SparkLockLine,
+  SparkLockFill,
+} from "@agentscope-ai/icons";
 import {
   useChatAnywhereSessionsState,
   useChatAnywhereSessions,
@@ -105,6 +109,10 @@ interface ChatSessionDrawerProps {
   open: boolean;
   /** Callback to close the drawer */
   onClose: () => void;
+  /** Whether the drawer is pinned (stays open) */
+  pinned?: boolean;
+  /** Callback to toggle the pinned state */
+  onPinChange?: (pinned: boolean) => void;
 }
 
 /** Format an ISO 8601 timestamp to YYYY-MM-DD HH:mm:ss */
@@ -135,11 +143,13 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
   const { createSession } = useChatAnywhereSessions();
 
-  /** Create a new session and close the drawer */
+  /** Create a new session; close the drawer only when not pinned */
   const handleCreateSession = useCallback(async () => {
     await createSession();
-    props.onClose();
-  }, [createSession, props.onClose]);
+    if (!props.pinned) {
+      props.onClose();
+    }
+  }, [createSession, props.onClose, props.pinned]);
 
   /** ID of the session currently being renamed */
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
@@ -212,7 +222,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     setSessions(list);
   }, [setSessions]);
 
-  /** Open drawer → refresh session list */
+  /** Open drawer → refresh session list and start polling */
   useEffect(() => {
     if (!props.open) return;
 
@@ -236,8 +246,20 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
     void fetchSessions();
 
+    const timer = setInterval(async () => {
+      try {
+        const list = await sessionApi.getSessionList();
+        if (!isCancelled) {
+          setSessions(list);
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }, 3000);
+
     return () => {
       isCancelled = true;
+      clearInterval(timer);
     };
   }, [props.open, setSessions]);
 
@@ -423,12 +445,13 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   return (
     <Drawer
       open={props.open}
-      onClose={props.onClose}
-      destroyOnClose
+      onClose={props.pinned ? undefined : props.onClose}
+      destroyOnClose={!props.pinned}
       placement="right"
       width={360}
       closable={false}
       title={null}
+      mask={!props.pinned}
       styles={{
         header: { display: "none" },
         body: {
@@ -448,11 +471,28 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           <span className={styles.headerTitle}>{t("chat.allChats")}</span>
         </div>
         <div className={styles.headerRight}>
-          <IconButton
-            bordered={false}
-            icon={<SparkOperateRightLine />}
-            onClick={props.onClose}
-          />
+          <Tooltip
+            title={
+              props.pinned
+                ? t("chat.unpinDrawer", "Unpin")
+                : t("chat.pinDrawer", "Pin")
+            }
+            mouseEnterDelay={0.5}
+          >
+            <IconButton
+              bordered={false}
+              icon={props.pinned ? <SparkLockFill /> : <SparkLockLine />}
+              className={props.pinned ? styles.pinActive : undefined}
+              onClick={() => props.onPinChange?.(!props.pinned)}
+            />
+          </Tooltip>
+          {!props.pinned && (
+            <IconButton
+              bordered={false}
+              icon={<SparkOperateRightLine />}
+              onClick={props.onClose}
+            />
+          )}
         </div>
       </div>
 
