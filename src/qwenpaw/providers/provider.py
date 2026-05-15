@@ -258,12 +258,6 @@ class Provider(ProviderInfo, ABC):
                 supports_logout=False,
             )
         if self.auth_type == ProviderAuthType.API_KEY:
-            if not self.require_api_key:
-                return ProviderAuthInfo(
-                    type=ProviderAuthType.NONE,
-                    status=ProviderAuthStatus.NOT_REQUIRED,
-                    supports_logout=False,
-                )
             return ProviderAuthInfo(
                 type=ProviderAuthType.API_KEY,
                 status=(

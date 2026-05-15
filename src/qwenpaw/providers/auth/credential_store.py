@@ -18,7 +18,6 @@ from .models import OAuthCredential
 logger = logging.getLogger(__name__)
 
 ProviderCredentialType = Literal["builtin", "plugin", "custom"]
-PROVIDER_CREDENTIAL_TYPES = frozenset({"builtin", "plugin", "custom"})
 
 OAUTH_SECRET_FIELDS = frozenset(
     {
@@ -49,7 +48,7 @@ class OAuthCredentialStore:
                 "Cannot save OAuth credential without access token",
             )
 
-        provider_dir = self._provider_dir(provider_type)
+        provider_dir = self.root / provider_type
         provider_dir.mkdir(parents=True, exist_ok=True)
         self._chmod_best_effort(provider_dir, 0o700)
 
@@ -129,14 +128,7 @@ class OAuthCredentialStore:
         provider_id: str,
         provider_type: ProviderCredentialType,
     ) -> Path:
-        return self._provider_dir(provider_type) / f"{provider_id}_oauth.json"
-
-    def _provider_dir(self, provider_type: ProviderCredentialType) -> Path:
-        if provider_type not in PROVIDER_CREDENTIAL_TYPES:
-            raise ValueError(
-                f"Unsupported provider credential type: {provider_type}",
-            )
-        return self.root / provider_type
+        return self.root / provider_type / f"{provider_id}_oauth.json"
 
     @staticmethod
     def _chmod_best_effort(path: Path, mode: int) -> None:
