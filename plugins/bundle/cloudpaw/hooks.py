@@ -502,6 +502,103 @@ def setup_tool_and_prompt_hooks() -> (  # pylint: disable=too-many-statements
         "and interrupt",
     )
 
+    _setup_a2a_query_rewrite()
+
+
+def _setup_a2a_query_rewrite() -> None:
+    """Monkey-patch AgentRunner.query_handler to intercept ``/a2a <name> <msg>``.
+
+    When a user types ``/a2a <agent_name> <message>``, the patch rewrites the
+    user message into a natural-language instruction that tells the LLM to call
+    the ``a2a_call`` tool with the specified alias and message.  Because the
+    rewritten text no longer starts with ``/``, it bypasses the control-command
+    path and flows through the normal agent query pipeline, giving the LLM full
+    control over the remote A2A call (including streaming tool output).
+
+    ``/a2a`` without arguments is left untouched so the control-command handler
+    can list registered agents as before.
+    """
+    try:
+        from qwenpaw.app.runner.runner import AgentRunner
+        from qwenpaw.app.runner.command_dispatch import _get_last_user_text
+    except ImportError as exc:
+        logger.warning(
+            "Cannot import AgentRunner; /a2a query rewrite skipped: %s",
+            exc,
+        )
+        return
+
+    _original_query_handler = AgentRunner.query_handler
+
+    async def _patched_query_handler(self, msgs, request=None, **kwargs):
+        query = _get_last_user_text(msgs)
+        if query and query.strip().startswith("/a2a "):
+            rewritten = _try_rewrite_a2a_query(
+                query.strip(),
+                self.workspace_dir,
+            )
+            if rewritten is not None:
+                AgentRunner._rewrite_last_message_text(msgs, rewritten)
+                logger.info(
+                    "[CloudPaw] /a2a query rewritten for agent processing",
+                )
+
+        async for item in _original_query_handler(
+            self, msgs, request, **kwargs
+        ):
+            yield item
+
+    AgentRunner.query_handler = _patched_query_handler
+    logger.info("[CloudPaw] Patched AgentRunner.query_handler for /a2a rewrite")
+
+
+def _try_rewrite_a2a_query(
+    query: str,
+    workspace_dir: Path | None,
+) -> str | None:
+    """Parse ``/a2a <agent_name> <message>`` and return a rewritten prompt.
+
+    Returns ``None`` if the query cannot be rewritten (missing workspace,
+    unknown alias, bad syntax), in which case the control-command path will
+    handle it and show an appropriate error or listing.
+    """
+    import json as _json
+
+    rest = query[len("/a2a"):].strip()
+    if not rest:
+        return None
+
+    parts = rest.split(None, 1)
+    if len(parts) < 2:
+        return None
+
+    agent_name, message = parts[0].strip(), parts[1].strip()
+    if not message:
+        return None
+
+    if workspace_dir is None:
+        return None
+
+    config_path = workspace_dir / "a2a_config.json"
+    if not config_path.exists():
+        return None
+
+    try:
+        data = _json.loads(config_path.read_text(encoding="utf-8"))
+        agents_cfg = data.get("agents", {})
+    except (_json.JSONDecodeError, OSError):
+        return None
+
+    if agent_name not in agents_cfg:
+        return None
+
+    return (
+        f"请使用 a2a_call 工具调用远程 A2A Agent。\n"
+        f"调用参数：agent_alias=\"{agent_name}\"，"
+        f"message=\"{message}\"\n\n"
+        f"请直接调用 a2a_call 工具完成此任务，不需要做其他额外操作。"
+    )
+
 
 def setup_mission_hooks() -> None:
     """Monkey-patch mission prompts for CloudPaw mission mode.

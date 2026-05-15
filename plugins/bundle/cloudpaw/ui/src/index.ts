@@ -1770,6 +1770,202 @@ function buildPlugin() {
     );
   }
 
+  // ── a2a_call tool renderer ───────────────────────────────────────────
+
+  function A2ACallRender({ data }: { data: any }) {
+    const scrollRef = React.useRef<HTMLDivElement>(null);
+
+    const toolArgs = useMemo(() => {
+      const argsStr = data?.content?.[0]?.data?.arguments;
+      if (!argsStr) return null;
+      try {
+        return JSON.parse(argsStr);
+      } catch {
+        return null;
+      }
+    }, [data?.content?.[0]?.data?.arguments]);
+
+    const { toolResult, rawErrorText } = useMemo(() => {
+      const content = data?.content;
+      if (!Array.isArray(content)) return { toolResult: null, rawErrorText: "" };
+      for (const item of content) {
+        const rawOutput = item?.data?.output;
+        if (!rawOutput) continue;
+        let textContent = "";
+        if (Array.isArray(rawOutput)) {
+          const textBlock = rawOutput.find(
+            (b: any) => b?.type === "text" && b?.text,
+          );
+          textContent = textBlock?.text || "";
+        } else if (typeof rawOutput === "string") {
+          try {
+            const parsed = JSON.parse(rawOutput);
+            if (typeof parsed === "object" && parsed?.response_text)
+              return { toolResult: parsed, rawErrorText: "" };
+            if (Array.isArray(parsed)) {
+              const tb = parsed.find(
+                (b: any) => b?.type === "text" && b?.text,
+              );
+              if (tb?.text) textContent = tb.text;
+            }
+          } catch {
+            textContent = rawOutput;
+          }
+        }
+        if (!textContent) continue;
+        try {
+          const result = JSON.parse(textContent);
+          return { toolResult: result, rawErrorText: "" };
+        } catch {
+          return { toolResult: null, rawErrorText: textContent };
+        }
+      }
+      return { toolResult: null, rawErrorText: "" };
+    }, [data?.content]);
+
+    React.useEffect(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    }, [toolResult?.response_text, rawErrorText]);
+
+    const agentAlias = toolArgs?.agent_alias || "";
+    const agentUrl = toolArgs?.agent_url || "";
+    const displayName = agentAlias || agentUrl || "远程 Agent";
+
+    const responseText = toolResult?.response_text || "";
+    const taskState = toolResult?.task_state || "";
+    const errorText = toolResult?.error || "";
+
+    const finishedTaskStates: Record<string, { color: string; text: string }> = {
+      completed: { color: "#52c41a", text: "已完成" },
+      TASK_STATE_COMPLETED: { color: "#52c41a", text: "已完成" },
+      failed: { color: "#ff4d4f", text: "失败" },
+      TASK_STATE_FAILED: { color: "#ff4d4f", text: "失败" },
+      error: { color: "#ff4d4f", text: "出错" },
+      canceled: { color: "#faad14", text: "已取消" },
+      TASK_STATE_CANCELED: { color: "#faad14", text: "已取消" },
+      AWAITING_USER_INPUT: { color: "#1677ff", text: "等待输入" },
+      input_required: { color: "#1677ff", text: "等待输入" },
+    };
+
+    let displayText = "";
+    if (errorText) {
+      displayText = `错误: ${errorText}`;
+    } else if (responseText) {
+      displayText = responseText;
+    } else if (rawErrorText) {
+      displayText = rawErrorText;
+    }
+
+    const hasResult = toolResult !== null || !!rawErrorText;
+    const isWorking = taskState === "working" || taskState === "TASK_STATE_WORKING";
+    const isFinished = hasResult && !isWorking;
+
+    let tagColor = "#1677ff";
+    let tagLabel = "执行中...";
+    if (isFinished) {
+      if (finishedTaskStates[taskState]) {
+        tagColor = finishedTaskStates[taskState].color;
+        tagLabel = finishedTaskStates[taskState].text;
+      } else if (rawErrorText) {
+        tagColor = "#ff4d4f";
+        tagLabel = "出错";
+      } else {
+        tagColor = "#52c41a";
+        tagLabel = "已完成";
+      }
+    }
+
+    const headerEl = React.createElement(
+      Space,
+      { size: 6 },
+      React.createElement("span", { style: { fontSize: 13 } }, "🔗"),
+      React.createElement(
+        Text,
+        { style: { fontSize: 12, color: "#595959" } },
+        `A2A: ${displayName}`,
+      ),
+      React.createElement(
+        Tag,
+        { color: tagColor, style: { fontSize: 11, lineHeight: "18px" } },
+        tagLabel,
+      ),
+    );
+
+    const loadingSpinner =
+      !isFinished && !displayText
+        ? React.createElement(
+            "div",
+            {
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "6px 10px",
+                marginBottom: 8,
+                background: "#f6ffed",
+                border: "1px solid #b7eb8f",
+                borderRadius: 6,
+              },
+            },
+            React.createElement(Spin, { size: "small" }),
+            React.createElement(
+              Text,
+              { style: { fontSize: 12, color: "#52c41a" } },
+              `正在连接 ${displayName}...`,
+            ),
+          )
+        : null;
+
+    const resultEl = displayText
+      ? React.createElement(
+          "div",
+          {
+            ref: scrollRef,
+            style: {
+              background: "#fafafa",
+              border: "1px solid #e8e8e8",
+              borderRadius: 6,
+              padding: "10px 12px",
+              maxHeight: 250,
+              overflowY: "auto" as const,
+            },
+          },
+          React.createElement(
+            Text,
+            {
+              style: {
+                fontSize: 12,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                lineHeight: "1.6",
+              },
+            },
+            displayText,
+          ),
+        )
+      : null;
+
+    return React.createElement(
+      "div",
+      {
+        style: {
+          width: "100%",
+          borderRadius: 8,
+          border: "1px solid #f0f0f0",
+          overflow: "hidden",
+          background: "#fff",
+          padding: "10px 14px",
+          margin: "4px 0",
+        },
+      },
+      React.createElement("div", { style: { marginBottom: 8 } }, headerEl),
+      loadingSpinner,
+      resultEl,
+    );
+  }
+
   // ── A2A command stream interceptor (control-command path) ──────────────
   // Detects messages containing the __A2A_STREAM_START__ marker and
   // replaces them with an SSE-powered streaming display.
@@ -2014,6 +2210,7 @@ function buildPlugin() {
   (window as any).QwenPaw.registerToolRender?.("cloudpaw", {
     proposal_choice: ProposalChoiceRender,
     manage_prd: ManagePRDRender,
+    a2a_call: A2ACallRender,
   });
 
   (window as any).QwenPaw.registerRoutes?.("cloudpaw", [
