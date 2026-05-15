@@ -46,11 +46,18 @@ def _isolate_master_key(tmp_path: Path, monkeypatch):
 
 
 class FakeProviderManager:
-    def __init__(self, providers):
+    def __init__(self, providers, storage_types=None):
         self.providers = providers
+        self.storage_types = storage_types or {}
 
     def get_provider(self, provider_id: str):
         return self.providers.get(provider_id)
+
+    def get_provider_with_storage_type(self, provider_id: str):
+        provider = self.providers.get(provider_id)
+        if provider is None:
+            return None
+        return provider, self.storage_types.get(provider_id, "custom")
 
 
 class FakeAuthAdapter(ProviderAuthAdapter):
@@ -124,7 +131,7 @@ def _provider(
 def _manager(tmp_path: Path, providers, registry: ProviderAuthRegistry):
     return ProviderAuthManager(
         FakeProviderManager(providers),
-        credential_store=OAuthCredentialStore(tmp_path / "oauth"),
+        credential_store=OAuthCredentialStore(tmp_path / "providers"),
         registry=registry,
     )
 
@@ -241,7 +248,7 @@ async def test_callback_saves_credential_and_status_exposes_no_token(
 ) -> None:
     registry = ProviderAuthRegistry()
     registry.register(FakeAuthAdapter())
-    store = OAuthCredentialStore(tmp_path / "oauth")
+    store = OAuthCredentialStore(tmp_path / "providers")
     manager = ProviderAuthManager(
         FakeProviderManager(
             {
@@ -260,7 +267,7 @@ async def test_callback_saves_credential_and_status_exposes_no_token(
         state="state",
         code="code",
     )
-    stored = store.load("oauth")
+    stored = store.load("oauth", "custom")
     status = await manager.get_status("oauth")
     status_payload = status.model_dump()
 
@@ -273,11 +280,37 @@ async def test_callback_saves_credential_and_status_exposes_no_token(
     assert "refresh_token" not in status_payload
 
 
+async def test_callback_saves_credential_in_provider_storage_bucket(
+    tmp_path: Path,
+) -> None:
+    registry = ProviderAuthRegistry()
+    registry.register(FakeAuthAdapter())
+    store = OAuthCredentialStore(tmp_path / "providers")
+    manager = ProviderAuthManager(
+        FakeProviderManager(
+            {
+                "oauth": _provider(
+                    "oauth",
+                    auth_type=ProviderAuthType.OAUTH_DEVICE_CODE,
+                ),
+            },
+            storage_types={"oauth": "builtin"},
+        ),
+        credential_store=store,
+        registry=registry,
+    )
+
+    await manager.handle_callback("oauth", state="state", code="code")
+
+    assert store.load("oauth", "builtin") is not None
+    assert store.load("oauth", "custom") is None
+
+
 async def test_logout_deletes_credential(tmp_path: Path) -> None:
     adapter = FakeAuthAdapter()
     registry = ProviderAuthRegistry()
     registry.register(adapter)
-    store = OAuthCredentialStore(tmp_path / "oauth")
+    store = OAuthCredentialStore(tmp_path / "providers")
     provider = _provider("oauth", auth_type=ProviderAuthType.OAUTH_DEVICE_CODE)
     store.save(
         OAuthCredential(
@@ -286,6 +319,7 @@ async def test_logout_deletes_credential(tmp_path: Path) -> None:
             created_at=1760000000,
             updated_at=1760000001,
         ),
+        "custom",
     )
     manager = ProviderAuthManager(
         FakeProviderManager({"oauth": provider}),
@@ -297,4 +331,4 @@ async def test_logout_deletes_credential(tmp_path: Path) -> None:
 
     assert adapter.logout_called is True
     assert status.status == ProviderAuthStatus.NOT_CONFIGURED
-    assert store.load("oauth") is None
+    assert store.load("oauth", "custom") is None

@@ -171,7 +171,7 @@ def api_client(tmp_path: Path, monkeypatch):
     app.state.provider_manager = fake_manager
     app.state.provider_auth_manager = ProviderAuthManager(
         fake_manager,
-        credential_store=OAuthCredentialStore(tmp_path / "oauth"),
+        credential_store=OAuthCredentialStore(tmp_path / "providers"),
         registry=registry,
     )
     app.include_router(providers_router.router, prefix="/api")

@@ -170,6 +170,78 @@ async def test_add_custom_provider_and_reload_from_storage(
     assert isinstance(loaded_duplicate, OpenAIProvider)
 
 
+def test_custom_provider_loader_ignores_oauth_credential_files(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    credential_file = manager.custom_path / "custom-openai_oauth.json"
+    credential_file.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "provider_id": "custom-openai",
+                "access_token": "ENC:placeholder",
+                "created_at": 1760000000,
+                "updated_at": 1760000001,
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    reloaded = ProviderManager()
+
+    assert reloaded.get_provider("custom-openai_oauth") is None
+
+
+def test_provider_resolution_returns_storage_bucket(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    manager.custom_providers["custom-openai"] = OpenAIProvider(
+        id="custom-openai",
+        name="Custom OpenAI",
+    )
+    manager.plugin_providers["plugin-openai"] = {
+        "info": OpenAIProvider(
+            id="plugin-openai",
+            name="Plugin OpenAI",
+        ),
+        "class": OpenAIProvider,
+    }
+
+    plugin = manager.get_provider_with_storage_type("plugin-openai")
+    builtin = manager.get_provider_with_storage_type("openai")
+    custom = manager.get_provider_with_storage_type("custom-openai")
+
+    assert plugin is not None
+    assert builtin is not None
+    assert custom is not None
+    assert plugin[1] == "plugin"
+    assert builtin[1] == "builtin"
+    assert custom[1] == "custom"
+    assert manager.get_provider_with_storage_type("missing") is None
+
+
+def test_provider_resolution_storage_bucket_matches_duplicate_id_priority(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    manager.plugin_providers["openai"] = {
+        "info": OpenAIProvider(
+            id="openai",
+            name="Plugin OpenAI",
+        ),
+        "class": OpenAIProvider,
+    }
+
+    resolved = manager.get_provider_with_storage_type("openai")
+
+    assert resolved is not None
+    provider, storage_type = resolved
+    assert provider.name == "Plugin OpenAI"
+    assert storage_type == "plugin"
+
+
 async def test_activate_provider_persists_active_model(
     isolated_secret_dir,
     monkeypatch,

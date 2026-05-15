@@ -1067,6 +1067,14 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     def get_provider(self, provider_id: str) -> Provider | None:
         # Return a provider instance by its ID. This will be used to create
         # chat model instances for the agent.
+        resolved = self.get_provider_with_storage_type(provider_id)
+        return resolved[0] if resolved else None
+
+    def get_provider_with_storage_type(
+        self,
+        provider_id: str,
+    ) -> tuple[Provider, str] | None:
+        """Resolve a provider and the storage bucket it was loaded from."""
         # Normalize provider ID for backward compatibility
         provider_id = self._normalize_provider_id(provider_id)
         # Check plugin providers first
@@ -1075,11 +1083,11 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             provider_info = plugin_provider["info"]
             provider_class = plugin_provider["class"]
             # Instantiate with **dict unpacking for Pydantic BaseModel
-            return provider_class(**provider_info.model_dump())
+            return provider_class(**provider_info.model_dump()), "plugin"
         if provider_id in self.builtin_providers:
-            return self.builtin_providers[provider_id]
+            return self.builtin_providers[provider_id], "builtin"
         if provider_id in self.custom_providers:
-            return self.custom_providers[provider_id]
+            return self.custom_providers[provider_id], "custom"
         return None
 
     async def get_provider_info(self, provider_id: str) -> ProviderInfo | None:
@@ -1225,6 +1233,9 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             provider_path = self.custom_path / f"{provider_id}.json"
             if provider_path.exists():
                 os.remove(provider_path)
+            credential_path = self.custom_path / f"{provider_id}_oauth.json"
+            if credential_path.exists():
+                os.remove(credential_path)
             return True
         return False
 
@@ -1792,6 +1803,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                             ]
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
+            if provider_file.name.endswith("_oauth.json"):
+                continue
             provider = self.load_provider(provider_file.stem, is_builtin=False)
             if provider:
                 self.custom_providers[provider.id] = provider

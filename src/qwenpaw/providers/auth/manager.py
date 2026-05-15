@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
-from .credential_store import OAuthCredentialStore
+from typing import Any
+
+from .credential_store import OAuthCredentialStore, ProviderCredentialType
 from .models import (
     AuthStartRequest,
     AuthStartResult,
@@ -41,7 +43,9 @@ class ProviderAuthManager:
         provider_id: str,
         flow_id: str | None = None,
     ) -> AuthStatusResult:
-        provider = self._get_provider_or_raise(provider_id)
+        provider, provider_type = self._get_provider_record_or_raise(
+            provider_id,
+        )
         auth_type = provider.auth_type
 
         if auth_type == ProviderAuthType.NONE or (
@@ -72,7 +76,7 @@ class ProviderAuthManager:
         if flow_id:
             return await adapter.poll(provider, flow_id)
 
-        credential = self.credential_store.load(provider.id)
+        credential = self.credential_store.load(provider.id, provider_type)
         return await adapter.get_status(provider, credential)
 
     async def start(
@@ -80,7 +84,7 @@ class ProviderAuthManager:
         provider_id: str,
         request: AuthStartRequest,
     ) -> AuthStartResult:
-        provider = self._get_provider_or_raise(provider_id)
+        provider, _ = self._get_provider_record_or_raise(provider_id)
         auth_type = provider.auth_type
 
         if auth_type == ProviderAuthType.NONE or (
@@ -117,14 +121,18 @@ class ProviderAuthManager:
         state: str,
         code: str,
     ) -> AuthStatusResult:
-        provider = self._get_provider_or_raise(provider_id)
+        provider, provider_type = self._get_provider_record_or_raise(
+            provider_id,
+        )
         adapter = self._get_oauth_adapter_or_raise(provider)
         credential = await adapter.handle_callback(provider, state, code)
-        self.credential_store.save(credential)
+        self.credential_store.save(credential, provider_type)
         return await adapter.get_status(provider, credential)
 
     async def logout(self, provider_id: str) -> AuthStatusResult:
-        provider = self._get_provider_or_raise(provider_id)
+        provider, provider_type = self._get_provider_record_or_raise(
+            provider_id,
+        )
         auth_type = provider.auth_type
 
         if auth_type == ProviderAuthType.NONE or (
@@ -140,19 +148,34 @@ class ProviderAuthManager:
             )
 
         adapter = self._get_oauth_adapter_or_raise(provider)
-        credential = self.credential_store.load(provider.id)
+        credential = self.credential_store.load(provider.id, provider_type)
         await adapter.logout(provider, credential)
-        self.credential_store.delete(provider.id)
+        self.credential_store.delete(provider.id, provider_type)
         return AuthStatusResult(status=ProviderAuthStatus.NOT_CONFIGURED)
 
-    def _get_provider_or_raise(self, provider_id: str):
+    def _get_provider_record_or_raise(
+        self,
+        provider_id: str,
+    ) -> tuple[Any, ProviderCredentialType]:
+        resolver = getattr(
+            self.provider_manager,
+            "get_provider_with_storage_type",
+            None,
+        )
+        if callable(resolver):
+            resolved = resolver(provider_id)
+            if resolved is not None:
+                provider, provider_type = resolved
+                if provider_type in {"builtin", "plugin", "custom"}:
+                    return provider, provider_type
+
         provider = self.provider_manager.get_provider(provider_id)
         if provider is None:
             raise ProviderAuthError(
                 404,
                 f"Provider '{provider_id}' not found",
             )
-        return provider
+        return provider, "custom"
 
     def _get_oauth_adapter_or_raise(self, provider):
         if provider.auth_type in {
