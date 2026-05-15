@@ -20,6 +20,7 @@ import BackupToolbar from "./list/BackupToolbar";
 import ImportButton from "./import/ImportButton";
 import ImportConflictModal from "./import/ImportConflictModal";
 import { useImportFlow } from "./import/useImportFlow";
+import BackupTrustDialog from "./trust/BackupTrustDialog";
 import CreateBackupModal from "./create/CreateBackupModal";
 import SilentBackupModal from "./create/SilentBackupModal";
 import PreRestoreConfirmModal from "./restore/PreRestoreConfirmModal";
@@ -107,6 +108,14 @@ export default function BackupsPage() {
         conflictMeta={importFlow.conflictMeta}
         onChoice={importFlow.handleConflictChoice}
         onCancel={importFlow.clearConflict}
+      />
+      <BackupTrustDialog
+        open={!!importFlow.trustFileName}
+        mode="foreign"
+        backupName={importFlow.trustFileName ?? undefined}
+        confirmLoading={importFlow.trustLoading}
+        onConfirm={importFlow.handleTrustConfirm}
+        onCancel={importFlow.clearTrust}
       />
 
       {/* Create flow */}

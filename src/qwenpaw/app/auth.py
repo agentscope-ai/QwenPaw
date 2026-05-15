@@ -29,6 +29,7 @@ from typing import Optional
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from . import backup_endpoint_policy
 from ..constant import SECRET_DIR, EnvVarLoader
 from ..security.secret_store import (
     AUTH_SECRET_FIELDS,
@@ -573,7 +574,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
         call_next,
     ) -> Response:
         """Check Bearer token on protected API routes; skip public paths."""
-        if self._should_skip_auth(request):
+        skip_auth = self._should_skip_auth(request)
+        decision = backup_endpoint_policy.apply(request, skip_auth=skip_auth)
+        if isinstance(decision, Response):
+            return decision
+        skip_auth = decision
+
+        if skip_auth:
             return await call_next(request)
 
         token = self._extract_token(request)

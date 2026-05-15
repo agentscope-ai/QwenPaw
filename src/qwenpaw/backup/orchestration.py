@@ -2,7 +2,8 @@
 """Top-level restore orchestration used by the HTTP router.
 
 Separating orchestration from the core restore logic keeps the router thin
-and makes the stop-agent → restore → restart-agent flow independently testable.
+and makes the stop-agent -> restore -> restart-agent flow independently
+testable.
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ from collections.abc import Awaitable, Callable
 
 from ._ops.storage import get_backup
 from ._ops.restore import restore
-from .models import RestoreBackupRequest
+from .models import BackupMeta, RestoreBackupRequest
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,8 @@ async def execute_restore(
     stop_agent_fn: Callable[[str], Awaitable[bool]] | None = None,
     preload_agent_fn: Callable[[str], Awaitable[bool]] | None = None,
     list_running_agent_ids_fn: Callable[[], list[str]] | None = None,
-) -> None:
-    """Orchestrate a restore: stop agents → restore files → restart agents.
+) -> BackupMeta:
+    """Orchestrate a restore: stop agents -> restore files -> restart agents.
 
     Parameters
     ----------
@@ -124,11 +125,12 @@ async def execute_restore(
             await stop_agent_fn(agent_id)
 
     try:
-        await restore(backup_id, req)
+        meta = await restore(backup_id, req)
         logger.info(
             "execute_restore finished successfully: backup_id=%s",
             backup_id,
         )
+        return meta
     except Exception:
         logger.exception(
             "execute_restore failed for backup_id=%s",

@@ -31,8 +31,12 @@ from ...config.utils import load_config, save_config
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
 from ...security.secret_store import reload_master_key_from_disk
 from .restore_helpers import (
+    assert_signature_or_legacy,
     collect_workspace_agents_from_zip,
     handle_master_key_conflict,
+    migrate_legacy_unsigned,
+    overlay_local_keys,
+    resolve_preserve_flag,
     resolve_workspace_dst,
     rewrite_agent_workspace_dir,
 )
@@ -47,10 +51,14 @@ _SUPPORTED_BACKUP_VERSIONS = {"1"}
 _RESTORE_LOCK = asyncio.Lock()
 
 
-async def restore(backup_id: str, req: RestoreBackupRequest) -> None:
-    """Restore a backup to the workspace."""
+async def restore(backup_id: str, req: RestoreBackupRequest) -> BackupMeta:
+    """Restore a backup to the workspace.
+
+    The async lock serializes in-process restore requests; the process lock
+    in ``_restore_sync`` protects the actual filesystem swap section.
+    """
     async with _RESTORE_LOCK:
-        await asyncio.to_thread(_restore_sync, backup_id, req)
+        return await asyncio.to_thread(_restore_sync, backup_id, req)
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +73,16 @@ def _validate_version(meta: BackupMeta) -> None:
             f"Unsupported backup version: {meta.version!r}. "
             f"Supported versions: {sorted(_SUPPORTED_BACKUP_VERSIONS)}",
         )
+
+
+def _read_meta_or_missing(
+    zf: zipfile.ZipFile,
+    backup_id: str,
+) -> BackupMeta:
+    meta_json = read_meta_from_zip(zf)
+    if meta_json is None:
+        raise FileNotFoundError(f"Backup not found: {backup_id}")
+    return BackupMeta.model_validate_json(meta_json)
 
 
 def _zip_has_prefix(zf: zipfile.ZipFile, prefix: str) -> bool:
@@ -111,7 +129,7 @@ def _plan_agent_destinations(
     seen_paths: dict[
         Path,
         str,
-    ] = {}  # resolved path → first aid that claimed it
+    ] = {}  # resolved path to first aid that claimed it
 
     for aid in agent_ids:
         if aid not in ws_agents:
@@ -261,6 +279,7 @@ def _stage_agents(
 def _stage_all(
     zf: zipfile.ZipFile,
     req: RestoreBackupRequest,
+    meta: BackupMeta,
     agent_ids: list[str],
     ws_agents: set[str],
     planned_dst_map: dict[str, tuple[Path, bool]],
@@ -282,7 +301,7 @@ def _stage_all(
     new_aids: list[str] = []
 
     try:
-        staged_config_tmp = _stage_global_config(zf, req, restore_aids)
+        staged_config_tmp = _stage_global_config(zf, req, meta, restore_aids)
         if req.include_secrets:
             _stage_secrets(zf, staged_dirs)
         if req.include_skill_pool:
@@ -358,21 +377,46 @@ def _commit_and_finalize(
     _apply_workspace_paths_and_save(config, dst_map, backup_id)
 
 
-def _restore_sync(backup_id: str, req: RestoreBackupRequest) -> None:
+def _restore_sync(backup_id: str, req: RestoreBackupRequest) -> BackupMeta:
     with restore_process_lock():
-        _restore_sync_locked(backup_id, req)
+        return _restore_sync_locked(backup_id, req)
 
 
-def _restore_sync_locked(backup_id: str, req: RestoreBackupRequest) -> None:
+def _restore_sync_locked(
+    backup_id: str,
+    req: RestoreBackupRequest,
+) -> BackupMeta:
+    """Restore after both async and process-level restore locks are held."""
     zp = zip_path(backup_id)
     if not zp.is_file():
         raise FileNotFoundError(f"Backup not found: {backup_id}")
 
     with zipfile.ZipFile(zp, "r") as zf:
-        meta_json = read_meta_from_zip(zf)
-        if meta_json is None:
-            raise FileNotFoundError(f"Backup not found: {backup_id}")
-        meta = BackupMeta.model_validate_json(meta_json)
+        meta = _read_meta_or_missing(zf, backup_id)
+        if not meta.signature:
+            # Legacy backups predate local signatures. They are usable only
+            # after explicit user trust, then migrated before any file writes.
+            assert_signature_or_legacy(
+                zf,
+                meta,
+                backup_id,
+                trust_legacy=req.trust_legacy,
+            )
+            _validate_version(meta)
+
+    if not meta.signature:
+        meta = migrate_legacy_unsigned(zp, meta)
+
+    with zipfile.ZipFile(zp, "r") as zf:
+        meta = _read_meta_or_missing(zf, backup_id)
+        # Re-open after legacy migration and verify the archive that will
+        # actually be restored, including its newly written meta.json.
+        assert_signature_or_legacy(
+            zf,
+            meta,
+            backup_id,
+            trust_legacy=False,
+        )
         _validate_version(meta)
 
         logger.info(
@@ -403,6 +447,7 @@ def _restore_sync_locked(backup_id: str, req: RestoreBackupRequest) -> None:
         staged_dirs, staged_config_tmp, dst_map, new_aids = _stage_all(
             zf,
             req,
+            meta,
             agent_ids,
             ws_agents,
             planned_dst_map,
@@ -416,6 +461,7 @@ def _restore_sync_locked(backup_id: str, req: RestoreBackupRequest) -> None:
         new_aids,
         backup_id,
     )
+    return meta
 
 
 def _merge_profiles_into(
@@ -468,6 +514,7 @@ def _merge_profiles_into(
 def _stage_global_config(
     zf: zipfile.ZipFile,
     req: RestoreBackupRequest,
+    meta: BackupMeta,
     restore_aids: set[str],
 ) -> Path | None:
     """Stage global config.json from the zip to a sibling .tmp file.
@@ -497,7 +544,8 @@ def _stage_global_config(
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".tmp")
     try:
-        if req.mode == "full":
+        preserve = resolve_preserve_flag(req, meta)
+        if req.mode == "full" and not preserve:
             # Full restore: copy backup bytes verbatim (agents.profiles
             # will be exactly what the backup contained).
             with zf.open(PREFIX_CONFIG) as src, open(tmp, "wb") as out:
@@ -510,21 +558,33 @@ def _stage_global_config(
             # Custom restore: merge – backup wins on all top-level keys, but
             # agents.profiles is rebuilt from local state, only applying
             # backup profiles for agents in restore_aids.
+            # Full+preserve also uses this JSON path so local keys can
+            # override the backup content before commit.
             backup_cfg = json.loads(zf.read(PREFIX_CONFIG))
             try:
                 with open(dest, "r", encoding="utf-8") as f:
                     current_cfg = json.load(f)
             except (OSError, ValueError):
                 current_cfg = {}
-            merged = _merge_profiles_into(
-                backup_cfg,
-                current_cfg,
-                restore_aids,
-            )
+            if req.mode == "full":
+                merged = backup_cfg
+            else:
+                merged = _merge_profiles_into(
+                    backup_cfg,
+                    current_cfg,
+                    restore_aids,
+                )
+            if preserve:
+                # Preserve local security/MCP after the mode-specific merge so
+                # the local controls win over any trusted foreign config.
+                merged = overlay_local_keys(merged, current_cfg)
             with open(tmp, "w", encoding="utf-8") as out:
                 json.dump(merged, out, indent=2, ensure_ascii=False)
             logger.debug(
-                "Staged global config (custom merge, restore_aids=%s) to %s",
+                "Staged global config (mode=%s, preserve=%s, "
+                "restore_aids=%s) to %s",
+                req.mode,
+                preserve,
                 sorted(restore_aids),
                 tmp,
             )
