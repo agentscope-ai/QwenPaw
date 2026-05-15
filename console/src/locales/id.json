@@ -112,6 +112,8 @@
     "chatHistoryTooltip": "Riwayat chat",
     "allChats": "Semua Chat",
     "createNewChat": "Buat Chat Baru",
+    "pinDrawer": "Sematkan",
+    "unpinDrawer": "Lepas sematan",
     "statusIdle": "Idle",
     "statusInProgress": "Sedang berjalan",
     "disclaimer": "Bekerja untuk Anda, berkembang bersama Anda",

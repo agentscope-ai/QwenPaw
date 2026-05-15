@@ -37,6 +37,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
 }) => {
   const { t } = useTranslation();
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyPinned, setHistoryPinned] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
   const { createSession } = useChatAnywhereSessions();
@@ -76,6 +77,8 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
       <ChatSessionDrawer
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
+        pinned={historyPinned}
+        onPinChange={setHistoryPinned}
       />
       <ChatSearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
       {planEnabled && (

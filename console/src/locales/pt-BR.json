@@ -1680,6 +1680,8 @@
     "chatHistoryTooltip": "Chat history",
     "allChats": "Todos Chats",
     "createNewChat": "Criar Novo Chat",
+    "pinDrawer": "Fixar",
+    "unpinDrawer": "Desafixar",
     "statusIdle": "Idle",
     "statusInProgress": "In progress",
     "disclaimer": "Works for you, grows with you",

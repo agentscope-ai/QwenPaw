@@ -1492,6 +1492,8 @@
     "chatHistoryTooltip": "チャット履歴",
     "allChats": "すべてのチャット",
     "createNewChat": "新しいチャットを作成",
+    "pinDrawer": "固定",
+    "unpinDrawer": "固定解除",
     "statusIdle": "待機",
     "statusInProgress": "処理中",
     "disclaimer": "あなたのために働き、あなたと共に成長します",
