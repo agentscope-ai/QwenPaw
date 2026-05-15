@@ -42,19 +42,21 @@ CloudPaw runs entirely in your own environment, keeping your data secure and und
 
 ### 1. Install CloudPaw Plugin
 
-CloudPaw is pre-bundled with QwenPaw v1.1.7+ at `plugins/bundle/cloudpaw/`.
-
 **Via Console (recommended):**
 
 1. Launch QwenPaw (`qwenpaw app`), open http://127.0.0.1:8088/
 2. Click "Plugin Manager" in the left sidebar (under Settings), then click "Install Plugin"
-3. Drag the `cloudpaw/` folder into the install dialog, or select a ZIP file
+3. Install using either method:
+   - Enter the plugin download URL: `https://qwenpaw-download.oss-ap-southeast-1.aliyuncs.com/files/plugins/cloudpaw/cloudpaw-0.0.1.zip`
+   - Drag the `cloudpaw/` folder into the install dialog, or select a ZIP file (CloudPaw is pre-bundled with QwenPaw v1.1.7+ at `plugins/bundle/cloudpaw/`)
 4. Wait for installation to complete
 
 **Via CLI:**
 
 ```bash
 qwenpaw plugin install /path/to/cloudpaw
+# Or install via URL
+qwenpaw plugin install https://qwenpaw-download.oss-ap-southeast-1.aliyuncs.com/files/plugins/cloudpaw/cloudpaw-0.0.1.zip
 ```
 
 > ⚠️ After installation, you **must refresh the browser** (`Ctrl+Shift+R` / `Cmd+Shift+R`) to load frontend updates.

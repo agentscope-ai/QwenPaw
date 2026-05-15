@@ -42,19 +42,21 @@ CloudPaw 完全部署在您自己的环境中，数据安全可控。
 
 ### 1. 安装 CloudPaw 插件
 
-CloudPaw 已预置在 QwenPaw v1.1.7+ 仓库的 `plugins/bundle/cloudpaw/` 目录中。
-
 **通过控制台安装（推荐）：**
 
 1. 启动 QwenPaw（`qwenpaw app`），打开浏览器访问 http://127.0.0.1:8088/
 2. 点击左侧导航栏的 「插件管理」（设置分组下），然后点击 「安装插件」
-3. 将 `cloudpaw/` 文件夹拖拽到安装对话框中，或选择 ZIP 文件
+3. 通过以下任一方式安装：
+   - 填入插件下载 URL：`https://qwenpaw-download.oss-ap-southeast-1.aliyuncs.com/files/plugins/cloudpaw/cloudpaw-0.0.1.zip`
+   - 将 `cloudpaw/` 文件夹拖拽到安装对话框中，或选择 ZIP 文件（CloudPaw 已预置在 QwenPaw v1.1.7+ 仓库的 `plugins/bundle/cloudpaw/` 目录中）
 4. 等待安装完成
 
 **通过命令行安装：**
 
 ```bash
 qwenpaw plugin install /path/to/cloudpaw
+# 或通过 URL 安装
+qwenpaw plugin install https://qwenpaw-download.oss-ap-southeast-1.aliyuncs.com/files/plugins/cloudpaw/cloudpaw-0.0.1.zip
 ```
 
 > ⚠️ 安装完成后**必须刷新浏览器**（`Ctrl+Shift+R` / `Cmd+Shift+R`）以加载前端更新。
