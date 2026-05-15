@@ -43,11 +43,12 @@ def _kill_process_tree_win32(pid: int) -> None:
 
 
 def _collapse_newlines_outside_quotes(cmd: str) -> str:
-    r"""Collapse newlines outside quoted strings; preserve those inside.
+    r"""Normalize newlines for Unix shells without flattening commands.
 
-    Used only on Unix where sh/bash correctly handles newlines in quotes.
-    Handles backslash-newline (line continuation) by removing both chars,
-    and treats single-quoted content as fully literal per POSIX.
+    Used only on Unix where sh/bash correctly handles newlines as command
+    separators and inside quoted strings.  Handles backslash-newline (line
+    continuation) by removing both chars, and treats single-quoted content
+    as fully literal per POSIX.
     """
     result: list[str] = []
     in_single_quote = False
@@ -92,16 +93,13 @@ def _collapse_newlines_outside_quotes(cmd: str) -> str:
             i += 2
             continue
 
-        # Newlines
+        # Newlines: preserve Unix shell command-separator semantics.  The
+        # previous space collapse turned "# comment\ncmd" into one shell
+        # comment, so the command was never executed.
         if char in ("\r", "\n"):
-            if in_double_quote:
-                # Preserve newlines inside double quotes
-                result.append(char)
-            else:
-                # Collapse \r\n as a single space
-                if char == "\r" and i + 1 < length and cmd[i + 1] == "\n":
-                    i += 1
-                result.append(" ")
+            if char == "\r" and i + 1 < length and cmd[i + 1] == "\n":
+                i += 1
+            result.append("\n")
             i += 1
             continue
 
@@ -131,12 +129,12 @@ def _collapse_embedded_newlines(cmd: str) -> str:
     ``--text "Hello\nWorld"``).  On Windows, all newlines are collapsed
     to ensure the command at least executes successfully.
     """
-    if "\n" not in cmd:
+    if "\n" not in cmd and "\r" not in cmd:
         return cmd
     if sys.platform == "win32":
         # cmd.exe truncates at newlines regardless of quoting — must
         # collapse all to ensure the command executes at all.
-        return cmd.replace("\r\n", " ").replace("\n", " ")
+        return cmd.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
     return _collapse_newlines_outside_quotes(cmd)
 
 
