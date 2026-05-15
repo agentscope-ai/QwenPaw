@@ -266,6 +266,15 @@ LLM_MAX_RETRIES = EnvVarLoader.get_int(
     min_value=0,
 )
 
+# Per-call LLM API timeout (seconds). If a single LLM call does not return
+# within this duration, a TimeoutError is raised and the retry logic kicks
+# in. Set to 0 to disable (not recommended for proxied providers).
+LLM_CALL_TIMEOUT = EnvVarLoader.get_float(
+    "QWENPAW_LLM_CALL_TIMEOUT",
+    60.0,
+    min_value=0.0,
+)
+
 LLM_BACKOFF_BASE = EnvVarLoader.get_float(
     "QWENPAW_LLM_BACKOFF_BASE",
     1.0,

@@ -380,6 +380,10 @@ class Workspace:
             await self._service_manager.start_all()
 
             self._started = True
+
+            # Start the task watchdog to auto-cancel stuck tasks
+            self._task_tracker.start_watchdog()
+
             logger.info(f"Workspace started successfully: {self.agent_id}")
 
         except Exception as e:
@@ -452,6 +456,9 @@ class Workspace:
 
         # Stop all services via ServiceManager (handles reuse automatically)
         await self._service_manager.stop_all(final=final)
+
+        # Stop the task watchdog
+        self._task_tracker.stop_watchdog()
 
         self._started = False
         logger.info(f"Workspace stopped: {self.agent_id}")
