@@ -206,6 +206,37 @@ export default function RestoreBackupModal({
     onClose();
   };
 
+  const showRestoreFailure = (detail: Record<string, unknown> | null) => {
+    if (detail?.code === "restore_target_busy") {
+      const lockedPaths = Array.isArray(detail.locked_paths)
+        ? detail.locked_paths.filter(
+            (path): path is string => typeof path === "string" && !!path,
+          )
+        : [];
+
+      message.error({
+        content: (
+          <div className={styles.restoreErrorMessage}>
+            <div>{t("backup.restoreTargetBusy")}</div>
+            {lockedPaths.length > 0 && (
+              <div className={styles.lockedPathList}>
+                {lockedPaths.map((path) => (
+                  <div key={path} className={styles.lockedPath}>
+                    {path}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ),
+        duration: 8,
+      });
+      return;
+    }
+
+    message.error(t("backup.restoreFailed"));
+  };
+
   const handleOk = async () => {
     const request = buildRestoreRequest();
     setLoading(true);
@@ -216,7 +247,7 @@ export default function RestoreBackupModal({
       if (detail?.code === "backup_legacy_unsigned") {
         setLegacyRequest(request);
       } else {
-        message.error(t("backup.restoreFailed"));
+        showRestoreFailure(detail);
       }
     } finally {
       setLoading(false);
@@ -229,8 +260,8 @@ export default function RestoreBackupModal({
     try {
       await finishRestore({ ...legacyRequest, trust_legacy: true });
       setLegacyRequest(null);
-    } catch {
-      message.error(t("backup.restoreFailed"));
+    } catch (err: unknown) {
+      showRestoreFailure(parseErrorDetail(err));
     } finally {
       setLegacyLoading(false);
     }
@@ -302,7 +333,7 @@ export default function RestoreBackupModal({
                   })
                 : t("backup.trustLegacyBanner", {
                     defaultValue:
-                      "Legacy backup - migration is required on first restore",
+                      "Legacy backup - trust confirmation is required before restore",
                   })
             }
             className={styles.trustBanner}

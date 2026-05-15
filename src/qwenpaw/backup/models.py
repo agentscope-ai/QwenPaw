@@ -61,7 +61,7 @@ class BackupMeta(BaseModel):
         default=None,
         description=(
             "Trust state marker: None=legacy/unknown, False=local signed, "
-            "True=trusted foreign/legacy migration."
+            "True=trusted foreign/legacy backup."
         ),
     )
 
@@ -126,7 +126,7 @@ class RestoreBackupRequest(BaseModel):
     )
     trust_legacy: bool = Field(
         default=False,
-        description="Explicitly trust and migrate an unsigned legacy backup.",
+        description="Explicitly trust and sign an unsigned legacy backup.",
     )
 
 
@@ -157,7 +157,13 @@ class BackupConflictError(Exception):
 class BackupValidationError(ValueError):
     """Raised for user-actionable backup validation failures."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        details: dict[str, object] | None = None,
+    ) -> None:
         self.code = code
         self.message = message
+        self.details = details or {}
         super().__init__(message)

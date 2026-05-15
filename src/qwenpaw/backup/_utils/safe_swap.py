@@ -373,6 +373,93 @@ def _discard_old(old_dst: Path) -> None:
         shutil.rmtree(old_dst)
 
 
+def assert_directory_renamable(dst: Path) -> None:
+    """Fail early on Windows if *dst* cannot be renamed.
+
+    Restore commits replace directories by renaming ``dst`` to
+    ``dst.restore_old``.  On Windows that final commit fails when any process
+    still holds a non-shareable handle somewhere inside the tree.  This probe
+    does the same reversible rename before staging/committing so callers can
+    report a clean "target is busy" error before partially restoring other
+    targets.
+    """
+    if os.name != "nt" or not dst.exists() or not dst.is_dir():
+        return
+
+    with _lock_for(dst):
+        probe = _unique_probe_path(dst)
+        moved = False
+        try:
+            dst.rename(probe)
+            moved = True
+            probe.rename(dst)
+            moved = False
+        except OSError:
+            if moved and probe.exists() and not dst.exists():
+                try:
+                    probe.rename(dst)
+                except OSError:
+                    logger.exception(
+                        "Failed to restore %s after rename probe",
+                        dst,
+                    )
+            raise
+
+
+def find_busy_restore_paths(dst: Path) -> list[Path]:
+    """Return the most specific busy directories found under *dst*.
+
+    A Windows restore commit renames the top-level restore target.  If that
+    fails, the actual handle is often held by a child directory.  This helper
+    reuses the same reversible rename probe to narrow the error down for the
+    user-facing restore message, without changing any files permanently.
+    """
+    if os.name != "nt" or not dst.exists() or not dst.is_dir():
+        return []
+
+    try:
+        assert_directory_renamable(dst)
+        return []
+    except OSError:
+        return _dedupe_paths(_find_busy_descendants(dst))
+
+
+def _find_busy_descendants(dst: Path) -> list[Path]:
+    busy_children: list[Path] = []
+    try:
+        children = sorted(dst.iterdir(), key=lambda item: item.name)
+    except OSError:
+        return [dst]
+
+    for child in children:
+        try:
+            is_dir = child.is_dir()
+        except OSError:
+            busy_children.append(child)
+            continue
+        if not is_dir:
+            continue
+        try:
+            assert_directory_renamable(child)
+        except OSError:
+            busy_children.extend(_find_busy_descendants(child))
+
+    return busy_children or [dst]
+
+
+def _unique_probe_path(dst: Path) -> Path:
+    """Return a sibling path reserved for a reversible rename probe."""
+    stem = f"{dst.name}.restore_probe"
+    for idx in range(100):
+        suffix = "" if idx == 0 else f"_{idx}"
+        candidate = dst.with_name(
+            f"{stem}_{os.getpid()}_{threading.get_ident()}{suffix}",
+        )
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(f"Could not allocate restore probe path for {dst}")
+
+
 # ---------------------------------------------------------------------------
 # Two-phase transactional API
 # ---------------------------------------------------------------------------

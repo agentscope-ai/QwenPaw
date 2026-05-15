@@ -59,6 +59,6 @@ def strip_signature(meta: BackupMeta) -> BackupMeta:
     return meta.model_copy(update=updates)
 
 
-def validation_detail(exc: BackupValidationError) -> dict[str, str]:
+def validation_detail(exc: BackupValidationError) -> dict[str, object]:
     """Convert stable backup validation failures to FastAPI detail payloads."""
-    return {"code": exc.code, "message": exc.message}
+    return {"code": exc.code, "message": exc.message, **exc.details}

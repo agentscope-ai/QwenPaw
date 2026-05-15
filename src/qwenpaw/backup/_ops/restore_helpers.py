@@ -61,7 +61,7 @@ def assert_signature_or_legacy(
     )
 
 
-def migrate_legacy_unsigned(zp: Path, meta: BackupMeta) -> BackupMeta:
+def sign_trusted_legacy_unsigned(zp: Path, meta: BackupMeta) -> BackupMeta:
     """Sign a legacy unsigned backup in place using this instance's key.
 
     Once the user has approved a legacy restore, re-signing the archive makes
@@ -72,13 +72,13 @@ def migrate_legacy_unsigned(zp: Path, meta: BackupMeta) -> BackupMeta:
         return meta
 
     logger.warning(
-        "Migrating legacy unsigned backup to local signature: %s",
+        "Signing trusted legacy unsigned backup with local signature: %s",
         zp,
     )
-    migrated = meta.model_copy(
+    signed = meta.model_copy(
         update={"imported_via_trust_foreign": True, "signature": None},
     )
-    return replace_meta_with_local_signature(zp, migrated)
+    return replace_meta_with_local_signature(zp, signed)
 
 
 def resolve_preserve_flag(

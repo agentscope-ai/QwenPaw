@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 /**
  * Shared confirmation for backups that do not verify with the local signing
  * key. Import and restore both use this dialog so the trust decision is
- * explicit before the backend accepts or migrates a foreign/legacy archive.
+ * explicit before the backend accepts or signs a foreign/legacy archive.
  */
 interface Props {
   open: boolean;
@@ -31,7 +31,7 @@ export default function BackupTrustDialog({
       title={
         isLegacy
           ? t("backup.trustLegacyTitle", {
-              defaultValue: "Migrate legacy backup?",
+              defaultValue: "Trust legacy backup?",
             })
           : t("backup.trustForeignTitle", {
               defaultValue: "Trust this backup?",
@@ -57,7 +57,7 @@ export default function BackupTrustDialog({
           isLegacy
             ? t("backup.trustLegacyDesc", {
                 defaultValue:
-                  "This older backup has no local signature. Only continue if you trust where it came from; it will be signed with this instance before restore.",
+                  "This older backup has no local signature. Only continue if you trust where it came from; this instance will sign it before restore.",
               })
             : t("backup.trustForeignDesc", {
                 defaultValue:

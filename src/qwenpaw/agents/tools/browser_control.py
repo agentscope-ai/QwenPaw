@@ -11,6 +11,7 @@ wait_for, pdf, close. Uses refs from snapshot for ref-based actions.
 
 import asyncio
 import atexit
+from collections.abc import Iterable
 from concurrent import futures
 import json
 import logging
@@ -4043,6 +4044,59 @@ async def stop_all_browsers() -> None:
                     state.get("workspace_id", "unknown"),
                     e,
                 )
+
+
+async def stop_browsers_for_workspace_dirs(
+    workspace_dirs: Iterable[str | Path],
+) -> None:
+    """Stop managed browsers whose profile lives under *workspace_dirs*.
+
+    Backup restore uses this narrower cleanup before replacing workspace
+    directories. It releases QwenPaw-owned Playwright/Chromium handles without
+    disrupting browser sessions for unrelated workspaces.
+    """
+    targets = _resolved_workspace_dir_keys(workspace_dirs)
+    if not targets:
+        return
+
+    for state in list(_workspace_states.values()):
+        workspace_dir = state.get("workspace_dir") or ""
+        if not workspace_dir:
+            continue
+        if _workspace_dir_key(workspace_dir) not in targets:
+            continue
+        if _is_browser_running(state):
+            try:
+                await _action_stop(state)
+            except Exception as e:
+                logger.error(
+                    "Failed to stop browser for workspace %s before "
+                    "restore: %s",
+                    state.get("workspace_id", "unknown"),
+                    e,
+                )
+
+
+def _resolved_workspace_dir_keys(
+    workspace_dirs: Iterable[str | Path],
+) -> set[str]:
+    """Normalize workspace paths for matching browser state entries."""
+    return {
+        key
+        for workspace_dir in workspace_dirs
+        if (key := _workspace_dir_key(workspace_dir))
+    }
+
+
+def _workspace_dir_key(workspace_dir: str | Path) -> str:
+    """Return a stable absolute path key, tolerating missing directories."""
+    if not workspace_dir:
+        return ""
+    path = Path(workspace_dir).expanduser()
+    try:
+        return str(path.resolve())
+    except OSError:
+        return str(path.absolute())
 
 
 async def browser_use(  # pylint: disable=R0911,R0912

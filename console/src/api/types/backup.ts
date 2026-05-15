@@ -91,4 +91,5 @@ export interface BackupConflictResponse {
 export interface BackupValidationDetail {
   code: string;
   message: string;
+  locked_paths?: string[];
 }

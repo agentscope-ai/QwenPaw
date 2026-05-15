@@ -19,13 +19,15 @@ from .._utils.constants import (
 )
 from .._utils.meta import read_meta_from_zip
 from .._utils.safe_swap import (
+    assert_directory_renamable,
     cleanup_stale_restore_artifacts,
     commit_tmp,
     discard_tmp,
     extract_to_tmp,
+    find_busy_restore_paths,
     restore_process_lock,
 )
-from ..models import BackupMeta, RestoreBackupRequest
+from ..models import BackupMeta, BackupValidationError, RestoreBackupRequest
 from ...config.config import AgentProfileRef
 from ...config.utils import load_config, save_config
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
@@ -34,11 +36,11 @@ from .restore_helpers import (
     assert_signature_or_legacy,
     collect_workspace_agents_from_zip,
     handle_master_key_conflict,
-    migrate_legacy_unsigned,
     overlay_local_keys,
     resolve_preserve_flag,
     resolve_workspace_dst,
     rewrite_agent_workspace_dir,
+    sign_trusted_legacy_unsigned,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,6 +61,29 @@ async def restore(backup_id: str, req: RestoreBackupRequest) -> BackupMeta:
     """
     async with _RESTORE_LOCK:
         return await asyncio.to_thread(_restore_sync, backup_id, req)
+
+
+def preflight_restore(backup_id: str, req: RestoreBackupRequest) -> BackupMeta:
+    """Validate restore trust and version before stopping running agents.
+
+    This performs no writes.  An unsigned legacy backup without explicit trust
+    fails here, so the HTTP orchestration can show the trust prompt without
+    stopping and immediately restarting the affected workspaces.
+    """
+    zp = zip_path(backup_id)
+    if not zp.is_file():
+        raise FileNotFoundError(f"Backup not found: {backup_id}")
+
+    with zipfile.ZipFile(zp, "r") as zf:
+        meta = _read_meta_or_missing(zf, backup_id)
+        assert_signature_or_legacy(
+            zf,
+            meta,
+            backup_id,
+            trust_legacy=req.trust_legacy,
+        )
+        _validate_version(meta)
+        return meta
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +301,80 @@ def _stage_agents(
             new_aids.append(aid)
 
 
+def _restore_directory_targets(
+    zf: zipfile.ZipFile,
+    req: RestoreBackupRequest,
+    agent_ids: list[str],
+    ws_agents: set[str],
+    planned_dst_map: dict[str, tuple[Path, bool]],
+) -> list[Path]:
+    """Return existing directories that a restore would replace.
+
+    The list mirrors the staging rules, so we only probe targets that will
+    actually be committed.  New agent workspaces may not exist yet; the probe
+    helper ignores missing paths.
+    """
+    targets: list[Path] = []
+    if req.include_secrets and _zip_has_prefix(zf, PREFIX_SECRETS):
+        targets.append(SECRET_DIR)
+    if req.include_skill_pool and _zip_has_prefix(zf, PREFIX_SKILL_POOL):
+        from ...agents.skill_system.store import get_skill_pool_dir
+
+        targets.append(get_skill_pool_dir())
+    if req.include_agents:
+        for aid in agent_ids:
+            if aid not in ws_agents:
+                continue
+            prefix = f"{PREFIX_WORKSPACES}{aid}/"
+            if _zip_has_prefix(zf, prefix):
+                targets.append(planned_dst_map[aid][0])
+    return _dedupe_restore_targets(targets)
+
+
+def _dedupe_restore_targets(targets: list[Path]) -> list[Path]:
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for target in targets:
+        try:
+            key = str(target.resolve())
+        except OSError:
+            key = str(target.absolute())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(target)
+    return deduped
+
+
+def _assert_restore_targets_available(targets: list[Path]) -> None:
+    """Raise a user-actionable error if a restore target is still busy."""
+    busy_paths: list[Path] = []
+    first_error: OSError | None = None
+    for target in targets:
+        try:
+            assert_directory_renamable(target)
+        except OSError as exc:
+            if first_error is None:
+                first_error = exc
+            locked = find_busy_restore_paths(target)
+            busy_paths.extend(locked or [target])
+            logger.warning(
+                "Restore target is still in use and cannot be renamed: %s",
+                target,
+                exc_info=True,
+            )
+    if busy_paths:
+        locked_paths = [str(path) for path in _dedupe_restore_targets(busy_paths)]
+        raise BackupValidationError(
+            "restore_target_busy",
+            "Restore target is still in use after closing managed "
+            "browsers and stopping agents. Close any browser or external "
+            "process using the locked directories, then retry. If the "
+            "directories remain locked, restart the system and try again.",
+            {"locked_paths": locked_paths},
+        ) from first_error
+
+
 def _stage_all(
     zf: zipfile.ZipFile,
     req: RestoreBackupRequest,
@@ -395,7 +494,7 @@ def _restore_sync_locked(
         meta = _read_meta_or_missing(zf, backup_id)
         if not meta.signature:
             # Legacy backups predate local signatures. They are usable only
-            # after explicit user trust, then migrated before any file writes.
+            # after explicit user trust, then signed before any file writes.
             assert_signature_or_legacy(
                 zf,
                 meta,
@@ -405,11 +504,11 @@ def _restore_sync_locked(
             _validate_version(meta)
 
     if not meta.signature:
-        meta = migrate_legacy_unsigned(zp, meta)
+        meta = sign_trusted_legacy_unsigned(zp, meta)
 
     with zipfile.ZipFile(zp, "r") as zf:
         meta = _read_meta_or_missing(zf, backup_id)
-        # Re-open after legacy migration and verify the archive that will
+        # Re-open after legacy signing and verify the archive that will
         # actually be restored, including its newly written meta.json.
         assert_signature_or_legacy(
             zf,
@@ -443,6 +542,15 @@ def _restore_sync_locked(
             ws_agents,
             config_before,
             req,
+        )
+        _assert_restore_targets_available(
+            _restore_directory_targets(
+                zf,
+                req,
+                agent_ids,
+                ws_agents,
+                planned_dst_map,
+            ),
         )
         staged_dirs, staged_config_tmp, dst_map, new_aids = _stage_all(
             zf,
