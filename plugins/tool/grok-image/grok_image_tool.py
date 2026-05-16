@@ -80,9 +80,9 @@ async def generate_image_grok(
 ) -> ToolResponse:
     """Generate a new image with xAI Grok Imagine (Aurora).
 
-    Text-to-image only.  For editing an existing image, use
-    :func:`edit_image_grok` instead — it hits a different xAI endpoint
-    (``/v1/images/edits``) that actually references the source.
+    Text-to-image only. To edit an existing image, use the
+    ``edit_image_grok`` tool instead — it hits a different xAI
+    endpoint (``/v1/images/edits``) that actually references the source.
 
     Args:
         prompt (str):

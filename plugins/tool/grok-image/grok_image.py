@@ -48,7 +48,8 @@ class GrokImageToolPlugin:
             tool_func=tool.generate_image_grok,
             description=(
                 "Generate a new image from a text prompt using xAI "
-                "Grok Imagine (Aurora). Text-to-image only."
+                "Grok Imagine (Aurora). Text-to-image only — to edit "
+                "an existing image, use the `edit_image_grok` tool instead."
             ),
             icon="🎨",
         )
@@ -58,8 +59,8 @@ class GrokImageToolPlugin:
             tool_func=tool.edit_image_grok,
             description=(
                 "Edit an existing image or compose from multiple "
-                "references using xAI Grok Imagine. Accepts http(s) URL, "
-                "data: URI, or local file path for source images."
+                "references using xAI Grok Imagine. Source images accept "
+                "an http(s) URL or a `data:image/...;base64,...` URI."
             ),
             icon="🖼️",
         )
