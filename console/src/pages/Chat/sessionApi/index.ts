@@ -8,6 +8,7 @@ import api, {
   type ChatHistory,
   type ChatStatus,
   type Message,
+  type MessageMetadata,
 } from "../../../api";
 import { toDisplayUrl } from "../utils";
 
@@ -23,6 +24,7 @@ const ROLE_USER = "user";
 const ROLE_ASSISTANT = "assistant";
 const TYPE_PLUGIN_CALL_OUTPUT = "plugin_call_output";
 const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
+const CARD_SENDER_INFO = "QwenPawSenderInfoCard";
 
 // ---------------------------------------------------------------------------
 // Window globals
@@ -50,7 +52,7 @@ interface ContentItem {
 /** A backend message after role-normalisation (output of toOutputMessage). */
 interface OutputMessage extends Omit<Message, "role"> {
   role: string;
-  metadata: unknown;
+  metadata?: MessageMetadata | null;
   sequence_number?: number;
 }
 
@@ -160,10 +162,28 @@ const toOutputMessage = (msg: Message): OutputMessage => ({
 /** Build a user card (AgentScopeRuntimeRequestCard) from a user message. */
 function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
   const contentParts = contentToRequestParts(msg.content);
+  const metadata = msg.metadata as
+    | {
+        original_name?: string;
+        original_timestamp?: string | null;
+      }
+    | null
+    | undefined;
+  const senderName =
+    metadata?.original_name || (msg.name as string | undefined) || ROLE_USER;
+  const timestamp = metadata?.original_timestamp || null;
+
   return {
     id: (msg.id as string) || generateId(),
     role: "user",
     cards: [
+      {
+        code: CARD_SENDER_INFO,
+        data: {
+          name: senderName,
+          timestamp,
+        },
+      },
       {
         code: "AgentScopeRuntimeRequestCard",
         data: {
@@ -178,6 +198,31 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
       },
     ],
   };
+}
+
+/** Extract sender identity from a group of output messages. */
+function extractSenderInfo(outputMessages: OutputMessage[]): {
+  name: string;
+  timestamp: string | null;
+} {
+  for (const msg of outputMessages) {
+    const metadata = msg.metadata as
+      | {
+          original_name?: string;
+          original_timestamp?: string | null;
+        }
+      | null
+      | undefined;
+    const name =
+      metadata?.original_name ||
+      (msg.name as string | undefined) ||
+      ROLE_ASSISTANT;
+    const timestamp = metadata?.original_timestamp || null;
+    if (name !== ROLE_ASSISTANT || timestamp) {
+      return { name, timestamp };
+    }
+  }
+  return { name: ROLE_ASSISTANT, timestamp: null };
 }
 
 /**
@@ -198,10 +243,19 @@ const buildResponseCard = (
     content: normalizeOutputMessageContent(msg.content),
   }));
 
+  const senderInfo = extractSenderInfo(outputMessages);
+
   return {
     id: generateId(),
     role: ROLE_ASSISTANT,
     cards: [
+      {
+        code: CARD_SENDER_INFO,
+        data: {
+          name: senderInfo.name,
+          timestamp: senderInfo.timestamp,
+        },
+      },
       {
         code: CARD_RESPONSE,
         data: {
@@ -462,8 +516,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     const lastMsg = messages[messages.length - 1];
     if (lastMsg?.role === ROLE_USER) {
+      const requestCard = lastMsg?.cards?.find(
+        (c) => c.code === "AgentScopeRuntimeRequestCard",
+      );
       const text = extractTextFromContent(
-        lastMsg?.cards?.[0]?.data?.input?.[0]?.content,
+        requestCard?.data?.input?.[0]?.content,
       );
       if (!text) {
         lastMsg.cards = buildUserCard({
