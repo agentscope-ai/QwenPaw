@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Model wrapper that records token usage from LLM responses."""
 
+from collections.abc import Mapping
 from datetime import date, datetime, timezone
 from typing import Any, AsyncGenerator, Literal, Type
 
@@ -16,7 +17,13 @@ from .manager import get_token_usage_manager
 class TokenRecordingModelWrapper(ChatModelBase):
     """Wraps a ChatModelBase to record token usage on each call."""
 
+    # Pending usage events for channel/UI reporting. `pop_usage_for_session`
+    # intentionally consumes these so the same usage is emitted once.
     _usage_by_session: dict[str, dict[str, Any]] = {}
+    # Retained latest usage for non-destructive consumers such as context
+    # estimation. This survives UI pops and is keyed by session.
+    _latest_usage_by_session: dict[str, dict[str, Any]] = {}
+    _usage_sequence: int = 0
 
     def __init__(self, provider_id: str, model: ChatModelBase) -> None:
         super().__init__(
@@ -26,12 +33,42 @@ class TokenRecordingModelWrapper(ChatModelBase):
         self._model = model
         self._provider_id = provider_id
 
-    def _record_usage(self, usage: ChatUsage | None) -> None:
+    @staticmethod
+    def _read_token_count(usage: Any, *keys: str) -> int:
+        """Read a non-negative token count from attr- or dict-style usage."""
+        for key in keys:
+            value = (
+                usage.get(key)
+                if isinstance(usage, Mapping)
+                else getattr(usage, key, None)
+            )
+            if value is None:
+                continue
+            try:
+                return max(int(value), 0)
+            except (TypeError, ValueError):
+                continue
+        return 0
+
+    def _record_usage(
+        self,
+        usage: ChatUsage | Mapping[str, Any] | None,
+    ) -> None:
         """Enqueue a usage event synchronously — never blocks the caller."""
         if usage is None:
             return
-        pt = getattr(usage, "input_tokens", 0) or 0
-        ct = getattr(usage, "output_tokens", 0) or 0
+        pt = self._read_token_count(
+            usage,
+            "input_tokens",
+            "prompt_tokens",
+            "prompt_eval_count",
+        )
+        ct = self._read_token_count(
+            usage,
+            "output_tokens",
+            "completion_tokens",
+            "eval_count",
+        )
         if pt <= 0 and ct <= 0:
             return
 
@@ -61,12 +98,27 @@ class TokenRecordingModelWrapper(ChatModelBase):
     def pop_usage_for_session(cls, session_id: str) -> dict[str, Any] | None:
         return cls._usage_by_session.pop(session_id, None)
 
+    @classmethod
+    def peek_usage_for_session(cls, session_id: str) -> dict[str, Any] | None:
+        usage = cls._latest_usage_by_session.get(session_id)
+        return dict(usage) if usage else None
+
     def _store_usage(self, usage: dict[str, Any] | None) -> None:
         from ..app.agent_context import get_current_session_id
 
         session_id = get_current_session_id()
         if session_id and usage:
-            TokenRecordingModelWrapper._usage_by_session[session_id] = usage
+            TokenRecordingModelWrapper._usage_sequence += 1
+            usage_with_sequence = {
+                **usage,
+                "sequence": TokenRecordingModelWrapper._usage_sequence,
+            }
+            TokenRecordingModelWrapper._usage_by_session[
+                session_id
+            ] = usage_with_sequence
+            TokenRecordingModelWrapper._latest_usage_by_session[
+                session_id
+            ] = usage_with_sequence
 
     async def __call__(
         self,

@@ -495,7 +495,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                         if len(loaded_messages) >= MAX_LOAD_HISTORY_COUNT:
                             break
 
-            # Clear existing memory
+            # Clear existing memory without persisting it into dialog history.
             self.memory.content.clear()
             self.memory.clear_compressed_summary()
 

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the token usage core module."""
+
 from __future__ import annotations
 
 import asyncio
@@ -23,6 +24,7 @@ from qwenpaw.token_usage.manager import (
 )
 from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
 from qwenpaw.token_usage.storage import load_data, save_data_sync
+from qwenpaw.app.agent_context import set_current_session_id
 
 
 # =============================================================================
@@ -35,8 +37,16 @@ def _isolate_token_usage_manager():
     """Isolate token usage manager singleton for each test."""
     # pylint: disable=protected-access
     TokenUsageManager._instance = None
+    TokenRecordingModelWrapper._usage_by_session.clear()
+    TokenRecordingModelWrapper._latest_usage_by_session.clear()
+    TokenRecordingModelWrapper._usage_sequence = 0
+    set_current_session_id("")
     yield
     TokenUsageManager._instance = None
+    TokenRecordingModelWrapper._usage_by_session.clear()
+    TokenRecordingModelWrapper._latest_usage_by_session.clear()
+    TokenRecordingModelWrapper._usage_sequence = 0
+    set_current_session_id("")
 
 
 # =============================================================================
@@ -513,6 +523,88 @@ class TestTokenRecordingModelWrapper:
 
         wrapper._record_usage(mock_usage)
 
+    def test_record_usage_ignores_missing_usage(self, tmp_path, monkeypatch):
+        """Missing provider usage should not update context estimate cache."""
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.WORKING_DIR",
+            tmp_path,
+        )
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
+            "test_token_usage.json",
+        )
+        set_current_session_id("test-session")
+
+        mock_model = MagicMock()
+        mock_model.model_name = "gpt-4"
+        wrapper = TokenRecordingModelWrapper(
+            provider_id="openai",
+            model=mock_model,
+        )
+
+        wrapper._record_usage(None)
+
+        assert (
+            TokenRecordingModelWrapper.peek_usage_for_session("test-session")
+            is None
+        )
+
+    def test_record_usage_accepts_dict_usage(self, tmp_path, monkeypatch):
+        """Dict-style provider usage should update context estimate cache."""
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.WORKING_DIR",
+            tmp_path,
+        )
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
+            "test_token_usage.json",
+        )
+        set_current_session_id("test-session")
+
+        mock_model = MagicMock()
+        mock_model.model_name = "gpt-4"
+        wrapper = TokenRecordingModelWrapper(
+            provider_id="openai",
+            model=mock_model,
+        )
+
+        wrapper._record_usage(
+            {"prompt_tokens": "123", "completion_tokens": "45"},
+        )
+
+        usage = TokenRecordingModelWrapper.peek_usage_for_session(
+            "test-session",
+        )
+        assert usage is not None
+        assert usage["prompt_tokens"] == 123
+        assert usage["completion_tokens"] == 45
+
+    def test_record_usage_ignores_malformed_usage(self, tmp_path, monkeypatch):
+        """Malformed provider usage should fall back by not updating cache."""
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.WORKING_DIR",
+            tmp_path,
+        )
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
+            "test_token_usage.json",
+        )
+        set_current_session_id("test-session")
+
+        mock_model = MagicMock()
+        mock_model.model_name = "gpt-4"
+        wrapper = TokenRecordingModelWrapper(
+            provider_id="openai",
+            model=mock_model,
+        )
+
+        wrapper._record_usage({"prompt_tokens": "bad"})
+
+        assert (
+            TokenRecordingModelWrapper.peek_usage_for_session("test-session")
+            is None
+        )
+
     def test_pop_usage_for_session(self, monkeypatch):
         """Should pop usage for session."""
         monkeypatch.setattr(
@@ -543,3 +635,44 @@ class TestTokenRecordingModelWrapper:
             TokenRecordingModelWrapper.pop_usage_for_session("test-session")
             is None
         )
+
+    def test_peek_usage_survives_pop_for_context_estimates(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Latest usage should remain available after channel pop."""
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.WORKING_DIR",
+            tmp_path,
+        )
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
+            "test_token_usage.json",
+        )
+        set_current_session_id("test-session")
+
+        mock_model = MagicMock()
+        mock_model.model_name = "gpt-4"
+        wrapper = TokenRecordingModelWrapper(
+            provider_id="openai",
+            model=mock_model,
+        )
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 123
+        mock_usage.output_tokens = 45
+
+        wrapper._record_usage(mock_usage)
+
+        popped = TokenRecordingModelWrapper.pop_usage_for_session(
+            "test-session",
+        )
+        peeked = TokenRecordingModelWrapper.peek_usage_for_session(
+            "test-session",
+        )
+
+        assert popped is not None
+        assert popped["prompt_tokens"] == 123
+        assert peeked is not None
+        assert peeked["prompt_tokens"] == 123
+        assert peeked["sequence"] == popped["sequence"]
