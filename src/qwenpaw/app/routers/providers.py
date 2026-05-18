@@ -4,9 +4,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Literal, Optional
-from copy import deepcopy
-
+from typing import Dict, List, Literal, Optional
 from fastapi import (
     APIRouter,
     Body,
@@ -48,16 +46,13 @@ ActiveModelReadScope = Literal["effective", "global", "agent"]
 ActiveModelWriteScope = Literal["global", "agent"]
 
 
-def get_provider_manager(request: Request) -> ProviderManager:
+async def get_provider_manager(request: Request) -> ProviderManager:
     """Get the provider manager from app state.
 
     Args:
         request: FastAPI request object
     """
-    provider_manager = getattr(request.app.state, "provider_manager", None)
-    if provider_manager is None:
-        provider_manager = ProviderManager.get_instance()
-    return provider_manager
+    return request.app.state.provider_manager
 
 
 class ProviderConfigRequest(BaseModel):
@@ -73,6 +68,17 @@ class ProviderConfigRequest(BaseModel):
             "Configuration in json format, will be expanded "
             "and passed to generation calls "
             "(e.g., openai.chat.completions, anthropic.messages)."
+        ),
+    )
+    custom_headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Custom HTTP headers to include in every API request.",
+    )
+    auth_mode: Optional[Literal["api_key", "auth_token"]] = Field(
+        default=None,
+        description=(
+            "Authentication mode: 'api_key' or 'auth_token'. "
+            "Only applies to Anthropic-compatible providers."
         ),
     )
 
@@ -193,6 +199,8 @@ async def configure_provider(
             "base_url": body.base_url,
             "chat_model": body.chat_model,
             "generate_kwargs": body.generate_kwargs,
+            "custom_headers": body.custom_headers,
+            "auth_mode": body.auth_mode,
         },
     )
     if not ok:
@@ -255,6 +263,14 @@ class TestProviderRequest(BaseModel):
         default=None,
         description="Optional chat model class to test protocol behavior",
     )
+    custom_headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Custom headers to use for this test request",
+    )
+    auth_mode: Optional[Literal["api_key", "auth_token"]] = Field(
+        default=None,
+        description="Authentication mode to use for this test request",
+    )
 
 
 class TestModelRequest(BaseModel):
@@ -307,12 +323,18 @@ async def test_provider(
         provider = manager.get_provider(provider_id)
         if provider is None:
             raise ValueError(f"Provider '{provider_id}' not found")
-        # Ensure we don't accidentally modify provider config during test
-        tmp_provider = deepcopy(provider)
+        # Build a lightweight Pydantic copy with only the overridden fields;
+        # avoids deepcopy which fails when _strip_http_client is cached.
+        overrides: dict = {}
         if body and body.api_key:
-            tmp_provider.api_key = body.api_key
+            overrides["api_key"] = body.api_key
         if body and body.base_url:
-            tmp_provider.base_url = body.base_url
+            overrides["base_url"] = body.base_url
+        if body and body.custom_headers is not None:
+            overrides["custom_headers"] = body.custom_headers
+        if body and body.auth_mode in ("api_key", "auth_token"):
+            overrides["auth_mode"] = body.auth_mode
+        tmp_provider = provider.model_copy(update=overrides)
         ok, msg = await tmp_provider.check_connection()
         return TestConnectionResponse(
             success=ok,

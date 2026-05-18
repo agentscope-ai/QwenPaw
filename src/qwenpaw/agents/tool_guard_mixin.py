@@ -32,7 +32,7 @@ from ..constant import (
 )
 
 if TYPE_CHECKING:
-    from qwenpaw.app.approvals.models import PendingApproval
+    from qwenpaw.app.approvals import PendingApproval
     from qwenpaw.security.tool_guard.approval import ApprovalDecision
 
 logger = logging.getLogger(__name__)
@@ -233,6 +233,18 @@ class ToolGuardMixin:
                         tool_name,
                         tool_input,
                     )
+                if engine.should_auto_deny_result(guard_result):
+                    logger.warning(
+                        "Tool guard: tool '%s' matched auto-denied rule(s), "
+                        "auto-denying in STRICT mode",
+                        tool_name,
+                    )
+                    return _GuardAction(
+                        "auto_denied",
+                        tool_name,
+                        tool_input,
+                        guard_result=guard_result,
+                    )
                 return _GuardAction(
                     "needs_approval",
                     tool_name,
@@ -255,6 +267,19 @@ class ToolGuardMixin:
         from qwenpaw.security.tool_guard.utils import log_findings
 
         log_findings(tool_name, guard_result)
+
+        if engine.should_auto_deny_result(guard_result):
+            logger.warning(
+                "Tool guard: tool '%s' matched auto-denied rule(s), "
+                "auto-denying",
+                tool_name,
+            )
+            return _GuardAction(
+                "auto_denied",
+                tool_name,
+                tool_input,
+                guard_result=guard_result,
+            )
 
         # SMART mode: auto-allow low-risk findings
         if exec_level.is_smart_mode():
@@ -413,6 +438,9 @@ class ToolGuardMixin:
         root_session_id = str(
             self._request_context.get("root_session_id") or session_id,
         )
+        owner_agent_id = str(
+            self._request_context.get("root_agent_id") or agent_id,
+        )
 
         svc = self._tool_guard_approval_service
         tool_call_id = tool_call.get("id", "")
@@ -429,6 +457,7 @@ class ToolGuardMixin:
         pending = await svc.create_pending(
             session_id=session_id,
             root_session_id=root_session_id,
+            owner_agent_id=owner_agent_id,
             user_id=user_id,
             channel=channel,
             agent_id=agent_id,

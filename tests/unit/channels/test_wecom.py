@@ -1322,13 +1322,21 @@ class TestWecomChannelLifecycle:
 
     @pytest.mark.asyncio
     async def test_stop_cleans_up(self, wecom_channel, mock_ws_client):
-        """stop should clean up resources."""
+        """stop should schedule disconnect on ws_loop and clear client."""
         wecom_channel._client = mock_ws_client
         wecom_channel._ws_thread = MagicMock()
+        mock_ws_loop = MagicMock()
+        mock_ws_loop.is_running.return_value = True
+        wecom_channel._ws_loop = mock_ws_loop
 
         await wecom_channel.stop()
 
-        mock_ws_client.disconnect.assert_called_once()
+        # disconnect is scheduled on the ws loop (not called directly)
+        # to avoid cross-loop errors during daemon reload (issue #2757).
+        mock_ws_loop.call_soon_threadsafe.assert_any_call(
+            mock_ws_client.disconnect,
+        )
+        mock_ws_loop.call_soon_threadsafe.assert_any_call(mock_ws_loop.stop)
         assert wecom_channel._client is None
 
 

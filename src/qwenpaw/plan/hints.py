@@ -31,6 +31,17 @@ except ImportError:
 _DESC_LIMIT = 80
 _PLAN_DESC_LIMIT = 200
 
+# While ``_plan_awaiting_user_confirm`` is set (after ``create_plan`` /
+# ``revise_current_plan`` is scheduled), only these tools may run.
+# ``check_plan_tool_gate`` hard-blocks everything else.
+_PLAN_TOOLS_WHILE_AWAITING_USER_CONFIRM = frozenset(
+    {
+        "create_plan",
+        "revise_current_plan",
+        "finish_plan",
+    },
+)
+
 
 def set_plan_gate(  # pylint: disable=protected-access
     plan_notebook,
@@ -41,24 +52,55 @@ def set_plan_gate(  # pylint: disable=protected-access
         plan_notebook._plan_tool_gate = enabled
 
 
-def check_plan_tool_gate(  # pylint: disable=protected-access
+def clear_plan_awaiting_user_confirm(  # pylint: disable=protected-access
+    plan_notebook,
+) -> None:
+    """Reset same-turn-only plan flags at the start of each user turn.
+
+    Clears ``_plan_awaiting_user_confirm``, ``_plan_just_mutated``, and
+    ``_plan_text_only_after_mutation`` so an interrupted last turn cannot
+    leak into the next one.  The agent re-arms these from ``_acting()`` when
+    a new plan mutation runs.
+    """
+    if plan_notebook is not None:
+        plan_notebook._plan_awaiting_user_confirm = False
+        plan_notebook._plan_just_mutated = False
+        plan_notebook._plan_text_only_after_mutation = False
+
+
+def check_plan_tool_gate(
     plan_notebook,
     tool_name: str,
-):
-    """Return an error string if *tool_name* must be blocked, else ``None``.
+):  # pylint: disable=protected-access
+    """Return an error string if *tool_name* must be blocked, else `None`.
 
-    When a ``/plan`` request is pending (gate set by the runner), only
-    ``create_plan`` may run.  The gate is cleared once a plan exists.
+    - Post-mutation lock ``_plan_awaiting_user_confirm``: when set, only
+      plan-management tools may run (checked before ``current_plan``).
+    - Initial ``/plan`` gate ``_plan_tool_gate``: only ``create_plan`` until a
+      plan exists.
+
+    The runner clears confirmation-related notebook flags once per user
+    query.
     """
     if plan_notebook is None:
         return None
+    if getattr(plan_notebook, "_plan_awaiting_user_confirm", False):
+        if tool_name in _PLAN_TOOLS_WHILE_AWAITING_USER_CONFIRM:
+            return None
+        return (
+            f"Tool '{tool_name}' is not available right now. "
+            "A plan was just created or revised — present it to the user "
+            "and wait for their confirmation (or edit/cancel) before "
+            "calling any other tools. Only 'create_plan', "
+            "'revise_current_plan', and 'finish_plan' are allowed until "
+            "the user's next message."
+        )
     if plan_notebook.current_plan is not None:
         if getattr(plan_notebook, "_plan_tool_gate", False):
             plan_notebook._plan_tool_gate = False
         return None
-    if not getattr(plan_notebook, "_plan_tool_gate", False):
-        return None
-    if tool_name == "create_plan":
+    gate = getattr(plan_notebook, "_plan_tool_gate", False)
+    if not gate or tool_name == "create_plan":
         return None
     return (
         f"Tool '{tool_name}' is not available right now. "
@@ -73,14 +115,13 @@ def check_plan_tool_gate(  # pylint: disable=protected-access
 def should_skip_auto_continue(  # pylint: disable=protected-access
     plan_notebook,
 ) -> bool:
-    """True when auto-continue must be suppressed for the current turn.
+    """True when auto-continue must be suppressed for the current turn."""
 
-    After ``create_plan`` or ``revise_current_plan`` the notebook sets
-    ``_plan_just_mutated`` so the agent can present the plan and wait for
-    confirmation without auto-continue injecting an extra reasoning pass.
-    """
     if plan_notebook is None:
         return False
+
+    if getattr(plan_notebook, "_plan_awaiting_user_confirm", False):
+        return True
 
     val = bool(getattr(plan_notebook, "_plan_just_mutated", False))
     if val:
@@ -217,7 +258,8 @@ if _HAS_DEFAULT_HINT:
             "structured plan with subtasks. Each subtask needs: name, "
             "description, expected_outcome. Order by dependency.\n"
             "After 'create_plan' succeeds, present the plan and wait for "
-            "user confirmation.\n"
+            "user confirmation. Do not call any other tool after "
+            "'create_plan' in the same turn.\n"
         )
 
         at_the_beginning_after_mutation: str = (

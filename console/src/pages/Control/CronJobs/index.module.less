@@ -65,6 +65,404 @@
   }
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.viewToggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.viewToggleBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: rgba(20, 20, 19, 0.45);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 16px;
+  transition: all 0.2s;
+
+  &:hover {
+    color: rgba(20, 20, 19, 0.88);
+    background: rgba(0, 0, 0, 0.04);
+  }
+
+  &.viewToggleBtnActive {
+    color: rgba(20, 20, 19, 0.88);
+    background: rgba(0, 0, 0, 0.06);
+  }
+}
+
+.calendarCard {
+  :global(.ant-card-body) {
+    padding: 0;
+  }
+}
+
+.calendarHeader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 54px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.calendarTitle {
+  min-width: 120px;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(20, 20, 19, 0.88);
+}
+
+.calendarEmptyHint {
+  padding: 8px 16px;
+  color: rgba(20, 20, 19, 0.45);
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 12px;
+}
+
+.calendarWeekHeader {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.calendarWeekCell {
+  padding: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.45);
+  border-right: 1px solid #f5f5f5;
+
+  &:last-child {
+    border-right: none;
+  }
+}
+
+.calendarGrid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.calendarCell {
+  min-height: 108px;
+  padding: 8px;
+  border-right: 1px solid #f5f5f5;
+  border-bottom: 1px solid #f5f5f5;
+  background: #fff;
+}
+
+.calendarCellMuted {
+  background: #fafafa;
+}
+
+.calendarCellToday {
+  box-shadow: inset 0 0 0 1px rgba(24, 144, 255, 0.25);
+}
+
+.calendarCellDate {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(20, 20, 19, 0.88);
+  margin-bottom: 6px;
+}
+
+.calendarEvents {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.calendarEvent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.72);
+
+  &:hover {
+    color: rgba(20, 20, 19, 0.88);
+  }
+}
+
+.calendarEventDisabled {
+  color: rgba(20, 20, 19, 0.72);
+
+  .calendarEventDot {
+    background: #d9d9d9;
+  }
+}
+
+.calendarEventDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #52c41a;
+  flex-shrink: 0;
+}
+
+.calendarEventText {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.calendarMoreBtn {
+  border: none;
+  background: transparent;
+  color: #1677ff;
+  padding: 0;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    color: #4096ff;
+  }
+}
+
+.dayJobList {
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.dayJobPopover {
+  width: 380px;
+}
+
+.dayJobPopoverOverlay {
+  :global(.ant-popover-inner) {
+    border-radius: 14px;
+    padding: 14px 16px;
+  }
+}
+
+.dayJobPopoverHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.dayJobPopoverDay {
+  font-size: 54px;
+  line-height: 1;
+  font-weight: 600;
+  color: #3b65f5;
+}
+
+.dayJobPopoverWeek {
+  font-size: 28px;
+  line-height: 1;
+  color: #3b65f5;
+  font-weight: 600;
+}
+
+.dayJobItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #fafafa;
+  transition: background 0.2s;
+
+  &:hover {
+    background: #f0f5ff;
+  }
+}
+
+.dayJobItemDisabled {
+  opacity: 1;
+
+  .dayJobItemTime,
+  .dayJobItemName {
+    color: rgba(20, 20, 19, 0.88);
+  }
+}
+
+.dayJobItemTime {
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.6);
+  min-width: 42px;
+}
+
+.dayJobItemName {
+  font-size: 13px;
+  color: rgba(20, 20, 19, 0.88);
+}
+
+.templateModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.templateModalDesc {
+  color: rgba(20, 20, 19, 0.6);
+  font-size: 13px;
+}
+
+.templateGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.templateCard {
+  border: 1px solid #eaeaea;
+  border-radius: 10px;
+  padding: 14px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.templateTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(20, 20, 19, 0.88);
+}
+
+.templateDesc {
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.65);
+}
+
+.templateMeta {
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.templateTags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.templateTag {
+  font-size: 11px;
+  color: rgba(20, 20, 19, 0.65);
+  background: #f2f4f7;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.templateTagRecommended {
+  font-size: 11px;
+  color: #1677ff;
+  background: #e6f4ff;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.templateActions {
+  margin-top: 4px;
+}
+
+.historyList {
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.historyEmpty {
+  padding: 20px 0;
+  text-align: center;
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.historyItem {
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fafafa;
+}
+
+.historyItemMain {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.historyItemTime {
+  font-size: 13px;
+  color: rgba(20, 20, 19, 0.88);
+}
+
+.historyItemStatus {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.historyItemStatusSuccess {
+  color: #389e0d;
+}
+
+.historyItemStatusError {
+  color: #cf1322;
+}
+
+.historyItemMeta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.historyItemError {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #cf1322;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.historyItemErrorCollapsed {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+}
+
+.historyItemErrorToggle {
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #1677ff;
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    color: #4096ff;
+  }
+}
+
 .formActions {
   display: flex;
   justify-content: flex-end;
@@ -196,5 +594,164 @@
 
   .formHelperLink {
     color: #69b1ff !important;
+  }
+
+  .viewToggleBtn {
+    color: rgba(255, 255, 255, 0.45);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.85);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    &.viewToggleBtnActive {
+      color: rgba(255, 255, 255, 0.85);
+      background: rgba(255, 255, 255, 0.12);
+    }
+  }
+
+  .calendarHeader,
+  .calendarEmptyHint,
+  .calendarWeekHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .calendarWeekHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .calendarTitle,
+  .calendarCellDate {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .calendarWeekCell,
+  .calendarEmptyHint {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .calendarCell {
+    background: #1f1f1f;
+    border-right-color: rgba(255, 255, 255, 0.08);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .calendarCellMuted {
+    background: #181818;
+  }
+
+  .calendarCellToday {
+    box-shadow: inset 0 0 0 1px rgba(105, 177, 255, 0.45);
+  }
+
+  .calendarEvent {
+    color: rgba(255, 255, 255, 0.75);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.92);
+    }
+  }
+
+  .calendarEventDisabled {
+    color: rgba(255, 255, 255, 0.75);
+
+    .calendarEventDot {
+      background: #6b7280;
+    }
+  }
+
+  .calendarEventDot {
+    background: #73d13d;
+  }
+
+  .calendarMoreBtn {
+    color: #69b1ff;
+
+    &:hover {
+      color: #91caff;
+    }
+  }
+
+  .dayJobItem {
+    background: #262626;
+
+    &:hover {
+      background: #303030;
+    }
+  }
+
+  .dayJobItemTime {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .dayJobItemName {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .historyEmpty,
+  .historyItemMeta {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .historyItem {
+    background: #262626;
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .historyItemTime {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .historyItemStatusSuccess {
+    color: #95de64;
+  }
+
+  .historyItemStatusError,
+  .historyItemError {
+    color: #ff7875;
+  }
+
+  .templateModalDesc,
+  .templateDesc,
+  .templateMeta,
+  .templateTag {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .templateCard {
+    background: #262626;
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .templateTitle {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .templateTag {
+    background: #303030;
+  }
+
+  .templateTagRecommended {
+    color: #69b1ff;
+    background: rgba(105, 177, 255, 0.16);
+  }
+
+  .historyItemErrorToggle {
+    color: #69b1ff;
+
+    &:hover {
+      color: #91caff;
+    }
+  }
+
+  .dayJobPopoverOverlay {
+    :global(.ant-popover-inner) {
+      background: #1f1f1f;
+    }
+  }
+
+  .dayJobPopoverDay,
+  .dayJobPopoverWeek {
+    color: #7ea5ff;
   }
 }

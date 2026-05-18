@@ -30,7 +30,7 @@ from .prompt import (
     build_system_prompt_from_working_dir,
     get_active_model_supports_multimodal,
 )
-from .skills_manager import (
+from .skill_system import (
     apply_skill_config_env_overrides,
     ensure_skills_initialized,
     get_workspace_skills_dir,
@@ -171,7 +171,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         )
         # Initialize parent ReActAgent
         init_kwargs: dict[str, Any] = {
-            "name": "Friday",
+            "name": agent_config.name or "QwenPaw",
             "model": model,
             "sys_prompt": sys_prompt,
             "toolkit": toolkit,
@@ -242,13 +242,16 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 enabled_tools = {
                     name: tool.enabled for name, tool in builtin_tools.items()
                 }
-                # Only execute_shell_command supports async_execution
+                # Only selected long-running tools support async_execution.
+                async_capable_tool_names = {
+                    "execute_shell_command",
+                    "delegate_external_agent",
+                }
                 async_execution_tools = {
-                    "execute_shell_command": builtin_tools.get(
-                        "execute_shell_command",
-                    ).async_execution
-                    if "execute_shell_command" in builtin_tools
-                    else False,
+                    name: builtin_tools.get(name).async_execution
+                    if name in builtin_tools
+                    else False
+                    for name in async_capable_tool_names
                 }
         except Exception as e:
             logger.warning(
@@ -256,7 +259,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 "all tools will be disabled",
             )
 
-        # Map of tool functions
+        # Map of tool functions (hardcoded builtin tools)
         tool_functions = {
             "execute_shell_command": execute_shell_command,
             "read_file": read_file,
@@ -279,10 +282,44 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             "check_agent_task": check_agent_task,
         }
 
-        # Register only enabled tools
+        # Track hardcoded built-in tools for backward compatibility
+        hardcoded_builtin_tools = set(tool_functions.keys())
+
+        # Dynamically load plugin-registered tools
+        from . import tools as tools_module
+
+        plugin_tools = set()
+        for tool_name in getattr(tools_module, "__all__", []):
+            if tool_name not in tool_functions:
+                tool_func = getattr(tools_module, tool_name, None)
+                if callable(tool_func):
+                    tool_functions[tool_name] = tool_func
+                    plugin_tools.add(tool_name)
+                    logger.debug(
+                        "Discovered plugin tool: %s",
+                        tool_name,
+                    )
+
+        # Register tools with appropriate defaults
         for tool_name, tool_func in tool_functions.items():
-            # If tool not in config, enable by default (backward compatibility)
-            if not enabled_tools.get(tool_name, True):
+            # For plugin tools: skip if not in config (security)
+            # For hardcoded tools: default to enabled (backward compatibility)
+            if tool_name in plugin_tools:
+                if tool_name not in enabled_tools:
+                    logger.debug(
+                        "Skipped unconfigured plugin tool: %s",
+                        tool_name,
+                    )
+                    continue
+            else:
+                # Hardcoded built-in tool: use default-to-enabled
+                pass
+
+            # Check if tool is enabled
+            if not enabled_tools.get(
+                tool_name,
+                tool_name in hardcoded_builtin_tools,
+            ):
                 logger.debug("Skipped disabled tool: %s", tool_name)
                 continue
 
@@ -492,7 +529,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 await self.toolkit.register_mcp_client(
                     client,
                     namesake_strategy=namesake_strategy,
-                    execution_timeout=client.timeout,
+                    execution_timeout=client.read_timeout_seconds,
                 )
             except (ClosedResourceError, asyncio.CancelledError) as error:
                 if self._should_propagate_cancelled_error(error):
@@ -509,7 +546,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                         await self.toolkit.register_mcp_client(
                             recovered_client,
                             namesake_strategy=namesake_strategy,
-                            exeution_timeout=client.timeout,
+                            execution_timeout=client.read_timeout_seconds,
                         )
                         continue
                     except asyncio.CancelledError as recover_error:
@@ -712,6 +749,17 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             self._fix_stringified_json_args(tool_call)
 
         nb = getattr(self, "plan_notebook", None)
+
+        # Pre-lock BEFORE executing create_plan / revise_current_plan so that
+        # parallel tool calls (asyncio.gather) cannot slip an execution
+        # tool past the gate before the lock is set.
+        # pylint: disable=protected-access
+        if nb is not None and tool_name in {
+            "create_plan",
+            "revise_current_plan",
+        }:
+            nb._plan_awaiting_user_confirm = True
+
         if nb is not None:
             err = check_plan_tool_gate(nb, tool_name)
             if err:
@@ -735,8 +783,15 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
         result = await super()._acting(tool_call)
 
-        if nb is not None and tool_name == "revise_current_plan":
-            nb._plan_just_mutated = True  # pylint: disable=protected-access
+        if nb is not None and tool_name in {
+            "create_plan",
+            "revise_current_plan",
+        }:
+            # Force the next post-plan reasoning pass to be text-only.  This
+            # prevents models from emitting other tools in the same turn
+            # run before the user has confirmed the plan or modified it.
+            # pylint: disable=protected-access
+            nb._plan_text_only_after_mutation = True
 
         return result
 
@@ -884,6 +939,30 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             return
         setattr(formatter, "_qwenpaw_force_strip_media", enabled)
 
+    @staticmethod
+    def _filter_plan_tools(msg: Msg, nb: Any) -> Msg:
+        """Arm `_plan_awaiting_user_confirm` before any tool runs.
+
+        Race-prevention: when the assistant message carries `create_plan` /
+        `revise_current_plan` alongside other ``tool_use`` blocks, callers
+        of ``asyncio.gather`` may hit `_acting()`` on sibling tools before
+        the mutation tool executes. Setting the lock here (before tools run)
+        makes `check_plan_tool_gate` refuse non-plan-management tools while
+        still returning a readable tool_result instead of stripping blocks.
+        """
+        if nb is None or not isinstance(msg.content, list):
+            return msg
+        mut = ("create_plan", "revise_current_plan")
+        if any(
+            isinstance(b, dict)
+            and b.get("type") == "tool_use"
+            and b.get("name", "") in mut
+            for b in msg.content
+        ):
+            # pylint: disable-next=protected-access
+            nb._plan_awaiting_user_confirm = True
+        return msg
+
     # pylint: disable=too-many-branches
     async def _reasoning(
         self,
@@ -899,10 +978,24 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
            then record the finding in the capability cache.
         3. If the model IS marked as multimodal but still errors on
            media, log a warning about possibly inaccurate capability flag.
+        4. Plan gate: `_filter_plan_tools` pre-locks when the assistant
+           schedules plan mutation tools; `_plan_text_only_after_mutation`
+           forces ``tool_choice="none"`` once so the model cannot issue
+           execution tools immediately after ``create_plan`` / revise.
 
         Calls ``super()._reasoning`` to keep the ToolGuardMixin
         interception active.
         """
+        nb = getattr(self, "plan_notebook", None)
+        if nb is not None and getattr(
+            nb,
+            "_plan_text_only_after_mutation",
+            False,
+        ):
+            # pylint: disable=protected-access
+            nb._plan_text_only_after_mutation = False
+            tool_choice = "none"
+
         # --- Proactive filtering layer ---
         should_strip = (
             not get_active_model_supports_multimodal()
@@ -985,6 +1078,8 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         finally:
             if should_strip and self._uses_request_time_media_normalization():
                 self._set_formatter_media_strip(False)
+
+        msg = self._filter_plan_tools(msg, nb)
 
         return await self._auto_continue_if_text_only(msg, tool_choice)
 
@@ -1287,6 +1382,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             set_current_workspace_dir,
             set_current_recent_max_bytes,
             set_current_shell_command_timeout,
+            set_current_shell_command_executable,
         )
 
         set_current_workspace_dir(self._workspace_dir)
@@ -1297,6 +1393,9 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         )
         set_current_shell_command_timeout(
             self._agent_config.running.shell_command_timeout,
+        )
+        set_current_shell_command_executable(
+            self._agent_config.running.shell_command_executable or None,
         )
 
         # Process file and media blocks in messages

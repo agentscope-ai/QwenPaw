@@ -54,6 +54,7 @@ from .constants import (
     FEISHU_WS_BACKOFF_FACTOR,
     FEISHU_WS_INITIAL_RETRY_DELAY,
     FEISHU_WS_MAX_RETRY_DELAY,
+    FEISHU_WS_RECV_TIMEOUT,
 )
 from .utils import (
     build_interactive_content_chunks,
@@ -66,6 +67,7 @@ from .utils import (
     sender_display_string,
     short_session_id_from_full_id,
 )
+from .card_handler import FeishuCardHandler
 
 
 # Compatibility for setuptools>=82 where pkg_resources may be absent.
@@ -129,7 +131,6 @@ try:
         GetMessageResourceRequest,
         P2ImMessageReceiveV1,
     )
-
     import lark_oapi.ws.client as _ws_mod
 
     _ws_mod.loop = _EventLoopProxy()
@@ -244,6 +245,9 @@ class FeishuChannel(BaseChannel):
         self._http_client: Any = None
         # Clock offset (ms) = server_time - local_time
         self._clock_offset: int = 0
+        # Last time data was received on the WS; used to detect silent
+        # connection loss (TCP half-dead / NAT timeout).
+        self._last_ws_recv_time: float = 0.0
 
         self._bot_open_id: Optional[str] = None
 
@@ -255,6 +259,10 @@ class FeishuChannel(BaseChannel):
         # open_id -> nickname (from Contact API) for sender display
         self._nickname_cache: Dict[str, str] = {}
         self._nickname_cache_lock = asyncio.Lock()
+
+        # All interactive-card logic (outbound rendering + inbound
+        # card.action.trigger dispatch) lives in the card handler.
+        self._card_handler = FeishuCardHandler(self)
 
     @classmethod
     def from_env(
@@ -857,6 +865,8 @@ class FeishuChannel(BaseChannel):
                 "feishu_sender_id": sender_id,
                 "is_group": is_group,
             }
+            # Surface human-readable sender name to env_context.
+            meta["user_name"] = nickname
             receive_id = chat_id if is_group else sender_id
             receive_id_type = "chat_id" if is_group else "open_id"
             meta["feishu_receive_id"] = receive_id
@@ -1404,6 +1414,8 @@ class FeishuChannel(BaseChannel):
             file_type = "doc" if ext == "docx" else ext
             file_type = "xls" if ext == "xlsx" else file_type
             file_type = "ppt" if ext == "pptx" else file_type
+        elif ext in ("ogg", "opus"):
+            file_type = "opus"
         file_obj = None
         try:
             file_obj = await asyncio.to_thread(path.open, "rb")
@@ -1725,10 +1737,12 @@ class FeishuChannel(BaseChannel):
             file_key[:24] if file_key else "",
         )
         content = json.dumps({"file_key": file_key}, ensure_ascii=False)
+        ext = Path(path_or_url).suffix.lower().lstrip(".")
+        msg_type = "audio" if ext in ("ogg", "opus") else "file"
         return await self._send_message(
             receive_id_type,
             receive_id,
-            "file",
+            msg_type,
             content,
         )
 
@@ -1924,6 +1938,31 @@ class FeishuChannel(BaseChannel):
         if last_msg_id:
             await self._add_reaction(last_msg_id, "DONE")
 
+    # ------------------------------------------------------------------
+    # Interactive cards (tool_guard approval, etc.)
+    # ------------------------------------------------------------------
+
+    async def on_event_message_completed(  # type: ignore[override]
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Render card-flagged events via the card handler; else default."""
+        if await self._card_handler.try_send_card_for_event(
+            to_handle,
+            event,
+            send_meta,
+        ):
+            return
+        await super().on_event_message_completed(
+            request,
+            to_handle,
+            event,
+            send_meta,
+        )
+
     async def send(
         self,
         to_handle: str,
@@ -2004,6 +2043,9 @@ class FeishuChannel(BaseChannel):
                     .register_p2_im_message_reaction_deleted_v1(
                         lambda _evt: None,
                     )
+                    .register_p2_card_action_trigger(
+                        self._card_handler.handle_card_action,
+                    )
                     .build()
                 )
                 self._ws_client = lark.ws.Client(
@@ -2017,6 +2059,16 @@ class FeishuChannel(BaseChannel):
                         else lark.FEISHU_DOMAIN
                     ),
                 )
+
+                # Patch SDK to track last-received timestamp for
+                # silent connection loss detection.
+                original_handle = self._ws_client._handle_message
+
+                async def _patched_handle_message(msg: bytes) -> None:
+                    self._last_ws_recv_time = time.time()
+                    return await original_handle(msg)
+
+                self._ws_client._handle_message = _patched_handle_message
 
                 async def _select() -> None:
                     while True:
@@ -2039,6 +2091,22 @@ class FeishuChannel(BaseChannel):
                             if self._ws_loop and not self._ws_loop.is_closed():
                                 self._ws_loop.stop()
                             break
+                        # No pong/data for too long → connection dead.
+                        last_recv = self._last_ws_recv_time
+                        if last_recv > 0:
+                            silent_seconds = time.time() - last_recv
+                            if silent_seconds > FEISHU_WS_RECV_TIMEOUT:
+                                logger.warning(
+                                    "feishu WebSocket no data received "
+                                    "for %.0fs, forcing reconnect...",
+                                    silent_seconds,
+                                )
+                                if (
+                                    self._ws_loop
+                                    and not self._ws_loop.is_closed()
+                                ):
+                                    self._ws_loop.stop()
+                                break
 
                 async def _drive_connection() -> None:
                     nonlocal connection_started

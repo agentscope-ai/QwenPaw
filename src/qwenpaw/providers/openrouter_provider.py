@@ -25,12 +25,17 @@ class OpenRouterProvider(Provider):
         "User-Agent": "QwenPaw/1.1",
     }
 
+    def _build_default_headers(self) -> dict:
+        # Required OpenRouter headers come first; user custom_headers can
+        # supplement or override them.
+        return {**self._DEFAULT_HEADERS, **self.custom_headers}
+
     def _client(self, timeout: float = 30) -> AsyncOpenAI:
         return AsyncOpenAI(
             base_url=self.base_url,
             api_key=self.api_key,
             timeout=timeout,
-            default_headers=self._DEFAULT_HEADERS,
+            default_headers=self._build_default_headers(),
         )
 
     @staticmethod
@@ -339,6 +344,6 @@ class OpenRouterProvider(Provider):
             api_key=self.api_key,
             client_kwargs={
                 "base_url": self.base_url,
-                "default_headers": self._DEFAULT_HEADERS,
+                "default_headers": self._build_default_headers(),
             },
         )

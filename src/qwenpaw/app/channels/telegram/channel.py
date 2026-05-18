@@ -8,6 +8,7 @@ import asyncio
 import html
 import logging
 import re
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
@@ -57,7 +58,10 @@ _TYPING_TIMEOUT_S = 180
 _RECONNECT_INITIAL_S = 2.0
 _RECONNECT_MAX_S = 30.0
 _RECONNECT_FACTOR = 1.8
-_POLL_WATCHDOG_INTERVAL_S = 30
+_POLLING_STATUS_CHECK_INTERVAL_S = 15
+_POLLING_NETWORK_RETRY_BASE_S = 5.0
+_POLLING_NETWORK_RETRY_MAX_S = 60.0
+_POLLING_CONFLICT_RETRY_DELAY_S = 10.0
 
 _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
     ("document", FileContent, ContentType.FILE, "file_url"),
@@ -66,6 +70,11 @@ _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
     ("audio", AudioContent, ContentType.AUDIO, "data"),
 ]
 
+# Streaming: minimum interval between editMessageText calls (seconds).
+# Telegram rate-limits edits to ~1 msg/s per chat; use 1.5s for safety.
+_STREAM_EDIT_INTERVAL_S = 1.5
+_STREAM_PLACEHOLDER = "⏳"
+
 
 class _FileTooLargeError(Exception):
     """Raised when a local media file exceeds Telegram's upload size limit."""
@@ -73,6 +82,16 @@ class _FileTooLargeError(Exception):
 
 class _MediaFileUnavailableError(Exception):
     """Raised when a media file cannot be found or resolved."""
+
+
+class _PollingReconnectRequested(Exception):
+    """Raised when polling should be reconnected by the outer loop."""
+
+    def __init__(self, reason: str, *, attempt: int, delay: float):
+        super().__init__(reason)
+        self.reason = reason
+        self.attempt = attempt
+        self.delay = delay
 
 
 async def _download_telegram_file(
@@ -287,6 +306,7 @@ class TelegramChannel(BaseChannel):
         allow_from: Optional[list] = None,
         deny_message: str = "",
         require_mention: bool = False,
+        streaming_enabled: bool = False,
     ):
         super().__init__(
             process,
@@ -299,6 +319,7 @@ class TelegramChannel(BaseChannel):
             allow_from=allow_from,
             deny_message=deny_message,
             require_mention=require_mention,
+            streaming_enabled=streaming_enabled,
         )
         self.enabled = enabled
         self._bot_token = bot_token
@@ -320,6 +341,12 @@ class TelegramChannel(BaseChannel):
         self._is_processing: dict[str, bool] = {}
         self._task: Optional[asyncio.Task] = None
         self._application = None
+        self._polling_error_task: Optional[asyncio.Task] = None
+        self._pending_reconnect_reason: Optional[str] = None
+        self._pending_reconnect_attempt = 0
+        self._pending_reconnect_delay_s = _RECONNECT_INITIAL_S
+        self._polling_network_error_count = 0
+        self._polling_conflict_count = 0
         if self.enabled and self._bot_token:
             try:
                 self._application = self._build_application()
@@ -458,6 +485,83 @@ class TelegramChannel(BaseChannel):
             return True, pending + list(content_parts)
         return super()._apply_no_text_debounce(session_id, content_parts)
 
+    @staticmethod
+    def _looks_like_polling_conflict(error: Exception) -> bool:
+        """Return True for Telegram getUpdates conflict errors."""
+        text = str(error).lower()
+        return (
+            error.__class__.__name__.lower() == "conflict"
+            or "terminated by other getupdates request" in text
+            or "another bot instance is running" in text
+        )
+
+    @staticmethod
+    def _looks_like_network_error(error: Exception) -> bool:
+        """Return True for transient polling transport errors."""
+        if isinstance(error, (NetworkError, TimedOut, OSError)):
+            return True
+        return error.__class__.__name__.lower() == "connectionerror"
+
+    def _plan_polling_reconnect(
+        self,
+        reason: str,
+    ) -> tuple[int, float]:
+        """Update retry state and return ``(attempt, delay_s)``."""
+        if reason == "conflict":
+            self._polling_conflict_count += 1
+            self._polling_network_error_count = 0
+            return (
+                self._polling_conflict_count,
+                _POLLING_CONFLICT_RETRY_DELAY_S,
+            )
+
+        self._polling_network_error_count += 1
+        self._polling_conflict_count = 0
+        attempt = self._polling_network_error_count
+        delay = min(
+            _POLLING_NETWORK_RETRY_BASE_S * (2 ** (attempt - 1)),
+            _POLLING_NETWORK_RETRY_MAX_S,
+        )
+        return attempt, delay
+
+    def _reset_polling_reconnect_state(self) -> None:
+        """Reset conflict/network retry counters after a clean reconnect."""
+        self._polling_network_error_count = 0
+        self._polling_conflict_count = 0
+
+    async def _request_polling_reconnect(
+        self,
+        app: Any,
+        *,
+        reason: str,
+        error: Exception,
+    ) -> None:
+        """Stop polling so the outer reconnect loop can rebuild it cleanly."""
+        if self._pending_reconnect_reason:
+            return
+        attempt, delay = self._plan_polling_reconnect(reason)
+        self._pending_reconnect_reason = reason
+        self._pending_reconnect_attempt = attempt
+        self._pending_reconnect_delay_s = delay
+        logger.warning(
+            "telegram: polling %s, requesting reconnect "
+            "(attempt %d, next delay %.1fs): %s",
+            reason,
+            attempt,
+            delay,
+            error,
+        )
+        updater = getattr(app, "updater", None)
+        if updater and getattr(updater, "running", False):
+            try:
+                await updater.stop()
+            except Exception as stop_err:
+                logger.debug(
+                    "telegram: failed stopping updater after %s: %s",
+                    reason,
+                    stop_err,
+                )
+
     @classmethod
     def from_env(
         cls,
@@ -529,6 +633,7 @@ class TelegramChannel(BaseChannel):
             allow_from=c.get("allow_from") or [],
             deny_message=c.get("deny_message") or "",
             require_mention=c.get("require_mention", False),
+            streaming_enabled=bool(c.get("streaming_enabled", False)),
         )
 
     def _chunk_text(self, text: str) -> list[str]:
@@ -778,6 +883,243 @@ class TelegramChannel(BaseChannel):
         except Exception:
             logger.exception("telegram send_media failed")
 
+    # ------------------------------------------------------------------
+    # Streaming hooks — edit-in-place via Telegram editMessageText
+    # ------------------------------------------------------------------
+
+    def _get_stream_state(self, send_meta: Dict[str, Any]) -> Dict[str, Any]:
+        """Get or create the per-request streaming state dict in send_meta."""
+        state = send_meta.get("_tg_stream")
+        if state is None:
+            state = {
+                "message_ids": {},
+                "last_edit_ts": {},
+            }
+            send_meta["_tg_stream"] = state
+        return state
+
+    async def _send_placeholder(
+        self,
+        chat_id: str,
+        message_thread_id: Optional[int],
+        stream_type: str,
+    ) -> Optional[int]:
+        """Send a placeholder message and return its message_id."""
+        if not self._application:
+            return None
+        bot = self._application.bot
+        if not bot:
+            return None
+        prefix = "💭 " if stream_type == "reasoning" else ""
+        try:
+            kwargs: Dict[str, Any] = {
+                "chat_id": chat_id,
+                "text": f"{prefix}{_STREAM_PLACEHOLDER}",
+            }
+            if message_thread_id is not None:
+                kwargs["message_thread_id"] = message_thread_id
+            msg = await bot.send_message(**kwargs)
+            return msg.message_id
+        except Exception:
+            logger.debug(
+                "telegram: failed to send streaming placeholder to %s",
+                chat_id,
+            )
+            return None
+
+    async def _edit_stream_message(
+        self,
+        chat_id: str,
+        message_id: int,
+        text: str,
+        *,
+        use_html: bool = False,
+    ) -> bool:
+        """Edit an existing message; return True on success."""
+        bot = (
+            getattr(self._application, "bot", None)
+            if self._application
+            else None
+        )
+        if not bot:
+            return False
+        # Telegram rejects empty text
+        if not text.strip():
+            text = _STREAM_PLACEHOLDER
+        try:
+            kwargs: Dict[str, Any] = {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+            }
+            if use_html:
+                kwargs["parse_mode"] = ParseMode.HTML
+            await bot.edit_message_text(**kwargs)
+            return True
+        except BadRequest as exc:
+            # "Message is not modified" is benign (text unchanged)
+            if "not modified" in str(exc).lower():
+                return True
+            if use_html:
+                # Fallback: strip HTML tags and retry as plain text
+                logger.debug(
+                    "telegram: HTML edit failed, retrying plain: %s",
+                    exc,
+                )
+                plain_text = html.unescape(re.sub(r"<[^>]+>", "", text))
+                return await self._edit_stream_message(
+                    chat_id,
+                    message_id,
+                    plain_text,
+                    use_html=False,
+                )
+            logger.debug("telegram: edit_message_text failed: %s", exc)
+            return False
+        except Exception:
+            logger.debug(
+                "telegram: edit_message_text error chat=%s msg=%s",
+                chat_id,
+                message_id,
+            )
+            return False
+
+    async def _delete_message(self, chat_id: str, message_id: int) -> None:
+        """Delete a Telegram message (best effort)."""
+        if not self._application:
+            return
+        bot = self._application.bot
+        if not bot:
+            return
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except Exception:
+            logger.debug(
+                "telegram: delete_message failed chat=%s msg=%s",
+                chat_id,
+                message_id,
+            )
+
+    async def on_streaming_start(
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Send a placeholder message for the new streaming segment."""
+        chat_id = send_meta.get("chat_id") or to_handle
+        if not chat_id:
+            return
+        message_thread_id = send_meta.get("message_thread_id")
+        state = self._get_stream_state(send_meta)
+        msg_id = await self._send_placeholder(
+            chat_id,
+            message_thread_id,
+            stream_type,
+        )
+        if msg_id:
+            state["message_ids"][stream_type] = msg_id
+            state["last_edit_ts"][stream_type] = time.monotonic()
+
+    async def on_streaming_delta(
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Throttled plain-text edit to show incremental progress."""
+        state = self._get_stream_state(send_meta)
+        msg_id = state["message_ids"].get(stream_type)
+        if not msg_id:
+            return
+        now = time.monotonic()
+        last_ts = state["last_edit_ts"].get(stream_type, 0.0)
+        if now - last_ts < _STREAM_EDIT_INTERVAL_S:
+            return
+        chat_id = send_meta.get("chat_id") or to_handle
+        if not chat_id:
+            return
+        prefix = "💭 " if stream_type == "reasoning" else ""
+        display_text = (
+            f"{prefix}{accumulated_text}" if prefix else accumulated_text
+        )
+        # If text exceeds Telegram limit, show only the tail portion
+        if len(display_text) > TELEGRAM_MAX_MESSAGE_LENGTH:
+            display_text = (
+                "..." + display_text[-(TELEGRAM_MAX_MESSAGE_LENGTH - 4) :]
+            )
+        success = await self._edit_stream_message(
+            chat_id,
+            msg_id,
+            display_text,
+            use_html=False,
+        )
+        if success:
+            state["last_edit_ts"][stream_type] = now
+
+    async def on_streaming_end(
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Final edit with full Markdown→HTML rendering.
+
+        If the final text exceeds Telegram's 4096-char limit, delete the
+        placeholder and fall back to the normal chunked send path.
+        """
+        state = self._get_stream_state(send_meta)
+        msg_id = state["message_ids"].pop(stream_type, None)
+        state["last_edit_ts"].pop(stream_type, None)
+        chat_id = send_meta.get("chat_id") or to_handle
+        if not chat_id:
+            return
+        prefix = "💭 " if stream_type == "reasoning" else ""
+        final_text = (
+            f"{prefix}{accumulated_text}" if prefix else accumulated_text
+        )
+
+        # If placeholder was never sent (e.g. API error), fall back to
+        # normal send so the reply is not silently lost.
+        if not msg_id:
+            await self.send(to_handle, final_text, send_meta)
+            return
+
+        # If text fits in a single message, edit in place
+        if len(final_text) <= TELEGRAM_SEND_CHUNK_SIZE:
+            html_text = markdown_to_telegram_html(final_text)
+            success = await self._edit_stream_message(
+                chat_id,
+                msg_id,
+                html_text,
+                use_html=True,
+            )
+            if not success:
+                await self._edit_stream_message(
+                    chat_id,
+                    msg_id,
+                    final_text,
+                    use_html=False,
+                )
+            return
+
+        # Text too long for a single edit — delete placeholder and use
+        # the normal chunked send path (same as non-streaming).
+        await self._delete_message(chat_id, msg_id)
+        await self.send(to_handle, final_text, send_meta)
+
+    # ------------------------------------------------------------------
+    # Event hooks
+    # ------------------------------------------------------------------
+
     async def on_event_message_completed(
         self,
         request,
@@ -922,7 +1264,33 @@ class TelegramChannel(BaseChannel):
     async def _polling_cycle(self, app) -> None:
         """Run one polling lifecycle: init → poll → watchdog."""
 
+        self._pending_reconnect_reason = None
+        self._pending_reconnect_attempt = 0
+        self._pending_reconnect_delay_s = _RECONNECT_INITIAL_S
+        self._polling_error_task = None
+
         def _on_poll_error(exc) -> None:
+            if (
+                self._polling_error_task
+                and not self._polling_error_task.done()
+            ):
+                return
+            if self._looks_like_polling_conflict(exc):
+                self._polling_error_task = app.create_task(
+                    self._request_polling_reconnect(
+                        app,
+                        reason="conflict",
+                        error=exc,
+                    ),
+                )
+            elif self._looks_like_network_error(exc):
+                self._polling_error_task = app.create_task(
+                    self._request_polling_reconnect(
+                        app,
+                        reason="network error",
+                        error=exc,
+                    ),
+                )
             app.create_task(
                 app.process_error(error=exc, update=None),
             )
@@ -971,15 +1339,40 @@ class TelegramChannel(BaseChannel):
             )
 
         await app.updater.start_polling(
-            bootstrap_retries=-1,
+            bootstrap_retries=0,
             allowed_updates=["message", "edited_message"],
             error_callback=_on_poll_error,
         )
         await app.start()
+        self._reset_polling_reconnect_state()
         logger.info("telegram: polling started (receiving updates)")
 
         while getattr(app.updater, "running", False):
-            await asyncio.sleep(_POLL_WATCHDOG_INTERVAL_S)
+            await asyncio.sleep(_POLLING_STATUS_CHECK_INTERVAL_S)
+
+        if self._polling_error_task:
+            try:
+                await self._polling_error_task
+            except Exception:
+                logger.debug(
+                    "telegram: polling error task failed",
+                    exc_info=True,
+                )
+            finally:
+                self._polling_error_task = None
+
+        if self._pending_reconnect_reason:
+            reason = self._pending_reconnect_reason
+            attempt = self._pending_reconnect_attempt
+            delay = self._pending_reconnect_delay_s
+            self._pending_reconnect_reason = None
+            self._pending_reconnect_attempt = 0
+            self._pending_reconnect_delay_s = _RECONNECT_INITIAL_S
+            raise _PollingReconnectRequested(
+                reason,
+                attempt=attempt,
+                delay=delay,
+            )
 
         logger.warning("telegram: updater stopped unexpectedly")
 
@@ -1011,6 +1404,15 @@ class TelegramChannel(BaseChannel):
                 self._application = self._build_application()
                 await self._polling_cycle(self._application)
                 delay = _RECONNECT_INITIAL_S
+            except _PollingReconnectRequested as exc:
+                logger.warning(
+                    "telegram: polling reconnect requested (%s, attempt %d); "
+                    "reconnecting in %.1fs",
+                    exc.reason,
+                    exc.attempt,
+                    exc.delay,
+                )
+                delay = exc.delay
             except asyncio.CancelledError:
                 logger.debug("telegram: polling cancelled")
                 raise

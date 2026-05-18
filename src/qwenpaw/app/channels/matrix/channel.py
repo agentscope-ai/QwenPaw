@@ -3,10 +3,13 @@
 MatrixChannel: QwenPaw BaseChannel implementation for Matrix (via matrix-nio).
 
 """
+
 from __future__ import annotations
 
 import asyncio
 import html
+import importlib
+import inspect
 import io
 import logging
 import mimetypes
@@ -23,7 +26,14 @@ import httpx
 from nio import (
     AsyncClient,
     AsyncClientConfig,
+    KeysUploadResponse,
     LoginResponse,
+    KeyVerificationCancel,
+    KeyVerificationEvent,
+    KeyVerificationKey,
+    KeyVerificationMac,
+    KeyVerificationStart,
+    LocalProtocolError,
     MatrixRoom,
     MegolmEvent,
     RoomEncryptedAudio,
@@ -36,9 +46,18 @@ from nio import (
     RoomMessageText,
     RoomMessageVideo,
     SyncResponse,
+    ToDeviceEvent,
+    ToDeviceError,
     UploadResponse,
 )
-from nio.responses import JoinedMembersResponse, WhoamiResponse
+from nio.event_builders.direct_messages import ToDeviceMessage
+from nio.events.to_device import RoomKeyRequest, RoomKeyRequestCancellation
+from nio.responses import (
+    JoinedMembersResponse,
+    RoomGetStateEventResponse,
+    SyncError,
+    WhoamiResponse,
+)
 
 from agentscope_runtime.engine.schemas.agent_schemas import (
     AudioContent,
@@ -139,6 +158,37 @@ CURRENT_MESSAGE_MARKER = "[Current message - respond to this]"
 DEFAULT_HISTORY_LIMIT = 50
 
 
+class QwenPawMatrixClient(AsyncClient):
+    """Keep query-token auth for homeservers/proxies that drop auth headers."""
+
+    async def send(
+        self,
+        method: str,
+        path: str,
+        data: Any = None,
+        headers: Optional[Dict[str, str]] = None,
+        trace_context: Optional[Any] = None,
+        timeout: Optional[float] = None,
+    ) -> Any:
+        if self.access_token and "access_token=" not in path:
+            url = urllib.parse.urlparse(path)
+            query = urllib.parse.parse_qs(url.query)
+            query["access_token"] = [self.access_token]
+            path = urllib.parse.urlunparse(
+                url._replace(
+                    query=urllib.parse.urlencode(query, doseq=True),
+                ),
+            )
+        return await super().send(
+            method,
+            path,
+            data,
+            headers,
+            trace_context,
+            timeout,
+        )
+
+
 @dataclass
 class HistoryEntry:
     """A buffered room message that didn't mention the bot."""
@@ -162,9 +212,9 @@ class MatrixChannelConfig:
         self.user_id: str = raw.get("user_id", "")
         self.access_token: str = raw.get("access_token", "")
         # username/password fallback (rarely used in hiclaw)
-        self.username: str = raw.get("username", "")
         self.password: str = raw.get("password", "")
         self.device_name: str = raw.get("device_name", "qwenpaw-worker")
+        self.device_id: str = raw.get("device_id", "")
         # E2EE: when True, enable end-to-end encryption via matrix-nio + libolm
         self.encryption: bool = raw.get("encryption", False)
 
@@ -253,6 +303,9 @@ class MatrixChannel(BaseChannel):
         self._dm_room_cache: Dict[str, Dict[str, Any]] = {}
         # Shared HTTP client for media downloads (created in start())
         self._http_client: Optional[httpx.AsyncClient] = None
+        self._handled_verification_requests: set[str] = set()
+        self._verification_tx_peers: dict[str, tuple[str, str]] = {}
+        self._sent_verification_done: set[str] = set()
 
     # ------------------------------------------------------------------
     # Debounce key — serialize by room_id (avoid concurrent session access)
@@ -316,7 +369,7 @@ class MatrixChannel(BaseChannel):
 
     # ------------------------------------------------------------------
     # Lifecycle — client, login, event callbacks, _sync_loop
-    # token + username/password login (§2); optional
+    # token + user_id/password login (§2); optional
     # E2EE client config + store; cleartext + encrypted event callbacks;
     # starts _sync_loop (§3).
     # ------------------------------------------------------------------
@@ -338,6 +391,11 @@ class MatrixChannel(BaseChannel):
             encryption_enabled=encryption,
             request_timeout=request_timeout,
         )
+
+    @staticmethod
+    def _derive_device_id_from_name(device_name: str) -> str:
+        """Use configured device_name directly as fallback device_id."""
+        return (device_name or "").strip()
 
     async def health_check(self) -> Dict[str, Any]:
         """Check Matrix client connection status."""
@@ -366,14 +424,45 @@ class MatrixChannel(BaseChannel):
             "detail": "Matrix client is connected.",
         }
 
-    # pylint: disable=too-many-branches
-    async def start(self) -> None:
-        if not self._cfg.homeserver:
-            logger.warning(
-                "MatrixChannel: homeserver not configured, skipping",
-            )
-            return
+    def _restore_auth_state_before_start(
+        self,
+        *,
+        has_password_creds: bool,
+        has_token_cred: bool,
+    ) -> None:
+        # Auth source priority:
+        # 1) Explicit user_id/password from config/UI
+        # 2) Explicit access_token from config/UI
+        # 3) Cached auth_state fallback
+        #
+        # When token or user_id/password is explicitly configured, do not
+        # restore cached token, otherwise we may accidentally bypass the
+        # intended auth path.
+        has_explicit_identity = (
+            has_password_creds or has_token_cred or self._cfg.user_id
+        )
+        self._load_auth_state(
+            restore_token=False,
+            restore_identity=not has_explicit_identity,
+        )
 
+    def _preflight_e2ee_dependencies(self) -> None:
+        """Probe olm before creating AsyncClientConfig;
+        disable E2EE if absent."""
+        if not self._cfg.encryption:
+            return
+        try:
+            importlib.import_module("olm")
+        except ImportError:
+            logger.error(
+                "MatrixChannel: olm not installed — falling back to "
+                "non-encrypted mode. "
+                "To enable E2EE: pip install matrix-nio[e2e] && "
+                "apt/dnf install libolm-dev",
+            )
+            self._cfg.encryption = False
+
+    def _init_async_client(self, resolved_device_id: str) -> None:
         # E2EE: when encryption is enabled, provide store_path so matrix-nio
         # persists Olm/Megolm keys, and set config to auto-trust all devices
         # (appropriate for bot use cases where interactive verification is
@@ -385,68 +474,193 @@ class MatrixChannel(BaseChannel):
         client_config = self._build_client_config(
             encryption=self._cfg.encryption,
         )
-        self._client = AsyncClient(
+        self._client = QwenPawMatrixClient(
             self._cfg.homeserver,
+            # Keep user neutral before auth; token/whoami or login response
+            # will set the canonical MXID.
             user="",
             store_path=str(store_path) if store_path else "",
             config=client_config,
         )
+        if resolved_device_id:
+            self._client.device_id = resolved_device_id
 
-        # Login
-        if self._cfg.access_token:
-            self._client.access_token = self._cfg.access_token
-            whoami = await self._client.whoami()
-            if isinstance(whoami, WhoamiResponse):
-                self._user_id = whoami.user_id
-                self._client.user_id = whoami.user_id
-                self._client.user = whoami.user_id
-                # E2EE requires device_id to associate Olm keys with this
-                # device
-                if whoami.device_id:
-                    self._client.device_id = whoami.device_id
-                logger.info(
-                    "MatrixChannel: logged in as %s (token, device=%s)",
-                    self._user_id,
-                    whoami.device_id,
-                )
-                # Load crypto store after user_id and device_id are set
-                if self._cfg.encryption and self._client.store_path:
-                    if self._client.device_id:
-                        self._client.load_store()
-                        logger.info(
-                            "MatrixChannel: crypto store loaded from %s",
-                            self._client.store_path,
-                        )
-                    else:
-                        logger.error(
-                            "MatrixChannel: E2EE enabled but whoami returned "
-                            "no device_id — encryption disabled "
-                            "(token may lack device scope)",
-                        )
-                        self._cfg.encryption = False
-            else:
-                logger.error("MatrixChannel: token login failed: %s", whoami)
-                return
-        elif self._cfg.username and self._cfg.password:
-            resp = await self._client.login(
-                self._cfg.username,
-                self._cfg.password,
-                device_name=self._cfg.device_name,
+    def _password_login_kwargs_for_nio(
+        self,
+        login_user: str,
+        resolved_device_id: str,
+    ) -> dict[str, Any]:
+        # matrix-nio login() signature differs across versions. Build
+        # kwargs from runtime signature to avoid argument collisions.
+        login_sig = inspect.signature(self._client.login)
+        login_kwargs: dict[str, Any] = {}
+        login_params = login_sig.parameters
+        if "user" in login_params:
+            login_kwargs["user"] = login_user
+        elif "user_id" in login_params:
+            login_kwargs["user_id"] = login_user
+        if "password" in login_params:
+            login_kwargs["password"] = self._cfg.password
+        if "device_name" in login_params and self._cfg.device_name:
+            login_kwargs["device_name"] = self._cfg.device_name
+        if "device_id" in login_params:
+            stable_device_id = (
+                self._client.device_id or resolved_device_id or ""
             )
-            if isinstance(resp, LoginResponse):
-                self._user_id = resp.user_id
+            if stable_device_id:
+                login_kwargs["device_id"] = stable_device_id
+        # For nio versions that derive username from client.user.
+        if "user" not in login_params and "user_id" not in login_params:
+            self._client.user = login_user
+        return login_kwargs
+
+    def _password_login_attempts(
+        self,
+        login_user: str,
+        login_kwargs: dict[str, Any],
+        resolved_device_id: str,
+    ) -> list[tuple[tuple[Any, ...], dict[str, Any]]]:
+        login_attempts: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+        if login_kwargs:
+            login_attempts.append(((), login_kwargs))
+        login_attempts.append(
+            (
+                (self._cfg.password,),
+                {
+                    "device_name": self._cfg.device_name,
+                    **(
+                        {"device_id": resolved_device_id}
+                        if resolved_device_id
+                        else {}
+                    ),
+                },
+            ),
+        )
+        login_attempts.append(
+            (
+                (login_user, self._cfg.password),
+                {
+                    "device_name": self._cfg.device_name,
+                    **(
+                        {"device_id": resolved_device_id}
+                        if resolved_device_id
+                        else {}
+                    ),
+                },
+            ),
+        )
+        return login_attempts
+
+    async def _try_password_login_variants(
+        self,
+        login_attempts: list[tuple[tuple[Any, ...], dict[str, Any]]],
+    ) -> tuple[Any, Optional[TypeError]]:
+        last_exc: Optional[TypeError] = None
+        for args, kwargs in login_attempts:
+            try:
+                resp = await self._client.login(*args, **kwargs)
+                return resp, None
+            except TypeError as exc:
+                last_exc = exc
+        return None, last_exc
+
+    def _handle_password_login_success(self, resp: LoginResponse) -> None:
+        self._user_id = resp.user_id
+        self._client.user_id = resp.user_id
+        self._client.user = resp.user_id
+        if getattr(resp, "device_id", None):
+            self._client.device_id = resp.device_id
+        if getattr(resp, "access_token", None):
+            self._client.access_token = resp.access_token
+        logger.info(
+            "MatrixChannel: logged in as %s (password, device=%s, "
+            "device_name=%s)",
+            self._user_id,
+            getattr(self._client, "device_id", ""),
+            self._cfg.device_name,
+        )
+        self._save_auth_state()
+        if self._cfg.encryption and self._client.store_path:
+            if self._client.device_id:
+                self._client.load_store()
                 logger.info(
-                    "MatrixChannel: logged in as %s (password)",
-                    self._user_id,
+                    "MatrixChannel: crypto store loaded from %s",
+                    self._client.store_path,
                 )
             else:
-                logger.error("MatrixChannel: password login failed: %s", resp)
-                return
-        else:
-            logger.error("MatrixChannel: no credentials configured")
-            return
+                logger.warning(
+                    "MatrixChannel: password login returned no "
+                    "device_id; E2EE store may not be reusable",
+                )
 
-        # Register event callbacks and start sync loop
+    async def _login_with_password(
+        self,
+        login_user: str,
+        resolved_device_id: str,
+    ) -> bool:
+        login_kwargs = self._password_login_kwargs_for_nio(
+            login_user,
+            resolved_device_id,
+        )
+        attempts = self._password_login_attempts(
+            login_user,
+            login_kwargs,
+            resolved_device_id,
+        )
+        resp, last_exc = await self._try_password_login_variants(attempts)
+        if last_exc is not None:
+            raise last_exc
+        if isinstance(resp, LoginResponse):
+            self._handle_password_login_success(resp)
+            return True
+        logger.error("MatrixChannel: password login failed: %s", resp)
+        return False
+
+    async def _login_with_access_token(self) -> bool:
+        self._client.access_token = self._cfg.access_token
+        whoami = await self._client.whoami()
+        if isinstance(whoami, WhoamiResponse):
+            if self._cfg.user_id and self._cfg.user_id != whoami.user_id:
+                logger.error(
+                    "MatrixChannel: configured user_id=%s does not match "
+                    "access_token owner=%s; refusing stale credentials",
+                    self._cfg.user_id,
+                    whoami.user_id,
+                )
+                return False
+            self._user_id = whoami.user_id
+            self._client.user_id = whoami.user_id
+            self._client.user = whoami.user_id
+            # E2EE requires device_id to associate Olm keys with this
+            # device
+            if whoami.device_id:
+                self._client.device_id = whoami.device_id
+            logger.info(
+                "MatrixChannel: logged in as %s (token, device=%s)",
+                self._user_id,
+                whoami.device_id,
+            )
+            self._save_auth_state()
+            # Load crypto store after user_id and device_id are set
+            if self._cfg.encryption and self._client.store_path:
+                if self._client.device_id:
+                    self._client.load_store()
+                    logger.info(
+                        "MatrixChannel: crypto store loaded from %s",
+                        self._client.store_path,
+                    )
+                else:
+                    logger.error(
+                        "MatrixChannel: E2EE enabled but whoami returned "
+                        "no device_id — encryption disabled "
+                        "(token may lack device scope)",
+                    )
+                    self._cfg.encryption = False
+            return True
+        logger.error("MatrixChannel: token login failed: %s", whoami)
+        return False
+
+    def _register_plain_room_callbacks(self) -> None:
         self._client.add_event_callback(
             self._on_room_event,
             (RoomMessageText,),
@@ -461,33 +675,94 @@ class MatrixChannel(BaseChannel):
             ),
         )
 
-        # E2EE: upload device keys and register encrypted event callbacks
-        if self._cfg.encryption:
-            if self._client.should_upload_keys:
-                await self._client.keys_upload()
-                logger.info("MatrixChannel: E2E keys uploaded")
-            # Encrypted media events (decrypted by nio, delivered as
-            # RoomEncrypted* types)
-            self._client.add_event_callback(
-                self._on_room_encrypted_media_event,
-                (
-                    RoomEncryptedImage,
-                    RoomEncryptedAudio,
-                    RoomEncryptedVideo,
-                    RoomEncryptedFile,
-                ),
-            )
-            # Undecryptable events (missing session key)
-            self._client.add_event_callback(
-                self._on_megolm_event,
-                (MegolmEvent,),
-            )
-            logger.info(
-                "MatrixChannel: E2EE enabled, "
-                "encrypted event handlers registered",
-            )
+    async def _setup_e2ee_after_login(self) -> bool:
+        if not self._cfg.encryption:
+            return True
+        if self._client.should_upload_keys:
+            resp = await self._client.keys_upload()
+            if not isinstance(resp, KeysUploadResponse):
+                logger.error(
+                    "MatrixChannel: E2E keys upload failed after login: %s",
+                    resp,
+                )
+                return False
+            logger.info("MatrixChannel: E2E keys uploaded")
+        # Encrypted media events (decrypted by nio, delivered as
+        # RoomEncrypted* types)
+        self._client.add_event_callback(
+            self._on_room_encrypted_media_event,
+            (
+                RoomEncryptedImage,
+                RoomEncryptedAudio,
+                RoomEncryptedVideo,
+                RoomEncryptedFile,
+            ),
+        )
+        # Undecryptable events (missing session key)
+        self._client.add_event_callback(
+            self._on_megolm_event,
+            (MegolmEvent,),
+        )
+        self._client.add_to_device_callback(
+            self._on_key_verification_event,
+            (KeyVerificationEvent,),
+        )
+        self._client.add_to_device_callback(
+            self._on_to_device_probe_event,
+            (ToDeviceEvent,),
+        )
+        self._client.add_to_device_callback(
+            self._on_room_key_request_event,
+            (
+                RoomKeyRequest,
+                RoomKeyRequestCancellation,
+            ),
+        )
+        logger.info(
+            "MatrixChannel: key verification to-device callback registered",
+        )
+        logger.info(
+            "MatrixChannel: E2EE enabled, encrypted event handlers registered",
+        )
+        return True
 
-        # Create shared HTTP client for media downloads
+    async def start(self) -> None:
+        if not self._cfg.homeserver:
+            logger.warning(
+                "MatrixChannel: homeserver not configured, skipping",
+            )
+            return
+        self._preflight_e2ee_dependencies()
+        login_user = (self._cfg.user_id or "").strip()
+        has_password_creds = bool(login_user and self._cfg.password)
+        has_token_cred = bool(self._cfg.access_token)
+        self._restore_auth_state_before_start(
+            has_password_creds=has_password_creds,
+            has_token_cred=has_token_cred,
+        )
+        resolved_device_id = (
+            self._cfg.device_id
+            or self._derive_device_id_from_name(self._cfg.device_name)
+        )
+        self._init_async_client(resolved_device_id)
+
+        if has_password_creds:
+            if not await self._login_with_password(
+                login_user,
+                resolved_device_id,
+            ):
+                return
+        elif self._cfg.access_token:
+            if not await self._login_with_access_token():
+                return
+        else:
+            logger.error("MatrixChannel: no credentials configured")
+            return
+
+        self._register_plain_room_callbacks()
+        if not await self._setup_e2ee_after_login():
+            return
+
         self._http_client = httpx.AsyncClient(
             follow_redirects=True,
             timeout=60,
@@ -521,6 +796,89 @@ class MatrixChannel(BaseChannel):
     def _sync_token_path() -> Optional[Path]:
         """Return the file path for persisting the Matrix sync token."""
         return WORKING_DIR / "matrix_sync_token"
+
+    @staticmethod
+    def _auth_state_path() -> Path:
+        """Return the file path for persisted Matrix auth state."""
+        return WORKING_DIR / "matrix_auth_state.json"
+
+    def _load_auth_state(
+        self,
+        restore_token: bool = True,
+        restore_identity: bool = True,
+    ) -> None:
+        """Best-effort load persisted access_token/user_id/device_id."""
+        path = self._auth_state_path()
+        if not path.exists():
+            return
+        try:
+            import json
+
+            payload = json.loads(path.read_text())
+            restored_any = False
+            if restore_token and not self._cfg.access_token:
+                self._cfg.access_token = str(payload.get("access_token", ""))
+                restored_any = bool(self._cfg.access_token)
+            if restore_identity:
+                if not self._cfg.user_id:
+                    self._cfg.user_id = str(payload.get("user_id", ""))
+                    restored_any = restored_any or bool(self._cfg.user_id)
+                if not self._cfg.device_id:
+                    self._cfg.device_id = str(payload.get("device_id", ""))
+                    restored_any = restored_any or bool(self._cfg.device_id)
+            if restored_any:
+                logger.info(
+                    "MatrixChannel: restored auth state from %s "
+                    "(token=%s, user=%s, device=%s)",
+                    path,
+                    bool(self._cfg.access_token),
+                    self._cfg.user_id or "<unknown>",
+                    self._cfg.device_id or "<unknown>",
+                )
+            else:
+                logger.debug(
+                    "MatrixChannel: auth state present at %s but not applied "
+                    "(restore_token=%s restore_identity=%s)",
+                    path,
+                    restore_token,
+                    restore_identity,
+                )
+        except Exception as exc:
+            logger.warning(
+                "MatrixChannel: failed to load auth state from %s: %s",
+                path,
+                exc,
+            )
+
+    def _save_auth_state(self) -> None:
+        """Persist access_token/user_id/device_id for stable restarts."""
+        if not self._client:
+            return
+        token = getattr(self._client, "access_token", "") or ""
+        user_id = getattr(self._client, "user_id", "") or self._user_id or ""
+        device_id = getattr(self._client, "device_id", "") or ""
+        if not token or not user_id:
+            return
+        try:
+            import json
+
+            payload = {
+                "access_token": token,
+                "user_id": user_id,
+                "device_id": device_id,
+            }
+            path = self._auth_state_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload))
+            self._cfg.access_token = token
+            self._cfg.user_id = user_id
+            if device_id:
+                self._cfg.device_id = device_id
+        except Exception as exc:
+            logger.warning(
+                "MatrixChannel: failed to persist auth state: %s",
+                exc,
+            )
 
     def _load_sync_token(self) -> Optional[str]:
         """Load persisted next_batch token from disk, or None.
@@ -586,6 +944,483 @@ class MatrixChannel(BaseChannel):
             await self._client.send_to_device_messages()
         except Exception as exc:
             logger.warning("MatrixChannel: E2EE maintenance error: %s", exc)
+
+    async def _on_key_verification_event(
+        self,
+        event: KeyVerificationEvent,
+    ) -> None:
+        """Complete the bot side of an Element SAS verification challenge."""
+        if not self._client or not self._client.olm:
+            logger.info(
+                "MatrixChannel: verification event received "
+                "but olm is not ready (event=%s, tx=%s, sender=%s)",
+                type(event).__name__,
+                getattr(event, "transaction_id", ""),
+                getattr(event, "sender", ""),
+            )
+            return
+
+        try:
+            logger.info(
+                "MatrixChannel: verification event received "
+                "(event=%s, tx=%s, sender=%s, from_device=%s)",
+                type(event).__name__,
+                getattr(event, "transaction_id", ""),
+                getattr(event, "sender", ""),
+                getattr(event, "from_device", ""),
+            )
+            if isinstance(event, KeyVerificationStart):
+                await self._handle_key_verification_start(event)
+            elif isinstance(event, KeyVerificationKey):
+                await self._handle_key_verification_key(event)
+            elif isinstance(event, KeyVerificationMac):
+                sas = self._client.key_verifications.get(event.transaction_id)
+                logger.info(
+                    "MatrixChannel: key verification MAC received "
+                    "(tx=%s, verified=%s, verified_devices=%s)",
+                    event.transaction_id,
+                    getattr(sas, "verified", False),
+                    getattr(sas, "verified_devices", []),
+                )
+                if getattr(sas, "verified", False):
+                    await self._send_verification_done(event.transaction_id)
+            elif isinstance(event, KeyVerificationCancel):
+                known_tx = event.transaction_id in getattr(
+                    self._client,
+                    "key_verifications",
+                    {},
+                )
+                if known_tx:
+                    logger.info(
+                        "MatrixChannel: key verification cancelled by %s "
+                        "(tx=%s, reason=%s)",
+                        event.sender,
+                        event.transaction_id,
+                        getattr(event, "reason", ""),
+                    )
+                else:
+                    logger.info(
+                        "MatrixChannel: key verification cancelled for "
+                        "unknown key verification tx=%s from %s (reason=%s)",
+                        event.transaction_id,
+                        event.sender,
+                        getattr(event, "reason", ""),
+                    )
+            else:
+                logger.info(
+                    "MatrixChannel: unhandled verification event type=%s "
+                    "(tx=%s, sender=%s)",
+                    type(event).__name__,
+                    getattr(event, "transaction_id", ""),
+                    getattr(event, "sender", ""),
+                )
+        except Exception as exc:
+            logger.warning(
+                "MatrixChannel: key verification handling failed: %s",
+                exc,
+            )
+
+    async def _on_to_device_probe_event(
+        self,
+        event: ToDeviceEvent,
+    ) -> None:
+        """Probe raw to-device verification event types for troubleshooting."""
+        raw_type = getattr(event, "type", "")
+        if not raw_type:
+            raw_type = getattr(event, "source", {}).get("type", "")
+        if not isinstance(raw_type, str) or not raw_type.startswith(
+            "m.key.verification.",
+        ):
+            return
+        logger.info(
+            "MatrixChannel: raw to-device verification event "
+            "(type=%s, parsed=%s, sender=%s)",
+            raw_type,
+            type(event).__name__,
+            getattr(event, "sender", ""),
+        )
+        if raw_type in (
+            "m.key.verification.request",
+            "m.key.verification.ready",
+        ):
+            logger.warning(
+                "MatrixChannel: homeserver sent %s but current matrix-nio "
+                "cannot parse it into KeyVerificationEvent; handling via "
+                "raw to-device compatibility path",
+                raw_type,
+            )
+        if raw_type == "m.key.verification.request":
+            await self._handle_unknown_key_verification_request(event)
+        elif raw_type == "m.key.verification.done":
+            await self._handle_unknown_key_verification_done(event)
+
+    async def _on_room_key_request_event(
+        self,
+        event: RoomKeyRequest | RoomKeyRequestCancellation,
+    ) -> None:
+        """Log room-key request events that often require manual review."""
+        if isinstance(event, RoomKeyRequest):
+            logger.warning(
+                "MatrixChannel: room key request received; other device may "
+                "show 'Review' until trust decision is made "
+                "(sender=%s device=%s request_id=%s room_id=%s session_id=%s)",
+                event.sender,
+                event.requesting_device_id,
+                event.request_id,
+                getattr(event, "room_id", ""),
+                getattr(event, "session_id", ""),
+            )
+        else:
+            logger.info(
+                "MatrixChannel: room key request cancelled "
+                "(sender=%s device=%s request_id=%s)",
+                event.sender,
+                event.requesting_device_id,
+                event.request_id,
+            )
+
+    async def _handle_unknown_key_verification_request(
+        self,
+        event: ToDeviceEvent,
+    ) -> None:
+        """Compat path for m.key.verification.request on older matrix-nio."""
+        if not self._client or not self._client.olm:
+            return
+
+        source = getattr(event, "source", {}) or {}
+        content = source.get("content", {}) or {}
+        sender = getattr(event, "sender", "")
+        from_device = str(content.get("from_device", "") or "")
+        transaction_id = str(content.get("transaction_id", "") or "")
+        methods = content.get("methods", []) or []
+
+        request_key = f"{sender}|{from_device}|{transaction_id}"
+        if request_key in self._handled_verification_requests:
+            logger.debug(
+                "MatrixChannel: verification request already handled "
+                "(sender=%s, device=%s, tx=%s)",
+                sender,
+                from_device,
+                transaction_id,
+            )
+            return
+        self._handled_verification_requests.add(request_key)
+
+        if not sender or not from_device:
+            logger.warning(
+                "MatrixChannel: cannot handle verification request without "
+                "sender/device (sender=%s, device=%s, tx=%s)",
+                sender,
+                from_device,
+                transaction_id,
+            )
+            return
+
+        self._verification_tx_peers[transaction_id] = (sender, from_device)
+
+        our_device = getattr(self._client, "device_id", "") or ""
+        if not our_device:
+            logger.warning(
+                "MatrixChannel: cannot reply verification request without "
+                "local device_id (sender=%s, device=%s, tx=%s)",
+                sender,
+                from_device,
+                transaction_id,
+            )
+            return
+
+        ready_content = {
+            "from_device": our_device,
+            "methods": ["m.sas.v1"],
+            "transaction_id": transaction_id,
+        }
+        ready_message = ToDeviceMessage(
+            "m.key.verification.ready",
+            sender,
+            from_device,
+            ready_content,
+        )
+        try:
+            resp = await self._client.to_device(ready_message)
+        except Exception as exc:
+            logger.warning(
+                "MatrixChannel: failed to send verification ready "
+                "(sender=%s, device=%s, tx=%s): %s",
+                sender,
+                from_device,
+                transaction_id,
+                exc,
+            )
+            return
+
+        if isinstance(resp, ToDeviceError):
+            logger.warning(
+                "MatrixChannel: homeserver rejected verification ready "
+                "(sender=%s, device=%s, tx=%s): %s",
+                sender,
+                from_device,
+                transaction_id,
+                resp,
+            )
+            return
+
+        logger.info(
+            "MatrixChannel: sent verification ready for request "
+            "(sender=%s, device=%s, tx=%s, methods=%s)",
+            sender,
+            from_device,
+            transaction_id,
+            methods,
+        )
+
+    async def _handle_unknown_key_verification_done(
+        self,
+        event: ToDeviceEvent,
+    ) -> None:
+        """Handle done event emitted as UnknownToDeviceEvent on older nio."""
+        source = getattr(event, "source", {}) or {}
+        content = source.get("content", {}) or {}
+        tx = str(content.get("transaction_id", "") or "")
+        if not tx:
+            return
+        logger.info(
+            "MatrixChannel: received verification done from %s (tx=%s)",
+            getattr(event, "sender", ""),
+            tx,
+        )
+        if tx not in self._sent_verification_done:
+            await self._send_verification_done(tx)
+
+    async def _handle_key_verification_start(
+        self,
+        event: KeyVerificationStart,
+    ) -> None:
+        """Accept Element's SAS start, querying device keys if needed."""
+        if not self._client or not self._client.olm:
+            return
+        self._verification_tx_peers[event.transaction_id] = (
+            event.sender,
+            event.from_device,
+        )
+
+        if event.transaction_id not in self._client.key_verifications:
+            await self._recover_key_verification_start(event)
+
+        if event.transaction_id not in self._client.key_verifications:
+            logger.warning(
+                "MatrixChannel: cannot accept key verification from %s "
+                "(device=%s, tx=%s) because no SAS state exists yet; "
+                "retry verification after the next sync",
+                event.sender,
+                event.from_device,
+                event.transaction_id,
+            )
+            return
+
+        try:
+            resp = await self._client.accept_key_verification(
+                event.transaction_id,
+            )
+        except LocalProtocolError as exc:
+            logger.warning(
+                "MatrixChannel: accept_key_verification failed for tx=%s: %s",
+                event.transaction_id,
+                exc,
+            )
+            return
+
+        if isinstance(resp, ToDeviceError):
+            logger.warning(
+                "MatrixChannel: accept_key_verification failed for tx=%s: %s",
+                event.transaction_id,
+                resp,
+            )
+            return
+
+        logger.info(
+            "MatrixChannel: accepted key verification from %s "
+            "(device=%s, tx=%s)",
+            event.sender,
+            event.from_device,
+            event.transaction_id,
+        )
+
+    async def _send_verification_done(self, transaction_id: str) -> None:
+        """Send m.key.verification.done for runtimes lacking done helpers."""
+        if (
+            not self._client
+            or not transaction_id
+            or transaction_id in self._sent_verification_done
+        ):
+            return
+
+        peer = self._verification_tx_peers.get(transaction_id)
+        if not peer:
+            logger.warning(
+                "MatrixChannel: cannot send verification done for tx=%s "
+                "because peer device is unknown",
+                transaction_id,
+            )
+            return
+
+        sender, device_id = peer
+        done_message = ToDeviceMessage(
+            "m.key.verification.done",
+            sender,
+            device_id,
+            {"transaction_id": transaction_id},
+        )
+        try:
+            resp = await self._client.to_device(done_message)
+        except Exception as exc:
+            logger.warning(
+                "MatrixChannel: failed to send verification done "
+                "(tx=%s, sender=%s, device=%s): %s",
+                transaction_id,
+                sender,
+                device_id,
+                exc,
+            )
+            return
+
+        if isinstance(resp, ToDeviceError):
+            logger.warning(
+                "MatrixChannel: homeserver rejected verification done "
+                "(tx=%s, sender=%s, device=%s): %s",
+                transaction_id,
+                sender,
+                device_id,
+                resp,
+            )
+            return
+
+        self._sent_verification_done.add(transaction_id)
+        logger.info(
+            "MatrixChannel: sent verification done "
+            "(tx=%s, sender=%s, device=%s)",
+            transaction_id,
+            sender,
+            device_id,
+        )
+
+    async def _recover_key_verification_start(
+        self,
+        event: KeyVerificationStart,
+    ) -> None:
+        """Re-process start event after matrix-nio queried unknown devices."""
+        assert self._client is not None
+        assert self._client.olm is not None
+
+        try:
+            if self._client.should_query_keys:
+                await self._client.keys_query()
+        except Exception as exc:
+            logger.warning(
+                "MatrixChannel: failed to query keys for verification "
+                "from %s: %s",
+                event.sender,
+                exc,
+            )
+            return
+
+        try:
+            self._client.olm.handle_key_verification(event)
+        except Exception as exc:
+            logger.warning(
+                "MatrixChannel: failed to rebuild key verification state "
+                "for tx=%s: %s",
+                event.transaction_id,
+                exc,
+            )
+
+    async def _handle_key_verification_key(
+        self,
+        event: KeyVerificationKey,
+    ) -> None:
+        """Log the SAS challenge and confirm the bot side."""
+        if not self._client:
+            return
+
+        sas = self._client.key_verifications.get(event.transaction_id)
+        if sas is None:
+            logger.warning(
+                "MatrixChannel: key verification key for unknown tx=%s "
+                "from %s; ask Element to restart verification",
+                event.transaction_id,
+                event.sender,
+            )
+            return
+
+        logger.warning(
+            "MatrixChannel: Element key verification challenge from %s "
+            "(tx=%s): %s",
+            event.sender,
+            event.transaction_id,
+            self._format_sas_challenge(sas),
+        )
+
+        # Receiving Key queues share_key in nio; flush it before sending MAC.
+        await self._client.send_to_device_messages()
+        try:
+            resp = await self._client.confirm_short_auth_string(
+                event.transaction_id,
+            )
+        except LocalProtocolError as exc:
+            logger.warning(
+                "MatrixChannel: confirm_short_auth_string failed "
+                "for tx=%s: %s",
+                event.transaction_id,
+                exc,
+            )
+            return
+
+        if isinstance(resp, ToDeviceError):
+            logger.warning(
+                "MatrixChannel: confirm_short_auth_string failed "
+                "for tx=%s: %s",
+                event.transaction_id,
+                resp,
+            )
+            return
+
+        logger.info(
+            "MatrixChannel: confirmed local SAS side for tx=%s; "
+            "compare the challenge in Element and accept there if it matches",
+            event.transaction_id,
+        )
+
+    @staticmethod
+    def _format_sas_challenge(sas: Any) -> str:
+        """Return a human-readable SAS challenge for logs."""
+        parts: list[str] = []
+
+        get_emoji = getattr(sas, "get_emoji", None)
+        if callable(get_emoji):
+            try:
+                emojis = get_emoji()
+                if emojis:
+                    parts.append(
+                        "emoji="
+                        + " ".join(
+                            f"{symbol}({description})"
+                            for symbol, description in emojis
+                        ),
+                    )
+            except Exception as exc:
+                logger.debug("MatrixChannel: get_emoji failed: %s", exc)
+
+        get_decimal = getattr(sas, "get_decimal", None)
+        if callable(get_decimal):
+            try:
+                decimals = get_decimal()
+                if decimals:
+                    parts.append(
+                        "decimal=" + " ".join(str(n) for n in decimals),
+                    )
+            except Exception as exc:
+                logger.debug("MatrixChannel: get_decimal failed: %s", exc)
+
+        return "; ".join(parts) if parts else "unavailable"
 
     # pylint: disable=too-many-branches,too-many-statements
     async def _sync_loop(self) -> None:
@@ -690,6 +1525,20 @@ class MatrixChannel(BaseChannel):
                     # to-device)
                     await self._e2ee_maintenance()
                 else:
+                    if isinstance(resp, SyncError) and getattr(
+                        resp,
+                        "status_code",
+                        None,
+                    ) in {"M_UNKNOWN_TOKEN", "M_MISSING_TOKEN"}:
+                        logger.error(
+                            "MatrixChannel: sync stopped due to "
+                            "invalid/missing access token; please re-login "
+                            "(password or fresh token)",
+                        )
+                        if self._client:
+                            self._client.access_token = ""
+                        self._cfg.access_token = ""
+                        return
                     logger.warning("MatrixChannel: sync error: %s", resp)
                     await asyncio.sleep(5)
             except asyncio.CancelledError:
@@ -710,29 +1559,47 @@ class MatrixChannel(BaseChannel):
     def _check_allowed(
         self,
         sender_id: str,
-        _room_id: str,
+        room_id: str,
         is_dm: bool,
     ) -> bool:
         """Return True if the sender is allowed to interact in this context."""
         normalized = _normalize_user_id(sender_id)
         if is_dm:
             if self._cfg.dm_policy == "disabled":
+                logger.warning(
+                    "MatrixChannel: dropping DM message (policy=disabled) "
+                    "sender=%s room=%s",
+                    sender_id,
+                    room_id,
+                )
                 return False
             if self._cfg.dm_policy == "allowlist":
                 if normalized not in self._cfg.allow_from:
-                    logger.debug(
-                        "MatrixChannel: DM blocked from %s",
+                    logger.warning(
+                        "MatrixChannel: dropping DM message (allowlist miss) "
+                        "sender=%s room=%s normalized=%s",
                         sender_id,
+                        room_id,
+                        normalized,
                     )
                     return False
         else:
             if self._cfg.group_policy == "disabled":
+                logger.warning(
+                    "MatrixChannel: dropping group message (policy=disabled) "
+                    "sender=%s room=%s",
+                    sender_id,
+                    room_id,
+                )
                 return False
             if self._cfg.group_policy == "allowlist":
                 if normalized not in self._cfg.group_combined_allow:
-                    logger.debug(
-                        "MatrixChannel: group msg blocked from %s",
+                    logger.warning(
+                        "MatrixChannel: dropping group message "
+                        "(allowlist miss) sender=%s room=%s normalized=%s",
                         sender_id,
+                        room_id,
+                        normalized,
                     )
                     return False
         return True
@@ -1201,7 +2068,7 @@ class MatrixChannel(BaseChannel):
         room_id = room.room_id
         # Use Matrix API for reliable DM detection (room.users unreliable
         # after token restore)
-        is_dm = await self._is_dm_room(room_id, sender_id)
+        is_dm = await self._is_dm_room(room_id, sender_id, room)
 
         if not self._check_allowed(sender_id, room_id, is_dm):
             return
@@ -1416,7 +2283,33 @@ class MatrixChannel(BaseChannel):
     # feeds allowlist / requireMention / history behavior.
     # ------------------------------------------------------------------
 
-    async def _is_dm_room(self, room_id: str, sender_id: str) -> bool:
+    def _is_dm_room_fallback(
+        self,
+        room: Optional[MatrixRoom],
+        sender_id: str,
+    ) -> bool:
+        """Best-effort DM check when joined_members API is unavailable."""
+        if not room or not self._user_id:
+            return False
+        try:
+            users = list(getattr(room, "users", {}).keys())
+            if users:
+                return (
+                    len(users) == 2
+                    and self._user_id in users
+                    and sender_id in users
+                )
+            member_count = int(getattr(room, "member_count", 0) or 0)
+            return member_count == 2
+        except Exception:
+            return False
+
+    async def _is_dm_room(
+        self,
+        room_id: str,
+        sender_id: str,
+        room: Optional[MatrixRoom] = None,
+    ) -> bool:
         """Check if a room is a DM (direct message) between self and sender.
 
         Uses Matrix API to get actual joined members, because nio's room.users
@@ -1479,14 +2372,24 @@ class MatrixChannel(BaseChannel):
                     room_id,
                     resp,
                 )
-                return False
+                fallback = self._is_dm_room_fallback(room, sender_id)
+                logger.warning(
+                    "MatrixChannel: joined_members fallback for %s "
+                    "-> is_dm=%s",
+                    room_id,
+                    fallback,
+                )
+                return fallback
         except Exception as exc:
+            fallback = self._is_dm_room_fallback(room, sender_id)
             logger.warning(
-                "MatrixChannel: joined_members error for %s: %s",
+                "MatrixChannel: joined_members error for %s: %s; "
+                "fallback is_dm=%s",
                 room_id,
                 exc,
+                fallback,
             )
-            return False
+            return fallback
 
     # ------------------------------------------------------------------
     # Incoming message handling — text
@@ -1511,7 +2414,7 @@ class MatrixChannel(BaseChannel):
 
         # Use Matrix API to reliably detect DM rooms
         # (nio's room.users is unreliable after token restore)
-        is_dm = await self._is_dm_room(room_id, sender_id)
+        is_dm = await self._is_dm_room(room_id, sender_id, room)
 
         logger.info(
             "_on_room_event: sender=%s room=%s body=%r is_dm=%s",
@@ -1530,6 +2433,13 @@ class MatrixChannel(BaseChannel):
                 event,
                 text,
             ):
+                logger.info(
+                    "MatrixChannel: group text not mentioned, cached to "
+                    "history (room=%s sender=%s event_id=%s)",
+                    room_id,
+                    sender_id,
+                    event.event_id,
+                )
                 self._record_history(
                     room_id,
                     HistoryEntry(
@@ -1636,7 +2546,7 @@ class MatrixChannel(BaseChannel):
         room_id = room.room_id
         # Use Matrix API for reliable DM detection (room.users unreliable
         # after token restore)
-        is_dm = await self._is_dm_room(room_id, sender_id)
+        is_dm = await self._is_dm_room(room_id, sender_id, room)
 
         if not self._check_allowed(sender_id, room_id, is_dm):
             return
@@ -1649,6 +2559,13 @@ class MatrixChannel(BaseChannel):
                 event,
                 "",
             ):
+                logger.info(
+                    "MatrixChannel: group media not mentioned, cached to "
+                    "history (room=%s sender=%s event_id=%s)",
+                    room_id,
+                    sender_id,
+                    event.event_id,
+                )
                 await self._record_media_history(
                     room,
                     event,
@@ -2013,6 +2930,107 @@ class MatrixChannel(BaseChannel):
                     )
         return user_id.split(":")[0].lstrip("@") or user_id
 
+    def _mark_room_encrypted(
+        self,
+        room_id: str,
+        room: Optional[MatrixRoom] = None,
+    ) -> None:
+        """Keep nio's encrypted room state consistent for outbound sends."""
+        if not self._client:
+            return
+        encrypted_rooms = getattr(self._client, "encrypted_rooms", None)
+        if encrypted_rooms is not None:
+            encrypted_rooms.add(room_id)
+        target_room = room
+        if target_room is None:
+            rooms = getattr(self._client, "rooms", {})
+            target_room = rooms.get(room_id) if rooms else None
+        if target_room is not None:
+            try:
+                target_room.encrypted = True
+            except Exception as exc:
+                logger.debug(
+                    "MatrixChannel: failed to mark %s encrypted: %s",
+                    room_id,
+                    exc,
+                )
+
+    def _room_will_encrypt(self, room_id: str) -> bool:
+        """Return whether matrix-nio will encrypt room_send for this room."""
+        if not self._client or not getattr(self._client, "olm", None):
+            return False
+        rooms = getattr(self._client, "rooms", {})
+        room = rooms.get(room_id) if rooms else None
+        if room is not None and getattr(room, "encrypted", False) is True:
+            return True
+        encrypted_rooms = (
+            getattr(self._client, "encrypted_rooms", set()) or set()
+        )
+        if room_id in encrypted_rooms:
+            self._mark_room_encrypted(room_id, room)
+            return True
+        return False
+
+    async def _prepare_room_send(self, room_id: str) -> None:
+        """Align local encryption flags with the homeserver before
+        ``room_send``.
+
+        matrix-nio only wraps ``room_send`` as ``m.room.encrypted`` when
+        ``client.rooms[room_id].encrypted`` is true. If incremental sync never
+        applied ``m.room.encryption`` to that object (common after restoring
+        tokens or partial state), sends are still plaintext and Element shows
+        "not encrypted". Fetch room state once per send attempt when needed.
+        """
+        if not self._cfg.encryption:
+            return
+        if not self._client or not getattr(self._client, "olm", None):
+            logger.warning(
+                "MatrixChannel: E2EE configured but Olm is not ready; "
+                "outbound message to %s will not be encrypted",
+                room_id,
+            )
+            return
+        await self._e2ee_maintenance()
+        if self._room_will_encrypt(room_id):
+            return
+        if room_id not in getattr(self._client, "rooms", {}):
+            logger.warning(
+                "MatrixChannel: room %s not in client cache; "
+                "cannot confirm E2EE before send (wait for sync / join)",
+                room_id,
+            )
+            return
+        try:
+            enc_state = await self._client.room_get_state_event(
+                room_id,
+                "m.room.encryption",
+                "",
+            )
+        except Exception as exc:
+            logger.warning(
+                "MatrixChannel: failed to get m.room.encryption for %s: %s",
+                room_id,
+                exc,
+            )
+            enc_state = None
+
+        if isinstance(enc_state, RoomGetStateEventResponse):
+            algo = (enc_state.content or {}).get("algorithm")
+            if algo:
+                self._mark_room_encrypted(room_id)
+                logger.debug(
+                    "MatrixChannel: marked %s encrypted from server (%s)",
+                    room_id,
+                    algo,
+                )
+
+        if not self._room_will_encrypt(room_id):
+            logger.warning(
+                "MatrixChannel: E2EE on but room %s is not encrypted in "
+                "client after state check; outbound send may be plaintext",
+                room_id,
+            )
+
     # ------------------------------------------------------------------
     # Outgoing send — text
     # Markdown→HTML (formatted_body); m.mentions when meta has sender_id.
@@ -2062,6 +3080,7 @@ class MatrixChannel(BaseChannel):
             self._apply_mention(content, sender_id, room_id)
 
         try:
+            await self._prepare_room_send(room_id)
             await self._client.room_send(
                 room_id,
                 "m.room.message",
@@ -2152,6 +3171,7 @@ class MatrixChannel(BaseChannel):
             if sender_id:
                 self._apply_mention(event_content, sender_id, room_id)
 
+            await self._prepare_room_send(room_id)
             await self._client.room_send(
                 room_id,
                 "m.room.message",

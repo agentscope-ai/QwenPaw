@@ -3,6 +3,7 @@ import type { ColumnsType } from "antd/es/table";
 import type { MenuProps } from "antd";
 import type { CronJobSpecOutput } from "../../../../api/types";
 import { CopyOutlined, MoreOutlined } from "@ant-design/icons";
+import dayjs from "dayjs";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { TFunction } from "i18next";
 import { parseCron } from "./parseCron";
@@ -13,6 +14,7 @@ type CronJob = CronJobSpecOutput;
 interface ColumnHandlers {
   onToggleEnabled: (job: CronJob) => void;
   onExecuteNow: (job: CronJob) => void;
+  onViewHistory: (job: CronJob) => void;
   onEdit: (job: CronJob) => void;
   onDelete: (jobId: string) => void;
   t: TFunction;
@@ -85,16 +87,30 @@ export const createColumns = (
       dataIndex: ["schedule", "type"],
       key: "schedule_type",
       width: 140,
-      render: () => "cron",
+      render: (type: string) =>
+        type === "once"
+          ? handlers.t("cronJobs.scheduleTypeOnce")
+          : handlers.t("cronJobs.scheduleTypeRecurring"),
     },
     {
       title: handlers.t("cronJobs.scheduleCron"),
-      dataIndex: ["schedule", "cron"],
+      dataIndex: "schedule",
       key: "cron",
       width: 180,
-      render: (cron: string) => {
+      render: (schedule: any) => {
+        if (schedule?.type === "once") {
+          const displayText = schedule?.run_at
+            ? dayjs(schedule.run_at).format("YYYY-MM-DD HH:mm")
+            : "-";
+          return (
+            <Tooltip title={schedule?.run_at || displayText}>
+              <span className={styles.cronText}>{displayText}</span>
+            </Tooltip>
+          );
+        }
+        const cron = schedule?.cron || "0 9 * * *";
         // Parse cron to friendly text
-        const cronParts = parseCron(cron || "0 9 * * *");
+        const cronParts = parseCron(cron);
         let displayText = "";
 
         switch (cronParts.type) {
@@ -236,18 +252,6 @@ export const createColumns = (
       },
     },
     {
-      title: "RequestSessionID",
-      dataIndex: ["request", "session_id"],
-      key: "session_id",
-      width: 160,
-    },
-    {
-      title: "RequestUserID",
-      dataIndex: ["request", "user_id"],
-      key: "user_id",
-      width: 140,
-    },
-    {
       title: "DispatchType",
       dataIndex: ["dispatch", "type"],
       key: "dispatch_type",
@@ -298,7 +302,7 @@ export const createColumns = (
     {
       title: handlers.t("cronJobs.action"),
       key: "action",
-      width: 240,
+      width: 320,
       fixed: "right",
       render: (_: unknown, record: CronJob) => {
         const menuItems: MenuProps["items"] = [
@@ -334,6 +338,13 @@ export const createColumns = (
               onClick={() => handlers.onExecuteNow(record)}
             >
               {handlers.t("cronJobs.executeNow")}
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              onClick={() => handlers.onViewHistory(record)}
+            >
+              {handlers.t("cronJobs.executionHistory")}
             </Button>
             <Dropdown menu={{ items: menuItems }} placement="bottomRight">
               <Button type="text" size="small" icon={<MoreOutlined />} />

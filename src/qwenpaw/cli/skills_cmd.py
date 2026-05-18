@@ -6,16 +6,27 @@ from pathlib import Path
 
 import click
 
-from ..agents.skills_manager import (
+from ..agents.skill_system import (
+    SkillConflictError,
     SkillPoolService,
     SkillService,
     get_workspace_skills_dir,
+    read_skill_pool_manifest,
     read_skill_manifest,
     reconcile_pool_manifest,
     reconcile_workspace_manifest,
 )
-from ..constant import WORKING_DIR
+from ..agents.skill_system.registry import list_workspaces
+from ..agents.skill_system.store import validate_skill_content
+from ..agents.skill_system.hub import (
+    import_pool_skill_from_hub,
+    install_skill_from_hub,
+)
+from ..agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..config import load_config
+from ..constant import WORKING_DIR
+from ..exceptions import SkillsError
+from ..security.skill_scanner import SkillScanError, scan_skill_directory
 from .utils import prompt_checkbox, prompt_confirm
 
 
@@ -30,6 +41,40 @@ def _get_agent_workspace(agent_id: str) -> Path:
     except Exception:
         pass
     return WORKING_DIR
+
+
+def _require_agent_workspace(agent_id: str) -> Path:
+    normalized_agent_id = str(agent_id or "").strip()
+    if not normalized_agent_id:
+        raise click.ClickException("Agent ID cannot be empty.")
+    workspaces = list_workspaces()
+    for workspace in workspaces:
+        if workspace.get("agent_id") == normalized_agent_id:
+            return Path(str(workspace["workspace_dir"])).expanduser()
+
+    available_agents = sorted(
+        str(workspace.get("agent_id") or "")
+        for workspace in workspaces
+        if str(workspace.get("agent_id") or "")
+    )
+    if available_agents:
+        raise click.ClickException(
+            "Agent "
+            f"'{normalized_agent_id}' not found. Available agents: "
+            f"{', '.join(available_agents)}",
+        )
+    raise click.ClickException(
+        f"Agent '{normalized_agent_id}' not found.",
+    )
+
+
+def _raise_conflict(exc: SkillConflictError) -> None:
+    detail = exc.detail or {}
+    message = str(detail.get("message") or str(exc))
+    suggested_name = str(detail.get("suggested_name") or "").strip()
+    if suggested_name:
+        message = f"{message} Suggested name: {suggested_name}"
+    raise click.ClickException(message)
 
 
 def _print_skill_changes(
@@ -60,6 +105,57 @@ def _print_skill_changes(
                 fg="red",
             ),
         )
+
+
+def _validate_skill_frontmatter(skill_dir: Path) -> None:
+    """Validate required skill metadata."""
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.is_file():
+        raise click.ClickException(f"Missing SKILL.md: {skill_md}")
+
+    content = read_text_file_with_encoding_fallback(skill_md)
+    try:
+        validate_skill_content(content)
+    except SkillsError as exc:
+        raise click.ClickException(str(exc))
+    except Exception as exc:
+        raise click.ClickException(
+            f"SKILL.md frontmatter is invalid: {exc}",
+        ) from exc
+
+
+def _resolve_skill_test_dir(skill: str, agent_id: str) -> Path:
+    """Resolve a skill argument as a path first, then workspace skill name."""
+    candidate = Path(skill).expanduser()
+    if candidate.exists():
+        return candidate.resolve()
+
+    working_dir = _get_agent_workspace(agent_id)
+    return get_workspace_skills_dir(working_dir) / skill
+
+
+def _run_skill_test(skill_dir: Path) -> str:
+    """Run local skill validation and security scanning."""
+    if not skill_dir.is_dir():
+        raise click.ClickException(f"Skill directory not found: {skill_dir}")
+
+    skill_name = skill_dir.name
+    _validate_skill_frontmatter(skill_dir)
+    try:
+        result = scan_skill_directory(
+            skill_dir,
+            skill_name=skill_name,
+            block=True,
+        )
+    except SkillScanError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if result is not None and not result.is_safe:
+        raise click.ClickException(
+            "Security scan found "
+            f"{len(result.findings)} issue(s) in skill '{skill_name}'.",
+        )
+    return skill_name
 
 
 def _apply_skill_changes(
@@ -314,3 +410,151 @@ def info_cmd(
     click.echo(
         "Description: " f"{skill.description or 'No description.'}",
     )
+
+
+@skills_group.command("install")
+@click.argument("bundle_url", required=True)
+@click.option(
+    "--agent-id",
+    "agent_id",
+    default="",
+    help="Install directly into the given agent workspace.",
+)
+@click.option(
+    "--enable/--no-enable",
+    default=True,
+    help="Enable after import when installing into an agent workspace.",
+)
+def install_cmd(
+    bundle_url: str,
+    agent_id: str,
+    enable: bool,
+) -> None:
+    """Install a skill from a URL.
+
+    Without ``--agent-id``, the skill is imported into the local skill pool.
+    With ``--agent-id``, the skill is imported directly into that workspace.
+    """
+    normalized_agent_id = str(agent_id or "").strip()
+
+    try:
+        if normalized_agent_id:
+            workspace_dir = _require_agent_workspace(normalized_agent_id)
+            result = install_skill_from_hub(
+                workspace_dir=workspace_dir,
+                bundle_url=bundle_url,
+                enable=enable,
+            )
+            click.echo(
+                f"✓ Installed skill '{result.name}' to agent "
+                f"'{normalized_agent_id}'.",
+            )
+            if result.enabled:
+                click.echo("✓ Skill enabled.")
+            click.echo(f"Source: {result.source_url}")
+            click.echo(f"Workspace: {workspace_dir}")
+            return
+
+        result = import_pool_skill_from_hub(
+            bundle_url=bundle_url,
+        )
+        click.echo(f"✓ Installed skill '{result.name}' to the skill pool.")
+        click.echo(f"Source: {result.source_url}")
+    except SkillConflictError as exc:
+        _raise_conflict(exc)
+    except SkillScanError as exc:
+        raise click.ClickException(str(exc)) from exc
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@skills_group.command("uninstall")
+@click.argument("skill_name", required=True)
+@click.option(
+    "--agent-id",
+    "agent_id",
+    default="",
+    help="Remove the skill from the given agent workspace.",
+)
+def uninstall_cmd(
+    skill_name: str,
+    agent_id: str,
+) -> None:
+    """Uninstall a skill from the skill pool or one agent workspace."""
+    normalized_skill_name = str(skill_name or "").strip()
+    if not normalized_skill_name:
+        raise click.ClickException("Skill name cannot be empty.")
+
+    normalized_agent_id = str(agent_id or "").strip()
+
+    try:
+        if normalized_agent_id:
+            workspace_dir = _require_agent_workspace(normalized_agent_id)
+            manifest = read_skill_manifest(workspace_dir).get("skills", {})
+            if normalized_skill_name not in manifest:
+                raise click.ClickException(
+                    f"Skill '{normalized_skill_name}' was not found for "
+                    f"agent '{normalized_agent_id}'.",
+                )
+
+            skill_service = SkillService(workspace_dir)
+            if bool(manifest[normalized_skill_name].get("enabled", False)):
+                disable_result = skill_service.disable_skill(
+                    normalized_skill_name,
+                )
+                if not disable_result.get("success"):
+                    raise click.ClickException(
+                        f"Failed to disable skill '{normalized_skill_name}' "
+                        f"for agent '{normalized_agent_id}'.",
+                    )
+
+            deleted = skill_service.delete_skill(normalized_skill_name)
+            if not deleted:
+                raise click.ClickException(
+                    f"Failed to uninstall skill '{normalized_skill_name}' "
+                    f"from agent '{normalized_agent_id}'.",
+                )
+
+            click.echo(
+                f"✓ Uninstalled skill '{normalized_skill_name}' from agent "
+                f"'{normalized_agent_id}'.",
+            )
+            return
+
+        manifest = read_skill_pool_manifest().get("skills", {})
+        if normalized_skill_name not in manifest:
+            raise click.ClickException(
+                f"Skill '{normalized_skill_name}' was not found "
+                "in the skill pool.",
+            )
+
+        deleted = SkillPoolService().delete_skill(normalized_skill_name)
+        if not deleted:
+            raise click.ClickException(
+                f"Failed to uninstall skill '{normalized_skill_name}' "
+                "from the skill pool.",
+            )
+
+        click.echo(
+            f"✓ Uninstalled skill '{normalized_skill_name}' "
+            "from the skill pool.",
+        )
+    except click.ClickException:
+        raise
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@skills_group.command("test")
+@click.argument("skill", required=True)
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
+def test_cmd(skill: str, agent_id: str) -> None:
+    """Validate a workspace skill or local skill directory."""
+    skill_dir = _resolve_skill_test_dir(skill, agent_id)
+    skill_name = _run_skill_test(skill_dir)
+    click.echo(f"Skill test passed: {skill_name}")
+    click.echo(f"Path: {skill_dir}")

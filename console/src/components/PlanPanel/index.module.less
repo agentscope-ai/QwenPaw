@@ -121,6 +121,11 @@
   text-align: center;
 }
 
+.emptyHint {
+  font-size: 12px;
+  margin-top: 8px;
+}
+
 .emptyIcon {
   font-size: 48px;
   margin-bottom: 12px;
@@ -154,4 +159,53 @@
 .stateAbandoned {
   background: var(--colorErrorBg, #fff2f0);
   color: var(--colorErrorText, #ff4d4f);
+}
+
+.planOutcomeSection {
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
+}
+
+:global(.dark-mode) {
+  .planName,
+  .subtaskName {
+    color: rgba(255, 255, 255, 0.85) !important;
+  }
+
+  .planDesc,
+  .progressLabel,
+  .subtaskDesc,
+  .emptyState,
+  .emptyHint {
+    color: rgba(255, 255, 255, 0.65) !important;
+  }
+
+  .subtaskOutcome {
+    color: #73d13d !important;
+  }
+
+  .planOutcomeSection {
+    color: rgba(255, 255, 255, 0.85) !important;
+  }
+
+  .stateTodo {
+    background: rgba(22, 119, 255, 0.15) !important;
+    color: #4096ff !important;
+  }
+
+  .stateInProgress {
+    background: rgba(250, 173, 20, 0.15) !important;
+    color: #ffc53d !important;
+  }
+
+  .stateDone {
+    background: rgba(82, 196, 26, 0.15) !important;
+    color: #73d13d !important;
+  }
+
+  .stateAbandoned {
+    background: rgba(255, 77, 79, 0.15) !important;
+    color: #ff7875 !important;
+  }
 }

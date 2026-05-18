@@ -24,11 +24,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  spam-gate:
+    name: PR Spam Gate
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/pr-spam-gate.yml
+    with:
+      author: ${{ github.event.pull_request.user.login }}
+
   # ===========================================================================
   # Phase 1: Detect Changed Files and Determine Test Scope
   ############################################################################
   detect-changes:
     name: Detect Changes
+    needs: [spam-gate]
+    if: |
+      always() &&
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
     runs-on: ubuntu-latest
     outputs:
       base_changed: ${{ steps.check-base.outputs.changed }}
@@ -207,11 +218,13 @@ jobs:
             # Targeted coverage for affected channels only.
             # pytest-cov requires separate --cov flags per source path;
             # a comma-separated string is treated as one module name.
-            COV_FLAGS="--cov=src/qwenpaw/app/channels/base.py"
+            COV_FLAGS="--cov=qwenpaw.app.channels.base"
 
             for ch in ${{ needs.detect-changes.outputs.affected_channels }}; do
               if [ -d "src/qwenpaw/app/channels/$ch" ]; then
-                COV_FLAGS="$COV_FLAGS --cov=src/qwenpaw/app/channels/$ch"
+                COV_FLAGS="$COV_FLAGS --cov=qwenpaw.app.channels.$ch"
+              elif [ -f "src/qwenpaw/app/channels/${ch}.py" ]; then
+                COV_FLAGS="$COV_FLAGS --cov=qwenpaw.app.channels.${ch%.py}"
               fi
             done
 

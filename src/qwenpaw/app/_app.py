@@ -29,13 +29,14 @@ from ..constant import (
     PROJECT_NAME,
 )
 from ..__version__ import __version__
+from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
 from ..utils.logging import (
     setup_logger,
     add_project_file_handler,
     LOG_FILE_PATH,
 )
 from ..utils.system_info import summarize_python_environment
-from .auth import AuthMiddleware
+from .auth import AuthMiddleware, auto_register_from_env
 from .routers import router as api_router, create_agent_scoped_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
@@ -207,7 +208,7 @@ class DynamicMultiAgentRunner:
 runner = DynamicMultiAgentRunner()
 
 agent_app = AgentApp(
-    app_name="Friday",
+    app_name="QwenPaw",
     app_description="A helpful assistant with background task support",
     runner=runner,
     enable_stream_task=True,
@@ -228,7 +229,17 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     # Everything here must be lightweight so the server starts quickly.
     # ================================================================
 
-    from .auth import auto_register_from_env
+    try:
+        cleanup_startup_restore_artifacts()
+    except Exception as exc:
+        message = (
+            "QwenPaw startup failed because restore artifact cleanup did not "
+            "complete. Another restore or cleanup may still be running, or "
+            "a previous restore may need recovery before startup can safely "
+            "read restored files."
+        )
+        logger.error(message, exc_info=True)
+        raise RuntimeError(f"{message} Original error: {exc}") from exc
 
     auto_register_from_env()
 
@@ -320,6 +331,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             ]
 
             plugin_loader = PluginLoader(plugin_dirs)
+
+            plugin_loader.registry.set_plugin_http_app(app)
 
             config = load_config(get_config_path())
             plugin_configs = (
@@ -520,6 +533,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         except Exception as e:
             logger.error(f"Error stopping TokenUsageManager: {e}")
 
+        # Stop all browser instances
+        from ..agents.tools.browser_control import stop_all_browsers
+
+        try:
+            await stop_all_browsers()
+        except Exception as e:
+            logger.error(f"Error stopping browsers during shutdown: {e}")
+
         logger.info("Application shutdown complete")
 
 
@@ -631,7 +652,6 @@ app.include_router(approval_router, prefix="/api")
 agent_scoped_router = create_agent_scoped_router()
 app.include_router(agent_scoped_router, prefix="/api")
 
-
 app.include_router(
     agent_app.router,
     prefix="/api/agent",
@@ -673,7 +693,10 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
 
     # SPA fallback: catch-all route for frontend routing
     # Must be registered AFTER all API routes to avoid conflicts
-    @app.get("/{full_path:path}")
+    @app.get(
+        "/{full_path:path}",
+        name="qwenpaw_console_spa_catchall",
+    )
     def _console_spa(full_path: str):
         # Prevent catching common system/special paths
         if full_path in ("docs", "redoc", "openapi.json"):
@@ -686,8 +709,10 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         # favicons, images placed in public/).  Only serve regular files whose
         # path does not escape the console directory.
         if full_path and ".." not in full_path:
-            static_file = _console_path / full_path
-            if static_file.is_file():
-                return FileResponse(static_file)
+            # Security: Reject absolute paths to prevent path traversal bypass
+            if not Path(full_path).is_absolute():
+                static_file = _console_path / full_path
+                if static_file.is_file():
+                    return FileResponse(static_file)
 
         return _serve_console_index()

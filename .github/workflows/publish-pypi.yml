@@ -47,6 +47,12 @@ jobs:
           mkdir -p src/qwenpaw/console
           cp -R console/dist/* src/qwenpaw/console/
 
+      - name: Bundle docs into package
+        run: |
+          rm -rf src/qwenpaw/docs
+          mkdir -p src/qwenpaw/docs
+          cp website/public/docs/*.md src/qwenpaw/docs/
+
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip

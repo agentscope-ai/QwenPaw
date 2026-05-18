@@ -8,6 +8,7 @@ import type {
   BackupConflictResponse,
   CreateBackupRequest,
   RestoreBackupRequest,
+  RestoreBackupResponse,
   DeleteBackupsResponse,
 } from "../types/backup";
 
@@ -58,7 +59,7 @@ export const backupApi = {
   },
 
   restoreBackup: (id: string, data: RestoreBackupRequest) =>
-    request<void>(`/backups/${id}/restore`, {
+    request<RestoreBackupResponse>(`/backups/${id}/restore`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
@@ -97,9 +98,15 @@ export const backupApi = {
     URL.revokeObjectURL(a.href);
   },
 
-  importBackup: async (file: File): Promise<BackupMeta> => {
+  importBackup: async (
+    file: File,
+    options: { trustForeign?: boolean } = {},
+  ): Promise<BackupMeta> => {
     const formData = new FormData();
     formData.append("file", file);
+    if (options.trustForeign) {
+      formData.append("trust_foreign", "true");
+    }
     const url = getApiUrl("/backups/import");
     const res = await fetch(url, {
       method: "POST",

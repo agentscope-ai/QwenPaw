@@ -195,7 +195,21 @@ The Feishu channel receives messages via **WebSocket long connection** (no publi
 
 ![Result](https://img.alicdn.com/imgextra/i2/O1CN01fiMjkp24mN51TyWcI_!!6000000007433-2-tps-4082-2126.png)
 
-9. Under **App Versions** → **Version Management & Release**, **Create a version**, fill in basic info, **Save** and **Publish**
+<div id="feishu-callback-config"></div>
+
+9. Under **Events & Callbacks**, click **Callback configuration**, and choose **Receive events through persistent connection** as the subscription mode (no public IP needed)
+
+![WebSocket](https://img.alicdn.com/imgextra/i4/O1CN015r6kS71DLBxFDJQWe_!!6000000000199-2-tps-1671-848.png)
+
+10. Select **Add Callback**, search for **Card callback interaction**, and subscribe to **Card callback interaction** (`card.action.trigger`)
+
+![Receive](https://img.alicdn.com/imgextra/i3/O1CN017s7lz724GJMzKKKnC_!!6000000007363-2-tps-1685-855.png)
+
+![Click](https://img.alicdn.com/imgextra/i4/O1CN01CcGGmW1K0JCp7cQQV_!!6000000001101-2-tps-1679-847.png)
+
+![Result](https://img.alicdn.com/imgextra/i3/O1CN01V9kzMj1CbqkBnSI0x_!!6000000000100-2-tps-1682-847.png)
+
+11. Under **App Versions** → **Version Management & Release**, **Create a version**, fill in basic info, **Save** and **Publish**
 
 ![Create](https://img.alicdn.com/imgextra/i3/O1CN01mzOHs11cdO4MnZMcX_!!6000000003623-2-tps-4082-2126.png)
 
@@ -621,7 +635,7 @@ The WeChat iLink Bot channel lets you run an AI bot via a **personal WeChat acco
 
 ### How it works
 
-- **Authentication**: On first use, scan a QR code to authorize. The token is automatically persisted to a local file (default `~/.qwenpaw/weixin_bot_token`), so you won't need to scan again on subsequent starts.
+- **Authentication**: On first use, scan a QR code to authorize. The token is automatically persisted to a local file (default `~/.qwenpaw/wechat_bot_token`), so you won't need to scan again on subsequent starts.
 - **Receiving messages**: Uses HTTP long-polling (`getupdates`) to continuously fetch new messages. Supports text, images, voice (ASR transcription), files, and videos.
 - **Sending messages**: Replies via `sendmessage`. Currently only text is supported (iLink API limitation).
 
@@ -637,10 +651,10 @@ The WeChat iLink Bot channel lets you run an AI bot via a **personal WeChat acco
 You can also configure directly in the agent workspace `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`):
 
 ```json
-"weixin": {
+"wechat": {
   "enabled": true,
   "bot_token": "your_bot_token",
-  "bot_token_file": "~/.qwenpaw/weixin_bot_token",
+  "bot_token_file": "~/.qwenpaw/wechat_bot_token",
   "base_url": "",
   "media_dir": "~/.qwenpaw/media",
   "dm_policy": "open",
@@ -653,19 +667,19 @@ You can also configure directly in the agent workspace `agent.json` (e.g., `~/.q
 | Field            | Type   | Default                       | Description                                                                           |
 | ---------------- | ------ | ----------------------------- | ------------------------------------------------------------------------------------- |
 | `bot_token`      | string | `""`                          | Bearer token obtained after QR code login; leave empty to trigger QR login on startup |
-| `bot_token_file` | string | `~/.qwenpaw/weixin_bot_token` | Path to persist the token for future runs                                             |
+| `bot_token_file` | string | `~/.qwenpaw/wechat_bot_token` | Path to persist the token for future runs                                             |
 | `base_url`       | string | official default              | iLink API base URL; leave empty to use the official default                           |
 | `media_dir`      | string | `~/.qwenpaw/media`            | Directory to save received images and files                                           |
 
 ### Configure via environment variables
 
 ```bash
-WEIXIN_CHANNEL_ENABLED=1
-WEIXIN_BOT_TOKEN=your_bot_token
-WEIXIN_BOT_TOKEN_FILE=~/.qwenpaw/weixin_bot_token
-WEIXIN_MEDIA_DIR=~/.qwenpaw/media
-WEIXIN_DM_POLICY=open
-WEIXIN_GROUP_POLICY=open
+WECHAT_CHANNEL_ENABLED=1
+WECHAT_BOT_TOKEN=your_bot_token
+WECHAT_BOT_TOKEN_FILE=~/.qwenpaw/wechat_bot_token
+WECHAT_MEDIA_DIR=~/.qwenpaw/media
+WECHAT_DM_POLICY=open
+WECHAT_GROUP_POLICY=open
 ```
 
 ---
@@ -1287,7 +1301,7 @@ After configuration, start a call from your SIP phone or browser:
 | Mattermost | mattermost | url, bot_token; optional show_typing, thread_follow_without_mention                                        |
 | Matrix     | matrix     | homeserver, user_id, access_token                                                                          |
 | WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts                                                 |
-| WeChat     | weixin     | bot_token (or QR login); optional bot_token_file, base_url, media_dir                                      |
+| WeChat     | wechat     | bot_token (or QR login); optional bot_token_file, base_url, media_dir                                      |
 | XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                                                          |
 | Voice      | voice      | twilio_account_sid, twilio_auth_token, phone_number, phone_number_sid; optional tts_provider, stt_provider |
 

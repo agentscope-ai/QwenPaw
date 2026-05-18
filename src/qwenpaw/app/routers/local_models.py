@@ -23,12 +23,12 @@ from ...providers.provider_manager import ProviderManager
 router = APIRouter(prefix="/local-models", tags=["local-models"])
 
 
-def get_local_model_manager(request: Request) -> LocalModelManager:
+async def get_local_model_manager(request: Request) -> LocalModelManager:
     """Helper to get the LocalModelManager instance from app state."""
     return request.app.state.local_model_manager
 
 
-def get_provider_manager(request: Request) -> ProviderManager:
+async def get_provider_manager(request: Request) -> ProviderManager:
     """Helper to get the ProviderManager instance from app state."""
     return request.app.state.provider_manager
 

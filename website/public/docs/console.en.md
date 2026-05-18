@@ -69,6 +69,36 @@ row to delete it.
 
 ---
 
+## Inbox
+
+> Sidebar: **Inbox → Inbox**
+
+Inbox is the centralized place to handle approvals and review execution results
+from cron jobs and heartbeat runs.
+
+**Unread indicator:**
+The Inbox entry shows an unread dot. Open Inbox regularly to avoid missing
+important notifications.
+
+**Approvals:**
+Approval-required actions triggered from any agent chat in the Console channel
+appear in the Inbox approval page.
+
+![todo](https://img.alicdn.com/imgextra/i3/O1CN01sVXgDs1uRd07B7u7a_!!6000000006034-2-tps-2926-1860.png)
+
+You can handle approvals from all agents in one place (approve / reject /
+cancel task). Approval cards include a countdown; if no action is taken before
+timeout, the request is **rejected by default**. Actions taken here stay in sync
+with approval popups in chat.
+
+**Push messages:**
+For cron jobs and heartbeat, users can choose whether execution results should
+be pushed to Inbox. Click a message to view execution details, including traces.
+
+![todo](https://img.alicdn.com/imgextra/i2/O1CN01iC21Ec20wD8uObwi2_!!6000000006913-2-tps-2886-1878.png)
+
+---
+
 ## Channels
 
 > Sidebar: **Control → Channels**

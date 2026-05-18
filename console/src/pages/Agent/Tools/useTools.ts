@@ -44,9 +44,10 @@ export function useTools() {
         message.success(
           tool.enabled ? t("tools.disableSuccess") : t("tools.enableSuccess"),
         );
-        // Update with server response (no full reload)
+        // Merge rather than replace to preserve any local state not returned
+        // by the server (e.g. UI-only fields added in future expansions).
         setTools((prev) =>
-          prev.map((t) => (t.name === result.name ? result : t)),
+          prev.map((t) => (t.name === result.name ? { ...t, ...result } : t)),
         );
       } catch (error) {
         // Revert optimistic update on error
@@ -82,9 +83,9 @@ export function useTools() {
             ? t("tools.asyncExecutionEnabled")
             : t("tools.asyncExecutionDisabled"),
         );
-        // Update with server response
+        // Merge server response to preserve static metadata.
         setTools((prev) =>
-          prev.map((t) => (t.name === result.name ? result : t)),
+          prev.map((t) => (t.name === result.name ? { ...t, ...result } : t)),
         );
       } catch (error) {
         // Revert optimistic update on error
@@ -117,11 +118,11 @@ export function useTools() {
         disabledTools.map((tool) => api.toggleTool(tool.name)),
       );
       message.success(t("tools.enableAllSuccess"));
-      // Update with server responses, but preserve async_execution
+      // Merge server responses, preserving all static metadata.
       setTools((prev) =>
         prev.map((t) => {
           const result = results.find((r) => r.name === t.name);
-          return result ? { ...result, async_execution: t.async_execution } : t;
+          return result ? { ...t, ...result } : t;
         }),
       );
     } catch (error) {
@@ -149,11 +150,11 @@ export function useTools() {
         enabledTools.map((tool) => api.toggleTool(tool.name)),
       );
       message.success(t("tools.disableAllSuccess"));
-      // Update with server responses, but preserve async_execution
+      // Merge server responses, preserving all static metadata.
       setTools((prev) =>
         prev.map((t) => {
           const result = results.find((r) => r.name === t.name);
-          return result ? { ...result, async_execution: t.async_execution } : t;
+          return result ? { ...t, ...result } : t;
         }),
       );
     } catch (error) {
@@ -165,6 +166,20 @@ export function useTools() {
     }
   }, [tools, t, loadTools]);
 
+  const saveToolConfig = useCallback(
+    async (toolName: string, config: Record<string, any>) => {
+      try {
+        await api.updateToolConfig(toolName, config);
+        message.success(t("tools.configSaved"));
+      } catch (error) {
+        console.error("Failed to save tool config:", error);
+        message.error(t("tools.configSaveError"));
+        throw error;
+      }
+    },
+    [t],
+  );
+
   return {
     tools,
     loading,
@@ -173,5 +188,7 @@ export function useTools() {
     toggleAsyncExecution,
     enableAll,
     disableAll,
+    loadTools,
+    saveToolConfig,
   };
 }

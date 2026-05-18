@@ -81,3 +81,27 @@ def set_current_shell_command_timeout(timeout: float | None) -> None:
         timeout: Timeout in seconds.
     """
     current_shell_command_timeout.set(timeout)
+
+
+current_shell_command_executable: ContextVar[str | None] = ContextVar(
+    "current_shell_command_executable",
+    default=None,
+)
+
+
+def get_current_shell_command_executable() -> str | None:
+    """Get the configured shell executable for execute_shell_command.
+
+    Returns:
+        Path to the shell executable, or None if not configured.
+    """
+    return current_shell_command_executable.get()
+
+
+def set_current_shell_command_executable(executable: str | None) -> None:
+    """Set the configured shell executable for execute_shell_command.
+
+    Args:
+        executable: Path to the shell executable (e.g. "/bin/bash").
+    """
+    current_shell_command_executable.set(executable)

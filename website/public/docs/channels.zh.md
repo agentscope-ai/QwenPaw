@@ -190,7 +190,21 @@
 
 ![result](https://img.alicdn.com/imgextra/i2/O1CN015GPfGr1BsxuoOXbYC_!!6000000000002-2-tps-4082-2126.png)
 
-9. 在「应用发布」的「版本管理与发布」中，**创建版本**，填写基础信息，**保存**并**发布**
+<div id="feishu-callback-config"></div>
+
+9. 在「事件与回调」中，点击「回调配置」，选择订阅方式为**长连接（WebSocket）** 模式（无需公网 IP）
+
+![websocket](https://img.alicdn.com/imgextra/i4/O1CN015r6kS71DLBxFDJQWe_!!6000000000199-2-tps-1671-848.png)
+
+10. 选择「添加回调」，搜索**卡片回传交互**，订阅**卡片回传交互**
+
+![reveive](https://img.alicdn.com/imgextra/i3/O1CN017s7lz724GJMzKKKnC_!!6000000007363-2-tps-1685-855.png)
+
+![click](https://img.alicdn.com/imgextra/i4/O1CN01CcGGmW1K0JCp7cQQV_!!6000000001101-2-tps-1679-847.png)
+
+![result](https://img.alicdn.com/imgextra/i3/O1CN01V9kzMj1CbqkBnSI0x_!!6000000000100-2-tps-1682-847.png)
+
+11. 在「应用发布」的「版本管理与发布」中，**创建版本**，填写基础信息，**保存**并**发布**
 
 ![create](https://img.alicdn.com/imgextra/i1/O1CN01zOqMGk1lhoREn9Lip_!!6000000004851-2-tps-4082-2126.png)
 
@@ -618,7 +632,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 
 ### 工作原理
 
-- **登录方式**：首次使用时扫描二维码授权，Token 自动持久化到本地文件（默认 `~/.qwenpaw/weixin_bot_token`），后续启动无需重复扫码。
+- **登录方式**：首次使用时扫描二维码授权，Token 自动持久化到本地文件（默认 `~/.qwenpaw/wechat_bot_token`），后续启动无需重复扫码。
 - **消息接收**：通过 HTTP 长轮询（`getupdates`）持续拉取新消息，支持文本、图片、语音（ASR 转录）和文件。
 - **消息发送**：通过 `sendmessage` 接口回复用户，当前仅支持文本（iLink API 限制）。
 
@@ -634,11 +648,11 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 也可直接在智能体工作区的 `agent.json`（如 `~/.qwenpaw/workspaces/default/agent.json`）中配置：
 
 ```json
-"weixin": {
+"wechat": {
   "enabled": true,
   "bot_prefix": "[BOT]",
   "bot_token": "your_bot_token",
-  "bot_token_file": "~/.qwenpaw/weixin_bot_token",
+  "bot_token_file": "~/.qwenpaw/wechat_bot_token",
   "base_url": "",
   "media_dir": "~/.qwenpaw/media",
   "dm_policy": "open",
@@ -651,7 +665,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 | 字段             | 类型   | 默认值                        | 说明                                                |
 | ---------------- | ------ | ----------------------------- | --------------------------------------------------- |
 | `bot_token`      | string | `""`                          | 扫码登录后获取的 Bearer Token；留空则启动时引导扫码 |
-| `bot_token_file` | string | `~/.qwenpaw/weixin_bot_token` | Token 持久化路径，下次启动自动读取                  |
+| `bot_token_file` | string | `~/.qwenpaw/wechat_bot_token` | Token 持久化路径，下次启动自动读取                  |
 | `base_url`       | string | 官方默认地址                  | iLink API 地址，一般留空使用默认值                  |
 | `media_dir`      | string | `~/.qwenpaw/media`            | 接收到的图片、文件保存目录                          |
 
@@ -660,12 +674,12 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 也可通过环境变量配置：
 
 ```bash
-WEIXIN_CHANNEL_ENABLED=1
-WEIXIN_BOT_TOKEN=your_bot_token
-WEIXIN_BOT_TOKEN_FILE=~/.qwenpaw/weixin_bot_token
-WEIXIN_MEDIA_DIR=~/.qwenpaw/media
-WEIXIN_DM_POLICY=open
-WEIXIN_GROUP_POLICY=open
+WECHAT_CHANNEL_ENABLED=1
+WECHAT_BOT_TOKEN=your_bot_token
+WECHAT_BOT_TOKEN_FILE=~/.qwenpaw/wechat_bot_token
+WECHAT_MEDIA_DIR=~/.qwenpaw/media
+WECHAT_DM_POLICY=open
+WECHAT_GROUP_POLICY=open
 ```
 
 ---
@@ -1312,7 +1326,7 @@ pip install "qwenpaw[sip,sip-livekit]"
 | Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from                                                |
 | Matrix     | matrix     | homeserver, user_id, access_token                                                                      |
 | 企业微信   | wecom      | bot_id, secret；可选 media_dir                                                                         |
-| 微信个人   | weixin     | bot_token（或扫码登录）；可选 bot_token_file, base_url, media_dir                                      |
+| 微信个人   | wechat     | bot_token（或扫码登录）；可选 bot_token_file, base_url, media_dir                                      |
 | 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                                                          |
 | Voice      | voice      | twilio_account_sid, twilio_auth_token, phone_number, phone_number_sid；可选 tts_provider, stt_provider |
 

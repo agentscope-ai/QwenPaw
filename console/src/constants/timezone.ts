@@ -12,6 +12,7 @@ const TIMEZONE_ID_SET = new Set([
   "Europe/Berlin",
   "Europe/Moscow",
   "Asia/Dubai",
+  "Asia/Jakarta",
   "Asia/Shanghai",
   "Asia/Hong_Kong",
   "Asia/Singapore",
@@ -28,7 +29,8 @@ export interface TimezoneOption {
 }
 
 function getLocalizedName(tzName: string, lang: string): string {
-  const locale = { zh: "zh-CN", en: "en", ru: "ru", ja: "ja" }[lang] || "en";
+  const locale =
+    { zh: "zh-CN", en: "en", ru: "ru", ja: "ja", id: "id-ID" }[lang] || "en";
   try {
     const parts = new Intl.DateTimeFormat(locale, {
       timeZone: tzName,

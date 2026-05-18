@@ -51,6 +51,19 @@ def _should_skip_keyring() -> bool:
 
     Covers Docker containers, headless Linux servers, and CI
     environments where attempting keyring access could hang on D-Bus.
+
+    Note:
+        This function cannot catch every edge case.  A common false
+        negative is SSH X11 forwarding (``ssh -X``): the SSH client
+        automatically sets ``DISPLAY=localhost:10.0`` even though no
+        desktop keyring daemon is running on the remote server.  Other
+        similar situations include systemd user services, ``tmux``/
+        ``screen`` sessions inherited from a desktop login, and Docker
+        containers started with ``-e DISPLAY``.  For these cases a
+        daemon-thread timeout in ``_call_with_timeout`` acts as the
+        safety net so the caller is never blocked for more than
+        ``_KEYRING_TIMEOUT`` seconds regardless of what this function
+        returns.
     """
     if EnvVarLoader.get_bool("QWENPAW_RUNNING_IN_CONTAINER"):
         return True
@@ -68,25 +81,76 @@ def _should_skip_keyring() -> bool:
     return False
 
 
+_KEYRING_TIMEOUT = 10
+
+
+def _call_with_timeout(fn, timeout):
+    """Run *fn* in a daemon thread and wait at most *timeout* seconds.
+
+    Returns ``(result, timed_out)``.  When the call times out the
+    daemon thread is abandoned and ``(None, True)`` is returned
+    immediately — the main thread is never blocked beyond *timeout*.
+
+    Using a daemon thread avoids the ``ThreadPoolExecutor`` trap where
+    ``shutdown(wait=True)`` on context-manager exit blocks until the
+    hung thread finishes, negating the intended timeout.
+    """
+    result_holder = [None]
+    exc_holder = [None]
+    done = threading.Event()
+
+    def _worker():
+        try:
+            result_holder[0] = fn()
+        except Exception as _exc:  # pylint: disable=broad-except
+            exc_holder[0] = _exc
+        finally:
+            done.set()
+
+    threading.Thread(target=_worker, daemon=True).start()
+    if not done.wait(timeout=timeout):
+        return None, True
+    exc = exc_holder[0]
+    if exc is not None:
+        raise exc
+    return result_holder[0], False
+
+
 def _try_keyring_get() -> Optional[str]:
     """Read master key from OS keychain. Returns ``None`` on any failure.
 
     Skipped inside containers, headless Linux, and CI environments.
+    Uses a daemon-thread timeout to avoid hanging on systems that have
+    DISPLAY set but no keyring daemon running (e.g. Linux servers with
+    SSH X11 forwarding).
     """
     if _should_skip_keyring():
         return None
     try:
         import keyring
 
-        value = keyring.get_password(_KEYRING_SERVICE, _KEYRING_ACCOUNT)
-        if value:
-            return value
+        def _get():
+            value = keyring.get_password(
+                _KEYRING_SERVICE,
+                _KEYRING_ACCOUNT,
+            )
+            if value:
+                return value
+            # Backward compatibility: read legacy CoPaw keyring entry.
+            return keyring.get_password(
+                _KEYRING_SERVICE_LEGACY,
+                _KEYRING_ACCOUNT,
+            )
 
-        # Backward compatibility: read legacy CoPaw keyring entry.
-        return keyring.get_password(
-            _KEYRING_SERVICE_LEGACY,
-            _KEYRING_ACCOUNT,
-        )
+        result, timed_out = _call_with_timeout(_get, _KEYRING_TIMEOUT)
+        if timed_out:
+            logger.debug(
+                "keyring get timed out after %ds, "
+                "falling back to file storage",
+                _KEYRING_TIMEOUT,
+            )
+            return None
+        return result
     except Exception:
         return None
 
@@ -95,13 +159,29 @@ def _try_keyring_set(key_hex: str) -> bool:
     """Store master key in OS keychain. Returns success flag.
 
     Skipped inside containers where no desktop keyring service exists.
+    Uses a daemon-thread timeout to avoid hanging when the keyring
+    daemon is unavailable.
     """
     if _should_skip_keyring():
         return False
     try:
         import keyring
 
-        keyring.set_password(_KEYRING_SERVICE, _KEYRING_ACCOUNT, key_hex)
+        def _set():
+            keyring.set_password(
+                _KEYRING_SERVICE,
+                _KEYRING_ACCOUNT,
+                key_hex,
+            )
+
+        _, timed_out = _call_with_timeout(_set, _KEYRING_TIMEOUT)
+        if timed_out:
+            logger.debug(
+                "keyring set timed out after %ds, "
+                "falling back to file storage",
+                _KEYRING_TIMEOUT,
+            )
+            return False
         return True
     except Exception:
         logger.debug("keyring unavailable, falling back to file storage")

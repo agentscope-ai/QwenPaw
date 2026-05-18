@@ -55,7 +55,7 @@ async def test_get_language_persisted(api_client, _use_tmp_settings):
 # ── PUT /settings/language ───────────────────────────────────────────
 
 
-@pytest.mark.parametrize("lang", ["en", "zh", "ja", "ru"])
+@pytest.mark.parametrize("lang", ["en", "zh", "ja", "ru", "pt-BR", "id"])
 async def test_put_language_valid(
     api_client,
     lang,

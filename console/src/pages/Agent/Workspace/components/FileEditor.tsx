@@ -6,6 +6,7 @@ import { XMarkdown } from "@ant-design/x-markdown";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { stripFrontmatter } from "../../../../utils/markdown";
+import { mermaidComponents } from "../../../../components/MermaidCodeBlock";
 import styles from "../index.module.less";
 
 interface FileEditorProps {
@@ -121,6 +122,7 @@ export const FileEditor: React.FC<FileEditorProps> = ({
                 <XMarkdown
                   content={markdownContent}
                   className={styles.markdownViewer}
+                  components={mermaidComponents}
                   dompurifyConfig={{
                     ADD_TAGS: ["pre", "code"],
                     ADD_ATTR: [

@@ -24,8 +24,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  spam-gate:
+    name: PR Spam Gate
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/pr-spam-gate.yml
+    with:
+      author: ${{ github.event.pull_request.user.login }}
+
   unit-tests:
     name: Unit Tests - py${{ matrix.python-version }}
+    needs: [spam-gate]
+    if: |
+      always() &&
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -68,6 +79,10 @@ jobs:
 
   coverage:
     name: Coverage Report
+    needs: [spam-gate]
+    if: |
+      always() &&
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:

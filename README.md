@@ -60,19 +60,19 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-- [2026-04-24] We've released **v1.1.4**! See the full [v1.1.4 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+- [2026-05-14] We've released **v1.1.7**! See the full [v1.1.7 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
-  - **[v1.1.4] Added**: Memory & context architecture refactor; plan mode; configurable shell evasion checks; auth-bypass host whitelist; SIP voice channel; session right-click menu; browser launch parameters and shell command timeout; Built-in DeepSeek V4 models.
-  - **[v1.1.4] Changed**: Tool Guard approval system; Docker build improvements; dynamic plugin registration.
-  - **[v1.1.4] New Contributors**: @shadowabi, @shaohuaxi, @vincentyzhj, @hlgone, @twz915, @Nioolek.
+  - **[v1.1.7] Added**: Inbox (approvals & push messages); cron job enhancements (one-time execution, calendar view, built-in templates, execution history & traces); Browser Use batch actions & file download; remote MCP OAuth 2.1 auth; console plugin management; Qwen-Image & Wan 2.7 plugins; external agent async execution.
+  - **[v1.1.7] Changed**: Model selector redesigned as a searchable flat list; floating chat button.
+  - **[v1.1.7] Performance**: Optimized memory usage for file reads; keyring timeout protection.
+  - **[v1.1.7] Fixed**: Session history routing; Volcengine model IDs; Feishu WebSocket keepalive.
+  - **[v1.1.7] New Contributors**: @weixizi, @StarTrekking, @aqilaziz, @suntp.
 
-- [2026-04-22] We've released **v1.1.3**! See the full [v1.1.3 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+- [2026-05-09] We've released **v1.1.6**! See the full [v1.1.6 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
-- [2026-04-17] We've released **v1.1.2**! See the full [v1.1.2 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+- [2026-04-29] We've released **v1.1.5**! See the full [v1.1.5 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
-- [2026-04-14] We've released **v1.1.1**! See the full [v1.1.1 Release Notes](https://qwenpaw.agentscope.io/release-notes).
-
-[2026-04-12] **CoPaw is Officially Rebranding to QwenPaw**: This rebranding marks an important step forward into our next phase of open-source development.
+- [2026-04-12] **CoPaw is Officially Rebranding to QwenPaw**: This rebranding marks an important step forward into our next phase of open-source development.
 
 The new name better reflects the open ecosystem we are building and the broader direction we are continuing to pursue:
 
@@ -271,7 +271,6 @@ Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills
 > ```
 > No port mapping (`-p`) is needed; the container shares the host network directly. Note that all container ports are exposed on the host, which may cause conflicts if the port is already in use.
 >
-> **Note:** If you only mount `/app/working` without a separate volume for `/app/working.secret`, the entrypoint will automatically redirect secrets into `/app/working/.secret` so they persist on the same volume.
 
 The image is built from scratch. To build the image yourself, please refer to the [Build Docker image](scripts/README.md#build-docker-image) section in `scripts/README.md`, and then push to your registry.
 
@@ -418,26 +417,28 @@ Star QwenPaw on GitHub and be instantly notified of new releases.
 
 ## Roadmap
 
-| Area                                  | Item                                                                                                                                             | Status               |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- |
-| **Horizontal Expansion**              | More channels, models, skills, MCPs — **community contributions welcome**                                                                        | Seeking Contributors |
-| **Existing Feature Extension**        | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome**                                     | Seeking Contributors |
-| **Multi-agent**                       | HiClaw integration: multi-tenant, cross-domain collaboration                                                                                     | In Progress          |
-|                                       | Agent Swarm / Team                                                                                                                               | Planned              |
-| **Small + Large Model Collaboration** | Intelligent switching between on-device and cloud models                                                                                         | In Progress          |
-| **QwenPaw Custom Models**             | Multimodal model support                                                                                                                           | Planned              |
-| **Memory System**                     | Context-aware proactive delivery                                                                                                                   | In Progress          |
-| **Context Management**                | Abstract design                                                                                                                                  | In Progress          |
-|                                       | Intelligent context compression                                                                                                                  | Planned              |
-|                                       | User-selectable compression (fine-grained control)                                                                                                 | Planned              |
-| **Versioning & Migration**            | One-click packaging; multi-version / multi-device migration                                                                                        | In Progress          |
-|                                       | Agent protocol: QwenPaw → QwenPaw                                                                                                                | In Progress          |
-|                                       | Agent protocol: OpenClaw → QwenPaw                                                                                                               | Planned              |
-|                                       | File area / chat rollback                                                                                                                        | In Progress          |
-| **Reliability & Self-operations**     | Self-update                                                                                                                                      | Planned              |
-|                                       | Failure rollback                                                                                                                                 | Planned              |
-| **Security**                          | Fine-grained security controls (rule-based)                                                                                                      | In Progress          |
-|                                       | LLM-based security controls                                                                                                                        | In Progress          |
+| Area                     | Item                                                                                         | Status               |
+| ------------------------ | -------------------------------------------------------------------------------------------- | -------------------- |
+| **Horizontal Expansion** | More channels, models, skills, MCPs — **community contributions welcome**                  | Seeking Contributors |
+| **Existing Feature Extension** | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome** | Seeking Contributors |
+| **Client Experience**    | Install, update, and packaging improvements                                                  | In Progress          |
+| **Models**               | Intelligent on-device / cloud model switching                                                | In Progress          |
+|                          | OAuth                                                                                        | Planned              |
+|                          | Response API                                                                                 | Planned              |
+| **Proactivity**          | Cron jobs and heartbeat upgrades                                                             | In Progress          |
+|                          | Proactive briefings and custom push                                                          | In Progress          |
+|                          | Insight system: discover needs via conversation and interaction                            | Planned              |
+| **Workspace**            | File access control with Sandbox integration                                                 | In Progress          |
+|                          | Subfolder layout (config, production files, etc.)                                            | Planned              |
+| **Coding**               | LSP, dedicated prompts, workspace versioning, runtime, and supporting infra                  | Planned              |
+|                          | Lightweight native APIs                                                                      | Planned              |
+|                          | Tool self-evolution                                                                          | Planned              |
+|                          | Compatibility with existing agents (e.g. Claude Code)                                        | Planned              |
+| **Multi-agent**          | Group chat                                                                                   | Planned              |
+|                          | Subagent                                                                                     | Planned              |
+|                          | HiClaw enterprise capabilities                                                               | Planned              |
+| **Context Management**   | Intelligent context compression                                                              | In Progress          |
+|                          | User-selectable compression (fine-grained control)                                           | Planned              |
 
 
 _Status:_ **In Progress** — actively being worked on; **Planned** — queued or under design, also welcome contributions; **Seeking Contributors** — we strongly encourage community contributions.

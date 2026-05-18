@@ -20,7 +20,7 @@ read_when:
 ### Ключевые пути (после обнаружения занесите в MEMORY.md)
 
 - **Корень исходников:** выведите через `which qwenpaw`
-- **Официальная документация:** `<корень-исходников>/website/public/docs/`
+- **Официальная документация:** предпочтительно через `python3 -c "from qwenpaw.constant import DOCS_DIR; print(DOCS_DIR or '')"` ; fallback: `<корень-исходников>/website/public/docs/`
 - **Корень данных пользователя:** **`WORKING_DIR`** (не зашивайте `~/.qwenpaw`; старые установки могут использовать **`~/.copaw`**)
 - **Рабочие области агентов:** `<WORKING_DIR>/workspaces/<agent_id>/`
 - **Конфигурация:** `<WORKING_DIR>/config.json`; на агента: `<WORKING_DIR>/workspaces/<agent_id>/agent.json`

@@ -21,6 +21,7 @@ export const KEY_TO_PATH: Record<string, string> = {
   chat: "/chat",
   channels: "/channels",
   sessions: "/sessions",
+  inbox: "/inbox",
   "cron-jobs": "/cron-jobs",
   heartbeat: "/heartbeat",
   skills: "/skills",
@@ -39,12 +40,14 @@ export const KEY_TO_PATH: Record<string, string> = {
   "voice-transcription": "/voice-transcription",
   debug: "/debug",
   backups: "/backups",
+  "plugin-manager": "/plugin-manager",
 };
 
 export const KEY_TO_LABEL: Record<string, string> = {
   chat: "nav.chat",
   channels: "nav.channels",
   sessions: "nav.sessions",
+  inbox: "nav.inbox",
   "cron-jobs": "nav.cronJobs",
   heartbeat: "nav.heartbeat",
   skills: "nav.skills",

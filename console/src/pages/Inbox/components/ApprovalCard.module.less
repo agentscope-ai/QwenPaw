@@ -1,0 +1,97 @@
+.approvalCard {
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+.priority-urgent {
+  border-color: rgba(255, 77, 79, 0.55);
+}
+
+.priority-high {
+  border-color: rgba(250, 140, 22, 0.55);
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.typeInfo {
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+}
+
+.iconWrapper {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f5f5;
+}
+
+.typeLabel {
+  font-weight: 600;
+}
+
+.requestedBy {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.cardBody {
+  margin-top: 14px;
+}
+
+.title {
+  margin-bottom: 8px;
+  line-height: 1.35;
+}
+
+.description {
+  color: rgba(0, 0, 0, 0.75);
+  margin-bottom: 0;
+  line-height: 1.7;
+}
+
+.cardFooter {
+  margin-top: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.timestamp {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .approvalCard {
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  }
+
+  .iconWrapper {
+    background: #2b2b2b;
+  }
+
+  .requestedBy,
+  .timestamp {
+    color: rgba(255, 255, 255, 0.52);
+  }
+
+  .description {
+    color: rgba(255, 255, 255, 0.76);
+  }
+}

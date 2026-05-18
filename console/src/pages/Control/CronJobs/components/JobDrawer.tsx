@@ -8,21 +8,30 @@ import {
   Button,
   Checkbox,
 } from "@agentscope-ai/design";
-import { TimePicker } from "antd";
+import { DatePicker, TimePicker } from "antd";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
-import type { CronJobSpecOutput } from "../../../../api/types";
+import type {
+  CronDispatchTargetItem,
+  CronJobSpecOutput,
+} from "../../../../api/types";
 import { DEFAULT_FORM_VALUES } from "./constants";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
 import styles from "../index.module.less";
 
 type CronJob = CronJobSpecOutput;
+type SelectOption = { value: string; label: string };
 
 interface JobDrawerProps {
   open: boolean;
   editingJob: CronJob | null;
   form: FormInstance<CronJob>;
   saving: boolean;
+  targetItems: CronDispatchTargetItem[];
+  targetChannels: string[];
+  targetsLoading: boolean;
+  onReloadTargets: () => Promise<void>;
   onClose: () => void;
   onSubmit: (values: CronJob) => void;
 }
@@ -32,13 +41,90 @@ export function JobDrawer({
   editingJob,
   form,
   saving,
+  targetItems,
+  targetChannels,
+  targetsLoading,
+  onReloadTargets,
   onClose,
   onSubmit,
 }: JobDrawerProps) {
   const { t } = useTranslation();
   const timezoneOptions = useTimezoneOptions();
+  const [saveInboxTouched, setSaveInboxTouched] = useState(false);
+  const [channelSearch, setChannelSearch] = useState("");
+  const [userSearch, setUserSearch] = useState("");
+  const [sessionSearch, setSessionSearch] = useState("");
+  const selectedChannel = Form.useWatch(["dispatch", "channel"], form);
+  const selectedTargetUserId = Form.useWatch(
+    ["dispatch", "target", "user_id"],
+    form,
+  );
 
   const isEdit = !!editingJob;
+
+  useEffect(() => {
+    if (open) {
+      setSaveInboxTouched(false);
+      setChannelSearch("");
+      setUserSearch("");
+      setSessionSearch("");
+      onReloadTargets().catch((error) =>
+        console.error("Failed to reload cron dispatch targets", error),
+      );
+    }
+  }, [open, editingJob?.id, onReloadTargets]);
+
+  const mergeOptions = (
+    values: Iterable<string>,
+    selectedValue?: string,
+    searchValue?: string,
+  ): SelectOption[] => {
+    const merged = new Set<string>();
+    Array.from(values).forEach((value) => {
+      if (value?.trim()) {
+        merged.add(value.trim());
+      }
+    });
+    if (selectedValue?.trim()) {
+      merged.add(selectedValue.trim());
+    }
+    if (searchValue?.trim()) {
+      merged.add(searchValue.trim());
+    }
+    return [...merged].sort().map((value) => ({ value, label: value }));
+  };
+
+  const channelOptions = useMemo(() => {
+    return mergeOptions(targetChannels, selectedChannel, channelSearch);
+  }, [channelSearch, selectedChannel, targetChannels]);
+
+  const userOptions = useMemo(() => {
+    const options = new Set<string>();
+    targetItems.forEach((item) => {
+      if (!selectedChannel || item.channel === selectedChannel) {
+        options.add(item.user_id);
+      }
+    });
+    return mergeOptions(options, selectedTargetUserId, userSearch);
+  }, [targetItems, selectedChannel, selectedTargetUserId, userSearch]);
+
+  const sessionOptions = useMemo(() => {
+    const options = new Set<string>();
+    targetItems.forEach((item) => {
+      if (
+        (!selectedChannel || item.channel === selectedChannel) &&
+        (!selectedTargetUserId || item.user_id === selectedTargetUserId)
+      ) {
+        options.add(item.session_id);
+      }
+    });
+    const selectedSessionId: string | undefined = form.getFieldValue([
+      "dispatch",
+      "target",
+      "session_id",
+    ]);
+    return mergeOptions(options, selectedSessionId, sessionSearch);
+  }, [form, selectedChannel, selectedTargetUserId, sessionSearch, targetItems]);
 
   return (
     <Drawer
@@ -90,67 +176,252 @@ export function JobDrawer({
           <Switch />
         </Form.Item>
 
-        <Form.Item name={["schedule", "type"]} label="ScheduleType" hidden>
-          <Input disabled value="cron" />
-        </Form.Item>
-
-        <Form.Item
-          label={t("cronJobs.scheduleCronLabel")}
-          required
-          tooltip={t("cronJobs.cronTooltip")}
-        >
-          <Form.Item name="cronType" noStyle>
-            <Select>
-              <Select.Option value="hourly">
-                {t("cronJobs.cronTypeHourly")}
-              </Select.Option>
-              <Select.Option value="daily">
-                {t("cronJobs.cronTypeDaily")}
-              </Select.Option>
-              <Select.Option value="weekly">
-                {t("cronJobs.cronTypeWeekly")}
-              </Select.Option>
-              <Select.Option value="custom">
-                {t("cronJobs.cronTypeCustom")}
-              </Select.Option>
-            </Select>
-          </Form.Item>
-        </Form.Item>
-
         <Form.Item
           noStyle
-          shouldUpdate={(prev, cur) => prev.cronType !== cur.cronType}
+          shouldUpdate={(prev, cur) =>
+            prev.task_type !== cur.task_type ||
+            prev.scheduleType !== cur.scheduleType ||
+            prev.save_result_to_inbox !== cur.save_result_to_inbox
+          }
         >
-          {({ getFieldValue }) => {
-            const cronType = getFieldValue("cronType");
-
-            if (cronType === "daily" || cronType === "weekly") {
-              return (
-                <Form.Item
-                  name="cronTime"
-                  label={t("cronJobs.cronTime")}
-                  rules={[{ required: true }]}
-                >
-                  <TimePicker
-                    format="HH:mm"
-                    minuteStep={15}
-                    needConfirm={false}
-                    style={{ width: "100%" }}
-                  />
-                </Form.Item>
+          {({ getFieldValue, setFieldValue }) => {
+            if (!isEdit && !saveInboxTouched) {
+              const taskType = getFieldValue("task_type");
+              const scheduleType = getFieldValue("scheduleType");
+              const expectedDefault = !(
+                taskType === "text" && scheduleType === "cron"
               );
+              if (getFieldValue("save_result_to_inbox") !== expectedDefault) {
+                setFieldValue("save_result_to_inbox", expectedDefault);
+              }
             }
             return null;
           }}
         </Form.Item>
 
         <Form.Item
+          name="save_result_to_inbox"
+          label={t("cronJobs.saveResultToInbox")}
+          valuePropName="checked"
+          tooltip={t("cronJobs.saveResultToInboxTooltip")}
+        >
+          <Switch onChange={() => setSaveInboxTouched(true)} />
+        </Form.Item>
+
+        <Form.Item
+          name="scheduleType"
+          label={t("cronJobs.scheduleType")}
+          rules={[
+            { required: true, message: t("cronJobs.pleaseSelectScheduleType") },
+          ]}
+        >
+          <Select>
+            <Select.Option value="cron">
+              {t("cronJobs.scheduleTypeRecurring")}
+            </Select.Option>
+            <Select.Option value="once">
+              {t("cronJobs.scheduleTypeOnce")}
+            </Select.Option>
+          </Select>
+        </Form.Item>
+
+        <Form.Item
           noStyle
-          shouldUpdate={(prev, cur) => prev.cronType !== cur.cronType}
+          shouldUpdate={(prev, cur) => prev.scheduleType !== cur.scheduleType}
+        >
+          {({ getFieldValue }) =>
+            getFieldValue("scheduleType") === "once" ? (
+              <>
+                <Form.Item
+                  name="onceRunAt"
+                  label={t("cronJobs.onceRunAt")}
+                  rules={[
+                    { required: true, message: t("cronJobs.pleaseInputRunAt") },
+                  ]}
+                >
+                  <DatePicker
+                    showTime={{ format: "HH:mm" }}
+                    format="YYYY-MM-DD HH:mm"
+                    style={{ width: "100%" }}
+                  />
+                </Form.Item>
+                <Form.Item
+                  name="onceRepeatEnabled"
+                  label={t("cronJobs.repeatEnabled")}
+                  valuePropName="checked"
+                  tooltip={t("cronJobs.repeatEnabledTooltip")}
+                >
+                  <Switch />
+                </Form.Item>
+              </>
+            ) : null
+          }
+        </Form.Item>
+
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, cur) =>
+            prev.scheduleType !== cur.scheduleType ||
+            prev.onceRepeatEnabled !== cur.onceRepeatEnabled ||
+            prev.onceRepeatEndType !== cur.onceRepeatEndType
+          }
         >
           {({ getFieldValue }) => {
-            const cronType = getFieldValue("cronType");
+            if (
+              getFieldValue("scheduleType") !== "once" ||
+              !getFieldValue("onceRepeatEnabled")
+            ) {
+              return null;
+            }
+            const endType = getFieldValue("onceRepeatEndType") || "never";
+            return (
+              <>
+                <Form.Item label={t("cronJobs.repeatFrequency")}>
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 8 }}
+                  >
+                    <span>{t("cronJobs.repeatEveryPrefix")}</span>
+                    <Form.Item
+                      name="onceRepeatEveryDays"
+                      noStyle
+                      rules={[
+                        {
+                          required: true,
+                          message: t("cronJobs.pleaseInputRepeatEveryDays"),
+                        },
+                      ]}
+                    >
+                      <InputNumber min={1} style={{ width: 120 }} />
+                    </Form.Item>
+                    <span>{t("cronJobs.repeatEverySuffix")}</span>
+                  </div>
+                </Form.Item>
+                <Form.Item
+                  name="onceRepeatEndType"
+                  label={t("cronJobs.repeatEndType")}
+                  rules={[
+                    {
+                      required: true,
+                      message: t("cronJobs.pleaseSelectRepeatEndType"),
+                    },
+                  ]}
+                >
+                  <Select>
+                    <Select.Option value="never">
+                      {t("cronJobs.repeatEndNever")}
+                    </Select.Option>
+                    <Select.Option value="until">
+                      {t("cronJobs.repeatEndUntil")}
+                    </Select.Option>
+                    <Select.Option value="count">
+                      {t("cronJobs.repeatEndCount")}
+                    </Select.Option>
+                  </Select>
+                </Form.Item>
+                {endType === "until" && (
+                  <Form.Item
+                    name="onceRepeatUntil"
+                    label={t("cronJobs.repeatUntil")}
+                    rules={[
+                      {
+                        required: true,
+                        message: t("cronJobs.pleaseInputRepeatUntil"),
+                      },
+                    ]}
+                  >
+                    <DatePicker
+                      showTime={{ format: "HH:mm" }}
+                      format="YYYY-MM-DD HH:mm"
+                      style={{ width: "100%" }}
+                    />
+                  </Form.Item>
+                )}
+                {endType === "count" && (
+                  <Form.Item
+                    name="onceRepeatCount"
+                    label={t("cronJobs.repeatCount")}
+                    rules={[
+                      {
+                        required: true,
+                        message: t("cronJobs.pleaseInputRepeatCount"),
+                      },
+                    ]}
+                  >
+                    <InputNumber min={1} style={{ width: "100%" }} />
+                  </Form.Item>
+                )}
+              </>
+            );
+          }}
+        </Form.Item>
 
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, cur) =>
+            prev.scheduleType !== cur.scheduleType ||
+            prev.cronType !== cur.cronType
+          }
+        >
+          {({ getFieldValue }) => {
+            if (getFieldValue("scheduleType") !== "cron") {
+              return null;
+            }
+            const cronType = getFieldValue("cronType");
+            return (
+              <>
+                <Form.Item
+                  label={t("cronJobs.scheduleCronLabel")}
+                  required
+                  tooltip={t("cronJobs.cronTooltip")}
+                >
+                  <Form.Item name="cronType" noStyle>
+                    <Select>
+                      <Select.Option value="hourly">
+                        {t("cronJobs.cronTypeHourly")}
+                      </Select.Option>
+                      <Select.Option value="daily">
+                        {t("cronJobs.cronTypeDaily")}
+                      </Select.Option>
+                      <Select.Option value="weekly">
+                        {t("cronJobs.cronTypeWeekly")}
+                      </Select.Option>
+                      <Select.Option value="custom">
+                        {t("cronJobs.cronTypeCustom")}
+                      </Select.Option>
+                    </Select>
+                  </Form.Item>
+                </Form.Item>
+                {(cronType === "daily" || cronType === "weekly") && (
+                  <Form.Item
+                    name="cronTime"
+                    label={t("cronJobs.cronTime")}
+                    rules={[{ required: true }]}
+                  >
+                    <TimePicker
+                      format="HH:mm"
+                      minuteStep={15}
+                      needConfirm={false}
+                      style={{ width: "100%" }}
+                    />
+                  </Form.Item>
+                )}
+              </>
+            );
+          }}
+        </Form.Item>
+
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, cur) =>
+            prev.scheduleType !== cur.scheduleType ||
+            prev.cronType !== cur.cronType
+          }
+        >
+          {({ getFieldValue }) => {
+            if (getFieldValue("scheduleType") !== "cron") {
+              return null;
+            }
+            const cronType = getFieldValue("cronType");
             if (cronType === "weekly") {
               return (
                 <Form.Item
@@ -178,9 +449,15 @@ export function JobDrawer({
 
         <Form.Item
           noStyle
-          shouldUpdate={(prev, cur) => prev.cronType !== cur.cronType}
+          shouldUpdate={(prev, cur) =>
+            prev.scheduleType !== cur.scheduleType ||
+            prev.cronType !== cur.cronType
+          }
         >
           {({ getFieldValue }) => {
+            if (getFieldValue("scheduleType") !== "cron") {
+              return null;
+            }
             const cronType = getFieldValue("cronType");
 
             if (cronType === "custom") {
@@ -331,22 +608,6 @@ export function JobDrawer({
           }}
         </Form.Item>
 
-        <Form.Item
-          name={["request", "session_id"]}
-          label={t("cronJobs.requestSessionId")}
-          tooltip={t("cronJobs.requestSessionIdTooltip")}
-        >
-          <Input placeholder="default" />
-        </Form.Item>
-
-        <Form.Item
-          name={["request", "user_id"]}
-          label={t("cronJobs.requestUserId")}
-          tooltip={t("cronJobs.requestUserIdTooltip")}
-        >
-          <Input placeholder="system" />
-        </Form.Item>
-
         <Form.Item name={["dispatch", "type"]} label="DispatchType" hidden>
           <Input disabled value="channel" />
         </Form.Item>
@@ -359,7 +620,20 @@ export function JobDrawer({
           ]}
           tooltip={t("cronJobs.dispatchChannelTooltip")}
         >
-          <Input placeholder="console" />
+          <Select
+            showSearch
+            loading={targetsLoading}
+            placeholder="console"
+            options={channelOptions}
+            onSearch={setChannelSearch}
+            onBlur={() => setChannelSearch("")}
+            notFoundContent="输入自定义值后按 Enter"
+            filterOption={(input, option) =>
+              (option?.label?.toString() || "")
+                .toLowerCase()
+                .includes(input.toLowerCase())
+            }
+          />
         </Form.Item>
 
         <Form.Item
@@ -368,7 +642,20 @@ export function JobDrawer({
           rules={[{ required: true, message: t("cronJobs.pleaseInputUserId") }]}
           tooltip={t("cronJobs.dispatchTargetUserIdTooltip")}
         >
-          <Input placeholder="admin" />
+          <Select
+            showSearch
+            loading={targetsLoading}
+            placeholder="admin"
+            options={userOptions}
+            onSearch={setUserSearch}
+            onBlur={() => setUserSearch("")}
+            notFoundContent="输入自定义值后按 Enter"
+            filterOption={(input, option) =>
+              (option?.label?.toString() || "")
+                .toLowerCase()
+                .includes(input.toLowerCase())
+            }
+          />
         </Form.Item>
 
         <Form.Item
@@ -379,7 +666,20 @@ export function JobDrawer({
           ]}
           tooltip={t("cronJobs.dispatchTargetSessionIdTooltip")}
         >
-          <Input placeholder="default" />
+          <Select
+            showSearch
+            loading={targetsLoading}
+            placeholder="default"
+            options={sessionOptions}
+            onSearch={setSessionSearch}
+            onBlur={() => setSessionSearch("")}
+            notFoundContent="输入自定义值后按 Enter"
+            filterOption={(input, option) =>
+              (option?.label?.toString() || "")
+                .toLowerCase()
+                .includes(input.toLowerCase())
+            }
+          />
         </Form.Item>
 
         <Form.Item
@@ -391,6 +691,15 @@ export function JobDrawer({
             <Select.Option value="stream">stream</Select.Option>
             <Select.Option value="final">final</Select.Option>
           </Select>
+        </Form.Item>
+
+        <Form.Item
+          name={["runtime", "share_session"]}
+          label={t("cronJobs.runtimeShareSession")}
+          valuePropName="checked"
+          tooltip={t("cronJobs.shareSessionTooltip")}
+        >
+          <Switch defaultChecked />
         </Form.Item>
 
         <Form.Item

@@ -374,15 +374,27 @@ qwenpaw channels send \
 
 **别名：** 可以用 `qwenpaw agent`（单数）作为 `qwenpaw agents` 的简写。
 
-| 命令                  | 说明                                             |
-| --------------------- | ------------------------------------------------ |
-| `qwenpaw agents list` | 列出所有已配置的智能体（ID、名称、描述、工作区） |
-| `qwenpaw agents chat` | 与另一个智能体通信（双向，支持多轮对话）         |
+| 命令                    | 说明                                                       |
+| ----------------------- | ---------------------------------------------------------- |
+| `qwenpaw agents list`   | 列出所有已配置的智能体（ID、名称、描述、工作区）           |
+| `qwenpaw agents create` | 创建新的智能体配置和工作区（本地操作，无需服务运行）       |
+| `qwenpaw agents delete` | 删除已配置的智能体（若正在运行则先停止，从智能体列表移除） |
+| `qwenpaw agents chat`   | 与另一个智能体通信（双向，支持多轮对话）                   |
 
 ```bash
 # 列出所有智能体
 qwenpaw agents list
 qwenpaw agent list  # 单数别名效果相同
+
+# 创建新的智能体
+qwenpaw agents create --name "数据分析师"
+qwenpaw agents create --name "助手" --template coder --skill web_search --skill pdf_reader
+qwenpaw agents create --name "GPT Bot" --provider-id openai --model-id gpt-4
+
+# 删除智能体（默认智能体不可删除）
+qwenpaw agents delete my_agent
+qwenpaw agents delete my_agent --remove-workspace  # 同时删除工作区目录
+qwenpaw agents delete my_agent --yes                # 跳过确认
 
 # 与另一个智能体对话（实时模式，单次）
 qwenpaw agents chat \
@@ -499,6 +511,7 @@ qwenpaw agents chat \
 # text：每天 9 点发「早上好！」到钉钉（默认智能体）
 qwenpaw cron create \
   --type text \
+  --schedule-type cron \
   --name "每日早安" \
   --cron "0 9 * * *" \
   --channel dingtalk \
@@ -510,16 +523,52 @@ qwenpaw cron create \
 qwenpaw cron create \
   --agent-id abc123 \
   --type agent \
+  --schedule-type cron \
   --name "检查待办" \
   --cron "0 */2 * * *" \
   --channel dingtalk \
   --target-user "你的用户ID" \
   --target-session "会话ID" \
   --text "我有什么待办事项？"
+
+# 日程任务：一次性执行（不重复）
+qwenpaw cron create \
+  --type text \
+  --schedule-type scheduled \
+  --name "明早一次性提醒" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --channel dingtalk \
+  --target-user "你的用户ID" \
+  --target-session "会话ID" \
+  --text "9 点组会提醒" \
+  --save-result-to-inbox
+
+# 日程任务：从指定时间开始，每天执行，累计执行 14 次
+qwenpaw cron create \
+  --type text \
+  --schedule-type scheduled \
+  --name "未来两周组会提醒" \
+  --run-at "2026-05-13T09:00:00+08:00" \
+  --repeat-every-days 1 \
+  --repeat-end-type count \
+  --repeat-count 14 \
+  --channel dingtalk \
+  --target-user "你的用户ID" \
+  --target-session "会话ID" \
+  --text "9 点组会提醒" \
+  --save-result-to-inbox
 ```
 
-必填：`--type`、`--name`、`--cron`、`--channel`、`--target-user`、
-`--target-session`、`--text`。
+必填分两类：
+
+- `--schedule-type cron`：`--type`、`--name`、`--cron`、`--channel`、`--target-user`、`--target-session`、`--text`
+- `--schedule-type scheduled`：`--type`、`--name`、`--run-at`、`--channel`、`--target-user`、`--target-session`、`--text`
+
+重复日程（`scheduled`）时再补：
+
+- `--repeat-every-days`
+- 结束条件二选一：`--repeat-end-type count --repeat-count N` 或 `--repeat-end-type until --repeat-until <ISO8601>`
+- 或使用 `--repeat-end-type never`（不设结束）
 
 **方式二——JSON 文件（适合复杂或批量）**
 
@@ -531,12 +580,17 @@ JSON 结构见 `qwenpaw cron get <job_id>` 的返回。
 
 ### 额外选项
 
-| 选项                         | 默认值   | 说明                                                  |
-| ---------------------------- | -------- | ----------------------------------------------------- |
-| `--timezone`                 | 用户时区 | Cron 调度时区（默认使用 config 中的 `user_timezone`） |
-| `--enabled` / `--no-enabled` | 启用     | 创建时启用或禁用                                      |
-| `--mode`                     | `final`  | `stream`（逐步发送）或 `final`（完成后一次性发送）    |
-| `--base-url`                 | 自动     | 覆盖 API 地址                                         |
+| 选项                                                   | 默认值   | 说明                                                              |
+| ------------------------------------------------------ | -------- | ----------------------------------------------------------------- |
+| `--timezone`                                           | 用户时区 | 调度时区（默认使用 config 中的 `user_timezone`）                  |
+| `--enabled` / `--no-enabled`                           | 启用     | 创建时启用或禁用                                                  |
+| `--mode`                                               | `final`  | `stream`（逐步发送）或 `final`（完成后一次性发送）                |
+| `--save-result-to-inbox` / `--no-save-result-to-inbox` | 自动规则 | 是否将执行结果写入收件箱（省略时由服务端默认策略决定）            |
+| `--repeat-every-days`                                  | 不重复   | 仅 `--schedule-type scheduled` 可用；每 N 天重复                  |
+| `--repeat-end-type`                                    | `never`  | 仅重复日程可用；`never` / `until` / `count`                       |
+| `--repeat-until`                                       | —        | 当 `--repeat-end-type until` 时必填；ISO 8601 结束时间            |
+| `--repeat-count`                                       | —        | 当 `--repeat-end-type count` 时必填；最大执行次数（不含手动执行） |
+| `--base-url`                                           | 自动     | 覆盖 API 地址                                                     |
 
 ### Cron 表达式速查
 
@@ -587,15 +641,21 @@ qwenpaw chats delete <chat_id>
 
 ### qwenpaw skills
 
-| 命令                    | 说明                              |
-| ----------------------- | --------------------------------- |
-| `qwenpaw skills list`   | 列出所有技能及启用/禁用状态       |
-| `qwenpaw skills config` | 交互式启用/禁用技能（复选框界面） |
-| `qwenpaw skills info`   | 查看某个 workspace 技能的本地详情 |
+| 命令                       | 说明                               |
+| -------------------------- | ---------------------------------- |
+| `qwenpaw skills install`   | 从受支持的 URL 来源安装技能        |
+| `qwenpaw skills uninstall` | 从技能池或单个智能体工作区移除技能 |
+| `qwenpaw skills list`      | 列出所有技能及启用/禁用状态        |
+| `qwenpaw skills config`    | 交互式启用/禁用技能（复选框界面）  |
+| `qwenpaw skills info`      | 查看某个 workspace 技能的本地详情  |
 
 **多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
 
 ```bash
+qwenpaw skills install https://skills.sh/owner/repo/skill  # 导入到本地技能池
+qwenpaw skills install https://skills.sh/owner/repo/skill --agent-id abc123  # 直接导入到特定智能体工作区
+qwenpaw skills uninstall skill-creator  # 从本地技能池移除
+qwenpaw skills uninstall skill-creator --agent-id abc123  # 从特定智能体工作区移除
 qwenpaw skills list                   # 看默认智能体的技能
 qwenpaw skills list --agent-id abc123 # 看特定智能体的技能
 qwenpaw skills config                 # 交互式配置默认智能体
@@ -672,18 +732,30 @@ qwenpaw --host 0.0.0.0 --port 9090 cron list
 
 ## 命令总览
 
-| 命令               | 子命令                                                                               |  需要服务运行？   |
-| ------------------ | ------------------------------------------------------------------------------------ | :---------------: |
-| `qwenpaw init`     | —                                                                                    |        否         |
-| `qwenpaw app`      | —                                                                                    | —（启动服务本身） |
-| `qwenpaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` |        否         |
-| `qwenpaw env`      | `list` · `set` · `delete`                                                            |        否         |
-| `qwenpaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                            |      **是**       |
-| `qwenpaw agents`   | `list` · `chat`                                                                      |      **是**       |
-| `qwenpaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |      **是**       |
-| `qwenpaw chats`    | `list` · `get` · `create` · `update` · `delete`                                      |      **是**       |
-| `qwenpaw skills`   | `list` · `config`                                                                    |        否         |
-| `qwenpaw clean`    | —                                                                                    |        否         |
+| 命令                | 子命令                                                                               |  需要服务运行？   |
+| ------------------- | ------------------------------------------------------------------------------------ | :---------------: |
+| `qwenpaw init`      | —                                                                                    |        否         |
+| `qwenpaw app`       | —                                                                                    | —（启动服务本身） |
+| `qwenpaw desktop`   | —                                                                                    | —（启动服务本身） |
+| `qwenpaw doctor`    | `fix`                                                                                |        否         |
+| `qwenpaw daemon`    | `status` · `restart` · `reload-config` · `version` · `logs`                          |        否         |
+| `qwenpaw models`    | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` |        否         |
+| `qwenpaw env`       | `list` · `set` · `delete`                                                            |        否         |
+| `qwenpaw channels`  | `list` · `send` · `install` · `add` · `remove` · `config`                            |      **是**       |
+| `qwenpaw agents`    | `list` · `create` · `delete` · `chat`                                                |    部分需要 ¹     |
+| `qwenpaw cron`      | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |      **是**       |
+| `qwenpaw chats`     | `list` · `get` · `create` · `update` · `delete`                                      |      **是**       |
+| `qwenpaw skills`    | `install` · `uninstall` · `list` · `config` · `info`                                 |        否         |
+| `qwenpaw task`      | —                                                                                    |        否         |
+| `qwenpaw auth`      | `reset-password`                                                                     |        否         |
+| `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate`                               |        否         |
+| `qwenpaw acp`       | —                                                                                    |        否         |
+| `qwenpaw clean`     | —                                                                                    |        否         |
+| `qwenpaw shutdown`  | —                                                                                    |        否         |
+| `qwenpaw update`    | —                                                                                    |        否         |
+| `qwenpaw uninstall` | —                                                                                    |        否         |
+
+¹ `create` 不需要服务运行；`list`、`delete`、`chat` 需要服务运行。
 
 ---
 

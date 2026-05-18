@@ -3,7 +3,7 @@
 
 from .loader import PluginLoader
 from .registry import PluginRegistry
-from .api import PluginApi
+from .api import PluginApi, get_tool_config
 from .architecture import PluginManifest, PluginRecord
 
 __all__ = [
@@ -12,4 +12,5 @@ __all__ = [
     "PluginApi",
     "PluginManifest",
     "PluginRecord",
+    "get_tool_config",
 ]

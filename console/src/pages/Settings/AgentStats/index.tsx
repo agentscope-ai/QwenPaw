@@ -35,11 +35,17 @@ interface ColumnSeries {
   label: string;
 }
 
+function formatDateLabel(dateStr: string, crossesYear: boolean): string {
+  const date = dayjs(dateStr);
+  return crossesYear ? date.format("YY/MM-DD") : date.format("MM-DD");
+}
+
 function getColumnConfig(
   chartData: ChartDataItem[],
   series: ColumnSeries[],
   colors: string[],
   isDarkMode: boolean,
+  crossesYear: boolean,
   options?: {
     yAxisFormatter?: (v: number) => string;
     tooltipFormatter?: (v: number) => string;
@@ -48,7 +54,7 @@ function getColumnConfig(
   const config: Record<string, unknown> = {
     data: chartData.flatMap((d) =>
       series.map((s) => ({
-        date: d.displayDate,
+        date: d.date,
         value: d[s.key],
         category: s.label,
       })),
@@ -65,6 +71,14 @@ function getColumnConfig(
     meta: {
       color: { range: colors },
     },
+    axis: {
+      x: {
+        labelFormatter: (d: string) => formatDateLabel(d, crossesYear),
+      },
+      ...(options?.yAxisFormatter
+        ? { y: { labelFormatter: options.yAxisFormatter } }
+        : {}),
+    },
     tooltip: {
       title: "date",
       items: [
@@ -77,12 +91,6 @@ function getColumnConfig(
       ],
     },
   };
-
-  if (options?.yAxisFormatter) {
-    config.axis = {
-      y: { labelFormatter: options.yAxisFormatter },
-    };
-  }
 
   return config;
 }
@@ -132,6 +140,11 @@ function AgentStatsPage() {
     }
   };
 
+  const crossesYear = useMemo(
+    () => startDate.year() !== endDate.year(),
+    [startDate, endDate],
+  );
+
   const chartData = useMemo(() => {
     if (!data?.by_date) return [];
     return data.by_date.map((d) => ({
@@ -169,8 +182,9 @@ function AgentStatsPage() {
         ],
         ["#3b82f6", "#f97316"],
         isDarkMode,
+        crossesYear,
       ),
-    [chartData, t, isDarkMode],
+    [chartData, t, isDarkMode, crossesYear],
   );
 
   const chatColumnConfig = useMemo(
@@ -183,8 +197,9 @@ function AgentStatsPage() {
         ],
         ["#ff7f16", "#3b82f6"],
         isDarkMode,
+        crossesYear,
       ),
-    [chartData, t, isDarkMode],
+    [chartData, t, isDarkMode, crossesYear],
   );
 
   const tokenColumnConfig = useMemo(
@@ -197,12 +212,13 @@ function AgentStatsPage() {
         ],
         ["#8b5cf6", "#10b981"],
         isDarkMode,
+        crossesYear,
         {
           yAxisFormatter: formatCompact,
           tooltipFormatter: formatCompact,
         },
       ),
-    [chartData, t, isDarkMode],
+    [chartData, t, isDarkMode, crossesYear],
   );
 
   const llmToolColumnConfig = useMemo(
@@ -215,8 +231,9 @@ function AgentStatsPage() {
         ],
         ["#ec4899", "#14b8a6"],
         isDarkMode,
+        crossesYear,
       ),
-    [chartData, t, isDarkMode],
+    [chartData, t, isDarkMode, crossesYear],
   );
 
   const pieCommon = useMemo(

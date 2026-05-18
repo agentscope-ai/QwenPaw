@@ -9,7 +9,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    field_validator,
     model_validator,
 )
 
@@ -57,11 +56,15 @@ def _crontab_dow_to_name(field: str) -> str:
 
 
 class ScheduleSpec(BaseModel):
-    type: Literal["cron"] = "cron"
-    cron: str = Field(...)
+    type: Literal["cron", "once"] = "cron"
+    cron: Optional[str] = None
+    run_at: Optional[datetime] = None
     timezone: str = "UTC"
+    repeat_every_days: Optional[int] = Field(default=None, ge=1)
+    repeat_end_type: Optional[Literal["never", "until", "count"]] = None
+    repeat_until: Optional[datetime] = None
+    repeat_count: Optional[int] = Field(default=None, ge=1)
 
-    @field_validator("cron")
     @classmethod
     def normalize_cron_5_fields(cls, v: str) -> str:
         parts = [p for p in v.split() if p]
@@ -81,11 +84,68 @@ class ScheduleSpec(BaseModel):
 
         # 6 fields (seconds) or too short: reject
         raise ConfigurationException(
+            config_key="cron.schedule.cron",
             message=(
                 "cron must have 5 fields (or 4/3 fields that can be "
                 "normalized); seconds not supported"
             ),
         )
+
+    @model_validator(mode="after")
+    def _validate_schedule_type(self) -> "ScheduleSpec":
+        if self.type == "cron":
+            if not (self.cron and self.cron.strip()):
+                raise ConfigurationException(
+                    message="schedule.type is cron but cron is empty",
+                )
+            self.cron = self.normalize_cron_5_fields(self.cron)
+            self.run_at = None
+            self.repeat_every_days = None
+            self.repeat_end_type = None
+            self.repeat_until = None
+            self.repeat_count = None
+            return self
+
+        if self.run_at is None:
+            raise ConfigurationException(
+                message="schedule.type is once but run_at is missing",
+            )
+        self.cron = None
+        if self.repeat_every_days is None:
+            self.repeat_end_type = None
+            self.repeat_until = None
+            self.repeat_count = None
+            return self
+
+        if self.repeat_end_type is None:
+            self.repeat_end_type = "never"
+
+        if self.repeat_end_type == "never":
+            self.repeat_until = None
+            self.repeat_count = None
+            return self
+
+        if self.repeat_end_type == "until":
+            if self.repeat_until is None:
+                raise ConfigurationException(
+                    message=(
+                        "repeat_end_type is until "
+                        "but repeat_until is missing"
+                    ),
+                )
+            if self.repeat_until <= self.run_at:
+                raise ConfigurationException(
+                    message="repeat_until must be later than run_at",
+                )
+            self.repeat_count = None
+            return self
+
+        if self.repeat_count is None:
+            raise ConfigurationException(
+                message="repeat_end_type is count but repeat_count is missing",
+            )
+        self.repeat_until = None
+        return self
 
 
 class DispatchTarget(BaseModel):
@@ -105,6 +165,13 @@ class JobRuntimeSpec(BaseModel):
     max_concurrency: int = Field(default=1, ge=1)
     timeout_seconds: int = Field(default=120, ge=1)
     misfire_grace_seconds: int = Field(default=60, ge=0)
+    share_session: bool = Field(
+        default=True,
+        description=(
+            "Whether to share session with target user. "
+            "If False, creates isolated context with unique run ID."
+        ),
+    )
 
 
 class CronJobRequest(BaseModel):
@@ -133,6 +200,7 @@ class CronJobSpec(BaseModel):
     text: Optional[str] = None
     request: Optional[CronJobRequest] = None
     dispatch: DispatchSpec
+    save_result_to_inbox: Optional[bool] = None
 
     runtime: JobRuntimeSpec = Field(default_factory=JobRuntimeSpec)
     meta: Dict[str, Any] = Field(default_factory=dict)
@@ -142,12 +210,14 @@ class CronJobSpec(BaseModel):
         if self.task_type == "text":
             if not (self.text and self.text.strip()):
                 raise ConfigurationException(
+                    config_key="cron.text",
                     message="task_type is text but text is empty",
                 )
             self.request = None
         elif self.task_type == "agent":
             if self.request is None:
                 raise ConfigurationException(
+                    config_key="cron.request",
                     message="task_type is agent but request is missing",
                 )
             # Keep request.user_id and request.session_id in sync with target
@@ -157,6 +227,13 @@ class CronJobSpec(BaseModel):
                     "user_id": target.user_id,
                     "session_id": target.session_id,
                 },
+            )
+        if self.save_result_to_inbox is None:
+            # Product rule:
+            # - text + recurring(cron) => default OFF
+            # - all other combinations => default ON
+            self.save_result_to_inbox = not (
+                self.task_type == "text" and self.schedule.type == "cron"
             )
         return self
 
@@ -175,6 +252,24 @@ class CronJobState(BaseModel):
     last_error: Optional[str] = None
 
 
+class CronExecutionRecord(BaseModel):
+    run_at: datetime
+    status: Literal["success", "error", "running", "skipped", "cancelled"]
+    error: Optional[str] = None
+    trigger: Literal["scheduled", "manual"] = "scheduled"
+
+
 class CronJobView(BaseModel):
     spec: CronJobSpec
     state: CronJobState = Field(default_factory=CronJobState)
+
+
+class CronDispatchTargetItem(BaseModel):
+    channel: str
+    user_id: str
+    session_id: str
+
+
+class CronDispatchTargetsResponse(BaseModel):
+    channels: list[str] = Field(default_factory=list)
+    items: list[CronDispatchTargetItem] = Field(default_factory=list)

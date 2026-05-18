@@ -118,6 +118,7 @@ async def _process_session_memory(
     session_id: str,
     user_id: str,
     workspace: "Workspace",
+    channel: str = "",
 ) -> List[dict]:
     """Process a session's memory and return a list of messages."""
     from agentscope.memory import InMemoryMemory
@@ -126,6 +127,7 @@ async def _process_session_memory(
         state = await workspace.runner.session.get_session_state_dict(
             session_id,
             user_id,
+            channel,
         )
         if not state:
             return []
@@ -314,6 +316,7 @@ async def _read_chat_sessions_metadata(
             user_id = chat.user_id.replace(":", "--")
             session_id = chat.session_id.replace(":", "--")
             updated_at_dt = ensure_tz_aware(chat.updated_at)
+            channel = chat.channel
 
             filename = f"{user_id}_" f"{session_id}.json"
             sessions_to_read.append(
@@ -321,6 +324,7 @@ async def _read_chat_sessions_metadata(
                     "filename": filename,
                     "user_id": user_id,
                     "session_id": session_id,
+                    "channel": channel,
                     "mod_time": updated_at_dt,
                 },
             )
@@ -360,11 +364,13 @@ async def _collect_messages(
     for session_info in filtered_sessions:
         session_id = session_info["session_id"]
         user_id = session_info["user_id"]
+        channel = session_info.get("channel", "")
         try:
             session_messages = await _process_session_memory(
                 session_id,
                 user_id,
                 workspace,
+                channel,
             )
             if session_messages:
                 all_messages.extend(session_messages)

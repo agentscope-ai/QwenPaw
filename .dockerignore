@@ -32,6 +32,10 @@ pytest.ini
 
 # Frontend: exclude build artifacts; ship pre-built src/console/dist in image
 website
+!website/
+!website/public/
+!website/public/docs/
+!website/public/docs/**
 console/node_modules
 console/dist
 console/.vite

@@ -499,6 +499,52 @@ def _read_config_data(config_path: Path) -> Optional[dict]:
     return data
 
 
+def _rewrite_legacy_weixin_key_on_disk(config_path: Path) -> None:
+    """One-shot migration: rewrite ``channels.weixin`` -> ``channels.wechat``.
+
+    Re-reads the raw file to detect whether the legacy key is still
+    present on disk (in-memory data may already have been normalized by
+    the model validator). When detected, backs up the original file and
+    writes the migrated content back so subsequent loads see the
+    canonical key directly.
+    """
+    try:
+        with open(config_path, "r", encoding="utf-8") as file:
+            raw = file.read()
+        raw_data = json.loads(raw)
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(raw_data, dict):
+        return
+    channels = raw_data.get("channels")
+    if not isinstance(channels, dict) or "weixin" not in channels:
+        return
+
+    legacy = channels.pop("weixin")
+    if "wechat" not in channels:
+        channels["wechat"] = legacy
+
+    try:
+        backup_path = config_path.with_suffix(
+            f".{uuid.uuid4().hex[:8]}.weixin-migrate.bak",
+        )
+        shutil.copy2(config_path, backup_path)
+        with open(config_path, "w", encoding="utf-8") as file:
+            json.dump(raw_data, file, indent=2, ensure_ascii=False)
+        logger.warning(
+            "Migrated legacy 'channels.weixin' -> 'channels.wechat' in %s "
+            "(backup: %s)",
+            config_path,
+            backup_path,
+        )
+    except OSError as exc:
+        logger.error(
+            "Failed to migrate legacy 'weixin' key in %s: %s",
+            config_path,
+            exc,
+        )
+
+
 def _load_and_validate_config(
     config_path: Path,
     data: dict,
@@ -514,7 +560,7 @@ def _load_and_validate_config(
             la["port"] = data.get("last_api_port")
 
     try:
-        return Config.model_validate(data)
+        config = Config.model_validate(data)
     except ValidationError as exc:
         fixed_any = False
         for err in exc.errors():
@@ -524,15 +570,17 @@ def _load_and_validate_config(
         if not fixed_any:
             _backup_config_file(config_path, "validation error")
             return Config()
+        try:
+            config = Config.model_validate(data)
+        except ValidationError:
+            _backup_config_file(
+                config_path,
+                "validation error after field removal",
+            )
+            return Config()
 
-    try:
-        return Config.model_validate(data)
-    except ValidationError:
-        _backup_config_file(
-            config_path,
-            "validation error after field removal",
-        )
-        return Config()
+    _rewrite_legacy_weixin_key_on_disk(config_path)
+    return config
 
 
 def load_config(config_path: Optional[Path] = None) -> Config:
@@ -755,6 +803,31 @@ def get_plugins_dir() -> Path:
     from ..constant import PLUGINS_DIR
 
     return PLUGINS_DIR
+
+
+def get_agent_dirs() -> list[Path]:
+    """Return list of all agent directories from config.
+
+    Returns canonical workspace dirs from config.agents.profiles,
+    not by scanning filesystem (which can miss custom paths or
+    include stale directories).
+
+    Returns:
+        List of Path objects for each agent's workspace directory
+    """
+    config = load_config()
+
+    agent_dirs = []
+    if config.agents and config.agents.profiles:
+        for profile in config.agents.profiles.values():
+            workspace_dir = Path(profile.workspace_dir)
+            if (
+                workspace_dir.exists()
+                and (workspace_dir / "agent.json").exists()
+            ):
+                agent_dirs.append(workspace_dir)
+
+    return agent_dirs
 
 
 def is_qwenpaw_running() -> bool:

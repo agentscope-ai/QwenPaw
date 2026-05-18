@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import type { CSSProperties } from "react";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { stripFrontmatter } from "../../utils/markdown";
+import { mermaidComponents } from "../MermaidCodeBlock";
 import styles from "./index.module.less";
 
 interface MarkdownCopyProps {
@@ -178,6 +179,7 @@ export function MarkdownCopy({
           <XMarkdown
             content={markdownContent}
             {...defaultMarkdownViewerProps}
+            components={mermaidComponents}
             dompurifyConfig={{
               ADD_TAGS: ["pre", "code"],
               ADD_ATTR: ["data-block", "data-state", "data-lang", "class"],

@@ -40,6 +40,7 @@ class PendingApproval:
     request_id: str
     session_id: str
     root_session_id: str  # Root session for cross-session approval routing
+    owner_agent_id: str  # Conversation owner/root agent
     user_id: str
     channel: str
     agent_id: str  # Which agent is requesting approval
@@ -85,6 +86,7 @@ class ApprovalService:
         *,
         session_id: str,
         root_session_id: str,
+        owner_agent_id: str,
         user_id: str,
         channel: str,
         agent_id: str,
@@ -103,6 +105,7 @@ class ApprovalService:
             request_id=request_id,
             session_id=session_id,
             root_session_id=root_session_id,
+            owner_agent_id=owner_agent_id,
             user_id=user_id,
             channel=channel,
             agent_id=agent_id,

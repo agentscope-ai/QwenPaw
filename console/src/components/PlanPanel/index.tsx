@@ -148,7 +148,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
           <div className={styles.emptyState}>
             <div className={styles.emptyIcon}>📋</div>
             <div>{t("plan.noPlan", "No active plan")}</div>
-            <div style={{ fontSize: 12, marginTop: 8 }}>
+            <div className={styles.emptyHint}>
               {t("plan.noPlanHint", "Use /plan <description> to create a plan")}
             </div>
           </div>
@@ -202,7 +202,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
             </ul>
 
             {plan.outcome && (
-              <div style={{ marginTop: 16, fontSize: 13 }}>
+              <div className={styles.planOutcomeSection}>
                 <strong>{t("plan.outcome", "Outcome")}:</strong> {plan.outcome}
               </div>
             )}

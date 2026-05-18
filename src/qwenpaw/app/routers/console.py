@@ -2,6 +2,7 @@
 """Console APIs: push messages, chat, and file upload for chat."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -10,16 +11,24 @@ from pathlib import Path
 from typing import AsyncGenerator, Union
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from ...utils.logging import LOG_FILE_PATH
 from ..agent_context import get_agent_for_request
+from ..runner.title_generator import generate_and_update_title
 
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/console", tags=["console"])
+
+
+class MarkInboxReadRequest(BaseModel):
+    event_ids: list[str] = []
+    all: bool = False
+
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_DEBUG_LOG_LINES = 1000
@@ -29,6 +38,35 @@ def _safe_filename(name: str) -> str:
     """Safe basename, alphanumeric/./-/_, max 200 chars."""
     base = Path(name).name if name else "file"
     return re.sub(r"[^\w.\-]", "_", base)[:200] or "file"
+
+
+def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
+    """Return ``(placeholder_name, first_user_text)`` for a new chat.
+
+    The placeholder name shows up in the session drawer immediately while a
+    background task asks the model for a real title. Content shapes match
+    ``channels/base.py::_extract_chat_name``: dict blocks like
+    ``{"type": "text", "text": "..."}``, raw strings, and objects with a
+    ``.text`` attribute. Anything else (audio/image/file blocks) is treated
+    as media and gets the generic "Media Message" placeholder.
+    """
+    if not content_parts:
+        return "New Chat", ""
+    content = content_parts[0]
+    if not content:
+        return "Media Message", ""
+    if isinstance(content, str):
+        first_text = content
+    elif isinstance(content, dict):
+        text = content.get("text", "")
+        first_text = text if isinstance(text, str) else ""
+    elif hasattr(content, "text"):
+        first_text = content.text or ""
+    else:
+        first_text = ""
+    if not first_text:
+        return "Media Message", ""
+    return first_text[:10], first_text
 
 
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
@@ -123,18 +161,9 @@ async def post_console_chat(
         sender_id=native_payload["sender_id"],
         channel_meta=native_payload["meta"],
     )
-    name = "New Chat"
-    if len(native_payload["content_parts"]) > 0:
-        content = native_payload["content_parts"][0]
-        if content:
-            if isinstance(content, str):
-                name = content[:10]
-            elif hasattr(content, "text"):
-                name = content.text[:10]
-            else:
-                name = str(content)[:10]
-        else:
-            name = "Media Message"
+    name, first_text = _extract_placeholder_name(
+        native_payload["content_parts"],
+    )
     chat = await workspace.chat_manager.get_or_create_chat(
         session_id,
         native_payload["sender_id"],
@@ -142,6 +171,19 @@ async def post_console_chat(
         name=name,
     )
     tracker = workspace.task_tracker
+
+    # Kick off an LLM-backed title generation in the background when the chat
+    # was just created with the truncated placeholder. This runs detached so
+    # the streaming response is never blocked by title generation latency.
+    if first_text and chat.name == name:
+        asyncio.create_task(
+            generate_and_update_title(
+                workspace=workspace,
+                chat_id=chat.id,
+                user_message=first_text,
+                placeholder_name=name,
+            ),
+        )
 
     is_reconnect = False
     if isinstance(request_data, dict):
@@ -339,6 +381,7 @@ async def get_push_messages(
             "request_id": p.request_id,
             "session_id": p.session_id,
             "root_session_id": p.root_session_id,
+            "owner_agent_id": p.owner_agent_id,
             "agent_id": p.agent_id,
             "tool_name": p.tool_name,
             "severity": p.severity,
@@ -352,3 +395,64 @@ async def get_push_messages(
     ]
 
     return {"messages": messages, "pending_approvals": approvals_data}
+
+
+@router.get("/inbox/events")
+async def get_inbox_events(
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    source_type: str | None = Query(None),
+    status: str | None = Query(None),
+    agent_id: str | None = Query(None),
+    unread_only: bool = Query(False),
+):
+    from ..inbox_store import list_events
+
+    events = await list_events(
+        limit=limit,
+        offset=offset,
+        source_type=source_type,
+        status=status,
+        agent_id=agent_id,
+        unread_only=unread_only,
+    )
+    return {"events": events}
+
+
+@router.post("/inbox/read")
+async def post_mark_inbox_read(payload: MarkInboxReadRequest):
+    from ..inbox_store import mark_all_read, mark_read
+
+    if payload.all:
+        updated = await mark_all_read()
+    else:
+        updated = await mark_read(payload.event_ids)
+    return {"updated": updated}
+
+
+@router.delete("/inbox/events/{event_id}")
+async def delete_inbox_event(event_id: str):
+    from ..inbox_store import delete_event
+    from ..inbox_trace_store import delete_trace
+
+    deleted, run_id, run_id_still_referenced = await delete_event(event_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="event not found")
+    trace_deleted = False
+    if run_id and not run_id_still_referenced:
+        trace_deleted = await delete_trace(run_id)
+    return {
+        "deleted": True,
+        "trace_deleted": trace_deleted,
+        "run_id": run_id,
+    }
+
+
+@router.get("/inbox/traces/{run_id}")
+async def get_inbox_trace(run_id: str):
+    from ..inbox_trace_store import get_trace
+
+    trace = await get_trace(run_id)
+    if trace is None:
+        raise HTTPException(status_code=404, detail="trace not found")
+    return trace

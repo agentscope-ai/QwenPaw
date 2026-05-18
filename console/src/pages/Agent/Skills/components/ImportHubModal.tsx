@@ -28,21 +28,38 @@ type ValidationResult =
   | { ok: true; source: string }
   | { ok: false; messageKey: string };
 
+function normalizeHost(host: string): string {
+  return host.toLowerCase().replace(/^www\./, "");
+}
+
 function validateUrl(url: string): ValidationResult {
   const trimmed = url.trim();
   if (!trimmed) {
     return { ok: false, messageKey: "" };
   }
 
+  let parsedInput: URL;
   try {
-    new URL(trimmed);
+    parsedInput = new URL(trimmed);
   } catch {
     return { ok: false, messageKey: "skills.invalidUrl" };
   }
 
-  const source = skillMarkets.find((m) =>
-    trimmed.toLowerCase().startsWith(m.urlPrefix.toLowerCase()),
-  );
+  const inputHost = normalizeHost(parsedInput.host);
+  const inputPath = parsedInput.pathname.toLowerCase();
+
+  const source = skillMarkets.find((m) => {
+    let parsedPrefix: URL;
+    try {
+      parsedPrefix = new URL(m.urlPrefix);
+    } catch {
+      return false;
+    }
+    return (
+      inputHost === normalizeHost(parsedPrefix.host) &&
+      inputPath.startsWith(parsedPrefix.pathname.toLowerCase())
+    );
+  });
   if (!source) {
     return { ok: false, messageKey: "skills.invalidSkillUrlSource" };
   }

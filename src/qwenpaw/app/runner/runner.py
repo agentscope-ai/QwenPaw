@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Coroutine
 
@@ -123,6 +125,22 @@ class AgentRunner(Runner):
         self.memory_manager: BaseMemoryManager | None = None
         self.context_manager: BaseContextManager | None = None
         self._task_tracker = task_tracker  # Task tracker for background tasks
+        self._agent_name: str | None = None
+
+    @property
+    def agent_name(self) -> str:
+        """Agent display name from config, cached after first access."""
+        if self._agent_name is None:
+            try:
+                cfg = load_agent_config(self.agent_id)
+                self._agent_name = cfg.name if cfg and cfg.name else "QwenPaw"
+            except Exception:
+                self._agent_name = "QwenPaw"
+        return self._agent_name
+
+    def invalidate_agent_name_cache(self) -> None:
+        """Clear cached agent_name so next access re-reads config."""
+        self._agent_name = None
 
     def set_chat_manager(self, chat_manager):
         """Set chat manager for auto-registration.
@@ -182,8 +200,8 @@ class AgentRunner(Runner):
         user_input = parts[1] if len(parts) > 1 else ""
         return (name, user_input) if name else None
 
-    @staticmethod
     def _maybe_inject_skill(
+        self,
         query: str | None,
         msgs: list,
         skills: dict,
@@ -231,7 +249,7 @@ class AgentRunner(Runner):
             desc = post.get("description") or "No description."
             logger.info("Skill info: %s", name)
             return Msg(
-                name="Friday",
+                name=self.agent_name,
                 role="assistant",
                 content=[
                     TextBlock(
@@ -347,24 +365,40 @@ class AgentRunner(Runner):
                 ),
             )
 
+            # Optional sender display name from channel_meta.user_name.
+            channel_meta = getattr(request, "channel_meta", None)
+            if not isinstance(channel_meta, dict):
+                channel_meta = {}
+            user_name = channel_meta.get("user_name")
+
+            # Load agent-specific configuration
+            agent_config = load_agent_config(self.agent_id)
+
+            _configured_shell = (
+                agent_config.running.shell_command_executable or None
+            )
+            _default_shell = (
+                _configured_shell
+                or os.environ.get("SHELL")
+                or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
+            )
             env_context = build_env_context(
                 session_id=session_id,
                 user_id=user_id,
+                user_name=user_name,
                 channel=channel,
                 working_dir=(
                     str(self.workspace_dir)
                     if self.workspace_dir
                     else str(WORKING_DIR)
                 ),
+                default_shell=_default_shell,
             )
 
             # Get MCP clients from manager (hot-reloadable)
             mcp_clients = []
             if self._mcp_manager is not None:
                 mcp_clients = await self._mcp_manager.get_clients()
-
-            # Load agent-specific configuration
-            agent_config = load_agent_config(self.agent_id)
 
             logger.debug(f"Enabled MCP: {mcp_clients}")
 
@@ -374,7 +408,11 @@ class AgentRunner(Runner):
                 "user_id": user_id,
                 "channel": channel,
                 "agent_id": self.agent_id,
+                "root_agent_id": self.agent_id,
             }
+            payload_context = getattr(request, "request_context", None)
+            if isinstance(payload_context, dict):
+                base_request_context.update(payload_context)
 
             # Extract root_session_id from request payload (agent chat)
             payload_root_session = getattr(request, "root_session_id", "")
@@ -413,6 +451,7 @@ class AgentRunner(Runner):
                 agent_id=self.agent_id,
                 rewrite_fn=self._rewrite_last_message_text,
                 session_id=session_id,
+                agent_name=self.agent_name,
             )
             if isinstance(mission_result, Msg):
                 yield mission_result, True
@@ -505,6 +544,13 @@ class AgentRunner(Runner):
                         nb,
                         plan,
                     ):
+                        if getattr(nb, "_loading_from_state", False):
+                            nb._qp_had_plan = plan is not None
+                            nb._qp_prev_plan_id = (
+                                plan.id if plan is not None else None
+                            )
+                            return
+
                         had_plan = getattr(nb, "_qp_had_plan", False)
                         prev_id = getattr(nb, "_qp_prev_plan_id", None)
 
@@ -516,6 +562,7 @@ class AgentRunner(Runner):
                         else:
                             if had_plan:
                                 nb._plan_recently_finished = True
+                                nb._plan_awaiting_user_confirm = False
                             nb._qp_prev_plan_id = None
                         nb._qp_had_plan = plan is not None
 
@@ -614,6 +661,7 @@ class AgentRunner(Runner):
                     _states = await self.session.get_session_state_dict(
                         session_id=session_id,
                         user_id=user_id,
+                        channel=channel,
                         allow_not_exist=True,
                     )
                     _agent_st = _states.get("agent", {})
@@ -627,6 +675,7 @@ class AgentRunner(Runner):
                             key="agent.plan_notebook",
                             value=plan_notebook.state_dict(),
                             user_id=user_id,
+                            channel=channel,
                             create_if_not_exist=False,
                         )
                 except Exception:
@@ -635,10 +684,17 @@ class AgentRunner(Runner):
                         exc_info=True,
                     )
 
+            if plan_notebook is not None:
+                setattr(
+                    plan_notebook,
+                    "_loading_from_state",
+                    True,  # pylint: disable=protected-access
+                )
             try:
                 await self.session.load_session_state(
                     session_id=session_id,
                     user_id=user_id,
+                    channel=channel,
                     agent=agent,
                 )
             except KeyError as e:
@@ -647,7 +703,19 @@ class AgentRunner(Runner):
                     "will save fresh state on completion to recover file",
                     e,
                 )
+            finally:
+                if plan_notebook is not None:
+                    setattr(
+                        plan_notebook,
+                        "_loading_from_state",
+                        False,  # pylint: disable=protected-access
+                    )
             session_state_loaded = True
+
+            if plan_notebook is not None:
+                from ...plan.hints import clear_plan_awaiting_user_confirm
+
+                clear_plan_awaiting_user_confirm(plan_notebook)
 
             # Rebuild system prompt so it always reflects the latest
             # AGENTS.md / SOUL.md / PROFILE.md, not the stale one saved
@@ -762,6 +830,7 @@ class AgentRunner(Runner):
                 await self.session.save_session_state(
                     session_id=session_id,
                     user_id=user_id,
+                    channel=channel,
                     agent=agent,
                 )
 
