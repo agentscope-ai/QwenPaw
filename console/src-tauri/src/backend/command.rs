@@ -1,10 +1,14 @@
 //! Backend command construction for development and packaged builds.
 
+use std::path::PathBuf;
+
 #[cfg(debug_assertions)]
-use std::path::{Path, PathBuf};
+use std::path::Path;
 #[cfg(debug_assertions)]
 use std::process::{Command as StdCommand, Stdio};
 
+#[cfg(not(debug_assertions))]
+use tauri::Manager;
 use tauri_plugin_shell::{process::Command, ShellExt};
 
 /// Builds the command used to start the Python backend sidecar.
@@ -34,9 +38,34 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
 /// Builds the command used to start the packaged Python backend sidecar.
 #[cfg(not(debug_assertions))]
 pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
-    app.shell()
-        .sidecar("qwenpaw-backend")
-        .map_err(|err| format!("failed to find sidecar binary: {err}"))
+    let backend = packaged_backend_executable(app)?;
+    let backend_dir = backend
+        .parent()
+        .ok_or_else(|| format!("backend executable has no parent: {}", backend.display()))?
+        .to_path_buf();
+    Ok(app.shell().command(backend).current_dir(backend_dir))
+}
+
+#[cfg(not(debug_assertions))]
+fn packaged_backend_executable(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let executable_name = if cfg!(windows) {
+        "qwenpaw-backend.exe"
+    } else {
+        "qwenpaw-backend"
+    };
+    let path = app
+        .path()
+        .resource_dir()
+        .map_err(|err| format!("failed to resolve resource directory: {err}"))?
+        .join("binaries")
+        .join("qwenpaw-backend")
+        .join(executable_name);
+
+    if path.is_file() {
+        Ok(path)
+    } else {
+        Err(format!("backend executable not found at {}", path.display()))
+    }
 }
 
 #[cfg(debug_assertions)]

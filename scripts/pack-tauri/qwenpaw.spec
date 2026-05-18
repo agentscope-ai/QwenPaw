@@ -1,13 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec file for QwenPaw Desktop (Tauri sidecar)
-Shared spec for both macOS and Windows — builds a single onefile binary.
+PyInstaller spec file for QwenPaw Desktop (Tauri sidecar).
+
+Shared spec for both macOS and Windows. Builds an onedir backend bundle so the
+desktop startup can load Python directly without onefile extraction.
 """
 
 import os
 import sys
 from pathlib import Path
-from PyInstaller.utils.hooks import copy_metadata, collect_submodules, collect_data_files
+
+from PyInstaller.utils.hooks import (
+    collect_data_files,
+    collect_submodules,
+    copy_metadata,
+)
 
 REPO_ROOT = Path(SPECPATH).parent.parent
 
@@ -19,7 +26,9 @@ if sys.platform == 'darwin':
         os.environ.get('PYINSTALLER_CODESIGN_IDENTITY')
         or os.environ.get('APPLE_SIGNING_IDENTITY')
     )
-    entitlements_file = os.environ.get('PYINSTALLER_ENTITLEMENTS_FILE') or str(MACOS_ENTITLEMENTS)
+    entitlements_file = os.environ.get('PYINSTALLER_ENTITLEMENTS_FILE') or str(
+        MACOS_ENTITLEMENTS,
+    )
     if not codesign_identity:
         codesign_identity = None
     if not Path(entitlements_file).is_file():
@@ -29,7 +38,7 @@ else:
     entitlements_file = None
 
 # The frontend dist is bundled by Tauri (frontendDist in tauri.conf.json) and
-# must NOT be included here — PyInstaller only packages the Python backend.
+# must NOT be included here. PyInstaller only packages the Python backend.
 _data_dirs = [
     ('agents/skills', 'qwenpaw/agents/skills'),
     ('agents/md_files', 'qwenpaw/agents/md_files'),
@@ -38,20 +47,38 @@ _data_dirs = [
     ('security/skill_scanner/rules', 'qwenpaw/security/skill_scanner/rules'),
     ('security/skill_scanner/data', 'qwenpaw/security/skill_scanner/data'),
 ]
-datas = [(str(SRC / src), dst) for src, dst in _data_dirs if (SRC / src).is_dir()]
+datas = [
+    (str(SRC / src), dst)
+    for src, dst in _data_dirs
+    if (SRC / src).is_dir()
+]
 
 # Include reme package data files (configs, tool yamls, etc.)
 datas += collect_data_files('reme')
 datas += collect_data_files('whisper')
 
-# Collect package metadata for packages that use importlib.metadata at runtime
+# Collect package metadata for packages that use importlib.metadata at runtime.
 _metadata_pkgs = [
     'qwenpaw',
-    'fastmcp', 'mcp', 'httpx', 'httpcore', 'anyio', 'sniffio',
-    'starlette', 'pydantic', 'pydantic-core', 'pydantic-settings',
-    'uvicorn', 'openai', 'anthropic', 'tiktoken',
-    'agentscope', 'agentscope-runtime',
-    'huggingface_hub', 'modelscope', 'openai-whisper',
+    'fastmcp',
+    'mcp',
+    'httpx',
+    'httpcore',
+    'anyio',
+    'sniffio',
+    'starlette',
+    'pydantic',
+    'pydantic-core',
+    'pydantic-settings',
+    'uvicorn',
+    'openai',
+    'anthropic',
+    'tiktoken',
+    'agentscope',
+    'agentscope-runtime',
+    'huggingface_hub',
+    'modelscope',
+    'openai-whisper',
 ]
 for _pkg in _metadata_pkgs:
     try:
@@ -115,18 +142,27 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
     name='qwenpaw-backend',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,  # UPX triggers antivirus false positives on Windows and can corrupt .pyd files
+    # UPX triggers antivirus false positives and can corrupt binaries.
+    upx=False,
     console=False,
     disable_windowed_traceback=True,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=codesign_identity,
     entitlements_file=entitlements_file,
+    exclude_binaries=True,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    name='qwenpaw-backend',
 )

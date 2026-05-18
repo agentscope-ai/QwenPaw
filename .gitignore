@@ -124,4 +124,8 @@ src/.hypothesis/
 /localfile/
 *.lock
 .gitnexus
-console/src-tauri/binaries/
+
+console/src-tauri/binaries/*
+!console/src-tauri/binaries/qwenpaw-backend/
+console/src-tauri/binaries/qwenpaw-backend/*
+!console/src-tauri/binaries/qwenpaw-backend/.gitkeep

@@ -1,5 +1,5 @@
 # Build QwenPaw backend with PyInstaller for Tauri sidecar (Windows)
-# Creates a standalone onefile executable with embedded Python runtime
+# Creates an onedir backend bundle with embedded Python runtime
 #
 # Usage:
 #   powershell ./scripts/pack-tauri/build_pyinstaller.ps1
@@ -107,29 +107,6 @@ function Uninstall-PythonPackage {
     }
 }
 
-function Get-RustHostTriple {
-    $triple = (& rustc --print host-tuple 2>$null)
-    if ($LASTEXITCODE -eq 0 -and $triple) {
-        return $triple.Trim()
-    }
-
-    $triple = (& rustc --print host-triple 2>$null)
-    if ($LASTEXITCODE -eq 0 -and $triple) {
-        return $triple.Trim()
-    }
-
-    $verbose = (& rustc -Vv 2>$null)
-    if ($LASTEXITCODE -eq 0) {
-        foreach ($line in $verbose) {
-            if ($line -match '^host:\s*(\S+)\s*$') {
-                return $Matches[1]
-            }
-        }
-    }
-
-    throw "Failed to determine Rust host target triple"
-}
-
 # Install PyInstaller if not present
 Write-Host "== Installing PyInstaller ==" -ForegroundColor Yellow
 if (Test-PythonImport "import PyInstaller") {
@@ -167,7 +144,7 @@ if (-not (Test-PythonImport "from acp import Agent")) {
 
 # Run PyInstaller
 Write-Host "== Running PyInstaller ==" -ForegroundColor Yellow
-Write-Host "Building standalone executable..."
+Write-Host "Building onedir backend bundle..."
 
 $SPEC_FILE = Join-Path $REPO_ROOT "scripts\pack-tauri\qwenpaw.spec"
 if (-not (Test-Path $SPEC_FILE)) {
@@ -189,27 +166,36 @@ Write-Host "PyInstaller build complete" -ForegroundColor Green
 Write-Host ""
 
 # Verify output
-$BACKEND_EXE = Join-Path $DIST "pyinstaller\qwenpaw-backend.exe"
+$BACKEND_DIR = Join-Path $DIST "pyinstaller\qwenpaw-backend"
+$BACKEND_EXE = Join-Path $BACKEND_DIR "qwenpaw-backend.exe"
+if (-not (Test-Path $BACKEND_DIR)) {
+    Write-Host "ERROR: Backend bundle directory not found at $BACKEND_DIR" -ForegroundColor Red
+    exit 1
+}
 if (-not (Test-Path $BACKEND_EXE)) {
     Write-Host "ERROR: Backend executable not found at $BACKEND_EXE" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "Backend executable created: $BACKEND_EXE" -ForegroundColor Green
+Write-Host "Backend bundle created: $BACKEND_DIR" -ForegroundColor Green
 
 # Get size
-$bundleSize = (Get-Item $BACKEND_EXE).Length / 1MB
+$bundleSize = (Get-ChildItem $BACKEND_DIR -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB
 Write-Host "Bundle size: $([math]::Round($bundleSize, 2)) MB"
 Write-Host ""
 
-# Copy to Tauri binaries directory with target triple suffix
+# Copy to Tauri resources directory
 Write-Host "== Copying to Tauri binaries directory ==" -ForegroundColor Yellow
 $BINARIES_DIR = Join-Path $REPO_ROOT "console\src-tauri\binaries"
 New-Item -ItemType Directory -Force -Path $BINARIES_DIR | Out-Null
 
-$TARGET_TRIPLE = Get-RustHostTriple
-$DEST = Join-Path $BINARIES_DIR "qwenpaw-backend-${TARGET_TRIPLE}.exe"
-Copy-Item -Force $BACKEND_EXE $DEST
+$DEST = Join-Path $BINARIES_DIR "qwenpaw-backend"
+New-Item -ItemType Directory -Force -Path $DEST | Out-Null
+Get-ChildItem -LiteralPath $DEST -Force |
+    Where-Object { $_.Name -ne ".gitkeep" } |
+    Remove-Item -Recurse -Force
+Copy-Item -Recurse -Force (Join-Path $BACKEND_DIR "*") $DEST
+New-Item -ItemType File -Force -Path (Join-Path $DEST ".gitkeep") | Out-Null
 Write-Host "Copied to: $DEST" -ForegroundColor Green
 Write-Host ""
 
@@ -217,6 +203,6 @@ Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "PyInstaller Build Complete!" -ForegroundColor Green
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "Output:"
-Write-Host "  Executable: $BACKEND_EXE"
-Write-Host "  Tauri sidecar: $DEST"
+Write-Host "  Bundle: $BACKEND_DIR"
+Write-Host "  Tauri resource: $DEST"
 Write-Host ""

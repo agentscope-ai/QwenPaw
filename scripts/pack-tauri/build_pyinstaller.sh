@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build QwenPaw backend with PyInstaller for Tauri sidecar
-# Creates a standalone onefile executable with embedded Python runtime
+# Creates an onedir backend bundle with embedded Python runtime
 #
 # Usage:
 #   ./scripts/pack-tauri/build_pyinstaller.sh
@@ -58,24 +58,6 @@ uninstall_python_package() {
     fi
 }
 
-rust_host_triple() {
-    local triple
-    if triple=$(rustc --print host-tuple 2>/dev/null) && [ -n "$triple" ]; then
-        printf '%s\n' "$triple"
-        return 0
-    fi
-    if triple=$(rustc --print host-triple 2>/dev/null) && [ -n "$triple" ]; then
-        printf '%s\n' "$triple"
-        return 0
-    fi
-    if triple=$(rustc -Vv 2>/dev/null | sed -n 's/^host: //p' | head -1) && [ -n "$triple" ]; then
-        printf '%s\n' "$triple"
-        return 0
-    fi
-    echo "ERROR: Failed to determine Rust host target triple" >&2
-    return 1
-}
-
 # Install PyInstaller if not present
 echo "== Installing PyInstaller =="
 if ! "$PYTHON_BIN" -c "import PyInstaller" 2> /dev/null; then
@@ -100,7 +82,7 @@ echo ""
 
 # Run PyInstaller
 echo "== Running PyInstaller =="
-echo "Building standalone executable..."
+echo "Building onedir backend bundle..."
 
 SPEC_FILE="${REPO_ROOT}/scripts/pack-tauri/qwenpaw.spec"
 if [ ! -f "$SPEC_FILE" ]; then
@@ -118,28 +100,35 @@ echo "PyInstaller build complete"
 echo ""
 
 # Verify output
-BACKEND_EXE="${DIST}/pyinstaller/qwenpaw-backend"
+BACKEND_DIR="${DIST}/pyinstaller/qwenpaw-backend"
+BACKEND_EXE="${BACKEND_DIR}/qwenpaw-backend"
+if [ ! -d "${BACKEND_DIR}" ]; then
+    echo "ERROR: Backend bundle directory not found at ${BACKEND_DIR}"
+    exit 1
+fi
 if [ ! -f "${BACKEND_EXE}" ]; then
     echo "ERROR: Backend executable not found at ${BACKEND_EXE}"
     exit 1
 fi
 
-echo "Backend executable created: ${BACKEND_EXE}"
+echo "Backend bundle created: ${BACKEND_DIR}"
 
 # Get size
-SIZE=$(du -sh "${BACKEND_EXE}" | cut -f1)
+SIZE=$(du -sh "${BACKEND_DIR}" | cut -f1)
 echo "Bundle size: ${SIZE}"
 echo ""
 
-# Copy to Tauri binaries directory with target triple suffix
+# Copy to Tauri resources directory
 echo "== Copying to Tauri binaries directory =="
-TARGET_TRIPLE=$(rust_host_triple)
 BINARIES_DIR="${REPO_ROOT}/console/src-tauri/binaries"
 mkdir -p "${BINARIES_DIR}"
 
-DEST="${BINARIES_DIR}/qwenpaw-backend-${TARGET_TRIPLE}"
-cp "${BACKEND_EXE}" "${DEST}"
-chmod +x "${DEST}"
+DEST="${BINARIES_DIR}/qwenpaw-backend"
+mkdir -p "${DEST}"
+find "${DEST}" -mindepth 1 ! -name .gitkeep -exec rm -rf {} +
+cp -R "${BACKEND_DIR}/." "${DEST}/"
+touch "${DEST}/.gitkeep"
+chmod +x "${DEST}/qwenpaw-backend"
 echo "Copied to: ${DEST}"
 echo ""
 
@@ -147,6 +136,6 @@ echo "========================================="
 echo "PyInstaller Build Complete!"
 echo "========================================="
 echo "Output:"
-echo "  Executable: ${BACKEND_EXE}"
-echo "  Tauri sidecar: ${DEST}"
+echo "  Bundle: ${BACKEND_DIR}"
+echo "  Tauri resource: ${DEST}"
 echo ""

@@ -43,7 +43,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/qwenpaw-backend"],
+    "resources": ["binaries/qwenpaw-backend"],
     "macOS": {
       "entitlements": "entitlements.plist"
     },

@@ -3,11 +3,5 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [{ "name": "binaries/qwenpaw-backend", "sidecar": true }]
-    }
-  ]
+  "permissions": ["core:default"]
 }
