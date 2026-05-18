@@ -1,5 +1,5 @@
 # Pack repo plugins (bundle/tool) and publish to the download CDN (OSS).
-# Runs automatically on release publish; also manually via Actions tab.
+# Runs on any published GitHub Release (including prereleases), same as Desktop OSS upload; also manually via Actions tab.
 
 name: QwenPaw Plugins Release
 
@@ -21,10 +21,8 @@ concurrency:
 jobs:
   upload-oss:
     runs-on: ubuntu-latest
-    # Release (non–pre-release) or manual run with upload_to_oss checked.
-    if: >-
-      (github.event_name == 'release' && github.event.release.prerelease == false)
-      || (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')
+    # Run on: 1) any published release (including prerelease), or 2) manual with upload_to_oss.
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -73,11 +71,10 @@ jobs:
           # Remove zips that no longer exist locally so deletions propagate.
           for kind in bundle tool; do
             local_names=$(ls dist/plugins/${kind} 2>/dev/null | sort || true)
-            remote_names=$(ossutil ls "oss://qwenpaw-download/files/plugins/${kind}/" 2>/dev/null \
-              | awk '{print $NF}' \
-              | grep -E "^oss://qwenpaw-download/files/plugins/${kind}/.+\.zip$" \
-              | sed "s|oss://qwenpaw-download/files/plugins/${kind}/||" \
-              | sort || true)
+            remote_names=$(ossutil ls "oss://qwenpaw-download/files/plugins/${kind}/" -s 2>/dev/null \
+              | grep -E "^oss://qwenpaw-download/files/plugins/${kind}/[^/]+\.zip$" \
+              | sed 's|.*/||' \
+              | sort -u || true)
             for name in $remote_names; do
               if ! echo "$local_names" | grep -qx "$name"; then
                 echo "Removing stale OSS object: ${kind}/${name}"

@@ -28,11 +28,30 @@ def _fetch_json(url: str) -> Any:
 
 
 def _plugin_id_from_file_entry(entry: dict[str, Any]) -> str:
+    explicit = entry.get("plugin_id")
+    if explicit:
+        return str(explicit)
+
     file_id = str(entry.get("id") or "")
     version = str(entry.get("version") or "")
+    if not version:
+        return file_id
+
+    # Legacy index ids: ``{plugin_id}-{version}``
     suffix = f"-{version}"
-    if version and file_id.endswith(suffix):
+    if file_id.endswith(suffix):
         return file_id[: -len(suffix)]
+
+    # Current ids: ``{plugin_id}-{version}-{sha8}``
+    marker = f"-{version}-"
+    idx = file_id.rfind(marker)
+    if idx > 0:
+        tail = file_id[idx + len(marker) :]
+        if len(tail) == 8 and all(
+            c in "0123456789abcdef" for c in tail.lower()
+        ):
+            return file_id[:idx]
+
     return file_id
 
 

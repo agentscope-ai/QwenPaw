@@ -128,6 +128,7 @@ def _localized(text: str) -> dict[str, str]:
 def _build_metadata(
     manifest: dict[str, Any],
     *,
+    file_id: str,
     plugin_id: str,
     version: str,
     kind: str,
@@ -139,7 +140,8 @@ def _build_metadata(
     description = str(manifest.get("description") or "")
 
     return {
-        "id": f"{plugin_id}-{version}",
+        "id": file_id,
+        "plugin_id": plugin_id,
         "name": _localized(name),
         "description": _localized(description),
         "product": "plugins",
@@ -198,21 +200,18 @@ def discover_and_pack(
             _zip_plugin(plugin_dir, zip_path)
 
             cdn_path = f"{cdn_prefix.rstrip('/')}/{kind}/{zip_name}"
+            file_id = f"{plugin_id}-{version}-{content_sha}"
             metadata = _build_metadata(
                 manifest,
+                file_id=file_id,
                 plugin_id=plugin_id,
                 version=version,
                 kind=kind,
                 zip_path=zip_path,
                 cdn_path=cdn_path,
             )
-            file_id = metadata["id"]
             index["files"][file_id] = metadata
-            index["platforms"].setdefault(
-                kind, {"latest": "", "versions": []}
-            )
-            kind_entry = index["platforms"][kind]
-            kind_entry["latest"] = file_id
+            kind_entry = index["platforms"].setdefault(kind, {"versions": []})
             if file_id not in kind_entry["versions"]:
                 kind_entry["versions"].insert(0, file_id)
 
