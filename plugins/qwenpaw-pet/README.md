@@ -67,7 +67,11 @@ in `plugin.json`'s `dependencies`):
 - `python-multipart>=0.0.9` — required by FastAPI to parse the
   Import-pet dropzone uploads
 - `pillow>=10.0` — spritesheet validation
-- `pyside6>=6.6` — Qt pet window
+- `pyside6-essentials>=6.6` — Qt pet window. We only import
+  `QtCore`/`QtGui`/`QtWidgets`, all of which live in Essentials, so
+  there's no need to pull in the full `PySide6` meta package (which
+  also installs `PySide6-Addons` — ~800 MB of WebEngine, 3D,
+  Multimedia, etc. that this plugin never touches).
 
 If your QwenPaw install does not auto-resolve plugin dependencies,
 install them manually into the same environment:
@@ -76,9 +80,9 @@ install them manually into the same environment:
 pip install -r plugins/qwenpaw-pet/requirements.txt
 ```
 
-PySide6 wheels exist only for **Python 3.10–3.13**. On 3.14 the pet
-window cannot start; QwenPaw itself will still run, the pet will just
-stay offline and the plugin logs a warning.
+PySide6-Essentials wheels exist only for **Python 3.10–3.13**. On 3.14
+the pet window cannot start; QwenPaw itself will still run, the pet
+will just stay offline and the plugin logs a warning.
 
 ## Running the desktop pet
 
