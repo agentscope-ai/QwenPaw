@@ -49,6 +49,8 @@ in `plugin.json`'s `dependencies`):
 
 - `httpx>=0.27` — fire-and-forget HTTP client
 - `fastapi>=0.110`, `uvicorn>=0.27` — local HTTP bridge
+- `python-multipart>=0.0.9` — required by FastAPI to parse the
+  Import-pet dropzone uploads
 - `pillow>=10.0` — spritesheet validation
 - `pyside6>=6.6` — Qt pet window
 
@@ -56,7 +58,7 @@ If your QwenPaw install does not auto-resolve plugin dependencies,
 install them manually into the same environment:
 
 ```bash
-pip install "httpx>=0.27" "fastapi>=0.110" "uvicorn>=0.27" "pillow>=10.0" "pyside6>=6.6"
+pip install -r plugins/qwenpaw-pet/requirements.txt
 ```
 
 PySide6 wheels exist only for **Python 3.10–3.13**. On 3.14 the pet
@@ -119,8 +121,16 @@ Reinstall the plugin, or copy `dist/index.js` into your
 
 The UI adds a sidebar page **Pet** (`/plugin/qwenpaw-pet/pets`): lists
 pets under `<WORKING_DIR>/pets`, **Start desktop pet** (calls `POST
-/api/qwenpaw-pet/desktop/start`), and **Switch** (hot-switch via `POST
-/pet` on the desktop).
+/api/qwenpaw-pet/desktop/start`), **Switch** (hot-switch via `POST
+/pet` on the desktop), and **Import pet** — opens a modal with a
+dropzone: drag a folder **or** a `.zip` onto it (drop area highlights
+in blue), or click to choose a `.zip` via the system file picker.
+Files are streamed as `multipart/form-data` to
+`POST /api/qwenpaw-pet/import-pet-upload`, then validated and copied
+into `<WORKING_DIR>/pets/<id>/`. The source (or the unzipped archive)
+must contain `pet.json` and the spritesheet referenced by it
+(1536×1872 webp); a single top-level subfolder is also accepted, which
+is what macOS Finder's "Compress" produces.
 
 ## QwenPaw plugin HTTP routes
 
@@ -130,8 +140,30 @@ GET  /api/qwenpaw-pet/pets
 GET  /api/qwenpaw-pet/pets/{folder}/spritesheet
 POST /api/qwenpaw-pet/desktop/start
 POST /api/qwenpaw-pet/switch-pet
+POST /api/qwenpaw-pet/import-pet          # JSON body — server-side path
+POST /api/qwenpaw-pet/import-pet-upload   # multipart/form-data — browser
 POST /api/qwenpaw-pet/emit-test
 ```
+
+**`/import-pet`** (JSON, for CLI / SDK use) takes
+`{"path": "<absolute path>", "replace": true}` and reads a folder or
+`.zip` that already exists on the server's filesystem.
+
+**`/import-pet-upload`** (multipart, used by the dropzone in the UI)
+takes one or more files in the `files` field plus a `replace` form
+field. Two shapes:
+
+* a single `.zip` file — extracted server-side (zip-slip protected),
+* one or more files whose `filename` is a relative path
+  (`webkitRelativePath`-style) — written into a tempdir to recreate the
+  folder structure.
+
+Both paths share the same install logic. The package must contain
+`pet.json` + the spritesheet it references (defaults to
+`spritesheet.webp`, 1536×1872). The manifest `id` is checked against
+`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$` before becoming a folder name
+under `pets/`. Returns `409` when the pet already exists and `replace`
+is `false`.
 
 ## Desktop runtime HTTP API (`127.0.0.1:8765`)
 

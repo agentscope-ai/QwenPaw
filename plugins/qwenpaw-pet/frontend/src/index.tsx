@@ -16,7 +16,8 @@ const antd = host.antd;
 const getApiUrl: (path: string) => string = host.getApiUrl;
 const getApiToken: () => string = host.getApiToken;
 
-const { Button, Card, Space, Table, Typography, message } = antd;
+const { Button, Card, Space, Table, Typography, message, Modal, Checkbox } =
+  antd;
 // Renamed Typography.Text to AntText: ``Text`` collides with the
 // global DOM ``Text`` interface from ``lib.dom.d.ts``.
 const { Title, Text: AntText, Paragraph } = Typography;
@@ -133,6 +134,15 @@ function PetControlPage() {
   const [desktop, setDesktop] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(false);
 
+  const [importOpen, setImportOpen] = React.useState(false);
+  const [importReplace, setImportReplace] = React.useState(true);
+  const [importing, setImporting] = React.useState(false);
+  const [selectedFiles, setSelectedFiles] = React.useState<
+    { file: File; path: string }[]
+  >([]);
+  const [dragOver, setDragOver] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+
   const refresh = React.useCallback(async () => {
     setLoading(true);
     try {
@@ -174,6 +184,141 @@ function PetControlPage() {
       await refresh();
     } catch (e: any) {
       message.error(e?.message || String(e));
+    }
+  };
+
+  const openImport = () => {
+    setSelectedFiles([]);
+    setImportReplace(true);
+    setDragOver(false);
+    setImportOpen(true);
+  };
+
+  // Recursively flatten a webkit FileSystemEntry into File + relative path
+  // pairs. Used to translate a dropped folder into a multipart upload
+  // that mirrors the on-disk layout (so the server can locate pet.json).
+  const traverseEntry = async (
+    entry: any,
+    prefix: string,
+    out: { file: File; path: string }[],
+  ): Promise<void> => {
+    const currentPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isFile) {
+      const file: File = await new Promise((resolve, reject) =>
+        entry.file(resolve, reject),
+      );
+      out.push({ file, path: currentPath });
+      return;
+    }
+    if (!entry.isDirectory) return;
+    const reader = entry.createReader();
+    // readEntries returns at most ~100 entries per call; drain to empty.
+    while (true) {
+      const batch: any[] = await new Promise((resolve, reject) =>
+        reader.readEntries(resolve, reject),
+      );
+      if (batch.length === 0) break;
+      for (const child of batch) {
+        await traverseEntry(child, currentPath, out);
+      }
+    }
+  };
+
+  const onDropFiles = async (e: any) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (importing) return;
+    const items: DataTransferItemList | undefined = e.dataTransfer?.items;
+    const fallbackFiles: FileList | undefined = e.dataTransfer?.files;
+    const collected: { file: File; path: string }[] = [];
+    if (items && items.length > 0) {
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.kind !== "file") continue;
+        const entry = (it as any).webkitGetAsEntry?.();
+        if (entry) {
+          await traverseEntry(entry, "", collected);
+        } else {
+          const f = it.getAsFile();
+          if (f) collected.push({ file: f, path: f.name });
+        }
+      }
+    } else if (fallbackFiles) {
+      for (let i = 0; i < fallbackFiles.length; i++) {
+        const f = fallbackFiles[i];
+        collected.push({ file: f, path: f.name });
+      }
+    }
+    if (collected.length === 0) {
+      message.warning("Drop a folder or a .zip file.");
+      return;
+    }
+    setSelectedFiles(collected);
+  };
+
+  const onDragOver = (e: any) => {
+    e.preventDefault();
+    if (!importing) setDragOver(true);
+  };
+  const onDragLeave = (e: any) => {
+    e.preventDefault();
+    setDragOver(false);
+  };
+
+  const onClickDropzone = () => {
+    if (!importing) fileInputRef.current?.click();
+  };
+
+  const onPickFiles = (e: any) => {
+    const list: FileList | null = e.target?.files;
+    if (!list || list.length === 0) return;
+    const collected: { file: File; path: string }[] = [];
+    for (let i = 0; i < list.length; i++) {
+      const f = list[i];
+      collected.push({ file: f, path: f.name });
+    }
+    setSelectedFiles(collected);
+    // Reset so picking the same file twice still fires onChange.
+    e.target.value = "";
+  };
+
+  const submitImport = async () => {
+    if (selectedFiles.length === 0) {
+      message.warning("Drop a folder or choose a .zip file first.");
+      return;
+    }
+    setImporting(true);
+    try {
+      const form = new FormData();
+      for (const { file, path } of selectedFiles) {
+        form.append("files", file, path);
+      }
+      form.append("replace", importReplace ? "true" : "false");
+      const res = await fetch(getApiUrl("/qwenpaw-pet/import-pet-upload"), {
+        method: "POST",
+        headers: authHeaders(),
+        body: form,
+      });
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = { raw: text };
+      }
+      if (!res.ok) {
+        throw new Error(typeof data?.detail === "string" ? data.detail : text);
+      }
+      message.success(
+        `Imported "${data.displayName || data.petId}" \u2192 ${data.path}`,
+      );
+      setImportOpen(false);
+      setSelectedFiles([]);
+      await refresh();
+    } catch (e: any) {
+      message.error(e?.message || String(e));
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -251,6 +396,7 @@ function PetControlPage() {
             { type: "primary", onClick: startDesktop },
             "Start desktop pet",
           ),
+          React.createElement(Button, { onClick: openImport }, "Import pet"),
           React.createElement(
             Button,
             { onClick: () => void refresh(), loading },
@@ -288,6 +434,138 @@ function PetControlPage() {
             emptyText: "No pets found. Run: qwenpaw-pet install-pet …",
           },
         }),
+        React.createElement(
+          Modal,
+          {
+            key: "import-modal",
+            title: "Import pet",
+            open: importOpen,
+            onOk: () => void submitImport(),
+            okText: "Import",
+            okButtonProps: { loading: importing },
+            cancelButtonProps: { disabled: importing },
+            onCancel: () => {
+              if (!importing) setImportOpen(false);
+            },
+            destroyOnClose: true,
+          },
+          React.createElement(
+            Space,
+            { direction: "vertical", style: { width: "100%" } },
+            React.createElement(
+              "div",
+              {
+                role: "button",
+                tabIndex: 0,
+                onClick: onClickDropzone,
+                onDrop: onDropFiles,
+                onDragOver: onDragOver,
+                onDragLeave: onDragLeave,
+                onKeyDown: (e: any) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onClickDropzone();
+                  }
+                },
+                style: {
+                  border: `2px dashed ${dragOver ? "#1677ff" : "#d9d9d9"}`,
+                  borderRadius: 8,
+                  padding: "32px 16px",
+                  textAlign: "center" as const,
+                  cursor: importing ? "not-allowed" : "pointer",
+                  background: dragOver ? "rgba(22, 119, 255, 0.06)" : "#fafafa",
+                  transition: "border-color .15s ease, background .15s ease",
+                  userSelect: "none" as const,
+                  color: dragOver ? "#1677ff" : undefined,
+                },
+              },
+              // Line-art cube icon (matches the dropzone reference)
+              React.createElement(
+                "svg",
+                {
+                  width: 48,
+                  height: 48,
+                  viewBox: "0 0 24 24",
+                  fill: "none",
+                  stroke: "currentColor",
+                  strokeWidth: 1.5,
+                  strokeLinecap: "round" as const,
+                  strokeLinejoin: "round" as const,
+                  style: {
+                    display: "block",
+                    margin: "0 auto 12px",
+                    opacity: 0.7,
+                  },
+                },
+                React.createElement("path", {
+                  d:
+                    "M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2" +
+                    " 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0" +
+                    "l7-4A2 2 0 0 0 21 16z",
+                }),
+                React.createElement("polyline", {
+                  points: "3.27 6.96 12 12.01 20.73 6.96",
+                }),
+                React.createElement("line", {
+                  x1: "12",
+                  y1: "22.08",
+                  x2: "12",
+                  y2: "12",
+                }),
+              ),
+              React.createElement(
+                "div",
+                {
+                  style: {
+                    fontSize: 16,
+                    fontWeight: 600,
+                    marginBottom: 4,
+                  },
+                },
+                "Drop a folder or .zip file here",
+              ),
+              React.createElement(
+                AntText,
+                { type: "secondary" },
+                "or click to choose a .zip",
+              ),
+            ),
+            React.createElement("input", {
+              ref: fileInputRef,
+              type: "file",
+              accept: ".zip,application/zip",
+              style: { display: "none" },
+              onChange: onPickFiles,
+            }),
+            selectedFiles.length === 0
+              ? React.createElement(
+                  AntText,
+                  { type: "secondary", style: { fontSize: 12 } },
+                  "Folder or unzipped archive must contain pet.json and " +
+                    "spritesheet.webp (1536\u00d71872).",
+                )
+              : React.createElement(
+                  AntText,
+                  null,
+                  selectedFiles.length === 1
+                    ? `Selected: ${selectedFiles[0].path}`
+                    : `Selected: ${selectedFiles.length} files (root: ` +
+                        `${
+                          selectedFiles[0].path.split("/")[0] ||
+                          selectedFiles[0].path
+                        })`,
+                ),
+            React.createElement(
+              Checkbox,
+              {
+                checked: importReplace,
+                onChange: (e: any) => setImportReplace(!!e.target.checked),
+                disabled: importing,
+              },
+              "Replace if a pet with the same id already exists",
+            ),
+          ),
+        ),
       ],
     ),
   );
