@@ -14,8 +14,6 @@ from ..desktop_env import DESKTOP_PORT_ENV
 from ..utils.http import is_loopback_host
 from ..utils.logging import setup_logger, SuppressPathAccessLogFilter
 
-WILDCARD_HOSTS = {"0.0.0.0", "::", "[::]", "0:0:0:0:0:0:0:0"}
-
 
 logger = logging.getLogger(__name__)
 WILDCARD_HOSTS = {"0.0.0.0", "::", "[::]", "0:0:0:0:0:0:0:0"}

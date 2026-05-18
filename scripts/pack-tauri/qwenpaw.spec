@@ -87,7 +87,7 @@ for _pkg in _metadata_pkgs:
         pass
 
 a = Analysis(
-    [str(SRC / 'desktop_entry.py')],
+    [str(SRC / 'tauri' / 'entry.py')],
     pathex=[str(REPO_ROOT), str(REPO_ROOT / 'src')],
     binaries=[],
     datas=datas,

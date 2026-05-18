@@ -19,13 +19,13 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
     let command = if command_exists("uv") {
         app.shell()
             .command("uv")
-            .args(["run", "python", "-m", "qwenpaw.desktop_entry"])
+            .args(["run", "python", "-m", "qwenpaw.tauri.entry"])
             .current_dir(repo_root)
             .env("PYTHONPATH", source_path.display().to_string())
     } else {
         let (python, prefix_args) = python_command(&repo_root);
         let mut args = prefix_args;
-        args.extend(["-m", "qwenpaw.desktop_entry"]);
+        args.extend(["-m", "qwenpaw.tauri.entry"]);
         app.shell()
             .command(python)
             .args(args)
