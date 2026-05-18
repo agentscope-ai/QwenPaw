@@ -7,10 +7,12 @@ handlers themselves.
 """
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
 
 from fastapi import HTTPException
 
+from ...backup._utils.constants import PREFIX_CONFIG, zip_path
 from ...backup._ops.restore_helpers import (
     LOCAL_PROTECTED_CONFIG_KEYS,
     resolve_preserve_flag,
@@ -75,18 +77,28 @@ def validation_detail(exc: BackupValidationError) -> dict[str, object]:
 def restored_local_keys(
     req: RestoreBackupRequest,
     meta: BackupMeta,
+    *,
+    archive_has_global_config: bool,
 ) -> list[str]:
-    """Return protected local keys that were actually preserved.
+    """Return protected local keys preserved by a completed restore.
 
-    The restore response is only a UI hint. Report preserved keys only when
-    config restore was requested and the archive claims to contain config;
-    agent-only restores do not touch config, so returning keys there would be
-    misleading.
+    Match the actual staging condition in ``_stage_global_config``: config
+    must be requested, the archive must contain config.json, and preservation
+    must be enabled for this local/foreign trust state.
     """
     if not req.include_global_config:
         return []
-    if not meta.scope.include_global_config:
+    if not archive_has_global_config:
         return []
     if not resolve_preserve_flag(req, meta):
         return []
     return list(LOCAL_PROTECTED_CONFIG_KEYS)
+
+
+def backup_contains_global_config(backup_id: str) -> bool:
+    """Return whether the stored archive has a config payload to restore."""
+    try:
+        with zipfile.ZipFile(zip_path(backup_id), "r") as zf:
+            return PREFIX_CONFIG in zf.namelist()
+    except (FileNotFoundError, zipfile.BadZipFile):
+        return False

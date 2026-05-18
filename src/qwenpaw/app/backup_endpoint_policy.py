@@ -134,12 +134,9 @@ def _is_loopback_client(request: Request) -> bool:
     host = client_host.strip().strip("[]")
     if host == "localhost":
         return True
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
+    ip = _parse_ip(host)
+    if ip is None:
         return False
-    if ip.version == 6 and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
     return ip.is_loopback
 
 
@@ -192,13 +189,23 @@ def _get_cached_config() -> Any:
 def _canonicalize_ip(value: str) -> str:
     """Normalize IP text so IPv4-mapped loopback forms compare correctly."""
     host = value.strip().strip("[]")
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
+    ip = _parse_ip(host)
+    if ip is None:
         return host
-    if ip.version == 6 and ip.ipv4_mapped is not None:
-        return str(ip.ipv4_mapped)
     return str(ip)
+
+
+def _parse_ip(
+    value: str,
+) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Parse IP text, normalizing IPv4-mapped IPv6 addresses to IPv4."""
+    try:
+        ip = ipaddress.ip_address(value.strip().strip("[]"))
+    except ValueError:
+        return None
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    return ip
 
 
 def _ip_in_allow_list(client_host: str, allowed_hosts: list[str]) -> bool:

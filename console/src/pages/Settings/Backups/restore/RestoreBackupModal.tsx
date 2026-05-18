@@ -33,6 +33,10 @@ import type { AgentSummary } from "@/api/types/agents";
 import { parseErrorDetail } from "@/utils/error";
 import { isFullBackup } from "../shared/scope";
 import BackupTrustDialog from "../trust/BackupTrustDialog";
+import {
+  trustModeFromErrorCode,
+  type BackupTrustMode,
+} from "../trust/trustErrors";
 import RestoreAgentTable from "./RestoreAgentTable";
 import styles from "./RestoreBackupModal.module.less";
 
@@ -49,7 +53,7 @@ interface Props {
 type RestoreMode = "full" | "custom";
 type RestoreStrategy = "preserve" | "restore";
 type TrustPrompt = {
-  mode: "legacy" | "foreign";
+  mode: BackupTrustMode;
   request: RestoreBackupRequest;
 };
 
@@ -247,13 +251,9 @@ export default function RestoreBackupModal({
       await finishRestore(request);
     } catch (err: unknown) {
       const detail = parseErrorDetail(err);
-      if (detail?.code === "backup_legacy_unsigned") {
-        setTrustPrompt({ mode: "legacy", request });
-      } else if (
-        detail?.code === "backup_signature_mismatch" ||
-        detail?.code === "backup_unknown_signature_scheme"
-      ) {
-        setTrustPrompt({ mode: "foreign", request });
+      const trustMode = trustModeFromErrorCode(detail?.code);
+      if (trustMode) {
+        setTrustPrompt({ mode: trustMode, request });
       } else {
         showRestoreFailure(detail);
       }

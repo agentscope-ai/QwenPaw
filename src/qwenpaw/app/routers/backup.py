@@ -35,6 +35,7 @@ from ...constant import BACKUP_DIR
 from ._backup_helpers import (
     TMP_TRUST_SUFFIX,
     TMP_UPLOAD_SUFFIX,
+    backup_contains_global_config,
     parse_pending_token,
     restored_local_keys,
     strip_signature,
@@ -288,7 +289,11 @@ async def restore_backup(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    preserved = restored_local_keys(req, meta)
+    preserved = restored_local_keys(
+        req,
+        meta,
+        archive_has_global_config=backup_contains_global_config(backup_id),
+    )
     return {"ok": True, "preserved_local_keys": preserved}
 
 

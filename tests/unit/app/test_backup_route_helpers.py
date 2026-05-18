@@ -20,7 +20,14 @@ def test_preserved_keys_are_empty_for_agent_only_restore() -> None:
         preserve_local_protected_config=True,
     )
 
-    assert restored_local_keys(req, _meta(include_global_config=True)) == []
+    assert (
+        restored_local_keys(
+            req,
+            _meta(include_global_config=True),
+            archive_has_global_config=True,
+        )
+        == []
+    )
 
 
 def test_preserved_keys_are_empty_when_archive_has_no_config() -> None:
@@ -29,7 +36,14 @@ def test_preserved_keys_are_empty_when_archive_has_no_config() -> None:
         preserve_local_protected_config=True,
     )
 
-    assert restored_local_keys(req, _meta(include_global_config=False)) == []
+    assert (
+        restored_local_keys(
+            req,
+            _meta(include_global_config=True),
+            archive_has_global_config=False,
+        )
+        == []
+    )
 
 
 def test_preserved_keys_report_actual_config_overlay() -> None:
@@ -38,7 +52,11 @@ def test_preserved_keys_report_actual_config_overlay() -> None:
         preserve_local_protected_config=True,
     )
 
-    assert restored_local_keys(req, _meta(include_global_config=True)) == [
+    assert restored_local_keys(
+        req,
+        _meta(include_global_config=False),
+        archive_has_global_config=True,
+    ) == [
         "security",
         "mcp",
     ]

@@ -111,7 +111,7 @@ export default function BackupsPage() {
       />
       <BackupTrustDialog
         open={!!importFlow.trustFileName}
-        mode="foreign"
+        mode={importFlow.trustMode ?? "foreign"}
         backupName={importFlow.trustFileName ?? undefined}
         confirmLoading={importFlow.trustLoading}
         onConfirm={importFlow.handleTrustConfirm}
