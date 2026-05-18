@@ -134,7 +134,7 @@ class OpenAIProvider(Provider):
                     },
                 ],
                 timeout=timeout,
-                max_tokens=1,
+                max_tokens=20,
                 stream=True,
             )
             # consume the stream to ensure the model is actually responsive
