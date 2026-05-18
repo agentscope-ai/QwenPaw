@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Desktop entry point for Tauri sidecar auto-init + start backend."""
+"""Tauri sidecar entry point for starting the Python backend."""
 from __future__ import annotations
 
 from collections.abc import Sequence
+import multiprocessing as mp
 import os
 import sys
 
 import click
 
-from qwenpaw.desktop_env import (
-    DESKTOP_APP_ENV,
+from qwenpaw.desktop_env import DESKTOP_APP_ENV
+from qwenpaw.tauri.env import (
     DESKTOP_CORS_ORIGINS_ENV,
     DESKTOP_PORT_ENV,
     ensure_desktop_cors_origins,
@@ -108,4 +109,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    mp.freeze_support()
     main()

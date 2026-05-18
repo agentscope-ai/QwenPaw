@@ -33,7 +33,7 @@ const LoginPage = lazyImportWithRetry("./pages/Login/index");
 import { authApi } from "./api/modules/auth";
 import { languageApi } from "./api/modules/language";
 import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
-import BackendReadyGate from "./components/BackendReadyGate";
+import BackendReadyGate from "./tauri/BackendReadyGate";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 

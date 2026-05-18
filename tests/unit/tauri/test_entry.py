@@ -9,8 +9,8 @@ import types
 import click
 import pytest
 
-from qwenpaw import desktop_entry
-from qwenpaw.desktop_env import DESKTOP_CORS_ORIGINS_ENV
+from qwenpaw.tauri import entry
+from qwenpaw.tauri.env import DESKTOP_CORS_ORIGINS_ENV
 
 
 def test_ensure_desktop_cors_origins_preserves_existing_values(monkeypatch):
@@ -19,7 +19,7 @@ def test_ensure_desktop_cors_origins_preserves_existing_values(monkeypatch):
         "https://example.test,tauri://localhost",
     )
 
-    desktop_entry._ensure_desktop_cors_origins()
+    entry._ensure_desktop_cors_origins()
 
     origins = os.environ[DESKTOP_CORS_ORIGINS_ENV].split(",")
     assert origins.count("tauri://localhost") == 1
@@ -31,7 +31,7 @@ def test_ensure_qwenpaw_app_not_loaded_rejects_late_cors(monkeypatch):
     monkeypatch.setitem(sys.modules, "qwenpaw.app._app", object())
 
     with pytest.raises(RuntimeError, match="desktop CORS origins"):
-        desktop_entry._ensure_qwenpaw_app_not_loaded()
+        entry._ensure_qwenpaw_app_not_loaded()
 
 
 def test_sync_loaded_qwenpaw_constant_cors_origins(monkeypatch):
@@ -39,7 +39,7 @@ def test_sync_loaded_qwenpaw_constant_cors_origins(monkeypatch):
     monkeypatch.setitem(sys.modules, "qwenpaw.constant", constant_module)
     monkeypatch.setenv(DESKTOP_CORS_ORIGINS_ENV, "tauri://localhost")
 
-    desktop_entry._sync_loaded_qwenpaw_constant_cors_origins()
+    entry._sync_loaded_qwenpaw_constant_cors_origins()
 
     assert constant_module.CORS_ORIGINS == "tauri://localhost"
 
@@ -53,7 +53,7 @@ def test_run_click_command_wraps_click_exception(capsys):
         RuntimeError,
         match="desktop initialization failed",
     ) as exc_info:
-        desktop_entry._run_click_command(command, [], "initialization")
+        entry._run_click_command(command, [], "initialization")
 
     captured = capsys.readouterr()
     assert "bad input" in captured.err
@@ -69,7 +69,7 @@ def test_run_click_command_wraps_click_abort(capsys):
         RuntimeError,
         match="desktop initialization aborted",
     ) as exc_info:
-        desktop_entry._run_click_command(command, [], "initialization")
+        entry._run_click_command(command, [], "initialization")
 
     captured = capsys.readouterr()
     assert "aborted" in captured.err
@@ -85,7 +85,7 @@ def test_run_click_command_wraps_system_exit(capsys):
         RuntimeError,
         match="desktop backend startup exited",
     ) as exc_info:
-        desktop_entry._run_click_command(command, [], "backend startup")
+        entry._run_click_command(command, [], "backend startup")
 
     captured = capsys.readouterr()
     assert "code 7" in captured.err
