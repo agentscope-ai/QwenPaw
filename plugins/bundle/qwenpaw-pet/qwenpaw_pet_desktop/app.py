@@ -70,6 +70,10 @@ def run_desktop(pet_dir: Path, host: str, port: int, scale: float) -> int:
     runtime.ensure_token()
     runtime.write_pid(os.getpid())
     runtime.write_json(runtime.bubble_path(), {"text": "", "counter": 0})
+    # Local QwenPaw plugin always calls ``127.0.0.1`` even when the
+    # server binds ``0.0.0.0`` — record a loopback URL for ``emitter``.
+    display_host = "127.0.0.1" if host in ("0.0.0.0", "::", "[::]") else host
+    runtime.write_bridge_url(f"http://{display_host}:{port}")
 
     qt_app = QApplication(sys.argv)
     window = PetWindow(pet_dir, scale=scale)

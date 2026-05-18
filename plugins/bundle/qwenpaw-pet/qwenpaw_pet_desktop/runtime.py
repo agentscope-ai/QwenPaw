@@ -67,6 +67,32 @@ def log_path() -> Path:
     return runtime_dir() / "pet-desktop.log"
 
 
+def bridge_url_path() -> Path:
+    """Path to JSON holding the bridge ``url`` for plugin HTTP clients."""
+    return runtime_dir() / "desktop-bridge.json"
+
+
+def read_bridge_url() -> str | None:
+    data = read_json(bridge_url_path(), {})
+    u = data.get("url")
+    if not isinstance(u, str):
+        return None
+    u = u.strip().rstrip("/")
+    return u or None
+
+
+def write_bridge_url(base_url: str) -> None:
+    """Persist the HTTP bridge base URL (may include a non-default port)."""
+    ensure_runtime()
+    write_json(
+        bridge_url_path(),
+        {
+            "url": base_url.rstrip("/"),
+            "updatedAt": int(time.time() * 1000),
+        },
+    )
+
+
 def ensure_runtime() -> None:
     runtime_dir().mkdir(parents=True, exist_ok=True)
     pets_dir().mkdir(parents=True, exist_ok=True)

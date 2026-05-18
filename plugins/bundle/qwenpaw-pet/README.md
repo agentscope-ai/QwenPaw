@@ -283,8 +283,10 @@ will take precedence over the cache and the network fetch.
 
 | Var | Purpose | Default |
 | --- | --- | --- |
-| `QWENPAW_PET_DESKTOP_URL` | Where the plugin sends events | `http://127.0.0.1:8765` |
-| `QWENPAW_PET_DESKTOP_PORT` | Port used when the plugin spawns the desktop | `8765` |
+| `QWENPAW_PET_DESKTOP_URL` | Full base URL for the plugin → desktop HTTP bridge. If set, port auto-fallback is **disabled** (URL and listener must agree). | unset ⇒ derive from host + port below |
+| `QWENPAW_PET_DESKTOP_HOST` | Bind address when spawning (`--host`) | `127.0.0.1` |
+| `QWENPAW_PET_DESKTOP_PORT` | Preferred port when spawning; if busy, the plugin scans upward (unless `DESKTOP_URL` is set or `STRICT` is on) | `8765` |
+| `QWENPAW_PET_DESKTOP_STRICT_PORT` | `1` ⇒ never auto-pick another port (fail with EADDRINUSE if taken) | `0` |
 | `QWENPAW_PET_DESKTOP_SCALE` | Spawn-time scale (e.g. `0.58`) | unset |
 | `QWENPAW_PET_DESKTOP_PET_DIR` | Spawn-time pet folder override | unset |
 | `QWENPAW_PET_TOKEN_PATH` | Path to the local update token | `~/.qwenpaw-pet/runtime/update-token` |
@@ -294,3 +296,22 @@ will take precedence over the cache and the network fetch.
 | `QWENPAW_PET_HOME` | Runtime dir (PID file, log, **cache**, token) | `~/.qwenpaw-pet/` |
 | `QWENPAW_PET_SNOWPAW_URL` | CDN URL for snowpaw's `spritesheet.webp` (downloaded once on first install) | Alicdn-hosted default |
 | `QWENPAW_WORKING_DIR` / `COPAW_WORKING_DIR` | Where `pets/` lives | falls back to `~/.copaw` then `~/.qwenpaw` |
+
+### Pet desktop log / common errors
+
+`~/.qwenpaw-pet/runtime/pet-desktop.log` captures stderr from the spawned
+desktop process.
+
+- **`ModuleNotFoundError: No module named 'PySide6'`** — install Qt into the
+  **same** Python as QwenPaw:
+  `pip install "pyside6-essentials>=6.6"` (see `plugin.json` / `requirements.txt`).
+
+- **`[Errno 48] address already in use` (uvicorn)** — something else is bound
+  to the configured port (often a leftover pet or another app). Either stop
+  that process, set `QWENPAW_PET_DESKTOP_PORT` to a free port, or unset
+  `QWENPAW_PET_DESKTOP_URL` and let the plugin auto-pick the next free port
+  after the preferred one.
+
+The effective listen URL is mirrored under
+`~/.qwenpaw-pet/runtime/desktop-bridge.json` (`url` field) so the plugin can
+find the bridge after a port change.

@@ -8,11 +8,13 @@ import functools
 import logging
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -28,6 +30,10 @@ logger = logging.getLogger("qwenpaw.pet_desktop")
 # killed on QwenPaw exit. Hard opt-out: ``QWENPAW_PET_STOP_ON_SHUTDOWN=0``.
 _DESKTOP_OWNED = False
 
+# Last URL that successfully answered ``GET /health`` (or the URL we
+# chose when spawning after a port collision).
+_active_desktop_base: str | None = None
+
 
 def _mark_desktop_owned() -> None:
     """Mark the desktop as managed by this QwenPaw process."""
@@ -35,10 +41,10 @@ def _mark_desktop_owned() -> None:
     _DESKTOP_OWNED = True
 
 
-DESKTOP_URL = os.environ.get(
-    "QWENPAW_PET_DESKTOP_URL",
-    "http://127.0.0.1:8765",
-).rstrip("/")
+def _clear_desktop_base_url_cache() -> None:
+    global _active_desktop_base
+    _active_desktop_base = None
+
 
 TOKEN_PATH = Path(
     os.environ.get(
@@ -89,17 +95,134 @@ def _httpx_client_kwargs() -> dict[str, Any]:
     return {"trust_env": False, "timeout": 0.35}
 
 
-def desktop_health() -> dict[str, Any] | None:
-    try:
-        response = httpx.get(
-            f"{DESKTOP_URL}/health",
-            **_httpx_client_kwargs(),
+def _spawn_host_port_from_env() -> tuple[str, int]:
+    """Host + preferred TCP port for ``qwenpaw_pet_desktop.app``."""
+    url = (os.environ.get("QWENPAW_PET_DESKTOP_URL") or "").strip()
+    if url:
+        u = urlparse(url)
+        host = (u.hostname or "127.0.0.1").strip() or "127.0.0.1"
+        if u.port is not None:
+            return host, int(u.port)
+        if (u.scheme or "http").lower() == "https":
+            return host, 443
+        return host, 8765
+    host = (os.environ.get("QWENPAW_PET_DESKTOP_HOST") or "127.0.0.1").strip()
+    host = host or "127.0.0.1"
+    port = int(os.environ.get("QWENPAW_PET_DESKTOP_PORT", "8765"))
+    return host, port
+
+
+def _tcp_bind_test(host: str, port: int) -> bool:
+    """Return whether ``(host, port)`` is free for a new listener."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
+def _pick_listen_port(host: str, preferred: int) -> int:
+    """Use ``preferred`` if free; otherwise scan upward, then ask the OS.
+
+    Set ``QWENPAW_PET_DESKTOP_STRICT_PORT=1`` to disable fallback (spawn
+    may still fail with EADDRINUSE if the port is taken between the probe
+    and the child bind — rare on localhost).
+
+    If ``QWENPAW_PET_DESKTOP_URL`` pins an explicit ``host:port``, we never
+    pick another port — otherwise the running bridge would not match the
+    URL the user configured.
+    """
+    if os.environ.get("QWENPAW_PET_DESKTOP_STRICT_PORT", "0") == "1":
+        return preferred
+    if (os.environ.get("QWENPAW_PET_DESKTOP_URL") or "").strip():
+        return preferred
+    if _tcp_bind_test(host, preferred):
+        return preferred
+    for p in range(preferred + 1, preferred + 128):
+        if _tcp_bind_test(host, p):
+            logger.info(
+                "QwenPaw Pet: preferred desktop port %s busy on %s; using %s",
+                preferred,
+                host,
+                p,
+            )
+            return p
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((host, 0))
+        ephem = int(s.getsockname()[1])
+        logger.warning(
+            "QwenPaw Pet: desktop using ephemeral port %s on %s",
+            ephem,
+            host,
         )
-        response.raise_for_status()
-        data = response.json()
-        return data if isinstance(data, dict) else None
+        return ephem
+
+
+def _desktop_url_candidates() -> list[str]:
+    """Ordered URLs to try for ``GET /health`` (deduped)."""
+    explicit = (os.environ.get("QWENPAW_PET_DESKTOP_URL") or "").strip()
+    if explicit:
+        return [explicit.rstrip("/")]
+
+    out: list[str] = []
+    try:
+        from qwenpaw_pet_desktop import runtime as pet_rt
+
+        bu = pet_rt.read_bridge_url()
+        if bu:
+            out.append(bu.rstrip("/"))
     except Exception:
-        return None
+        pass
+
+    host = (os.environ.get("QWENPAW_PET_DESKTOP_HOST") or "127.0.0.1").strip()
+    host = host or "127.0.0.1"
+    port = int(os.environ.get("QWENPAW_PET_DESKTOP_PORT", "8765"))
+    default_u = f"http://{host}:{port}"
+    out.append(default_u.rstrip("/"))
+
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for u in out:
+        if u not in seen:
+            seen.add(u)
+            uniq.append(u)
+    return uniq
+
+
+def _resolved_desktop_base_url() -> str:
+    """Base URL for mutating HTTP calls (``/event``, ``/pet``).
+
+    Prefer the last healthy endpoint; otherwise probe once via
+    ``desktop_health``; fall back to the first candidate.
+    """
+    global _active_desktop_base
+    if _active_desktop_base:
+        return _active_desktop_base.rstrip("/")
+    desktop_health()
+    if _active_desktop_base:
+        return _active_desktop_base.rstrip("/")
+    cands = _desktop_url_candidates()
+    return cands[0].rstrip("/") if cands else "http://127.0.0.1:8765"
+
+
+def desktop_health() -> dict[str, Any] | None:
+    global _active_desktop_base
+    for base in _desktop_url_candidates():
+        try:
+            response = httpx.get(
+                f"{base.rstrip('/')}/health",
+                **_httpx_client_kwargs(),
+            )
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, dict):
+                _active_desktop_base = base.rstrip("/")
+                return data
+        except Exception:
+            continue
+    _active_desktop_base = None
+    return None
 
 
 _MISSING_DEPS_HINT = (
@@ -124,7 +247,6 @@ def _spawn_desktop_background() -> tuple[bool, str | None]:
         ``(True, None)`` if a process was spawned, else
         ``(False, user-facing reason)``.
     """
-    port = int(os.environ.get("QWENPAW_PET_DESKTOP_PORT", "8765"))
     try:
         from qwenpaw_pet_desktop import runtime as pet_rt
     except ImportError as exc:
@@ -143,10 +265,20 @@ def _spawn_desktop_background() -> tuple[bool, str | None]:
                 "Could not pre-create pet bridge token",
                 exc_info=True,
             )
+        host, preferred_port = _spawn_host_port_from_env()
+        port = _pick_listen_port(host, preferred_port)
+        display_host = (
+            "127.0.0.1" if host in ("0.0.0.0", "::", "[::]") else host
+        )
+        listen_url = f"http://{display_host}:{port}"
+        pet_rt.write_bridge_url(listen_url)
+
         cmd: list[str] = [
             sys.executable,
             "-m",
             "qwenpaw_pet_desktop.app",
+            "--host",
+            host,
             "--port",
             str(port),
         ]
@@ -183,6 +315,8 @@ def _spawn_desktop_background() -> tuple[bool, str | None]:
                 env=env,
             )
         pet_rt.write_pid(proc.pid)
+        global _active_desktop_base
+        _active_desktop_base = listen_url
         _mark_desktop_owned()
         return True, None
     except OSError as exc:
@@ -280,11 +414,14 @@ def stop_desktop(*, force: bool = False) -> dict[str, Any]:
 
     pid = pet_rt.read_pid()
     if not pid:
+        _clear_desktop_base_url_cache()
         return {"ok": True, "stopped": False, "reason": "no pid file"}
     if not pet_rt.is_pid_running(pid):
+        _clear_desktop_base_url_cache()
         return {"ok": True, "stopped": False, "reason": "not running"}
 
     stopped = _stop_pid(pid)
+    _clear_desktop_base_url_cache()
     return {"ok": True, "stopped": stopped, "pid": pid}
 
 
@@ -466,7 +603,7 @@ def emit_pet_event(event: str, **payload: Any) -> None:
     }
     try:
         response = httpx.post(
-            f"{DESKTOP_URL}/event",
+            f"{_resolved_desktop_base_url()}/event",
             json=body,
             headers=_headers(),
             **_httpx_client_kwargs(),
@@ -500,7 +637,7 @@ def switch_pet_desktop(
     client_kw["timeout"] = 3.0
     try:
         response = httpx.post(
-            f"{DESKTOP_URL}/pet",
+            f"{_resolved_desktop_base_url()}/pet",
             json=body,
             headers=_headers(),
             **client_kw,
