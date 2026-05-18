@@ -3,6 +3,7 @@ import { screen } from "@testing-library/react";
 import ThemeToggleButton from "./index";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { render } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k }),
@@ -12,9 +13,11 @@ vi.mock("react-i18next", () => ({
 function renderWithTheme(mode: "light" | "dark" | "system" = "light") {
   localStorage.setItem("qwenpaw-theme", mode);
   return render(
-    <ThemeProvider>
-      <ThemeToggleButton />
-    </ThemeProvider>,
+    <MemoryRouter>
+      <ThemeProvider>
+        <ThemeToggleButton />
+      </ThemeProvider>
+    </MemoryRouter>,
   );
 }
 

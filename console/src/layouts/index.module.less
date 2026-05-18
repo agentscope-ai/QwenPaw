@@ -262,8 +262,8 @@
   }
 
   .stickyChatButtonActive {
-    background: rgba(255, 127, 22, 0.5);
-    color: #ff7f16;
+    background: rgba(var(--qwenpaw-color-primary-rgb, 255, 127, 22), 0.5);
+    color: var(--qwenpaw-color-primary, #ff7f16);
   }
 
   :global {
@@ -296,8 +296,11 @@
 
     /* Selected item */
     .qwenpaw-menu-item-selected {
-      background: rgba(255, 127, 22, 0.5) !important;
-      color: #ff7f16 !important;
+      background: rgba(
+        var(--qwenpaw-color-primary-rgb, 255, 127, 22),
+        0.5
+      ) !important;
+      color: var(--qwenpaw-color-primary, #ff7f16) !important;
     }
   }
 }
@@ -347,7 +350,7 @@
 
 .collapseBtn {
   margin: auto;
-  color: #ff7f16;
+  color: var(--qwenpaw-color-primary, #ff7f16);
 }
 
 // ─── Auth actions (account + logout) ──────────────────────────────────────────
@@ -396,7 +399,7 @@
 
   &:hover {
     background: rgba(0, 0, 0, 0.06) !important;
-    color: #ff7f16 !important;
+    color: var(--qwenpaw-color-primary, #ff7f16) !important;
   }
 }
 
@@ -542,11 +545,11 @@
   font-weight: 500;
   line-height: 64.78px;
   letter-spacing: normal;
-  color: #ff7f16;
+  color: var(--qwenpaw-color-primary, #ff7f16);
 }
 
 .updateModalTitle {
-  color: #ff7f16;
+  color: var(--qwenpaw-color-primary, #ff7f16);
 }
 
 .updateModalBody {
@@ -565,8 +568,8 @@
 }
 
 .updateViewReleasesBtn {
-  background: #ff7f16 !important;
-  border-color: #ff7f16 !important;
+  background: var(--qwenpaw-color-button-bg, #ff7f16) !important;
+  border-color: var(--qwenpaw-color-button-bg, #ff7f16) !important;
   color: #fff !important;
 
   &:hover {
@@ -576,15 +579,16 @@
 }
 
 .updateModalPrimaryBtn {
-  background: #ff7f16;
-  border-color: #ff7f16;
+  background: var(--qwenpaw-color-button-bg, #ff7f16);
+  border-color: var(--qwenpaw-color-button-bg, #ff7f16);
 }
 
 // ─── Code block inside update modal ──────────────────────────────────────────
 .codeBlock {
   position: relative;
-  background: #f5f5f5;
-  border: 1px solid #e8e8e8;
+  background: var(--qwenpaw-color-code-bg, #f5f5f5);
+  border: 1px solid var(--qwenpaw-color-border, #e8e8e8);
+  color: var(--qwenpaw-color-code-text, #3b3b3b);
   border-radius: 6px;
   padding: 12px 40px 12px 16px;
   overflow-x: auto;
@@ -594,10 +598,12 @@
 .codeBlockInner {
   font-family: monospace;
   font-size: 13px;
+  color: var(--qwenpaw-color-code-text, #3b3b3b);
 }
 
 .codeInline {
-  background: #f5f5f5;
+  background: var(--qwenpaw-color-code-bg, #f5f5f5);
+  color: var(--qwenpaw-color-code-text, #3b3b3b);
   border-radius: 3px;
   padding: 1px 5px;
   font-family: monospace;
@@ -673,11 +679,11 @@
   }
 
   .versionBadge {
-    color: #ff7f16;
+    color: var(--qwenpaw-color-primary, #ff7f16);
   }
 
   .collapseBtn {
-    color: #ff7f16;
+    color: var(--qwenpaw-color-primary, #ff7f16);
   }
 
   .authActions {
@@ -698,7 +704,7 @@
 
     &:hover {
       background: rgba(255, 255, 255, 0.08);
-      color: #ff7f16;
+      color: var(--qwenpaw-color-primary, #ff7f16);
     }
   }
 
@@ -712,18 +718,21 @@
   }
 
   .collapsedNavItemActive {
-    background: rgba(255, 127, 22, 0.5) !important;
+    background: rgba(
+      var(--qwenpaw-color-primary-rgb, 255, 127, 22),
+      0.5
+    ) !important;
     color: rgba(255, 255, 255, 0.88) !important;
   }
 
   .codeBlock {
-    background: #2a2a2a;
-    border-color: rgba(255, 255, 255, 0.1);
+    background: var(--qwenpaw-color-code-bg, #2a2a2a);
+    border-color: var(--qwenpaw-color-border, rgba(255, 255, 255, 0.1));
   }
 
   .codeInline {
-    background: #2a2a2a;
-    color: rgba(255, 255, 255, 0.85);
+    background: var(--qwenpaw-color-code-bg, #2a2a2a);
+    color: var(--qwenpaw-color-code-text, rgba(255, 255, 255, 0.85));
   }
 
   .copyBtnDefault {
