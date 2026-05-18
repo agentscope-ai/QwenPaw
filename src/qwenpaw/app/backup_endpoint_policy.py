@@ -126,7 +126,7 @@ def _is_export_route(path: str) -> bool:
         return False
     suffix = path[len(_BACKUP_PATH) + 1 :]
     parts = suffix.split("/")
-    return len(parts) == 2 and parts[0] and parts[1] == "export"
+    return len(parts) == 2 and bool(parts[0]) and parts[1] == "export"
 
 
 def _is_loopback_client(request: Request) -> bool:
