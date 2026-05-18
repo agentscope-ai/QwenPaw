@@ -199,10 +199,22 @@ def _resolved_pet_spritesheet_path(folder: str) -> Path:
         raise HTTPException(status_code=404, detail="missing pet.json")
     try:
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        # The manifest came in via ``/import-pet`` / ``/import-pet-upload``
+        # — so a malformed ``pet.json`` is client-supplied data, not a
+        # server-internal fault. Return 400 instead of 500 so the
+        # console can surface the right message to the user.
+        raise HTTPException(
+            status_code=400,
+            detail="invalid pet.json",
+        ) from exc
+    except OSError as exc:
+        # The ``is_file()`` check above raced with a concurrent delete
+        # or the file became unreadable: that *is* a server-side I/O
+        # failure, so 500 is the correct code.
         raise HTTPException(
             status_code=500,
-            detail="invalid pet.json",
+            detail=f"failed to read pet.json: {exc}",
         ) from exc
     rel = data.get("spritesheetPath")
     if not isinstance(rel, str) or not rel.strip():
@@ -318,11 +330,15 @@ def build_router() -> APIRouter:
                 shutil.rmtree(tmp_root, ignore_errors=True)
 
     @router.post("/import-pet-upload")
-    async def import_pet_upload(
+    def import_pet_upload(
         files: list[UploadFile] = File(...),
         replace: bool = Form(True),
     ):
         """Install a pet from a multipart upload (browser Dropzone).
+
+        Declared as a **synchronous** route so FastAPI runs it in a
+        thread pool — the tempdir writes and ``shutil.copyfileobj``
+        would otherwise block the ASGI event loop on large uploads.
 
         Two upload shapes are supported:
 

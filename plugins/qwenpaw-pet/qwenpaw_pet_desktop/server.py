@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 class PetEvent(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     event: str | None = None
     state: str | None = None
     text: str | None = None
@@ -31,16 +33,12 @@ class PetEvent(BaseModel):
     session_id: str | None = None
     channel: str | None = None
 
-    class Config:
-        extra = "allow"
-
 
 class BubblePayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     text: str
     source: str | None = "qwenpaw"
-
-    class Config:
-        extra = "allow"
 
 
 class SwitchPetPayload(BaseModel):

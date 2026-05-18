@@ -34,10 +34,39 @@ type PetRow = {
   displayName: string;
 };
 
+/**
+ * Mirror of ``console/src/api/authHeaders.ts``.
+ *
+ * The console writes the currently selected agent to a single storage
+ * blob keyed ``qwenpaw-agent-storage`` (sessionStorage takes precedence
+ * over localStorage so each tab can pin its own agent). The QwenPaw API
+ * gateway inspects ``X-Agent-Id`` to scope permissions — omitting it
+ * would silently route the pet plugin's requests under whatever
+ * default agent happens to be active server-side, which is subtly
+ * wrong in multi-agent setups.
+ *
+ * Storage shape: ``{"state": {"selectedAgent": "<agent-id>", ...}, ...}``.
+ */
+function getSelectedAgentId(): string | null {
+  try {
+    const raw =
+      window.sessionStorage?.getItem("qwenpaw-agent-storage") ??
+      window.localStorage?.getItem("qwenpaw-agent-storage");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const selected = parsed?.state?.selectedAgent;
+    return typeof selected === "string" && selected ? selected : null;
+  } catch {
+    return null;
+  }
+}
+
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
   const t = getApiToken?.();
   if (t) headers.Authorization = `Bearer ${t}`;
+  const agentId = getSelectedAgentId();
+  if (agentId) headers["X-Agent-Id"] = agentId;
   return headers;
 }
 

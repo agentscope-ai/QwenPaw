@@ -106,11 +106,19 @@ def patch_agent_runner() -> None:
 
                 if not saw_first_output:
                     saw_first_output = True
-                    schedule_emit_pet_event(
-                        "query.first_token",
-                        text="Replying",
-                        **meta,
-                    )
+                    # Only emit a fallback ``query.first_token`` when the
+                    # classifier did not already speak for this chunk —
+                    # otherwise we either (a) duplicate ``query.first_token``
+                    # on a normal text reply, or (b) bounce the pet through
+                    # the ``review`` state right after a ``tool.detected``
+                    # ("running") emission on a tool-call-first response.
+                    if event is None:
+                        schedule_emit_pet_event(
+                            "query.first_token",
+                            text="Replying",
+                            **meta,
+                        )
+                        last_event = "query.first_token"
 
                 yield result
 
