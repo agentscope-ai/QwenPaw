@@ -53,6 +53,7 @@ class AgentListResponse(BaseModel):
     """Response for listing agents."""
 
     agents: list[AgentSummary]
+    active_agent: str = "default"
 
 
 class ReorderAgentsRequest(BaseModel):
@@ -202,7 +203,10 @@ async def list_agents() -> AgentListResponse:
                 ),
             )
 
-    return AgentListResponse(agents=agents)
+    return AgentListResponse(
+        agents=agents,
+        active_agent=config.agents.active_agent or "default",
+    )
 
 
 @router.put(
