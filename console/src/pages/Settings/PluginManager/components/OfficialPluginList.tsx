@@ -37,7 +37,9 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
       }
     } catch (err) {
       const msg =
-        err instanceof Error ? err.message : t("pluginManager.catalogLoadFailed");
+        err instanceof Error
+          ? err.message
+          : t("pluginManager.catalogLoadFailed");
       setCatalogError(msg);
       setPlugins([]);
     } finally {
@@ -128,7 +130,10 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
                   )}
                 </Space>
                 {entry.description && (
-                  <Text type="secondary" style={{ fontSize: 12, display: "block" }}>
+                  <Text
+                    type="secondary"
+                    style={{ fontSize: 12, display: "block" }}
+                  >
                     {entry.description}
                   </Text>
                 )}
@@ -166,8 +171,8 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
                 {entry.upgrade_available
                   ? t("pluginManager.catalogUpgradeBtn")
                   : entry.installed
-                    ? t("pluginManager.catalogReinstall")
-                    : t("pluginManager.catalogInstall")}
+                  ? t("pluginManager.catalogReinstall")
+                  : t("pluginManager.catalogInstall")}
               </Button>
             </div>
           ))}
