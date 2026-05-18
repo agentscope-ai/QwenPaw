@@ -18,6 +18,8 @@ echo "========================================="
 echo "Version: ${VERSION}"
 echo ""
 
+ENTITLEMENTS_FILE="${REPO_ROOT}/console/src-tauri/entitlements.plist"
+
 # Step 0: Prerequisites
 echo "== Step 0: Checking Prerequisites =="
 missing=()
@@ -54,6 +56,23 @@ if [ ${#missing[@]} -gt 0 ]; then
 fi
 echo ""
 
+if [ ! -f "${ENTITLEMENTS_FILE}" ]; then
+    echo "ERROR: macOS entitlements file not found at ${ENTITLEMENTS_FILE}"
+    exit 1
+fi
+
+if [ -z "${APPLE_SIGNING_IDENTITY:-}" ] && [ -z "${APPLE_CERTIFICATE:-}" ]; then
+    # The Tauri app and PyInstaller sidecar are native Mach-O executables.
+    # Keep their signature state consistent when no Developer ID certificate is
+    # configured; notarization is still required for fully trusted distribution.
+    export APPLE_SIGNING_IDENTITY="-"
+    echo "Using ad-hoc macOS code signing"
+fi
+export PYINSTALLER_CODESIGN_IDENTITY="${PYINSTALLER_CODESIGN_IDENTITY:-${APPLE_SIGNING_IDENTITY:-}}"
+export PYINSTALLER_ENTITLEMENTS_FILE="${PYINSTALLER_ENTITLEMENTS_FILE:-${ENTITLEMENTS_FILE}}"
+echo "Using macOS entitlements: ${PYINSTALLER_ENTITLEMENTS_FILE}"
+echo ""
+
 # Step 1: Build PyInstaller backend
 echo "== Step 1: Building PyInstaller Backend =="
 bash scripts/pack-tauri/build_pyinstaller.sh
@@ -69,13 +88,6 @@ npm ci
 echo "Syncing Tauri version..."
 npm run sync:tauri-version
 echo "Building for macOS..."
-if [ -z "${APPLE_SIGNING_IDENTITY:-}" ] && [ -z "${APPLE_CERTIFICATE:-}" ]; then
-    # The Tauri app and PyInstaller sidecar are native Mach-O executables.
-    # Keep their signature state consistent when no Developer ID certificate is
-    # configured; notarization is still required for fully trusted distribution.
-    export APPLE_SIGNING_IDENTITY="-"
-    echo "Using ad-hoc macOS code signing"
-fi
 npm exec -- tauri build \
     --config src-tauri/tauri.version.conf.json \
     --config '{"bundle":{"targets":["app"]}}'

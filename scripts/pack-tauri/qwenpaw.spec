@@ -4,12 +4,29 @@ PyInstaller spec file for QwenPaw Desktop (Tauri sidecar)
 Shared spec for both macOS and Windows — builds a single onefile binary.
 """
 
+import os
+import sys
 from pathlib import Path
 from PyInstaller.utils.hooks import copy_metadata, collect_submodules, collect_data_files
 
 REPO_ROOT = Path(SPECPATH).parent.parent
 
 SRC = REPO_ROOT / 'src' / 'qwenpaw'
+MACOS_ENTITLEMENTS = REPO_ROOT / 'console' / 'src-tauri' / 'entitlements.plist'
+
+if sys.platform == 'darwin':
+    codesign_identity = (
+        os.environ.get('PYINSTALLER_CODESIGN_IDENTITY')
+        or os.environ.get('APPLE_SIGNING_IDENTITY')
+    )
+    entitlements_file = os.environ.get('PYINSTALLER_ENTITLEMENTS_FILE') or str(MACOS_ENTITLEMENTS)
+    if not codesign_identity:
+        codesign_identity = None
+    if not Path(entitlements_file).is_file():
+        entitlements_file = None
+else:
+    codesign_identity = None
+    entitlements_file = None
 
 # The frontend dist is bundled by Tauri (frontendDist in tauri.conf.json) and
 # must NOT be included here — PyInstaller only packages the Python backend.
@@ -110,6 +127,6 @@ exe = EXE(
     disable_windowed_traceback=True,
     argv_emulation=False,
     target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
+    codesign_identity=codesign_identity,
+    entitlements_file=entitlements_file,
 )
