@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -292,6 +293,55 @@ class PluginLoader:
                 return str(candidate)
         return None
 
+    @staticmethod
+    def _run_subprocess_with_streaming_log(
+        cmd: list[str],
+        *,
+        timeout: int,
+        plugin_id: str,
+    ) -> subprocess.CompletedProcess:
+        """Run *cmd*; stream stdout/stderr to debug logs in real time."""
+        logger.debug(
+            "Running install command for plugin '%s': %s",
+            plugin_id,
+            " ".join(cmd),
+        )
+        output_lines: List[str] = []
+        with subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        ) as proc:
+
+            def _read_output() -> None:
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    stripped = line.rstrip("\n\r")
+                    if stripped:
+                        output_lines.append(stripped)
+                        logger.debug("[%s] %s", plugin_id, stripped)
+
+            reader = threading.Thread(target=_read_output, daemon=True)
+            reader.start()
+            try:
+                returncode = proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                reader.join(timeout=2)
+                raise
+            reader.join(timeout=2)
+
+        combined = "\n".join(output_lines)
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=returncode,
+            stdout=combined,
+            stderr="",
+        )
+
     def _install_requirements(
         self,
         requirements_file: Path,
@@ -322,7 +372,7 @@ class PluginLoader:
 
         # ── Attempt 1: python -m pip ──────────────────────────────────
         try:
-            result = subprocess.run(  # pylint: disable=subprocess-run-check
+            result = self._run_subprocess_with_streaming_log(
                 [
                     sys.executable,
                     "-m",
@@ -333,9 +383,8 @@ class PluginLoader:
                     "-r",
                     req,
                 ],
-                capture_output=True,
-                text=True,
                 timeout=timeout,
+                plugin_id=plugin_id,
             )
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
@@ -374,7 +423,7 @@ class PluginLoader:
             f"pip not available; retrying with uv for plugin '{plugin_id}'",
         )
         try:
-            uv_result = subprocess.run(  # pylint: disable=subprocess-run-check
+            uv_result = self._run_subprocess_with_streaming_log(
                 [
                     uv,
                     "pip",
@@ -384,9 +433,8 @@ class PluginLoader:
                     "-r",
                     req,
                 ],
-                capture_output=True,
-                text=True,
                 timeout=timeout,
+                plugin_id=plugin_id,
             )
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
