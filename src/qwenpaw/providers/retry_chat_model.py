@@ -331,6 +331,10 @@ class RetryChatModel(ChatModelBase):
                     first_chunk = False
                     # return the slot once the API starts delivering
                     limiter.release()
+                    # streaming success: clear any stale 429 pause so
+                    # subsequent callers (including user chats) are not
+                    # held back by a pause set by a background task.
+                    await limiter.on_success()
                 yield chunk
         finally:
             await stream.aclose()
@@ -350,7 +354,11 @@ class RetryChatModel(ChatModelBase):
         if cache.get(key, "needs_reasoning_content", False):
             _inject_reasoning_content(args, kwargs)
 
+        # Each model gets its own rate limiter keyed by
+        # "provider_id:model_name" so that a 429 on one model (e.g. from a
+        # dream/cron task) cannot stall user chats on a different provider.
         limiter = await get_rate_limiter(
+            limiter_key=self.model_key,
             max_concurrent=self._rate_limit_config.max_concurrent,
             max_qpm=self._rate_limit_config.max_qpm,
             default_pause_seconds=self._rate_limit_config.pause_seconds,
@@ -378,7 +386,12 @@ class RetryChatModel(ChatModelBase):
                     )
                     acquired = True
                 except asyncio.TimeoutError as exc:
-                    raise RateLimitExceededException(
+                    # Internal acquire timeout — NOT an API 429.
+                    # Do not call report_rate_limit() (that would incorrectly
+                    # extend the global pause) and do not retry (it would just
+                    # time out again).  Use a sentinel attribute so the outer
+                    # exception handler can distinguish this from a real 429.
+                    _exc = RateLimitExceededException(
                         operation="LLM execution",
                         retry_after=int(
                             self._rate_limit_config.acquire_timeout,
@@ -386,7 +399,11 @@ class RetryChatModel(ChatModelBase):
                         details={
                             "reason": "Timed out waiting for execution slot",
                         },
-                    ) from exc
+                    )
+                    _exc._is_acquire_timeout = (  # type: ignore[attr-defined]
+                        True
+                    )
+                    raise _exc from exc
 
                 try:
                     result = await self._inner(*args, **kwargs)
@@ -418,10 +435,18 @@ class RetryChatModel(ChatModelBase):
                         limiter,
                     )
 
+                # Non-streaming success: clear any stale rate-limit pause so
+                # subsequent callers are not held back by a pause set by an
+                # unrelated background task (e.g. dream/cron 429).
+                await limiter.on_success()
                 return result
 
             except Exception as exc:
                 last_exc = exc
+                # Internal acquire timeout: raise immediately without
+                # report_rate_limit() or retry — it is not an API error.
+                if getattr(exc, "_is_acquire_timeout", False):
+                    raise
                 if _is_retryable(exc) and _is_rate_limit(exc):
                     await limiter.report_rate_limit(_extract_retry_after(exc))
 

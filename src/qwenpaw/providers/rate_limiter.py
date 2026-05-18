@@ -149,6 +149,28 @@ class LLMRateLimiter:
         self._in_flight -= 1
         self._semaphore.release()
 
+    async def on_success(self) -> None:
+        """Clear the global pause after a successful LLM call.
+
+        A completed call proves the API's rate-limit window has ended.
+        Resetting _pause_until lets subsequent callers proceed immediately
+        instead of waiting out the remainder of a stale pause set by a
+        previous 429 (e.g. from a background dream/cron task).
+        """
+        async with self._lock:
+            if self._pause_until > 0:
+                self._pause_until = 0.0
+                logger.debug(
+                    "LLM rate limiter: pause cleared after successful call",
+                )
+
+    # Maximum pause duration (seconds) honoured from any Retry-After header.
+    # Prevents a single API 429 (e.g. retry_after=300 from DashScope) from
+    # stalling all LLM calls — including interactive user chats — for minutes.
+    # Background tasks (dream, heartbeat) share the global limiter, so without
+    # this cap a single dream 429 can cascade into a 5-minute hang.
+    _MAX_PAUSE_SECONDS: float = 60.0
+
     async def report_rate_limit(
         self,
         retry_after: float | None = None,
@@ -158,8 +180,20 @@ class LLMRateLimiter:
         Args:
             retry_after: Seconds from the API's Retry-After header.
                          Falls back to the configured default when None.
+                         Always capped at ``_MAX_PAUSE_SECONDS`` so that a
+                         large Retry-After from a background task cannot
+                         stall interactive user requests for minutes.
         """
-        pause = retry_after if retry_after is not None else self._default_pause
+        raw_pause = (
+            retry_after if retry_after is not None else self._default_pause
+        )
+        pause = min(raw_pause, self._MAX_PAUSE_SECONDS)
+        if pause < raw_pause:
+            logger.debug(
+                "LLM rate limiter: capping retry_after %.1fs → %.1fs",
+                raw_pause,
+                pause,
+            )
         async with self._lock:
             new_until = time.monotonic() + pause
             if new_until > self._pause_until:
@@ -167,8 +201,9 @@ class LLMRateLimiter:
                 self._total_rate_limited += 1
                 logger.warning(
                     "LLM rate limiter: global pause set for %.1fs "
-                    "(total_rate_limited=%d)",
+                    "(raw_retry_after=%.1fs, total_rate_limited=%d)",
                     pause,
+                    raw_pause,
                     self._total_rate_limited,
                 )
 
@@ -196,43 +231,57 @@ class LLMRateLimiter:
         }
 
 
-# Global singleton
-_global_limiter: LLMRateLimiter | None = None
-_init_lock: asyncio.Lock | None = None
+# Per-model rate limiters keyed by "provider_id:model_name".
+# Each model gets its own limiter so that a 429 from one provider/model
+# (e.g. a dream cron using DashScope) does not stall user chats on a
+# completely different provider (e.g. OpenRouter, Anthropic).
+_limiters: dict[str, LLMRateLimiter] = {}
+_limiters_lock: asyncio.Lock | None = None
 
 
-def _get_init_lock() -> asyncio.Lock:
-    global _init_lock
-    if _init_lock is None:
-        _init_lock = asyncio.Lock()
-    return _init_lock
+def _get_limiters_lock() -> asyncio.Lock:
+    global _limiters_lock
+    if _limiters_lock is None:
+        _limiters_lock = asyncio.Lock()
+    return _limiters_lock
 
 
 async def get_rate_limiter(
+    limiter_key: str = "",
     max_concurrent: int | None = None,
     max_qpm: int | None = None,
     default_pause_seconds: float | None = None,
     jitter_range: float | None = None,
 ) -> LLMRateLimiter:
-    """Return the global LLMRateLimiter singleton, lazily initialised
+    """Return a per-model ``LLMRateLimiter``, lazily initialised
     (coroutine-safe).
 
-    On the *first* call the provided values (or env-var constants as fallback)
-    are used to construct the singleton.  All subsequent calls return the same
-    instance regardless of the arguments passed.
+    Each unique *limiter_key* (typically ``"provider_id:model_name"``) gets
+    its own independent limiter instance.  A 429 on one model therefore does
+    not pause calls to other models — background tasks (dream, heartbeat) that
+    hit their quota limit can no longer stall interactive user chats on a
+    different provider.
+
+    On the *first* call for a given key the provided config values (or
+    env-var constants as fallback) are used to construct the limiter.  All
+    subsequent calls for the same key return the same instance regardless of
+    the arguments passed.
 
     Args:
+        limiter_key: Stable identifier for the limiter scope, e.g.
+            ``"dashscope:qwen-plus"`` or
+            ``"openrouter:nemotron-3-super-free"``.
+            An empty string uses a shared fallback limiter.
         max_concurrent: Cap on concurrent in-flight LLM calls.
         max_qpm: Maximum queries per minute (sliding window). 0 = disabled.
         default_pause_seconds: Pause duration (s) applied on a 429 response.
         jitter_range: Random jitter (s) added on top of the pause.
     """
-    global _global_limiter  # noqa: PLW0603
-    if _global_limiter is not None:
-        return _global_limiter
-    async with _get_init_lock():
-        if _global_limiter is not None:
-            return _global_limiter
+    if limiter_key in _limiters:
+        return _limiters[limiter_key]
+    async with _get_limiters_lock():
+        if limiter_key in _limiters:
+            return _limiters[limiter_key]
         from ..constant import (
             LLM_MAX_CONCURRENT,
             LLM_MAX_QPM,
@@ -255,24 +304,33 @@ async def get_rate_limiter(
             jitter_range if jitter_range is not None else LLM_RATE_LIMIT_JITTER
         )
 
-        _global_limiter = LLMRateLimiter(
+        limiter = LLMRateLimiter(
             max_concurrent=resolved_max,
             max_qpm=resolved_qpm,
             default_pause_seconds=resolved_pause,
             jitter_range=resolved_jitter,
         )
+        _limiters[limiter_key] = limiter
         logger.info(
-            "LLM rate limiter initialized: max_concurrent=%d, max_qpm=%d, "
-            "default_pause=%.1fs, jitter=%.1fs",
+            "LLM rate limiter initialized: key=%r max_concurrent=%d "
+            "max_qpm=%d default_pause=%.1fs jitter=%.1fs",
+            limiter_key,
             resolved_max,
             resolved_qpm,
             resolved_pause,
             resolved_jitter,
         )
-    return _global_limiter
+    return limiter
 
 
-def reset_rate_limiter() -> None:
-    """Reset the global singleton (for testing or service restart)."""
-    global _global_limiter  # noqa: PLW0603
-    _global_limiter = None
+def reset_rate_limiter(limiter_key: str | None = None) -> None:
+    """Reset rate limiter(s) (for testing or service restart).
+
+    Args:
+        limiter_key: If given, reset only that key's limiter.
+                     If ``None``, reset all limiters.
+    """
+    if limiter_key is not None:
+        _limiters.pop(limiter_key, None)
+    else:
+        _limiters.clear()
