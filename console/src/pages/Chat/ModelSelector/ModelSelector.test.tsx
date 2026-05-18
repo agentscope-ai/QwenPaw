@@ -12,7 +12,9 @@ vi.mock("@/api/modules/provider", () => ({
   providerApi: {
     listProviders: vi.fn(),
     getActiveModels: vi.fn(),
+    getRoutingConfig: vi.fn(),
     setActiveLlm: vi.fn(),
+    setRoutingConfig: vi.fn(),
   },
 }));
 
@@ -69,10 +71,19 @@ const mockActiveModels = {
   active_llm: { provider_id: "openai", model: "gpt-4" },
 };
 
+const mockRoutingConfig = {
+  enabled: false,
+  mode: "local_first" as const,
+  local: { provider_id: "", model: "" },
+  cloud: null,
+};
+
 function setupDefaultMocks() {
   vi.mocked(providerApi.listProviders).mockResolvedValue([mockProvider]);
   vi.mocked(providerApi.getActiveModels).mockResolvedValue(mockActiveModels);
+  vi.mocked(providerApi.getRoutingConfig).mockResolvedValue(mockRoutingConfig);
   vi.mocked(providerApi.setActiveLlm).mockResolvedValue({});
+  vi.mocked(providerApi.setRoutingConfig).mockResolvedValue(mockRoutingConfig);
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +140,7 @@ describe("ModelSelector", () => {
 
     await user.click(screen.getByText("GPT-4"));
 
-    expect(await screen.findByText("OpenAI")).toBeInTheDocument();
+    expect((await screen.findAllByText("OpenAI")).length).toBeGreaterThan(0);
   });
 
   it("clicking a model calls setActiveLlm with correct parameters", async () => {
@@ -138,8 +149,8 @@ describe("ModelSelector", () => {
     await screen.findByText("GPT-4");
 
     await user.click(screen.getByText("GPT-4"));
-    const gpt35 = await screen.findByText("GPT-3.5 Turbo");
-    await user.click(gpt35);
+    const gpt35Items = await screen.findAllByText("GPT-3.5 Turbo");
+    await user.click(gpt35Items[0]);
 
     expect(providerApi.setActiveLlm).toHaveBeenCalledWith({
       provider_id: "openai",
@@ -156,7 +167,7 @@ describe("ModelSelector", () => {
 
     await user.click(screen.getByText("GPT-4"));
     const gpt4Items = await screen.findAllByText("GPT-4");
-    await user.click(gpt4Items[gpt4Items.length - 1]);
+    await user.click(gpt4Items[1]);
 
     expect(providerApi.setActiveLlm).not.toHaveBeenCalled();
   });
@@ -186,8 +197,8 @@ describe("ModelSelector", () => {
     await screen.findByText("GPT-4");
 
     await user.click(screen.getByText("GPT-4"));
-    const gpt35 = await screen.findByText("GPT-3.5 Turbo");
-    await user.click(gpt35);
+    const gpt35Items = await screen.findAllByText("GPT-3.5 Turbo");
+    await user.click(gpt35Items[0]);
 
     // GPT-4 may appear in two places when dropdown is still open (trigger + dropdown item)
     await waitFor(() => {

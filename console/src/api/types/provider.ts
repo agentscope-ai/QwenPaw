@@ -59,6 +59,15 @@ export interface ModelSlotConfig {
   model: string;
 }
 
+export type RoutingMode = "local_first" | "cloud_first";
+
+export interface RoutingConfig {
+  enabled: boolean;
+  mode: RoutingMode;
+  local: ModelSlotConfig;
+  cloud: ModelSlotConfig | null;
+}
+
 export interface ActiveModelsInfo {
   active_llm?: ModelSlotConfig;
 }
@@ -67,6 +76,10 @@ export type ActiveModelScope = "effective" | "global" | "agent";
 
 export interface GetActiveModelsRequest {
   scope?: ActiveModelScope;
+  agent_id?: string;
+}
+
+export interface GetRoutingConfigRequest {
   agent_id?: string;
 }
 

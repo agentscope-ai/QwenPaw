@@ -28,6 +28,16 @@
   max-width: 180px;
 }
 
+.triggerBadge {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(255, 127, 22, 0.12);
+  color: #ff7f16;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .triggerArrow {
   flex-shrink: 0;
   font-size: 18px;
@@ -50,27 +60,23 @@
   object-fit: contain;
 }
 
-/* ---- Dropdown panel ---- */
+/* ---- Level-1 panel ---- */
 .panel {
   width: 360px;
   max-height: 480px;
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fff;
   border: 1px solid rgba(0, 0, 0, 0.06);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
 }
 
-/* ---- Search box ---- */
 .searchWrapper {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  flex-shrink: 0;
 }
 
 .searchIcon {
@@ -106,124 +112,285 @@
   }
 }
 
-/* ---- List container ---- */
 .listContainer {
+  max-height: 420px;
   overflow-y: auto;
-  flex: 1;
-  padding: 4px 0;
 }
 
-/* ---- Provider group ---- */
-.providerGroup {
-  margin-bottom: 4px;
+.section {
+  padding: 6px 0;
+}
 
-  &:last-child {
-    margin-bottom: 0;
+.sectionLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #999;
+}
+
+.sectionHint {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #bbb;
+}
+
+.sectionDisabled {
+  pointer-events: none;
+
+  .providerItem,
+  .slotRow {
+    color: #bbb;
+    cursor: not-allowed;
+  }
+
+  .providerItem:hover,
+  .slotRow:hover {
+    background: transparent;
+    color: #bbb;
   }
 }
 
-.providerHeader {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  color: #999;
-  letter-spacing: 0.5px;
+.sectionDivider {
+  height: 1px;
+  margin: 2px 8px;
+  background: rgba(0, 0, 0, 0.06);
 }
 
-.providerHeaderName {
+.optionItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #333;
+  transition: background 0.12s;
+
+  &:hover {
+    background: rgba(97, 92, 237, 0.06);
+    color: #ff7f16;
+  }
+
+  &.optionItemActive {
+    background: rgba(97, 92, 237, 0.08);
+    color: #ff7f16;
+    font-weight: 500;
+  }
+
+  &.optionItemDisabled {
+    color: #bbb;
+  }
+}
+
+.optionName {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* ---- Model item ---- */
-.modelItem {
+.optionHint {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #999;
+}
+
+.providerItem {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 12px 7px 20px;
-  margin: 0 4px;
+  padding: 4px 8px;
   cursor: pointer;
   font-size: 14px;
   color: #333;
   transition: background 0.12s;
   gap: 8px;
-  border-radius: 6px;
 
   &:hover {
     background: rgba(97, 92, 237, 0.06);
-    color: #333;
+    color: #ff7f16;
+  }
+
+  &:hover > :global(.modelSubmenu) {
+    display: block;
+  }
+
+  // Hover bridge: extend leftward to cover the margin-right gap between
+  // providerItem and the left-side submenu, keeping :hover active during transition
+  &::after {
+    content: "";
+    position: absolute;
+    left: -8px;
+    top: 0;
+    width: 8px;
+    height: 100%;
+    background: transparent;
+  }
+
+  &:first-child {
+    border-radius: 6px 6px 0 0;
+  }
+
+  &:last-child {
+    border-radius: 0 0 6px 6px;
+  }
+
+  &.providerItemActive {
+    font-weight: 500;
+  }
+}
+
+.providerName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.providerArrow {
+  flex-shrink: 0;
+  font-size: 14px;
+  color: #bbb;
+}
+
+/* ---- Level-2 submenu ---- */
+.submenu {
+  display: none;
+  position: absolute;
+  top: -1px;
+  right: 100%;
+  margin-right: 2px;
+  min-width: 200px;
+  max-height: 360px;
+  overflow-y: auto;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  z-index: 1100;
+}
+
+.routingSubmenu {
+  overflow: visible;
+  max-height: none;
+}
+
+/* ---- Slot row inside routing-mode submenu (Local / Cloud) ---- */
+.slotRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #333;
+  gap: 10px;
+  transition: background 0.12s;
+
+  &:hover {
+    background: rgba(97, 92, 237, 0.06);
+    color: #ff7f16;
+  }
+
+  &:hover > .slotSubmenu {
+    display: block;
+  }
+
+  // Hover bridge to next-level submenu (mirrors .providerItem::after)
+  &::after {
+    content: "";
+    position: absolute;
+    left: -8px;
+    top: 0;
+    width: 8px;
+    height: 100%;
+    background: transparent;
+  }
+}
+
+.slotLabel {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.slotValue {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #666;
+}
+
+.slotSubmenu {
+  min-width: 180px;
+}
+
+.modelItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #333;
+  transition: background 0.12s;
+  gap: 8px;
+  white-space: nowrap;
+
+  &:hover {
+    background: rgba(97, 92, 237, 0.06);
+    color: #ff7f16;
+  }
+
+  &:first-child {
+    border-radius: 6px 6px 0 0;
+  }
+
+  &:last-child {
+    border-radius: 0 0 6px 6px;
   }
 
   &.modelItemActive {
-    background: rgba(255, 127, 22, 0.08);
+    background: rgba(97, 92, 237, 0.08);
     color: #ff7f16;
     font-weight: 500;
-
-    .modelName {
-      color: #ff7f16;
-    }
   }
 }
 
 .modelName {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
   flex: 1;
-}
-
-.modelTags {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.freeTag {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 6px;
-  border-radius: 99px;
-  font-size: 11px;
-  font-weight: 500;
-  color: #52c41a;
-  background: rgba(82, 196, 26, 0.1);
-  border: 1px solid rgba(82, 196, 26, 0.2);
-  white-space: nowrap;
-}
-
-.visionTag {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 6px;
-  border-radius: 99px;
-  font-size: 11px;
-  font-weight: 500;
-  color: #1890ff;
-  background: rgba(24, 144, 255, 0.1);
-  border: 1px solid rgba(24, 144, 255, 0.2);
-  white-space: nowrap;
 }
 
 .checkIcon {
   flex-shrink: 0;
-  font-size: 14px;
+  font-size: 16px;
   color: #ff7f16;
 }
 
 .emptyTip {
-  padding: 20px 16px;
-  text-align: center;
-  font-size: 14px;
+  padding: 10px 14px;
+  font-size: 16px;
   color: #bbb;
 }
 
 .spinWrapper {
-  padding: 24px 16px;
+  padding: 14px 16px;
   text-align: center;
 }
 
@@ -253,6 +420,11 @@
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   }
 
+  .triggerBadge {
+    background: rgba(255, 127, 22, 0.18);
+    color: #ff7f16;
+  }
+
   .searchWrapper {
     border-bottom-color: rgba(255, 255, 255, 0.08);
   }
@@ -277,8 +449,53 @@
     }
   }
 
-  .providerHeader {
-    color: rgba(255, 255, 255, 0.35);
+  .sectionLabel {
+    color: rgba(255, 255, 255, 0.38);
+  }
+
+  .sectionDivider {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .optionItem {
+    color: rgba(255, 255, 255, 0.85);
+
+    &:hover {
+      background: rgba(97, 92, 237, 0.15);
+      color: #ff7f16;
+    }
+
+    &.optionItemActive {
+      background: rgba(97, 92, 237, 0.18);
+      color: #ff7f16;
+    }
+
+    &.optionItemDisabled {
+      color: rgba(255, 255, 255, 0.28);
+    }
+  }
+
+  .optionHint {
+    color: rgba(255, 255, 255, 0.38);
+  }
+
+  .providerItem {
+    color: rgba(255, 255, 255, 0.85);
+
+    &:hover {
+      background: rgba(97, 92, 237, 0.15);
+      color: #ff7f16;
+    }
+  }
+
+  .providerArrow {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .submenu {
+    background: #1f1f1f;
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   }
 
   .modelItem {
@@ -286,36 +503,48 @@
 
     &:hover {
       background: rgba(97, 92, 237, 0.15);
-      color: rgba(255, 255, 255, 0.85);
+      color: #ff7f16;
     }
 
     &.modelItemActive {
-      background: rgba(255, 127, 22, 0.12);
+      background: rgba(97, 92, 237, 0.18);
       color: #ff7f16;
-
-      .modelName {
-        color: #ff7f16;
-      }
     }
+  }
+
+  .checkIcon {
+    color: #ff7f16;
   }
 
   .emptyTip {
     color: rgba(255, 255, 255, 0.25);
   }
 
-  .freeTag {
-    color: #73d13d;
-    background: rgba(82, 196, 26, 0.15);
-    border-color: rgba(82, 196, 26, 0.3);
+  .sectionHint {
+    color: rgba(255, 255, 255, 0.38);
   }
 
-  .visionTag {
-    color: #40a9ff;
-    background: rgba(24, 144, 255, 0.15);
-    border-color: rgba(24, 144, 255, 0.3);
+  .sectionDisabled {
+    .providerItem,
+    .slotRow {
+      color: rgba(255, 255, 255, 0.28);
+    }
   }
 
-  .checkIcon {
-    color: #ff7f16;
+  .slotRow {
+    color: rgba(255, 255, 255, 0.85);
+
+    &:hover {
+      background: rgba(97, 92, 237, 0.15);
+      color: #ff7f16;
+    }
+  }
+
+  .slotLabel {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .slotValue {
+    color: rgba(255, 255, 255, 0.6);
   }
 }

@@ -4,6 +4,8 @@ import type {
   ProviderConfigRequest,
   ActiveModelsInfo,
   GetActiveModelsRequest,
+  GetRoutingConfigRequest,
+  RoutingConfig,
   ModelSlotRequest,
   CreateCustomProviderRequest,
   AddModelRequest,
@@ -36,6 +38,16 @@ function buildActiveModelQuery(params?: GetActiveModelsRequest): string {
   }
 
   return `/models/active?${searchParams.toString()}`;
+}
+
+function buildRoutingQuery(params?: GetRoutingConfigRequest): string {
+  if (!params?.agent_id) {
+    return "/config/agents/llm-routing";
+  }
+
+  const searchParams = new URLSearchParams();
+  searchParams.set("agent_id", params.agent_id);
+  return `/config/agents/llm-routing?${searchParams.toString()}`;
 }
 
 let listProvidersPromise: Promise<ProviderInfo[]> | null = null;
@@ -74,6 +86,15 @@ export const providerApi = {
     }).then((result) => {
       activeModelPromises.clear();
       return result;
+    }),
+
+  getRoutingConfig: (params?: GetRoutingConfigRequest) =>
+    request<RoutingConfig>(buildRoutingQuery(params)),
+
+  setRoutingConfig: (body: RoutingConfig, params?: GetRoutingConfigRequest) =>
+    request<RoutingConfig>(buildRoutingQuery(params), {
+      method: "PUT",
+      body: JSON.stringify(body),
     }),
 
   /* ---- Custom provider CRUD ---- */
