@@ -5,7 +5,8 @@
  * `window.QwenPaw` so plugin bundles can register routes and tool renderers
  * without bundling their own copies of React / antd.
  *
- * Call `installHostExternals()` once at application startup (main.tsx).
+ * Install with `installHostExternals()` during startup. The installer is
+ * idempotent so tests or hot reloads can call it more than once.
  */
 
 import React from "react";
@@ -149,7 +150,7 @@ declare global {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Install (call once in main.tsx)
+// Install shared host APIs on window.QwenPaw.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function installHostExternals(): void {

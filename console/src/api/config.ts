@@ -2,19 +2,6 @@
 
 const AUTH_TOKEN_KEY = "qwenpaw_auth_token";
 
-declare global {
-  interface Window {
-    __TAURI__?: {
-      core?: {
-        invoke?: <T>(
-          command: string,
-          args?: Record<string, unknown>,
-        ) => Promise<T>;
-      };
-    };
-  }
-}
-
 let runtimeApiBaseUrl = "";
 let initRuntimeApiBaseUrlPromise: Promise<string> | null = null;
 

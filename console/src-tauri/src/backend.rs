@@ -149,6 +149,8 @@ fn start(app: &tauri::AppHandle) {
         }
     };
 
+    // Hold the listener until after spawn() to shrink the race between
+    // reserving the port in Rust and binding it in the Python sidecar.
     drop(port_guard);
     *state.child.lock().expect("backend child poisoned") = Some(child);
     *state.port.lock().expect("backend port poisoned") = Some(port);

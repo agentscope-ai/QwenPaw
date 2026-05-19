@@ -21,11 +21,13 @@ export default defineConfig(({ mode }) => {
   // Empty = same-origin; frontend and backend served together, no hardcoded host.
   // Use a dedicated Vite-prefixed key so unrelated shell BASE_URL values don't leak into the build.
   const apiBaseUrl = env.VITE_API_BASE_URL ?? "";
-  const isTauriDev =
+  // Tauri sets TAURI_ENV_PLATFORM during build and TAURI_DEV_HOST during dev;
+  // both contexts need the fixed Vite port expected by tauri.conf.json.
+  const isTauriContext =
     mode === "tauri" ||
     Boolean(process.env.TAURI_ENV_PLATFORM || process.env.TAURI_DEV_HOST);
   const isTauriBuild = Boolean(process.env.TAURI_ENV_PLATFORM);
-  const server = isTauriDev
+  const server = isTauriContext
     ? {
         port: 1420,
         strictPort: true,

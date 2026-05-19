@@ -713,6 +713,7 @@
     "checking": "Menghubungkan ke backend...",
     "error": "Backend gagal dimulai.",
     "errorHint": "Proses backend tidak dapat dijalankan. Periksa log aplikasi untuk detail.",
+    "errorDetails": "Tampilkan detail error",
     "timeout": "Backend gagal dimulai dalam {{seconds}} detik.",
     "timeoutHint": "Backend gagal dimulai. Coba lagi, atau periksa log aplikasi untuk detail.",
     "retry": "Coba lagi"

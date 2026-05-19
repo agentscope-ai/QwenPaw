@@ -2229,6 +2229,7 @@
     "checking": "Conectando ao backend...",
     "error": "Falha ao iniciar o backend.",
     "errorHint": "Nao foi possivel iniciar o processo do backend. Verifique os logs do aplicativo para detalhes.",
+    "errorDetails": "Mostrar detalhes do erro",
     "timeout": "O backend nao iniciou em {{seconds}} segundos.",
     "timeoutHint": "Falha ao iniciar o backend. Tente novamente ou verifique os logs do aplicativo.",
     "retry": "Tentar novamente"

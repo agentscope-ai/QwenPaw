@@ -4,6 +4,7 @@ import "./i18n";
 import { isTauriRuntime } from "./api/config";
 import { installHostExternals } from "./plugins/hostExternals";
 import { registerHostModulesEager } from "./plugins/dynamicModuleRegistry";
+import { installTauriConsoleNoiseFilter } from "./tauri/silenceAntdNoise";
 
 // Expose host dependencies (React, antd, etc.) on window
 // so that plugin UI modules can use them without bundling their own copies.
@@ -15,28 +16,7 @@ registerHostModulesEager();
 
 if (typeof window !== "undefined" && isTauriRuntime()) {
   document.title = "QwenPaw Desktop";
-  const originalError = console.error;
-  const originalWarn = console.warn;
-
-  console.error = function (...args: unknown[]) {
-    const msg = args[0]?.toString() || "";
-    if (msg.includes(":first-child") || msg.includes("pseudo class")) {
-      return;
-    }
-    originalError.apply(console, args as []);
-  };
-
-  console.warn = function (...args: unknown[]) {
-    const msg = args[0]?.toString() || "";
-    if (
-      msg.includes(":first-child") ||
-      msg.includes("pseudo class") ||
-      msg.includes("potentially unsafe")
-    ) {
-      return;
-    }
-    originalWarn.apply(console, args as []);
-  };
+  installTauriConsoleNoiseFilter();
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

@@ -2,6 +2,9 @@ import { Progress } from "antd";
 import { useTheme } from "../contexts/ThemeContext";
 import { useTranslation } from "react-i18next";
 
+const BRAND_COLOR = "#ff7f16";
+const FAILURE_COLOR = "#ff4d4f";
+
 interface BackendLoadingPageProps {
   status: "checking" | "ready" | "timeout" | "error";
   elapsed: number;
@@ -80,7 +83,7 @@ export default function BackendLoadingPage({
             type="dashboard"
             percent={percent}
             status={hasFailed ? "exception" : "active"}
-            strokeColor="#ff7f16"
+            strokeColor={BRAND_COLOR}
             trailColor={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"}
             gapPosition="bottom"
             format={() => (
@@ -93,7 +96,7 @@ export default function BackendLoadingPage({
           {/* Status text */}
           <p
             style={{
-              color: hasFailed ? "#ff4d4f" : textColor,
+              color: hasFailed ? FAILURE_COLOR : textColor,
               fontSize: 16,
               fontWeight: 500,
               margin: "16px 0 0",
@@ -120,26 +123,42 @@ export default function BackendLoadingPage({
                   : t("startup.timeoutHint")}
               </p>
               {errorMessage && (
-                <pre
+                <details
                   style={{
-                    maxHeight: 96,
-                    overflow: "auto",
                     margin: "0 0 24px",
                     padding: 12,
                     borderRadius: 8,
                     background: isDark
                       ? "rgba(255,255,255,0.06)"
                       : "rgba(0,0,0,0.04)",
-                    color: subTextColor,
-                    fontSize: 12,
-                    lineHeight: 1.5,
                     textAlign: "left",
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
                   }}
                 >
-                  {errorMessage}
-                </pre>
+                  <summary
+                    style={{
+                      cursor: "pointer",
+                      color: subTextColor,
+                      fontSize: 12,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {t("startup.errorDetails", "Show error details")}
+                  </summary>
+                  <pre
+                    style={{
+                      maxHeight: 96,
+                      overflow: "auto",
+                      margin: "8px 0 0",
+                      color: subTextColor,
+                      fontSize: 12,
+                      lineHeight: 1.5,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {errorMessage}
+                  </pre>
+                </details>
               )}
               <button
                 onClick={onRetry}
@@ -148,7 +167,7 @@ export default function BackendLoadingPage({
                   padding: "0 32px",
                   borderRadius: 8,
                   border: "none",
-                  background: "#ff7f16",
+                  background: BRAND_COLOR,
                   color: "#fff",
                   fontSize: 14,
                   fontWeight: 500,
