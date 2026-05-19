@@ -90,7 +90,7 @@ npm run sync:tauri-version
 echo "Building for macOS..."
 npm exec -- tauri build \
     --config src-tauri/tauri.version.conf.json \
-    --config '{"bundle":{"targets":["app"]}}'
+    --bundles app
 cd ..
 echo "Tauri app built"
 echo ""
