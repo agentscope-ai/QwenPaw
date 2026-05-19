@@ -7,7 +7,12 @@ set -e
 # Set QWENPAW_REQUIRED_INITIALIZATION=0 to skip (e.g. during image warm-up).
 if [ "${QWENPAW_REQUIRED_INITIALIZATION:-1}" = "1" ]; then
   if [ ! -f "${QWENPAW_WORKING_DIR}/config.json" ]; then
+    echo "⚠️  No config.json found in ${QWENPAW_WORKING_DIR}"
+    echo "📦 Running initialization..."
     qwenpaw init --defaults --accept-security
+    echo "✅ Initialization complete!"
+  else
+    echo "✓ Config found in ${QWENPAW_WORKING_DIR}, skipping initialization."
   fi
 else
   echo "Skipping initialization."
