@@ -255,7 +255,7 @@ probe_voice_page_concurrent() {
     export PYTHONUNBUFFERED=1
     export PYTHONFAULTHANDLER=1
     cd "${BACKEND_DIR}"
-    "./${BACKEND_NAME}"
+    exec "./${BACKEND_NAME}"
 ) > "${LOG_FILE}" 2>&1 &
 BACKEND_PID=$!
 

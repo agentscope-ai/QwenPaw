@@ -262,6 +262,7 @@ jobs:
       - name: Diagnose Tauri macOS package
         run: |
           chmod +x scripts/pack-tauri/diagnose_macos_app.sh
+          QWENPAW_DIAG_PORT=19088 \
           QWENPAW_DIAG_LOG=tauri-backend-staged.log \
             bash scripts/pack-tauri/diagnose_macos_app.sh \
             "dist/tauri-macos/QwenPaw Desktop.app"
@@ -277,6 +278,7 @@ jobs:
           EXTRACTED_APP="dist/tauri-macos-archive-check/QwenPaw Desktop.app"
           xattr -w com.apple.quarantine "0081;$(date +%s);Chrome;00000000-0000-0000-0000-000000000000" \
             "${EXTRACTED_APP}" || true
+          QWENPAW_DIAG_PORT=19089 \
           QWENPAW_DIAG_LOG=tauri-backend-archive.log \
             bash scripts/pack-tauri/diagnose_macos_app.sh \
             "${EXTRACTED_APP}"
