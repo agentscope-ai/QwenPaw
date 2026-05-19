@@ -231,13 +231,15 @@ class FeishuChannel(BaseChannel):
         self.verification_token = verification_token or ""
         self.domain = domain if domain in ("feishu", "lark") else "feishu"
         self.group_session_mode = (
-            group_session_mode if group_session_mode in ("shared", "per_user")
+            group_session_mode
+            if group_session_mode in ("shared", "per_user")
             else "per_user"
         )
-        self._group_session_overrides = (
-            {k: v for k, v in (group_session_overrides or {}).items()
-             if v in ("shared", "per_user")}
-        )
+        self._group_session_overrides = {
+            k: v
+            for k, v in (group_session_overrides or {}).items()
+            if v in ("shared", "per_user")
+        }
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
         )
@@ -313,10 +315,11 @@ class FeishuChannel(BaseChannel):
                 os.getenv("FEISHU_STREAMING_ENABLED", "0") == "1"
             ),
             group_session_mode=os.getenv(
-                "FEISHU_GROUP_SESSION_MODE", "per_user"
+                "FEISHU_GROUP_SESSION_MODE",
+                "per_user",
             ),
             group_session_overrides=json.loads(
-                os.getenv("FEISHU_GROUP_SESSION_OVERRIDES", "{}")
+                os.getenv("FEISHU_GROUP_SESSION_OVERRIDES", "{}"),
             ),
         )
 
@@ -355,10 +358,14 @@ class FeishuChannel(BaseChannel):
                 getattr(config, "streaming_enabled", False),
             ),
             group_session_mode=getattr(
-                config, "group_session_mode", "per_user"
+                config,
+                "group_session_mode",
+                "per_user",
             ),
             group_session_overrides=getattr(
-                config, "group_session_overrides", None
+                config,
+                "group_session_overrides",
+                None,
             ),
         )
 
@@ -371,7 +378,8 @@ class FeishuChannel(BaseChannel):
         if not is_group:
             return "per_user"
         return self._group_session_overrides.get(
-            chat_id, self.group_session_mode
+            chat_id,
+            self.group_session_mode,
         )
 
     def resolve_session_id(
@@ -955,7 +963,6 @@ class FeishuChannel(BaseChannel):
             # context file (instead of per-user isolation).
             # Per-group override in group_session_overrides takes priority.
             if self._get_group_session_mode(chat_id, is_group) == "shared":
-                from .utils import short_session_id_from_full_id
                 group_uid = f"group:{short_session_id_from_full_id(chat_id)}"
                 native["user_id"] = group_uid
                 # Also override meta so build_agent_request_from_native
