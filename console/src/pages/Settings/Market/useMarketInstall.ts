@@ -201,14 +201,20 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
     [opts, updateItem],
   );
 
-  const cancel = useCallback((id: string) => {
-    cancelledRef.current.add(id);
-    if (id !== currentInstallingItemIdRef.current) return;
-    const taskId = currentTaskIdRef.current;
-    if (taskId) {
-      void api.cancelHubSkillInstall(taskId, selectedAgentRef.current);
-    }
-  }, []);
+  const cancel = useCallback(
+    (id: string) => {
+      cancelledRef.current.add(id);
+      if (id !== currentInstallingItemIdRef.current) {
+        updateItem(id, { status: "cancelled", message: "" });
+        return;
+      }
+      const taskId = currentTaskIdRef.current;
+      if (taskId) {
+        void api.cancelHubSkillInstall(taskId, selectedAgentRef.current);
+      }
+    },
+    [updateItem],
+  );
 
   const retry = useCallback(
     (id: string) => {

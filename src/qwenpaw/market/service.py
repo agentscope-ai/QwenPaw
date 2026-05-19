@@ -46,9 +46,12 @@ async def search_market(
 ]:
     """Search each requested provider at its own page; concat results.
 
-    The caller (UI) drives per-provider cursors via `provider_pages` —
-    unknown keys are silently dropped. `by_provider` reports per-key
-    `(has_more, total)`; `total` is best-effort and for display only.
+    The caller drives per-provider cursors via `provider_pages`. Unknown
+    keys are dropped here (the HTTP router rejects them at the boundary).
+    `by_provider` reports per-key `(has_more, total)` only for providers
+    that returned successfully — errored providers go to `errors` and are
+    absent from `by_provider`, so the caller keeps their cursor for retry.
+    `total` is best-effort and for display only.
     """
     capped_limit = max(1, min(int(limit or 1), _MAX_LIMIT))
     selected = [
@@ -68,8 +71,10 @@ async def search_market(
     by_provider: dict[str, tuple[bool, int]] = {}
     for (key, _), outcome in zip(selected, paired):
         if isinstance(outcome, MarketSearchError):
+            # Don't record in by_provider — caller keeps its cursor so the
+            # provider gets retried on the next Load More instead of being
+            # treated as exhausted.
             errors.append(outcome)
-            by_provider[key] = (False, 0)
             continue
         sub_results, sub_has_more, sub_total = outcome
         results.extend(sub_results)

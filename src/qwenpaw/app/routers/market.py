@@ -4,8 +4,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -74,27 +72,12 @@ async def get_market_providers() -> list[ProviderInfoSpec]:
 
 @router.post("/search", response_model=MarketSearchResponse)
 async def market_search(body: MarketSearchRequest) -> MarketSearchResponse:
-    requested_keys = list(body.provider_pages.keys())
-    if requested_keys:
-        unknown = [k for k in requested_keys if k not in PROVIDERS]
-        if unknown:
-            raise HTTPException(
-                status_code=400,
-                detail=f"unknown providers: {sorted(unknown)}",
-            )
-        unavailable: list[dict[str, Any]] = []
-        for key in requested_keys:
-            ok, reason = PROVIDERS[key].available()
-            if not ok:
-                unavailable.append({"provider": key, "reason": reason})
-        if unavailable:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "type": "providers_unavailable",
-                    "providers": unavailable,
-                },
-            )
+    unknown = [k for k in body.provider_pages if k not in PROVIDERS]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown providers: {sorted(unknown)}",
+        )
 
     results, errors, by_provider = await search_market(
         query=body.query,

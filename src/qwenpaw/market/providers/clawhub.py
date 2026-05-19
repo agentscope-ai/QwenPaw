@@ -59,12 +59,7 @@ class ClawHubProvider:
         start = (page - 1) * limit
         end = start + limit
         total = len(all_results)
-        # When upstream filled our ceiling there are almost certainly more
-        # matches we couldn't fetch; flag has_more even if the local slice
-        # was exhausted, so UI shows the "X+" hint instead of "X".
-        capped = total >= _OVERFETCH_LIMIT
-        has_more = total > end or capped
-        return all_results[start:end], has_more, total
+        return all_results[start:end], end < total, total
 
 
 provider = ClawHubProvider()

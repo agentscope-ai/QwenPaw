@@ -100,7 +100,7 @@ export function useMarketSearch(): MarketSearchState {
       lng: string,
     ) => {
       const seq = ++requestSeqRef.current;
-      if (Object.keys(pages).length === 0) {
+      if (!q.trim() || Object.keys(pages).length === 0) {
         setResults([]);
         setErrors([]);
         setHasMore(false);
