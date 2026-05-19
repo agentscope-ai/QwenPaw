@@ -380,10 +380,7 @@ export function SkillDrawer({
             <Form.Item label={t("skills.installedFrom")}>
               <Input
                 disabled
-                value={deriveInstalledFromLabel(
-                  editingSkill.installed_from,
-                  t,
-                )}
+                value={deriveInstalledFromLabel(editingSkill.installed_from, t)}
               />
             </Form.Item>
           </>

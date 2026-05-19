@@ -32,8 +32,7 @@ export interface MarketSearchResponse {
 }
 
 export const marketApi = {
-  listMarketProviders: () =>
-    request<MarketProviderInfo[]>("/market/providers"),
+  listMarketProviders: () => request<MarketProviderInfo[]>("/market/providers"),
 
   searchMarket: (payload: {
     query: string;

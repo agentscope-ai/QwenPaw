@@ -172,10 +172,7 @@ function MarketPage() {
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => {
-                    if (
-                      p.available &&
-                      (e.key === "Enter" || e.key === " ")
-                    ) {
+                    if (p.available && (e.key === "Enter" || e.key === " ")) {
                       market.toggleProvider(p.key);
                     }
                   }}
@@ -489,7 +486,11 @@ function DetailDrawer({
       {item && (
         <>
           <div className={styles.detailHeader}>
-            <SkillIcon url={item.icon_url} alt={item.name} source={item.source} />
+            <SkillIcon
+              url={item.icon_url}
+              alt={item.name}
+              source={item.source}
+            />
             <div className={styles.detailHeaderText}>
               <h3 className={styles.detailTitle}>{item.name}</h3>
               <div className={styles.detailMeta}>

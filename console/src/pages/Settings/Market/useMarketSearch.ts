@@ -91,17 +91,14 @@ export function useMarketSearch(): MarketSearchState {
     setTotal(typeof resp.total === "number" ? resp.total : 0);
   }, []);
 
-  const storeCache = useCallback(
-    (key: string, resp: MarketSearchResponse) => {
-      const cache = cacheRef.current;
-      if (cache.size >= CACHE_MAX) {
-        const oldest = cache.keys().next().value;
-        if (oldest !== undefined) cache.delete(oldest);
-      }
-      cache.set(key, resp);
-    },
-    [],
-  );
+  const storeCache = useCallback((key: string, resp: MarketSearchResponse) => {
+    const cache = cacheRef.current;
+    if (cache.size >= CACHE_MAX) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== undefined) cache.delete(oldest);
+    }
+    cache.set(key, resp);
+  }, []);
 
   const prefetch = useCallback(
     (q: string, providerKeys: string[], pageNum: number) => {

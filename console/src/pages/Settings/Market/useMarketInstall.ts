@@ -130,10 +130,7 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
       } catch (err) {
         const conflict = parseConflict(err);
         if (conflict?.suggested_name && opts.onConflict) {
-          const newName = await opts.onConflict(
-            item,
-            conflict.suggested_name,
-          );
+          const newName = await opts.onConflict(item, conflict.suggested_name);
           if (newName) {
             await installOne(item, newName);
             return;
@@ -238,7 +235,11 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
   );
 
   const clearCompleted = useCallback(() => {
-    setQueue(queueRef.current.filter((it) => it.status === "queued" || it.status === "installing"));
+    setQueue(
+      queueRef.current.filter(
+        (it) => it.status === "queued" || it.status === "installing",
+      ),
+    );
   }, [setQueue]);
 
   return { queue, enqueue, cancel, retry, clearCompleted };
