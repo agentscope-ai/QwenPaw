@@ -138,9 +138,10 @@ function MarketPage() {
                     p.available ? () => market.toggleProvider(p.key) : undefined
                   }
                   role="button"
-                  tabIndex={0}
+                  tabIndex={p.available ? 0 : -1}
                   onKeyDown={(e) => {
                     if (p.available && (e.key === "Enter" || e.key === " ")) {
+                      e.preventDefault();
                       market.toggleProvider(p.key);
                     }
                   }}
@@ -170,6 +171,12 @@ function MarketPage() {
               {t("common.loading")}
             </span>
           </div>
+        ) : market.results.length === 0 && market.errors.length > 0 ? (
+          <EmptyState text={t("market.noResults")}>
+            <Button onClick={() => market.loadMore()} loading={market.loading}>
+              {t("market.retry")}
+            </Button>
+          </EmptyState>
         ) : market.results.length === 0 && market.query.trim() ? (
           <EmptyState text={t("market.noResults")} />
         ) : market.results.length === 0 ? (
@@ -245,11 +252,18 @@ function MarketPage() {
   );
 }
 
-function EmptyState({ text }: { text: string }) {
+function EmptyState({
+  text,
+  children,
+}: {
+  text: string;
+  children?: React.ReactNode;
+}) {
   return (
     <div className={styles.noSearchResults}>
       <span className={styles.noSearchResultsIcon}>📦</span>
       <span className={styles.noSearchResultsText}>{text}</span>
+      {children}
     </div>
   );
 }

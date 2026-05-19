@@ -103,6 +103,7 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
           try {
             const result = await api.importPoolSkillFromHub({
               bundle_url: item.result.source_url,
+              version: item.result.version || undefined,
               target_name: overrideName,
             });
             if (cancelledRef.current.has(item.id)) {
@@ -139,6 +140,7 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
       const task = await api.startHubSkillInstall(
         {
           bundle_url: item.result.source_url,
+          version: item.result.version || undefined,
           enable: true,
           target_name: overrideName,
         },

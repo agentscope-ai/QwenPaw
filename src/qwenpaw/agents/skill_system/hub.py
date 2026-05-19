@@ -786,7 +786,11 @@ def _normalize_bundle(
     data: Any,
 ) -> tuple[str, str, dict[str, Any], dict[str, Any], dict[str, Any]]:
     payload = data
-    if isinstance(data, dict) and isinstance(data.get("skill"), dict):
+    if (
+        isinstance(data, dict)
+        and isinstance(data.get("skill"), dict)
+        and not _bundle_has_content(data)
+    ):
         payload = data["skill"]
     if not isinstance(payload, dict):
         raise SkillsError(message="Hub bundle is not a valid JSON object")
@@ -1727,8 +1731,7 @@ async def _fetch_bundle_from_aliyun_url(
 
     V3 ACS3-HMAC-SHA256 signed via `alibabacloud_tea_openapi`.
     Credentials come from the standard Aliyun chain (env,
-    `~/.alibabacloud/credentials`, RAM role). See
-    `src/qwenpaw/market/aliyun.md` for the verified contract.
+    `~/.alibabacloud/credentials`, RAM role).
     """
     del requested_version  # endpoint has no version selector
     skill_id = _extract_aliyun_skill_spec(bundle_url)
@@ -1758,7 +1761,7 @@ async def _fetch_bundle_from_aliyun_url(
     try:
         resp_body = await call_aliyun_action_async(
             action="GetSkillContent",
-            pathname=f"/openapi/skills/{skill_id}",
+            pathname=f"/openapi/skills/{quote(skill_id, safe='')}",
             method="GET",
         )
     except Exception as exc:  # noqa: BLE001

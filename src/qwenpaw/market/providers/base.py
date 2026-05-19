@@ -41,7 +41,6 @@ class MarketProvider(Protocol):
         """Search this provider. Returns `(results, has_more, total)`.
 
         Always async (every provider hits the network via hub's shared
-        async client). `total` is the upstream's filtered result count if
-        known (drives "Page X of Y" in the UI), or None when the provider
-        can't report a trustworthy count.
+        async client). `has_more` drives the Load More button; `total` is
+        the upstream filtered count for display only (None when unknown).
         """
