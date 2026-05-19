@@ -43,13 +43,30 @@ codesign -dv --verbose=4 "${BACKEND}" 2>&1 || true
 echo ""
 echo "== bundled Mach-O signature scan =="
 checked=0
+skipped_framework_members=0
 while IFS= read -r -d '' path; do
+    if [[ "${path}" == *".framework/"* ]]; then
+        skipped_framework_members=$((skipped_framework_members + 1))
+        continue
+    fi
     if file -b "${path}" | grep -q "Mach-O"; then
         codesign --verify --verbose=2 "${path}"
         checked=$((checked + 1))
     fi
 done < <(find "${APP_PATH}" -type f -print0)
 echo "Verified ${checked} bundled Mach-O files"
+echo "Skipped ${skipped_framework_members} framework member files"
+
+echo ""
+echo "== bundled framework signature scan =="
+checked_frameworks=0
+while IFS= read -r framework; do
+    if [[ -n "${framework}" ]]; then
+        codesign --verify --verbose=2 "${framework}"
+        checked_frameworks=$((checked_frameworks + 1))
+    fi
+done < <(find "${APP_PATH}" -type d -name "*.framework" | sort -r)
+echo "Verified ${checked_frameworks} bundled frameworks"
 
 echo ""
 echo "== backend sidecar smoke test =="

@@ -48,6 +48,10 @@ is_macho() {
     file -b "$1" | grep -q "Mach-O"
 }
 
+is_inside_framework() {
+    [[ "$1" == *".framework/"* ]]
+}
+
 is_process_executable() {
     local path="$1"
     local name
@@ -114,6 +118,9 @@ fi
 
 signed_files=0
 while IFS= read -r -d '' path; do
+    if is_inside_framework "${path}"; then
+        continue
+    fi
     if is_macho "${path}"; then
         codesign_file "${path}"
         signed_files=$((signed_files + 1))
@@ -140,6 +147,9 @@ if [[ "${TARGET}" == *.app ]]; then
     codesign --verify --deep --strict --verbose=2 "${TARGET}"
 else
     while IFS= read -r -d '' path; do
+        if is_inside_framework "${path}"; then
+            continue
+        fi
         if is_macho "${path}"; then
             codesign --verify --verbose=2 "${path}"
         fi
