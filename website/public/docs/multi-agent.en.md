@@ -707,15 +707,16 @@ QwenPaw also supports spawning sub-tasks **within the current workspace**.
 
 ### Three Collaboration Modes Compared
 
-| Mode | Workspace | History | Best for |
-|---|---|---|---|
-| `chat_with_agent` | Target agent's own workspace | None (text only) | Calling a specialist agent (QA, code review, etc.) |
-| `spawn_subagent(fork=False)` | Same as parent agent | None (blank session) | Clean, independent sub-tasks |
-| `spawn_subagent(fork=True)` | git worktree of current workspace | Full parent history | Context-aware side tasks that may modify files |
+| Mode                         | Workspace                         | History              | Best for                                           |
+| ---------------------------- | --------------------------------- | -------------------- | -------------------------------------------------- |
+| `chat_with_agent`            | Target agent's own workspace      | None (text only)     | Calling a specialist agent (QA, code review, etc.) |
+| `spawn_subagent(fork=False)` | Same as parent agent              | None (blank session) | Clean, independent sub-tasks                       |
+| `spawn_subagent(fork=True)`  | git worktree of current workspace | Full parent history  | Context-aware side tasks that may modify files     |
 
 ### When to Use spawn_subagent?
 
 **Use `spawn_subagent(fork=False)` (default, most common)**:
+
 - Sub-task needs to read/write **files in the current project**
 - Sub-task is self-contained and **doesn't need conversation context**
 
@@ -726,6 +727,7 @@ QwenPaw also supports spawning sub-tasks **within the current workspace**.
 ```
 
 **Use `spawn_subagent(fork=True)`**:
+
 - Sub-task **needs the full conversation context** (e.g. based on what we just discussed)
 - Sub-task **modifies files** but shouldn't affect the current working tree
 
@@ -735,6 +737,7 @@ QwenPaw also supports spawning sub-tasks **within the current workspace**.
 ```
 
 **Use `chat_with_agent` (cross-agent)**:
+
 - You need a specialist agent with its own configuration and tools
 
 ### Usage Examples
@@ -814,6 +817,7 @@ subagent can run without missing configuration.
 **Q: Can I use both spawn_subagent and chat_with_agent together?**
 
 Yes. They are complementary:
+
 - `spawn_subagent` — in-workspace file tasks
 - `chat_with_agent` — specialist agents in other workspaces
 
