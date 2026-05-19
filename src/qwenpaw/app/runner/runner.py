@@ -31,7 +31,7 @@ from .mission_dispatch import (
     detect_active_mission_phase,
 )
 from .session import SafeJSONSession
-from .utils import build_env_context
+from .utils import agentscope_msg_to_message, build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.react_agent import QwenPawAgent
 from ...exceptions import convert_model_exception
@@ -636,6 +636,16 @@ class AgentRunner(Runner):
                     channel,
                     name=name,
                 )
+                initial_messages = [
+                    message.model_dump(mode="json")
+                    for message in agentscope_msg_to_message(msgs)
+                ]
+                await self.session.ensure_session_placeholder(
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    initial_messages=initial_messages,
+                )
                 logger.debug(f"Runner: Got chat: {chat.id}")
             else:
                 logger.warning(
@@ -781,9 +791,11 @@ class AgentRunner(Runner):
                 logger.info(
                     "Auto-denied %d pending approval(s) for root session %s",
                     cancelled_count,
-                    root_session_id[:8]
-                    if len(root_session_id) >= 8
-                    else root_session_id,
+                    (
+                        root_session_id[:8]
+                        if len(root_session_id) >= 8
+                        else root_session_id
+                    ),
                 )
 
             if agent is not None:

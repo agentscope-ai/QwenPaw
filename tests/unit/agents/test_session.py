@@ -188,6 +188,40 @@ async def test_get_nonexistent(sess):
 
 
 @pytest.mark.asyncio
+async def test_ensure_session_placeholder_preserves_initial_messages(sess):
+    """Placeholder sessions should keep the initial request recoverable."""
+    initial_messages = [
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "text", "text": "hello"}],
+        },
+    ]
+
+    created = await sess.ensure_session_placeholder(
+        "console:alice",
+        user_id="alice",
+        channel="console",
+        initial_messages=initial_messages,
+    )
+    created_again = await sess.ensure_session_placeholder(
+        "console:alice",
+        user_id="alice",
+        channel="console",
+        initial_messages=[{"role": "assistant"}],
+    )
+
+    state = await sess.get_session_state_dict(
+        "console:alice",
+        user_id="alice",
+        channel="console",
+    )
+    assert created is True
+    assert created_again is False
+    assert state["_initial_messages"] == initial_messages
+
+
+@pytest.mark.asyncio
 async def test_load_completely_corrupted(sess, tmp_session_dir):
     """File with no valid JSON at all should not crash (returns empty)."""
     path = os.path.join(tmp_session_dir, "test--session.json")

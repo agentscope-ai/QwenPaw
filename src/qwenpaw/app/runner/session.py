@@ -297,6 +297,48 @@ class SafeJSONSession(SessionBase):
             session_save_path,
         )
 
+    async def ensure_session_placeholder(
+        self,
+        session_id: str,
+        user_id: str = "",
+        channel: str = "",
+        initial_messages: list[dict] | None = None,
+    ) -> bool:
+        """Create a lightweight session file if none exists yet.
+
+        The normal final ``save_session_state`` call overwrites this
+        placeholder after the agent run completes. If the process exits before
+        that final save, the chat API can still recover the initial user
+        request instead of showing an empty orphan chat.
+        """
+        session_save_path = self._get_save_path(
+            session_id,
+            user_id=user_id,
+            channel=channel,
+        )
+        if os.path.exists(session_save_path):
+            return False
+
+        state: dict = {}
+        if initial_messages:
+            state["_initial_messages"] = initial_messages
+
+        try:
+            with open(
+                session_save_path,
+                "x",
+                encoding="utf-8",
+            ) as f:
+                f.write(json.dumps(state, ensure_ascii=False))
+        except FileExistsError:
+            return False
+
+        logger.info(
+            "Created session placeholder at %s.",
+            session_save_path,
+        )
+        return True
+
     async def load_session_state(
         self,
         session_id: str,

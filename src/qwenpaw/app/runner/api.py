@@ -19,6 +19,14 @@ from .utils import agentscope_msg_to_message
 router = APIRouter(prefix="/chats", tags=["chats"])
 
 
+def _get_initial_messages(state: dict) -> list[dict]:
+    """Return placeholder messages captured before final session save."""
+    initial_messages = state.get("_initial_messages")
+    if not isinstance(initial_messages, list):
+        return []
+    return [msg for msg in initial_messages if isinstance(msg, dict)]
+
+
 async def get_workspace(request: Request):
     """Get the workspace for the active agent."""
     from ..agent_context import get_agent_for_request
@@ -168,11 +176,15 @@ async def get_chat(
     if not state:
         return ChatHistory(messages=[], status=status)
     memory_state = state.get("agent", {}).get("memory", {})
-    memory = InMemoryMemory()
-    memory.load_state_dict(memory_state, strict=False)
+    messages = []
+    if memory_state:
+        memory = InMemoryMemory()
+        memory.load_state_dict(memory_state, strict=False)
 
-    memories = await memory.get_memory(prepend_summary=False)
-    messages = agentscope_msg_to_message(memories)
+        memories = await memory.get_memory(prepend_summary=False)
+        messages = agentscope_msg_to_message(memories)
+    if not messages:
+        messages = _get_initial_messages(state)
     return ChatHistory(messages=messages, status=status)
 
 
