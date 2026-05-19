@@ -259,6 +259,12 @@ jobs:
           chmod +x scripts/pack-tauri/build_macos_pyinstaller.sh
           bash scripts/pack-tauri/build_macos_pyinstaller.sh
 
+      - name: Diagnose Tauri macOS package
+        run: |
+          chmod +x scripts/pack-tauri/diagnose_macos_app.sh
+          bash scripts/pack-tauri/diagnose_macos_app.sh \
+            "dist/tauri-macos/QwenPaw Desktop.app"
+
       - name: Upload Tauri macOS artifact
         uses: actions/upload-artifact@v4
         with:

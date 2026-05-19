@@ -139,11 +139,6 @@ def check_local_whisper_available() -> dict:
         whisper_ok = True
     except ImportError:
         pass
-    except Exception:
-        logger.warning(
-            "Local Whisper status check failed while importing whisper",
-            exc_info=True,
-        )
 
     return {
         "available": ffmpeg_ok and whisper_ok,

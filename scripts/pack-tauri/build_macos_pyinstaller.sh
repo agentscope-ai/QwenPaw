@@ -19,6 +19,7 @@ echo "Version: ${VERSION}"
 echo ""
 
 ENTITLEMENTS_FILE="${REPO_ROOT}/console/src-tauri/entitlements.plist"
+SIGN_MACOS_BUNDLE="${REPO_ROOT}/scripts/pack-tauri/sign_macos_bundle.sh"
 
 # Step 0: Prerequisites
 echo "== Step 0: Checking Prerequisites =="
@@ -60,6 +61,10 @@ if [ ! -f "${ENTITLEMENTS_FILE}" ]; then
     echo "ERROR: macOS entitlements file not found at ${ENTITLEMENTS_FILE}"
     exit 1
 fi
+if [ ! -f "${SIGN_MACOS_BUNDLE}" ]; then
+    echo "ERROR: macOS signing helper not found at ${SIGN_MACOS_BUNDLE}"
+    exit 1
+fi
 
 if [ -z "${APPLE_SIGNING_IDENTITY:-}" ] && [ -z "${APPLE_CERTIFICATE:-}" ]; then
     # The Tauri app and PyInstaller sidecar are native Mach-O executables.
@@ -79,6 +84,14 @@ bash scripts/pack-tauri/build_pyinstaller.sh
 echo "PyInstaller backend built"
 echo ""
 
+echo "== Step 1b: Signing PyInstaller Backend =="
+bash "${SIGN_MACOS_BUNDLE}" \
+    "${REPO_ROOT}/console/src-tauri/binaries/qwenpaw-backend" \
+    "${APPLE_SIGNING_IDENTITY}" \
+    "${PYINSTALLER_ENTITLEMENTS_FILE}"
+echo "PyInstaller backend signed"
+echo ""
+
 # Step 2: Build Tauri app
 echo "== Step 2: Building Tauri App =="
 BUNDLE_DIR="${REPO_ROOT}/console/src-tauri/target/release/bundle"
@@ -93,6 +106,20 @@ npm exec -- tauri build \
     --bundles app
 cd ..
 echo "Tauri app built"
+echo ""
+
+APP_PATH="${BUNDLE_DIR}/macos/QwenPaw Desktop.app"
+if [ ! -d "${APP_PATH}" ]; then
+    echo "ERROR: No Tauri macOS app found at ${APP_PATH}"
+    exit 1
+fi
+
+echo "== Step 2b: Signing Final macOS App =="
+bash "${SIGN_MACOS_BUNDLE}" \
+    "${APP_PATH}" \
+    "${APPLE_SIGNING_IDENTITY}" \
+    "${PYINSTALLER_ENTITLEMENTS_FILE}"
+echo "Final macOS app signed and verified"
 echo ""
 
 # Step 3: Collect distribution artifacts
@@ -110,12 +137,6 @@ mkdir -p "${DIST_DIR}"
 # Match the legacy macOS package shape: one zip containing one .app bundle.
 # The DMG remains in Tauri's build output for local debugging, but shipping
 # both doubles the public artifact size and changes the user-facing layout.
-APP_PATH="${BUNDLE_DIR}/macos/QwenPaw Desktop.app"
-if [ ! -d "${APP_PATH}" ]; then
-    echo "ERROR: No Tauri macOS app found at ${APP_PATH}"
-    exit 1
-fi
-
 cp -R "${APP_PATH}" "${DIST_DIR}/"
 STAGED_APP_PATH="${DIST_DIR}/$(basename "${APP_PATH}")"
 echo ".app copied to ${STAGED_APP_PATH}"
