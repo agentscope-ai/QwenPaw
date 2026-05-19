@@ -37,6 +37,12 @@
       display: flex;
       align-items: center;
     }
+
+    /* QwenPaw provides its own chat history controls, so hide the
+       dependency's narrow-mode session drawer toggle. */
+    [class*="chat-anywhere-default-header-inner"] {
+      display: none;
+    }
   }
 
   /* Custom scrollbar */
