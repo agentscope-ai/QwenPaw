@@ -1,0 +1,14 @@
+{
+  "user": "",
+  "total_points": 0,
+  "stats": {
+    "total_predictions": 0,
+    "correct_exact": 0,
+    "correct_winner": 0,
+    "wrong_winner": 0,
+    "wrong_score": 0,
+    "accuracy_winner_pct": 0.0,
+    "accuracy_exact_pct": 0.0
+  },
+  "predictions": []
+}

@@ -1,0 +1,9 @@
+{
+  "favorite_teams": [],
+  "favorite_players": [],
+  "features_activated": {
+    "predictions": false,
+    "digest": false,
+    "video": false
+  }
+}
