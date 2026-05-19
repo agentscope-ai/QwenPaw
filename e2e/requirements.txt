@@ -6,7 +6,7 @@
 # 测试框架
 pytest>=7.4.0
 pytest-html>=4.0.0
-allure-pytest>=2.13.0
+# allure-pytest>=2.13.0  # 已移除，改用 pytest-html 生成中文报告
 
 # Playwright 浏览器自动化
 playwright>=1.40.0
