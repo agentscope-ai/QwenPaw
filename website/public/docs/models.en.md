@@ -159,6 +159,7 @@ Currently supported cloud providers include:
 - Zhipu
 - SiliconFlow
 - OpenCode
+- OpenCode Go
 
 > Some providers offer different base URLs for Mainland China and other regions. Please select the correct provider based on your location.
 
