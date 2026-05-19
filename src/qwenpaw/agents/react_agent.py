@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
 
@@ -537,6 +538,9 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
     ) -> None:
         """Register MCP clients on this agent's toolkit after construction.
 
+        Each MCP tool is registered as ``<client_key>_<tool_name>`` so
+        multiple servers with identical tool names don't collide.
+
         Args:
             namesake_strategy: Strategy to handle namesake tool functions.
                 Options: "override", "skip", "raise", "rename"
@@ -544,11 +548,22 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         """
         for i, client in enumerate(self._mcp_clients):
             client_name = getattr(client, "name", repr(client))
+            client_key = getattr(
+                client, "_qwenpaw_mcp_client_key", None
+            ) or getattr(client, "name", "mcp")
+            # Sanitize client key for use as a tool name prefix
+            slug = re.sub(
+                r"_+",
+                "_",
+                re.sub(r"[^a-z0-9_-]", "_", client_key.lower()),
+            ).strip("_")[:40]
+            if not slug or slug.isdigit():
+                slug = f"mcp{i}"
             try:
-                await self.toolkit.register_mcp_client(
+                await self._register_mcp_client_tools(
                     client,
+                    slug,
                     namesake_strategy=namesake_strategy,
-                    execution_timeout=client.read_timeout_seconds,
                 )
             except (ClosedResourceError, asyncio.CancelledError) as error:
                 if self._should_propagate_cancelled_error(error):
@@ -562,10 +577,10 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 if recovered_client is not None:
                     self._mcp_clients[i] = recovered_client
                     try:
-                        await self.toolkit.register_mcp_client(
+                        await self._register_mcp_client_tools(
                             recovered_client,
+                            slug,
                             namesake_strategy=namesake_strategy,
-                            execution_timeout=client.read_timeout_seconds,
                         )
                         continue
                     except asyncio.CancelledError as recover_error:
@@ -597,6 +612,33 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                     e,
                     exc_info=True,
                 )
+
+    async def _register_mcp_client_tools(
+        self,
+        client: Any,
+        slug: str,
+        namesake_strategy: NamesakeStrategy = "skip",
+    ) -> None:
+        """Register tools from an MCP client with a slug prefix.
+
+        Args:
+            client: MCP client instance.
+            slug: Prefix slug for tool names.
+            namesake_strategy: Strategy for namesake tool functions.
+        """
+        tools = await client.list_tools()
+        for mcp_tool in tools:
+            func_obj = await client.get_callable_function(
+                func_name=mcp_tool.name,
+                wrap_tool_result=True,
+                execution_timeout=client.read_timeout_seconds,
+            )
+            exposed = f"{slug}_{mcp_tool.name}"
+            self.toolkit.register_tool_function(
+                tool_func=func_obj,
+                func_name=exposed,
+                namesake_strategy=namesake_strategy,
+            )
 
     async def _recover_mcp_client(self, client: Any) -> Any | None:
         """Recover MCP client from broken session and return healthy client."""
