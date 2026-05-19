@@ -680,7 +680,7 @@ def memory_embedding_notes(cfg: Config) -> list[str]:
 
 
 def workspace_hygiene_notes(cfg: Config) -> list[str]:
-    """Large prompt files, heavy tool_result/dialog dirs; memory tree size."""
+    """Large prompt files, heavy tool_results/dialog dirs; memory tree size."""
     notes: list[str] = []
     bootstrap_names = (
         "AGENTS.md",
@@ -706,7 +706,7 @@ def workspace_hygiene_notes(cfg: Config) -> list[str]:
                     "burn context; consider splitting or summarizing.",
                 )
         for sub, many, label in (
-            ("tool_result", _TOOL_RESULT_MANY, "tool_result"),
+            ("tool_results", _TOOL_RESULT_MANY, "tool_results"),
             ("dialog", _DIALOG_MANY, "dialog"),
         ):
             d = wd / sub
