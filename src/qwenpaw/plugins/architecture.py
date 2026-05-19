@@ -89,6 +89,19 @@ class PluginManifest:
             return PluginType.FRONTEND
         return PluginType.GENERAL
 
+    @staticmethod
+    def _coerce_manifest_str(value: Any) -> str:
+        """Return a display string from manifest text or legacy i18n object."""
+        if isinstance(value, dict):
+            return str(
+                value.get("en-US")
+                or value.get("en")
+                or value.get("zh-CN")
+                or value.get("zh")
+                or "",
+            )
+        return str(value) if value is not None else ""
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PluginManifest":
         """Create a manifest from a ``plugin.json`` dictionary.
@@ -118,10 +131,10 @@ class PluginManifest:
 
         return cls(
             id=data["id"],
-            name=data["name"],
+            name=cls._coerce_manifest_str(data.get("name") or data["id"]),
             version=data["version"],
-            description=data.get("description", ""),
-            author=data.get("author", ""),
+            description=cls._coerce_manifest_str(data.get("description", "")),
+            author=cls._coerce_manifest_str(data.get("author", "")),
             entry=entry,
             dependencies=data.get("dependencies", []),
             min_version=data.get("min_version", "0.1.0"),

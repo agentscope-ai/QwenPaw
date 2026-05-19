@@ -2,7 +2,11 @@
   "id": "cloudpaw",
   "name": "CloudPaw",
   "version": "0.0.1",
-  "description": "CloudPaw plugin for QwenPaw - provides Alibaba Cloud deployment orchestration with ROS templates, multi-agent collaboration, Terraform integration, and ACP support.",
+  "description": "CloudPaw plugin for QwenPaw — Alibaba Cloud deployment orchestration with ROS templates, multi-agent collaboration, Terraform integration, and ACP support.",
+  "description_i18n": {
+    "zh-CN": "QwenPaw 的云能力增强插件，融合 QwenPaw + 阿里云 CLI 与 ROS 资源编排。用自然语言完成从资源创建到应用部署的全流程。",
+    "en-US": "CloudPaw plugin for QwenPaw — Alibaba Cloud deployment orchestration with ROS templates, multi-agent collaboration, Terraform integration, and ACP support."
+  },
   "author": "CloudPaw Team",
   "entry": {
     "frontend": "ui/dist/index.js",

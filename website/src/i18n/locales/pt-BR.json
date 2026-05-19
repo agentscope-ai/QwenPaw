@@ -473,13 +473,9 @@
     "helpLink": "guia de instalacao",
     "helpSuffix": "para instrucoes detalhadas.",
     "pluginsTitle": "Plugins",
-    "pluginsDesc": "Plugins Bundle e Tool descobertos no repositorio QwenPaw. Baixe o .zip ou instale diretamente com a CLI do QwenPaw.",
+    "pluginsDesc": "Plugins Bundle e Tool descobertos no repositorio QwenPaw. Baixe o pacote .zip para instalar manualmente.",
     "kindBundle": "Bundle",
     "kindTool": "Tool",
-    "installHint": "Instale com a CLI do QwenPaw:",
-    "installForceHint": "Use --force para atualizar uma instalacao existente.",
-    "copyCommand": "Copiar",
-    "copied": "Copiado",
     "downloadZip": "Baixar .zip"
   },
   "releaseNotes": {

@@ -4,6 +4,10 @@
   "version": "1.1.1",
   "type": "tool",
   "description": "Generate and edit images using OpenAI GPT Image 2 model",
+  "description_i18n": {
+    "zh-CN": "使用 OpenAI GPT Image 2 模型生成与编辑图像",
+    "en-US": "Generate and edit images using OpenAI GPT Image 2 model"
+  },
   "author": "QwenPaw Team",
   "entry": {
     "backend": "gpt_image2.py"

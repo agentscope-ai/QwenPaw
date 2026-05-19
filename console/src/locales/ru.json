@@ -2025,7 +2025,18 @@
     "author": "Автор",
     "unknown": "Неизвестно",
     "loadFailed": "Не удалось загрузить список плагинов",
-    "confirmTitle": "Подтвердить удаление"
+    "confirmTitle": "Подтвердить удаление",
+    "officialTitle": "Официальные плагины",
+    "officialDesc": "Установка опубликованных плагинов с CDN загрузок.",
+    "catalogRefresh": "Обновить",
+    "catalogEmpty": "Нет доступных официальных плагинов (каталог CDN может быть пуст)",
+    "catalogLoadFailed": "Не удалось загрузить каталог официальных плагинов",
+    "catalogInstall": "Установить",
+    "catalogReinstall": "Переустановить",
+    "catalogUpgrade": "Доступно обновление",
+    "catalogUpgradeBtn": "Обновить",
+    "catalogInstalled": "Установлен",
+    "catalogSha256": "SHA256"
   },
   "plan": {
     "title": "План",

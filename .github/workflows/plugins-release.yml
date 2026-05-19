@@ -59,29 +59,46 @@ jobs:
         run: |
           shopt -s nullglob
           for kind in bundle tool; do
-            for f in dist/plugins/${kind}/*.zip; do
-              echo "Uploading $f"
+            while IFS= read -r -d '' f; do
+              rel="${f#dist/plugins/}"
+              echo "Uploading $f -> files/plugins/${rel}"
               ossutil cp "$f" \
-                "oss://qwenpaw-download/files/plugins/${kind}/$(basename "$f")" \
+                "oss://qwenpaw-download/files/plugins/${rel}" \
                 --acl public-read \
                 --force \
                 --meta "Cache-Control:public, max-age=31536000, immutable"
-            done
+            done < <(find "dist/plugins/${kind}" -type f -name '*.zip' -print0 2>/dev/null || true)
           done
           # Remove zips that no longer exist locally so deletions propagate.
           for kind in bundle tool; do
-            local_names=$(ls dist/plugins/${kind} 2>/dev/null | sort || true)
-            remote_names=$(ossutil ls "oss://qwenpaw-download/files/plugins/${kind}/" -s 2>/dev/null \
+            kind_root="dist/plugins/${kind}"
+            # Drop legacy flat zips at {kind}/ (pre per-plugin directory layout).
+            remote_flat=$(ossutil ls "oss://qwenpaw-download/files/plugins/${kind}/" -s 2>/dev/null \
               | grep -E "^oss://qwenpaw-download/files/plugins/${kind}/[^/]+\.zip$" \
               | sed 's|.*/||' \
               | sort -u || true)
-            for name in $remote_names; do
-              if ! echo "$local_names" | grep -qx "$name"; then
-                echo "Removing stale OSS object: ${kind}/${name}"
-                ossutil rm \
-                  "oss://qwenpaw-download/files/plugins/${kind}/${name}" \
-                  --force
-              fi
+            for name in $remote_flat; do
+              echo "Removing legacy flat OSS object: ${kind}/${name}"
+              ossutil rm \
+                "oss://qwenpaw-download/files/plugins/${kind}/${name}" \
+                --force
+            done
+            for plugin_dir in "$kind_root"/*/; do
+              [ -d "$plugin_dir" ] || continue
+              plugin_id=$(basename "$plugin_dir")
+              local_names=$(find "$plugin_dir" -maxdepth 1 -type f -name '*.zip' -exec basename {} \; 2>/dev/null | sort || true)
+              remote_names=$(ossutil ls "oss://qwenpaw-download/files/plugins/${kind}/${plugin_id}/" -s 2>/dev/null \
+                | grep -E "^oss://qwenpaw-download/files/plugins/${kind}/${plugin_id}/[^/]+\.zip$" \
+                | sed 's|.*/||' \
+                | sort -u || true)
+              for name in $remote_names; do
+                if ! echo "$local_names" | grep -qx "$name"; then
+                  echo "Removing stale OSS object: ${kind}/${plugin_id}/${name}"
+                  ossutil rm \
+                    "oss://qwenpaw-download/files/plugins/${kind}/${plugin_id}/${name}" \
+                    --force
+                fi
+              done
             done
           done
 

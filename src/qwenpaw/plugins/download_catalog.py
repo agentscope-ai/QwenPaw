@@ -42,7 +42,8 @@ def _plugin_id_from_file_entry(entry: dict[str, Any]) -> str:
     if file_id.endswith(suffix):
         return file_id[: -len(suffix)]
 
-    # Current ids: ``{plugin_id}-{version}-{sha8}``
+    # Legacy index ids with content-hash suffix:
+    # ``{plugin_id}-{version}-{sha8}``
     marker = f"-{version}-"
     idx = file_id.rfind(marker)
     if idx > 0:

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Copy, Download, Laptop, Monitor, Puzzle } from "lucide-react";
+import { Download, Laptop, Monitor, Puzzle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useSiteConfig } from "@/config-context";
@@ -7,10 +7,13 @@ import "../styles/downloads.css";
 
 const CDN_BASE = "https://download.qwenpaw.agentscope.io";
 
+type LocalizedText = { "zh-CN": string; "en-US": string };
+
 interface FileMetadata {
   id: string;
-  name: { "zh-CN": string; "en-US": string };
-  description: { "zh-CN": string; "en-US": string };
+  plugin_id?: string;
+  name: LocalizedText;
+  description: LocalizedText;
   product: string;
   platform: string;
   version: string;
@@ -22,6 +25,105 @@ interface FileMetadata {
   updated_at: string;
   type: string;
   author?: string;
+}
+
+function pickLocalizedField(
+  value: LocalizedText | undefined,
+  language: string | undefined,
+): string {
+  if (!value) return "";
+  const zh = value["zh-CN"]?.trim() ?? "";
+  const en = value["en-US"]?.trim() ?? "";
+  if (language?.startsWith("zh")) {
+    return zh || en;
+  }
+  return en || zh;
+}
+
+function isPreviewVersion(version: string): boolean {
+  return /[ab]\d*$/i.test(version) || /preview/i.test(version);
+}
+
+function compareVersionPart(a: string, b: string): number {
+  const aNum = Number(a);
+  const bNum = Number(b);
+
+  if (!Number.isNaN(aNum) && !Number.isNaN(bNum)) {
+    return aNum - bNum;
+  }
+
+  return a.localeCompare(b);
+}
+
+function compareVersionDesc(a: string, b: string): number {
+  const aBase = a.match(/^\d+(?:\.\d+)*/)?.[0] ?? "0";
+  const bBase = b.match(/^\d+(?:\.\d+)*/)?.[0] ?? "0";
+  const aParts = aBase.split(".");
+  const bParts = bBase.split(".");
+  const maxLength = Math.max(aParts.length, bParts.length);
+
+  for (let i = 0; i < maxLength; i += 1) {
+    const result = compareVersionPart(aParts[i] ?? "0", bParts[i] ?? "0");
+    if (result !== 0) {
+      return -result;
+    }
+  }
+
+  const aIsPreview = isPreviewVersion(a);
+  const bIsPreview = isPreviewVersion(b);
+  if (aIsPreview !== bIsPreview) {
+    return aIsPreview ? 1 : -1;
+  }
+
+  return b.localeCompare(a);
+}
+
+function latestFileIdByPluginId(files: FileMetadata[]): Map<string, string> {
+  const grouped = new Map<string, FileMetadata[]>();
+  for (const file of files) {
+    const pluginId = file.plugin_id ?? file.id;
+    const list = grouped.get(pluginId) ?? [];
+    list.push(file);
+    grouped.set(pluginId, list);
+  }
+
+  const latest = new Map<string, string>();
+  for (const [pluginId, versions] of grouped) {
+    const sorted = [...versions].sort((a, b) =>
+      compareVersionDesc(a.version, b.version),
+    );
+    const latestStable = sorted.find((item) => !isPreviewVersion(item.version));
+    const chosen = latestStable ?? sorted[0];
+    if (chosen) {
+      latest.set(pluginId, chosen.id);
+    }
+  }
+  return latest;
+}
+
+function groupFilesByPluginId(
+  files: FileMetadata[],
+): Array<{ pluginId: string; versions: FileMetadata[] }> {
+  const grouped = new Map<string, FileMetadata[]>();
+  for (const file of files) {
+    const pluginId = file.plugin_id ?? file.id;
+    const list = grouped.get(pluginId) ?? [];
+    list.push(file);
+    grouped.set(pluginId, list);
+  }
+
+  return Array.from(grouped.entries())
+    .map(([pluginId, versions]) => ({
+      pluginId,
+      versions: [...versions].sort((a, b) =>
+        compareVersionDesc(a.version, b.version),
+      ),
+    }))
+    .sort((a, b) => {
+      const nameA = a.versions[0]?.name["en-US"] ?? a.pluginId;
+      const nameB = b.versions[0]?.name["en-US"] ?? b.pluginId;
+      return nameA.localeCompare(nameB);
+    });
 }
 
 interface PlatformData {
@@ -137,7 +239,7 @@ function PlatformCard({
             {stableVersions.length > 0 &&
               stableVersions.map((versionItem) => (
                 <option key={versionItem.id} value={versionItem.id}>
-                  v{versionItem.id}
+                  v{versionItem.version}
                   {latestStableFileId === versionItem.id
                     ? ` (${t("downloads.latest")})`
                     : ""}
@@ -147,7 +249,7 @@ function PlatformCard({
               <optgroup label="Preview">
                 {previewVersions.map((versionItem) => (
                   <option key={versionItem.id} value={versionItem.id}>
-                    v{versionItem.id}
+                    v{versionItem.version}
                   </option>
                 ))}
               </optgroup>
@@ -184,34 +286,39 @@ function PlatformCard({
 }
 
 interface PluginCardProps {
-  file: FileMetadata;
+  versions: FileMetadata[];
+  latestStableFileId: string | null;
   kindLabel: string;
 }
 
-function PluginCard({ file, kindLabel }: PluginCardProps) {
+function PluginCard({
+  versions,
+  latestStableFileId,
+  kindLabel,
+}: PluginCardProps) {
   const { t, i18n } = useTranslation();
-  const isZh = i18n.resolvedLanguage === "zh";
-  const [copied, setCopied] = useState(false);
+  const language = i18n.resolvedLanguage;
+  const [selectedFileId, setSelectedFileId] = useState(versions[0]?.id ?? "");
 
-  const downloadUrl = `${CDN_BASE}${file.url}`;
-  const installCommand = `qwenpaw plugin install ${downloadUrl}`;
-  const name = isZh ? file.name["zh-CN"] : file.name["en-US"];
-  const description = isZh
-    ? file.description["zh-CN"]
-    : file.description["en-US"];
-  const updatedDate = new Date(file.updated_at).toLocaleDateString(
-    isZh ? "zh-CN" : "en-US",
-  );
+  const selected =
+    versions.find((item) => item.id === selectedFileId) ?? versions[0];
 
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(installCommand);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1800);
-    } catch (err) {
-      console.warn("Clipboard write failed:", err);
-    }
+  if (!selected) {
+    return null;
   }
+
+  const name = pickLocalizedField(selected.name, language);
+  const description = pickLocalizedField(selected.description, language);
+  const updatedDate = new Date(selected.updated_at).toLocaleDateString(
+    language?.startsWith("zh") ? "zh-CN" : "en-US",
+  );
+  const downloadUrl = `${CDN_BASE}${selected.url}`;
+  const stableVersions = versions.filter(
+    (item) => !isPreviewVersion(item.version),
+  );
+  const previewVersions = versions.filter((item) =>
+    isPreviewVersion(item.version),
+  );
 
   return (
     <div className="platform-card">
@@ -225,33 +332,44 @@ function PluginCard({ file, kindLabel }: PluginCardProps) {
             <span className="plugin-kind-badge">{kindLabel}</span>
           </h4>
           <div className="platform-version">
-            v{file.version}
-            {file.author ? ` · ${file.author}` : ""}
+            v{selected.version}
+            {selected.author ? ` · ${selected.author}` : ""}
           </div>
         </div>
       </div>
       {description && <p className="platform-description">{description}</p>}
 
-      <div className="plugin-install">
-        <div className="plugin-install-label">{t("downloads.installHint")}</div>
-        <div className="plugin-install-row">
-          <code className="plugin-install-cmd">{installCommand}</code>
-          <button
-            type="button"
-            className="plugin-copy-btn"
-            onClick={handleCopy}
-            aria-label={t("downloads.copyCommand")}
+      {versions.length > 1 && (
+        <div className="version-selector">
+          <label className="version-label">
+            {t("downloads.selectVersion")}
+          </label>
+          <select
+            className="version-dropdown"
+            value={selectedFileId}
+            onChange={(e) => setSelectedFileId(e.target.value)}
           >
-            {copied ? <Check size={16} /> : <Copy size={16} />}
-            <span>
-              {copied ? t("downloads.copied") : t("downloads.copyCommand")}
-            </span>
-          </button>
+            {stableVersions.length > 0 &&
+              stableVersions.map((versionItem) => (
+                <option key={versionItem.id} value={versionItem.id}>
+                  v{versionItem.version}
+                  {latestStableFileId === versionItem.id
+                    ? ` (${t("downloads.latest")})`
+                    : ""}
+                </option>
+              ))}
+            {previewVersions.length > 0 && (
+              <optgroup label="Preview">
+                {previewVersions.map((versionItem) => (
+                  <option key={versionItem.id} value={versionItem.id}>
+                    v{versionItem.version}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
         </div>
-        <div className="plugin-install-hint">
-          {t("downloads.installForceHint")}
-        </div>
-      </div>
+      )}
 
       <a href={downloadUrl} className="download-btn" download>
         <Download size={18} strokeWidth={2.5} />
@@ -261,11 +379,11 @@ function PluginCard({ file, kindLabel }: PluginCardProps) {
       <div className="file-details">
         <div className="detail-row">
           <span className="detail-label">{t("downloads.version")}:</span>
-          <span>{file.version}</span>
+          <span>{selected.version}</span>
         </div>
         <div className="detail-row">
           <span className="detail-label">{t("downloads.size")}:</span>
-          <span>{file.size}</span>
+          <span>{selected.size}</span>
         </div>
         <div className="detail-row">
           <span className="detail-label">{t("downloads.updated")}:</span>
@@ -273,7 +391,7 @@ function PluginCard({ file, kindLabel }: PluginCardProps) {
         </div>
         <div className="sha256-row">
           <span className="detail-label">SHA256:</span>
-          <div className="sha256">{file.sha256}</div>
+          <div className="sha256">{selected.sha256}</div>
         </div>
       </div>
     </div>
@@ -312,60 +430,35 @@ function PluginsSection({ pluginsIndex }: PluginsSectionProps) {
           .map((id) => pluginsIndex.files[id])
           .filter((f): f is FileMetadata => Boolean(f));
         if (files.length === 0) return null;
+        const latestByPluginId = latestFileIdByPluginId(files);
         return (
           <div key={kind} className="plugin-kind-block">
             <div className="platform-grid">
-              {files.map((file) => (
-                <PluginCard
-                  key={file.id}
-                  file={file}
-                  kindLabel={labelForKind(kind)}
-                />
-              ))}
+              {groupFilesByPluginId(files).map(({ pluginId, versions }) => {
+                const latestStableId = latestByPluginId.get(pluginId) ?? null;
+                const defaultVersion =
+                  versions.find((item) => item.id === latestStableId) ??
+                  versions[0];
+                return (
+                  <PluginCard
+                    key={pluginId}
+                    versions={[
+                      defaultVersion,
+                      ...versions.filter(
+                        (item) => item.id !== defaultVersion.id,
+                      ),
+                    ]}
+                    latestStableFileId={latestStableId}
+                    kindLabel={labelForKind(kind)}
+                  />
+                );
+              })}
             </div>
           </div>
         );
       })}
     </div>
   );
-}
-
-function isPreviewVersion(version: string): boolean {
-  return /[ab]\d*$/i.test(version) || /preview/i.test(version);
-}
-
-function compareVersionPart(a: string, b: string): number {
-  const aNum = Number(a);
-  const bNum = Number(b);
-
-  if (!Number.isNaN(aNum) && !Number.isNaN(bNum)) {
-    return aNum - bNum;
-  }
-
-  return a.localeCompare(b);
-}
-
-function compareVersionDesc(a: string, b: string): number {
-  const aBase = a.match(/^\d+(?:\.\d+)*/)?.[0] ?? "0";
-  const bBase = b.match(/^\d+(?:\.\d+)*/)?.[0] ?? "0";
-  const aParts = aBase.split(".");
-  const bParts = bBase.split(".");
-  const maxLength = Math.max(aParts.length, bParts.length);
-
-  for (let i = 0; i < maxLength; i += 1) {
-    const result = compareVersionPart(aParts[i] ?? "0", bParts[i] ?? "0");
-    if (result !== 0) {
-      return -result;
-    }
-  }
-
-  const aIsPreview = isPreviewVersion(a);
-  const bIsPreview = isPreviewVersion(b);
-  if (aIsPreview !== bIsPreview) {
-    return aIsPreview ? 1 : -1;
-  }
-
-  return b.localeCompare(a);
 }
 
 export default function Downloads() {

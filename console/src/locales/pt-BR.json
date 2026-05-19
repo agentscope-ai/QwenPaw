@@ -2045,7 +2045,18 @@
     "author": "Autor",
     "unknown": "Desconhecido",
     "loadFailed": "Falha ao carregar lista de plugins",
-    "confirmTitle": "Confirmar Desinstalação"
+    "confirmTitle": "Confirmar Desinstalação",
+    "officialTitle": "Plugins Oficiais",
+    "officialDesc": "Instale plugins publicados a partir do CDN de downloads.",
+    "catalogRefresh": "Atualizar",
+    "catalogEmpty": "Nenhum plugin oficial disponível (o catálogo CDN pode estar vazio)",
+    "catalogLoadFailed": "Falha ao carregar o catálogo de plugins oficiais",
+    "catalogInstall": "Instalar",
+    "catalogReinstall": "Reinstalar",
+    "catalogUpgrade": "Atualização disponível",
+    "catalogUpgradeBtn": "Atualizar",
+    "catalogInstalled": "Instalado",
+    "catalogSha256": "SHA256"
   },
   "plan": {
     "title": "Plan",

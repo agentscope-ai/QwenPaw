@@ -8,15 +8,17 @@ Downloads page (it iterates ``mainIndex.products`` regardless of product type).
 Layout produced under ``--dist``::
 
     dist/plugins/
-        bundle/<id>-<version>-<sha8>.zip
-        tool/<id>-<version>-<sha8>.zip
+        bundle/<plugin_id>/<id>-<version>.zip
+        tool/<plugin_id>/<id>-<version>.zip
         index.json
+
+Each plugin is stored under its own directory on the CDN
+(``/files/plugins/{kind}/{plugin_id}/…``), not flat under ``{kind}/``.
 
 Each plugin source tree is full-rebuild zipped: this means deletions in the
 repo propagate through to OSS on the next run (no stale entries left behind).
-The ``-<sha8>`` content-hash suffix means a code change without a version bump
-still produces a new immutable URL, so the install command always points at
-fresh content.
+Rebuilding the same version overwrites the zip at a stable URL; bump the
+plugin version in ``plugin.json`` when you need a distinct release artifact.
 
 A plugin can opt out of publishing by setting ``"publish": false`` in its
 ``plugin.json``.
@@ -29,6 +31,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import shutil
 import sys
 import zipfile
 from datetime import datetime, timezone
@@ -75,18 +78,6 @@ def _sha256_of_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def _sha256_of_tree(plugin_dir: Path) -> str:
-    """Hash the (sorted, filtered) source tree so the result is deterministic
-    regardless of FS ordering or zip metadata. Used for the URL suffix."""
-    h = hashlib.sha256()
-    for rel in _iter_tree_relpaths(plugin_dir):
-        h.update(rel.encode("utf-8"))
-        h.update(b"\0")
-        h.update((plugin_dir / rel).read_bytes())
-        h.update(b"\0")
-    return h.hexdigest()
-
-
 def _iter_tree_relpaths(plugin_dir: Path) -> list[str]:
     rels: list[str] = []
     for root, dirs, files in os.walk(plugin_dir):
@@ -121,8 +112,32 @@ def _read_manifest(plugin_dir: Path) -> dict[str, Any] | None:
         return None
 
 
-def _localized(text: str) -> dict[str, str]:
+def _localized_field(value: Any) -> dict[str, str]:
+    """Normalize manifest name/description to ``{zh-CN, en-US}``.
+
+    Accepts a plain string (duplicated to both locales) or a mapping with
+    ``zh-CN`` / ``en-US`` (also accepts ``zh`` / ``en`` aliases).
+    """
+    if isinstance(value, dict):
+        zh = str(value.get("zh-CN") or value.get("zh") or "").strip()
+        en = str(value.get("en-US") or value.get("en") or "").strip()
+        fallback = zh or en
+        return {
+            "zh-CN": zh or en or fallback,
+            "en-US": en or zh or fallback,
+        }
+    text = str(value or "").strip()
     return {"zh-CN": text, "en-US": text}
+
+
+def _localized_description(manifest: dict[str, Any]) -> dict[str, str]:
+    """CDN metadata description.
+    Prefer ``description_i18n``, else ``description``.
+    """
+    i18n = manifest.get("description_i18n")
+    if i18n is not None:
+        return _localized_field(i18n)
+    return _localized_field(manifest.get("description") or "")
 
 
 def _build_metadata(
@@ -136,14 +151,11 @@ def _build_metadata(
     cdn_path: str,
 ) -> dict[str, Any]:
     size_bytes = zip_path.stat().st_size
-    name = str(manifest.get("name") or plugin_id)
-    description = str(manifest.get("description") or "")
-
     return {
         "id": file_id,
         "plugin_id": plugin_id,
-        "name": _localized(name),
-        "description": _localized(description),
+        "name": _localized_field(manifest.get("name") or plugin_id),
+        "description": _localized_description(manifest),
         "product": "plugins",
         "platform": kind,
         "version": version,
@@ -192,15 +204,19 @@ def discover_and_pack(
 
             plugin_id = str(manifest.get("id") or plugin_dir.name)
             version = str(manifest.get("version") or "0.0.0")
-            content_sha = _sha256_of_tree(plugin_dir)[:8]
-            zip_name = f"{plugin_id}-{version}-{content_sha}.zip"
-            zip_path = dist_root / kind / zip_name
+            zip_name = f"{plugin_id}-{version}.zip"
+            zip_path = dist_root / kind / plugin_id / zip_name
 
-            print(f"  + pack {kind}/{plugin_dir.name} -> {zip_path.name}")
+            print(
+                f"  + pack {kind}/{plugin_dir.name} -> "
+                f"{plugin_id}/{zip_path.name}",
+            )
             _zip_plugin(plugin_dir, zip_path)
 
-            cdn_path = f"{cdn_prefix.rstrip('/')}/{kind}/{zip_name}"
-            file_id = f"{plugin_id}-{version}-{content_sha}"
+            cdn_path = (
+                f"{cdn_prefix.rstrip('/')}/{kind}/{plugin_id}/{zip_name}"
+            )
+            file_id = f"{plugin_id}-{version}"
             metadata = _build_metadata(
                 manifest,
                 file_id=file_id,
@@ -283,13 +299,16 @@ def main() -> int:
         return 0
 
     if dist_root.exists():
-        # Wipe stale zips so deletions / sha changes propagate cleanly.
+        # Wipe stale zips/dirs so deletions propagate cleanly.
         for kind in KIND_DIRS:
             kind_root = dist_root / kind
-            if kind_root.is_dir():
-                for child in kind_root.iterdir():
-                    if child.is_file():
-                        child.unlink()
+            if not kind_root.is_dir():
+                continue
+            for child in kind_root.iterdir():
+                if child.is_file():
+                    child.unlink()
+                elif child.is_dir():
+                    shutil.rmtree(child)
     dist_root.mkdir(parents=True, exist_ok=True)
 
     index = discover_and_pack(plugins_root, dist_root, args.cdn_prefix)

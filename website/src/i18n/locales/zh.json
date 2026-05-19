@@ -474,13 +474,9 @@
     "helpLink": "安装向导",
     "helpSuffix": "了解详细的安装步骤和配置说明。",
     "pluginsTitle": "插件",
-    "pluginsDesc": "QwenPaw 仓库中已发布的 Bundle 与 Tool 插件。可下载 zip 包，或直接通过 QwenPaw CLI 一键安装。",
+    "pluginsDesc": "QwenPaw 仓库中已发布的 Bundle 与 Tool 插件。下载 zip 包后可在本地安装。",
     "kindBundle": "Bundle",
     "kindTool": "Tool",
-    "installHint": "使用 QwenPaw CLI 安装：",
-    "installForceHint": "升级已安装版本可加 --force 参数。",
-    "copyCommand": "复制",
-    "copied": "已复制",
     "downloadZip": "下载 zip"
   },
   "releaseNotes": {
