@@ -137,84 +137,8 @@ def _inject_llm_env(env: dict[str, str]) -> None:
     if os.environ.get("IAC_CODE_PROVIDER") or env.get("IAC_CODE_PROVIDER"):
         return
 
-    # Check iac-code version
-    iac_version = _get_iac_code_version()
-
-    if iac_version and _version_gte(iac_version, "0.1.2"):
-        # iac-code >= 0.1.2: use native QwenPaw mode
-        _write_qwenpaw_mode_to_settings()
-        logger.info(
-            "iac-code %s >= 0.1.2: enabled QwenPaw mode via settings.yml",
-            iac_version,
-        )
-        return
-    try:
-        from qwenpaw.providers.provider_manager import ProviderManager
-
-        pm = ProviderManager()
-        active_slot = pm.get_active_model()
-        if active_slot is None:
-            return
-
-        provider_id = active_slot.provider_id or ""
-        model = active_slot.model or ""
-        if not provider_id:
-            return
-
-        provider = pm.get_provider(provider_id)
-        api_key = getattr(provider, "api_key", "") or "" if provider else ""
-        base_url = getattr(provider, "base_url", "") or "" if provider else ""
-
-        _PROVIDER_MAP = {
-            "dashscope": "DashScope",
-            "aliyun-codingplan": "DashScopeTokenPlan",
-            "aliyun-codingplan-intl": "DashScopeTokenPlan",
-            "openai": "OpenAI",
-            "anthropic": "Anthropic",
-            "deepseek": "DeepSeek",
-        }
-        iac_provider = _PROVIDER_MAP.get(
-            provider_id.lower(),
-            "OpenAPICompatible",
-        )
-
-        if iac_provider:
-            env.setdefault("IAC_CODE_PROVIDER", iac_provider)
-        if api_key:
-            env.setdefault("IAC_CODE_API_KEY", api_key)
-        if model:
-            env.setdefault("IAC_CODE_MODEL", model)
-        if base_url and iac_provider == "OpenAPICompatible":
-            env.setdefault("IAC_CODE_BASE_URL", base_url)
-
-        logger.info(
-            "Injected LLM config for iac-code: provider=%s, model=%s",
-            iac_provider,
-            model,
-        )
-    except Exception as exc:
-        logger.debug("Failed to inject LLM config for iac-code: %s", exc)
-
-
-def _get_iac_code_version() -> str | None:
-    """Get installed iac-code version."""
-    try:
-        import importlib.metadata
-
-        return importlib.metadata.version("iac-code")
-    except Exception:
-        return None
-
-
-def _version_gte(current_version: str, target_version: str) -> bool:
-    """Check if version >= target."""
-    try:
-        from packaging.version import parse
-
-        return parse(current_version) >= parse(target_version)
-    except ImportError:
-        # Fallback: simple string comparison
-        return current_version >= target_version
+    _write_qwenpaw_mode_to_settings()
+    return
 
 
 def _write_qwenpaw_mode_to_settings() -> None:
