@@ -9,10 +9,12 @@ import sys
 
 import click
 
-from qwenpaw.desktop_env import DESKTOP_APP_ENV
-from qwenpaw.tauri.env import (
+from qwenpaw.desktop_env import (
+    DESKTOP_APP_ENV,
     DESKTOP_CORS_ORIGINS_ENV,
     DESKTOP_PORT_ENV,
+)
+from qwenpaw.tauri.env import (
     ensure_desktop_cors_origins,
 )
 

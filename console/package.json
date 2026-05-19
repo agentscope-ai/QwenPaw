@@ -34,6 +34,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@tauri-apps/api": "^2.10.1",
     "@types/react-window": "^1.8.8",
     "@vvo/tzdb": "^6.198.0",
     "ahooks": "^3.9.6",

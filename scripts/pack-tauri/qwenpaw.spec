@@ -58,6 +58,8 @@ datas += collect_data_files('reme')
 datas += collect_data_files('whisper')
 
 # Collect package metadata for packages that use importlib.metadata at runtime.
+# Keep this allowlist in sync when adding runtime dependencies that query
+# importlib.metadata, otherwise packaged sidecars may fail only after install.
 _metadata_pkgs = [
     'qwenpaw',
     'fastmcp',

@@ -10,7 +10,7 @@ import click
 import pytest
 
 from qwenpaw.tauri import entry
-from qwenpaw.tauri.env import DESKTOP_CORS_ORIGINS_ENV
+from qwenpaw.desktop_env import DESKTOP_CORS_ORIGINS_ENV
 
 
 def test_install_desktop_runtime_preserves_existing_cors_values(monkeypatch):

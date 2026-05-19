@@ -9,7 +9,7 @@
     "beforeBuildCommand": "npm run build:tauri"
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [
       {
         "title": "QwenPaw Desktop",

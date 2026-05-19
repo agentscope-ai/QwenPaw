@@ -139,57 +139,11 @@ if ($tauriExit -ne 0) {
 
 Set-Location $REPO_ROOT
 Write-Host "Tauri app built" -ForegroundColor Green
-Write-Host ""
-
-# Step 3: Create distribution
-Write-Host "== Step 3: Creating Distribution ==" -ForegroundColor Yellow
-
-$DIST_TAURI_DIR = Join-Path $DIST "tauri-windows"
-if (Test-Path $DIST_TAURI_DIR) {
-    Remove-Item -Recurse -Force $DIST_TAURI_DIR
-}
-New-Item -ItemType Directory -Force -Path $DIST_TAURI_DIR | Out-Null
-
-# Copy NSIS installer if present
-if (Test-Path $NSIS_DIR) {
-    $NSIS_EXE = Get-ChildItem -Path $NSIS_DIR -Filter "*.exe" -File |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
-    if ($NSIS_EXE) {
-        Copy-Item -Force $NSIS_EXE.FullName $DIST_TAURI_DIR
-        Write-Host "NSIS installer copied to ${DIST_TAURI_DIR}\" -ForegroundColor Green
-    }
-}
-
-# Create ZIP archive
-Write-Host ""
-Write-Host "Creating distribution archive..."
-$ZIP_NAME = "${DIST}\QwenPaw-Tauri-${VERSION}-Windows.zip"
-if (Test-Path $ZIP_NAME) {
-    Remove-Item -Force $ZIP_NAME
-}
-
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-[System.IO.Compression.ZipFile]::CreateFromDirectory(
-    $DIST_TAURI_DIR,
-    $ZIP_NAME,
-    [System.IO.Compression.CompressionLevel]::Optimal,
-    $false
-)
-
-if (Test-Path $ZIP_NAME) {
-    $zipSize = (Get-Item $ZIP_NAME).Length / 1MB
-    Write-Host "Created $ZIP_NAME ($([math]::Round($zipSize, 2)) MB)" -ForegroundColor Green
-} else {
-    Write-Host "ERROR: Failed to create ZIP archive" -ForegroundColor Red
-    exit 1
-}
 
 Write-Host ""
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "Build Complete!" -ForegroundColor Green
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "Output:"
-Write-Host "  Directory: ${DIST_TAURI_DIR}\"
-Write-Host "  Distribution: $ZIP_NAME"
+Write-Host "  NSIS bundle directory: ${NSIS_DIR}\"
 Write-Host ""

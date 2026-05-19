@@ -6,7 +6,7 @@ from click.testing import CliRunner
 
 from qwenpaw.cli import app_cmd as app_cmd_module
 from qwenpaw.config import utils as config_utils
-from qwenpaw.tauri.env import DESKTOP_PORT_ENV
+from qwenpaw.desktop_env import DESKTOP_PORT_ENV
 
 
 @pytest.fixture(autouse=True)

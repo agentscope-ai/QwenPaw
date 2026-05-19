@@ -126,9 +126,8 @@ export default function BackendReadyGate({ children }: Props) {
     if (!shouldGate) return;
 
     mountedRef.current = true;
-    // In Tauri runtime isTauriRuntime() is true, so window.__TAURI__.core.invoke
-    // is always available. initRuntimeApiBaseUrl() calls invoke("backend_port")
-    // and resolves once Rust has initialized the backend port.
+    // initRuntimeApiBaseUrl() calls invoke("backend_port") and resolves once
+    // Rust has initialized the backend port.
     initRuntimeApiBaseUrl()
       .then((apiBaseUrl) => {
         if (!mountedRef.current) return;

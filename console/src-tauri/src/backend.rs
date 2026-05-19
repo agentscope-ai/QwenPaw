@@ -93,7 +93,10 @@ pub(crate) fn restart_backend(app: tauri::AppHandle) -> Result<u16, String> {
     start(&app);
 
     let state = app.state::<BackendState>();
-    state.error().map_or_else(|| state.port(), Err)
+    match state.error() {
+        Some(err) => Err(err),
+        None => state.port(),
+    }
 }
 
 /// Installs backend-related plugins and starts the sidecar during app setup.
