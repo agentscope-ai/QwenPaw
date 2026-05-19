@@ -126,20 +126,20 @@ def _build_acp_config(spec: dict[str, Any]) -> Any:
 
 def _inject_llm_env(env: dict[str, str]) -> None:
     """Inject LLM config for iac-code.
-    
+
     For iac-code >= 0.1.2: write llm_source: qwenpaw to settings.yml
     so iac-code reads config directly from QwenPaw.
-    
+
     For older versions: inject IAC_CODE_* environment variables.
     """
     import os
 
     if os.environ.get("IAC_CODE_PROVIDER") or env.get("IAC_CODE_PROVIDER"):
         return
-    
+
     # Check iac-code version
     iac_version = _get_iac_code_version()
-    
+
     if iac_version and _version_gte(iac_version, "0.1.2"):
         # iac-code >= 0.1.2: use native QwenPaw mode
         _write_qwenpaw_mode_to_settings()
@@ -196,11 +196,11 @@ def _inject_llm_env(env: dict[str, str]) -> None:
         logger.debug("Failed to inject LLM config for iac-code: %s", exc)
 
 
-
 def _get_iac_code_version() -> str | None:
     """Get installed iac-code version."""
     try:
         import importlib.metadata
+
         return importlib.metadata.version("iac-code")
     except Exception:
         return None
@@ -210,6 +210,7 @@ def _version_gte(current_version: str, target_version: str) -> bool:
     """Check if version >= target."""
     try:
         from packaging.version import parse
+
         return parse(current_version) >= parse(target_version)
     except ImportError:
         # Fallback: simple string comparison
@@ -219,26 +220,31 @@ def _version_gte(current_version: str, target_version: str) -> bool:
 def _write_qwenpaw_mode_to_settings() -> None:
     """Write llm_source: qwenpaw to ~/.iac-code/settings.yml."""
     import yaml
-    
+
     settings_path = Path.home() / ".iac-code" / "settings.yml"
     settings_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Load existing settings
     if settings_path.exists():
         try:
-            with open(settings_path, "r") as f:
+            with open(settings_path, "r", encoding="utf-8") as f:
                 settings = yaml.safe_load(f) or {}
         except Exception:
             settings = {}
     else:
         settings = {}
-    
+
     # Write llm_source: qwenpaw
     if settings.get("llm_source") != "qwenpaw":
         settings["llm_source"] = "qwenpaw"
         try:
-            with open(settings_path, "w") as f:
-                yaml.dump(settings, f, default_flow_style=False, allow_unicode=True)
+            with open(settings_path, "w", encoding="utf-8") as f:
+                yaml.dump(
+                    settings,
+                    f,
+                    default_flow_style=False,
+                    allow_unicode=True,
+                )
         except Exception as exc:
             logger.warning("Failed to write iac-code settings.yml: %s", exc)
 
