@@ -52,15 +52,15 @@ fn record_stderr(buffer: &mut String, line: &[u8]) {
 }
 
 fn trim_to_last_chars(text: &mut String) {
-    if text.chars().count() > MAX_CAPTURED_STDERR_CHARS {
-        *text = text
-            .chars()
-            .rev()
-            .take(MAX_CAPTURED_STDERR_CHARS)
-            .collect::<String>()
-            .chars()
-            .rev()
-            .collect();
+    let total = text.chars().count();
+    if total > MAX_CAPTURED_STDERR_CHARS {
+        let drop_chars = total - MAX_CAPTURED_STDERR_CHARS;
+        let byte_idx = text
+            .char_indices()
+            .nth(drop_chars)
+            .map(|(idx, _)| idx)
+            .unwrap_or(text.len());
+        text.drain(..byte_idx);
     }
 }
 

@@ -3,6 +3,8 @@
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <!-- Required by the PyInstaller sidecar so bundled Python frameworks and
+       extension libraries can be loaded by the Tauri app process. -->
   <key>com.apple.security.cs.disable-library-validation</key>
   <true/>
 </dict>

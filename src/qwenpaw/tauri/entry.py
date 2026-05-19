@@ -17,10 +17,6 @@ from qwenpaw.tauri.env import (
 )
 
 
-def _ensure_desktop_cors_origins() -> None:
-    ensure_desktop_cors_origins()
-
-
 def _ensure_qwenpaw_app_not_loaded() -> None:
     if "qwenpaw.app._app" in sys.modules:
         raise RuntimeError(
@@ -49,6 +45,15 @@ def _ensure_utf8_stdio() -> None:
             pass
 
 
+def _install_desktop_runtime() -> None:
+    os.environ.setdefault(DESKTOP_APP_ENV, "1")
+    # Must run before importing the FastAPI app: it applies CORS middleware
+    # from qwenpaw.constant.CORS_ORIGINS at import time.
+    _ensure_qwenpaw_app_not_loaded()
+    ensure_desktop_cors_origins()
+    _sync_loaded_qwenpaw_constant_cors_origins()
+
+
 def _run_click_command(
     command: click.Command,
     args: Sequence[str],
@@ -71,13 +76,8 @@ def _run_click_command(
 
 
 def main() -> None:
-    os.environ.setdefault(DESKTOP_APP_ENV, "1")
     _ensure_utf8_stdio()
-    # Must run before importing the FastAPI app: it applies CORS middleware
-    # from qwenpaw.constant.CORS_ORIGINS at import time.
-    _ensure_qwenpaw_app_not_loaded()
-    _ensure_desktop_cors_origins()
-    _sync_loaded_qwenpaw_constant_cors_origins()
+    _install_desktop_runtime()
 
     from qwenpaw.cli.init_cmd import init_cmd
     from qwenpaw.cli.app_cmd import app_cmd

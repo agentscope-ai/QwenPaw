@@ -3,11 +3,15 @@ import logging
 import os
 import time
 
-from .desktop_env import DESKTOP_APP_ENV
-from .tauri.env import DESKTOP_PORT_ENV, ensure_desktop_cors_origins
+DESKTOP_PORT_ENV = "QWENPAW_DESKTOP_PORT"
+DESKTOP_APP_ENV = "QWENPAW_DESKTOP_APP"
 
 if os.environ.get(DESKTOP_PORT_ENV):
     os.environ.setdefault(DESKTOP_APP_ENV, "1")
+    # Keep the Tauri import lazy so ordinary `import qwenpaw` stays independent
+    # from the desktop packaging module.
+    from .tauri.env import ensure_desktop_cors_origins
+
     ensure_desktop_cors_origins()
 
 from .utils.logging import setup_logger  # pylint: disable=wrong-import-position

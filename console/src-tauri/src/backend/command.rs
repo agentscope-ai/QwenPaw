@@ -64,7 +64,10 @@ fn packaged_backend_executable(app: &tauri::AppHandle) -> Result<PathBuf, String
     if path.is_file() {
         Ok(path)
     } else {
-        Err(format!("backend executable not found at {}", path.display()))
+        Err(format!(
+            "backend executable not found at {}",
+            path.display()
+        ))
     }
 }
 

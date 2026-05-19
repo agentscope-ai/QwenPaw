@@ -89,7 +89,6 @@ Recommended:
     default=True,
     show_default=True,
     hidden=True,
-    help="Persist API host/port for later CLI commands.",
 )
 @click.option(
     "--workers",

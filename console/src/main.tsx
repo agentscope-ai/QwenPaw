@@ -13,11 +13,8 @@ installHostExternals();
 // Automatically discovers all modules in src/pages at build time
 registerHostModulesEager();
 
-if (typeof window !== "undefined") {
-  if (isTauriRuntime()) {
-    document.title = "QwenPaw Desktop";
-  }
-
+if (typeof window !== "undefined" && isTauriRuntime()) {
+  document.title = "QwenPaw Desktop";
   const originalError = console.error;
   const originalWarn = console.warn;
 

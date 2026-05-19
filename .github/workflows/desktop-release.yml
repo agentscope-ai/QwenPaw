@@ -1,13 +1,31 @@
 # Build QwenPaw Desktop:
 # - Legacy desktop: Windows (conda-pack + NSIS), macOS (conda-pack -> .app)
 # - Tauri desktop: Windows/macOS app bundles with PyInstaller backend sidecar
-# Runs automatically on release publish; also manually via Actions tab.
+# Runs on release publish, manual dispatch, and PRs touching desktop packaging.
 
 name: QwenPaw Desktop Build
 
 on:
   release:
     types: [published]
+  pull_request:
+    paths:
+      - ".github/workflows/desktop-release.yml"
+      - "console/package.json"
+      - "console/package-lock.json"
+      - "console/src-tauri/**"
+      - "console/src/api/config.ts"
+      - "console/src/api/modules/skill.ts"
+      - "console/src/plugins/hostExternals.ts"
+      - "console/src/tauri/**"
+      - "scripts/pack-tauri/**"
+      - "scripts/pack/assets/**"
+      - "src/qwenpaw/__init__.py"
+      - "src/qwenpaw/cli/app_cmd.py"
+      - "src/qwenpaw/config/utils.py"
+      - "src/qwenpaw/desktop_env.py"
+      - "src/qwenpaw/tauri/**"
+      - "src/qwenpaw/utils/telemetry.py"
   workflow_dispatch:
     inputs:
       upload_to_oss:

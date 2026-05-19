@@ -13,13 +13,13 @@ from qwenpaw.tauri import entry
 from qwenpaw.tauri.env import DESKTOP_CORS_ORIGINS_ENV
 
 
-def test_ensure_desktop_cors_origins_preserves_existing_values(monkeypatch):
+def test_install_desktop_runtime_preserves_existing_cors_values(monkeypatch):
     monkeypatch.setenv(
         DESKTOP_CORS_ORIGINS_ENV,
         "https://example.test,tauri://localhost",
     )
 
-    entry._ensure_desktop_cors_origins()
+    entry._install_desktop_runtime()
 
     origins = os.environ[DESKTOP_CORS_ORIGINS_ENV].split(",")
     assert origins.count("tauri://localhost") == 1

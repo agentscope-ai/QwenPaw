@@ -128,7 +128,6 @@ fn start(app: &tauri::AppHandle) {
             return;
         }
     };
-    *state.port.lock().expect("backend port poisoned") = Some(port);
 
     let command = match command::create(app) {
         Ok(command) => command,
@@ -152,10 +151,11 @@ fn start(app: &tauri::AppHandle) {
 
     drop(port_guard);
     *state.child.lock().expect("backend child poisoned") = Some(child);
+    *state.port.lock().expect("backend port poisoned") = Some(port);
     events::watch(app.clone(), generation, rx);
 }
 
-/// Reserves a backend port, preferring the legacy desktop range first.
+/// Reserves a backend port, preferring the legacy desktop range for continuity.
 fn pick_port() -> std::io::Result<(u16, TcpListener)> {
     for port in 8088..8188 {
         if let Ok(listener) = TcpListener::bind(("127.0.0.1", port)) {
