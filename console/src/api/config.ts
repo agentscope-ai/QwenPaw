@@ -1,3 +1,5 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
+
 // VITE_API_BASE_URL and TOKEN are declared globally in src/vite-env.d.ts.
 
 const AUTH_TOKEN_KEY = "qwenpaw_auth_token";
@@ -13,13 +15,7 @@ export function getApiBaseUrl(): string {
 }
 
 export function isTauriRuntime(): boolean {
-  return typeof window !== "undefined" && !!window.__TAURI__?.core?.invoke;
-}
-
-function getTauriInvoke() {
-  return typeof window !== "undefined"
-    ? window.__TAURI__?.core?.invoke
-    : undefined;
+  return isTauri();
 }
 
 export function initRuntimeApiBaseUrl(): Promise<string> {
@@ -34,12 +30,12 @@ export function initRuntimeApiBaseUrl(): Promise<string> {
 
 async function resolveRuntimeApiBaseUrl(): Promise<string> {
   const baseUrl = getApiBaseUrl();
-  const invoke = getTauriInvoke();
-  if (baseUrl || !invoke) {
-    if (baseUrl && invoke) {
+  const tauriRuntime = isTauriRuntime();
+  if (baseUrl || !tauriRuntime) {
+    if (baseUrl && tauriRuntime) {
       // VITE_API_BASE_URL is set while running inside a Tauri runtime.
       // The Rust sidecar will start a second backend process that won't
-      // be used — set VITE_API_BASE_URL='' or leave it unset for desktop builds.
+      // be used; set VITE_API_BASE_URL='' or leave it unset for desktop builds.
       console.warn(
         "[Tauri] VITE_API_BASE_URL is set; ignoring backend_port from Rust. " +
           "You may have two backend processes running.",
@@ -55,26 +51,24 @@ async function resolveRuntimeApiBaseUrl(): Promise<string> {
 }
 
 export async function getBackendStartupError(): Promise<string> {
-  const invoke = getTauriInvoke();
-  if (!invoke) return "";
+  if (!isTauriRuntime()) return "";
   return (await invoke<string | null>("backend_startup_error")) || "";
 }
 
 export async function restartBackend(): Promise<string> {
-  const invoke = getTauriInvoke();
   const configuredBaseUrl =
     typeof VITE_API_BASE_URL !== "undefined" ? VITE_API_BASE_URL : "";
-  if (!invoke) {
+  if (!isTauriRuntime()) {
     return getApiBaseUrl();
   }
 
   initRuntimeApiBaseUrlPromise = null;
+  runtimeApiBaseUrl = "";
 
   if (configuredBaseUrl) {
     return configuredBaseUrl;
   }
 
-  runtimeApiBaseUrl = "";
   const port = await invoke<number>("restart_backend");
   runtimeApiBaseUrl = `http://127.0.0.1:${port}`;
 

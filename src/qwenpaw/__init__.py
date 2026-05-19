@@ -3,8 +3,7 @@ import logging
 import os
 import time
 
-DESKTOP_PORT_ENV = "QWENPAW_DESKTOP_PORT"
-DESKTOP_APP_ENV = "QWENPAW_DESKTOP_APP"
+from .desktop_env import DESKTOP_APP_ENV, DESKTOP_PORT_ENV
 
 if os.environ.get(DESKTOP_PORT_ENV):
     os.environ.setdefault(DESKTOP_APP_ENV, "1")

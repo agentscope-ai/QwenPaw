@@ -11,7 +11,7 @@ function shouldSilence(args: unknown[]): boolean {
   return SILENCED_PATTERNS.some((pattern) => msg.includes(pattern));
 }
 
-export function installTauriConsoleNoiseFilter(): void {
+export function installAntdNoiseFilter(): void {
   if (installed) return;
   installed = true;
 

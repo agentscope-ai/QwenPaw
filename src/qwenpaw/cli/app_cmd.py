@@ -127,6 +127,8 @@ def app_cmd(
         )
         click.echo(err=True)
 
+    # Runtime API is inherited only by local sidecar children; wildcard binds
+    # are exposed as loopback so those children can call back into this server.
     api_host = "127.0.0.1" if host in WILDCARD_HOSTS else host
     runtime_api_set = False
     try:
