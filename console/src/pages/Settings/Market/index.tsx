@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Button, Card, Drawer, Tooltip } from "@agentscope-ai/design";
-import { Pagination } from "antd";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
 import { PageHeader } from "@/components/PageHeader";
@@ -189,20 +188,19 @@ function MarketPage() {
                 />
               ))}
             </div>
-            <div className={styles.pagination}>
-              <Pagination
-                size="small"
-                current={market.page}
-                pageSize={market.pageSize}
-                total={market.total}
-                showSizeChanger={false}
-                showTotal={(count) =>
-                  market.hasMore
-                    ? t("market.totalLabelMore", { count })
-                    : t("market.totalLabel", { count })
-                }
-                onChange={(p) => market.setPage(p)}
-              />
+            <div className={styles.loadMoreRow}>
+              {market.hasMore ? (
+                <Button
+                  onClick={() => market.loadMore()}
+                  loading={market.loading}
+                >
+                  {t("market.loadMore")}
+                </Button>
+              ) : (
+                <span className={styles.noMoreText}>
+                  {t("market.noMoreResults")}
+                </span>
+              )}
             </div>
           </>
         )}

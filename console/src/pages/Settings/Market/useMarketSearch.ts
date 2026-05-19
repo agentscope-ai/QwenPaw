@@ -9,8 +9,7 @@ import type {
 } from "../../../api/modules/market";
 
 const DEBOUNCE_MS = 350;
-const PAGE_SIZE = 10;
-const CACHE_MAX = 32;
+const PER_PROVIDER_LIMIT = 10;
 
 export interface MarketSearchState {
   providers: MarketProviderInfo[];
@@ -21,16 +20,8 @@ export interface MarketSearchState {
   results: MarketResult[];
   errors: MarketSearchError[];
   loading: boolean;
-  page: number;
-  setPage: (n: number) => void;
   hasMore: boolean;
-  total: number;
-  pageSize: number;
-}
-
-function cacheKey(q: string, providers: string[], page: number, lang: string) {
-  const sorted = [...providers].sort();
-  return JSON.stringify({ q: q.trim(), p: sorted, n: page, l: lang });
+  loadMore: () => void;
 }
 
 export function useMarketSearch(): MarketSearchState {
@@ -42,14 +33,13 @@ export function useMarketSearch(): MarketSearchState {
   );
   const [query, setQueryState] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [page, setPageState] = useState(1);
   const [results, setResults] = useState<MarketResult[]>([]);
   const [errors, setErrors] = useState<MarketSearchError[]>([]);
-  const [hasMore, setHasMore] = useState(false);
-  const [total, setTotal] = useState<number>(0);
   const [loading, setLoading] = useState(false);
+  // null = exhausted; number = next page to request.
+  const cursorsRef = useRef<Record<string, number | null>>({});
+  const [hasMore, setHasMore] = useState(false);
   const requestSeqRef = useRef(0);
-  const cacheRef = useRef<Map<string, MarketSearchResponse>>(new Map());
 
   const providerKeyList = useMemo(
     () => Array.from(selectedProviderKeys).sort(),
@@ -84,103 +74,82 @@ export function useMarketSearch(): MarketSearchState {
     });
   }, []);
 
-  const applyResponse = useCallback((resp: MarketSearchResponse) => {
-    setResults(resp.results);
-    setErrors(resp.errors);
-    setHasMore(Boolean(resp.has_more));
-    setTotal(typeof resp.total === "number" ? resp.total : 0);
-  }, []);
-
-  const storeCache = useCallback((key: string, resp: MarketSearchResponse) => {
-    const cache = cacheRef.current;
-    if (cache.size >= CACHE_MAX) {
-      const oldest = cache.keys().next().value;
-      if (oldest !== undefined) cache.delete(oldest);
-    }
-    cache.set(key, resp);
-  }, []);
-
-  const prefetch = useCallback(
-    (q: string, providerKeys: string[], pageNum: number) => {
-      if (!q.trim() || providerKeys.length === 0) return;
-      const key = cacheKey(q, providerKeys, pageNum, lang);
-      if (cacheRef.current.has(key)) return;
-      marketApi
-        .searchMarket({
-          query: q.trim(),
-          providers: providerKeys,
-          limit: PAGE_SIZE,
-          page: pageNum,
-          lang,
-        })
-        .then((resp) => storeCache(key, resp))
-        .catch(() => {});
+  const applyResponse = useCallback(
+    (resp: MarketSearchResponse, append: boolean) => {
+      const cursors = cursorsRef.current;
+      for (const [key, info] of Object.entries(resp.by_provider)) {
+        const current = cursors[key];
+        if (typeof current === "number") {
+          cursors[key] = info.has_more ? current + 1 : null;
+        }
+      }
+      setResults((prev) =>
+        append ? [...prev, ...resp.results] : resp.results,
+      );
+      setErrors(resp.errors);
+      setHasMore(Object.values(cursors).some((v) => v !== null));
     },
-    [storeCache, lang],
+    [],
   );
 
-  const fetchPage = useCallback(
-    (q: string, providerKeys: string[], pageNum: number) => {
+  const runFetch = useCallback(
+    (
+      q: string,
+      pages: Record<string, number>,
+      append: boolean,
+      lng: string,
+    ) => {
       const seq = ++requestSeqRef.current;
-      if (!q.trim() || providerKeys.length === 0) {
+      if (Object.keys(pages).length === 0) {
         setResults([]);
         setErrors([]);
         setHasMore(false);
-        setTotal(0);
         setLoading(false);
         return;
       }
-      const key = cacheKey(q, providerKeys, pageNum, lang);
-      const cached = cacheRef.current.get(key);
-      if (cached) {
-        applyResponse(cached);
-        setLoading(false);
-        if (cached.has_more) prefetch(q, providerKeys, pageNum + 1);
-        return;
-      }
-      // Clear results so a page change is visible during the request.
-      setResults([]);
-      setErrors([]);
       setLoading(true);
       marketApi
         .searchMarket({
           query: q.trim(),
-          providers: providerKeys,
-          limit: PAGE_SIZE,
-          page: pageNum,
-          lang,
+          provider_pages: pages,
+          limit: PER_PROVIDER_LIMIT,
+          lang: lng,
         })
         .then((resp) => {
           if (seq !== requestSeqRef.current) return;
-          storeCache(key, resp);
-          applyResponse(resp);
-          if (resp.has_more) prefetch(q, providerKeys, pageNum + 1);
+          applyResponse(resp, append);
         })
         .catch((err: unknown) => {
           if (seq !== requestSeqRef.current) return;
-          setResults([]);
-          setHasMore(false);
-          setTotal(0);
           setErrors([
             {
               provider: "*",
               message: err instanceof Error ? err.message : String(err),
             },
           ]);
+          if (!append) {
+            setResults([]);
+            setHasMore(false);
+          }
         })
         .finally(() => {
           if (seq === requestSeqRef.current) setLoading(false);
         });
     },
-    [applyResponse, prefetch, storeCache, lang],
+    [applyResponse],
   );
+
+  const loadMore = useCallback(() => {
+    const pages: Record<string, number> = {};
+    for (const [key, cursor] of Object.entries(cursorsRef.current)) {
+      if (typeof cursor === "number") pages[key] = cursor;
+    }
+    if (Object.keys(pages).length === 0) return;
+    runFetch(debouncedQuery, pages, true, lang);
+  }, [debouncedQuery, lang, runFetch]);
 
   const setQuery = useCallback((q: string) => {
     setQueryState(q);
-  }, []);
-
-  const setPage = useCallback((n: number) => {
-    setPageState(Math.max(1, n));
   }, []);
 
   useEffect(() => {
@@ -188,20 +157,21 @@ export function useMarketSearch(): MarketSearchState {
     return () => clearTimeout(handle);
   }, [query]);
 
+  // Reset cursors + refetch on (query / providers / lang) change.
   const lastKeyRef = useRef("");
   useEffect(() => {
     const key = `${debouncedQuery}|${providerKeyList.join(",")}|${lang}`;
-    const keyChanged = lastKeyRef.current !== key;
+    if (lastKeyRef.current === key) return;
     lastKeyRef.current = key;
-    if (keyChanged) {
-      cacheRef.current.clear();
-      if (page !== 1) {
-        setPageState(1);
-        return;
-      }
+    const initialPages: Record<string, number> = {};
+    const nextCursors: Record<string, number | null> = {};
+    for (const k of providerKeyList) {
+      initialPages[k] = 1;
+      nextCursors[k] = 1;
     }
-    fetchPage(debouncedQuery, providerKeyList, page);
-  }, [debouncedQuery, providerKeyList, page, lang, fetchPage]);
+    cursorsRef.current = nextCursors;
+    runFetch(debouncedQuery, initialPages, false, lang);
+  }, [debouncedQuery, providerKeyList, lang, runFetch]);
 
   return {
     providers,
@@ -212,14 +182,7 @@ export function useMarketSearch(): MarketSearchState {
     results,
     errors,
     loading,
-    page,
-    setPage,
     hasMore,
-    total,
-    // Each provider returns up to PAGE_SIZE items per page and the
-    // service concatenates without slicing, so a multi-provider page can
-    // contain N × PAGE_SIZE items. Scale pageSize so the pagination math
-    // (total / pageSize) matches what the user actually sees.
-    pageSize: PAGE_SIZE * Math.max(1, selectedProviderKeys.size),
+    loadMore,
   };
 }

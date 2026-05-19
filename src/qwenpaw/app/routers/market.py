@@ -48,17 +48,23 @@ class MarketSearchErrorSpec(BaseModel):
 
 class MarketSearchRequest(BaseModel):
     query: str = Field("", description="User-typed search string")
-    providers: list[str] | None = Field(default=None)
-    limit: int = Field(20, ge=1, le=50)
-    page: int = Field(1, ge=1, le=100)
+    provider_pages: dict[str, int] = Field(
+        default_factory=dict,
+        description="provider key → page number to request from that provider",
+    )
+    limit: int = Field(10, ge=1, le=50)
     lang: str = Field("en", description="UI language for locale-aware fields")
+
+
+class ProviderPageInfo(BaseModel):
+    has_more: bool = False
+    total: int = 0
 
 
 class MarketSearchResponse(BaseModel):
     results: list[MarketResultSpec]
     errors: list[MarketSearchErrorSpec]
-    has_more: bool = False
-    total: int = 0
+    by_provider: dict[str, ProviderPageInfo] = Field(default_factory=dict)
 
 
 @router.get("/providers", response_model=list[ProviderInfoSpec])
@@ -68,16 +74,16 @@ async def get_market_providers() -> list[ProviderInfoSpec]:
 
 @router.post("/search", response_model=MarketSearchResponse)
 async def market_search(body: MarketSearchRequest) -> MarketSearchResponse:
-    requested = body.providers or []
-    if requested:
-        unknown = [k for k in requested if k not in PROVIDERS]
+    requested_keys = list(body.provider_pages.keys())
+    if requested_keys:
+        unknown = [k for k in requested_keys if k not in PROVIDERS]
         if unknown:
             raise HTTPException(
                 status_code=400,
                 detail=f"unknown providers: {sorted(unknown)}",
             )
         unavailable: list[dict[str, Any]] = []
-        for key in requested:
+        for key in requested_keys:
             ok, reason = PROVIDERS[key].available()
             if not ok:
                 unavailable.append({"provider": key, "reason": reason})
@@ -90,18 +96,19 @@ async def market_search(body: MarketSearchRequest) -> MarketSearchResponse:
                 },
             )
 
-    results, errors, has_more, total = await search_market(
+    results, errors, by_provider = await search_market(
         query=body.query,
-        providers=requested or None,
+        provider_pages=body.provider_pages,
         limit=body.limit,
-        page=body.page,
         lang=body.lang,
     )
     return MarketSearchResponse(
         results=[_result_to_spec(r) for r in results],
         errors=[_error_to_spec(e) for e in errors],
-        has_more=has_more,
-        total=total,
+        by_provider={
+            key: ProviderPageInfo(has_more=has_more, total=total)
+            for key, (has_more, total) in by_provider.items()
+        },
     )
 
 

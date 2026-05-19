@@ -24,23 +24,28 @@ export interface MarketSearchError {
   message: string;
 }
 
+export interface ProviderPageInfo {
+  has_more: boolean;
+  total: number;
+}
+
 export interface MarketSearchResponse {
   results: MarketResult[];
   errors: MarketSearchError[];
-  has_more: boolean;
-  total: number;
+  by_provider: Record<string, ProviderPageInfo>;
+}
+
+export interface MarketSearchPayload {
+  query: string;
+  provider_pages: Record<string, number>;
+  limit?: number;
+  lang?: string;
 }
 
 export const marketApi = {
   listMarketProviders: () => request<MarketProviderInfo[]>("/market/providers"),
 
-  searchMarket: (payload: {
-    query: string;
-    providers?: string[];
-    limit?: number;
-    page?: number;
-    lang?: string;
-  }) =>
+  searchMarket: (payload: MarketSearchPayload) =>
     request<MarketSearchResponse>("/market/search", {
       method: "POST",
       body: JSON.stringify(payload),

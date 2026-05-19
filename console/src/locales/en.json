@@ -2270,8 +2270,8 @@
       "failed": "Failed",
       "cancelled": "Cancelled"
     },
-    "totalLabel": "{{count}} results",
-    "totalLabelMore": "About {{count}}+ results",
+    "loadMore": "Load more",
+    "noMoreResults": "No more results",
     "detail": {
       "title": "Skill details",
       "version": "Version",

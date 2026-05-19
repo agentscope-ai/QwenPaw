@@ -2201,8 +2201,8 @@
       "failed": "Falhou",
       "cancelled": "Cancelado"
     },
-    "totalLabel": "{{count}} resultados",
-    "totalLabelMore": "Cerca de {{count}}+ resultados",
+    "loadMore": "Carregar mais",
+    "noMoreResults": "Sem mais resultados",
     "detail": {
       "title": "Detalhes da habilidade",
       "version": "Versão",

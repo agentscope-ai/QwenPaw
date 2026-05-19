@@ -2181,8 +2181,8 @@
       "failed": "Ошибка",
       "cancelled": "Отменено"
     },
-    "totalLabel": "{{count}} результатов",
-    "totalLabelMore": "Около {{count}}+ результатов",
+    "loadMore": "Загрузить ещё",
+    "noMoreResults": "Больше результатов нет",
     "detail": {
       "title": "Сведения о навыке",
       "version": "Версия",

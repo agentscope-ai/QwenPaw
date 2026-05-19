@@ -2278,8 +2278,8 @@
       "failed": "失败",
       "cancelled": "已取消"
     },
-    "totalLabel": "{{count}} 条结果",
-    "totalLabelMore": "约 {{count}}+ 条",
+    "loadMore": "加载更多",
+    "noMoreResults": "没有更多了",
     "detail": {
       "title": "技能详情",
       "version": "版本",

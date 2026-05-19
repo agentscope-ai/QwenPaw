@@ -2166,8 +2166,8 @@
       "failed": "失敗",
       "cancelled": "キャンセル済み"
     },
-    "totalLabel": "{{count}} 件",
-    "totalLabelMore": "約 {{count}}+ 件",
+    "loadMore": "もっと読み込む",
+    "noMoreResults": "これ以上ありません",
     "detail": {
       "title": "スキルの詳細",
       "version": "バージョン",

@@ -685,8 +685,8 @@
       "failed": "Gagal",
       "cancelled": "Dibatalkan"
     },
-    "totalLabel": "{{count}} hasil",
-    "totalLabelMore": "Sekitar {{count}}+ hasil",
+    "loadMore": "Muat lebih banyak",
+    "noMoreResults": "Tidak ada hasil lainnya",
     "detail": {
       "title": "Detail skill",
       "version": "Versi",
