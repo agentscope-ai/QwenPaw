@@ -3,5 +3,7 @@
 /target/
 /gen/
 tauri.version.conf.json
+# Generated from scripts/pack/assets/icon.svg during Tauri builds.
+/icons/
 # binaries/ is ignored at the repo root (.gitignore) to keep the rule visible
 # at the project level; no need to duplicate it here.
