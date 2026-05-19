@@ -2,6 +2,7 @@
 
 use std::{
     net::TcpListener,
+    path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex,
@@ -9,7 +10,7 @@ use std::{
 };
 
 use tauri::Manager;
-use tauri_plugin_log::RotationStrategy;
+use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
 use tauri_plugin_shell::process::CommandChild;
 
 mod command;
@@ -69,6 +70,8 @@ impl BackendState {
         self.next_generation();
         let child = self.child.lock().expect("backend child poisoned").take();
         if let Some(child) = child {
+            let pid = child.pid();
+            log::info!("[backend] stopping process pid={pid}");
             if let Err(err) = child.kill() {
                 log::warn!("[backend] failed to stop process: {err}");
             }
@@ -103,6 +106,13 @@ pub(crate) fn restart_backend(app: tauri::AppHandle) -> Result<u16, String> {
 pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.handle().plugin(
         tauri_plugin_log::Builder::default()
+            .clear_targets()
+            .targets([
+                Target::new(TargetKind::Stdout),
+                Target::new(TargetKind::LogDir {
+                    file_name: Some("qwenpaw-tauri".into()),
+                }),
+            ])
             .level(log::LevelFilter::Info)
             .max_file_size(5 * 1024 * 1024)
             .rotation_strategy(RotationStrategy::KeepSome(3))
@@ -141,8 +151,25 @@ fn start(app: &tauri::AppHandle) {
     }
     .env("PYTHONUTF8", "1")
     .env("PYTHONIOENCODING", "utf-8")
+    .env("PYTHONUNBUFFERED", "1")
+    .env("PYTHONFAULTHANDLER", "1")
     .env("QWENPAW_DESKTOP_APP", "1")
     .env("QWENPAW_DESKTOP_PORT", port.to_string());
+
+    let mut command = command;
+    match backend_log_path(app) {
+        Ok(log_path) => {
+            log::info!(
+                "[backend] starting generation={generation} port={port} log={}",
+                log_path.display(),
+            );
+            command = command.env("QWENPAW_TAURI_BACKEND_LOG", log_path.display().to_string());
+        }
+        Err(err) => {
+            log::warn!("[backend] failed to prepare backend log file: {err}");
+            log::info!("[backend] starting generation={generation} port={port}");
+        }
+    }
 
     let (rx, child) = match command.spawn() {
         Ok(child) => child,
@@ -155,9 +182,25 @@ fn start(app: &tauri::AppHandle) {
     // Hold the listener until after spawn() to shrink the race between
     // reserving the port in Rust and binding it in the Python sidecar.
     drop(port_guard);
+    let child_pid = child.pid();
+    log::info!("[backend] spawned generation={generation} pid={child_pid} port={port}");
     *state.child.lock().expect("backend child poisoned") = Some(child);
     *state.port.lock().expect("backend port poisoned") = Some(port);
     events::watch(app.clone(), generation, rx);
+}
+
+fn backend_log_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let log_dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|err| format!("failed to resolve app log directory: {err}"))?;
+    std::fs::create_dir_all(&log_dir).map_err(|err| {
+        format!(
+            "failed to create app log directory {}: {err}",
+            log_dir.display()
+        )
+    })?;
+    Ok(log_dir.join("qwenpaw-tauri-backend.log"))
 }
 
 /// Reserves a backend port, preferring the legacy desktop range for continuity.

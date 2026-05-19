@@ -15,14 +15,20 @@ pub(super) fn watch(
 ) {
     tauri::async_runtime::spawn(async move {
         let mut last_stderr = String::new();
+        log::info!("[backend] watching process generation={generation}");
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line) => {
-                    log::info!("[backend] {}", String::from_utf8_lossy(&line));
+                    log::info!(
+                        "[backend:{generation}] stdout: {}",
+                        String::from_utf8_lossy(&line),
+                    );
                 }
-                CommandEvent::Stderr(line) => record_stderr(&mut last_stderr, &line),
+                CommandEvent::Stderr(line) => {
+                    record_stderr(generation, &mut last_stderr, &line);
+                }
                 CommandEvent::Error(message) => {
-                    log::error!("[backend] process event error: {message}");
+                    log::error!("[backend:{generation}] process event error: {message}");
                     app.state::<BackendState>().set_error_if_current(
                         generation,
                         format!("backend process error: {message}"),
@@ -30,7 +36,7 @@ pub(super) fn watch(
                 }
                 CommandEvent::Terminated(payload) => {
                     let message = termination_message(payload, &last_stderr);
-                    log::warn!("[backend] {message}");
+                    log::warn!("[backend:{generation}] {message}");
                     app.state::<BackendState>()
                         .set_error_if_current(generation, message);
                 }
@@ -38,15 +44,15 @@ pub(super) fn watch(
             }
         }
 
-        log::warn!("[backend] process exited");
+        log::warn!("[backend:{generation}] process event stream closed");
         app.state::<BackendState>()
             .clear_child_if_current(generation);
     });
 }
 
-fn record_stderr(buffer: &mut String, line: &[u8]) {
+fn record_stderr(generation: u64, buffer: &mut String, line: &[u8]) {
     let text = String::from_utf8_lossy(line).to_string();
-    log::error!("[backend] {text}");
+    log::error!("[backend:{generation}] stderr: {text}");
     buffer.push_str(&text);
     trim_to_last_chars(buffer);
 }

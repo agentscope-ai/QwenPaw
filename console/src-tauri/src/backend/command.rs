@@ -17,6 +17,10 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let source_path = repo_root.join("src");
     let command = if command_exists("uv") {
+        log::info!(
+            "[backend] dev command: uv run python -m qwenpaw.tauri.entry cwd={}",
+            repo_root.display(),
+        );
         app.shell()
             .command("uv")
             .args(["run", "python", "-m", "qwenpaw.tauri.entry"])
@@ -26,6 +30,12 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
         let (python, prefix_args) = python_command(&repo_root);
         let mut args = prefix_args;
         args.extend(["-m", "qwenpaw.tauri.entry"]);
+        log::info!(
+            "[backend] dev command: {} {} cwd={}",
+            python,
+            args.join(" "),
+            repo_root.display(),
+        );
         app.shell()
             .command(python)
             .args(args)
@@ -43,6 +53,11 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
         .parent()
         .ok_or_else(|| format!("backend executable has no parent: {}", backend.display()))?
         .to_path_buf();
+    log::info!(
+        "[backend] packaged command: {} cwd={}",
+        backend.display(),
+        backend_dir.display(),
+    );
     Ok(app.shell().command(backend).current_dir(backend_dir))
 }
 

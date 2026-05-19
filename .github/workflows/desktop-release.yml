@@ -262,8 +262,33 @@ jobs:
       - name: Diagnose Tauri macOS package
         run: |
           chmod +x scripts/pack-tauri/diagnose_macos_app.sh
-          bash scripts/pack-tauri/diagnose_macos_app.sh \
+          QWENPAW_DIAG_LOG=tauri-backend-staged.log \
+            bash scripts/pack-tauri/diagnose_macos_app.sh \
             "dist/tauri-macos/QwenPaw Desktop.app"
+
+          ZIP_PATH="$(find dist -maxdepth 1 -name 'QwenPaw-Tauri-*-macOS.zip' | head -1)"
+          if [ -z "${ZIP_PATH}" ]; then
+            echo "ERROR: No Tauri macOS zip found"
+            exit 1
+          fi
+          rm -rf dist/tauri-macos-archive-check
+          mkdir -p dist/tauri-macos-archive-check
+          ditto -x -k "${ZIP_PATH}" dist/tauri-macos-archive-check
+          EXTRACTED_APP="dist/tauri-macos-archive-check/QwenPaw Desktop.app"
+          xattr -w com.apple.quarantine "0081;$(date +%s);Chrome;00000000-0000-0000-0000-000000000000" \
+            "${EXTRACTED_APP}" || true
+          QWENPAW_DIAG_LOG=tauri-backend-archive.log \
+            bash scripts/pack-tauri/diagnose_macos_app.sh \
+            "${EXTRACTED_APP}"
+
+      - name: Upload Tauri macOS diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: QwenPaw-Desktop-Tauri-macOS-diagnostics-${{ steps.version.outputs.version }}
+          path: |
+            tauri-backend-*.log
+          if-no-files-found: ignore
 
       - name: Upload Tauri macOS artifact
         uses: actions/upload-artifact@v4
