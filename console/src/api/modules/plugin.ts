@@ -11,8 +11,7 @@ export type PluginType =
   | "general";
 
 /**
- * A single plugin record returned by `GET /api/plugins` (authenticated management API)
- * or `GET /api/frontend_plugin` (public frontend loader).
+ * A single plugin record returned by `GET /api/plugins`.
  */
 export interface PluginInfo {
   id: string;
