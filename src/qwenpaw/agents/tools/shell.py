@@ -182,6 +182,93 @@ def _is_cmd(executable: str) -> bool:
     return _shell_basename(executable) in ("cmd", "cmd.exe")
 
 
+def _has_node_executable(path: Path) -> bool:
+    """Return True when *path* contains a node executable."""
+    names = ("node.exe", "node.cmd", "node.bat", "node")
+    return any((path / name).exists() for name in names)
+
+
+def _discover_node_bin_dirs(home: Path | None = None) -> list[str]:
+    """Find existing Node.js bin directories from common user installs."""
+    try:
+        home_dir = home or Path.home()
+    except RuntimeError:
+        home_dir = None
+
+    candidates: list[Path] = []
+    if home_dir is not None:
+        candidates.append(home_dir / ".volta" / "bin")
+
+        fnm_root = home_dir / ".local" / "share" / "fnm" / "node-versions"
+        if fnm_root.exists():
+            candidates.extend(
+                sorted(
+                    fnm_root.glob("*/installation/bin"),
+                    reverse=True,
+                ),
+            )
+
+        nvm_root = home_dir / ".nvm" / "versions" / "node"
+        if nvm_root.exists():
+            candidates.extend(
+                sorted(
+                    nvm_root.glob("*/bin"),
+                    reverse=True,
+                ),
+            )
+
+    candidates.extend(
+        [
+            Path("/opt/homebrew/bin"),
+            Path("/usr/local/bin"),
+        ],
+    )
+
+    return [str(path) for path in candidates if _has_node_executable(path)]
+
+
+def _discover_user_bin_dirs(home: Path | None = None) -> list[str]:
+    """Find existing user-level command bin directories."""
+    if home is None:
+        expanded_home = os.path.expanduser("~")
+        if expanded_home == "~":
+            return []
+        home_dir = Path(expanded_home)
+    else:
+        home_dir = home
+
+    user_local_bin = home_dir / ".local" / "bin"
+    if user_local_bin.is_dir():
+        return [str(user_local_bin)]
+    return []
+
+
+def _dedupe_path_entries(entries: list[str]) -> list[str]:
+    """Remove duplicate PATH entries while preserving order."""
+    seen = set()
+    deduped = []
+    for entry in entries:
+        if not entry or entry in seen:
+            continue
+        seen.add(entry)
+        deduped.append(entry)
+    return deduped
+
+
+def _build_subprocess_env() -> dict[str, str]:
+    """Build the environment passed to shell subprocesses."""
+    env = os.environ.copy()
+    python_bin_dir = str(Path(sys.executable).parent)
+    existing_path = env.get("PATH", "")
+    path_entries = [python_bin_dir]
+    path_entries.extend(_discover_user_bin_dirs())
+    path_entries.extend(_discover_node_bin_dirs())
+    if existing_path:
+        path_entries.extend(existing_path.split(os.pathsep))
+    env["PATH"] = os.pathsep.join(_dedupe_path_entries(path_entries))
+    return env
+
+
 _PS_CMD_RE = re.compile(
     r"^(powershell(?:\.exe)?|pwsh(?:\.exe)?)"
     r"((?:\s+-(?:NoProfile|NonInteractive|NoLogo))*)"
@@ -403,14 +490,7 @@ async def execute_shell_command(
     else:
         working_dir = get_current_workspace_dir() or WORKING_DIR
 
-    # Ensure the venv Python is on PATH for subprocesses
-    env = os.environ.copy()
-    python_bin_dir = str(Path(sys.executable).parent)
-    existing_path = env.get("PATH", "")
-    if existing_path:
-        env["PATH"] = python_bin_dir + os.pathsep + existing_path
-    else:
-        env["PATH"] = python_bin_dir
+    env = _build_subprocess_env()
 
     shell_executable = (
         get_current_shell_command_executable()
