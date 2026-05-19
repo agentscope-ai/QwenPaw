@@ -13,6 +13,7 @@ LOG_FILE="${QWENPAW_DIAG_LOG:-tauri-backend-smoke.log}"
 if [[ "${LOG_FILE}" != /* ]]; then
     LOG_FILE="$(pwd)/${LOG_FILE}"
 fi
+SIDECAR_LOG_FILE="${QWENPAW_DIAG_SIDECAR_LOG:-${LOG_FILE}.python.log}"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
     echo "ERROR: macOS diagnostics must run on Darwin"
@@ -51,9 +52,13 @@ while IFS= read -r path; do
     fi
     echo "-- ${path}"
     file "${path}" || true
-    codesign --verify --verbose=2 "${path}" || true
+    if [[ -d "${path}" || "${path}" != *".framework/"* ]]; then
+        codesign --verify --verbose=2 "${path}" || true
+    else
+        echo "Skipping direct codesign verification for framework member"
+    fi
     codesign -dv --verbose=4 "${path}" 2>&1 || true
-    if command -v otool >/dev/null 2>&1; then
+    if [[ -f "${path}" && -x "${path}" ]] && command -v otool >/dev/null 2>&1; then
         otool -L "${path}" || true
     fi
 done < <(
@@ -97,6 +102,7 @@ echo "Verified ${checked_frameworks} bundled frameworks"
 echo ""
 echo "== backend sidecar smoke test =="
 rm -f "${LOG_FILE}"
+rm -f "${SIDECAR_LOG_FILE}"
 TMP_DIR="$(mktemp -d)"
 
 cleanup() {
@@ -115,6 +121,13 @@ print_backend_log() {
         tail -n 300 "${LOG_FILE}" || true
     else
         echo "Log file does not exist"
+    fi
+    echo ""
+    echo "== python sidecar diagnostics (${SIDECAR_LOG_FILE}) =="
+    if [[ -f "${SIDECAR_LOG_FILE}" ]]; then
+        tail -n 300 "${SIDECAR_LOG_FILE}" || true
+    else
+        echo "Python sidecar diagnostics file does not exist"
     fi
 }
 
@@ -163,11 +176,84 @@ probe_endpoint() {
     fi
 }
 
+probe_voice_page_concurrent() {
+    local rounds="${1:-5}"
+    local endpoints=(
+        "audio_mode:/api/workspace/audio-mode"
+        "transcription_provider_type:/api/workspace/transcription-provider-type"
+        "transcription_providers:/api/workspace/transcription-providers"
+        "local_whisper_status:/api/workspace/local-whisper-status"
+    )
+
+    echo ""
+    echo "== concurrent voice transcription settings probe =="
+    for round in $(seq 1 "${rounds}"); do
+        echo "-- round ${round}/${rounds}"
+        ensure_backend_alive "before concurrent voice round ${round}"
+
+        local pids=()
+        local labels=()
+        local failed=0
+        local idx=0
+        local item
+        for item in "${endpoints[@]}"; do
+            local label="${item%%:*}"
+            local path="${item#*:}"
+            local body_file="${TMP_DIR}/concurrent_${round}_${label}.body"
+            local meta_file="${TMP_DIR}/concurrent_${round}_${label}.meta"
+            labels[idx]="${label}"
+            (
+                curl -sS \
+                    -H "Origin: http://tauri.localhost" \
+                    -H "Sec-Fetch-Site: cross-site" \
+                    -o "${body_file}" \
+                    -w "http_code=%{http_code}\n" \
+                    "http://127.0.0.1:${PORT}${path}" > "${meta_file}"
+            ) &
+            pids[idx]=$!
+            idx=$((idx + 1))
+        done
+
+        for idx in "${!pids[@]}"; do
+            local label="${labels[idx]}"
+            local body_file="${TMP_DIR}/concurrent_${round}_${label}.body"
+            local meta_file="${TMP_DIR}/concurrent_${round}_${label}.meta"
+            if ! wait "${pids[idx]}"; then
+                failed=1
+            fi
+
+            echo "concurrent ${label}:"
+            cat "${meta_file}" || true
+            echo "response:"
+            cat "${body_file}" || true
+            echo ""
+
+            local http_code
+            http_code="$(sed -n 's/^http_code=//p' "${meta_file}" | tail -1)"
+            if [[ ! "${http_code}" =~ ^2 ]]; then
+                failed=1
+            fi
+        done
+
+        sleep 1
+        ensure_backend_alive "after concurrent voice round ${round}"
+        if [[ "${failed}" != "0" ]]; then
+            echo "ERROR: concurrent voice round ${round} failed"
+            print_backend_log
+            exit 1
+        fi
+    done
+}
+
 (
     export QWENPAW_DESKTOP_APP=1
     export QWENPAW_DESKTOP_PORT="${PORT}"
+    export QWENPAW_TAURI_BACKEND_LOG="${SIDECAR_LOG_FILE}"
+    export QWENPAW_LOG_LEVEL="${QWENPAW_LOG_LEVEL:-debug}"
     export PYTHONUTF8=1
     export PYTHONIOENCODING=utf-8
+    export PYTHONUNBUFFERED=1
+    export PYTHONFAULTHANDLER=1
     cd "${BACKEND_DIR}"
     "./${BACKEND_NAME}"
 ) > "${LOG_FILE}" 2>&1 &
@@ -199,5 +285,6 @@ probe_endpoint "audio mode" "/api/workspace/audio-mode"
 probe_endpoint "transcription provider type" "/api/workspace/transcription-provider-type"
 probe_endpoint "transcription providers" "/api/workspace/transcription-providers"
 probe_endpoint "local whisper status" "/api/workspace/local-whisper-status"
+probe_voice_page_concurrent 5
 
 echo "Backend diagnostics passed"
