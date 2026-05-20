@@ -141,10 +141,18 @@ export function ChannelDrawer({
   const renderAccessControlFields = () => (
     <>
       <Form.Item
-        name="access_control_enabled"
-        label={t("channels.accessControlEnabled")}
+        name="access_control_dm"
+        label={t("channels.accessControlDm")}
         valuePropName="checked"
-        tooltip={t("channels.accessControlEnabledTooltip")}
+        tooltip={t("channels.accessControlDmTooltip")}
+      >
+        <Switch />
+      </Form.Item>
+      <Form.Item
+        name="access_control_group"
+        label={t("channels.accessControlGroup")}
+        valuePropName="checked"
+        tooltip={t("channels.accessControlGroupTooltip")}
       >
         <Switch />
       </Form.Item>

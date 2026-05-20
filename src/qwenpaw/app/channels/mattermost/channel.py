@@ -117,7 +117,8 @@ class MattermostChannel(BaseChannel):
         group_policy: str = "open",
         allow_from: Optional[list] = None,
         deny_message: str = "",
-        access_control_enabled: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
@@ -129,7 +130,8 @@ class MattermostChannel(BaseChannel):
             group_policy=group_policy,
             allow_from=allow_from,
             deny_message=deny_message,
-            access_control_enabled=access_control_enabled,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
@@ -217,8 +219,11 @@ class MattermostChannel(BaseChannel):
             group_policy=c.get("group_policy") or "open",
             allow_from=c.get("allow_from") or [],
             deny_message=c.get("deny_message") or "",
-            access_control_enabled=bool(
-                c.get("access_control_enabled", False),
+            access_control_dm=bool(
+                c.get("access_control_dm", False),
+            ),
+            access_control_group=bool(
+                c.get("access_control_group", False),
             ),
         )
 

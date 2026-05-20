@@ -81,7 +81,7 @@ class ChannelACL:
 
     @classmethod
     def _parse_list_or_dict(cls, raw: Any) -> Dict[str, str]:
-        """Parse whitelist/blacklist from storage — supports legacy list format."""
+        """Parse whitelist/blacklist — supports legacy list format."""
         if isinstance(raw, dict):
             return {str(k): str(v) for k, v in raw.items()}
         if isinstance(raw, list):
@@ -95,8 +95,7 @@ class ChannelACL:
             whitelist=cls._parse_list_or_dict(data.get("whitelist", {})),
             blacklist=cls._parse_list_or_dict(data.get("blacklist", {})),
             pending=[
-                PendingEntry.from_dict(p)
-                for p in data.get("pending", [])
+                PendingEntry.from_dict(p) for p in data.get("pending", [])
             ],
         )
 
@@ -119,11 +118,12 @@ class AccessControlStore:
         try:
             self._last_mtime = self._path.stat().st_mtime
             raw = json.loads(self._path.read_text(encoding="utf-8"))
-            self._data = {
-                k: ChannelACL.from_dict(v) for k, v in raw.items()
-            }
+            self._data = {k: ChannelACL.from_dict(v) for k, v in raw.items()}
         except Exception:
-            logger.exception("Failed to load access control data from %s", self._path)
+            logger.exception(
+                "Failed to load access control data from %s",
+                self._path,
+            )
 
     def _reload_if_stale(self) -> None:
         """Reload from disk if the file was updated since last load.
@@ -150,7 +150,10 @@ class AccessControlStore:
             )
             self._last_mtime = self._path.stat().st_mtime
         except Exception:
-            logger.exception("Failed to save access control data to %s", self._path)
+            logger.exception(
+                "Failed to save access control data to %s",
+                self._path,
+            )
 
     def _acl(self, channel: str) -> ChannelACL:
         if channel not in self._data:
@@ -182,14 +185,18 @@ class AccessControlStore:
     # ── Whitelist ───────────────────────────────────────────────────────
 
     def add_to_whitelist(
-        self, channel: str, user_id: str, remark: str = "",
+        self,
+        channel: str,
+        user_id: str,
+        remark: str = "",
     ) -> None:
         with self._lock:
             acl = self._acl(channel)
             acl.whitelist[user_id] = remark
             acl.blacklist.pop(user_id, None)
             acl.pending = [
-                p for p in acl.pending
+                p
+                for p in acl.pending
                 if not (p.user_id == user_id and p.channel == channel)
             ]
             self._save()
@@ -208,7 +215,10 @@ class AccessControlStore:
             self._save()
 
     def update_remark(
-        self, channel: str, user_id: str, remark: str,
+        self,
+        channel: str,
+        user_id: str,
+        remark: str,
     ) -> bool:
         """Update the remark for a user in whitelist or blacklist."""
         with self._lock:
@@ -226,14 +236,18 @@ class AccessControlStore:
     # ── Blacklist ───────────────────────────────────────────────────────
 
     def add_to_blacklist(
-        self, channel: str, user_id: str, remark: str = "",
+        self,
+        channel: str,
+        user_id: str,
+        remark: str = "",
     ) -> None:
         with self._lock:
             acl = self._acl(channel)
             acl.blacklist[user_id] = remark
             acl.whitelist.pop(user_id, None)
             acl.pending = [
-                p for p in acl.pending
+                p
+                for p in acl.pending
                 if not (p.user_id == user_id and p.channel == channel)
             ]
             self._save()
@@ -269,7 +283,7 @@ class AccessControlStore:
                     channel=channel,
                     timestamp=time.time(),
                     first_message=first_message[:200],
-                )
+                ),
             )
             self._save()
 
@@ -282,13 +296,17 @@ class AccessControlStore:
             return result
 
     def approve_pending(
-        self, channel: str, user_id: str, remark: str = "",
+        self,
+        channel: str,
+        user_id: str,
+        remark: str = "",
     ) -> bool:
         """Move a pending user to the whitelist. Returns True if found."""
         with self._lock:
             acl = self._acl(channel)
             acl.pending = [
-                p for p in acl.pending
+                p
+                for p in acl.pending
                 if not (p.user_id == user_id and p.channel == channel)
             ]
             acl.whitelist[user_id] = remark
@@ -297,13 +315,17 @@ class AccessControlStore:
             return True
 
     def deny_pending(
-        self, channel: str, user_id: str, remark: str = "",
+        self,
+        channel: str,
+        user_id: str,
+        remark: str = "",
     ) -> bool:
         """Move a pending user to the blacklist. Returns True if found."""
         with self._lock:
             acl = self._acl(channel)
             acl.pending = [
-                p for p in acl.pending
+                p
+                for p in acl.pending
                 if not (p.user_id == user_id and p.channel == channel)
             ]
             acl.blacklist[user_id] = remark
@@ -317,7 +339,8 @@ class AccessControlStore:
             acl = self._acl(channel)
             before = len(acl.pending)
             acl.pending = [
-                p for p in acl.pending
+                p
+                for p in acl.pending
                 if not (p.user_id == user_id and p.channel == channel)
             ]
             if len(acl.pending) < before:
@@ -353,8 +376,10 @@ _stores: Dict[str, AccessControlStore] = {}
 _stores_lock = threading.Lock()
 
 
-def init_access_control_store(workspace_dir: Optional[Path] = None) -> AccessControlStore:
-    """Create or get the store for a specific workspace directory."""
+def init_access_control_store(
+    workspace_dir: Optional[Path] = None,
+) -> AccessControlStore:
+    """Create or get the store for a workspace directory."""
     with _stores_lock:
         if workspace_dir:
             key = str(workspace_dir.resolve())
@@ -366,8 +391,10 @@ def init_access_control_store(workspace_dir: Optional[Path] = None) -> AccessCon
         return _stores[key]
 
 
-def get_access_control_store(workspace_dir: Optional[Path] = None) -> AccessControlStore:
-    """Get (or create) the AccessControlStore for a workspace directory.
+def get_access_control_store(
+    workspace_dir: Optional[Path] = None,
+) -> AccessControlStore:
+    """Get (or create) the AccessControlStore for a workspace.
 
     Args:
         workspace_dir: Workspace directory. If None, uses WORKING_DIR fallback.

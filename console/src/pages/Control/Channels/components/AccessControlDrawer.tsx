@@ -1,9 +1,24 @@
 import { useState, useEffect, useCallback } from "react";
-import { Drawer, Tabs, Table, Button, Input, Tag, Popconfirm, Empty, Space, Typography } from "antd";
+import {
+  Drawer,
+  Tabs,
+  Table,
+  Button,
+  Input,
+  Tag,
+  Popconfirm,
+  Empty,
+  Space,
+  Typography,
+} from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
-import { accessControlApi, type ACLData, type ACLUserEntry } from "../../../../api/modules/accessControl";
+import {
+  accessControlApi,
+  type ACLData,
+  type ACLUserEntry,
+} from "../../../../api/modules/accessControl";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import { ChannelIcon } from "./ChannelIcon";
 
@@ -18,7 +33,10 @@ function toEntries(map: Record<string, string> | undefined): ACLUserEntry[] {
   return Object.entries(map).map(([userId, remark]) => ({ userId, remark }));
 }
 
-export function AccessControlDrawer({ open, onClose }: AccessControlDrawerProps) {
+export function AccessControlDrawer({
+  open,
+  onClose,
+}: AccessControlDrawerProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [allACLs, setAllACLs] = useState<Record<string, ACLData>>({});
@@ -26,12 +44,14 @@ export function AccessControlDrawer({ open, onClose }: AccessControlDrawerProps)
   const [loading, setLoading] = useState(false);
   const [newUserId, setNewUserId] = useState("");
   const [newRemark, setNewRemark] = useState("");
-  const [activeTab, setActiveTab] = useState<"whitelist" | "blacklist">("whitelist");
+  const [activeTab, setActiveTab] = useState<"whitelist" | "blacklist">(
+    "whitelist",
+  );
 
   const fetchACLs = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await accessControlApi.getAllACLs();
+      const data = await accessControlApi.getAclAll();
       setAllACLs(data);
       const keys = Object.keys(data);
       if (!selectedChannel && keys.length > 0) {
@@ -55,9 +75,17 @@ export function AccessControlDrawer({ open, onClose }: AccessControlDrawerProps)
     if (!selectedChannel || !newUserId.trim()) return;
     try {
       if (activeTab === "whitelist") {
-        await accessControlApi.addToWhitelist(selectedChannel, newUserId.trim(), newRemark.trim());
+        await accessControlApi.addAclWhitelist(
+          selectedChannel,
+          newUserId.trim(),
+          newRemark.trim(),
+        );
       } else {
-        await accessControlApi.addToBlacklist(selectedChannel, newUserId.trim(), newRemark.trim());
+        await accessControlApi.addAclBlacklist(
+          selectedChannel,
+          newUserId.trim(),
+          newRemark.trim(),
+        );
       }
       message.success(t("channels.userAdded"));
       setNewUserId("");
@@ -72,9 +100,9 @@ export function AccessControlDrawer({ open, onClose }: AccessControlDrawerProps)
     if (!selectedChannel) return;
     try {
       if (activeTab === "whitelist") {
-        await accessControlApi.removeFromWhitelist(selectedChannel, userId);
+        await accessControlApi.removeAclWhitelist(selectedChannel, userId);
       } else {
-        await accessControlApi.removeFromBlacklist(selectedChannel, userId);
+        await accessControlApi.removeAclBlacklist(selectedChannel, userId);
       }
       message.success(t("channels.userRemoved"));
       await fetchACLs();
@@ -86,7 +114,7 @@ export function AccessControlDrawer({ open, onClose }: AccessControlDrawerProps)
   const handleRemarkSave = async (userId: string, remark: string) => {
     if (!selectedChannel) return;
     try {
-      await accessControlApi.updateRemark(selectedChannel, userId, remark);
+      await accessControlApi.updateAclRemark(selectedChannel, userId, remark);
       // Update local state immediately without refetching
       setAllACLs((prev) => {
         const channelData = prev[selectedChannel];
@@ -118,7 +146,11 @@ export function AccessControlDrawer({ open, onClose }: AccessControlDrawerProps)
       key: "userId",
       ellipsis: true,
       render: (userId: string) => (
-        <Typography.Text copyable={{ text: userId }} ellipsis style={{ maxWidth: 180 }}>
+        <Typography.Text
+          copyable={{ text: userId }}
+          ellipsis
+          style={{ maxWidth: 180 }}
+        >
           {userId}
         </Typography.Text>
       ),
@@ -166,12 +198,25 @@ export function AccessControlDrawer({ open, onClose }: AccessControlDrawerProps)
         <Empty description={t("channels.noWhitelistUsers")} />
       ) : (
         <>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              marginBottom: 16,
+            }}
+          >
             {channelKeys.map((key) => (
               <Tag
                 key={key}
                 color={selectedChannel === key ? "blue" : undefined}
-                style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 4, padding: "4px 8px" }}
+                style={{
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "4px 8px",
+                }}
                 onClick={() => setSelectedChannel(key)}
               >
                 <ChannelIcon channelKey={key as ChannelKey} size={16} />
@@ -204,7 +249,11 @@ export function AccessControlDrawer({ open, onClose }: AccessControlDrawerProps)
               onPressEnter={handleAdd}
               style={{ flex: 1 }}
             />
-            <Button icon={<PlusOutlined />} onClick={handleAdd} disabled={!newUserId.trim()}>
+            <Button
+              icon={<PlusOutlined />}
+              onClick={handleAdd}
+              disabled={!newUserId.trim()}
+            >
               {t("channels.addUser")}
             </Button>
           </Space.Compact>
@@ -217,9 +266,10 @@ export function AccessControlDrawer({ open, onClose }: AccessControlDrawerProps)
             loading={loading}
             pagination={{ pageSize: 10 }}
             locale={{
-              emptyText: activeTab === "whitelist"
-                ? t("channels.noWhitelistUsers")
-                : t("channels.noBlacklistUsers"),
+              emptyText:
+                activeTab === "whitelist"
+                  ? t("channels.noWhitelistUsers")
+                  : t("channels.noBlacklistUsers"),
             }}
           />
         </>

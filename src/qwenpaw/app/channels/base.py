@@ -130,7 +130,8 @@ class BaseChannel(ABC):
         deny_message: str = "",
         require_mention: bool = False,
         streaming_enabled: bool = False,
-        access_control_enabled: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         self._process = process
         self._on_reply_sent = on_reply_sent
@@ -143,12 +144,13 @@ class BaseChannel(ABC):
         self.allow_from = set(allow_from or [])
         self.deny_message = deny_message or ""
         self.require_mention = require_mention
-        # Auto-enable when legacy allowlist policy was active
-        if not access_control_enabled and (
-            dm_policy == "allowlist" or group_policy == "allowlist"
-        ):
-            access_control_enabled = True
-        self.access_control_enabled = access_control_enabled
+        # Migrate legacy policy fields
+        if dm_policy == "allowlist":
+            access_control_dm = True
+        if group_policy == "allowlist":
+            access_control_group = True
+        self.access_control_dm = access_control_dm
+        self.access_control_group = access_control_group
         self._language = "zh"
         self._pending_allow_from_migration = bool(self.allow_from)
         self._enqueue: EnqueueCallback = None
@@ -366,6 +368,11 @@ class BaseChannel(ABC):
         template = self._ACL_I18N[key][lang]
         return template.format(**kwargs) if kwargs else template
 
+    @property
+    def access_control_enabled(self) -> bool:
+        """True if access control is active for any chat type."""
+        return self.access_control_dm or self.access_control_group
+
     async def _access_control_gate(self, payload: Any) -> bool:
         """Check access control. Returns True if blocked."""
         if not self.access_control_enabled:
@@ -386,6 +393,13 @@ class BaseChannel(ABC):
             meta = dict(getattr(payload, "channel_meta", None) or {})
 
         if not sender_id:
+            return False
+
+        # Skip if access control not enabled for this chat type
+        is_group = meta.get("is_group", False)
+        if is_group and not self.access_control_group:
+            return False
+        if not is_group and not self.access_control_dm:
             return False
 
         store = self._get_acl_store()

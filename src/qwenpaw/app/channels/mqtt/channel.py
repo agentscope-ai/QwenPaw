@@ -55,7 +55,8 @@ class MQTTChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
-        access_control_enabled: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
@@ -63,7 +64,8 @@ class MQTTChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
-            access_control_enabled=access_control_enabled,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
 
         self.enabled = enabled
@@ -166,8 +168,11 @@ class MQTTChannel(BaseChannel):
                 on_reply_sent=on_reply_sent,
                 show_tool_details=show_tool_details,
                 filter_thinking=filter_thinking,
-                access_control_enabled=bool(
-                    config.get("access_control_enabled", False),
+                access_control_dm=bool(
+                    config.get("access_control_dm", False),
+                ),
+                access_control_group=bool(
+                    config.get("access_control_group", False),
                 ),
             )
         port = int(config.port) if config.port else 1883
@@ -196,8 +201,11 @@ class MQTTChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
-            access_control_enabled=bool(
-                getattr(config, "access_control_enabled", False),
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
             ),
         )
 

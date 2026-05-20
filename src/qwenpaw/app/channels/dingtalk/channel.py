@@ -146,7 +146,8 @@ class DingTalkChannel(BaseChannel):
         card_auto_layout: bool = False,
         at_sender_on_reply: bool = False,
         streaming_enabled: bool = False,
-        access_control_enabled: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         # Streaming only makes sense for card mode (AI Card streaming updates).
         # For markdown mode, force streaming_enabled=False so base class
@@ -174,7 +175,8 @@ class DingTalkChannel(BaseChannel):
             deny_message=deny_message,
             require_mention=require_mention,
             streaming_enabled=effective_streaming,
-            access_control_enabled=access_control_enabled,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self.client_id = client_id
@@ -336,8 +338,11 @@ class DingTalkChannel(BaseChannel):
             streaming_enabled=bool(
                 getattr(config, "streaming_enabled", False),
             ),
-            access_control_enabled=bool(
-                getattr(config, "access_control_enabled", False),
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
             ),
         )
 

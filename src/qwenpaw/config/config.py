@@ -200,7 +200,8 @@ class BaseChannelConfig(BaseModel):
     allow_from: List[str] = Field(default_factory=list)
     deny_message: str = ""
     require_mention: bool = False
-    access_control_enabled: bool = False
+    access_control_dm: bool = False
+    access_control_group: bool = False
 
 
 class IMessageChannelConfig(BaseChannelConfig):

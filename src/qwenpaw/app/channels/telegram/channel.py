@@ -307,7 +307,8 @@ class TelegramChannel(BaseChannel):
         deny_message: str = "",
         require_mention: bool = False,
         streaming_enabled: bool = False,
-        access_control_enabled: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
@@ -321,7 +322,8 @@ class TelegramChannel(BaseChannel):
             deny_message=deny_message,
             require_mention=require_mention,
             streaming_enabled=streaming_enabled,
-            access_control_enabled=access_control_enabled,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self._bot_token = bot_token
@@ -614,8 +616,11 @@ class TelegramChannel(BaseChannel):
             deny_message=c.get("deny_message") or "",
             require_mention=c.get("require_mention", False),
             streaming_enabled=bool(c.get("streaming_enabled", False)),
-            access_control_enabled=bool(
-                c.get("access_control_enabled", False),
+            access_control_dm=bool(
+                c.get("access_control_dm", False),
+            ),
+            access_control_group=bool(
+                c.get("access_control_group", False),
             ),
         )
 

@@ -36,7 +36,7 @@ function ChannelsPage() {
 
   const fetchPendingCount = useCallback(async () => {
     try {
-      const data = await api.getAllPending();
+      const data = await api.getAclAllPending();
       setPendingCount(data.length);
     } catch {
       // ignore
@@ -75,8 +75,17 @@ function ChannelsPage() {
     setActiveKey(key);
     setDrawerOpen(true);
     const channelConfig = channels[key] || { enabled: false, bot_prefix: "" };
+    // Migrate legacy allowlist policy to new access control fields
+    const accessControlDm =
+      channelConfig.access_control_dm ||
+      channelConfig.dm_policy === "allowlist";
+    const accessControlGroup =
+      channelConfig.access_control_group ||
+      channelConfig.group_policy === "allowlist";
     form.setFieldsValue({
       ...channelConfig,
+      access_control_dm: accessControlDm,
+      access_control_group: accessControlGroup,
       filter_tool_messages: !channelConfig.filter_tool_messages,
       filter_thinking: !channelConfig.filter_thinking,
     });

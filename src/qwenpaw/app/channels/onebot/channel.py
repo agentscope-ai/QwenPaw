@@ -72,7 +72,8 @@ class OneBotChannel(BaseChannel):
         deny_message: str = "",
         require_mention: bool = False,
         share_session_in_group: bool = False,
-        access_control_enabled: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
@@ -85,7 +86,8 @@ class OneBotChannel(BaseChannel):
             allow_from=allow_from,
             deny_message=deny_message,
             require_mention=require_mention,
-            access_control_enabled=access_control_enabled,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
@@ -169,8 +171,11 @@ class OneBotChannel(BaseChannel):
                 "share_session_in_group",
                 False,
             ),
-            access_control_enabled=bool(
-                getattr(config, "access_control_enabled", False),
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
             ),
         )
 
