@@ -165,7 +165,7 @@ def _tasklist_has_no_matching_pid(stdout: str) -> bool:
         return True
     if "no tasks are running" in lower:
         return True
-    # Localized Windows (e.g. zh-CN): "没有运行的任务匹配指定标准。"
+    # Localized Windows (e.g. zh-CN) "no matching tasks" tasklist message.
     if "没有" in text and "任务" in text:
         return True
     return False

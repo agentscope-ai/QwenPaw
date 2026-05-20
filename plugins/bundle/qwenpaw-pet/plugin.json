@@ -1,7 +1,7 @@
 {
   "id": "qwenpaw-pet",
   "name": "QwenPaw Pet",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Emit QwenPaw backend lifecycle events to QwenPaw Pet Desktop.",
   "description_i18n": {
     "zh-CN": "将 QwenPaw 后端生命周期事件同步至 QwenPaw Pet 桌面宠物。",
