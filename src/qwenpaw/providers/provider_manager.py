@@ -23,6 +23,7 @@ from .anthropic_provider import AnthropicProvider
 from .gemini_provider import GeminiProvider
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
+from .xai_oauth_provider import XaiOAuthProvider
 from .lmstudio_provider import LMStudioProvider
 from .provider import (
     ModelInfo,
@@ -1033,6 +1034,37 @@ PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
     support_model_discovery=False,
 )
 
+# xAI OAuth — authenticates against ``https://api.x.ai/v1`` using the
+# access_token stored in ``~/.xai/auth.json`` by ``qwenpaw xai login``.
+# Implemented as a standalone :class:`XaiOAuthProvider` subclass so the
+# OAuth-specific behaviour stays out of the base ``OpenAIProvider`` and
+# can't affect any other provider that happens to set ``api_key="oauth"``.
+# The model list comes from xAI's live ``/v1/models`` endpoint at
+# Discover time — keeping a hardcoded catalogue here would inevitably
+# lag (e.g. a freshly-shipped grok-N model wouldn't be reachable until
+# the next QwenPaw release).
+XAI_OAUTH_MODELS: List[ModelInfo] = []
+
+PROVIDER_XAI_OAUTH = XaiOAuthProvider(
+    id="xai-oauth",
+    name="Grok (xAI OAuth)",
+    base_url="https://api.x.ai/v1",
+    api_key="",
+    api_key_prefix="",
+    require_api_key=False,
+    models=XAI_OAUTH_MODELS,
+    chat_model="OpenAIChatModel",
+    freeze_url=True,
+    support_model_discovery=True,
+    meta={
+        "api_key_hint": (
+            "No API key required — run `qwenpaw xai login` once to "
+            "populate ~/.xai/auth.json. Requires an X Premium+ or "
+            "SuperGrok subscription on the signing-in account."
+        ),
+    },
+)
+
 
 class ProviderManager:  # pylint: disable=too-many-public-methods
     """A manager class to handle all providers,
@@ -1102,6 +1134,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_SILICONFLOW_INTL)
         self._add_builtin(PROVIDER_VOLCENGINE_CN)
         self._add_builtin(PROVIDER_VOLCENGINE_CN_CODINGPLAN)
+        self._add_builtin(PROVIDER_XAI_OAUTH)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider
