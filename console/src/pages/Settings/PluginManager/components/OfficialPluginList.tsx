@@ -79,6 +79,7 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
         `pluginManager.kind${kind!.charAt(0).toUpperCase()}${kind!
           .slice(1)
           .toLowerCase()}`,
+        { defaultValue: kind },
       ),
     }));
   }, [plugins, t]);
@@ -149,6 +150,7 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
                         `pluginManager.kind${entry.kind
                           .charAt(0)
                           .toUpperCase()}${entry.kind.slice(1).toLowerCase()}`,
+                        { defaultValue: entry.kind },
                       )}
                     </Tag>
                   )}

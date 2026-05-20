@@ -159,9 +159,7 @@ def build_plugin_catalog() -> dict[str, Any]:
         raw_desc = entry.get("description")
         description_i18n: dict[str, str] = {}
         if isinstance(raw_desc, dict):
-            description_i18n = {
-                k: str(v) for k, v in raw_desc.items() if v
-            }
+            description_i18n = {k: str(v) for k, v in raw_desc.items() if v}
 
         plugins.append(
             {
