@@ -316,6 +316,76 @@ OPENCODE_MODELS: List[ModelInfo] = [
         probe_source="documentation",
         is_free=True,
     ),
+    ModelInfo(
+        id="glm-5.1",
+        name="GLM-5.1",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5",
+        name="GLM-5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="kimi-k2.5",
+        name="Kimi K2.5",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="kimi-k2.6",
+        name="Kimi K2.6",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-v4-pro",
+        name="DeepSeek V4 Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-v4-flash",
+        name="DeepSeek V4 Flash",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="mimo-v2.5",
+        name="MiMo-V2.5",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="mimo-v2.5-pro",
+        name="MiMo-V2.5-Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3.6-plus",
+        name="Qwen3.6 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3.5-plus",
+        name="Qwen3.5 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
 ]
 
 AZURE_OPENAI_MODELS: List[ModelInfo] = [
@@ -623,79 +693,6 @@ VOLCENGINE_CODINGPLAN_MODELS: List[ModelInfo] = [
     ),
 ]
 
-OPENCODE_GO_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="glm-5.1",
-        name="GLM-5.1",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5",
-        name="GLM-5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2.5",
-        name="Kimi K2.5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2.6",
-        name="Kimi K2.6",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-v4-pro",
-        name="DeepSeek V4 Pro",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-v4-flash",
-        name="DeepSeek V4 Flash",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="mimo-v2.5",
-        name="MiMo-V2.5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="mimo-v2.5-pro",
-        name="MiMo-V2.5-Pro",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3.6-plus",
-        name="Qwen3.6 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3.5-plus",
-        name="Qwen3.5 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-]
-
 ANTHROPIC_MODELS: List[ModelInfo] = []
 
 GEMINI_MODELS: List[ModelInfo] = [
@@ -880,6 +877,12 @@ PROVIDER_OPENCODE = OpenAIProvider(
     base_url="https://opencode.ai/zen/v1",
     api_key_prefix="",
     models=OPENCODE_MODELS,
+    meta={
+        "base_url_options": [
+            {"label": "OpenCode", "value": "https://opencode.ai/zen/v1"},
+            {"label": "OpenCode Go", "value": "https://opencode.ai/zen/go/v1"},
+        ],
+    },
     freeze_url=True,
     require_api_key=False,
 )
@@ -1030,17 +1033,6 @@ PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
     support_model_discovery=False,
 )
 
-PROVIDER_OPENCODE_GO = OpenAIProvider(
-    id="opencode-go",
-    name="OpenCode Go",
-    base_url="https://opencode.ai/zen/go/v1",
-    api_key_prefix="",
-    models=OPENCODE_GO_MODELS,
-    support_connection_check=False,
-    freeze_url=True,
-    support_model_discovery=False,
-)
-
 
 class ProviderManager:  # pylint: disable=too-many-public-methods
     """A manager class to handle all providers,
@@ -1110,7 +1102,6 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_SILICONFLOW_INTL)
         self._add_builtin(PROVIDER_VOLCENGINE_CN)
         self._add_builtin(PROVIDER_VOLCENGINE_CN_CODINGPLAN)
-        self._add_builtin(PROVIDER_OPENCODE_GO)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider

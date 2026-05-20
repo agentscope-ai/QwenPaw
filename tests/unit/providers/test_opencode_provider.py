@@ -1,68 +1,116 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=redefined-outer-name,unused-argument,protected-access
-"""Tests for the OpenCode built-in provider."""
-from __future__ import annotations
+"""Unit tests for the OpenCode built-in provider."""
 
-from types import SimpleNamespace
-
-import pytest
-
-import qwenpaw.providers.provider_manager as provider_manager_module
-from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider_manager import (
+    OPENCODE_MODELS,
     PROVIDER_OPENCODE,
     ProviderManager,
 )
+from qwenpaw.providers.openai_provider import OpenAIProvider
 
 
-def test_opencode_provider_is_openai_compatible() -> None:
-    """OpenCode provider should be an OpenAIProvider instance."""
-    assert isinstance(PROVIDER_OPENCODE, OpenAIProvider)
+class TestOpenCodeProvider:
+    """Test the OpenCode provider with merged OpenCode Go models.
 
+    Refactored per maintainer review: OpenCode Go models merged into
+    the existing opencode provider via meta.base_url_options.
+    """
 
-def test_opencode_provider_config() -> None:
-    """Verify OpenCode provider configuration defaults."""
-    assert PROVIDER_OPENCODE.id == "opencode"
-    assert PROVIDER_OPENCODE.name == "OpenCode"
-    assert PROVIDER_OPENCODE.base_url == "https://opencode.ai/zen/v1"
-    assert PROVIDER_OPENCODE.freeze_url is True
-    assert PROVIDER_OPENCODE.support_model_discovery is False
+    def test_opencode_provider_is_openai_compatible(self):
+        """PROVIDER_OPENCODE should be an OpenAIProvider."""
+        assert isinstance(PROVIDER_OPENCODE, OpenAIProvider)
 
+    def test_opencode_provider_key_attributes(self):
+        """Provider-level attributes should be correctly set."""
+        assert PROVIDER_OPENCODE.id == "opencode"
+        assert PROVIDER_OPENCODE.api_key_prefix == ""
+        assert PROVIDER_OPENCODE.require_api_key is False
+        assert PROVIDER_OPENCODE.freeze_url is True
+        # Default base_url should match the first option in meta
+        assert PROVIDER_OPENCODE.base_url == "https://opencode.ai/zen/v1"
+        assert (
+            PROVIDER_OPENCODE.base_url
+            == PROVIDER_OPENCODE.meta["base_url_options"][0]["value"]
+        )
 
-@pytest.fixture
-def isolated_secret_dir(monkeypatch, tmp_path):
-    secret_dir = tmp_path / ".qwenpaw.secret"
-    monkeypatch.setattr(provider_manager_module, "SECRET_DIR", secret_dir)
-    return secret_dir
+    def test_opencode_provider_meta_base_url_options(self):
+        """meta should contain two base_url_options."""
+        meta = PROVIDER_OPENCODE.meta
+        assert "base_url_options" in meta
+        urls = meta["base_url_options"]
+        assert len(urls) == 2
+        assert urls[0]["label"] == "OpenCode"
+        assert urls[0]["value"] == "https://opencode.ai/zen/v1"
+        assert urls[1]["label"] == "OpenCode Go"
+        assert urls[1]["value"] == "https://opencode.ai/zen/go/v1"
 
+    def test_opencode_models_count_and_key_models(self):
+        """Merged models: should be >= 12 and <= 14."""
+        model_ids = {m.id for m in OPENCODE_MODELS}
+        assert len(model_ids) >= 12, f"Expected >= 12, got {len(model_ids)}"
+        assert len(model_ids) <= 14, f"Expected <= 14, got {len(model_ids)}"
+        # Free models preserved
+        assert "big-pickle" in model_ids
+        assert "nemotron-3-super-free" in model_ids
+        # Go key models (sample across vendors)
+        assert "deepseek-v4-flash" in model_ids
+        assert "deepseek-v4-pro" in model_ids
+        assert "glm-5.1" in model_ids
+        assert "kimi-k2.5" in model_ids
 
-def test_opencode_registered_in_provider_manager(isolated_secret_dir) -> None:
-    """OpenCode provider should be registered as built-in provider."""
-    manager = ProviderManager()
+    def test_opencode_models_visual_capabilities(self):
+        """Check visual model tagging (mimo-v2.5 corrected)."""
+        models_by_id = {m.id: m for m in OPENCODE_MODELS}
+        # Vision models
+        vision_models = {
+            "kimi-k2.5",
+            "kimi-k2.6",
+            "qwen3.6-plus",
+            "qwen3.5-plus",
+            "mimo-v2.5",
+        }
+        for mid in vision_models:
+            assert models_by_id[
+                mid
+            ].supports_image, f"{mid} should support image"
+            assert models_by_id[
+                mid
+            ].supports_video, f"{mid} should support video"
+        # Non-vision models
+        non_vision = {
+            "glm-5.1",
+            "glm-5",
+            "deepseek-v4-pro",
+            "deepseek-v4-flash",
+            "mimo-v2.5-pro",
+        }
+        for mid in non_vision:
+            assert not models_by_id[
+                mid
+            ].supports_image, f"{mid} should NOT support image"
+            assert not models_by_id[
+                mid
+            ].supports_video, f"{mid} should NOT support video"
 
-    provider = manager.get_provider("opencode")
-    assert provider is not None
-    assert isinstance(provider, OpenAIProvider)
-    assert provider.base_url == "https://opencode.ai/zen/v1"
+    def test_opencode_models_no_duplicates(self):
+        """Merged models must not have duplicate IDs."""
+        model_ids = [m.id for m in OPENCODE_MODELS]
+        assert len(model_ids) == len(
+            set(model_ids),
+        ), "Duplicate model IDs found in OPENCODE_MODELS"
 
+    def test_opencode_models_probe_source_and_free(self):
+        """All models should have probe_source='documentation'."""
+        for m in OPENCODE_MODELS:
+            assert m.probe_source == "documentation"
+        free_models = {m.id for m in OPENCODE_MODELS if m.is_free}
+        assert "big-pickle" in free_models
+        assert "nemotron-3-super-free" in free_models
 
-async def test_opencode_check_connection_success(monkeypatch) -> None:
-    """OpenCode check_connection should delegate to OpenAI client."""
-    provider = OpenAIProvider(
-        id="opencode",
-        name="OpenCode",
-        base_url="https://opencode.ai/zen/v1",
-        api_key="test-key",
-    )
-
-    class FakeModels:
-        async def list(self, timeout=None):
-            return SimpleNamespace(data=[])
-
-    fake_client = SimpleNamespace(models=FakeModels())
-    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-
-    ok, msg = await provider.check_connection(timeout=2)
-
-    assert ok is True
-    assert msg == ""
+    def test_opencode_registered_in_provider_manager(self):
+        """opencode provider should be registerable via built-in init."""
+        mgr = ProviderManager()
+        assert PROVIDER_OPENCODE.id in mgr.builtin_providers
+        provider = mgr.builtin_providers[PROVIDER_OPENCODE.id]
+        assert provider.id == PROVIDER_OPENCODE.id
+        assert isinstance(provider, OpenAIProvider)

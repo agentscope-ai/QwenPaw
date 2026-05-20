@@ -25,7 +25,6 @@ const PROVIDER_LETTER_COLORS: Record<string, string> = {
   "zhipu-intl-codingplan": "#3366FF",
   openrouter: "#6366F1",
   opencode: "#2563EB",
-  "opencode-go": "#2563EB",
 };
 
 /** A palette of fallback colors for providers without a predefined color. */
