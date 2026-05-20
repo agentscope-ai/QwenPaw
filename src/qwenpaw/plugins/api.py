@@ -188,6 +188,40 @@ class PluginApi:
                 f"'{hook_name}' (priority={priority})",
             )
 
+    def register_session_hook(
+        self,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+    ):
+        """Register a conversation/session lifecycle hook.
+
+        Args:
+            hook_name: Lifecycle event name, e.g. ``session.create``
+            callback: Async or sync callback to call for this event
+            priority: Execution priority (lower = earlier, default=100)
+
+        Example:
+            >>> async def on_session_create(session_id, agent_id, metadata):
+            ...     print(session_id, agent_id, metadata)
+            >>> api.register_session_hook(
+            ...     hook_name="session.create",
+            ...     callback=on_session_create,
+            ...     priority=50,
+            ... )
+        """
+        if self._registry:
+            self._registry.register_session_hook(
+                plugin_id=self.plugin_id,
+                hook_name=hook_name,
+                callback=callback,
+                priority=priority,
+            )
+            logger.info(
+                f"Plugin '{self.plugin_id}' registered session hook "
+                f"'{hook_name}' (priority={priority})",
+            )
+
     def register_http_router(
         self,
         router: Any,

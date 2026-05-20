@@ -27,17 +27,24 @@ class ChatManager:
         self,
         *,
         repo: BaseChatRepository,
+        agent_id: Optional[str] = None,
     ):
         """Initialize chat manager.
 
         Args:
             repo: Chat spec repository for persistence
+            agent_id: Agent identifier for lifecycle hook payloads
         """
         self._repo = repo
+        self._agent_id = agent_id
         self._lock = asyncio.Lock()
         logger.debug(
             f"ChatManager created with repo path: {repo.path}",
         )
+
+    def set_agent_id(self, agent_id: Optional[str]) -> None:
+        """Update the agent identifier used for lifecycle hook payloads."""
+        self._agent_id = agent_id
 
     # ----- Read Operations -----
 
@@ -132,7 +139,8 @@ class ChatManager:
             logger.info(
                 f"Auto-registered new chat: {spec.id} -> {session_id}",
             )
-            return spec
+        await self._emit_session_event("session.create", spec)
+        return spec
 
     async def create_chat(self, spec: ChatSpec) -> ChatSpec:
         """Create a new chat.
@@ -145,7 +153,43 @@ class ChatManager:
         """
         async with self._lock:
             await self._repo.upsert_chat(spec)
-            return spec
+        await self._emit_session_event("session.create", spec)
+        return spec
+
+    async def _emit_session_event(
+        self,
+        hook_name: str,
+        spec: ChatSpec,
+    ) -> None:
+        """Emit a plugin session lifecycle event for a chat spec."""
+        try:
+            from ...plugins.registry import PluginRegistry
+            from ..agent_context import get_current_agent_id
+
+            agent_id = self._agent_id or get_current_agent_id()
+            metadata = {
+                "chat_id": spec.id,
+                "chat_name": spec.name,
+                "user_id": spec.user_id,
+                "channel": spec.channel,
+                "created_at": spec.created_at.isoformat(),
+                "updated_at": spec.updated_at.isoformat(),
+                "status": spec.status,
+                "pinned": spec.pinned,
+                "chat_meta": dict(spec.meta),
+            }
+            await PluginRegistry().emit_session_event(
+                hook_name,
+                session_id=spec.session_id,
+                agent_id=agent_id,
+                metadata=metadata,
+            )
+        except Exception as e:  # Defensive guard for plugin hook machinery.
+            logger.error(
+                f"Failed to emit session event '{hook_name}' "
+                f"for chat '{spec.id}': {e}",
+                exc_info=True,
+            )
 
     async def patch_chat(
         self,

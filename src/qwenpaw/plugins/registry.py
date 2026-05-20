@@ -4,7 +4,10 @@
 
 from typing import Any, Callable, Dict, List, Optional, Type
 from dataclasses import dataclass, field
+import asyncio
+import inspect
 import logging
+import time
 
 from fastapi import APIRouter
 
@@ -118,6 +121,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._providers: Dict[str, ProviderRegistration] = {}
         self._startup_hooks: List[HookRegistration] = []
         self._shutdown_hooks: List[HookRegistration] = []
+        self._session_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
@@ -380,6 +384,34 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             f"'{plugin_id}' (priority={priority})",
         )
 
+    def register_session_hook(
+        self,
+        plugin_id: str,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+    ):
+        """Register a conversation/session lifecycle hook.
+
+        Args:
+            plugin_id: Plugin identifier
+            hook_name: Lifecycle event name, e.g. ``session.create``
+            callback: Sync or async callback
+            priority: Priority (lower = earlier execution)
+        """
+        hook = HookRegistration(
+            plugin_id=plugin_id,
+            hook_name=hook_name,
+            callback=callback,
+            priority=priority,
+        )
+        self._session_hooks.append(hook)
+        self._session_hooks.sort(key=lambda h: h.priority)
+        logger.info(
+            f"Registered session hook '{hook_name}' from plugin "
+            f"'{plugin_id}' (priority={priority})",
+        )
+
     def get_startup_hooks(self) -> List[HookRegistration]:
         """Get all startup hooks sorted by priority.
 
@@ -395,6 +427,76 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             List of HookRegistration
         """
         return self._shutdown_hooks.copy()
+
+    def get_session_hooks(
+        self,
+        hook_name: Optional[str] = None,
+    ) -> List[HookRegistration]:
+        """Get session lifecycle hooks sorted by priority.
+
+        Args:
+            hook_name: Optional event name filter
+
+        Returns:
+            List of HookRegistration
+        """
+        if hook_name is None:
+            return self._session_hooks.copy()
+        return [
+            hook for hook in self._session_hooks if hook.hook_name == hook_name
+        ]
+
+    async def emit_session_event(
+        self,
+        hook_name: str,
+        *,
+        session_id: str,
+        agent_id: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        timeout: Optional[float] = 10.0,
+    ) -> None:
+        """Execute registered session lifecycle hooks.
+
+        Args:
+            hook_name: Lifecycle event name, e.g. ``session.create``
+            session_id: Session identifier
+            agent_id: Agent identifier
+            metadata: Additional event metadata
+            timeout: Optional timeout for async callbacks
+        """
+        event_metadata = metadata or {}
+        for hook in self.get_session_hooks(hook_name):
+            started_at = time.monotonic()
+            try:
+                logger.debug(
+                    f"Executing session hook '{hook.hook_name}' "
+                    f"from plugin '{hook.plugin_id}' "
+                    f"(priority={hook.priority})",
+                )
+                result = hook.callback(
+                    session_id=session_id,
+                    agent_id=agent_id,
+                    metadata=event_metadata,
+                )
+                if inspect.isawaitable(result):
+                    if timeout is None:
+                        await result
+                    else:
+                        await asyncio.wait_for(result, timeout=timeout)
+
+                elapsed = time.monotonic() - started_at
+                logger.debug(
+                    f"Completed session hook '{hook.hook_name}' "
+                    f"from plugin '{hook.plugin_id}' in {elapsed:.3f}s",
+                )
+            except Exception as e:
+                elapsed = time.monotonic() - started_at
+                logger.error(
+                    f"Failed to execute session hook '{hook.hook_name}' "
+                    f"from plugin '{hook.plugin_id}' after "
+                    f"{elapsed:.3f}s: {e}",
+                    exc_info=True,
+                )
 
     def register_control_command(
         self,
@@ -494,6 +596,9 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         ]
         self._shutdown_hooks = [
             h for h in self._shutdown_hooks if h.plugin_id != plugin_id
+        ]
+        self._session_hooks = [
+            h for h in self._session_hooks if h.plugin_id != plugin_id
         ]
         self._control_commands = [
             c for c in self._control_commands if c.plugin_id != plugin_id
