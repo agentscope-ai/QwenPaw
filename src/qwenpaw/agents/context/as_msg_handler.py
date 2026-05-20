@@ -288,6 +288,7 @@ class AsMsgHandler:
         messages: list[Msg],
         context_compact_threshold: int,
         context_compact_reserve: int,
+        total_tokens_override: int | None = None,
     ) -> tuple[list[Msg], list[Msg], int, int]:
         """Check if context exceeds threshold and split messages.
 
@@ -297,8 +298,16 @@ class AsMsgHandler:
         if not messages:
             return [], [], 0, 0
 
+        if total_tokens_override is not None:
+            total_tokens = max(0, total_tokens_override)
+            if total_tokens < context_compact_threshold:
+                return [], messages, total_tokens, total_tokens
+        else:
+            total_tokens = None
+
         msg_stats = [await self.stat_message(msg) for msg in messages]
-        total_tokens = sum(stat.total_tokens for stat in msg_stats)
+        if total_tokens is None:
+            total_tokens = sum(stat.total_tokens for stat in msg_stats)
 
         if total_tokens < context_compact_threshold:
             return [], messages, total_tokens, total_tokens

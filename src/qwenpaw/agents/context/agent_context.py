@@ -6,6 +6,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 import aiofiles
 import aiofiles.os
@@ -27,6 +28,7 @@ class AgentContext(InMemoryMemory):
         self,
         token_counter: EstimatedTokenCounter,
         dialog_path: str | Path | None = None,
+        on_context_rewritten: Callable[[], None] | None = None,
     ):
         """Initialize the AgentContext.
 
@@ -35,6 +37,8 @@ class AgentContext(InMemoryMemory):
             dialog_path: Path to the dialog storage directory.
                 If provided, messages will be persisted to jsonl
                 files when cleared or compressed.
+            on_context_rewritten: Callback invoked when existing context is
+                rewritten rather than appended to.
         """
         super().__init__()
         self._token_counter: EstimatedTokenCounter = token_counter
@@ -42,6 +46,20 @@ class AgentContext(InMemoryMemory):
         self._dialog_path: Path | None = (
             Path(dialog_path) if dialog_path else None
         )
+        self._on_context_rewritten = on_context_rewritten
+
+    def _notify_context_rewritten(self) -> None:
+        """Notify owner that cached context-derived state is stale."""
+        if self._on_context_rewritten is None:
+            return
+        try:
+            self._on_context_rewritten()
+        except Exception:
+            logger.debug("Failed to notify context rewrite", exc_info=True)
+
+    def notify_context_rewritten(self) -> None:
+        """Public hook for callers that rewrite stored message objects."""
+        self._notify_context_rewritten()
 
     async def _append_messages_to_dialog(self, messages: list[Msg]) -> int:
         """Append messages to dialog storage file.
@@ -206,6 +224,11 @@ class AgentContext(InMemoryMemory):
 
         self._compressed_summary = state_dict.get("_compressed_summary", "")
 
+    async def update_compressed_summary(self, summary: str) -> None:
+        """Update compressed summary and invalidate context-derived caches."""
+        await super().update_compressed_summary(summary)
+        self._notify_context_rewritten()
+
     async def mark_messages_compressed(
         self,
         messages: list[Msg],
@@ -243,6 +266,8 @@ class AgentContext(InMemoryMemory):
             f"Marked {removed_count} messages as compressed "
             f"and removed from memory",
         )
+        if removed_count:
+            self._notify_context_rewritten()
         return removed_count
 
     def clear_compressed_summary(self):
@@ -250,6 +275,7 @@ class AgentContext(InMemoryMemory):
         self._compressed_summary = (
             ""  # pylint: disable=attribute-defined-outside-init
         )
+        self._notify_context_rewritten()
 
     async def clear_content(self):
         """Persist all messages to dialog storage and clear the content.
@@ -265,6 +291,7 @@ class AgentContext(InMemoryMemory):
 
         # Clear in-memory content
         self.content.clear()
+        self._notify_context_rewritten()
         logger.info("Cleared all messages from memory")
 
     async def estimate_tokens(self, max_input_length: int) -> dict:
