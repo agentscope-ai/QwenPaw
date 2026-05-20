@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Diagnostics for the Tauri Python sidecar runtime."""
+"""Log capture for the Tauri Python sidecar runtime."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -42,7 +42,7 @@ class _TeeStream:
         return self._primary.fileno()
 
 
-def install_sidecar_diagnostics() -> Path | None:
+def install_sidecar_logging() -> Path | None:
     """Mirror early sidecar output to a file and enable native crash traces."""
     raw_path = os.environ.get(DESKTOP_BACKEND_LOG_ENV)
     if not raw_path:
@@ -74,7 +74,7 @@ def install_sidecar_diagnostics() -> Path | None:
     faulthandler.enable(file=_LOG_FILE, all_threads=True)
     _add_logging_handler(log_path)
     logging.getLogger("qwenpaw.tauri").info(
-        "Tauri sidecar diagnostics enabled: %s",
+        "Tauri sidecar logging enabled: %s",
         log_path,
     )
     return log_path
