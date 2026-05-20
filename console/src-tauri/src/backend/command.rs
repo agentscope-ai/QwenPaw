@@ -1,7 +1,9 @@
 //! Backend command construction for development and packaged builds.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+#[cfg(debug_assertions)]
+use std::path::Path;
 #[cfg(debug_assertions)]
 use std::process::{Command as StdCommand, Stdio};
 
@@ -46,75 +48,42 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
 /// Builds the command used to start the packaged Python backend sidecar.
 #[cfg(not(debug_assertions))]
 pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
-    let backend = packaged_backend(app)?;
-    let backend_path = backend_env_path(&backend.env_dir)?;
+    let backend = packaged_backend_executable(app)?;
+    let backend_dir = backend
+        .parent()
+        .ok_or_else(|| format!("backend executable has no parent: {}", backend.display()))?
+        .to_path_buf();
     log::info!(
-        "[backend] packaged command: {} -u -m qwenpaw.tauri.entry cwd={}",
-        backend.python.display(),
-        backend.backend_dir.display(),
+        "[backend] packaged command: {} cwd={}",
+        backend.display(),
+        backend_dir.display(),
     );
-    Ok(app
-        .shell()
-        .command(backend.python)
-        .args(["-u", "-m", "qwenpaw.tauri.entry"])
-        .current_dir(backend.backend_dir)
-        .env("PYTHONNOUSERSITE", "1")
-        .env("PYTHONDONTWRITEBYTECODE", "1")
-        .env("QWENPAW_DESKTOP_APP", "1")
-        .env("PATH", backend_path))
+    Ok(app.shell().command(backend).current_dir(backend_dir))
 }
 
 #[cfg(not(debug_assertions))]
-struct PackagedBackend {
-    backend_dir: PathBuf,
-    env_dir: PathBuf,
-    python: PathBuf,
-}
-
-#[cfg(not(debug_assertions))]
-fn packaged_backend(app: &tauri::AppHandle) -> Result<PackagedBackend, String> {
-    let backend_dir = app
+fn packaged_backend_executable(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let executable_name = if cfg!(windows) {
+        "qwenpaw-backend.exe"
+    } else {
+        "qwenpaw-backend"
+    };
+    let path = app
         .path()
         .resource_dir()
         .map_err(|err| format!("failed to resolve resource directory: {err}"))?
         .join("binaries")
-        .join("qwenpaw-backend");
-    let env_dir = backend_dir.join("env");
-    let python = if cfg!(windows) {
-        env_dir.join("pythonw.exe")
-    } else {
-        env_dir.join("bin").join("python")
-    };
+        .join("qwenpaw-backend")
+        .join(executable_name);
 
-    if python.is_file() {
-        Ok(PackagedBackend {
-            backend_dir,
-            env_dir,
-            python,
-        })
+    if path.is_file() {
+        Ok(path)
     } else {
         Err(format!(
-            "packaged backend Python not found at {}",
-            python.display()
+            "backend executable not found at {}",
+            path.display()
         ))
     }
-}
-
-#[cfg(not(debug_assertions))]
-fn backend_env_path(env_dir: &Path) -> Result<String, String> {
-    let mut paths = Vec::new();
-    if cfg!(windows) {
-        paths.push(env_dir.to_path_buf());
-        paths.push(env_dir.join("Scripts"));
-    } else {
-        paths.push(env_dir.join("bin"));
-    }
-    if let Some(existing) = std::env::var_os("PATH") {
-        paths.extend(std::env::split_paths(&existing));
-    }
-    std::env::join_paths(paths)
-        .map_err(|err| format!("failed to build backend PATH: {err}"))
-        .map(|path| path.to_string_lossy().into_owned())
 }
 
 #[cfg(debug_assertions)]

@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Re-sign all Mach-O files in a macOS bundle/directory with one identity.
 #
-# The Tauri macOS package embeds a conda-packed Python backend environment.
-# Re-signing native files after bundling keeps the app, launcher resources, and
-# nested native dependencies in one signature state before the zip is published.
+# PyInstaller collects Python frameworks and native extension libraries from
+# third-party packages. Re-signing every Mach-O file after collection keeps the
+# backend executable, Python runtime, and native dependencies in one signature
+# state before Tauri embeds them in the final app.
 
 set -euo pipefail
 
 TARGET="${1:?Usage: sign_macos_bundle.sh <target> [identity] [entitlements]}"
 IDENTITY="${2:-${APPLE_SIGNING_IDENTITY:--}}"
-ENTITLEMENTS_FILE="${3:-${MACOS_ENTITLEMENTS_FILE:-}}"
+ENTITLEMENTS_FILE="${3:-${PYINSTALLER_ENTITLEMENTS_FILE:-}}"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
     echo "ERROR: macOS code signing must run on Darwin"
@@ -56,7 +57,7 @@ is_process_executable() {
     local name
     name="$(basename "${path}")"
 
-    if [[ "${path}" == */binaries/qwenpaw-backend/env/bin/python* ]]; then
+    if [[ "${name}" == "qwenpaw-backend" ]]; then
         return 0
     fi
     if [[ "${path}" == */Contents/MacOS/* && -x "${path}" ]]; then
