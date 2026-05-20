@@ -303,7 +303,12 @@ class AsMsgHandler:
         if total_tokens < context_compact_threshold:
             return [], messages, total_tokens, total_tokens
 
-        # Find max keep count satisfying both token limit and tool alignment
+        has_user_message = any(msg.role == "user" for msg in messages)
+
+        # Find max keep count satisfying token limit, tool alignment, and
+        # turn boundary. When a chat contains user messages, the kept suffix
+        # must start with a user message so the frontend never receives an
+        # orphan assistant response after compaction.
         best_keep_count = 0
         best_keep_tokens = 0
 
@@ -313,7 +318,13 @@ class AsMsgHandler:
             )
             if keep_tokens > context_compact_reserve:
                 break
-            if self.validate_tool_ids_alignment(messages[-keep_count:]):
+            candidate = messages[-keep_count:]
+            starts_at_user_turn = (
+                not has_user_message or candidate[0].role == "user"
+            )
+            if starts_at_user_turn and self.validate_tool_ids_alignment(
+                candidate,
+            ):
                 best_keep_count = keep_count
                 best_keep_tokens = keep_tokens
 

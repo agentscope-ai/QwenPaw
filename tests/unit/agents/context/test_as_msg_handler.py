@@ -95,6 +95,115 @@ class TestAsMsgHandlerToolAlignment:
         assert tool_use_ids == tool_result_ids
 
     @pytest.mark.asyncio
+    async def test_keep_window_starts_with_user_when_turn_fits(self):
+        """Compaction should keep complete user/assistant turns."""
+        token_counter = MockTokenCounter(
+            {
+                "old user": 80,
+                "old assistant": 80,
+                "latest user": 50,
+                "latest assistant": 10,
+            },
+        )
+        handler = AsMsgHandler(token_counter)
+        messages = [
+            Msg(name="user", role="user", content="old user", metadata={}),
+            Msg(
+                name="assistant",
+                role="assistant",
+                content="old assistant",
+                metadata={},
+            ),
+            Msg(
+                name="user",
+                role="user",
+                content="latest user",
+                metadata={},
+            ),
+            Msg(
+                name="assistant",
+                role="assistant",
+                content="latest assistant",
+                metadata={},
+            ),
+        ]
+
+        (
+            msgs_to_compact,
+            msgs_to_keep,
+            total_tokens,
+            keep_tokens,
+        ) = await handler.context_check(
+            messages=messages,
+            context_compact_threshold=100,
+            context_compact_reserve=60,
+        )
+
+        assert [msg.content for msg in msgs_to_compact] == [
+            "old user",
+            "old assistant",
+        ]
+        assert [msg.role for msg in msgs_to_keep] == ["user", "assistant"]
+        assert [msg.content for msg in msgs_to_keep] == [
+            "latest user",
+            "latest assistant",
+        ]
+        assert total_tokens == 220
+        assert keep_tokens == 60
+
+    @pytest.mark.asyncio
+    async def test_does_not_keep_orphan_assistant_when_user_turn_exceeds_reserve(
+        self,
+    ):
+        """If the user half of a turn does not fit, compact the whole turn."""
+        token_counter = MockTokenCounter(
+            {
+                "old user": 80,
+                "old assistant": 80,
+                "large latest user": 200,
+                "latest assistant": 10,
+            },
+        )
+        handler = AsMsgHandler(token_counter)
+        messages = [
+            Msg(name="user", role="user", content="old user", metadata={}),
+            Msg(
+                name="assistant",
+                role="assistant",
+                content="old assistant",
+                metadata={},
+            ),
+            Msg(
+                name="user",
+                role="user",
+                content="large latest user",
+                metadata={},
+            ),
+            Msg(
+                name="assistant",
+                role="assistant",
+                content="latest assistant",
+                metadata={},
+            ),
+        ]
+
+        (
+            msgs_to_compact,
+            msgs_to_keep,
+            total_tokens,
+            keep_tokens,
+        ) = await handler.context_check(
+            messages=messages,
+            context_compact_threshold=100,
+            context_compact_reserve=20,
+        )
+
+        assert msgs_to_compact == messages
+        assert msgs_to_keep == []
+        assert total_tokens == 370
+        assert keep_tokens == 0
+
+    @pytest.mark.asyncio
     async def test_tool_use_result_pair_excluded_when_result_too_large(self):
         """
         Bug scenario: tool_use in assistant msg, large tool_result in system msg.
