@@ -48,8 +48,25 @@ def _ensure_utf8_stdio() -> None:
             pass
 
 
+def _install_certifi_env() -> None:
+    if os.environ.get("SSL_CERT_FILE"):
+        return
+    try:
+        import certifi
+    except Exception:
+        return
+
+    cert_file = certifi.where()
+    if not cert_file or not os.path.isfile(cert_file):
+        return
+    os.environ.setdefault("SSL_CERT_FILE", cert_file)
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", cert_file)
+    os.environ.setdefault("CURL_CA_BUNDLE", cert_file)
+
+
 def _install_desktop_runtime() -> None:
     os.environ.setdefault(DESKTOP_APP_ENV, "1")
+    _install_certifi_env()
     # Must run before importing the FastAPI app: it applies CORS middleware
     # from qwenpaw.constant.CORS_ORIGINS at import time.
     _ensure_qwenpaw_app_not_loaded()

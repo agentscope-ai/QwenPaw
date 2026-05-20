@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Diagnose the packaged macOS Tauri app without launching the GUI.
 #
-# The check verifies code signatures, prints signing metadata for the app and
-# backend sidecar, then starts the packaged sidecar and probes the endpoints
-# that exercise the desktop settings and local Whisper status paths.
+# The check verifies the app signature, validates the packaged conda env
+# backend, then starts Python and probes the endpoints used by the desktop
+# settings and voice transcription pages.
 
 set -euo pipefail
 
@@ -27,48 +27,48 @@ fi
 APP_PARENT="$(cd "$(dirname "${APP_PATH}")" && pwd)"
 APP_PATH="${APP_PARENT}/$(basename "${APP_PATH}")"
 
-BACKEND="${APP_PATH}/Contents/Resources/binaries/qwenpaw-backend/qwenpaw-backend"
-if [[ ! -x "${BACKEND}" ]]; then
-    echo "ERROR: backend sidecar not executable: ${BACKEND}"
+BACKEND_DIR="${APP_PATH}/Contents/Resources/binaries/qwenpaw-backend"
+PYTHON="${BACKEND_DIR}/env/bin/python"
+
+if [[ ! -x "${PYTHON}" ]]; then
+    echo "ERROR: packaged Python not executable: ${PYTHON}"
     exit 1
 fi
-BACKEND_DIR="$(dirname "${BACKEND}")"
-BACKEND_NAME="$(basename "${BACKEND}")"
+
+is_macho() {
+    file -b "$1" | grep -q "Mach-O"
+}
+
+is_inside_framework() {
+    [[ "$1" == *".framework/"* ]]
+}
 
 echo "== macOS app signature verification =="
 codesign --verify --deep --strict --verbose=4 "${APP_PATH}"
 codesign -dv --verbose=4 "${APP_PATH}" 2>&1 || true
 
 echo ""
-echo "== backend sidecar signature =="
-codesign --verify --verbose=4 "${BACKEND}"
-codesign -dv --verbose=4 "${BACKEND}" 2>&1 || true
+echo "== packaged Python env diagnostics =="
+(
+    export PYTHONNOUSERSITE=1
+    export PATH="${BACKEND_DIR}/env/bin:${PATH}"
+    "${PYTHON}" - <<'PY'
+import importlib.util
+import sys
 
-echo ""
-echo "== key Python/native dependency diagnostics =="
-while IFS= read -r path; do
-    if [[ -z "${path}" ]]; then
-        continue
-    fi
-    echo "-- ${path}"
-    file "${path}" || true
-    if [[ -d "${path}" || "${path}" != *".framework/"* ]]; then
-        codesign --verify --verbose=2 "${path}" || true
-    else
-        echo "Skipping direct codesign verification for framework member"
-    fi
-    codesign -dv --verbose=4 "${path}" 2>&1 || true
-    if [[ -f "${path}" && -x "${path}" ]] && command -v otool >/dev/null 2>&1; then
-        otool -L "${path}" || true
-    fi
-done < <(
-    find "${BACKEND_DIR}/_internal" \
-        \( -path "*/Python.framework" -o \
-           -name "Python" -o \
-           -name "libtorch*.dylib" -o \
-           -name "libc10*.dylib" -o \
-           -name "libshm.dylib" \) \
-        2>/dev/null | sort
+import certifi
+
+print(f"python={sys.executable}")
+print(f"prefix={sys.prefix}")
+print(f"base_prefix={sys.base_prefix}")
+print(f"certifi={certifi.where()}")
+print(f"whisper_present={importlib.util.find_spec('whisper') is not None}")
+print(f"torch_present={importlib.util.find_spec('torch') is not None}")
+
+import whisper  # noqa: F401
+
+print("whisper_import=ok")
+PY
 )
 
 echo ""
@@ -76,11 +76,11 @@ echo "== bundled Mach-O signature scan =="
 checked=0
 skipped_framework_members=0
 while IFS= read -r -d '' path; do
-    if [[ "${path}" == *".framework/"* ]]; then
+    if is_inside_framework "${path}"; then
         skipped_framework_members=$((skipped_framework_members + 1))
         continue
     fi
-    if file -b "${path}" | grep -q "Mach-O"; then
+    if is_macho "${path}"; then
         codesign --verify --verbose=2 "${path}"
         checked=$((checked + 1))
     fi
@@ -100,7 +100,7 @@ done < <(find "${APP_PATH}" -type d -name "*.framework" | sort -r)
 echo "Verified ${checked_frameworks} bundled frameworks"
 
 echo ""
-echo "== backend sidecar smoke test =="
+echo "== backend smoke test =="
 rm -f "${LOG_FILE}"
 rm -f "${SIDECAR_LOG_FILE}"
 TMP_DIR="$(mktemp -d)"
@@ -116,18 +116,18 @@ trap cleanup EXIT
 
 print_backend_log() {
     echo ""
-    echo "== backend sidecar log (${LOG_FILE}) =="
+echo "== backend process log (${LOG_FILE}) =="
     if [[ -f "${LOG_FILE}" ]]; then
         tail -n 300 "${LOG_FILE}" || true
     else
         echo "Log file does not exist"
     fi
     echo ""
-    echo "== python sidecar diagnostics (${SIDECAR_LOG_FILE}) =="
+    echo "== python backend diagnostics (${SIDECAR_LOG_FILE}) =="
     if [[ -f "${SIDECAR_LOG_FILE}" ]]; then
         tail -n 300 "${SIDECAR_LOG_FILE}" || true
     else
-        echo "Python sidecar diagnostics file does not exist"
+        echo "Python backend diagnostics file does not exist"
     fi
 }
 
@@ -255,7 +255,7 @@ probe_voice_page_concurrent() {
     export PYTHONUNBUFFERED=1
     export PYTHONFAULTHANDLER=1
     cd "${BACKEND_DIR}"
-    exec "./${BACKEND_NAME}"
+    exec "${PYTHON}" -u -m qwenpaw.tauri.entry
 ) > "${LOG_FILE}" 2>&1 &
 BACKEND_PID=$!
 

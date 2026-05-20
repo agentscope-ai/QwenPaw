@@ -1,6 +1,6 @@
 # Build QwenPaw Desktop:
 # - Legacy desktop: Windows (conda-pack + NSIS), macOS (conda-pack -> .app)
-# - Tauri desktop: Windows/macOS app bundles with PyInstaller backend sidecar
+# - Tauri desktop: Windows/macOS app bundles with conda-pack backend envs
 # Runs on release publish, manual dispatch, and PRs touching desktop packaging.
 
 name: QwenPaw Desktop Build
@@ -19,7 +19,10 @@ on:
       - "console/src/plugins/hostExternals.ts"
       - "console/src/tauri/**"
       - "scripts/pack-tauri/**"
+      - "scripts/pack/build_common.py"
+      - "scripts/pack/build_macos.sh"
       - "scripts/pack/assets/**"
+      - "scripts/wheel_build.sh"
       - "src/qwenpaw/__init__.py"
       - "src/qwenpaw/cli/app_cmd.py"
       - "src/qwenpaw/config/utils.py"
@@ -174,10 +177,14 @@ jobs:
           $v | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
         with:
+          auto-update-conda: true
           python-version: "3.10"
+          activate-environment: "qwenpaw-build"
+          condarc-file: .github/condarc
+          conda-remove-defaults: false
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -200,7 +207,7 @@ jobs:
 
       - name: Build Tauri Windows package
         shell: pwsh
-        run: ./scripts/pack-tauri/build_win_pyinstaller.ps1
+        run: conda run -n qwenpaw-build pwsh -File ./scripts/pack-tauri/build_win_env.ps1
 
       - name: Stage Tauri Windows installer
         shell: pwsh
@@ -231,15 +238,14 @@ jobs:
         id: version
         run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)" >> $GITHUB_OUTPUT
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        env:
-          PIP_NO_CACHE_DIR: "1"
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
         with:
+          auto-update-conda: true
           python-version: "3.10"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+          activate-environment: "qwenpaw-build"
+          condarc-file: .github/condarc
+          conda-remove-defaults: false
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -256,8 +262,8 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
         run: |
-          chmod +x scripts/pack-tauri/build_macos_pyinstaller.sh
-          bash scripts/pack-tauri/build_macos_pyinstaller.sh
+          chmod +x scripts/pack-tauri/build_macos_env.sh
+          conda run -n qwenpaw-build bash scripts/pack-tauri/build_macos_env.sh
 
       - name: Diagnose Tauri macOS package
         run: |
