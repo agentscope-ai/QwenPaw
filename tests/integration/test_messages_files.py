@@ -238,7 +238,9 @@ def test_files_preview_existing_file(app_server, tmp_path) -> None:
     """
     target_file = tmp_path / "preview_target.txt"
     expected = "preview integration payload\n"
-    target_file.write_text(expected, encoding="utf-8")
+    # Use write_bytes to avoid platform-specific newline translation
+    # (write_text in text mode converts \n -> \r\n on Windows).
+    target_file.write_bytes(expected.encode("utf-8"))
 
     encoded_path = quote(str(target_file), safe="")
     resp = app_server.client.get(

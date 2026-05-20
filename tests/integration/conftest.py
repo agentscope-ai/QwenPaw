@@ -311,6 +311,11 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     env["QWENPAW_AUTH_ENABLED"] = "false"
     env["NO_PROXY"] = "*"
     env["PYTHONUNBUFFERED"] = "1"
+    # Force UTF-8 stdio in the subprocess so non-ASCII log lines (e.g.
+    # 中文/emoji from skills, agentscope, etc.) don't crash the parent's
+    # _tee_stream reader on Windows where the default console encoding
+    # is cp1252.
+    env["PYTHONIOENCODING"] = "utf-8"
 
     if _integration_coverage_requested():
         if _INTEGRATION_COVERAGE_DIR is None:
@@ -343,6 +348,11 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
+        # Decode subprocess output as UTF-8 in the parent. Without this,
+        # Popen falls back to locale.getpreferredencoding(False) which
+        # is cp1252 on Windows CI runners and crashes _tee_stream.
+        encoding="utf-8",
+        errors="replace",
         env=env,
     ) as process:
         assert process.stdout is not None
