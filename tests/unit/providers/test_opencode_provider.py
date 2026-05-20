@@ -25,7 +25,7 @@ class TestOpenCodeProvider:
         assert PROVIDER_OPENCODE.id == "opencode"
         assert PROVIDER_OPENCODE.api_key_prefix == ""
         assert PROVIDER_OPENCODE.require_api_key is False
-        assert PROVIDER_OPENCODE.freeze_url is True
+        assert PROVIDER_OPENCODE.freeze_url is False
         # Default base_url should match the first option in meta
         assert PROVIDER_OPENCODE.base_url == "https://opencode.ai/zen/v1"
         assert (
