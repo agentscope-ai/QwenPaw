@@ -9,6 +9,18 @@ export interface CodingProjectInfo {
   exists?: boolean;
 }
 
+export interface FsEntry {
+  name: string;
+  is_dir: boolean;
+  is_git: boolean;
+}
+
+export interface FsBrowseResult {
+  path: string;
+  parent: string | null;
+  entries: FsEntry[];
+}
+
 export interface ProjectListItem {
   path: string;
   name: string;
@@ -45,6 +57,12 @@ export const codingProjectApi = {
    * Returns the URL of the SSE stream – caller reads progress events.
    */
   getCloneUrl: () => getApiUrl("/workspace/coding-project/clone"),
+
+  /** Browse local filesystem directories (for the folder picker UI). */
+  browse: (path = "~") =>
+    request<FsBrowseResult>(
+      `/workspace/coding-project/browse?path=${encodeURIComponent(path)}`,
+    ),
 
   /** Low-level: POST to clone endpoint and return a ReadableStream of SSE. */
   cloneStream: (url: string, name?: string): Promise<Response> =>

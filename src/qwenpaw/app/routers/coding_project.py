@@ -293,3 +293,47 @@ async def list_projects(request: Request) -> list[dict]:
         return results
 
     return await asyncio.to_thread(_scan)
+
+
+@router.get("/browse", summary="Browse local filesystem directories")
+async def browse_fs(
+    path: str = "~",
+    request: Request = None,  # type: ignore[assignment]
+) -> dict:
+    """Return directory entries at *path* for use in the folder picker.
+
+    Returns:
+        ``{"path": "/abs/path", "entries": [{"name": ..., "is_dir": ...}]}``
+    """
+    _ = request  # auth side-effect only; value unused
+
+    def _list(dir_path: str) -> dict:
+        resolved = Path(dir_path).expanduser().resolve()
+        if not resolved.exists() or not resolved.is_dir():
+            raise ValueError(f"Not a directory: {resolved}")
+        entries = []
+        try:
+            for entry in sorted(resolved.iterdir()):
+                if entry.name.startswith("."):
+                    continue
+                entries.append(
+                    {
+                        "name": entry.name,
+                        "is_dir": entry.is_dir(),
+                        "is_git": entry.is_dir() and (entry / ".git").exists(),
+                    },
+                )
+        except PermissionError:
+            pass
+        return {
+            "path": str(resolved),
+            "parent": (
+                str(resolved.parent) if resolved.parent != resolved else None
+            ),
+            "entries": entries,
+        }
+
+    try:
+        return await asyncio.to_thread(_list, path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

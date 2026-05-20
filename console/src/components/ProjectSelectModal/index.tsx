@@ -15,6 +15,7 @@ import { FolderOpen, GitBranch, HardDrive, PlusCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { codingProjectApi, type ProjectListItem } from "../../api/modules/codingProject";
 import { useProjectDir } from "../../stores/codingModeStore";
+import FolderPicker from "./FolderPicker";
 import styles from "./index.module.less";
 
 interface ProjectSelectModalProps {
@@ -181,11 +182,11 @@ function CloneTab({ onDone }: { onDone: (path: string) => void }) {
 
 function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
   const { t } = useTranslation();
-  const [path, setPath] = useState("");
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleOpen = async () => {
+  const handleConfirm = async (path: string) => {
     if (!path.trim()) return;
     setLoading(true);
     setError(null);
@@ -193,34 +194,49 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
       const res = await codingProjectApi.set(path.trim());
       onSelect(res.path);
     } catch (err: unknown) {
-      const detail =
-        err instanceof Error ? err.message : "Failed to open path";
+      const detail = err instanceof Error ? err.message : "Failed to open path";
       setError(detail);
     } finally {
       setLoading(false);
     }
   };
 
+  const handlePickerSelect = (path: string) => {
+    setSelectedPath(path);
+  };
+
   return (
     <div className={styles.tabContent}>
-      <label className={styles.fieldLabel}>{t("codingMode.localPath")}</label>
-      <Input
-        placeholder={t("codingMode.localPathPlaceholder")}
-        value={path}
-        onChange={(e) => setPath(e.target.value)}
-        className={styles.input}
-      />
-      <p className={styles.hint}>{t("codingMode.localPathHint")}</p>
-      {error && <Alert type="error" message={error} className={styles.alert} showIcon />}
-      <Button
-        type="primary"
-        onClick={() => void handleOpen()}
-        loading={loading}
-        disabled={!path.trim()}
-        className={styles.actionBtn}
-      >
-        {t("codingMode.openBtn")}
-      </Button>
+      {/* Folder picker browser */}
+      <FolderPicker onSelect={handlePickerSelect} />
+
+      {/* Selected path + confirm */}
+      {selectedPath && (
+        <>
+          {error && <Alert type="error" message={error} className={styles.alert} showIcon />}
+          <Button
+            type="primary"
+            onClick={() => void handleConfirm(selectedPath)}
+            loading={loading}
+            className={styles.actionBtn}
+          >
+            {t("codingMode.openBtn")}: {selectedPath.split("/").pop() || selectedPath}
+          </Button>
+        </>
+      )}
+
+      {/* Manual input fallback */}
+      <details className={styles.manualDetails}>
+        <summary className={styles.manualSummary}>
+          {t("codingMode.localPathHint")}
+        </summary>
+        <Input
+          placeholder={t("codingMode.localPathPlaceholder")}
+          className={`${styles.input} ${styles.manualInput}`}
+          onPressEnter={(e) => void handleConfirm((e.target as HTMLInputElement).value)}
+          onBlur={(e) => e.target.value && void handleConfirm(e.target.value)}
+        />
+      </details>
     </div>
   );
 }

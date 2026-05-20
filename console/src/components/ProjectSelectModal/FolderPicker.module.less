@@ -1,0 +1,194 @@
+.picker {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--body-background, #fff);
+}
+
+// ---- Breadcrumb -----------------------------------------------------------
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: var(--layout-sider-background, #fafafa);
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  overflow-x: auto;
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+.upBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 0.12s;
+  &:hover { background: var(--item-hover-bg, rgba(0, 0, 0, 0.06)); }
+}
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.crumbWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  white-space: nowrap;
+}
+
+.crumbSep {
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.3));
+}
+
+.crumb {
+  font-size: 11.5px;
+  color: var(--primary-color, #1677ff);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: 3px;
+  transition: background 0.1s;
+  &:hover { background: var(--primary-bg, rgba(22, 119, 255, 0.08)); }
+  &:last-child { color: var(--text-primary, rgba(0, 0, 0, 0.88)); font-weight: 500; }
+}
+
+// ---- Current path label --------------------------------------------------
+
+.currentPath {
+  padding: 4px 10px;
+  background: var(--code-bg, rgba(0, 0, 0, 0.025));
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+  code {
+    font-size: 11px;
+    color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+    word-break: break-all;
+  }
+}
+
+// ---- Directory listing ---------------------------------------------------
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 220px;
+  padding: 4px 0;
+}
+
+.spin {
+  display: flex;
+  justify-content: center;
+  padding: 16px;
+}
+
+.error {
+  color: var(--error-color, #ff4d4f);
+  font-size: 12px;
+  padding: 8px 12px;
+}
+
+.empty {
+  font-size: 12px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+  padding: 8px 12px;
+  text-align: center;
+}
+
+.entry {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  transition: background 0.1s;
+
+  &:hover:not(:disabled) {
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.04));
+  }
+
+  &:disabled {
+    cursor: default;
+    color: var(--text-tertiary, rgba(0, 0, 0, 0.3));
+  }
+}
+
+.entryFile {
+  opacity: 0.5;
+}
+
+.entryIcon {
+  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.gitIcon {
+  color: var(--primary-color, #1677ff);
+}
+
+.entryName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gitBadge {
+  font-size: 10px;
+  background: var(--primary-bg, rgba(22, 119, 255, 0.1));
+  color: var(--primary-color, #1677ff);
+  padding: 0 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  font-weight: 500;
+}
+
+.entryArrow {
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.25));
+  flex-shrink: 0;
+}
+
+// ---- Action bar ----------------------------------------------------------
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--layout-sider-background, #fafafa);
+  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  gap: 8px;
+}
+
+.selectedLabel {
+  font-size: 12px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
