@@ -1,10 +1,14 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Form } from "@agentscope-ai/design";
+import { Badge, Button, Space } from "antd";
+import { SafetyOutlined, AuditOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import {
   ChannelCard,
   ChannelDrawer,
+  AccessControlDrawer,
+  PendingApprovalsDrawer,
   useChannels,
   getChannelLabel,
   type ChannelKey,
@@ -24,8 +28,24 @@ function ChannelsPage() {
   const [saving, setSaving] = useState(false);
   const [activeKey, setActiveKey] = useState<ChannelKey | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [aclDrawerOpen, setAclDrawerOpen] = useState(false);
+  const [pendingDrawerOpen, setPendingDrawerOpen] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [form] = Form.useForm<any>();
+
+  const fetchPendingCount = useCallback(async () => {
+    try {
+      const data = await api.getAllPending();
+      setPendingCount(data.length);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPendingCount();
+  }, [fetchPendingCount]);
 
   // Sort cards: enabled first, then disabled (preserve orderedKeys order within each group)
   const cards = useMemo(() => {
@@ -126,6 +146,24 @@ function ChannelsPage() {
             ))}
           </div>
         }
+        extra={
+          <Space size={8}>
+            <Badge dot={pendingCount > 0} offset={[-4, 4]}>
+              <Button
+                icon={<AuditOutlined />}
+                onClick={() => setPendingDrawerOpen(true)}
+              >
+                {t("channels.pendingApprovals")}
+              </Button>
+            </Badge>
+            <Button
+              icon={<SafetyOutlined />}
+              onClick={() => setAclDrawerOpen(true)}
+            >
+              {t("channels.manageAccessControl")}
+            </Button>
+          </Space>
+        }
       />
       <div className={styles.channelsContainer}>
         {loading ? (
@@ -155,6 +193,17 @@ function ChannelsPage() {
         isBuiltin={activeKey ? isBuiltin(activeKey) : true}
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
+      />
+      <AccessControlDrawer
+        open={aclDrawerOpen}
+        onClose={() => setAclDrawerOpen(false)}
+      />
+      <PendingApprovalsDrawer
+        open={pendingDrawerOpen}
+        onClose={() => {
+          setPendingDrawerOpen(false);
+          fetchPendingCount();
+        }}
       />
     </div>
   );

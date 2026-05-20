@@ -146,6 +146,7 @@ class DingTalkChannel(BaseChannel):
         card_auto_layout: bool = False,
         at_sender_on_reply: bool = False,
         streaming_enabled: bool = False,
+        access_control_enabled: bool = False,
     ):
         # Streaming only makes sense for card mode (AI Card streaming updates).
         # For markdown mode, force streaming_enabled=False so base class
@@ -173,6 +174,7 @@ class DingTalkChannel(BaseChannel):
             deny_message=deny_message,
             require_mention=require_mention,
             streaming_enabled=effective_streaming,
+            access_control_enabled=access_control_enabled,
         )
         self.enabled = enabled
         self.client_id = client_id
@@ -333,6 +335,9 @@ class DingTalkChannel(BaseChannel):
             ),
             streaming_enabled=bool(
                 getattr(config, "streaming_enabled", False),
+            ),
+            access_control_enabled=bool(
+                getattr(config, "access_control_enabled", False),
             ),
         )
 
@@ -2472,7 +2477,6 @@ class DingTalkChannel(BaseChannel):
             bot_prefix=self.bot_prefix,
             download_url_fetcher=self._fetch_and_download_media,
             try_accept_message=self._try_accept_message,
-            check_allowlist=self._check_allowlist,
             require_mention=self.require_mention,
         )
         self._client.register_callback_handler(

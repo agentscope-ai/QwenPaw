@@ -275,6 +275,7 @@ class MatrixChannel(BaseChannel):
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
         workspace_dir: Path | None = None,
+        access_control_enabled: bool = False,
     ) -> None:
         super().__init__(
             process=process,
@@ -282,6 +283,7 @@ class MatrixChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            access_control_enabled=access_control_enabled,
         )
         self._cfg = config
         self._workspace_dir = (
@@ -351,6 +353,11 @@ class MatrixChannel(BaseChannel):
             or cfg.filter_tool_messages,
             filter_thinking=filter_thinking or cfg.filter_thinking,
             workspace_dir=workspace_dir,
+            access_control_enabled=bool(
+                getattr(config, "access_control_enabled", False)
+                if not isinstance(config, dict)
+                else config.get("access_control_enabled", False),
+            ),
         )
 
     @classmethod

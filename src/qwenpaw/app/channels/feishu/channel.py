@@ -207,6 +207,7 @@ class FeishuChannel(BaseChannel):
         require_mention: bool = False,
         domain: str = "feishu",
         streaming_enabled: bool = False,
+        access_control_enabled: bool = False,
     ):
         super().__init__(
             process,
@@ -220,6 +221,7 @@ class FeishuChannel(BaseChannel):
             deny_message=deny_message,
             require_mention=require_mention,
             streaming_enabled=streaming_enabled,
+            access_control_enabled=access_control_enabled,
         )
         self.enabled = enabled
         self.app_id = app_id
@@ -337,6 +339,9 @@ class FeishuChannel(BaseChannel):
             domain=config.domain or "feishu",
             streaming_enabled=bool(
                 getattr(config, "streaming_enabled", False),
+            ),
+            access_control_enabled=bool(
+                getattr(config, "access_control_enabled", False),
             ),
         )
 
@@ -884,23 +889,6 @@ class FeishuChannel(BaseChannel):
             meta["feishu_receive_id_type"] = receive_id_type
             if is_bot_mentioned:
                 meta["bot_mentioned"] = True
-
-            allowed, error_msg = self._check_allowlist(
-                sender_id,
-                is_group,
-            )
-            if not allowed:
-                logger.info(
-                    "feishu allowlist blocked: sender=%s is_group=%s",
-                    sender_id,
-                    is_group,
-                )
-                await self._send_text(
-                    receive_id_type,
-                    receive_id,
-                    error_msg or "",
-                )
-                return
 
             if not self._check_group_mention(is_group, meta):
                 return

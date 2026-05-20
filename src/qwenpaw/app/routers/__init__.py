@@ -28,6 +28,7 @@ from .plugins import router as plugins_router
 from .frontend_plugin import router as frontend_plugin_router
 from .backup import router as backup_router
 from .plan import router as plan_router
+from .access_control import router as access_control_router
 
 router = APIRouter()
 
@@ -56,6 +57,7 @@ router.include_router(plugins_router)
 router.include_router(frontend_plugin_router)
 router.include_router(backup_router)
 router.include_router(plan_router)
+router.include_router(access_control_router)
 
 
 def create_agent_scoped_router() -> APIRouter:

@@ -58,6 +58,7 @@ class IMessageChannel(BaseChannel):
         allow_from: Optional[list] = None,
         deny_message: str = "",
         require_mention: bool = False,
+        access_control_enabled: bool = False,
     ):
         # group_policy and require_mention are accepted for channel
         # interface consistency but currently inactive — iMessage
@@ -73,6 +74,7 @@ class IMessageChannel(BaseChannel):
             allow_from=allow_from,
             deny_message=deny_message,
             require_mention=require_mention,
+            access_control_enabled=access_control_enabled,
         )
         self.enabled = enabled
         self.db_path = os.path.expanduser(db_path)
@@ -166,6 +168,9 @@ class IMessageChannel(BaseChannel):
             allow_from=config.allow_from,
             deny_message=config.deny_message,
             require_mention=config.require_mention,
+            access_control_enabled=bool(
+                getattr(config, "access_control_enabled", False),
+            ),
         )
 
     def _ensure_imsg(self) -> str:
@@ -219,25 +224,6 @@ class IMessageChannel(BaseChannel):
         if self._enqueue is not None:
             self._enqueue(request)
 
-    def _send_deny_if_blocked(self, sender: str) -> bool:
-        """Return True if sender is allowed, False if blocked."""
-        allowed, error_msg = self._check_allowlist(
-            sender,
-            is_group=False,
-        )
-        if allowed:
-            return True
-        logger.info("imessage allowlist blocked: sender=%s", sender)
-        if error_msg:
-            try:
-                self._send_sync(sender, error_msg)
-            except Exception:
-                logger.debug(
-                    "imessage reject send failed sender=%s",
-                    sender,
-                )
-        return False
-
     def _watcher_loop(self) -> None:
         logger.info(
             "watcher thread started (poll=%.2fs, db=%s)",
@@ -276,9 +262,6 @@ ORDER BY m.ROWID ASC
                             continue
                         sender = (r["sender"] or "").strip()
                         if not sender:
-                            continue
-
-                        if not self._send_deny_if_blocked(sender):
                             continue
 
                         content_parts = [
