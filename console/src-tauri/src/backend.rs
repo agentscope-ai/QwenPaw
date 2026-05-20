@@ -19,10 +19,15 @@ mod events;
 /// Shared sidecar process state managed by Tauri.
 #[derive(Default)]
 pub(crate) struct BackendState {
-    child: Mutex<Option<CommandChild>>,
-    port: Mutex<Option<u16>>,
-    error: Mutex<Option<String>>,
+    inner: Mutex<BackendInner>,
     generation: AtomicU64,
+}
+
+#[derive(Default)]
+struct BackendInner {
+    child: Option<CommandChild>,
+    port: Option<u16>,
+    error: Option<String>,
 }
 
 impl BackendState {
@@ -35,18 +40,23 @@ impl BackendState {
     }
 
     fn port(&self) -> Result<u16, String> {
-        self.port
+        self.inner
             .lock()
-            .expect("backend port poisoned")
+            .expect("backend state poisoned")
+            .port
             .ok_or_else(|| "backend port was not initialized".to_string())
     }
 
     fn error(&self) -> Option<String> {
-        self.error.lock().expect("backend error poisoned").clone()
+        self.inner
+            .lock()
+            .expect("backend state poisoned")
+            .error
+            .clone()
     }
 
     fn set_error(&self, message: String) {
-        *self.error.lock().expect("backend error poisoned") = Some(message);
+        self.inner.lock().expect("backend state poisoned").error = Some(message);
     }
 
     fn set_error_if_current(&self, generation: u64, message: String) {
@@ -56,19 +66,29 @@ impl BackendState {
     }
 
     fn clear_startup_state(&self) {
-        self.port.lock().expect("backend port poisoned").take();
-        self.error.lock().expect("backend error poisoned").take();
+        let mut inner = self.inner.lock().expect("backend state poisoned");
+        inner.port = None;
+        inner.error = None;
     }
 
     fn clear_child_if_current(&self, generation: u64) {
         if self.is_current(generation) {
-            self.child.lock().expect("backend child poisoned").take();
+            self.inner
+                .lock()
+                .expect("backend state poisoned")
+                .child
+                .take();
         }
     }
 
     fn stop(&self) {
         self.next_generation();
-        let child = self.child.lock().expect("backend child poisoned").take();
+        let child = self
+            .inner
+            .lock()
+            .expect("backend state poisoned")
+            .child
+            .take();
         if let Some(child) = child {
             let pid = child.pid();
             log::info!("[backend] stopping process pid={pid}");
@@ -184,8 +204,11 @@ fn start(app: &tauri::AppHandle) {
     drop(port_guard);
     let child_pid = child.pid();
     log::info!("[backend] spawned generation={generation} pid={child_pid} port={port}");
-    *state.child.lock().expect("backend child poisoned") = Some(child);
-    *state.port.lock().expect("backend port poisoned") = Some(port);
+    {
+        let mut inner = state.inner.lock().expect("backend state poisoned");
+        inner.child = Some(child);
+        inner.port = Some(port);
+    }
     events::watch(app.clone(), generation, rx);
 }
 

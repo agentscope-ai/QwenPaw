@@ -107,7 +107,7 @@ Write-Host ""
 
 # Step 2: Build Tauri app
 # Note: Tauri caches NSIS/Wix tools in target/.tauri/ via useLocalToolsDir
-# in tauri.conf.json — no LOCALAPPDATA redirect needed.
+# in tauri.conf.json, so no LOCALAPPDATA redirect is needed.
 Write-Host "== Step 2: Building Tauri App ==" -ForegroundColor Yellow
 $BUNDLE_DIR = Join-Path $REPO_ROOT "console\src-tauri\target\release\bundle"
 $NSIS_DIR = Join-Path $BUNDLE_DIR "nsis"

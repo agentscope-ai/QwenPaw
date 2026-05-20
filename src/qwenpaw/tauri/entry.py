@@ -17,7 +17,7 @@ from qwenpaw.desktop_env import (
 from qwenpaw.tauri.env import (
     ensure_desktop_cors_origins,
 )
-from qwenpaw.tauri.logging import install_sidecar_diagnostics
+from qwenpaw.tauri.logging import install_sidecar_logging
 
 
 def _ensure_qwenpaw_app_not_loaded() -> None:
@@ -97,7 +97,7 @@ def _run_click_command(
 
 def main() -> None:
     _ensure_utf8_stdio()
-    install_sidecar_diagnostics()
+    install_sidecar_logging()
     _install_desktop_runtime()
 
     from qwenpaw.constant import WORKING_DIR
