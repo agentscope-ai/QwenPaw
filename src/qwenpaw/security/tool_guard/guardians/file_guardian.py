@@ -71,6 +71,37 @@ _SHELL_REDIRECT_OPERATORS = frozenset(
 _REDIRECT_OPS_BY_LEN = tuple(
     sorted(_SHELL_REDIRECT_OPERATORS, key=len, reverse=True),
 )
+_NESTED_SHELL_COMMANDS = frozenset(
+    {
+        "bash",
+        "sh",
+        "zsh",
+        "fish",
+        "cmd",
+        "cmd.exe",
+        "powershell",
+        "powershell.exe",
+        "pwsh",
+        "pwsh.exe",
+    },
+)
+_POWERSHELL_COMMAND_FLAGS = frozenset(
+    {
+        "-command",
+        "-c",
+        "/command",
+        "/c",
+    },
+)
+_INLINE_FILE_ACCESS_PATTERNS = (
+    re.compile(r"\bopen\(\s*(['\"])(?P<path>.+?)\1"),
+    re.compile(r"\bPath\(\s*(['\"])(?P<path>.+?)\1"),
+    re.compile(r"\breadFileSync\(\s*(['\"])(?P<path>.+?)\1"),
+    re.compile(r"\bwriteFileSync\(\s*(['\"])(?P<path>.+?)\1"),
+)
+_WINDOWS_PERCENT_ENV_RE = re.compile(r"%([A-Za-z_][A-Za-z0-9_]*)%")
+_POWERSHELL_ENV_RE = re.compile(r"\$env:([A-Za-z_][A-Za-z0-9_]*)")
+_MAX_NESTED_SHELL_DEPTH = 3
 
 
 def _workspace_root() -> Path:
@@ -120,6 +151,28 @@ def _canonicalize_windows_path(raw: str) -> str:
     normalized = ntpath.normpath(expanded)
     # Canonical form: forward slashes + lowercase (NTFS is case-insensitive).
     return normalized.replace("\\", "/").lower()
+
+
+def _expand_shell_path_vars(raw: str) -> str:
+    """Expand common shell path variables before path normalization.
+
+    ``os.path.expandvars`` handles POSIX ``$HOME`` / ``${HOME}`` on all
+    platforms.  File guard also needs to reason about Windows shell forms while
+    running tests or servers on POSIX, so expand ``%USERPROFILE%`` and
+    PowerShell ``$env:USERPROFILE`` explicitly.
+    """
+
+    def replace_percent(match: re.Match[str]) -> str:
+        name = match.group(1)
+        return os.environ.get(name, match.group(0))
+
+    def replace_powershell(match: re.Match[str]) -> str:
+        name = match.group(1)
+        return os.environ.get(name, match.group(0))
+
+    expanded = _WINDOWS_PERCENT_ENV_RE.sub(replace_percent, raw)
+    expanded = _POWERSHELL_ENV_RE.sub(replace_powershell, expanded)
+    return os.path.expandvars(expanded)
 
 
 def _normalize_path(raw_path: str) -> str:
@@ -243,59 +296,142 @@ def _extract_attached_redirect_path(token: str) -> str | None:
     return None
 
 
-def _extract_paths_from_shell_command(command: str) -> list[str]:
+def _shell_token_streams(command: str) -> list[list[str]]:
+    """Return token streams using POSIX and Windows-friendly shlex modes."""
+    streams: list[list[str]] = []
+    for use_posix in (os.name != "nt", os.name == "nt"):
+        try:
+            tokens = shlex.split(command, posix=use_posix)
+        except ValueError:
+            continue
+        if not use_posix:
+            tokens = [_strip_surrounding_quotes(t) for t in tokens]
+        streams.append(tokens)
+
+    # Always include the opposite mode too.  This lets POSIX hosts correctly
+    # inspect Windows paths with backslashes, and Windows hosts inspect POSIX
+    # shell snippets in tests or copied commands.
+    for use_posix in (True, False):
+        try:
+            tokens = shlex.split(command, posix=use_posix)
+        except ValueError:
+            continue
+        if not use_posix:
+            tokens = [_strip_surrounding_quotes(t) for t in tokens]
+        if tokens not in streams:
+            streams.append(tokens)
+
+    if not streams:
+        streams.append(command.split())
+    return streams
+
+
+def _dedupe(values: Iterable[str]) -> list[str]:
+    """Return values with stable de-duplication."""
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped
+
+
+def _looks_like_shell_c_flag(token: str) -> bool:
+    """Return True for shell flags that make the next token executable code."""
+    lowered = token.lower()
+    if lowered in _POWERSHELL_COMMAND_FLAGS:
+        return True
+    if not lowered.startswith("-"):
+        return False
+    # bash/sh/zsh accept compact combinations such as -c, -lc, -exc.
+    return "c" in lowered[1:]
+
+
+def _extract_nested_shell_commands(tokens: list[str]) -> list[str]:
+    """Extract command strings passed to nested shell interpreters."""
+    if not tokens:
+        return []
+    executable = Path(tokens[0].lower()).name
+    executable = ntpath.basename(executable)
+    if executable not in _NESTED_SHELL_COMMANDS:
+        return []
+
+    nested: list[str] = []
+    for i, token in enumerate(tokens[1:], start=1):
+        if _looks_like_shell_c_flag(_sanitize_path_candidate(token)):
+            if i + 1 < len(tokens):
+                nested.append(
+                    " ".join(
+                        _sanitize_path_candidate(part)
+                        for part in tokens[i + 1 :]
+                    ),
+                )
+            break
+    return nested
+
+
+def _extract_inline_file_access_paths(command: str) -> list[str]:
+    """Extract paths from common inline interpreter file APIs."""
+    candidates: list[str] = []
+    for pattern in _INLINE_FILE_ACCESS_PATTERNS:
+        for match in pattern.finditer(command):
+            path = match.group("path")
+            if path:
+                candidates.append(_sanitize_path_candidate(path))
+    return candidates
+
+
+def _extract_paths_from_shell_command(
+    command: str,
+    *,
+    _depth: int = 0,
+) -> list[str]:
     """Extract candidate file paths from a shell command string.
 
     On Windows, :func:`shlex.split` is invoked with ``posix=False`` so that
     backslashes in paths like ``C:\\Users\\foo`` are not interpreted as POSIX
     escape characters and dropped from the token stream.
     """
-    use_posix = os.name != "nt"
-    try:
-        tokens = shlex.split(command, posix=use_posix)
-    except ValueError:
-        # Best-effort fallback when quotes are malformed.
-        tokens = command.split()
-    if not use_posix:
-        # ``posix=False`` keeps surrounding quotes in tokens. Strip them so
-        # downstream path checks see the raw value.
-        tokens = [_strip_surrounding_quotes(t) for t in tokens]
+    candidates: list[str] = _extract_inline_file_access_paths(command)
 
-    candidates: list[str] = []
-    i = 0
-    while i < len(tokens):
-        token = _sanitize_path_candidate(tokens[i])
+    for tokens in _shell_token_streams(command):
+        if _depth < _MAX_NESTED_SHELL_DEPTH:
+            for nested_command in _extract_nested_shell_commands(tokens):
+                candidates.extend(
+                    _extract_paths_from_shell_command(
+                        nested_command,
+                        _depth=_depth + 1,
+                    ),
+                )
 
-        # Handle separated redirection operators: `cat a > out.txt`
-        if token in _SHELL_REDIRECT_OPERATORS:
-            if i + 1 < len(tokens):
-                next_token = tokens[i + 1]
-                next_token = _sanitize_path_candidate(next_token)
-                if _looks_like_path_token(next_token):
-                    candidates.append(next_token)
+        i = 0
+        while i < len(tokens):
+            token = _sanitize_path_candidate(tokens[i])
+
+            # Handle separated redirection operators: `cat a > out.txt`
+            if token in _SHELL_REDIRECT_OPERATORS:
+                if i + 1 < len(tokens):
+                    next_token = tokens[i + 1]
+                    next_token = _sanitize_path_candidate(next_token)
+                    if _looks_like_path_token(next_token):
+                        candidates.append(next_token)
+                i += 1
+                continue
+
+            # Handle attached redirection: `>out.txt`, `2>err.log`, `<in.txt`
+            attached_path = _extract_attached_redirect_path(token)
+            if attached_path is not None:
+                candidates.append(_sanitize_path_candidate(attached_path))
+                i += 1
+                continue
+
+            if _looks_like_path_token(token):
+                candidates.append(token)
             i += 1
-            continue
 
-        # Handle attached redirection: `>out.txt`, `2>err.log`, `<in.txt`
-        attached_path = _extract_attached_redirect_path(token)
-        if attached_path is not None:
-            candidates.append(_sanitize_path_candidate(attached_path))
-            i += 1
-            continue
-
-        if _looks_like_path_token(token):
-            candidates.append(token)
-        i += 1
-
-    # Stable de-duplication.
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for c in candidates:
-        if c in seen:
-            continue
-        seen.add(c)
-        deduped.append(c)
-    return deduped
+    return _dedupe(candidates)
 
 
 class FilePathToolGuardian(BaseToolGuardian):
@@ -434,6 +570,7 @@ class FilePathToolGuardian(BaseToolGuardian):
     ) -> None:
         """Check a single string value against sensitive paths."""
         normalized_input = _sanitize_path_candidate(raw_value)
+        normalized_input = _expand_shell_path_vars(normalized_input)
         abs_path = _normalize_path(normalized_input)
         if self._is_sensitive(abs_path):
             findings.append(
