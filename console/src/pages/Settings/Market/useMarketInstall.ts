@@ -162,7 +162,7 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
           );
           if (status.status === "completed" && status.result?.installed) {
             const installedName = String(status.result.name || "");
-            invalidateSkillCache({ agentId });
+            invalidateSkillCache({ agentId, workspaces: true });
             updateItem(item.id, {
               status: "completed",
               installedName,

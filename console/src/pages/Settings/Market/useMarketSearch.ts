@@ -57,6 +57,7 @@ export function useMarketSearch(): MarketSearchState {
   const fetchProviders = useCallback(() => {
     const seq = ++providersSeqRef.current;
     setGlobalError(null);
+    setLoading(true);
     marketApi
       .listMarketProviders()
       .then((list) => {
@@ -69,6 +70,9 @@ export function useMarketSearch(): MarketSearchState {
         if (seq !== providersSeqRef.current) return;
         setProviders([]);
         setGlobalError(errorMessage(err));
+      })
+      .finally(() => {
+        if (seq === providersSeqRef.current) setLoading(false);
       });
   }, []);
 
