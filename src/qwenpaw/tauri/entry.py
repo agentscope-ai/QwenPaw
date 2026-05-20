@@ -100,8 +100,6 @@ def main() -> None:
     install_sidecar_diagnostics()
     _install_desktop_runtime()
 
-    from qwenpaw.cli.init_cmd import init_cmd
-    from qwenpaw.cli.app_cmd import app_cmd
     from qwenpaw.constant import WORKING_DIR
 
     port = os.environ.get(DESKTOP_PORT_ENV)
@@ -114,11 +112,15 @@ def main() -> None:
     # Auto-initialize if no config exists
     config_path = WORKING_DIR / "config.json"
     if not config_path.exists():
+        from qwenpaw.cli.init_cmd import init_cmd
+
         _run_click_command(
             init_cmd,
             args=["--defaults", "--accept-security"],
             label="initialization",
         )
+
+    from qwenpaw.cli.app_cmd import app_cmd
 
     # Start the backend server. Use standalone_mode=False so exceptions
     # propagate back to main() for consistent error handling.
