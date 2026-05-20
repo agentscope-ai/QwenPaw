@@ -301,8 +301,12 @@ async def git_status(request: Request) -> GitStatus:
 
     # Changed files – normal mode collapses untracked directories into one
     # entry each (avoids thousands of rows on fresh repos).
+    # -c core.quotepath=false prevents git from escaping non-ASCII filenames
+    # (e.g. Chinese characters) into octal sequences.
     _, status_out, _ = await _git(
         cwd,
+        "-c",
+        "core.quotepath=false",
         "status",
         "--porcelain",
         "--untracked-files=normal",
