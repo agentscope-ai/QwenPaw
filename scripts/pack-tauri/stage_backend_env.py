@@ -142,6 +142,7 @@ def _precompile(env_dir: Path, python: Path) -> None:
 def _smoke_test(env_dir: Path, python: Path) -> None:
     env = os.environ.copy()
     env["PYTHONNOUSERSITE"] = "1"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     path_parts: list[Path | str] = (
         [env_dir, env_dir / "Scripts"]
         if os.name == "nt"

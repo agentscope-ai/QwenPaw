@@ -51,6 +51,7 @@ echo ""
 echo "== packaged Python env diagnostics =="
 (
     export PYTHONNOUSERSITE=1
+    export PYTHONDONTWRITEBYTECODE=1
     export PATH="${BACKEND_DIR}/env/bin:${PATH}"
     "${PYTHON}" - <<'PY'
 import importlib.util
@@ -253,6 +254,7 @@ probe_voice_page_concurrent() {
     export PYTHONUTF8=1
     export PYTHONIOENCODING=utf-8
     export PYTHONUNBUFFERED=1
+    export PYTHONDONTWRITEBYTECODE=1
     export PYTHONFAULTHANDLER=1
     cd "${BACKEND_DIR}"
     exec "${PYTHON}" -u -m qwenpaw.tauri.entry

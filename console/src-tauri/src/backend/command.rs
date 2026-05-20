@@ -59,6 +59,7 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
         .args(["-u", "-m", "qwenpaw.tauri.entry"])
         .current_dir(backend.backend_dir)
         .env("PYTHONNOUSERSITE", "1")
+        .env("PYTHONDONTWRITEBYTECODE", "1")
         .env("QWENPAW_DESKTOP_APP", "1")
         .env("PATH", backend_path))
 }
