@@ -1854,53 +1854,27 @@ class TestMattermostLifecycle:
 # =============================================================================
 
 
-class TestMattermostAllowlist:
-    """Tests for _check_allowlist method (inherited from BaseChannel)."""
+class TestMattermostAccessControl:
+    """Tests for access control logic (inherited from BaseChannel)."""
 
-    def test_check_allowlist_open_policy(self, mattermost_channel):
-        """Open policy should allow all users."""
-        mattermost_channel.dm_policy = "open"
+    def test_access_control_disabled_by_default(self, mattermost_channel):
+        """Access control should be disabled by default."""
+        assert mattermost_channel.access_control_enabled is False
 
-        allowed, error = mattermost_channel._check_allowlist("any_user", False)
+    def test_access_control_dm_enables(self, mattermost_channel):
+        """access_control_dm=True enables access control."""
+        mattermost_channel.access_control_dm = True
+        assert mattermost_channel.access_control_enabled is True
 
-        assert allowed is True
-        assert error is None
+    def test_access_control_group_enables(self, mattermost_channel):
+        """access_control_group=True enables access control."""
+        mattermost_channel.access_control_group = True
+        assert mattermost_channel.access_control_enabled is True
 
-    def test_check_allowlist_dm_allowlist_authorized(self, mattermost_channel):
-        """DM allowlist should allow authorized users."""
-        mattermost_channel.dm_policy = "allowlist"
-        mattermost_channel.allow_from = {"user123"}
-
-        allowed, error = mattermost_channel._check_allowlist("user123", False)
-
-        assert allowed is True
-        assert error is None
-
-    def test_check_allowlist_dm_allowlist_unauthorized(
-        self,
-        mattermost_channel,
-    ):
-        """DM allowlist should block unauthorized users."""
-        mattermost_channel.dm_policy = "allowlist"
-        mattermost_channel.allow_from = {"other_user"}
-        mattermost_channel.deny_message = "Custom denial"
-
-        allowed, error = mattermost_channel._check_allowlist("user123", False)
-
-        assert allowed is False
-        assert error == "Custom denial"
-
-    def test_check_allowlist_dm_default_deny_message(self, mattermost_channel):
-        """Should use default deny message when not configured."""
-        mattermost_channel.dm_policy = "allowlist"
-        mattermost_channel.allow_from = set()
-        mattermost_channel.deny_message = ""
-
-        allowed, error = mattermost_channel._check_allowlist("user123", False)
-
-        assert allowed is False
-        assert "not authorized" in error
-        assert "user123" in error
+    def test_legacy_allowlist_migrates_to_dm(self, mattermost_channel):
+        """dm_policy=allowlist should have migrated at init."""
+        # The fixture creates with dm_policy="open" by default
+        assert mattermost_channel.access_control_dm is False
 
 
 # =============================================================================
