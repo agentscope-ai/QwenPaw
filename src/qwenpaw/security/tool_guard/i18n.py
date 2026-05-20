@@ -18,8 +18,9 @@ _TOOL_GUARD_I18N: dict[str, dict[str, str]] = {
         "reason": "Reason",
         "reason_denied": "User denied execution",
         "instruction_no_retry": (
-            "This specific tool call has been denied by the user. Do not retry this "
-            "call or attempt alternative methods to complete it."
+            "This specific tool call has been denied by the user. "
+            "Do not retry this call or attempt alternative methods "
+            "to complete it."
         ),
         "reason_timeout": "Approval timeout after {timeout}s, auto-denied",
         "approve_hint": (
