@@ -42,6 +42,14 @@ def _kill_process_tree_win32(pid: int) -> None:
         pass
 
 
+def _windows_shell_creationflags() -> int:
+    """Return Windows process flags for hidden, killable shell commands."""
+    return (
+        getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    )
+
+
 def _collapse_newlines_outside_quotes(cmd: str) -> str:
     r"""Collapse newlines outside quoted strings; preserve those inside.
 
@@ -295,7 +303,7 @@ def _execute_subprocess_sync(
             text=False,
             cwd=cwd,
             env=env,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            creationflags=_windows_shell_creationflags(),
         )
 
         # Parent copies are no longer needed — the child inherited its own

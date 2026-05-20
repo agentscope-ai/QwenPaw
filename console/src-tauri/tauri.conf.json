@@ -41,9 +41,6 @@
       "../../scripts/pack/assets/icon.ico"
     ],
     "resources": ["binaries/qwenpaw-backend"],
-    "macOS": {
-      "entitlements": "entitlements.plist"
-    },
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

@@ -18,7 +18,6 @@ echo "========================================="
 echo "Version: ${VERSION}"
 echo ""
 
-ENTITLEMENTS_FILE="${REPO_ROOT}/console/src-tauri/entitlements.plist"
 SIGN_MACOS_BUNDLE="${REPO_ROOT}/scripts/pack-tauri/sign_macos_bundle.sh"
 
 # Step 0: Prerequisites
@@ -57,10 +56,6 @@ if [ ${#missing[@]} -gt 0 ]; then
 fi
 echo ""
 
-if [ ! -f "${ENTITLEMENTS_FILE}" ]; then
-    echo "ERROR: macOS entitlements file not found at ${ENTITLEMENTS_FILE}"
-    exit 1
-fi
 if [ ! -f "${SIGN_MACOS_BUNDLE}" ]; then
     echo "ERROR: macOS signing helper not found at ${SIGN_MACOS_BUNDLE}"
     exit 1
@@ -68,14 +63,13 @@ fi
 
 if [ -z "${APPLE_SIGNING_IDENTITY:-}" ] && [ -z "${APPLE_CERTIFICATE:-}" ]; then
     # The Tauri app and PyInstaller sidecar are native Mach-O executables.
-    # Keep their signature state consistent when no Developer ID certificate is
-    # configured; notarization is still required for fully trusted distribution.
+    # Keep their signature state consistent with ad-hoc signatures when no
+    # Developer ID certificate is configured. This matches the legacy desktop
+    # package behavior: signed enough for local loading, not notarized.
     export APPLE_SIGNING_IDENTITY="-"
     echo "Using ad-hoc macOS code signing"
 fi
 export PYINSTALLER_CODESIGN_IDENTITY="${PYINSTALLER_CODESIGN_IDENTITY:-${APPLE_SIGNING_IDENTITY:-}}"
-export PYINSTALLER_ENTITLEMENTS_FILE="${PYINSTALLER_ENTITLEMENTS_FILE:-${ENTITLEMENTS_FILE}}"
-echo "Using macOS entitlements: ${PYINSTALLER_ENTITLEMENTS_FILE}"
 echo ""
 
 # Step 1: Build PyInstaller backend
@@ -87,8 +81,7 @@ echo ""
 echo "== Step 1b: Signing PyInstaller Backend =="
 bash "${SIGN_MACOS_BUNDLE}" \
     "${REPO_ROOT}/console/src-tauri/binaries/qwenpaw-backend" \
-    "${APPLE_SIGNING_IDENTITY}" \
-    "${PYINSTALLER_ENTITLEMENTS_FILE}"
+    "${APPLE_SIGNING_IDENTITY}"
 echo "PyInstaller backend signed"
 echo ""
 
@@ -117,8 +110,7 @@ fi
 echo "== Step 2b: Signing Final macOS App =="
 bash "${SIGN_MACOS_BUNDLE}" \
     "${APP_PATH}" \
-    "${APPLE_SIGNING_IDENTITY}" \
-    "${PYINSTALLER_ENTITLEMENTS_FILE}"
+    "${APPLE_SIGNING_IDENTITY}"
 echo "Final macOS app signed and verified"
 echo ""
 

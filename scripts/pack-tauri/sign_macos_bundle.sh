@@ -8,9 +8,8 @@
 
 set -euo pipefail
 
-TARGET="${1:?Usage: sign_macos_bundle.sh <target> [identity] [entitlements]}"
+TARGET="${1:?Usage: sign_macos_bundle.sh <target> [identity]}"
 IDENTITY="${2:-${APPLE_SIGNING_IDENTITY:--}}"
-ENTITLEMENTS_FILE="${3:-${PYINSTALLER_ENTITLEMENTS_FILE:-}}"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
     echo "ERROR: macOS code signing must run on Darwin"
@@ -32,11 +31,6 @@ if [[ ! -e "${TARGET}" ]]; then
     exit 1
 fi
 
-if [[ -n "${ENTITLEMENTS_FILE}" && ! -f "${ENTITLEMENTS_FILE}" ]]; then
-    echo "ERROR: entitlements file not found: ${ENTITLEMENTS_FILE}"
-    exit 1
-fi
-
 signing_args() {
     printf '%s\n' --force --sign "${IDENTITY}"
     if [[ "${IDENTITY}" == "-" ]]; then
@@ -52,20 +46,6 @@ is_inside_framework() {
     [[ "$1" == *".framework/"* ]]
 }
 
-is_process_executable() {
-    local path="$1"
-    local name
-    name="$(basename "${path}")"
-
-    if [[ "${name}" == "qwenpaw-backend" ]]; then
-        return 0
-    fi
-    if [[ "${path}" == */Contents/MacOS/* && -x "${path}" ]]; then
-        return 0
-    fi
-    return 1
-}
-
 codesign_file() {
     local path="$1"
     local args=()
@@ -74,10 +54,6 @@ codesign_file() {
     while IFS= read -r arg; do
         args+=("${arg}")
     done < <(signing_args)
-
-    if is_process_executable "${path}" && [[ -n "${ENTITLEMENTS_FILE}" ]]; then
-        args+=(--options runtime --entitlements "${ENTITLEMENTS_FILE}")
-    fi
 
     codesign "${args[@]}" "${path}"
 }
@@ -94,27 +70,8 @@ codesign_bundle() {
     codesign "${args[@]}" "${path}"
 }
 
-codesign_app_bundle() {
-    local path="$1"
-    local args=()
-    local arg
-
-    while IFS= read -r arg; do
-        args+=("${arg}")
-    done < <(signing_args)
-
-    if [[ -n "${ENTITLEMENTS_FILE}" ]]; then
-        args+=(--options runtime --entitlements "${ENTITLEMENTS_FILE}")
-    fi
-
-    codesign "${args[@]}" "${path}"
-}
-
 echo "Signing macOS native files in ${TARGET}"
 echo "Signing identity: ${IDENTITY}"
-if [[ -n "${ENTITLEMENTS_FILE}" ]]; then
-    echo "Entitlements: ${ENTITLEMENTS_FILE}"
-fi
 
 signed_files=0
 while IFS= read -r -d '' path; do
@@ -138,7 +95,7 @@ while IFS= read -r framework; do
 done < <(find "${TARGET}" -type d -name "*.framework" | sort -r)
 
 if [[ "${TARGET}" == *.app ]]; then
-    codesign_app_bundle "${TARGET}"
+    codesign_bundle "${TARGET}"
 fi
 
 echo "Signed ${signed_files} Mach-O files and ${signed_frameworks} frameworks"
