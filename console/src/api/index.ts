@@ -24,6 +24,7 @@ import { toolsApi } from "./modules/tools";
 import { securityApi } from "./modules/security";
 import { userTimezoneApi } from "./modules/userTimezone";
 import { languageApi } from "./modules/language";
+import { settingsApi } from "./modules/settings";
 import { backupApi } from "./modules/backup";
 import { consoleApi } from "./modules/console";
 
@@ -85,6 +86,9 @@ export const api = {
 
   // Language
   ...languageApi,
+
+  // Settings (public URL, etc.)
+  ...settingsApi,
 
   // Backups
   ...backupApi,

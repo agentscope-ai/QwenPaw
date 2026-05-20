@@ -24,7 +24,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from ..utils import schedule_agent_reload
-from ...config.config import MCPOAuthConfig, save_agent_config
+from ...config.config import MCPClientAuth, save_agent_config
 
 logger = logging.getLogger(__name__)
 
@@ -570,16 +570,17 @@ async def _persist_tokens(
             "Please create the client first, then re-authorize.",
         )
 
-    existing_oauth = client_cfg.oauth or MCPOAuthConfig()
-    client_cfg.oauth = MCPOAuthConfig(
-        client_id=session.client_id or existing_oauth.client_id,
-        scope=scope,
-        access_token=access_token,
-        refresh_token=refresh_token,
-        expires_at=expires_at,
-        token_endpoint=session.token_endpoint,
-        auth_endpoint=session.auth_endpoint or existing_oauth.auth_endpoint,
+    auth = client_cfg.auth or MCPClientAuth()
+    auth.client_id = session.client_id or auth.client_id
+    auth.scope = scope
+    auth.access_token = access_token
+    auth.refresh_token = refresh_token
+    auth.token_expires_at = int(expires_at)
+    auth.token_endpoint = session.token_endpoint
+    auth.authorization_endpoint = (
+        session.auth_endpoint or auth.authorization_endpoint
     )
+    client_cfg.auth = auth
     save_agent_config(agent_id, workspace.config)
     schedule_agent_reload(request, agent_id)
 
@@ -664,20 +665,20 @@ async def oauth_status(
             detail=f"MCP client '{client_key}' not found",
         )
 
-    oauth = client_cfg.oauth
-    if not oauth or not oauth.access_token:
+    auth = client_cfg.auth
+    if auth is None or auth.type != "oauth2" or not auth.access_token:
         return OAuthStatusResponse(
             authorized=False,
             expires_at=0.0,
             scope="",
         )
 
-    # Token is valid only when not expired (expires_at=0 means no expiry set)
-    not_expired = oauth.expires_at <= 0 or oauth.expires_at > time.time()
+    te = float(auth.token_expires_at)
+    not_expired = te <= 0 or te > time.time()
     return OAuthStatusResponse(
         authorized=not_expired,
-        expires_at=oauth.expires_at,
-        scope=oauth.scope,
+        expires_at=te,
+        scope=auth.scope,
     )
 
 
@@ -696,7 +697,7 @@ async def oauth_revoke(
             detail=f"MCP client '{client_key}' not found",
         )
 
-    agent.config.mcp.clients[client_key].oauth = None
+    agent.config.mcp.clients[client_key].auth = None
     save_agent_config(agent.agent_id, agent.config)
     schedule_agent_reload(request, agent.agent_id)
 

@@ -40,6 +40,7 @@ from .auth import AuthMiddleware, auto_register_from_env
 from .routers import router as api_router, create_agent_scoped_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
+from .routers.mcp import oauth_callback_router as mcp_oauth_callback_router
 from .routers.voice import voice_router
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
@@ -647,6 +648,10 @@ app.include_router(api_router, prefix="/api")
 
 # Approval router: /api/approval/approve, /api/approval/deny, etc.
 app.include_router(approval_router, prefix="/api")
+
+# OAuth callback (auto mode) — public path, no agent context required;
+# the agent is recovered from the pending state map keyed by ``state``.
+app.include_router(mcp_oauth_callback_router, prefix="/api")
 
 # Agent-scoped router: /api/agents/{agentId}/chats, etc.
 agent_scoped_router = create_agent_scoped_router()

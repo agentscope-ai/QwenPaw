@@ -10,16 +10,17 @@ import {
 import { Spin } from "antd";
 import type { MCPClientInfo, MCPToolInfo } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
-import React, { useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import {
   EyeOutlined,
   EyeInvisibleOutlined,
   ToolOutlined,
+  LoginOutlined,
 } from "@ant-design/icons";
-import { ShieldCheck, ShieldAlert, ShieldX, KeyRound } from "lucide-react";
+import { ShieldCheck, ShieldAlert, ShieldX } from "lucide-react";
 import api from "../../../../api";
-import { MCPOAuthSection } from "./MCPOAuthSection";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import styles from "../index.module.less";
 
 interface MCPClientUpdate {
@@ -40,7 +41,7 @@ interface MCPClientCardProps {
   onToggle: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onDelete: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onUpdate: (key: string, updates: MCPClientUpdate) => Promise<boolean>;
-  onRefresh?: () => Promise<void>;
+  onReload?: () => Promise<void> | void;
 }
 
 export const MCPClientCard = React.memo(function MCPClientCard({
@@ -48,10 +49,11 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   onToggle,
   onDelete,
   onUpdate,
-  onRefresh,
+  onReload,
 }: MCPClientCardProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
+  const { message } = useAppMessage();
   const [isHovered, setIsHovered] = useState(false);
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -61,26 +63,66 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   const [toolsError, setToolsError] = useState<string | null>(null);
   const [editedJson, setEditedJson] = useState("");
   const [isEditing, setIsEditing] = useState(false);
-  const [oauthModalOpen, setOauthModalOpen] = useState(false);
-  const [oauthClientId, setOauthClientId] = useState("");
-  const [oauthScope, setOauthScope] = useState(
-    client.oauth_status?.scope || "",
-  );
-  const [oauthAuthEndpoint, setOauthAuthEndpoint] = useState("");
-  const [oauthTokenEndpoint, setOauthTokenEndpoint] = useState("");
+
+  // ── OAuth modal state ────────────────────────────────────────────────────
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<"auto" | "paste" | null>(null);
+  const [authStarting, setAuthStarting] = useState(false);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [authorizeUrl, setAuthorizeUrl] = useState("");
+  const [redirectUri, setRedirectUri] = useState("");
+  const [pastedCallback, setPastedCallback] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authComplete, setAuthComplete] = useState(false);
+  const authPollRef = useRef<number | null>(null);
+  // Snapshot of ``client.auth_token_expires_at`` taken when the modal opens.
+  const authBaselineExpiresAtRef = useRef(0);
+  // Public URL editor state (inline in the modal)
+  const [showPublicUrlEditor, setShowPublicUrlEditor] = useState(false);
+  const [publicUrlInput, setPublicUrlInput] = useState("");
+  const [publicUrlSaving, setPublicUrlSaving] = useState(false);
+
+  const stopAuthPoll = useCallback(() => {
+    if (authPollRef.current !== null) {
+      window.clearInterval(authPollRef.current);
+      authPollRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => stopAuthPoll, [stopAuthPoll]);
+
+  // Listen for the OAuth callback page's postMessage so we can react
+  // immediately instead of waiting for the next polling tick.
+  useEffect(() => {
+    function onMessage(ev: MessageEvent) {
+      const data = ev?.data;
+      if (
+        data &&
+        typeof data === "object" &&
+        data.type === "qwenpaw:mcp-oauth" &&
+        data.status === "success" &&
+        data.clientKey === client.key
+      ) {
+        onReload?.();
+      }
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [client.key, onReload]);
 
   // Determine if MCP client is remote or local based on command
   const isRemote =
     client.transport === "streamable_http" || client.transport === "sse";
   const clientType = isRemote ? "Remote" : "Local";
 
-  const oauthStatus = client.oauth_status;
   const now = Date.now() / 1000;
+  const tokenExp = client.auth_token_expires_at || 0;
   const isOauthAuthorized =
-    !!oauthStatus?.authorized && oauthStatus.expires_at > now;
+    client.auth_state === "oauth_active" && (tokenExp === 0 || tokenExp > now);
   const isOauthExpired =
-    !!oauthStatus?.authorized && oauthStatus.expires_at <= now;
-  const hasOauth = !!oauthStatus;
+    client.auth_state === "oauth_expired" ||
+    (client.auth_state === "oauth_active" && tokenExp > 0 && tokenExp <= now);
+  const hasOauth = isRemote;
 
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -145,6 +187,148 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   );
 
   const clientJson = JSON.stringify(client, null, 2);
+
+  // ── OAuth helpers ────────────────────────────────────────────────────────
+  const openAuthModal = useCallback(
+    async (e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      setAuthError(null);
+      setAuthorizeUrl("");
+      setRedirectUri("");
+      setPastedCallback("");
+      setAuthMode(null);
+      setAuthComplete(false);
+      setShowPublicUrlEditor(false);
+      authBaselineExpiresAtRef.current = client.auth_token_expires_at || 0;
+      setAuthModalOpen(true);
+      setAuthStarting(true);
+      try {
+        const resp = await api.beginMCPOAuth(client.key);
+        setAuthorizeUrl(resp.authorize_url);
+        setRedirectUri(resp.redirect_uri);
+        setAuthMode(resp.mode);
+        // Eagerly open the authorize URL in a new tab. Keep the opener link
+        // so the callback page can call window.opener.postMessage and
+        // window.close() reliably.
+        window.open(resp.authorize_url, "_blank");
+        if (resp.mode === "auto") {
+          // Poll the MCP client metadata as a fallback; the postMessage from
+          // the callback page is the fast path. Either signal closes the
+          // modal once auth_state flips to oauth_active.
+          stopAuthPoll();
+          authPollRef.current = window.setInterval(async () => {
+            try {
+              await onReload?.();
+            } catch {
+              /* ignore transient errors */
+            }
+          }, 1500);
+        }
+      } catch (err: any) {
+        setAuthError(err?.message || String(err));
+      } finally {
+        setAuthStarting(false);
+      }
+    },
+    [client.key, onReload, stopAuthPoll],
+  );
+
+  const savePublicUrlAndRestart = useCallback(async () => {
+    const url = publicUrlInput.trim();
+    if (!url) return;
+    setPublicUrlSaving(true);
+    setAuthError(null);
+    try {
+      await api.setPublicUrl(url);
+      // Re-run begin with the updated public URL.
+      const resp = await api.beginMCPOAuth(client.key);
+      setAuthorizeUrl(resp.authorize_url);
+      setRedirectUri(resp.redirect_uri);
+      setAuthMode(resp.mode);
+      setShowPublicUrlEditor(false);
+      message.success(t("mcp.oauth.publicUrlSaved"));
+    } catch (err: any) {
+      setAuthError(err?.message || String(err));
+    } finally {
+      setPublicUrlSaving(false);
+    }
+  }, [publicUrlInput, client.key, message, t]);
+
+  const submitPastedCallback = useCallback(async () => {
+    setAuthError(null);
+    setAuthSubmitting(true);
+    try {
+      await api.completeMCPOAuth(client.key, pastedCallback.trim());
+      stopAuthPoll();
+      setAuthComplete(true);
+      await onReload?.();
+    } catch (err: any) {
+      setAuthError(err?.message || String(err));
+    } finally {
+      setAuthSubmitting(false);
+    }
+  }, [client.key, pastedCallback, onReload, stopAuthPoll]);
+
+  const cancelAuthModal = useCallback(() => {
+    stopAuthPoll();
+    setAuthModalOpen(false);
+  }, [stopAuthPoll]);
+
+  // Watch ``client.auth_token_expires_at``: when it advances beyond the
+  // baseline we know a new token arrived. Instead of closing the modal
+  // immediately (which can be too fast for the user to see), we show
+  // a success state inside the modal and let the user dismiss it.
+  useEffect(() => {
+    if (
+      authModalOpen &&
+      !authComplete &&
+      client.auth_state === "oauth_active" &&
+      (client.auth_token_expires_at || 0) > authBaselineExpiresAtRef.current
+    ) {
+      stopAuthPoll();
+      setAuthComplete(true);
+    }
+  }, [
+    authModalOpen,
+    authComplete,
+    client.auth_state,
+    client.auth_token_expires_at,
+    stopAuthPoll,
+  ]);
+
+  const handleSignOut = useCallback(
+    async (e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      try {
+        await api.signOutMCPOAuth(client.key, false);
+        message.success(t("mcp.oauth.signOutSuccess"));
+        await onReload?.();
+      } catch (err: any) {
+        message.error(err?.message || t("mcp.oauth.signOutError"));
+      }
+    },
+    [client.key, message, t, onReload],
+  );
+
+  // ── Derived UI state ─────────────────────────────────────────────────────
+  const showAuthRow = isRemote;
+  const authDotClass =
+    client.auth_state === "oauth_active"
+      ? styles.authActive
+      : client.auth_state === "oauth_pending"
+      ? styles.authPending
+      : client.auth_state === "oauth_expired"
+      ? styles.authExpired
+      : styles.authNone;
+
+  const authLabel =
+    client.auth_state === "oauth_active"
+      ? t("mcp.oauth.statusActive")
+      : client.auth_state === "oauth_pending"
+      ? t("mcp.oauth.statusPending")
+      : client.auth_state === "oauth_expired"
+      ? t("mcp.oauth.statusExpired")
+      : t("mcp.oauth.statusNone");
 
   return (
     <>
@@ -211,6 +395,22 @@ export const MCPClientCard = React.memo(function MCPClientCard({
 
         <p className={styles.mcpDescription}>{client.description || "-"}</p>
 
+        {showAuthRow && (
+          <div className={styles.authRow} onClick={(e) => e.stopPropagation()}>
+            <span className={`${styles.authDot} ${authDotClass}`} />
+            <span>{authLabel}</span>
+            {client.auth_state === "oauth_active" && (
+              <button
+                type="button"
+                className={styles.authInlineButton}
+                onClick={handleSignOut}
+              >
+                {t("mcp.oauth.signOut")}
+              </button>
+            )}
+          </div>
+        )}
+
         <div className={styles.cardFooter}>
           <Button
             className={styles.toolsButton}
@@ -221,45 +421,16 @@ export const MCPClientCard = React.memo(function MCPClientCard({
           >
             {t("mcp.tools")}
           </Button>
-          {isRemote && (
+          {showAuthRow && (
             <Button
               className={styles.toggleButton}
-              onClick={(e) => {
-                e.stopPropagation();
-                setOauthModalOpen(true);
-              }}
-              style={
-                isOauthAuthorized
-                  ? {
-                      color: "#27ae60",
-                      borderColor: "#27ae60",
-                      background: "rgba(39,174,96,0.06)",
-                    }
-                  : isOauthExpired
-                  ? {
-                      color: "#e67e22",
-                      borderColor: "#e67e22",
-                      background: "rgba(230,126,34,0.06)",
-                    }
-                  : undefined
-              }
+              onClick={openAuthModal}
+              icon={<LoginOutlined />}
+              disabled={authStarting}
             >
-              <span
-                style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-              >
-                {isOauthAuthorized ? (
-                  <ShieldCheck size={13} />
-                ) : isOauthExpired ? (
-                  <ShieldAlert size={13} />
-                ) : (
-                  <KeyRound size={13} />
-                )}
-                {isOauthAuthorized
-                  ? t("mcp.oauth.authorized")
-                  : isOauthExpired
-                  ? t("mcp.oauth.expired")
-                  : t("mcp.oauth.authorize")}
-              </span>
+              {client.auth_state === "oauth_active"
+                ? t("mcp.oauth.reauthenticate")
+                : t("mcp.oauth.authenticate")}
             </Button>
           )}
           <Button
@@ -295,6 +466,170 @@ export const MCPClientCard = React.memo(function MCPClientCard({
         okButtonProps={{ danger: true }}
       >
         <p>{t("mcp.deleteConfirm")}</p>
+      </Modal>
+
+      <Modal
+        title={`${client.name} - ${t("mcp.oauth.title")}`}
+        open={authModalOpen}
+        onCancel={cancelAuthModal}
+        footer={
+          authComplete ? (
+            <div style={{ textAlign: "right" }}>
+              <Button type="primary" onClick={cancelAuthModal}>
+                {t("common.close")}
+              </Button>
+            </div>
+          ) : (
+            <div style={{ textAlign: "right" }}>
+              <Button
+                onClick={cancelAuthModal}
+                style={{ marginRight: 8 }}
+                disabled={authSubmitting}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="primary"
+                onClick={submitPastedCallback}
+                loading={authSubmitting}
+                disabled={!pastedCallback.trim()}
+              >
+                {t("mcp.oauth.submit")}
+              </Button>
+            </div>
+          )
+        }
+        width={620}
+      >
+        {authStarting ? (
+          <div className={styles.toolsLoading}>
+            <Spin />
+            <div className={styles.oauthModalHint}>
+              {t("mcp.oauth.preparing")}
+            </div>
+          </div>
+        ) : authComplete ? (
+          <div className={styles.oauthSuccess}>
+            <div className={styles.oauthSuccessIcon}>&#10003;</div>
+            <div className={styles.oauthSuccessTitle}>
+              {t("mcp.oauth.completeSuccess")}
+            </div>
+            <div className={styles.oauthModalHint}>
+              {t("mcp.oauth.completeCloseHint")}
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Step 1: Open the authorize URL */}
+            <div className={styles.oauthModalSection}>
+              <div className={styles.oauthModalLabel}>
+                {t("mcp.oauth.pasteStep1Title")}
+              </div>
+              <div className={styles.oauthModalHint}>
+                {authMode === "auto"
+                  ? t("mcp.oauth.autoHint")
+                  : t("mcp.oauth.pasteStep1Hint")}
+              </div>
+              {authorizeUrl && (
+                <Button
+                  type="link"
+                  onClick={() => window.open(authorizeUrl, "_blank")}
+                  style={{ paddingLeft: 0 }}
+                >
+                  {t("mcp.oauth.openAuthorize")}
+                </Button>
+              )}
+            </div>
+
+            {/* Callback URL display + public URL editor */}
+            {redirectUri && (
+              <div className={styles.oauthModalSection}>
+                <div className={styles.oauthModalLabel}>
+                  {t("mcp.oauth.callbackUrlLabel")}
+                </div>
+                <div className={styles.oauthModalUrl}>{redirectUri}</div>
+                <div style={{ marginTop: 6 }}>
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={async () => {
+                      if (!showPublicUrlEditor) {
+                        try {
+                          const resp = await api.getPublicUrl();
+                          setPublicUrlInput(resp.public_url);
+                        } catch {
+                          setPublicUrlInput("");
+                        }
+                      }
+                      setShowPublicUrlEditor(!showPublicUrlEditor);
+                    }}
+                    style={{ paddingLeft: 0, fontSize: 12 }}
+                  >
+                    {showPublicUrlEditor
+                      ? t("mcp.oauth.hidePublicUrl")
+                      : t("mcp.oauth.changePublicUrl")}
+                  </Button>
+                </div>
+                {showPublicUrlEditor && (
+                  <div style={{ marginTop: 8 }}>
+                    <div className={styles.oauthModalHint}>
+                      {t("mcp.oauth.publicUrlHint")}
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <Input
+                        value={publicUrlInput}
+                        onChange={(e) => setPublicUrlInput(e.target.value)}
+                        placeholder="https://gateway.example.com/qwenpaw-a"
+                        disabled={publicUrlSaving}
+                        style={{ flex: 1 }}
+                      />
+                      <Button
+                        type="primary"
+                        size="small"
+                        onClick={savePublicUrlAndRestart}
+                        loading={publicUrlSaving}
+                        disabled={!publicUrlInput.trim()}
+                      >
+                        {t("mcp.oauth.saveAndRestart")}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Auto-mode waiting indicator */}
+            {authMode === "auto" && (
+              <div className={styles.oauthModalSection}>
+                <div className={styles.oauthAutoWaiting}>
+                  <Spin size="small" />
+                  <span style={{ marginLeft: 8 }}>
+                    {t("mcp.oauth.autoTitle")}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Paste the callback URL */}
+            <div className={styles.oauthModalSection}>
+              <div className={styles.oauthModalLabel}>
+                {t("mcp.oauth.pasteStep2Title")}
+              </div>
+              <div className={styles.oauthModalHint}>
+                {t("mcp.oauth.pasteStep2Hint")}
+              </div>
+              <Input.TextArea
+                value={pastedCallback}
+                onChange={(e) => setPastedCallback(e.target.value)}
+                autoSize={{ minRows: 3, maxRows: 6 }}
+                placeholder="http://localhost:10112/oauth/callback?code=...&state=..."
+                disabled={authSubmitting}
+              />
+            </div>
+          </>
+        )}
+
+        {authError && <div className={styles.oauthError}>{authError}</div>}
       </Modal>
 
       <Modal
@@ -393,50 +728,6 @@ export const MCPClientCard = React.memo(function MCPClientCard({
             {clientJson}
           </pre>
         )}
-      </Modal>
-
-      {/* Dedicated OAuth modal — opened only via the Authorize button */}
-      <Modal
-        title={
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {isOauthAuthorized ? (
-              <ShieldCheck size={16} style={{ color: "#27ae60" }} />
-            ) : isOauthExpired ? (
-              <ShieldAlert size={16} style={{ color: "#e67e22" }} />
-            ) : (
-              <ShieldX size={16} style={{ color: "#7f8c8d" }} />
-            )}
-            {`${client.name} — ${t("mcp.oauth.manage")}`}
-          </div>
-        }
-        open={oauthModalOpen}
-        onCancel={() => setOauthModalOpen(false)}
-        footer={
-          <div style={{ textAlign: "right" }}>
-            <Button onClick={() => setOauthModalOpen(false)}>
-              {t("common.close")}
-            </Button>
-          </div>
-        }
-        width={560}
-      >
-        <MCPOAuthSection
-          url={client.url}
-          clientKey={client.key}
-          oauthEnabled
-          currentOAuthStatus={oauthStatus}
-          clientId={oauthClientId}
-          scope={oauthScope}
-          authEndpoint={oauthAuthEndpoint}
-          tokenEndpoint={oauthTokenEndpoint}
-          onClientIdChange={setOauthClientId}
-          onScopeChange={setOauthScope}
-          onAuthEndpointChange={setOauthAuthEndpoint}
-          onTokenEndpointChange={setOauthTokenEndpoint}
-          onAuthChanged={() => {
-            onRefresh?.();
-          }}
-        />
       </Modal>
     </>
   );

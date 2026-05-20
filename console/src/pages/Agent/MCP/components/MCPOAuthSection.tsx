@@ -46,7 +46,7 @@ type OAuthPhase =
   | "error"
   | "revoking";
 
-const OAUTH_MESSAGE_TYPE = "mcp-oauth";
+const OAUTH_MESSAGE_TYPE = "qwenpaw:mcp-oauth";
 
 export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
   url,

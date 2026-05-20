@@ -20,7 +20,7 @@ import asyncio
 import logging
 from contextlib import AsyncExitStack
 from datetime import timedelta
-from typing import Any, Literal
+from typing import Any, Awaitable, Callable, Literal, Optional
 
 import httpx
 from mcp import ClientSession
@@ -569,6 +569,9 @@ class HttpStatefulClient(_MCPClientMixin, StatefulClientBase):
         headers: dict[str, str] | None = None,
         timeout: float = 30,
         sse_read_timeout: float = 60 * 5,
+        auth_provider: Optional[
+            Callable[[], Awaitable[dict[str, str]]]
+        ] = None,
         **client_kwargs: Any,
     ) -> None:
         """Initialize the HTTP MCP client.
@@ -580,6 +583,11 @@ class HttpStatefulClient(_MCPClientMixin, StatefulClientBase):
             headers: Additional headers to include in the HTTP request
             timeout: The timeout for the HTTP request in seconds
             sse_read_timeout: The timeout for reading SSE in seconds
+            auth_provider: Optional async callable invoked before each
+                (re)connect; returned headers (e.g. ``Authorization: Bearer
+                ...``) are merged on top of ``headers``. Used by the OAuth
+                integration so refreshed tokens take effect on reconnect
+                without having to rebuild the entire client object.
             **client_kwargs: Additional keyword arguments for the client
 
         Raises:
@@ -608,6 +616,7 @@ class HttpStatefulClient(_MCPClientMixin, StatefulClientBase):
         self.sse_read_timeout = sse_read_timeout
         self.read_timeout_seconds = sse_read_timeout
         self.client_kwargs = client_kwargs
+        self._auth_provider = auth_provider
 
         # Lifecycle management
         self._lifecycle_task: asyncio.Task | None = None
@@ -623,10 +632,29 @@ class HttpStatefulClient(_MCPClientMixin, StatefulClientBase):
         # Tool cache
         self._cached_tools = None
 
+    async def _resolve_headers(self) -> dict[str, str]:
+        """Combine static headers with the latest auth_provider output."""
+        merged: dict[str, str] = dict(self.headers or {})
+        if self._auth_provider is not None:
+            try:
+                extra = await self._auth_provider()
+            except Exception as e:
+                logger.warning(
+                    "auth_provider for MCP client '%s' raised %s; "
+                    "connecting without auth headers",
+                    self.name,
+                    e,
+                )
+                extra = {}
+            if extra:
+                merged.update(extra)
+        return merged
+
     async def _setup_transport(
         self,
         stack: AsyncExitStack,
     ) -> tuple[Any, Any]:
+        resolved_headers = await self._resolve_headers()
         if self.transport == "streamable_http":
             timeout_seconds = (
                 self.timeout.total_seconds()
@@ -639,7 +667,7 @@ class HttpStatefulClient(_MCPClientMixin, StatefulClientBase):
                 else self.sse_read_timeout
             )
             http_client = httpx.AsyncClient(
-                headers=self.headers or {},
+                headers=resolved_headers,
                 timeout=httpx.Timeout(
                     connect=timeout_seconds,
                     read=sse_read_timeout_seconds,
@@ -656,7 +684,7 @@ class HttpStatefulClient(_MCPClientMixin, StatefulClientBase):
             context = await stack.enter_async_context(
                 sse_client(
                     url=self.url,
-                    headers=self.headers,
+                    headers=resolved_headers,
                     timeout=self.timeout,
                     sse_read_timeout=self.sse_read_timeout,
                     **self.client_kwargs,

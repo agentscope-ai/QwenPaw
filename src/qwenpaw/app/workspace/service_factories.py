@@ -23,6 +23,7 @@ async def create_mcp_service(ws: "Workspace", mcp):
         mcp: MCPClientManager instance
     """
     # pylint: disable=protected-access
+    mcp.set_agent_id(ws.agent_id)
     if ws._config.mcp:
         try:
             await mcp.init_from_config(ws._config.mcp)

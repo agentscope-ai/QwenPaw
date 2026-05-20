@@ -209,6 +209,132 @@
   color: rgba(20, 20, 19, 0.45);
 }
 
+.authRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.55);
+  margin: 4px 0 2px;
+}
+
+.authDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+
+  &.authNone {
+    background-color: #d9d9d9;
+  }
+
+  &.authPending {
+    background-color: #faad14;
+    animation: authPulse 1.4s ease-in-out infinite;
+  }
+
+  &.authActive {
+    background-color: rgba(20, 184, 166, 1);
+  }
+
+  &.authExpired {
+    background-color: #ff7875;
+  }
+}
+
+@keyframes authPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.authInlineButton {
+  background: transparent;
+  border: none;
+  padding: 0 4px;
+  color: #1677ff;
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  &:disabled {
+    color: rgba(0, 0, 0, 0.25);
+    cursor: not-allowed;
+  }
+}
+
+.oauthModalSection {
+  margin-bottom: 16px;
+}
+
+.oauthModalLabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(20, 20, 19, 0.85);
+  margin-bottom: 6px;
+}
+
+.oauthModalHint {
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.55);
+  margin: 4px 0 8px;
+  line-height: 1.5;
+}
+
+.oauthModalUrl {
+  font-family: Monaco, "Courier New", monospace;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 6px 10px;
+  border-radius: 6px;
+  word-break: break-all;
+  color: rgba(20, 20, 19, 0.7);
+}
+
+.oauthAutoWaiting {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(22, 119, 255, 0.06);
+  border-radius: 6px;
+  font-size: 13px;
+  color: rgba(20, 20, 19, 0.65);
+}
+
+.oauthSuccess {
+  text-align: center;
+  padding: 24px 0;
+}
+
+.oauthSuccessIcon {
+  font-size: 48px;
+  color: #16a34a;
+  line-height: 1;
+  margin-bottom: 12px;
+}
+
+.oauthSuccessTitle {
+  font-size: 16px;
+  font-weight: 500;
+  color: #16a34a;
+  margin-bottom: 8px;
+}
+
+.oauthError {
+  margin-top: 8px;
+  color: #ff4d4f;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
 .editJsonTextArea {
   width: 100%;
   min-height: 500px;
@@ -478,6 +604,23 @@
 
   .loading {
     color: rgba(255, 255, 255, 0.45);
+  }
+
+  .authRow {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .oauthModalLabel {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .oauthModalHint {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .oauthModalUrl {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.7);
   }
 
   .importHintTitle {

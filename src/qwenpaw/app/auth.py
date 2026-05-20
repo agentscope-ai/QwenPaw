@@ -57,6 +57,12 @@ _PUBLIC_PATHS: frozenset[str] = frozenset(
         "/api/version",
         "/api/settings/language",
         "/api/frontend_plugin",
+        "/api/settings/public-url",
+        "/api/plugins",
+        # OAuth redirect target — invoked by an external authorization
+        # server with no QwenPaw session cookie; authenticity is verified
+        # by the in-memory ``state`` registry rather than auth middleware.
+        "/api/mcp/oauth/callback",
     },
 )
 

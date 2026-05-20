@@ -81,7 +81,7 @@ function MCPPage() {
     deleteClient,
     createClient,
     updateClient,
-    refreshClients,
+    reloadClients,
   } = useMCP();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"json" | "form">("json");
@@ -294,7 +294,7 @@ function MCPPage() {
               onToggle={handleToggleEnabled}
               onDelete={handleDelete}
               onUpdate={updateClient}
-              onRefresh={refreshClients}
+              onReload={reloadClients}
             />
           ))}
         </div>

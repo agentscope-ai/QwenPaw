@@ -4,9 +4,8 @@ import type {
   MCPClientCreateRequest,
   MCPClientUpdateRequest,
   MCPToolInfo,
-  MCPOAuthStartRequest,
-  MCPOAuthStartResponse,
-  MCPOAuthStatusResponse,
+  MCPOAuthBeginResponse,
+  MCPOAuthCompleteResponse,
 } from "../types";
 
 export const mcpApi = {
@@ -62,32 +61,40 @@ export const mcpApi = {
     request<MCPToolInfo[]>(`/mcp/${encodeURIComponent(clientKey)}/tools`),
 
   /**
-   * Start an OAuth 2.1 PKCE flow for a remote MCP client.
-   * Returns the authorization URL to open in a popup.
+   * Start an OAuth authorization flow for an MCP client.
+   * Returns an authorize_url to open in the browser plus the operating mode
+   * (``auto`` = redirect lands on QwenPaw; ``paste`` = user pastes URL back).
    */
-  startOAuth: (clientKey: string, body: MCPOAuthStartRequest) =>
-    request<MCPOAuthStartResponse>(
-      `/mcp/${encodeURIComponent(clientKey)}/oauth/start`,
+  beginMCPOAuth: (clientKey: string) =>
+    request<MCPOAuthBeginResponse>(
+      `/mcp/${encodeURIComponent(clientKey)}/auth/oauth/begin`,
       {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify({ browser_origin: window.location.origin }),
       },
     ),
 
   /**
-   * Get current OAuth token status for an MCP client.
+   * Complete an OAuth flow in paste mode by submitting the full callback URL.
    */
-  getOAuthStatus: (clientKey: string) =>
-    request<MCPOAuthStatusResponse>(
-      `/mcp/${encodeURIComponent(clientKey)}/oauth/status`,
+  completeMCPOAuth: (clientKey: string, callbackUrl: string) =>
+    request<MCPOAuthCompleteResponse>(
+      `/mcp/${encodeURIComponent(clientKey)}/auth/oauth/complete`,
+      {
+        method: "POST",
+        body: JSON.stringify({ callback_url: callbackUrl }),
+      },
     ),
 
   /**
-   * Revoke / clear OAuth tokens for an MCP client.
+   * Clear stored OAuth state for an MCP client (sign out).
+   * Set revokeRemote=true to also revoke the tokens at the AS.
    */
-  revokeOAuth: (clientKey: string) =>
+  signOutMCPOAuth: (clientKey: string, revokeRemote = false) =>
     request<{ message: string }>(
-      `/mcp/${encodeURIComponent(clientKey)}/oauth`,
+      `/mcp/${encodeURIComponent(clientKey)}/auth?revoke_remote=${
+        revokeRemote ? "true" : "false"
+      }`,
       { method: "DELETE" },
     ),
 };

@@ -2,16 +2,13 @@
  * MCP (Model Context Protocol) client types
  */
 
-export interface MCPClientOAuthStatus {
-  /** Whether a valid access token is present */
-  authorized: boolean;
-  /** Unix timestamp when the access token expires (0 = unknown) */
-  expires_at: number;
-  /** Granted OAuth scope(s) */
-  scope: string;
-  /** OAuth client_id used */
-  client_id: string;
-}
+export type MCPAuthState =
+  | "none"
+  | "oauth_pending"
+  | "oauth_active"
+  | "oauth_expired";
+
+export type MCPConnectionStatus = "connected" | "connecting" | "disconnected";
 
 export interface MCPClientInfo {
   /** Unique client key identifier */
@@ -36,33 +33,28 @@ export interface MCPClientInfo {
   env: Record<string, string>;
   /** Working directory for stdio command */
   cwd: string;
-  /** OAuth status (null if OAuth not configured) */
-  oauth_status: MCPClientOAuthStatus | null;
+  /** OAuth authentication state */
+  auth_state: MCPAuthState;
+  /** OAuth scopes granted (when auth_state=oauth_active) */
+  auth_scope: string;
+  /** Unix timestamp when access_token expires (0 = unknown) */
+  auth_token_expires_at: number;
+  /** Runtime MCP client connection status */
+  connection_status: MCPConnectionStatus;
 }
 
-export interface MCPOAuthStartRequest {
-  /** MCP server URL */
-  url: string;
-  /** OAuth scope(s) to request */
-  scope?: string;
-  /** Pre-registered client_id (leave empty to use Dynamic Client Registration) */
-  client_id?: string;
-  /** Override authorization endpoint (skips auto-discovery) */
-  auth_endpoint?: string;
-  /** Override token endpoint (skips auto-discovery) */
-  token_endpoint?: string;
+export interface MCPOAuthBeginResponse {
+  authorize_url: string;
+  state: string;
+  mode: "auto" | "paste";
+  redirect_uri: string;
 }
 
-export interface MCPOAuthStartResponse {
-  /** Full authorization URL to open in a popup */
-  auth_url: string;
-  /** State token / session ID for polling */
-  session_id: string;
-}
-
-export interface MCPOAuthStatusResponse {
-  authorized: boolean;
-  expires_at: number;
+export interface MCPOAuthCompleteResponse {
+  ok: boolean;
+  client_key: string;
+  auth_state: "oauth_active";
+  token_expires_at: number;
   scope: string;
 }
 

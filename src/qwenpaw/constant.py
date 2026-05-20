@@ -259,6 +259,12 @@ MEMORY_COMPACT_RATIO = EnvVarLoader.get_float(
 # When unset, CORS middleware is not applied.
 CORS_ORIGINS = EnvVarLoader.get_str("QWENPAW_CORS_ORIGINS", "").strip()
 
+# Public URL — the externally reachable base URL of this QwenPaw instance.
+# Used to compute the OAuth redirect_uri.  When unset, the URL is derived
+# from the ``--host`` / ``--port`` startup parameters.
+# Example: QWENPAW_PUBLIC_URL="https://gateway.example.com/qwenpaw-a"
+PUBLIC_URL = EnvVarLoader.get_str("QWENPAW_PUBLIC_URL", "").strip().rstrip("/")
+
 # LLM API retry configuration
 LLM_MAX_RETRIES = EnvVarLoader.get_int(
     "QWENPAW_LLM_MAX_RETRIES",

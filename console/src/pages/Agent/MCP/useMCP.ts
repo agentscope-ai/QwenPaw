@@ -12,18 +12,21 @@ export function useMCP() {
   const [loading, setLoading] = useState(false);
   const { message } = useAppMessage();
 
-  const loadClients = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await api.listMCPClients();
-      setClients(data);
-    } catch (error) {
-      console.error("Failed to load MCP clients:", error);
-      message.error(t("mcp.loadError"));
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
+  const loadClients = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!silent) setLoading(true);
+      try {
+        const data = await api.listMCPClients();
+        setClients(data);
+      } catch (error) {
+        console.error("Failed to load MCP clients:", error);
+        if (!silent) message.error(t("mcp.loadError"));
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [t],
+  );
 
   useEffect(() => {
     loadClients();
@@ -128,5 +131,9 @@ export function useMCP() {
     toggleEnabled,
     deleteClient,
     refreshClients: loadClients,
+    reloadClients: useCallback(
+      () => loadClients({ silent: true }),
+      [loadClients],
+    ),
   };
 }

@@ -1227,21 +1227,34 @@ class LastDispatchConfig(BaseModel):
     session_id: str = ""
 
 
-class MCPOAuthConfig(BaseModel):
-    """OAuth 2.1 configuration for a remote MCP client.
+class MCPClientAuth(BaseModel):
+    """OAuth 2.1 (with PKCE + DCR) state for a remote MCP client.
 
-    Stores OAuth credentials and endpoints discovered via RFC 8414 /
-    RFC 9728.  Tokens are masked in API responses; stored plain-text in
-    agent.json (file is local to the user's workspace).
+    The state is persisted alongside the MCPClientConfig in agent.json. All
+    fields except ``type`` are populated lazily as the OAuth flow progresses.
+
+    Tokens are stored in plaintext (consistent with how ``env`` and
+    ``headers`` already hold API keys); access to agent.json must be
+    protected at the filesystem level.
     """
 
+    type: Literal["oauth2"] = "oauth2"
+
+    authorization_endpoint: str = ""
+    token_endpoint: str = ""
+    registration_endpoint: str = ""
+    revocation_endpoint: str = ""
+
     client_id: str = ""
-    scope: str = ""
+    client_secret: str = ""
+    client_secret_expires_at: int = 0
+
     access_token: str = ""
     refresh_token: str = ""
-    expires_at: float = 0.0
-    token_endpoint: str = ""
-    auth_endpoint: str = ""
+    token_expires_at: int = 0
+    scope: str = ""
+
+    resource: str = ""
 
 
 class MCPClientConfig(BaseModel):
@@ -1259,7 +1272,7 @@ class MCPClientConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     cwd: str = ""
-    oauth: Optional[MCPOAuthConfig] = None
+    auth: Optional[MCPClientAuth] = None
 
     @model_validator(mode="before")
     @classmethod
