@@ -141,7 +141,15 @@ function contentToRequestParts(
 function normalizeOutputMessageContent(content: unknown): unknown {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return content;
-  return content as ContentItem[];
+  return (content as ContentItem[]).map((c) => {
+    if (c.type === "file") {
+      return {
+        ...c,
+        file_name: (c.filename as string) || (c.file_name as string) || "file",
+      };
+    }
+    return c;
+  });
 }
 
 /**

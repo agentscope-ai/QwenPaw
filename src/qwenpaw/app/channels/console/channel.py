@@ -238,7 +238,8 @@ class ConsoleChannel(BaseChannel):
                 if url:
                     return FileContent(
                         type=ContentType.FILE,
-                        filename=getattr(part, "filename", None) or url,
+                        filename=getattr(part, "filename", None)
+                        or Path(url).name,
                         file_url=url,
                     )
             elif content_type == ContentType.TEXT:
