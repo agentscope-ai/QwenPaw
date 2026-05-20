@@ -408,7 +408,10 @@ def _popup_html(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/{client_key}/oauth/start", response_model=OAuthStartResponse)
+@router.post(
+    "/oauth/start/{client_key:path}",
+    response_model=OAuthStartResponse,
+)
 async def oauth_start(
     client_key: str,
     body: OAuthStartRequest,
@@ -645,7 +648,7 @@ async def oauth_callback(
 
 
 @router.get(
-    "/{client_key}/oauth/status",
+    "/oauth/status/{client_key:path}",
     response_model=OAuthStatusResponse,
 )
 async def oauth_status(
@@ -681,7 +684,7 @@ async def oauth_status(
     )
 
 
-@router.delete("/{client_key}/oauth", response_model=dict)
+@router.delete("/oauth/{client_key:path}", response_model=dict)
 async def oauth_revoke(
     client_key: str,
     request: Request,
@@ -701,3 +704,45 @@ async def oauth_revoke(
     schedule_agent_reload(request, agent.agent_id)
 
     return {"message": "OAuth tokens cleared"}
+
+
+# ---------------------------------------------------------------------------
+# Deprecated legacy routes (client_key before action segment)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{client_key}/oauth/start",
+    response_model=OAuthStartResponse,
+    include_in_schema=False,
+)
+async def oauth_start_legacy(
+    client_key: str,
+    body: OAuthStartRequest,
+    request: Request,
+) -> OAuthStartResponse:
+    return await oauth_start(client_key, body, request)
+
+
+@router.get(
+    "/{client_key}/oauth/status",
+    response_model=OAuthStatusResponse,
+    include_in_schema=False,
+)
+async def oauth_status_legacy(
+    client_key: str,
+    request: Request,
+) -> OAuthStatusResponse:
+    return await oauth_status(client_key, request)
+
+
+@router.delete(
+    "/{client_key}/oauth",
+    response_model=dict,
+    include_in_schema=False,
+)
+async def oauth_revoke_legacy(
+    client_key: str,
+    request: Request,
+) -> dict:
+    return await oauth_revoke(client_key, request)
