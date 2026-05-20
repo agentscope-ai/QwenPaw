@@ -39,9 +39,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_AUTOMATION_MEMORY_SKIP_SOURCES = {"cron", "heartbeat"}
+
+
 def _fmt_tokens(n: int) -> str:
     """Format token count as e.g. '82.3k' or '450'."""
     return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+
+
+def _request_context_source(agent: Any) -> str:
+    """Return normalized source tag from an agent request context."""
+    request_context = getattr(agent, "_request_context", {}) or {}
+    if not isinstance(request_context, dict):
+        return ""
+    return str(request_context.get("source") or "").strip().lower()
+
+
+def _should_skip_automation_memory(agent: Any) -> bool:
+    """Return True when the request is non-user automation."""
+    return _request_context_source(agent) in _AUTOMATION_MEMORY_SKIP_SOURCES
 
 
 @context_registry.register("light")
@@ -922,7 +938,9 @@ class LightContextManager(BaseContextManager):
             )
             logger.info(f"Marked {updated_count} messages as compacted")
 
-            if messages_to_compact:
+            if messages_to_compact and not _should_skip_automation_memory(
+                agent,
+            ):
                 await memory_manager.summarize_when_compact(
                     messages=messages_to_compact,
                 )
@@ -989,7 +1007,7 @@ class LightContextManager(BaseContextManager):
             memory = agent.memory
             all_messages = [msg for msg, _ in memory.content]
 
-            if all_messages:
+            if all_messages and not _should_skip_automation_memory(agent):
                 await memory_manager.auto_memory(
                     all_messages=all_messages,
                 )

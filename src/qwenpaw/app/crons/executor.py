@@ -88,6 +88,13 @@ class CronExecutor:
 
         req["channel"] = target_channel
         req["user_id"] = target_user_id or "cron"
+        raw_context = req.get("request_context")
+        request_context = (
+            dict(raw_context) if isinstance(raw_context, dict) else {}
+        )
+        request_context["source"] = "cron"
+        request_context["cron_job_id"] = job.id or ""
+        req["request_context"] = request_context
 
         # Determine session_id based on share_session
         share_session = job.runtime.share_session
