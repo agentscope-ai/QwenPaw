@@ -84,18 +84,43 @@ class CodingModeMixin:
     def _get_coding_project_dir(self) -> str | None:
         """Return the active coding project dir.
 
+        Always reloads from disk so changes made via the API (which persist to
+        ``agent.json``) are reflected immediately rather than stale in-memory
+        config being used.
+
         Returns None when no project has been set (use workspace default).
         """
+        from ..config.config import load_agent_config
+
+        # Determine agent id: prefer _agent_config.id, then self.name
         agent_config = getattr(self, "_agent_config", None)
+        agent_id: str | None = None
+        if agent_config is not None:
+            if isinstance(agent_config, dict):
+                agent_id = agent_config.get("id")
+            else:
+                agent_id = getattr(agent_config, "id", None)
+        if not agent_id:
+            agent_id = getattr(self, "name", None)
+        if not agent_id:
+            return None
+
+        try:
+            config = load_agent_config(agent_id)
+            cm = config.coding_mode
+            if cm and cm.project_dir:
+                return cm.project_dir
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Fallback to stale in-memory config
         if agent_config is None:
             return None
         if isinstance(agent_config, dict):
-            cm = agent_config.get("coding_mode") or {}
-            return cm.get("project_dir") or None
-        cm = getattr(agent_config, "coding_mode", None)
-        if cm is None:
-            return None
-        return getattr(cm, "project_dir", None) or None
+            cm_dict = agent_config.get("coding_mode") or {}
+            return cm_dict.get("project_dir") or None
+        cm_obj = getattr(agent_config, "coding_mode", None)
+        return getattr(cm_obj, "project_dir", None) or None
 
     # ------------------------------------------------------------------
     # Helpers: config access
