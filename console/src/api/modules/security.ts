@@ -27,11 +27,21 @@ export interface ToolGuardConfig {
 export interface FileGuardResponse {
   enabled: boolean;
   paths: string[];
+  whitelist_enabled: boolean;
+  whitelist_read_paths: string[];
+  whitelist_write_paths: string[];
+  shell_sandbox_mode: string;
+  shell_sandbox_provider: string;
 }
 
 export interface FileGuardUpdateBody {
   enabled?: boolean;
   paths?: string[];
+  whitelist_enabled?: boolean;
+  whitelist_read_paths?: string[];
+  whitelist_write_paths?: string[];
+  shell_sandbox_mode?: string;
+  shell_sandbox_provider?: string;
 }
 
 // ── Skill Scanner types ────────────────────────────────────────────

@@ -2056,6 +2056,9 @@
       "directory": "Directory",
       "removeConfirm": "Remove this path from the protected list?",
       "duplicate": "This path is already in the list",
+      "whitelistEnableLabel": "Enable Whitelist Protection",
+      "whitelistInputPlaceholder": "Enter whitelist path (e.g. ~/projects/ or /tmp/output.txt)",
+      "whitelistEmpty": "No whitelist paths configured",
       "saveSuccess": "File guard settings saved",
       "saveFailed": "Failed to save file guard settings",
       "loadFailed": "Failed to load file guard settings"

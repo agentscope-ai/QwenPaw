@@ -1695,6 +1695,9 @@
       "directory": "ディレクトリ",
       "removeConfirm": "このパスを保護リストから削除しますか？",
       "duplicate": "このパスは既にリストに存在します",
+      "whitelistEnableLabel": "Enable Whitelist Protection",
+      "whitelistInputPlaceholder": "Enter whitelist path (e.g. ~/projects/ or /tmp/output.txt)",
+      "whitelistEmpty": "No whitelist paths configured",
       "saveSuccess": "ファイルガード設定を保存しました",
       "saveFailed": "ファイルガード設定の保存に失敗しました",
       "loadFailed": "ファイルガード設定の読み込みに失敗しました"

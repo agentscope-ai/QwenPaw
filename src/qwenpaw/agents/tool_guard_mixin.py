@@ -131,6 +131,59 @@ class ToolGuardMixin:
             return _normalize_tool_guard_ui_lang(raw)
         return "en"
 
+    async def _apply_tool_pre_hook(self, tool_call: dict[str, Any]) -> bool:
+        """Run file-guard pre-hook. Return True when blocked."""
+        from qwenpaw.security.file_guard import (
+            apply_file_guard_pre_hook,
+            is_file_guard_whitelist_enabled,
+        )
+
+        if not is_file_guard_whitelist_enabled():
+            return False
+
+        hook_result = apply_file_guard_pre_hook(tool_call)
+        if hook_result.warning:
+            await self._emit_pre_hook_warning(hook_result.warning)
+        if hook_result.allowed:
+            return False
+        await self._emit_pre_hook_denied(tool_call, hook_result.message)
+        return True
+
+    async def _emit_pre_hook_warning(self, warning: str) -> None:
+        """Emit a warning notice for non-blocking pre-hook fallbacks."""
+        from agentscope.message import TextBlock
+
+        msg = Msg(
+            self.name,
+            [TextBlock(type="text", text=f"⚠️ {warning}")],
+            "assistant",
+        )
+        await self.print(msg, True)
+
+    async def _emit_pre_hook_denied(
+        self,
+        tool_call: dict[str, Any],
+        message: str,
+    ) -> None:
+        """Emit a tool_result block when pre-hook blocks execution."""
+        from agentscope.message import ToolResultBlock
+
+        tool_name = str(tool_call.get("name", ""))
+        tool_res_msg = Msg(
+            "system",
+            [
+                ToolResultBlock(
+                    type="tool_result",
+                    id=tool_call["id"],
+                    name=tool_name,
+                    output=[{"type": "text", "text": message}],
+                ),
+            ],
+            "system",
+        )
+        await self.print(tool_res_msg, True)
+        await self.memory.add(tool_res_msg)
+
     # ------------------------------------------------------------------
     # _acting override
     # ------------------------------------------------------------------
@@ -153,6 +206,8 @@ class ToolGuardMixin:
         true parallelism.
         """
         ctx = getattr(self, "_request_context", None) or {}
+        if await self._apply_tool_pre_hook(tool_call):
+            return None
         # TODO: remove this
         if ctx.get("_headless_tool_guard", "true").lower() == "false":
             return await super()._acting(tool_call)  # type: ignore[misc]

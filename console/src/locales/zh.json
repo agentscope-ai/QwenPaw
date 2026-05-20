@@ -1904,6 +1904,9 @@
       "directory": "目录",
       "removeConfirm": "从保护列表中移除该路径？",
       "duplicate": "该路径已存在",
+      "whitelistEnableLabel": "启用白名单防护",
+      "whitelistInputPlaceholder": "输入白名单路径（如 ~/projects/ 或 /tmp/output.txt）",
+      "whitelistEmpty": "未配置白名单路径",
       "saveSuccess": "文件防护设置已保存",
       "saveFailed": "保存文件防护设置失败",
       "loadFailed": "加载文件防护设置失败"

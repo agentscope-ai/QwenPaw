@@ -1710,6 +1710,9 @@
       "directory": "Директория",
       "removeConfirm": "Удалить этот путь из списка защиты?",
       "duplicate": "Этот путь уже есть в списке",
+      "whitelistEnableLabel": "Enable Whitelist Protection",
+      "whitelistInputPlaceholder": "Enter whitelist path (e.g. ~/projects/ or /tmp/output.txt)",
+      "whitelistEmpty": "No whitelist paths configured",
       "saveSuccess": "Настройки защиты файлов сохранены",
       "saveFailed": "Не удалось сохранить настройки защиты файлов",
       "loadFailed": "Не удалось загрузить настройки защиты файлов"
