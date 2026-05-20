@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% if overall_title %}{{ overall_title }}{% else %}{{ report_title }}{% endif %}</title>
+  <!-- 引入必要资源 -->
+  <link rel="stylesheet" href="https://storage.360buyimg.com/pubfree-bucket/ei-data-resource/02f0288/static/tailwind.min.css">
+  <script src="https://storage.360buyimg.com/pubfree-bucket/ei-data-resource/02f0288/static/echarts.min.js"></script>
+  <link rel="stylesheet" href="https://storage.360buyimg.com/pubfree-bucket/ei-data-resource/e86f985/static/bootstrap-icons/bootstrap-icons.css">
+  <style>
+    .chart-container { width: 100%; height: 400px; }
+    .fade-in { animation: fadeIn 0.5s ease-in; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    details > summary { cursor: pointer; user-select: none; list-style: none; }
+    details > summary::-webkit-details-marker { display: none; }
+    /* 任务卡片基础样式 */
+    .task-card {
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .task-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.12); }
+    /* 选中态：灰色 glow 环 + 上浮 */
+    .task-card.active {
+      box-shadow: 0 0 0 3px rgba(156,163,175,0.7);
+      transform: translateY(-2px);
+    }
+    /* 子任务内容区，默认隐藏 */
+    .task-content { display: none; }
+  </style>
+</head>
+<body class="bg-gray-50">
+
+  <div class="max-w-7xl mx-auto px-4 py-8">
+
+    {% if overall_title %}
+    <!-- 标题区域 -->
+    <div class="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 rounded-xl p-8 mb-8 shadow-lg relative overflow-hidden">
+      <div class="absolute inset-0 bg-white opacity-10" style="background-image: radial-gradient(circle at 2px 2px, white 1px, transparent 0); background-size: 40px 40px;"></div>
+      <div class="relative z-10">
+        <h1 class="text-4xl font-bold text-white mb-2">{{ overall_title }}</h1>
+        <div class="mt-4 flex items-center gap-4 text-sm text-blue-200">
+          <span><i class="bi bi-clock-history mr-1"></i>生成日期：{{ date }}</span>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if sections|length > 1 %}
+    <!-- 摘要 -->
+    <div class="mt-6 p-4 bg-blue-50 rounded-lg" style="margin-bottom: 30px">
+      <h3 class="font-semibold text-blue-800 text-2xl font-bold mb-2">摘要</h3>
+      <p class="text-gray-700">{{ overall_summary }}</p>
+    </div>
+
+    <!-- 任务卡片区（点击切换子任务内容） -->
+    {#
+      sections 是任务列表，每个 section 包含：
+        - title:         任务标题（str）
+        - icon:          Bootstrap Icon 类名，如 bi-graph-up-arrow（str，可选，缺省按序循环）
+        - html_fragment: 该任务下所有子任务的 HTML 片段（str），由 LLM 生成
+    #}
+    {% set border_colors = ['border-blue-500','border-green-500','border-purple-500','border-orange-500','border-pink-500','border-teal-500'] %}
+    {% set icon_colors   = ['text-blue-500','text-green-500','text-purple-500','text-orange-500','text-pink-500','text-teal-500'] %}
+    {% set icons         = ['bi-bar-chart-line','bi-graph-up-arrow','bi-pie-chart','bi-clipboard-data','bi-table','bi-activity'] %}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
+      {% for section in sections %}
+      {% set ci = loop.index0 % 6 %}
+      <div class="task-card bg-white rounded-lg shadow-sm px-4 py-3 border-l-4 fade-in ring-0 transition-all {{ border_colors[ci] }}"
+           data-task="{{ loop.index0 }}"
+           onclick="switchTask({{ loop.index0 }})">
+        <div class="flex items-center gap-2">
+          <i class="bi {{ section.icon if section.icon else icons[ci] }} {{ icon_colors[ci] }} text-lg"></i>
+          <h3 class="text-sm font-semibold text-gray-800">{{ section.title }}</h3>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- 各任务子任务内容区：data-task-content 与卡片 data-task 一一对应 -->
+    {#
+      html_fragment 内部，每一个独立分析点必须使用以下卡片结构包裹：
+
+      <div class="bg-white rounded-xl shadow-md p-6 mb-8 fade-in">
+        <h2 class="text-2xl font-bold mb-6 flex items-center">
+          <i class="bi bi-graph-up-arrow text-blue-500 mr-3"></i>
+          子任务标题
+        </h2>
+        <div class="mt-6 p-4 bg-blue-50 rounded-lg" style="margin-bottom: 30px">
+          <h3 class="font-semibold text-blue-800 mb-2">关键发现：</h3>
+          <p class="text-gray-700">核心结论...</p>
+        </div>
+        <!-- 图表容器布局规则：1个图表用 grid-cols-1（全宽），2个用 lg:grid-cols-2，3个以上用 xl:grid-cols-3 -->
+        <div class="grid grid-cols-1 gap-6">
+          <div id="唯一图表ID" class="chart-container"></div>
+        </div>
+      </div>
+    #}
+    {% for section in sections %}
+    <div class="task-content" data-task-content="{{ loop.index0 }}">
+      {{ section.html_fragment }}
+    </div>
+    {% endfor %}
+
+    {% else %}
+    {# sections 只有 1 个时，直接展示内容 #}
+    {% for section in sections %}
+    {{ section.html_fragment }}
+    {% endfor %}
+    {% endif %}
+
+  </div>
+
+  <!-- footer -->
+  <footer class="text-center text-gray-400 text-sm py-6 mt-4 border-t">
+    Created by Autobots<br>页面内容均由 AI 生成，仅供参考
+  </footer>
+
+  <script>
+    function switchTask(taskId) {
+      // 切换卡片高亮
+      document.querySelectorAll('.task-card').forEach(function(card) {
+        card.classList.remove('active');
+      });
+      var activeCard = document.querySelector('.task-card[data-task="' + taskId + '"]');
+      if (activeCard) activeCard.classList.add('active');
+
+      // 切换子任务内容显示
+      document.querySelectorAll('.task-content').forEach(function(panel) {
+        panel.style.display = 'none';
+      });
+      var activePanel = document.querySelector('.task-content[data-task-content="' + taskId + '"]');
+      if (activePanel) activePanel.style.display = 'block';
+
+      // resize ECharts（内容展开后尺寸变化）
+      setTimeout(function() {
+        if (window.__echartsInstances) {
+          window.__echartsInstances.forEach(function(c) { c && c.resize && c.resize(); });
+        }
+      }, 100);
+    }
+
+    // 默认选中第一个任务
+    document.addEventListener('DOMContentLoaded', function() { switchTask(0); });
+
+    // 统一 resize 所有 ECharts 实例
+    window.addEventListener('resize', function() {
+      if (window.__echartsInstances) {
+        window.__echartsInstances.forEach(function(c) { c && c.resize && c.resize(); });
+      }
+    });
+  </script>
+</body>
+</html>
