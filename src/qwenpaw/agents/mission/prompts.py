@@ -365,7 +365,12 @@ dispatch it using the `submit_to_agent` tool.
 **Example dispatch pattern:**
 - Build a prompt string containing loop_dir, story details, and Worker
   Instructions
-- Call `submit_to_agent(to_agent=WORKER_AGENT_ID, text=worker_prompt)`
+- Estimate complexity and set `task_timeout` accordingly:
+  - Simple tasks (single file edit, config change): 120–300s
+  - Medium tasks (new feature, multi-file changes): 300–600s
+  - Complex tasks (full-stack feature, large refactors): 600–1200s
+- Call `submit_to_agent(to_agent=WORKER_AGENT_ID,
+  text=worker_prompt, task_timeout=<seconds>)`
 - Save the returned task_id for monitoring
 
 Repeat for **all** stories in the current batch (same priority).

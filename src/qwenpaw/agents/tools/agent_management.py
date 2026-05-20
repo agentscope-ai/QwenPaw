@@ -308,12 +308,16 @@ def submit_agent_chat_task(
     request_payload: Dict[str, Any],
     to_agent: str,
     timeout: int,
+    task_timeout: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Submit an inter-agent chat task for background execution."""
+    payload = dict(request_payload)
+    if task_timeout is not None:
+        payload["timeout"] = task_timeout
     with create_agent_api_client(base_url) as client:
         response = client.post(
             "/agent/process/task",
-            json=request_payload,
+            json=payload,
             headers=_request_headers(to_agent),
             timeout=timeout,
         )
@@ -516,6 +520,7 @@ async def submit_to_agent(
     to_agent: str,
     text: str,
     session_id: Optional[str] = None,
+    task_timeout: Optional[float] = None,
 ) -> ToolResponse:
     """Submit a background message to another configured agent.
 
@@ -532,6 +537,9 @@ async def submit_to_agent(
         session_id (`str`, optional):
             Existing session ID to continue a previous conversation in the
             background. If not provided, a new session ID is generated.
+        task_timeout (`float`, optional):
+            Task execution timeout in seconds. Overrides the server-side
+            default stream_task_timeout for this specific task.
 
     Returns:
         `ToolResponse`:
@@ -584,6 +592,7 @@ async def submit_to_agent(
         request_payload,
         normalized_to_agent,
         int(DEFAULT_AGENT_API_TIMEOUT),
+        task_timeout,
     )
     return _tool_text_response(
         format_background_submission_text(result, final_session_id),
