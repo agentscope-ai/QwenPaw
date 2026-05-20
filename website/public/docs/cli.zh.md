@@ -171,7 +171,7 @@ qwenpaw doctor fix -y --only seed-missing-agent-json,reset-invalid-agent-json
 
 | 命令                                     | 说明                                   |
 | ---------------------------------------- | -------------------------------------- |
-| `qwenpaw models list`                    | 查看所有提供商、API Key 状态和当前模型  |
+| `qwenpaw models list`                    | 查看所有提供商、API Key 状态和当前模型 |
 | `qwenpaw models config`                  | 完整交互式配置：API Key → 选择模型     |
 | `qwenpaw models config-key [provider]`   | 单独配置某个提供商的 API Key           |
 | `qwenpaw models set-llm`                 | 只切换活跃模型（不改 API Key）         |
