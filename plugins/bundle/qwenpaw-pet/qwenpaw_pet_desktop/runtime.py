@@ -74,6 +74,19 @@ def bridge_url_path() -> Path:
     return runtime_dir() / "desktop-bridge.json"
 
 
+def spawn_claim_path() -> Path:
+    """Short-lived marker written by the plugin before spawning desktop."""
+    return runtime_dir() / "desktop-spawn-claim.json"
+
+
+def instance_lock_path() -> Path:
+    """Exclusive lock file held for the lifetime of a desktop process."""
+    return runtime_dir() / "pet-desktop.instance.lock"
+
+
+_SPAWN_CLAIM_TTL_MS = 180_000
+
+
 def read_bridge_url() -> str | None:
     data = read_json(bridge_url_path(), {})
     u = data.get("url")
@@ -93,6 +106,79 @@ def write_bridge_url(base_url: str) -> None:
             "updatedAt": int(time.time() * 1000),
         },
     )
+
+
+def write_spawn_claim(host: str, port: int) -> None:
+    """Record that the plugin is launching (or has launched) the desktop."""
+    ensure_runtime()
+    write_json(
+        spawn_claim_path(),
+        {
+            "host": host,
+            "port": port,
+            "sinceMs": int(time.time() * 1000),
+        },
+    )
+
+
+def clear_spawn_claim() -> None:
+    try:
+        spawn_claim_path().unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def spawn_claim_active() -> bool:
+    """True while a recent spawn claim exists and no stale TTL has elapsed."""
+    data = read_json(spawn_claim_path(), {})
+    since = data.get("sinceMs")
+    if not isinstance(since, int):
+        return False
+    if int(time.time() * 1000) - since > _SPAWN_CLAIM_TTL_MS:
+        clear_spawn_claim()
+        return False
+    pid = read_pid()
+    if pid and is_pid_running(pid):
+        return True
+    # Child may not have written pid / bound the port yet (Windows cold start).
+    return True
+
+
+def try_acquire_instance_lock() -> bool:
+    """Claim a single running desktop instance (cross-platform file lock)."""
+    ensure_runtime()
+    path = instance_lock_path()
+    for _attempt in range(2):
+        try:
+            fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            try:
+                os.write(fd, str(os.getpid()).encode("ascii"))
+            finally:
+                os.close(fd)
+            return True
+        except FileExistsError:
+            try:
+                old_pid = int(path.read_text(encoding="ascii").strip())
+            except (OSError, ValueError):
+                old_pid = 0
+            if old_pid and old_pid != os.getpid() and is_pid_running(old_pid):
+                return False
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                return False
+    return False
+
+
+def release_instance_lock() -> None:
+    try:
+        path = instance_lock_path()
+        if not path.exists():
+            return
+        if path.read_text(encoding="ascii").strip() == str(os.getpid()):
+            path.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def ensure_runtime() -> None:

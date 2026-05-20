@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from emitter import (
-    desktop_health,
+    desktop_status_summary,
     emit_pet_event,
     start_desktop_interactive,
     switch_pet_desktop,
@@ -240,7 +240,7 @@ def build_router() -> APIRouter:
         return {
             "ok": True,
             "plugin": "qwenpaw-pet",
-            "desktop": desktop_health(),
+            "desktop": desktop_status_summary(),
         }
 
     @router.get("/pets")

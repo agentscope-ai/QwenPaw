@@ -151,13 +151,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO)
     args = parse_args(argv)
-    pet_dir = resolve_pet_dir(args.pet_dir)
-    return run_desktop(
-        pet_dir=pet_dir,
-        host=args.host,
-        port=args.port,
-        scale=args.scale,
-    )
+    if not runtime.try_acquire_instance_lock():
+        logger.info(
+            "Another QwenPaw Pet Desktop instance is already running; exiting",
+        )
+        return 0
+    try:
+        pet_dir = resolve_pet_dir(args.pet_dir)
+        return run_desktop(
+            pet_dir=pet_dir,
+            host=args.host,
+            port=args.port,
+            scale=args.scale,
+        )
+    finally:
+        runtime.release_instance_lock()
 
 
 if __name__ == "__main__":

@@ -178,6 +178,7 @@ function PetControlPage() {
     { file: File; path: string }[]
   >([]);
   const [dragOver, setDragOver] = React.useState(false);
+  const [startingDesktop, setStartingDesktop] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const refresh = React.useCallback(async () => {
@@ -201,7 +202,27 @@ function PetControlPage() {
     void refresh();
   }, [refresh]);
 
+  const desktopReady = desktop?.ok === true;
+  const desktopBusy =
+    startingDesktop ||
+    desktop?.starting === true ||
+    (desktop?.running === true && !desktopReady);
+
+  React.useEffect(() => {
+    if (!desktopBusy || desktopReady) return;
+    const timer = window.setInterval(() => {
+      void refresh();
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [desktopBusy, desktopReady, refresh]);
+
+  React.useEffect(() => {
+    if (desktopReady) setStartingDesktop(false);
+  }, [desktopReady]);
+
   const startDesktop = async () => {
+    if (desktopBusy) return;
+    setStartingDesktop(true);
     try {
       const r = await apiPost("/qwenpaw-pet/desktop/start", {});
       const h = r?.desktop;
@@ -209,7 +230,14 @@ function PetControlPage() {
       if (r?.alreadyRunning && h?.ok) {
         message.success(detail || tr("desktopAlreadyRunning"));
       } else if (r?.launchAttempted === false && !h?.ok) {
-        message.error(detail || tr("desktopStartFailed"));
+        if (
+          typeof r?.message === "string" &&
+          r.message.toLowerCase().includes("starting")
+        ) {
+          message.warning(detail || tr("desktopStarting"));
+        } else {
+          message.error(detail || tr("desktopStartFailed"));
+        }
       } else if (h?.ok) {
         message.success(detail || tr("desktopReady"));
       } else {
@@ -218,6 +246,8 @@ function PetControlPage() {
       await refresh();
     } catch (e: any) {
       message.error(e?.message || String(e));
+    } finally {
+      setStartingDesktop(false);
     }
   };
 
@@ -442,7 +472,12 @@ function PetControlPage() {
           { key: "actions", wrap: true },
           React.createElement(
             Button,
-            { type: "primary", onClick: startDesktop },
+            {
+              type: "primary",
+              onClick: startDesktop,
+              loading: startingDesktop,
+              disabled: desktopBusy,
+            },
             tr("startDesktop"),
           ),
           React.createElement(Button, { onClick: openImport }, tr("importPet")),
