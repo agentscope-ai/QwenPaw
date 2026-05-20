@@ -78,6 +78,7 @@ class XiaoYiChannel(BaseChannel):
         bot_prefix: str = "",
         media_dir: str = "",
         workspace_dir: Path | None = None,
+        access_control_enabled: bool = False,
     ):
         super().__init__(
             process,
@@ -85,6 +86,7 @@ class XiaoYiChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            access_control_enabled=access_control_enabled,
         )
 
         self.enabled = enabled
@@ -181,6 +183,9 @@ class XiaoYiChannel(BaseChannel):
                 bot_prefix=config.get("bot_prefix", ""),
                 media_dir=config.get("media_dir", ""),
                 workspace_dir=workspace_dir,
+                access_control_enabled=bool(
+                    config.get("access_control_enabled", False),
+                ),
             )
 
         return cls(
@@ -198,6 +203,9 @@ class XiaoYiChannel(BaseChannel):
             bot_prefix=config.bot_prefix,
             media_dir=getattr(config, "media_dir", ""),
             workspace_dir=workspace_dir,
+            access_control_enabled=bool(
+                getattr(config, "access_control_enabled", False),
+            ),
         )
 
     def _validate_config(self) -> None:

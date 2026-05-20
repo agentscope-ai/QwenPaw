@@ -666,6 +666,7 @@ class QQChannel(BaseChannel):
         workspace_dir: Path | None = None,
         max_reconnect_attempts: int = 100,
         ack_message: str = "",
+        access_control_enabled: bool = False,
     ):
         super().__init__(
             process,
@@ -673,6 +674,7 @@ class QQChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            access_control_enabled=access_control_enabled,
         )
         self.enabled = enabled
         self.app_id = app_id
@@ -830,6 +832,9 @@ class QQChannel(BaseChannel):
                 100,
             ),
             ack_message=getattr(config, "ack_message", ""),
+            access_control_enabled=bool(
+                getattr(config, "access_control_enabled", False),
+            ),
         )
 
     def _resolve_send_path(

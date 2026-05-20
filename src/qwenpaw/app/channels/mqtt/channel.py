@@ -55,6 +55,7 @@ class MQTTChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        access_control_enabled: bool = False,
     ):
         super().__init__(
             process,
@@ -62,6 +63,7 @@ class MQTTChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            access_control_enabled=access_control_enabled,
         )
 
         self.enabled = enabled
@@ -163,8 +165,10 @@ class MQTTChannel(BaseChannel):
                 transport=config.get("transport", "tcp"),
                 on_reply_sent=on_reply_sent,
                 show_tool_details=show_tool_details,
-                filter_tool_messages=filter_tool_messages,
                 filter_thinking=filter_thinking,
+                access_control_enabled=bool(
+                    config.get("access_control_enabled", False),
+                ),
             )
         port = int(config.port) if config.port else 1883
 
@@ -192,6 +196,9 @@ class MQTTChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            access_control_enabled=bool(
+                getattr(config, "access_control_enabled", False),
+            ),
         )
 
     def _validate_config(self):
