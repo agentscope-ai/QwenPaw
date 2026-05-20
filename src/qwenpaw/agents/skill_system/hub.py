@@ -1674,7 +1674,8 @@ async def _fetch_bundle_from_modelscope_url(
     branch = requested_version.strip() or version_hint or "master"
     archive_url = (
         "https://www.modelscope.cn/skills/"
-        f"{owner}/{skill_name}/archive/zip/{branch}"
+        f"{quote(owner, safe='@')}/{quote(skill_name, safe='')}"
+        f"/archive/zip/{quote(branch, safe='')}"
     )
     try:
         payload = await _http_bytes_get(

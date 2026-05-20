@@ -194,8 +194,6 @@ class AliyunProvider:
         limit: int,
         page: int,
     ) -> tuple[list[MarketResult], bool, int | None]:
-        # Beyond _MAX_PAGE_WALK we'd be clamping and re-serving the
-        # last page; declare exhausted instead.
         if int(page) > _MAX_PAGE_WALK:
             return [], False, None
         max_results = max(1, min(limit, _UPSTREAM_PAGE_SIZE))

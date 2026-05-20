@@ -56,9 +56,15 @@ export function useMarketSearch(): MarketSearchState {
         const enabled = list.filter((p) => p.available).map((p) => p.key);
         setSelectedProviderKeys(new Set(enabled));
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (cancelled) return;
         setProviders([]);
+        setErrors([
+          {
+            provider: "*",
+            message: err instanceof Error ? err.message : String(err),
+          },
+        ]);
       });
     return () => {
       cancelled = true;

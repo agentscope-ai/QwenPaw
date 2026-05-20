@@ -16,12 +16,7 @@ MARKET_SEARCH_TIMEOUT_S = 15.0
 
 @runtime_checkable
 class MarketProvider(Protocol):
-    """One source of remote skills (e.g. ClawHub, ModelScope, Aliyun).
-
-    Implementations live in `qwenpaw.market.providers.<key>`. Each module
-    must expose a module-level instance named `provider` so the registry
-    can pick it up by file scan.
-    """
+    """One source of remote skills (e.g. ClawHub, ModelScope, Aliyun)."""
 
     key: str
     label: str
@@ -40,7 +35,8 @@ class MarketProvider(Protocol):
     ) -> Awaitable[tuple[list[MarketResult], bool, int | None]]:
         """Search this provider. Returns `(results, has_more, total)`.
 
-        Always async (every provider hits the network via hub's shared
-        async client). `has_more` drives the Load More button; `total` is
-        the upstream filtered count for display only (None when unknown).
+        Always async; the underlying transport is provider-specific
+        (httpx for ClawHub/ModelScope, signed SDK client for Aliyun).
+        `has_more` drives the Load More button; `total` is the upstream
+        filtered count for display only (None when unknown).
         """
