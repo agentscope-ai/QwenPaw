@@ -329,8 +329,6 @@ export default function TabbedEditor({
     const tab = tabs.find((t) => t.path === path);
     // If the user has unsaved edits, don't overwrite them
     if (tab?.dirty) return;
-    // If there's already a pending diff, don't overwrite it
-    if (pendingDiffs.has(path)) return;
     // If an undo revert write is in flight, don't create a diff
     if (undoInProgressRef.current.has(path)) return;
 
@@ -341,22 +339,35 @@ export default function TabbedEditor({
     );
     if (!affected) return;
 
-    // Capture current content as "original" before loading new version
-    const originalContent =
-      editorRef.current?.getValue() ?? tab?.content ?? "";
+    const existingDiff = pendingDiffs.get(path);
 
     workspaceApi
       .loadCodeFile(path)
       .then((res) => {
-        const modified = res.content ?? "";
-        // Only show diff when content actually changed
-        if (modified === originalContent) return;
+        const newModified = res.content ?? "";
 
-        setPendingDiffs((prev) => {
-          const next = new Map(prev);
-          next.set(path, { original: originalContent, modified });
-          return next;
-        });
+        if (existingDiff) {
+          // There is already a pending diff — update only the modified side so
+          // the user sees the cumulative change (original → latest agent edit).
+          if (newModified === existingDiff.modified) return;
+          setPendingDiffs((prev) => {
+            const cur = prev.get(path);
+            if (!cur) return prev;
+            const next = new Map(prev);
+            next.set(path, { original: cur.original, modified: newModified });
+            return next;
+          });
+        } else {
+          // First edit — capture current editor content as baseline original.
+          const originalContent =
+            editorRef.current?.getValue() ?? tab?.content ?? "";
+          if (newModified === originalContent) return;
+          setPendingDiffs((prev) => {
+            const next = new Map(prev);
+            next.set(path, { original: originalContent, modified: newModified });
+            return next;
+          });
+        }
       })
       .catch(() => undefined);
   });
