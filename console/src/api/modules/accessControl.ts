@@ -21,69 +21,69 @@ export interface ACLUserEntry {
 }
 
 export const accessControlApi = {
-  getAllACLs: () => request<Record<string, ACLData>>("/access-control"),
+  getAclAll: () => request<Record<string, ACLData>>("/access-control"),
 
-  getChannelACL: (channel: string) =>
+  getAclChannel: (channel: string) =>
     request<ACLData>(`/access-control/${channel}`),
 
-  setWhitelist: (channel: string, userIds: string[]) =>
+  setAclWhitelist: (channel: string, userIds: string[]) =>
     request(`/access-control/${channel}/whitelist`, {
       method: "PUT",
       body: JSON.stringify({ user_ids: userIds }),
     }),
 
-  addToWhitelist: (channel: string, userId: string, remark: string = "") =>
+  addAclWhitelist: (channel: string, userId: string, remark: string = "") =>
     request(`/access-control/${channel}/whitelist/add`, {
       method: "POST",
       body: JSON.stringify({ user_id: userId, remark }),
     }),
 
-  removeFromWhitelist: (channel: string, userId: string) =>
+  removeAclWhitelist: (channel: string, userId: string) =>
     request(`/access-control/${channel}/whitelist/remove`, {
       method: "POST",
       body: JSON.stringify({ user_id: userId }),
     }),
 
-  setBlacklist: (channel: string, userIds: string[]) =>
+  setAclBlacklist: (channel: string, userIds: string[]) =>
     request(`/access-control/${channel}/blacklist`, {
       method: "PUT",
       body: JSON.stringify({ user_ids: userIds }),
     }),
 
-  addToBlacklist: (channel: string, userId: string, remark: string = "") =>
+  addAclBlacklist: (channel: string, userId: string, remark: string = "") =>
     request(`/access-control/${channel}/blacklist/add`, {
       method: "POST",
       body: JSON.stringify({ user_id: userId, remark }),
     }),
 
-  removeFromBlacklist: (channel: string, userId: string) =>
+  removeAclBlacklist: (channel: string, userId: string) =>
     request(`/access-control/${channel}/blacklist/remove`, {
       method: "POST",
       body: JSON.stringify({ user_id: userId }),
     }),
 
-  updateRemark: (channel: string, userId: string, remark: string) =>
+  updateAclRemark: (channel: string, userId: string, remark: string) =>
     request(`/access-control/${channel}/remark`, {
       method: "POST",
       body: JSON.stringify({ user_id: userId, remark }),
     }),
 
-  getAllPending: () =>
+  getAclAllPending: () =>
     request<PendingEntry[]>("/access-control/pending/all"),
 
-  approvePending: (channel: string, userId: string, remark: string = "") =>
+  approveAclPending: (channel: string, userId: string, remark: string = "") =>
     request("/access-control/pending/approve", {
       method: "POST",
       body: JSON.stringify({ channel, user_id: userId, remark }),
     }),
 
-  denyPending: (channel: string, userId: string, remark: string = "") =>
+  denyAclPending: (channel: string, userId: string, remark: string = "") =>
     request("/access-control/pending/deny", {
       method: "POST",
       body: JSON.stringify({ channel, user_id: userId, remark }),
     }),
 
-  dismissPending: (channel: string, userId: string) =>
+  dismissAclPending: (channel: string, userId: string) =>
     request("/access-control/pending/dismiss", {
       method: "POST",
       body: JSON.stringify({ channel, user_id: userId }),

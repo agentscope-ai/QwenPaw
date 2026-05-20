@@ -207,7 +207,8 @@ class FeishuChannel(BaseChannel):
         require_mention: bool = False,
         domain: str = "feishu",
         streaming_enabled: bool = False,
-        access_control_enabled: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
@@ -221,7 +222,8 @@ class FeishuChannel(BaseChannel):
             deny_message=deny_message,
             require_mention=require_mention,
             streaming_enabled=streaming_enabled,
-            access_control_enabled=access_control_enabled,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self.app_id = app_id
@@ -340,8 +342,11 @@ class FeishuChannel(BaseChannel):
             streaming_enabled=bool(
                 getattr(config, "streaming_enabled", False),
             ),
-            access_control_enabled=bool(
-                getattr(config, "access_control_enabled", False),
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
             ),
         )
 

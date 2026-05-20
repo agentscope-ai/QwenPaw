@@ -87,7 +87,8 @@ class WeChatChannel(BaseChannel):
         deny_message: str = "",
         message_merge_enabled: bool = False,
         message_merge_delay_ms: int = 0,
-        access_control_enabled: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
@@ -99,7 +100,8 @@ class WeChatChannel(BaseChannel):
             group_policy=group_policy,
             allow_from=allow_from,
             deny_message=deny_message,
-            access_control_enabled=access_control_enabled,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self.bot_token = bot_token
@@ -273,8 +275,11 @@ class WeChatChannel(BaseChannel):
                 0,
             )
             or 0,
-            access_control_enabled=bool(
-                getattr(config, "access_control_enabled", False),
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
             ),
         )
 

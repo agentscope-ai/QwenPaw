@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -63,7 +63,7 @@ class PendingEntry(BaseModel):
     response_model=dict,
 )
 async def get_all_acls(request: Request):
-    """Return channels that have data OR have access_control_enabled."""
+    """Return channels that have data OR have access control enabled."""
     from ..agent_context import get_agent_for_request
 
     workspace = await get_agent_for_request(request)
@@ -72,16 +72,22 @@ async def get_all_acls(request: Request):
 
     # Collect enabled channel names
     enabled_channels: set = set()
-    cm = workspace._service_manager.services.get("channel_manager")
-    if cm:
-        for ch in cm.channels:
-            if ch.access_control_enabled:
-                enabled_channels.add(ch.channel)
+    service_manager = getattr(workspace, "_service_manager", None)
+    if service_manager:
+        cm = service_manager.services.get("channel_manager")
+        if cm:
+            for ch in cm.channels:
+                if ch.access_control_enabled:
+                    enabled_channels.add(ch.channel)
 
-    # Only return channels that are non-empty OR access_control_enabled
+    # Only return channels that are non-empty OR have access control on
     result = {}
     for key, data in raw_acls.items():
-        has_data = data.get("whitelist") or data.get("blacklist") or data.get("pending")
+        has_data = (
+            data.get("whitelist")
+            or data.get("blacklist")
+            or data.get("pending")
+        )
         if has_data or key in enabled_channels:
             result[key] = data
 
@@ -242,5 +248,8 @@ async def update_remark(
     store = await _get_store(request)
     found = store.update_remark(channel, user_id, remark)
     if not found:
-        raise HTTPException(status_code=404, detail="User not found in any list")
+        raise HTTPException(
+            status_code=404,
+            detail="User not found in any list",
+        )
     return {"status": "ok"}

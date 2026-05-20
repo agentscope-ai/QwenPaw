@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
-import { Drawer, Table, Button, Space, Tag, Empty, Tooltip, Typography } from "antd";
-import { CheckOutlined, CloseOutlined, DeleteOutlined } from "@ant-design/icons";
+import { Drawer, Table, Button, Space, Empty, Tooltip, Typography } from "antd";
+import {
+  CheckOutlined,
+  CloseOutlined,
+  DeleteOutlined,
+} from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import {
@@ -30,7 +34,7 @@ export function PendingApprovalsDrawer({
   const fetchPending = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await accessControlApi.getAllPending();
+      const data = await accessControlApi.getAclAllPending();
       setPending(data);
     } catch {
       // silent
@@ -47,7 +51,7 @@ export function PendingApprovalsDrawer({
     const key = `${entry.channel}:${entry.user_id}`;
     setActionLoading(key);
     try {
-      await accessControlApi.approvePending(entry.channel, entry.user_id);
+      await accessControlApi.approveAclPending(entry.channel, entry.user_id);
       message.success(t("channels.approveSuccess"));
       await fetchPending();
     } catch {
@@ -61,7 +65,7 @@ export function PendingApprovalsDrawer({
     const key = `${entry.channel}:${entry.user_id}`;
     setActionLoading(key);
     try {
-      await accessControlApi.denyPending(entry.channel, entry.user_id);
+      await accessControlApi.denyAclPending(entry.channel, entry.user_id);
       message.success(t("channels.denySuccess"));
       await fetchPending();
     } catch {
@@ -75,7 +79,7 @@ export function PendingApprovalsDrawer({
     const key = `${entry.channel}:${entry.user_id}`;
     setActionLoading(key);
     try {
-      await accessControlApi.dismissPending(entry.channel, entry.user_id);
+      await accessControlApi.dismissAclPending(entry.channel, entry.user_id);
       message.success(t("channels.dismissSuccess"));
       await fetchPending();
     } catch {
@@ -130,8 +134,7 @@ export function PendingApprovalsDrawer({
       dataIndex: "timestamp",
       key: "timestamp",
       width: 150,
-      render: (ts: number) =>
-        ts ? new Date(ts * 1000).toLocaleString() : "-",
+      render: (ts: number) => (ts ? new Date(ts * 1000).toLocaleString() : "-"),
     },
     {
       title: t("channels.actions"),

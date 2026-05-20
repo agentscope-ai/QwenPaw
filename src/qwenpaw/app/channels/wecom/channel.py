@@ -151,7 +151,8 @@ class WecomChannel(BaseChannel):
         deny_message: str = "",
         max_reconnect_attempts: int = -1,
         streaming_enabled: bool = False,
-        access_control_enabled: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
@@ -164,7 +165,8 @@ class WecomChannel(BaseChannel):
             allow_from=allow_from,
             deny_message=deny_message,
             streaming_enabled=streaming_enabled,
-            access_control_enabled=access_control_enabled,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self.bot_id = bot_id
@@ -283,8 +285,11 @@ class WecomChannel(BaseChannel):
             streaming_enabled=bool(
                 getattr(config, "streaming_enabled", False),
             ),
-            access_control_enabled=bool(
-                getattr(config, "access_control_enabled", False),
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
             ),
         )
 
