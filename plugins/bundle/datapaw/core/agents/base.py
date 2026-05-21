@@ -36,10 +36,7 @@ from qwenpaw.agents.react_agent import QwenPawAgent, NamesakeStrategy
 from qwenpaw.agents.skill_system.store import get_workspace_skills_dir
 
 from core.path_context import PathContext, default_artifacts_root
-from core.orchestration import (
-    DefaultGraphToHint,
-    RuntimeStateManager,
-)
+from core.orchestration import RuntimeStateManager
 
 if TYPE_CHECKING:
     from qwenpaw.agents.memory import BaseMemoryManager
@@ -240,10 +237,26 @@ class DataPawAgent(QwenPawAgent):
         # ``_module_dict["plan_notebook"]`` so state_dict / load_state_dict
         # automatically cover the entire runtime state.
         if runtime_state is None:
-            runtime_state = RuntimeStateManager(
-                graph_to_hint=DefaultGraphToHint(),
-            )
+            # DataPawPlanToHint is RuntimeStateManager's default — no need
+            # to pass graph_to_hint explicitly.
+            runtime_state = RuntimeStateManager()
         self.plan_notebook = runtime_state
+
+        # Migrate host plan-mode flags from the discarded host
+        # PlanNotebook (constructed by runner when plan.enabled=True) to
+        # our RuntimeStateManager. Without this, /plan command's
+        # _plan_tool_gate (set on host PlanNotebook before agent init)
+        # would be lost.
+        if plan_notebook is not None and plan_notebook is not runtime_state:
+            for attr in (
+                "_plan_tool_gate",
+                "_plan_awaiting_user_confirm",
+                "_plan_just_mutated",
+                "_plan_recently_finished",
+                "_plan_text_only_after_mutation",
+            ):
+                if hasattr(plan_notebook, attr):
+                    setattr(runtime_state, attr, getattr(plan_notebook, attr))
         self._configure_artifact_path_resolver(workspace_dir)
 
         self._register_plan_tools(namesake_strategy)

@@ -4,9 +4,17 @@
 Replaces AgentScope's ``DefaultPlanToHint`` with DAG-aware variants for
 ready / in-progress / stale / failed nodes. Called by
 ``RuntimeStateManager.get_current_hint()`` before each ``_reasoning`` turn.
+
+``DataPawPlanToHint`` extends ``DefaultGraphToHint`` with awareness of
+host's plan-lifecycle flags (``_plan_tool_gate``, ``_plan_just_mutated``,
+``_plan_recently_finished``) so DataPaw plays nicely with host plan mode:
+``/plan`` command, post-mutation confirmation flow, recently-finished
+guard. See datapaw-docs/qwenpaw-plan-mode-overview.md §9 for design
+context.
 """
 from __future__ import annotations
 
+import weakref
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
@@ -88,10 +96,10 @@ class DefaultGraphToHint:
         "```\n{graph}\n```\n"
         "Node(s) {stale_ids} are in STALE state — their description or "
         "upstream data has changed since last execution. Re-run them:\n"
-        "- Call `update_subtask_state(node_id, 'todo')` to reset and then "
-        "treat it like a fresh ready node.\n"
-        "- For bulk reset of a node + all its downstream, use "
-        "`reset_downstream(node_id)`."
+        "- Pick one stale node, call `update_subtask_state(node_id, "
+        "'in_progress')` and execute it.\n"
+        "- STALE nodes are scheduled identically to TODO nodes; treat "
+        "them as fresh ready nodes."
     )
 
     failed_hint: str = (
@@ -188,3 +196,96 @@ class DefaultGraphToHint:
 
     def _wrap(self, body: str) -> str:
         return f"{self.hint_prefix}{body}{self.hint_suffix}"
+
+
+class DataPawPlanToHint(DefaultGraphToHint):
+    """Flag-aware hint generator that integrates with host plan mode.
+
+    Adds three branches in front of the standard DAG state machine:
+
+    1. ``_plan_just_mutated`` (set by DataPaw plan tools after create /
+       revise): force the model to present the plan to the user and wait
+       for confirmation, regardless of the underlying graph state. Mirrors
+       host's ``at_the_beginning_after_mutation`` behavior.
+    2. ``_plan_tool_gate`` with ``current_plan is None`` (set by host's
+       ``/plan`` command): force ``create_plan`` to be the next call.
+       Mirrors host's ``no_plan`` template.
+    3. ``_plan_recently_finished`` with ``current_plan is None`` (set by
+       DataPaw's ``finish_plan``): warn the model not to revive the
+       previous plan; only create a new one if user explicitly asks.
+
+    All three flags are read off the bound notebook (``RuntimeStateManager``
+    instance). Use :meth:`bind_notebook` after construction.
+    """
+
+    just_mutated_hint: str = (
+        "The current task graph:\n```\n{graph}\n```\n"
+        "This task graph was JUST created or revised. **Do NOT execute "
+        "any node yet.**\n"
+        "- Present the graph to the user as a Markdown summary: list each "
+        "node, its dependencies, and the expected outcome.\n"
+        "- End your reply by asking the user to confirm, edit, or cancel "
+        "(e.g. \"是否开始执行？\").\n"
+        "- Do NOT call any tool except `finish_plan('abandoned', ...)` "
+        "if the user explicitly cancels.\n"
+        "The backend has hard-locked all execution tools until the user's "
+        "next message — calling them will only return errors."
+    )
+
+    no_plan_with_gate: str = (
+        "There is no active task graph yet, and the user invoked /plan. "
+        "**You MUST call `create_plan` first** to lay out a DAG of "
+        "analytical steps:\n"
+        "- Each node needs: node_id, name, description, expected_outcome, "
+        "deps (list of upstream node_ids).\n"
+        "- Order by data dependency: leaf nodes (no deps) first.\n"
+        "- After `create_plan` succeeds, present the graph to the user "
+        "and wait for confirmation. Do NOT execute any node in the same "
+        "turn."
+    )
+
+    recently_finished_guard: str = (
+        "There is no active task graph now. The previous graph was "
+        "finished or abandoned.\n"
+        "- Do NOT continue old subtasks.\n"
+        "- If the user asks to redo / modify the analysis, call "
+        "`create_plan` to build a fresh graph.\n"
+        "- Otherwise answer the user's latest message directly without "
+        "creating a graph."
+    )
+
+    def bind_notebook(self, plan_notebook) -> None:
+        """Store a weak reference to the notebook for flag access on each call."""
+        if plan_notebook is None:
+            self._bound_notebook = None
+        else:
+            self._bound_notebook = weakref.ref(plan_notebook)
+
+    def _get_notebook(self):
+        nb = getattr(self, "_bound_notebook", None)
+        if nb is None:
+            return None
+        return nb() if callable(nb) else nb
+
+    def __call__(self, graph: "TaskGraph | None") -> Optional[str]:
+        nb = self._get_notebook()
+
+        # Priority 1: just-mutated lock—present plan + wait, regardless of state.
+        if (
+            nb is not None
+            and getattr(nb, "_plan_just_mutated", False)
+            and graph is not None
+        ):
+            return self._wrap(
+                self.just_mutated_hint.format(graph=graph.to_markdown()),
+            )
+
+        # Priority 2: no graph yet, but /plan command active.
+        if graph is None and nb is not None:
+            if getattr(nb, "_plan_tool_gate", False):
+                return self._wrap(self.no_plan_with_gate)
+            if getattr(nb, "_plan_recently_finished", False):
+                return self._wrap(self.recently_finished_guard)
+
+        # Fall through to standard DAG state branches.
+        return super().__call__(graph)

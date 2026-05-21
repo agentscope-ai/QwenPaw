@@ -48,7 +48,7 @@ from pydantic import ValidationError
 
 from .artifact import ArtifactItem
 from .events import TaskEvent, TaskEventType
-from .hint import DefaultGraphToHint
+from .hint import DataPawPlanToHint, DefaultGraphToHint
 from .task_graph import FileRef, TaskGraph, TaskNode
 
 FilesInput = Optional[
@@ -126,12 +126,20 @@ class RuntimeStateManager(PlanNotebook):
     ) -> None:
         """Args:
             storage: Backing store for historical TaskGraphs. Defaults to in-memory.
-            graph_to_hint: Hint generator; defaults to :class:`DefaultGraphToHint`.
+            graph_to_hint: Hint generator; defaults to :class:`DataPawPlanToHint`
+                (which extends :class:`DefaultGraphToHint` with host plan-flag
+                awareness for ``/plan`` command, post-mutation lock, etc).
         """
+        if graph_to_hint is None:
+            graph_to_hint = DataPawPlanToHint()
         super().__init__(
-            plan_to_hint=graph_to_hint or DefaultGraphToHint(),
+            plan_to_hint=graph_to_hint,
             storage=storage or InMemoryTaskGraphStorage(),
         )
+        # Bind self so the hint generator can read _plan_* flags off this
+        # notebook on each __call__. No-op for plain DefaultGraphToHint.
+        if hasattr(graph_to_hint, "bind_notebook"):
+            graph_to_hint.bind_notebook(self)
 
         # Extension fields.
         self.artifacts: List[ArtifactItem] = []
@@ -142,6 +150,10 @@ class RuntimeStateManager(PlanNotebook):
         # Hook slots; set at runtime by AgentRunner / DataPawAgent.
         self._on_graph_change: Callable[[], Awaitable[None]] | None = None
         self._sse_event_queue: asyncio.Queue | None = None
+        # Optional per-broadcast hook: invoked on every graph-change event,
+        # given the agent_id-aware payload. Wired by DataPawAgent at init
+        # so RuntimeStateManager can stay agent_id-agnostic.
+        self._on_broadcast: Callable[[str, dict], Awaitable[None]] | None = None
 
         # Re-register ``current_plan`` so deserialization goes through
         # ``TaskGraph.model_validate``. ``register_state`` overwrites the
@@ -190,10 +202,11 @@ class RuntimeStateManager(PlanNotebook):
                     exc_info=True,
                 )
 
+        graph_snapshot: Optional[dict] = None
+        if self.current_plan is not None:
+            graph_snapshot = self.current_plan.model_dump(mode="json")
+
         if self._sse_event_queue is not None:
-            graph_snapshot: Optional[dict] = None
-            if self.current_plan is not None:
-                graph_snapshot = self.current_plan.model_dump(mode="json")
             try:
                 event = TaskEvent(
                     event_type=event_type,
@@ -205,6 +218,24 @@ class RuntimeStateManager(PlanNotebook):
                 logger.warning(
                     "RuntimeStateManager: SSE queue put failed; "
                     "dropping event",
+                    exc_info=True,
+                )
+
+        # Push to host's per-agent broadcast hub (/api/plan/stream long
+        # connection) so frontends not currently in a chat request still
+        # see DAG updates. Wired by DataPawAgent.__init__.
+        if self._on_broadcast is not None:
+            payload = {
+                "type": "datapaw_graph_update",
+                "event_type": event_type,
+                "graph_snapshot": graph_snapshot,
+            }
+            try:
+                await self._on_broadcast(event_type, payload)
+            except Exception:  # pylint: disable=broad-except
+                logger.warning(
+                    "RuntimeStateManager: _on_broadcast hook raised; "
+                    "continuing",
                     exc_info=True,
                 )
 
@@ -418,6 +449,11 @@ class RuntimeStateManager(PlanNotebook):
             graph.add_node(n)
 
         self.current_plan = graph
+        # Set host plan-mode flags so DataPawPlanToHint routes to the
+        # "just_mutated" template and the next user message clears them
+        # via runner.clear_plan_awaiting_user_confirm.
+        self._plan_just_mutated = True
+        self._plan_recently_finished = False
         await self._notify_graph_change(TaskEventType.GRAPH_CREATED)
 
         return _text(
@@ -644,6 +680,8 @@ class RuntimeStateManager(PlanNotebook):
         self.current_plan.replace_node(node_id, node)
         stale_ids = self.current_plan.mark_downstream_stale(node_id)
 
+        # Treat revise as a plan mutation: same confirm flow as create_plan.
+        self._plan_just_mutated = True
         await self._notify_graph_change(TaskEventType.GRAPH_UPDATED)
         return _text(
             f"Node '{node_id}' revised and marked STALE. "
@@ -673,6 +711,12 @@ class RuntimeStateManager(PlanNotebook):
         await self.storage.add_plan(self.current_plan)
         await self._notify_graph_change(TaskEventType.GRAPH_FINISHED)
         self.current_plan = None
+        # Set host plan-mode flags: clear the post-mutation lock and arm
+        # recently_finished so the next turn's hint warns the model not
+        # to revive the old plan.
+        self._plan_recently_finished = True
+        self._plan_awaiting_user_confirm = False
+        self._plan_just_mutated = False
         return _text(f"Task graph finished as '{state}'.")
 
     async def recover_historical_plan(  # type: ignore[override]

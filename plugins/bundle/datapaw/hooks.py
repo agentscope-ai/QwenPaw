@@ -129,7 +129,40 @@ def _DataPawAgentAdapter(*args, **kwargs):
             except Exception:  # pylint: disable=broad-except
                 pass
     notebook._sse_event_queue = queue
+
+    # Broadcast hook: pipe DAG-change events to host's per-agent SSE
+    # broadcaster (/api/plan/stream long-lived connection). Lets idle /
+    # multi-tab clients see DAG updates without a chat request.
+    agent_id = (rc.get("agent_id") if isinstance(rc, dict) else "") or ""
+    if agent_id and session_id:
+        notebook._on_broadcast = _make_broadcast_hook(
+            agent_id=agent_id,
+            session_id=session_id,
+        )
+
     return agent
+
+
+def _make_broadcast_hook(*, agent_id, session_id):
+    """Return an async hook that pushes DataPaw graph events to host's broadcaster.
+
+    Payload uses ``type="datapaw_graph_update"`` (distinct from host's
+    ``type="plan_update"``) so frontend code can route by type without
+    confusing DAG snapshots with linear plan responses.
+    """
+    async def _broadcast(event_type: str, payload: dict) -> None:
+        try:
+            from qwenpaw.plan.broadcast import broadcast_plan_update
+            broadcast_plan_update(agent_id, payload, session_id=session_id)
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "DataPaw broadcast failed for session=%s event=%s",
+                session_id,
+                event_type,
+                exc_info=True,
+            )
+
+    return _broadcast
 
 
 def _make_save_hook(*, runner, session_id, user_id, agent):

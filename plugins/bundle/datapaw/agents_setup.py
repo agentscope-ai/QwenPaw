@@ -29,6 +29,7 @@ from qwenpaw.config.config import (
     ChannelConfig,
     HeartbeatConfig,
     MCPConfig,
+    PlanConfig,
 )
 from qwenpaw.config.utils import (
     load_config,
@@ -91,6 +92,15 @@ def ensure_builtin_agents() -> None:
         channels=ChannelConfig(),
         mcp=MCPConfig(),
         heartbeat=HeartbeatConfig(),
+        # Enable host's plan mode plumbing so DataPaw inherits:
+        # - /plan command pre-create gate
+        # - post-mutation lock (_plan_awaiting_user_confirm)
+        # - clear_plan_awaiting_user_confirm at start of each user turn
+        # - broadcast_plan_update SSE channel (/api/plan/stream)
+        # DataPaw's RuntimeStateManager replaces the host PlanNotebook
+        # at agent init time but inherits all _plan_* flags via
+        # DataPawAgent.__init__'s flag migration.
+        plan=PlanConfig(enabled=True),
     )
     save_agent_config(agent_id, agent_cfg)
     _seed_persona_md_files(ws_dir, language=language)
