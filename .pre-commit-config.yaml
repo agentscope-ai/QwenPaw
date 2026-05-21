@@ -3,31 +3,31 @@ repos:
     rev: v4.3.0
     hooks:
       - id: check-ast
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/|^e2e/)'
       - id: sort-simple-yaml
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/|^e2e/)'
       - id: check-yaml
         exclude: |
           (?x)^(
               meta.yaml
           )$
       - id: check-xml
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/|^e2e/)'
       - id: check-toml
       - id: check-docstring-first
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/|^e2e/)'
       - id: check-json
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/|^e2e/)'
       - id: fix-encoding-pragma
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/|^e2e/)'
       - id: detect-private-key
       - id: trailing-whitespace
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/|^e2e/)'
   - repo: https://github.com/asottile/add-trailing-comma
     rev: v3.1.0
     hooks:
       - id: add-trailing-comma
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/|^e2e/)'
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.7.0
     hooks:
@@ -39,6 +39,7 @@ repos:
           | ^docs
           | \.html$
           | .*/skills/.*
+          | ^e2e/
           )
         args: [
           --ignore-missing-imports,
@@ -56,13 +57,13 @@ repos:
     hooks:
       - id: black
         args: [ --line-length=79 ]
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/|^e2e/)'
   - repo: https://github.com/PyCQA/flake8
     rev: 6.1.0
     hooks:
       - id: flake8
         args: [ "--extend-ignore=E203"]
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/|^e2e/)'
   - repo: https://github.com/pylint-dev/pylint
     rev: v3.0.2
     hooks:
@@ -76,6 +77,7 @@ repos:
           | \.md$
           | \.html$
           | .*/skills/.*
+          | ^e2e/
           )
         args: [
           --disable=W0511,

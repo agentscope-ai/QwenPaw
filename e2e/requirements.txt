@@ -1,0 +1,46 @@
+﻿# QwenPaw E2E 测试框架依赖
+# 安装命令：pip install -r requirements.txt
+
+# ========== 核心依赖 ==========
+
+# 测试框架
+pytest>=7.4.0
+pytest-html>=4.0.0
+# allure-pytest>=2.13.0  # 已移除，改用 pytest-html 生成中文报告
+
+# Playwright 浏览器自动化
+playwright>=1.40.0
+pytest-playwright>=0.4.0
+
+# ========== 可选增强依赖 ==========
+
+# 并行测试执行
+pytest-xdist>=3.5.0
+
+# 失败重试
+pytest-rerunfailures>=13.0
+
+# 超时控制
+pytest-timeout>=2.2.0
+
+# 测试覆盖率
+pytest-cov>=4.1.0
+
+# 测试数据生成
+faker>=21.0.0
+
+# JSON 验证
+jsonschema>=4.20.0
+
+# ========== 开发工具 ==========
+
+# 代码格式化
+black>=23.0.0
+isort>=5.12.0
+
+# 代码检查
+flake8>=7.0.0
+pylint>=3.0.0
+
+# 类型检查
+mypy>=1.8.0

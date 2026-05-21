@@ -24,14 +24,11 @@ export const SparkMarkLine = makeIcon("SparkMarkLine");
 export const SparkMarkFill = makeIcon("SparkMarkFill");
 export const SparkSearchLine = makeIcon("SparkSearchLine");
 export const SparkPlusLine = makeIcon("SparkPlusLine");
-export const SparkLockLine = makeIcon("SparkLockLine");
-export const SparkLockFill = makeIcon("SparkLockFill");
 // Language switcher icons
 export const SparkChinese02Line = makeIcon("SparkChinese02Line");
 export const SparkEnglish02Line = makeIcon("SparkEnglish02Line");
 export const SparkJapanLine = makeIcon("SparkJapanLine");
 export const SparkRusLine = makeIcon("SparkRusLine");
-export const SparkPtLine = makeIcon("SparkPtLine");
 // Theme toggle icons
 export const SparkMoonLine = makeIcon("SparkMoonLine");
 export const SparkSunLine = makeIcon("SparkSunLine");
