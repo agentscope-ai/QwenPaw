@@ -389,12 +389,16 @@ class AccessControlStore:
 
     # ── Migration ───────────────────────────────────────────────────────
 
-    def migrate_from_allow_from(
+    def import_allow_from(
         self,
         channel: str,
         allow_from: Set[str],
     ) -> None:
-        """Import legacy allow_from set into whitelist (idempotent)."""
+        """Import a set of user IDs into the whitelist for a channel.
+
+        Called by the one-time startup migration. Does NOT check whether
+        the file already existed — that guard lives in the migration caller.
+        """
         if not allow_from:
             return
         with self._lock:
@@ -404,7 +408,7 @@ class AccessControlStore:
                     acl.whitelist[uid] = ""
             self._save()
             logger.info(
-                "Migrated %d allow_from entries to whitelist for channel %s",
+                "Imported %d allow_from entries to whitelist for channel %s",
                 len(allow_from),
                 channel,
             )

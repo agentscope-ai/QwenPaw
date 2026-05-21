@@ -243,6 +243,22 @@ export function ChannelDrawer({
             >
               <Input placeholder="qwenpaw-worker" />
             </Form.Item>
+            <Form.Item
+              name="dm_disabled"
+              label={t("channels.dmDisabled")}
+              valuePropName="checked"
+              tooltip={t("channels.dmDisabledTooltip")}
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              name="group_disabled"
+              label={t("channels.groupDisabled")}
+              valuePropName="checked"
+              tooltip={t("channels.groupDisabledTooltip")}
+            >
+              <Switch />
+            </Form.Item>
           </>
         );
 

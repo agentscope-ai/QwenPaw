@@ -202,6 +202,9 @@ class BaseChannelConfig(BaseModel):
     require_mention: bool = False
     access_control_dm: bool = False
     access_control_group: bool = False
+    # Channel-level mute: completely disable DM or group messages
+    dm_disabled: bool = False
+    group_disabled: bool = False
 
 
 class IMessageChannelConfig(BaseChannelConfig):
@@ -1927,6 +1930,91 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
                     pass
             except OSError:
                 pass
+
+        # One-shot migration: convert legacy dm_policy/group_policy/allow_from
+        # to new access_control_dm/access_control_group fields and migrate
+        # allow_from users into access_control.json whitelist.
+        # For dm_policy/group_policy="disabled", preserve as dm_disabled/
+        # group_disabled boolean (channel-level mute, distinct from ACL).
+        if isinstance(channels, dict):
+            _acl_migrated = False
+            for _ch_key, _ch_cfg in channels.items():
+                if not isinstance(_ch_cfg, dict):
+                    continue
+                # Handle dm_policy
+                _dm_policy = _ch_cfg.get("dm_policy")
+                if _dm_policy is not None:
+                    if (
+                        _dm_policy == "allowlist"
+                        and "access_control_dm" not in _ch_cfg
+                    ):
+                        _ch_cfg["access_control_dm"] = True
+                    elif (
+                        _dm_policy == "disabled"
+                        and "dm_disabled" not in _ch_cfg
+                    ):
+                        _ch_cfg["dm_disabled"] = True
+                    del _ch_cfg["dm_policy"]
+                    _acl_migrated = True
+                # Handle group_policy
+                _group_policy = _ch_cfg.get("group_policy")
+                if _group_policy is not None:
+                    if (
+                        _group_policy == "allowlist"
+                        and "access_control_group" not in _ch_cfg
+                    ):
+                        _ch_cfg["access_control_group"] = True
+                    elif (
+                        _group_policy == "disabled"
+                        and "group_disabled" not in _ch_cfg
+                    ):
+                        _ch_cfg["group_disabled"] = True
+                    del _ch_cfg["group_policy"]
+                    _acl_migrated = True
+                # Migrate allow_from into access_control.json
+                _allow_from = _ch_cfg.get("allow_from")
+                if _allow_from and isinstance(_allow_from, list):
+                    try:
+                        from ..app.channels.access_control import (
+                            get_access_control_store,
+                        )
+
+                        _store = get_access_control_store(workspace_dir)
+                        _store.import_allow_from(_ch_key, set(_allow_from))
+                    except Exception:
+                        pass
+                    del _ch_cfg["allow_from"]
+                    _acl_migrated = True
+                # Also remove group_allow_from (matrix legacy)
+                if "group_allow_from" in _ch_cfg:
+                    # Import group_allow_from into whitelist too
+                    _grp_allow = _ch_cfg["group_allow_from"]
+                    if _grp_allow and isinstance(_grp_allow, list):
+                        try:
+                            from ..app.channels.access_control import (
+                                get_access_control_store,
+                            )
+
+                            _store = get_access_control_store(workspace_dir)
+                            _store.import_allow_from(
+                                _ch_key, set(_grp_allow)
+                            )
+                        except Exception:
+                            pass
+                    del _ch_cfg["group_allow_from"]
+                    _acl_migrated = True
+            if _acl_migrated:
+                try:
+                    with open(
+                        agent_config_path, "w", encoding="utf-8"
+                    ) as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+                    try:
+                        current_mtime = agent_config_path.stat().st_mtime
+                    except OSError:
+                        pass
+                except OSError:
+                    pass
 
         # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
         # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json

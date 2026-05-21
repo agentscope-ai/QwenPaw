@@ -144,15 +144,9 @@ class BaseChannel(ABC):
         self.allow_from = set(allow_from or [])
         self.deny_message = deny_message or ""
         self.require_mention = require_mention
-        # Migrate legacy policy fields
-        if dm_policy == "allowlist":
-            access_control_dm = True
-        if group_policy == "allowlist":
-            access_control_group = True
         self.access_control_dm = access_control_dm
         self.access_control_group = access_control_group
         self._language = "zh"
-        self._pending_allow_from_migration = bool(self.allow_from)
         self._enqueue: EnqueueCallback = None
         self._workspace = None
         cfg = load_config()
@@ -475,17 +469,6 @@ class BaseChannel(ABC):
         """
         self._workspace = workspace
         self._command_registry = command_registry
-
-        # Run deferred allow_from migration now that workspace is available
-        if (
-            getattr(self, "_pending_allow_from_migration", False)
-            and self.allow_from
-        ):
-            self._get_acl_store().migrate_from_allow_from(
-                self.channel,
-                self.allow_from,
-            )
-            self._pending_allow_from_migration = False
 
     def _extract_chat_name(self, payload: Any) -> str:
         """Extract chat name from payload for chat creation.
