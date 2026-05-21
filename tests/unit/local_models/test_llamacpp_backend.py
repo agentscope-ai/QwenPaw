@@ -919,6 +919,40 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
     ]
 
 
+def test_build_model_info_sets_max_input_length_from_max_context_length() -> (
+    None
+):
+    info = LlamaCppBackend._build_model_info(
+        model_name="test-model",
+        resolved_mmproj_path=None,
+        max_context_length=65536,
+    )
+    assert info.max_input_length == 65536
+    assert info.id == "test-model"
+    assert info.supports_multimodal is False
+
+
+def test_build_model_info_uses_default_max_input_length_without_context() -> (
+    None
+):
+    info = LlamaCppBackend._build_model_info(
+        model_name="test-model",
+        resolved_mmproj_path=None,
+    )
+    assert info.max_input_length == 131072
+
+
+def test_build_model_info_sets_multimodal_flags_with_mmproj() -> None:
+    info = LlamaCppBackend._build_model_info(
+        model_name="vision-model",
+        resolved_mmproj_path=Path("/fake/mmproj.gguf"),
+        max_context_length=32768,
+    )
+    assert info.supports_multimodal is True
+    assert info.supports_image is True
+    assert info.max_input_length == 32768
+
+
 def test_resolve_model_file_returns_single_model_path(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1155,6 +1189,69 @@ async def test_setup_server_uses_requested_port(
             },
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_setup_server_passes_ctx_size_when_max_context_length_set(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    model_path = tmp_path / "demo.gguf"
+    model_path.write_text("gguf")
+    start_calls: list[tuple[list[str], dict[str, object]]] = []
+
+    class _FakeAsyncStdout:
+        async def readline(self) -> bytes:
+            return b""
+
+    class _FakeStartedProcess:
+        def __init__(self) -> None:
+            self.pid = 9999
+            self.stdout = _FakeAsyncStdout()
+            self.returncode: int | None = None
+
+        async def wait(self) -> int:
+            self.returncode = 0
+            return 0
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    async def fake_start_command_async(command, **kwargs):
+        start_calls.append((list(command), kwargs))
+        return _FakeStartedProcess()
+
+    async def fake_server_ready(*_args, **_kwargs) -> bool:
+        return True
+
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    monkeypatch.setattr(
+        downloader_module,
+        "start_command_async",
+        fake_start_command_async,
+    )
+    monkeypatch.setattr(downloader, "server_ready", fake_server_ready)
+
+    setup_result = await downloader.setup_server(
+        model_path,
+        "demo-model",
+        max_context_length=131072,
+    )
+    await asyncio.sleep(0)
+
+    assert setup_result.model_info.max_input_length == 131072
+    command_args = start_calls[0][0]
+    assert "--ctx-size" in command_args
+    ctx_size_idx = command_args.index("--ctx-size")
+    assert command_args[ctx_size_idx + 1] == "131072"
 
 
 def test_resolve_server_port_rejects_unavailable_port(

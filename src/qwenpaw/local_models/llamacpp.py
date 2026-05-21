@@ -241,6 +241,7 @@ class LlamaCppBackend:
         model_info = self._build_model_info(
             model_name=model_name,
             resolved_mmproj_path=resolved_mmproj_path,
+            max_context_length=max_context_length,
         )
 
         if (
@@ -494,17 +495,20 @@ class LlamaCppBackend:
     def _build_model_info(
         model_name: str,
         resolved_mmproj_path: Path | None,
+        max_context_length: int | None = None,
     ) -> ModelInfo:
         supports_multimodal = resolved_mmproj_path is not None
-        return ModelInfo(
-            id=model_name,
-            name=model_name,
-            supports_multimodal=supports_multimodal,
-            # TODO: add more detailed capability flags
-            supports_image=supports_multimodal,
-            supports_video=False,
-            probe_source="probed",
-        )
+        info_kwargs: dict = {
+            "id": model_name,
+            "name": model_name,
+            "supports_multimodal": supports_multimodal,
+            "supports_image": supports_multimodal,
+            "supports_video": False,
+            "probe_source": "probed",
+        }
+        if max_context_length is not None:
+            info_kwargs["max_input_length"] = max_context_length
+        return ModelInfo(**info_kwargs)
 
     def _finalize_download_result(
         self,

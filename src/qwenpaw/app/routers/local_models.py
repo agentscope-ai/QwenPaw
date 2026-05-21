@@ -465,6 +465,13 @@ async def configure_local_model_settings(
     """Configure local model settings."""
     if payload.max_context_length is not None:
         await local_manager.set_max_context_length(payload.max_context_length)
+        # Sync max_input_length on the provider's model info so context
+        # compaction uses the correct threshold without a server restart.
+        provider = provider_manager.get_provider("qwenpaw-local")
+        if provider:
+            for model in provider.extra_models:
+                model.max_input_length = payload.max_context_length
+            provider_manager.update_provider("qwenpaw-local", {})
 
     if "port" in payload.model_fields_set:
         await local_manager.set_port(payload.port)
