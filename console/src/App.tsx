@@ -33,6 +33,7 @@ const LoginPage = lazyImportWithRetry("./pages/Login/index");
 import { authApi } from "./api/modules/auth";
 import { languageApi } from "./api/modules/language";
 import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
+import { QWENPAW_BRAND_COLOR } from "./constants/colors";
 import BackendReadyGate from "./tauri/BackendReadyGate";
 import "./styles/layout.css";
 import "./styles/form-override.css";
@@ -183,7 +184,7 @@ function AppInner() {
             ? antdTheme.darkAlgorithm
             : antdTheme.defaultAlgorithm,
           token: {
-            colorPrimary: "#FF7F16",
+            colorPrimary: QWENPAW_BRAND_COLOR,
           },
         }}
       >

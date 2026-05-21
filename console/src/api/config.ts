@@ -62,12 +62,12 @@ export async function restartBackend(): Promise<string> {
     return getApiBaseUrl();
   }
 
-  initRuntimeApiBaseUrlPromise = null;
-  runtimeApiBaseUrl = "";
-
   if (configuredBaseUrl) {
     return configuredBaseUrl;
   }
+
+  initRuntimeApiBaseUrlPromise = null;
+  runtimeApiBaseUrl = "";
 
   const port = await invoke<number>("restart_backend");
   runtimeApiBaseUrl = `http://127.0.0.1:${port}`;
