@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import json
 import logging
 from typing import Any
 
@@ -220,9 +221,10 @@ def setup_runner_hooks(_runner_module=None) -> None:
 def _extract_datapaw_metadata(metadata: Any) -> dict:
     """Extract DataPaw routing metadata from a runtime message.
 
-    Mirrors fork's ``ConsoleChannel._extract_datapaw_metadata``: pulls out
-    only ``graph_id`` / ``node_id`` keys, accepting both ``{...}`` and
-    ``{"metadata": {...}}`` shapes for backward compatibility.
+    Pulls out only ``graph_id`` / ``node_id`` keys, accepting both
+    ``{...}`` and ``{"metadata": {...}}`` shapes. Used by
+    ``_maybe_inject_node_metadata`` and exposed as a static method on
+    ``ConsoleChannel`` for parity with fork's in-tree implementation.
     """
     if not isinstance(metadata, dict):
         return {}
@@ -235,9 +237,56 @@ def _extract_datapaw_metadata(metadata: Any) -> dict:
     }
 
 
+def _maybe_inject_node_metadata(
+    frame: str,
+    store: dict,
+) -> str:
+    """Parse one SSE frame and inject DataPaw node metadata when applicable.
+
+    Two-stage logic mirroring fork's in-tree ConsoleChannel.stream_one:
+
+    - ``message`` 帧自带 ``metadata.{graph_id, node_id}`` → 抽出存进
+      ``store[msg_id]``，本帧原样透传
+    - ``content`` 帧用同 ``msg_id`` 反查 ``store``，命中则把 metadata
+      塞进 payload、重新序列化为新帧；前端按该 metadata 把流式 token 归
+      到对应 DAG 节点（任务面板抽屉折叠展开）
+
+    Other frames pass through unchanged. Failure to parse a frame (or any
+    unexpected shape) silently returns the original frame — this layer
+    must never break the SSE stream.
+
+    Plugin 形态在帧字符串层做 parse + serialize 是被迫之举：host 目前没
+    暴露 payload mutator extension point。详见
+    ``datapaw-docs/qwenpaw-plugin-api-asks.md`` 需求 1。
+    """
+    if not frame.startswith("data: "):
+        return frame
+    try:
+        payload = json.loads(frame[len("data: "):].rstrip("\n"))
+    except (json.JSONDecodeError, ValueError):
+        return frame
+    if not isinstance(payload, dict):
+        return frame
+
+    obj = payload.get("object")
+    if obj == "message":
+        msg_id = payload.get("id")
+        dp = _extract_datapaw_metadata(payload.get("metadata"))
+        if msg_id and dp:
+            store[str(msg_id)] = dp
+        return frame
+
+    if obj == "content":
+        msg_id = payload.get("msg_id")
+        if msg_id is not None and str(msg_id) in store:
+            payload["metadata"] = store[str(msg_id)]
+            return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    return frame
+
+
 def _format_task_event_as_sse(event: Any) -> str:
     """Turn a DataPaw TaskEvent (or fallback dict) into an SSE ``data:`` frame."""
-    import json
     if hasattr(event, "model_dump_json"):
         body = event.model_dump_json()
     else:
@@ -269,8 +318,15 @@ def _wrap_stream_one(orig_stream_one):
             if isinstance(payload, dict) and "content_parts" in payload
             else payload
         )
+        # Cross-frame node-metadata cache (msg_id -> {graph_id, node_id}).
+        # message 帧定义 metadata，后续同 msg_id 的 content 帧借用——
+        # 前端按 metadata 把流式 token 归到对应 DAG 节点。这部分逻辑在
+        # fork 形态内嵌在 ConsoleChannel.stream_one 里，plugin 形态只能
+        # 在帧字符串后处理；详见 qwenpaw-plugin-api-asks.md 需求 1。
+        metadata_by_msg_id: dict = {}
 
         async for frame in orig_stream_one(self, payload):
+            frame = _maybe_inject_node_metadata(frame, metadata_by_msg_id)
             yield frame
             if request_ref is None:
                 continue
