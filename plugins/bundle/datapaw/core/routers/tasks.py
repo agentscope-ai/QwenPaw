@@ -88,16 +88,20 @@ async def _get_workspace_for_agent(request: Request, agent_id: Optional[str]):
 
 
 def _extract_plan_notebook(state: dict) -> dict:
-    """Pull the runtime_state dict out of session state (may be absent).
+    """Pull the plan_notebook dict out of session state (may be absent).
 
-    ``DataPawAgent.state_dict()`` renames the StateModule key
-    ``plan_notebook`` → ``runtime_state`` on the way to disk (see
-    ``agents/base.py``).
+    ``DataPawAgent`` persists its ``RuntimeStateManager`` under the
+    StateModule key ``plan_notebook`` (see ``agents/base.py`` comments
+    around ``state_dict`` / ``load_state_dict``). The legacy ``runtime_state``
+    key is still tolerated so PUT writes that haven't been consumed by
+    the agent yet remain visible to GETs.
     """
     agent_state = state.get("agent") if isinstance(state, dict) else None
     if not isinstance(agent_state, dict):
         return {}
-    pn = agent_state.get("runtime_state")
+    pn = agent_state.get("plan_notebook")
+    if not isinstance(pn, dict):
+        pn = agent_state.get("runtime_state")
     return pn if isinstance(pn, dict) else {}
 
 
@@ -158,8 +162,8 @@ def _archive_current_plan_to_pn(pn: dict, reason: str) -> Optional[str]:
     return old.id
 
 
-def _ensure_runtime_state_keys(pn: dict) -> None:
-    """Make sure runtime_state has all keys ``load_state_dict`` expects.
+def _ensure_plan_notebook_keys(pn: dict) -> None:
+    """Make sure plan_notebook has all keys ``load_state_dict`` expects.
 
     DataPawAgent persists via StateModule, and ``load_state_dict(strict=True)``
     requires every key in ``_module_dict`` (storage) and ``_attribute_dict``
@@ -790,10 +794,12 @@ async def put_sop(
 
     state = await session.get_session_state_dict(session_id, user_id=user_id)
     agent_block = state.setdefault("agent", {})
-    pn = agent_block.get("runtime_state")
+    pn = agent_block.get("plan_notebook")
+    if not isinstance(pn, dict):
+        pn = agent_block.get("runtime_state")
     if not isinstance(pn, dict):
         pn = {}
-    _ensure_runtime_state_keys(pn)
+    _ensure_plan_notebook_keys(pn)
 
     replaced_id = _archive_current_plan_to_pn(
         pn,
@@ -823,7 +829,7 @@ async def put_sop(
 
     await session.update_session_state(
         session_id=session_id,
-        key="agent.runtime_state",
+        key="agent.plan_notebook",
         value=pn,
         user_id=user_id,
     )
@@ -859,10 +865,12 @@ async def put_dag(
 
     state = await session.get_session_state_dict(session_id, user_id=user_id)
     agent_block = state.setdefault("agent", {})
-    pn = agent_block.get("runtime_state")
+    pn = agent_block.get("plan_notebook")
+    if not isinstance(pn, dict):
+        pn = agent_block.get("runtime_state")
     if not isinstance(pn, dict):
         pn = {}
-    _ensure_runtime_state_keys(pn)
+    _ensure_plan_notebook_keys(pn)
 
     current = pn.get("current_plan")
     if not isinstance(current, dict):
@@ -899,7 +907,7 @@ async def put_dag(
 
     await session.update_session_state(
         session_id=session_id,
-        key="agent.runtime_state",
+        key="agent.plan_notebook",
         value=pn,
         user_id=user_id,
     )
