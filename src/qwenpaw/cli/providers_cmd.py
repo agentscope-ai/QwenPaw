@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Optional
+from typing import Any, Optional
 
 import click
 
@@ -14,6 +14,7 @@ from agentscope_runtime.engine.schemas.exception import (
 
 from ..providers.provider import ModelInfo, Provider, ProviderInfo
 from ..providers.provider_manager import ProviderManager
+from .http import print_json
 from .utils import prompt_choice
 
 
@@ -116,6 +117,113 @@ def _all_provider_objects(manager: ProviderManager) -> list[Provider]:
         if provider is not None:
             objs.append(provider)
     return objs
+
+
+def _build_provider_entry(defn: Provider) -> dict[str, Any]:
+    extra = list(defn.extra_models)
+    extra_ids = {m.id for m in extra}
+    all_models = list(defn.models) + extra
+    return {
+        "id": defn.id,
+        "name": defn.name,
+        "configured": _is_configured(defn),
+        "is_custom": defn.is_custom,
+        "is_local": defn.is_local,
+        "base_url": defn.base_url or "",
+        "api_key": _mask_api_key(defn.api_key) or "",
+        "api_key_prefix": defn.api_key_prefix or "",
+        "models": [
+            {
+                "id": model.id,
+                "name": model.name,
+                "user_added": model.id in extra_ids,
+            }
+            for model in all_models
+        ],
+    }
+
+
+def _build_models_list_payload(
+    manager: ProviderManager,
+    *,
+    configured_only: bool,
+) -> dict[str, Any]:
+    providers = _all_provider_objects(manager)
+    if configured_only:
+        providers = [
+            provider for provider in providers if _is_configured(provider)
+        ]
+
+    llm = manager.get_active_model()
+    active_model = None
+    if llm and llm.provider_id and llm.model:
+        active_model = {
+            "provider_id": llm.provider_id,
+            "model": llm.model,
+        }
+
+    return {
+        "providers": [
+            _build_provider_entry(provider) for provider in providers
+        ],
+        "active_model": active_model,
+    }
+
+
+def _render_models_list_text(payload: dict[str, Any]) -> None:
+    click.echo("\n=== Providers ===")
+    for provider in payload["providers"]:
+        tag = (
+            " [custom]"
+            if provider["is_custom"]
+            else " [local]"
+            if provider["is_local"]
+            else ""
+        )
+        click.echo(f"\n{'─' * 44}")
+        click.echo(f"  {provider['name']} ({provider['id']}){tag}")
+        click.echo(f"{'─' * 44}")
+
+        if provider["is_local"]:
+            if provider["models"]:
+                click.echo(f"  {'models':16s}:")
+                for model in provider["models"]:
+                    click.echo(f"    - {model['name']}")
+            else:
+                click.echo("  No models downloaded.")
+                click.echo("  Use 'qwenpaw models download' to add models.")
+            continue
+
+        click.echo(
+            f"  {'base_url':16s}: {provider['base_url'] or '(not set)'}",
+        )
+        click.echo(
+            f"  {'api_key':16s}: {provider['api_key'] or '(not set)'}",
+        )
+        if provider["api_key_prefix"]:
+            click.echo(
+                f"  {'api_key_prefix':16s}: {provider['api_key_prefix']}",
+            )
+
+        if provider["models"]:
+            click.echo(f"  {'models':16s}:")
+            for model in provider["models"]:
+                label = " [user-added]" if model["user_added"] else ""
+                click.echo(f"    - {model['name']} ({model['id']}){label}")
+
+    click.echo(f"\n{'═' * 44}")
+    click.echo("  Active Model Slot")
+    click.echo(f"{'═' * 44}")
+
+    active_model = payload["active_model"]
+    if active_model:
+        click.echo(
+            f"  {'LLM':16s}: "
+            f"{active_model['provider_id']} / {active_model['model']}",
+        )
+    else:
+        click.echo(f"  {'LLM':16s}: (not configured)")
+    click.echo()
 
 
 def _get_ollama_host() -> str:
@@ -479,64 +587,28 @@ def models_group() -> None:
 
 
 @models_group.command("list")
-def list_cmd() -> None:
+@click.option(
+    "--json",
+    "output_json",
+    is_flag=True,
+    help="Output the models list as JSON.",
+)
+@click.option(
+    "--configured-only",
+    is_flag=True,
+    help="Only show configured providers.",
+)
+def list_cmd(output_json: bool, configured_only: bool) -> None:
     """Show all providers and their current configuration."""
     manager = _manager()
-
-    click.echo("\n=== Providers ===")
-    for defn in _all_provider_objects(manager):
-        cur_url, cur_key = defn.base_url, defn.api_key
-
-        tag = (
-            " [custom]"
-            if defn.is_custom
-            else " [local]"
-            if defn.is_local
-            else ""
-        )
-        click.echo(f"\n{'─' * 44}")
-        click.echo(f"  {defn.name} ({defn.id}){tag}")
-        click.echo(f"{'─' * 44}")
-
-        if defn.is_local:
-            all_models = list(defn.models)
-            if all_models:
-                click.echo(f"  {'models':16s}:")
-                for m in all_models:
-                    click.echo(f"    - {m.name}")
-            else:
-                click.echo("  No models downloaded.")
-                click.echo("  Use 'qwenpaw models download' to add models.")
-        else:
-            click.echo(f"  {'base_url':16s}: {cur_url or '(not set)'}")
-            click.echo(
-                f"  {'api_key':16s}: "
-                f"{_mask_api_key(cur_key) or '(not set)'}",
-            )
-            if defn.api_key_prefix:
-                click.echo(
-                    f"  {'api_key_prefix':16s}: {defn.api_key_prefix}",
-                )
-
-            extra = list(defn.extra_models)
-            all_models = list(defn.models) + extra
-            if all_models:
-                click.echo(f"  {'models':16s}:")
-                extra_ids = {m.id for m in extra}
-                for m in all_models:
-                    label = " [user-added]" if m.id in extra_ids else ""
-                    click.echo(f"    - {m.name} ({m.id}){label}")
-
-    click.echo(f"\n{'═' * 44}")
-    click.echo("  Active Model Slot")
-    click.echo(f"{'═' * 44}")
-
-    llm = manager.get_active_model()
-    if llm and llm.provider_id and llm.model:
-        click.echo(f"  {'LLM':16s}: {llm.provider_id} / {llm.model}")
-    else:
-        click.echo(f"  {'LLM':16s}: (not configured)")
-    click.echo()
+    payload = _build_models_list_payload(
+        manager,
+        configured_only=configured_only,
+    )
+    if output_json:
+        print_json(payload)
+        return
+    _render_models_list_text(payload)
 
 
 @models_group.command("config")
