@@ -68,9 +68,8 @@ class DataPawPlugin:
         logger.info("DataPaw plugin startup complete")
 
     async def _on_shutdown(self):
-        # Plugin form has no sandbox subsystem to clean up; PluginLoader
-        # uninstall path triggers profile/workspace cleanup. Nothing to do
-        # at lifespan-end teardown beyond logging.
+        # PluginLoader uninstall handles profile/workspace cleanup; nothing
+        # to do at lifespan-end teardown beyond logging.
         logger.info("DataPaw plugin shutting down")
 
 

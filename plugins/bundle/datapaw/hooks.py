@@ -166,11 +166,7 @@ def _make_broadcast_hook(*, agent_id, session_id):
 
 
 def _make_save_hook(*, runner, session_id, user_id, agent):
-    """Return an async callable suitable for ``RuntimeStateManager._on_graph_change``.
-
-    Mirrors the closure shape from fork's ``runner.py`` (DataPawAgent
-    integration block in ``query_handler``).
-    """
+    """Return an async callable suitable for ``RuntimeStateManager._on_graph_change``."""
     async def _datapaw_save_hook():
         try:
             await runner.session.save_session_state(
@@ -257,7 +253,7 @@ def _extract_datapaw_metadata(metadata: Any) -> dict:
     Pulls out only ``graph_id`` / ``node_id`` keys, accepting both
     ``{...}`` and ``{"metadata": {...}}`` shapes. Used by
     ``_maybe_inject_node_metadata`` and exposed as a static method on
-    ``ConsoleChannel`` for parity with fork's in-tree implementation.
+    ``ConsoleChannel`` so other code can reuse it.
     """
     if not isinstance(metadata, dict):
         return {}
@@ -276,21 +272,19 @@ def _maybe_inject_node_metadata(
 ) -> str:
     """Parse one SSE frame and inject DataPaw node metadata when applicable.
 
-    Two-stage logic mirroring fork's in-tree ConsoleChannel.stream_one:
+    Two-stage logic:
 
-    - ``message`` 帧自带 ``metadata.{graph_id, node_id}`` → 抽出存进
-      ``store[msg_id]``，本帧原样透传
-    - ``content`` 帧用同 ``msg_id`` 反查 ``store``，命中则把 metadata
-      塞进 payload、重新序列化为新帧；前端按该 metadata 把流式 token 归
-      到对应 DAG 节点（任务面板抽屉折叠展开）
+    - ``message`` frames carry ``metadata.{graph_id, node_id}`` of their
+      own — extract and store them under ``store[msg_id]``, pass the
+      frame through unchanged.
+    - ``content`` frames look up the same ``msg_id`` in ``store``; on a
+      hit, inject the metadata into the payload and re-serialize the
+      frame. The frontend uses the metadata to route streamed tokens to
+      the matching DAG node (task panel drawer fold/unfold).
 
     Other frames pass through unchanged. Failure to parse a frame (or any
     unexpected shape) silently returns the original frame — this layer
     must never break the SSE stream.
-
-    Plugin 形态在帧字符串层做 parse + serialize 是被迫之举：host 目前没
-    暴露 payload mutator extension point。详见
-    ``datapaw-docs/qwenpaw-plugin-api-asks.md`` 需求 1。
     """
     if not frame.startswith("data: "):
         return frame
@@ -351,11 +345,8 @@ def _wrap_stream_one(orig_stream_one):
             if isinstance(payload, dict) and "content_parts" in payload
             else payload
         )
-        # Cross-frame node-metadata cache (msg_id -> {graph_id, node_id}).
-        # message 帧定义 metadata，后续同 msg_id 的 content 帧借用——
-        # 前端按 metadata 把流式 token 归到对应 DAG 节点。这部分逻辑在
-        # fork 形态内嵌在 ConsoleChannel.stream_one 里，plugin 形态只能
-        # 在帧字符串后处理；详见 qwenpaw-plugin-api-asks.md 需求 1。
+        # msg_id -> {graph_id, node_id}, populated from message frames
+        # and reused by later content frames with the same msg_id.
         metadata_by_msg_id: dict = {}
 
         async for frame in orig_stream_one(self, payload):

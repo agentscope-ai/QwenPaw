@@ -33,9 +33,7 @@ Plus two host-side root helpers:
   off / not attached (``workspace_dir/artifacts`` or
   ``WORKING_DIR/workspaces/{agent_id}/artifacts``).
 - ``shared_artifacts_root``: same fallback chain with an optional
-  ``mount_override``. In the legacy fork the sandbox on/off paths shared
-  this root; the plugin form has removed the sandbox subsystem so
-  ``mount_override`` is now mostly used for explicit overrides.
+  ``mount_override`` for callers that need to point elsewhere.
 """
 from __future__ import annotations
 

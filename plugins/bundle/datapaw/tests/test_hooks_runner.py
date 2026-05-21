@@ -74,17 +74,18 @@ def test_factory_accepts_main_runner_kwargs_without_typeerror():
         plan_notebook=MagicMock(),
     )
 
-    # If DataPawAgent.__init__ chains super() with fork-only kwargs (e.g.,
-    # enable_memory_manager), this raises TypeError. Acceptable: any
-    # exception that isn't a TypeError on the signature mismatch (e.g.,
-    # downstream init failure due to mocks isn't the bug under test).
+    # If DataPawAgent.__init__ chains super() with kwargs that the host's
+    # QwenPawAgent doesn't accept (e.g., enable_memory_manager), this raises
+    # TypeError. Acceptable: any exception that isn't a TypeError on the
+    # signature mismatch (e.g., downstream init failure due to mocks isn't
+    # the bug under test).
     try:
         factory(**host_kwargs)
     except TypeError as e:
         msg = str(e)
         if "enable_memory_manager" in msg or "got an unexpected keyword argument" in msg:
             raise AssertionError(
-                f"Adapter passes fork-only kwarg(s) to main's QwenPawAgent: {msg}"
+                f"Adapter passes unknown kwarg(s) to host's QwenPawAgent: {msg}"
             ) from e
     except Exception:
         # Other failures (e.g. agentscope wiring with MagicMocks) are fine —

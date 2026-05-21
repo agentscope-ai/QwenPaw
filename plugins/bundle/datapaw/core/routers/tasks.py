@@ -332,8 +332,6 @@ def _build_artifact_path_context(
         )
 
     workspace_dir = _get_workspace_dir(workspace, agent_config)
-    # Plugin form has no sandbox subsystem, so mount_override is always
-    # None and shared_artifacts_root degrades to default_artifacts_root.
     base_dir = shared_artifacts_root(
         agent_id=agent_id,
         workspace_dir=workspace_dir,

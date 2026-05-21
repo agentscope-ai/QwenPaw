@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""DataPawAgent: DataPaw's MasterAgent implementation (plugin form).
+"""DataPawAgent: DataPaw's MasterAgent implementation.
 
 Inherits the full ``QwenPawAgent`` capability stack (ReAct loop, tools,
 MCP, ToolGuard, command/skill/memory) and at post-init injects a
@@ -10,14 +10,11 @@ Sole entry point: ``reply()``. External state changes (frontend edits,
 SOP load, interrupt recovery) flow in via the session file and are
 surfaced through ``_pending_edits``.
 
-Plugin-form differences vs. the fork:
-- No sandbox subsystem; ``DataPawConfig.sandbox``, the sandbox pool and
-  the sandbox-backed shell tools are removed. Artifacts land in
-  ``default_artifacts_root`` instead.
-- System prompt is assembled in three layers: host's
-  ``AGENTS.md`` / ``SOUL.md`` / ``PROFILE.md`` (via
-  ``super()._build_sys_prompt()``), then plugin's ``prompts/MASTER.md``,
-  then a host-workspace environment hint.
+Artifacts land in ``default_artifacts_root``. The system prompt is
+assembled in three layers: host's ``AGENTS.md`` / ``SOUL.md`` /
+``PROFILE.md`` (via ``super()._build_sys_prompt()``), then this
+package's ``prompts/MASTER.md``, then a host-workspace environment
+hint.
 """
 from __future__ import annotations
 
@@ -80,7 +77,7 @@ def _get_in_progress_node_id(plan: Any) -> Optional[str]:
 
 @dataclass
 class DataPawConfig:
-    """DataPawAgent-specific config (plugin form, slimmed down)."""
+    """DataPawAgent-specific config."""
 
     prompt_dir: Path = field(default_factory=lambda: PLUGIN_PROMPTS_DIR)
     """Prompt template directory; defaults to the plugin's ``prompts/``."""
@@ -167,12 +164,12 @@ def format_pending_edits(edits: list[dict]) -> str:
 
 
 class DataPawAgent(QwenPawAgent):
-    """DataPaw MasterAgent (plugin form).
+    """DataPaw MasterAgent.
 
     Inheritance: ``QwenPawAgent → ToolGuardMixin → ReActAgent → ...``.
 
     Overridden methods (kept minimal):
-    - ``_build_sys_prompt``: append plugin MASTER.md and the env hint
+    - ``_build_sys_prompt``: append DataPaw's MASTER.md and the env hint
       on top of the host's three-piece prompt set.
     - ``reply``: consume ``_pending_edits``, then delegate to super.
     - ``_reasoning`` / ``_acting`` / ``_summarizing``: append to the
@@ -285,7 +282,7 @@ class DataPawAgent(QwenPawAgent):
             return None
 
     def _artifact_base_dir(self, workspace_dir: Path | None) -> Path:
-        """Plugin form has no sandbox — always use ``default_artifacts_root``."""
+        """Artifact root for this agent."""
         return default_artifacts_root(
             agent_id=self._agent_config.id,
             workspace_dir=workspace_dir,
@@ -404,7 +401,7 @@ class DataPawAgent(QwenPawAgent):
     # --- System-prompt assembly (override) ---------------------------------
 
     def _analysis_environment_hint(self) -> str:
-        """DataPaw env hint (plugin form: fixed to host workspace paths)."""
+        """DataPaw env hint describing the host workspace paths."""
         workspace_dir = getattr(self, "_workspace_dir", None)
         artifacts_root = self._artifact_base_dir(workspace_dir)
         return (
@@ -510,11 +507,7 @@ class DataPawAgent(QwenPawAgent):
         self,
         tool_call: dict,
     ) -> dict | None:
-        """Run the tool, then append its result to the current node's trace.
-
-        Plugin form has no sandbox, so the legacy ``maybe_inject_rel_path``
-        / ``_sync_sandbox_context`` pre-processing is intentionally absent.
-        """
+        """Run the tool, then append its result to the current node's trace."""
         result = await super()._acting(tool_call)
 
         if self.memory.content:
