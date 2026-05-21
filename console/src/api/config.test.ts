@@ -11,7 +11,6 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import {
-  AUTH_TOKEN_KEY,
   clearAuthToken,
   getApiToken,
   getApiUrl,
@@ -61,7 +60,7 @@ describe("getApiToken", () => {
   });
 
   it("returns token from localStorage when present", () => {
-    localStorage.setItem(AUTH_TOKEN_KEY, "stored-token");
+    localStorage.setItem("qwenpaw_auth_token", "stored-token");
     expect(getApiToken()).toBe("stored-token");
   });
 
@@ -80,13 +79,13 @@ describe("setAuthToken / clearAuthToken", () => {
 
   it("setAuthToken writes to localStorage", () => {
     setAuthToken("my-token");
-    expect(localStorage.getItem(AUTH_TOKEN_KEY)).toBe("my-token");
+    expect(localStorage.getItem("qwenpaw_auth_token")).toBe("my-token");
   });
 
   it("clearAuthToken removes token from localStorage", () => {
-    localStorage.setItem(AUTH_TOKEN_KEY, "my-token");
+    localStorage.setItem("qwenpaw_auth_token", "my-token");
     clearAuthToken();
-    expect(localStorage.getItem(AUTH_TOKEN_KEY)).toBeNull();
+    expect(localStorage.getItem("qwenpaw_auth_token")).toBeNull();
   });
 
   it("getApiToken returns empty string after clearAuthToken", () => {

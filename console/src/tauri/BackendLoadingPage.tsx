@@ -2,9 +2,11 @@ import { Progress } from "antd";
 import { type CSSProperties } from "react";
 import { useTheme } from "../contexts/ThemeContext";
 import { useTranslation } from "react-i18next";
-import { QWENPAW_BRAND_COLOR, QWENPAW_ERROR_COLOR } from "../constants/colors";
 import styles from "./BackendLoadingPage.module.less";
 import { type BackendReadyStatus } from "./useBackendReadyPolling";
+
+const BRAND_COLOR = "#ff7f16";
+const ERROR_COLOR = "#ff4d4f";
 
 interface BackendLoadingPageProps {
   status: BackendReadyStatus;
@@ -35,8 +37,8 @@ export default function BackendLoadingPage({
 
   const percent = Math.min(Math.round((elapsed / totalSec) * 100), 100);
   const style = {
-    "--qwenpaw-brand-color": QWENPAW_BRAND_COLOR,
-    "--qwenpaw-error-color": QWENPAW_ERROR_COLOR,
+    "--qwenpaw-brand-color": BRAND_COLOR,
+    "--qwenpaw-error-color": ERROR_COLOR,
   } as CSSProperties;
 
   return (
@@ -53,7 +55,7 @@ export default function BackendLoadingPage({
           type="dashboard"
           percent={percent}
           status={hasFailed ? "exception" : "active"}
-          strokeColor={QWENPAW_BRAND_COLOR}
+          strokeColor={BRAND_COLOR}
           trailColor={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"}
           gapPosition="bottom"
           format={() => (

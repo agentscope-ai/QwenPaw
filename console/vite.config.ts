@@ -71,7 +71,6 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "./src"),
       },
     },
-    clearScreen: false,
     server,
     test: {
       globals: true,

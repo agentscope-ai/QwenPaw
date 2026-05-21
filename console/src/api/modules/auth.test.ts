@@ -3,7 +3,6 @@ import { authApi } from "./auth";
 
 // auth.ts uses fetch directly (not the request wrapper), so mock global fetch
 vi.mock("../config", () => ({
-  AUTH_TOKEN_KEY: "qwenpaw_auth_token",
   getApiUrl: (path: string) => `/api${path}`,
 }));
 

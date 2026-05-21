@@ -3,6 +3,3 @@
 /target/
 /gen/
 tauri.version.conf.json
-
-# Generated from scripts/pack/assets/icon.svg during Tauri builds.
-/icons/

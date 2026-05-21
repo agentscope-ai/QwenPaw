@@ -5,8 +5,7 @@
  * `window.QwenPaw` so plugin bundles can register routes and tool renderers
  * without bundling their own copies of React / antd.
  *
- * Install with `installHostExternals()` during startup. The installer is
- * idempotent so tests or hot reloads can call it more than once.
+ * Call `installHostExternals()` once at application startup (main.tsx).
  */
 
 import React from "react";
@@ -25,8 +24,7 @@ export interface HostExternals {
   ReactDOM: typeof ReactDOM;
   antd: typeof antd;
   antdIcons: typeof antdIcons;
-  /** Read the backend base URL at use time. */
-  getApiBaseUrl: typeof getApiBaseUrl;
+  apiBaseUrl: string;
   getApiUrl: typeof getApiUrl;
   getApiToken: typeof getApiToken;
 }
@@ -141,17 +139,17 @@ export interface WindowNamespace {
 
 declare global {
   interface Window {
-    QwenPaw?: WindowNamespace;
+    QwenPaw: WindowNamespace;
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Install shared host APIs on window.QwenPaw.
+// Install (call once in main.tsx)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function installHostExternals(): void {
   if (!window.QwenPaw) {
-    window.QwenPaw = {} as WindowNamespace;
+    (window as any).QwenPaw = {} as WindowNamespace;
   }
 
   if (!window.QwenPaw.host) {
@@ -160,7 +158,9 @@ export function installHostExternals(): void {
       ReactDOM,
       antd,
       antdIcons,
-      getApiBaseUrl,
+      get apiBaseUrl() {
+        return getApiBaseUrl();
+      },
       getApiUrl,
       getApiToken,
     };

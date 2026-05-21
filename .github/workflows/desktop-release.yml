@@ -1,40 +1,13 @@
 # Build QwenPaw Desktop:
 # - Legacy desktop: Windows (conda-pack + NSIS), macOS (conda-pack -> .app)
 # - Tauri desktop: Windows/macOS app bundles with PyInstaller backend sidecar
-# Runs on release publish, manual dispatch, and PRs touching desktop packaging.
+# Runs on release publish and manual dispatch.
 
 name: QwenPaw Desktop Build
 
 on:
   release:
     types: [published]
-  pull_request:
-    paths:
-      - ".github/workflows/desktop-release.yml"
-      - "console/package*.json"
-      - "console/vite.config.ts"
-      - "console/src-tauri/**"
-      - "console/src/App.tsx"
-      - "console/src/main.tsx"
-      - "console/src/api/**"
-      - "console/src/locales/**"
-      - "console/src/plugins/**"
-      - "console/src/tauri/**"
-      - "console/src/vite-env.d.ts"
-      - "scripts/pack-tauri/**"
-      - "scripts/pack/assets/**"
-      - "scripts/pack/generate_oss_metadata.py"
-      - "src/qwenpaw/__init__.py"
-      - "src/qwenpaw/agents/tools/**"
-      - "src/qwenpaw/backup/**"
-      - "src/qwenpaw/cli/**"
-      - "src/qwenpaw/config/**"
-      - "src/qwenpaw/desktop_env.py"
-      - "src/qwenpaw/tauri/**"
-      - "tests/unit/backup/**"
-      - "tests/unit/cli/**"
-      - "tests/unit/tauri/**"
-      - "tests/unit/utils/**"
   workflow_dispatch:
     inputs:
       upload_to_oss:
@@ -242,8 +215,6 @@ jobs:
 
       - name: Set up Python
         uses: actions/setup-python@v5
-        env:
-          PIP_NO_CACHE_DIR: "1"
         with:
           python-version: "3.10"
 

@@ -1,9 +1,6 @@
 # Build output
 dist/
 build/
-src-tauri/target/
-src-tauri/gen/
-src-tauri/binaries/
 
 # Dependencies
 node_modules/
