@@ -34,7 +34,7 @@ DataPaw 完全在你的本地环境运行，数据不出域。
 | **Python** | 3.10 ~ 3.13 |
 | **LLM 模型** | 已在 QwenPaw 中配置（DataPaw 直接继承活跃模型） |
 
-> QwenPaw 版本低于 v1.1.7，请先升级：`pip install --upgrade qwenpaw>=1.1.7`。
+> QwenPaw 版本低于 v1.1.7，请先升级：`pip install --upgrade "qwenpaw>=1.1.7"`。
 
 ### 1. 安装 DataPaw 插件
 
