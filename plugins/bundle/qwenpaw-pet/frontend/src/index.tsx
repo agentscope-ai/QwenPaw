@@ -181,14 +181,12 @@ function PetControlPage() {
   const [startingDesktop, setStartingDesktop] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
-  const [isDark, setIsDark] = React.useState(
-    () => document.documentElement.classList.contains("dark-mode"),
+  const [isDark, setIsDark] = React.useState(() =>
+    document.documentElement.classList.contains("dark-mode"),
   );
   React.useEffect(() => {
     const observer = new MutationObserver(() => {
-      setIsDark(
-        document.documentElement.classList.contains("dark-mode"),
-      );
+      setIsDark(document.documentElement.classList.contains("dark-mode"));
     });
     observer.observe(document.documentElement, {
       attributes: true,
@@ -576,8 +574,8 @@ function PetControlPage() {
                     dragOver
                       ? "#1677ff"
                       : isDark
-                        ? "rgba(255,255,255,0.15)"
-                        : "#d9d9d9"
+                      ? "rgba(255,255,255,0.15)"
+                      : "#d9d9d9"
                   }`,
                   borderRadius: 8,
                   padding: "32px 16px",
@@ -586,15 +584,15 @@ function PetControlPage() {
                   background: dragOver
                     ? "rgba(22, 119, 255, 0.06)"
                     : isDark
-                      ? "rgba(255,255,255,0.04)"
-                      : "#fafafa",
+                    ? "rgba(255,255,255,0.04)"
+                    : "#fafafa",
                   transition: "border-color .15s ease, background .15s ease",
                   userSelect: "none" as const,
                   color: dragOver
                     ? "#1677ff"
                     : isDark
-                      ? "rgba(255,255,255,0.85)"
-                      : undefined,
+                    ? "rgba(255,255,255,0.85)"
+                    : undefined,
                 },
               },
               // Line-art cube icon (matches the dropzone reference)
