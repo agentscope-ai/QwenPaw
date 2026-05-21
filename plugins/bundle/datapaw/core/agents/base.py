@@ -317,16 +317,26 @@ class DataPawAgent(QwenPawAgent):
             return None
 
     def _annotate_msg_node_id(self, msg: Msg) -> Msg:
-        """Attach the current DataPaw graph/node ids to message metadata."""
-        node_id = self._current_node_id()
-        if not node_id:
+        """Attach the current DataPaw graph/node ids to message metadata.
+
+        ``graph_id`` is set whenever an active plan exists; ``node_id`` is
+        set only when a node is currently ``in_progress``. The frontend
+        routes content frames by ``graph_id`` alone (plan-level grouping)
+        when ``node_id`` is absent — necessary for LLM output emitted
+        between nodes (post-finish_subtask, pre-update_subtask_state),
+        during plan-confirmation wait, or in the final summary phase.
+        """
+        graph_id = self._current_graph_id()
+        if not graph_id:
             return msg
 
         metadata = dict(getattr(msg, "metadata", None) or {})
-        graph_id = self._current_graph_id()
-        if graph_id:
-            metadata.setdefault("graph_id", graph_id)
-        metadata.setdefault("node_id", node_id)
+        metadata.setdefault("graph_id", graph_id)
+
+        node_id = self._current_node_id()
+        if node_id:
+            metadata.setdefault("node_id", node_id)
+
         msg.metadata = metadata
         return msg
 
