@@ -122,9 +122,8 @@ src/.hypothesis/
 
 # Local File
 /localfile/
-*.lock
-.gitnexus
 
+# Tauri build scripts copy the generated PyInstaller sidecar here.
 console/src-tauri/binaries/*
 !console/src-tauri/binaries/qwenpaw-backend/
 console/src-tauri/binaries/qwenpaw-backend/*
