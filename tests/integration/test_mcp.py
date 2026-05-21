@@ -97,7 +97,7 @@ def test_mcp_create_get_list_delete(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p1
+@pytest.mark.p0
 def test_mcp_toggle_enabled(app_server) -> None:
     """Test purpose:
     - Verify MCP toggle endpoint flips ``enabled`` state and persists.
