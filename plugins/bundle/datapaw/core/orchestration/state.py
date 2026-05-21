@@ -114,10 +114,9 @@ class RuntimeStateManager(PlanNotebook):
         "DataPaw task graph management tools. Use these to create a DAG "
         "of analysis tasks (create_plan), track node execution "
         "(update_subtask_state, finish_subtask), revise nodes and "
-        "propagate STALE downstream (revise_current_plan), reset "
-        "downstream subtrees (reset_downstream), and archive the current graph "
-        "(finish_plan). Ready-to-execute node hints are injected "
-        "automatically each reasoning round — follow them."
+        "propagate STALE downstream (revise_current_plan), and archive "
+        "the current graph (finish_plan). Ready-to-execute node hints "
+        "are injected automatically each reasoning round — follow them."
     )
 
     def __init__(
@@ -719,44 +718,12 @@ class RuntimeStateManager(PlanNotebook):
             "recovered as the active graph.",
         )
 
-    # --- DAG-specific tool -------------------------------------------------
-
-    async def reset_downstream(self, node_id: str) -> ToolResponse:
-        """Reset a node and all its downstream to 'todo'.
-
-        Useful when you want to re-run a subtree after changing a
-        parameter. The target node itself is also reset.
-
-        Args:
-            node_id: The root of the subtree to reset.
-        """
-        if self.current_plan is None:
-            return _text("No active task graph.")
-        if node_id not in self.current_plan.nodes:
-            return _text(f"Node '{node_id}' not found.")
-
-        targets = [node_id] + self.current_plan._find_downstream_nodes(
-            node_id,
-        )
-        reset: List[str] = []
-        for nid in targets:
-            node = self.current_plan.nodes[nid]
-            if node.state in ("done", "in_progress", "failed", "stale"):
-                node.state = "todo"
-                node.error = None
-                node.started_at = None
-                node.output = None
-                reset.append(nid)
-
-        await self._notify_graph_change(TaskEventType.GRAPH_UPDATED)
-        return _text(f"Reset nodes: {reset}")
-
     # --- Tool listing ------------------------------------------------------
 
     def list_tools(
         self,
     ) -> List[Callable[..., Coroutine[Any, Any, ToolResponse]]]:
-        """Return all 9 agent tools (8 inherited overrides + 1 new).
+        """Return the 8 plan tools (PlanNotebook standard set, all overridden for DAG).
 
         Note on the type-hint resolution dance below: this module uses
         ``from __future__ import annotations``, so method signatures
@@ -780,7 +747,6 @@ class RuntimeStateManager(PlanNotebook):
             self.finish_subtask,
             self.view_historical_plans,
             self.recover_historical_plan,
-            self.reset_downstream,
         ]
         for bound_method in tools:
             fn = getattr(bound_method, "__func__", bound_method)
