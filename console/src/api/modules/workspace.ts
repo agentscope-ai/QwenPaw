@@ -149,4 +149,48 @@ export const workspaceApi = {
       method: "PUT",
       body: JSON.stringify(files),
     }),
+
+  // Coding Mode – full file tree (all file types)
+  listCodeFiles: () =>
+    request<MdFileInfo[]>("/workspace/code-files").then((files) =>
+      files.map((file) => ({
+        ...file,
+        updated_at: new Date(file.modified_time).getTime(),
+      })),
+    ),
+
+  loadCodeFile: (filePath: string) =>
+    request<{ path: string; content: string }>(
+      `/workspace/code-files/${filePath
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}`,
+    ),
+
+  saveCodeFile: (filePath: string, content: string) =>
+    request<{ path: string; size: number }>(
+      `/workspace/code-files/${filePath
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ content }),
+      },
+    ),
+
+  /** Returns the URL for the SSE file-watch stream (Coding Mode). */
+  getWatchUrl: () => getApiUrl("/workspace/watch"),
+
+  /**
+   * Returns the URL for a binary file (image, PDF, CSV) preview.
+   * The browser can use this URL directly in <img>, <embed>, or fetch().
+   */
+  getBinaryFileUrl: (filePath: string) =>
+    getApiUrl(
+      `/workspace/binary-files/${filePath
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}`,
+    ),
 };

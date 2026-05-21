@@ -1,0 +1,237 @@
+.modal {
+  :global(.ant-modal-body) {
+    padding: 12px 24px 20px;
+  }
+}
+
+.desc {
+  font-size: 13px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  margin: 0 0 12px;
+}
+
+// ---- Tab label with icon --------------------------------------------------
+
+.tabLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+}
+
+// ---- Tab content ----------------------------------------------------------
+
+.tabContent {
+  padding: 8px 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fieldLabel {
+  font-size: 12px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  font-weight: 500;
+}
+
+.input {
+  font-size: 13px;
+}
+
+.hint {
+  font-size: 11.5px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+  margin: 0;
+}
+
+.alert {
+  font-size: 12.5px;
+}
+
+.workspaceAlert {
+  font-size: 13px;
+}
+
+.currentInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.currentLabel {
+  font-size: 12px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+}
+
+.currentPath {
+  font-size: 12px;
+  background: var(--code-bg, rgba(0, 0, 0, 0.04));
+  padding: 3px 6px;
+  border-radius: 4px;
+  word-break: break-all;
+  color: var(--primary-color, #1677ff);
+}
+
+.actionBtn {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+// ---- Clone log box --------------------------------------------------------
+
+.logBox {
+  background: var(--code-bg, #1e1e1e);
+  border-radius: 6px;
+  padding: 8px 12px;
+  max-height: 180px;
+  overflow-y: auto;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--text-code, #d4d4d4);
+}
+
+.logLine {
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.progress {
+  margin: 0;
+}
+
+// ---- Drop zone (EXACT same CSS as PluginManager/index.module.less) -------
+
+.dropZone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 36px 24px;
+  border: 1.5px dashed var(--ant-color-border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+  user-select: none;
+
+  &:hover {
+    border-color: var(--ant-color-primary);
+    background: var(--ant-color-primary-bg);
+
+    .dropIcon {
+      color: var(--ant-color-primary);
+    }
+  }
+}
+
+.dropZoneActive {
+  border-color: var(--ant-color-primary) !important;
+  background: var(--ant-color-primary-bg) !important;
+
+  .dropIcon {
+    color: var(--ant-color-primary) !important;
+  }
+}
+
+.dropIcon {
+  color: var(--ant-color-text-quaternary);
+  transition: color 0.2s ease;
+  margin-bottom: 4px;
+}
+
+.dropPrimary {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ant-color-text);
+}
+
+.dropSecondary {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
+
+// ---- Selected path card (EXACT same as PluginManager selectionCard) ------
+
+.selectionCard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--ant-color-border);
+  border-radius: 8px;
+  background: var(--ant-color-fill-quaternary);
+  color: var(--ant-color-text);
+}
+
+.selectionName {
+  flex: 1;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// ---- Recent projects list -------------------------------------------------
+
+.recentWrap {
+  margin-top: 16px;
+  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  padding-top: 12px;
+}
+
+.recentTitle {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.4));
+  margin-bottom: 6px;
+}
+
+.recentItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 6px 8px !important;
+  border-radius: 6px;
+  transition: background 0.12s;
+  border-bottom: none !important;
+
+  &:hover {
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.04));
+  }
+}
+
+.recentItemActive {
+  background: var(--primary-bg, rgba(22, 119, 255, 0.06)) !important;
+
+  .recentName {
+    color: var(--primary-color, #1677ff);
+  }
+}
+
+.recentIcon {
+  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  flex-shrink: 0;
+}
+
+.recentName {
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 80px;
+}
+
+.recentPath {
+  font-size: 11px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  direction: rtl;
+  text-align: left;
+}

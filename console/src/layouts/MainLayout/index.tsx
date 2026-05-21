@@ -12,6 +12,8 @@ import styles from "../index.module.less";
 
 // Chat is eagerly loaded (default landing page)
 import Chat from "../../pages/Chat";
+// Coding Mode IDE page
+import CodingPage from "../../pages/Coding";
 
 // All other pages are lazily loaded with automatic retry on chunk failure
 const ChannelsPage = lazyImportWithRetry("../../pages/Control/Channels");
@@ -47,6 +49,7 @@ const { Content } = Layout;
 
 const pathToKey: Record<string, string> = {
   "/chat": "chat",
+  "/coding": "chat",
   "/channels": "channels",
   "/sessions": "sessions",
   "/inbox": "inbox",
@@ -108,6 +111,7 @@ export default function MainLayout() {
                 <Routes>
                   <Route path="/" element={<Navigate to="/chat" replace />} />
                   <Route path="/chat/*" element={<Chat />} />
+                  <Route path="/coding" element={<CodingPage />} />
                   <Route path="/channels" element={<ChannelsPage />} />
                   <Route path="/sessions" element={<SessionsPage />} />
                   <Route path="/inbox" element={<InboxPage />} />

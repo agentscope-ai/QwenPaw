@@ -112,6 +112,11 @@ SECRET_DIR = (
 
 PROJECT_NAME = "QwenPaw"
 
+# Subdirectory name inside each agent's workspace that holds cloned / imported
+# coding projects.
+# Full path = <workspace_dir> / CODING_PROJECT_SUBDIR / <name>
+CODING_PROJECT_SUBDIR = "coding_projects"
+
 
 def _resolve_docs_dir() -> Path | None:
     """Find QwenPaw documentation directory across all install methods."""

@@ -29,6 +29,7 @@ from .agent_management import (
     check_agent_task,
 )
 from .delegate_external_agent import delegate_external_agent
+from .todo import todo_write
 
 # Registered via react_agent's hardcoded tool_functions; kept out of
 # __all__ so it's always enabled, not gated on agent config.
@@ -58,4 +59,5 @@ __all__ = [
     "chat_with_agent",
     "submit_to_agent",
     "check_agent_task",
+    "todo_write",
 ]

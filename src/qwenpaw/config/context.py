@@ -105,3 +105,28 @@ def set_current_shell_command_executable(executable: str | None) -> None:
         executable: Path to the shell executable (e.g. "/bin/bash").
     """
     current_shell_command_executable.set(executable)
+
+
+# Context variable to store the current session ID for tool functions
+current_session_id: ContextVar[str | None] = ContextVar(
+    "current_session_id",
+    default=None,
+)
+
+
+def get_current_session_id() -> str | None:
+    """Get the current session ID from context.
+
+    Returns:
+        Current session ID, or None if not set.
+    """
+    return current_session_id.get()
+
+
+def set_current_session_id(session_id: str | None) -> None:
+    """Set the current session ID in context.
+
+    Args:
+        session_id: Session ID to store in context.
+    """
+    current_session_id.set(session_id)

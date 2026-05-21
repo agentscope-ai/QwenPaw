@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import shutil
 import tempfile
 import os
@@ -18,6 +19,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException, UploadFile, File, Request
 from fastapi.responses import StreamingResponse
+from watchfiles import awatch, Change
 from pydantic import BaseModel, Field
 
 from ..utils import schedule_agent_reload
@@ -31,7 +33,7 @@ from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.templates import get_workspace_md_template_id
 from ...agents.utils import copy_workspace_md_files
 from ...constant import BUILTIN_QA_AGENT_ID, SUPPORTED_AGENT_LANGUAGES
-from ..agent_context import get_agent_for_request
+from ..agent_context import get_agent_for_request, get_coding_dir
 
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
@@ -160,6 +162,304 @@ async def write_working_file(
         return {"written": True}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Coding Mode – full file-tree + file watcher (SSE)
+# ---------------------------------------------------------------------------
+
+_SKIP_NAMES: frozenset[str] = frozenset(
+    {
+        ".git",
+        "__pycache__",
+        ".venv",
+        "node_modules",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".hypothesis",
+    },
+)
+
+
+def _should_skip(rel_parts: tuple[str, ...]) -> bool:
+    return any(p.startswith(".") or p in _SKIP_NAMES for p in rel_parts)
+
+
+def _list_all_files(workspace_dir: Path) -> list[dict]:
+    """Recursively list all non-hidden workspace files."""
+    files: list[dict] = []
+    try:
+        for entry in sorted(workspace_dir.rglob("*")):
+            rel = entry.relative_to(workspace_dir)
+            if _should_skip(rel.parts):
+                continue
+            if entry.is_file():
+                stat = entry.stat()
+                files.append(
+                    {
+                        "filename": str(rel),
+                        "path": str(rel),
+                        "size": stat.st_size,
+                        "modified_time": datetime.fromtimestamp(
+                            stat.st_mtime,
+                            tz=timezone.utc,
+                        ).isoformat(),
+                    },
+                )
+    except Exception:  # noqa: BLE001
+        pass
+    return files
+
+
+@router.get(
+    "/code-files",
+    summary="List all workspace files (Coding Mode)",
+)
+async def list_code_files(request: Request) -> list[dict]:
+    """List every non-hidden file in the active coding project directory."""
+    workspace = await get_agent_for_request(request)
+    return await asyncio.get_event_loop().run_in_executor(
+        None,
+        _list_all_files,
+        get_coding_dir(workspace),
+    )
+
+
+_CODE_FILE_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+_BINARY_FILE_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+
+_MIME_MAP: dict[str, str] = {
+    # Images
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+    "svg": "image/svg+xml",
+    "ico": "image/x-icon",
+    "bmp": "image/bmp",
+    # Documents
+    "pdf": "application/pdf",
+    # Data
+    "csv": "text/csv",
+}
+
+
+@router.get(
+    "/binary-files/{file_path:path}",
+    summary="Serve a binary workspace file (images, PDFs) for preview",
+)
+async def read_binary_file(
+    file_path: str,
+    request: Request,
+) -> StreamingResponse:
+    """Return the raw bytes of *file_path* with the appropriate Content-Type.
+
+    Intended for the IDE preview panel (images, PDFs, CSV).
+    Rejects files that are not in ``_MIME_MAP`` or exceed 50 MB.
+    """
+    workspace = await get_agent_for_request(request)
+    root = get_coding_dir(workspace).resolve()
+    target = (root / file_path).resolve()
+    if not str(target).startswith(str(root)):
+        raise HTTPException(
+            status_code=400,
+            detail="Path traversal not allowed",
+        )
+
+    ext = target.suffix.lstrip(".").lower()
+    mime = _MIME_MAP.get(ext)
+    if mime is None:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Preview not supported for .{ext} files",
+        )
+
+    def _read_bytes() -> bytes:
+        size = target.stat().st_size
+        if size > _BINARY_FILE_MAX_BYTES:
+            raise ValueError(
+                f"File too large for preview ({size // 1024 // 1024} MB"
+                f" > {_BINARY_FILE_MAX_BYTES // 1024 // 1024} MB limit)",
+            )
+        return target.read_bytes()
+
+    try:
+        data = await asyncio.to_thread(_read_bytes)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return StreamingResponse(
+        iter([data]),
+        media_type=mime,
+        headers={"Content-Length": str(len(data))},
+    )
+
+
+@router.get(
+    "/code-files/{file_path:path}",
+    summary="Read any workspace file (Coding Mode)",
+)
+async def read_code_file(file_path: str, request: Request) -> dict:
+    """Return the text content of *file_path* inside the workspace.
+
+    Returns HTTP 413 if the file exceeds ``_CODE_FILE_MAX_BYTES`` (5 MB) to
+    avoid flooding the browser with huge binary or log files.
+    """
+    workspace = await get_agent_for_request(request)
+    root = get_coding_dir(workspace).resolve()
+    target = (root / file_path).resolve()
+    if not str(target).startswith(str(root)):
+        raise HTTPException(
+            status_code=400,
+            detail="Path traversal not allowed",
+        )
+    if not await asyncio.to_thread(target.is_file):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    def _read() -> str:
+        size = target.stat().st_size
+        if size > _CODE_FILE_MAX_BYTES:
+            raise ValueError(
+                f"File too large to open in editor ({size // 1024 // 1024} MB"
+                f" > {_CODE_FILE_MAX_BYTES // 1024 // 1024} MB limit)",
+            )
+        return target.read_text(encoding="utf-8", errors="replace")
+
+    try:
+        content = await asyncio.to_thread(_read)
+    except ValueError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"path": file_path, "content": content}
+
+
+@router.put(
+    "/code-files/{file_path:path}",
+    summary="Write any workspace file (Coding Mode)",
+)
+async def write_code_file(
+    file_path: str,
+    request: Request,
+    body: dict = Body(...),
+) -> dict:
+    """Overwrite *file_path* inside the workspace with the provided content.
+
+    Request body::
+
+        {"content": "<new file content>"}
+    """
+    workspace = await get_agent_for_request(request)
+    root = get_coding_dir(workspace).resolve()
+    target = (root / file_path).resolve()
+    if not str(target).startswith(str(root)):
+        raise HTTPException(
+            status_code=400,
+            detail="Path traversal not allowed",
+        )
+    content = body.get("content", "")
+    if not isinstance(content, str):
+        raise HTTPException(status_code=422, detail="content must be a string")
+
+    def _write() -> int:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        return target.stat().st_size
+
+    try:
+        size = await asyncio.to_thread(_write)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"path": file_path, "size": size}
+
+
+@router.get(
+    "/watch",
+    summary="SSE stream for workspace file changes (Coding Mode)",
+)
+async def watch_workspace_files(request: Request) -> StreamingResponse:
+    """Server-Sent Events that emit file-change notifications.
+
+    Each SSE payload has the form::
+
+        {"type": "file_change", "events": [{"change": "modified", "path": "..."}]}  # noqa: E501
+
+    A heartbeat comment (``": heartbeat"``) is sent every 30 s when idle.
+    """
+    workspace = await get_agent_for_request(request)
+    watch_dir = get_coding_dir(workspace)
+
+    async def event_generator():
+        yield 'data: {"type": "connected"}\n\n'
+        watcher = awatch(watch_dir)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    raw_changes = await asyncio.wait_for(
+                        watcher.__anext__(),
+                        timeout=30.0,
+                    )
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+                    continue
+                except (
+                    StopAsyncIteration,
+                    asyncio.CancelledError,
+                    GeneratorExit,
+                ):
+                    # StopAsyncIteration  – watcher stopped naturally
+                    # CancelledError      – app shutdown cancelled the task
+                    # GeneratorExit       – streaming response closed
+                    break
+
+                events = []
+                for change_type, path in raw_changes:
+                    try:
+                        rel = Path(path).relative_to(watch_dir)
+                    except ValueError:
+                        continue
+                    if _should_skip(rel.parts):
+                        continue
+                    change_name = (
+                        "added"
+                        if change_type is Change.added
+                        else "deleted"
+                        if change_type is Change.deleted
+                        else "modified"
+                    )
+                    events.append({"change": change_name, "path": str(rel)})
+
+                if events:
+                    payload = json.dumps(
+                        {"type": "file_change", "events": events},
+                        ensure_ascii=False,
+                    )
+                    yield f"data: {payload}\n\n"
+        except (asyncio.CancelledError, GeneratorExit):
+            pass  # normal during app shutdown
+        finally:
+            try:
+                await watcher.aclose()
+            except Exception:  # noqa: BLE001
+                pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get(
