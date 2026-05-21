@@ -121,6 +121,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "npm ci failed"
 }
 
+Write-Host "Generating Tauri icons..."
+npm exec -- tauri icon ../scripts/pack/assets/icon.svg
+if ($LASTEXITCODE -ne 0) {
+    throw "Tauri icon generation failed"
+}
+
 Write-Host "Syncing Tauri version..."
 node ../scripts/pack-tauri/sync_tauri_version.mjs
 if ($LASTEXITCODE -ne 0) {

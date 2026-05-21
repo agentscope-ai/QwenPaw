@@ -95,6 +95,8 @@ BUNDLE_DIR="${REPO_ROOT}/console/src-tauri/target/release/bundle"
 rm -rf "${BUNDLE_DIR}/dmg" "${BUNDLE_DIR}/macos"
 cd console
 npm ci
+echo "Generating Tauri icons..."
+npm exec -- tauri icon ../scripts/pack/assets/icon.svg
 echo "Syncing Tauri version..."
 node ../scripts/pack-tauri/sync_tauri_version.mjs
 echo "Building for macOS..."
