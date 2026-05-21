@@ -25,17 +25,8 @@ export interface HostExternals {
   ReactDOM: typeof ReactDOM;
   antd: typeof antd;
   antdIcons: typeof antdIcons;
-  /**
-   * Prefer this function over the legacy `apiBaseUrl` getter. Tauri resolves
-   * the actual backend port lazily, so callers should read the value at use
-   * time instead of destructuring a startup snapshot.
-   */
+  /** Read the backend base URL at use time. */
   getApiBaseUrl: typeof getApiBaseUrl;
-  /**
-   * @deprecated Use `getApiBaseUrl()` or `getApiUrl()` to avoid caching a
-   * startup snapshot before the Tauri backend port is resolved.
-   */
-  readonly apiBaseUrl: string;
   getApiUrl: typeof getApiUrl;
   getApiToken: typeof getApiToken;
 }
@@ -169,9 +160,6 @@ export function installHostExternals(): void {
       ReactDOM,
       antd,
       antdIcons,
-      get apiBaseUrl() {
-        return getApiBaseUrl();
-      },
       getApiBaseUrl,
       getApiUrl,
       getApiToken,

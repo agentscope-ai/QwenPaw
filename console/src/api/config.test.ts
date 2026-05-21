@@ -1,5 +1,23 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { getApiUrl, getApiToken, setAuthToken, clearAuthToken } from "./config";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+const tauriMocks = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  isTauri: vi.fn(() => false),
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: tauriMocks.invoke,
+  isTauri: tauriMocks.isTauri,
+}));
+
+import {
+  AUTH_TOKEN_KEY,
+  clearAuthToken,
+  getApiToken,
+  getApiUrl,
+  restartBackend,
+  setAuthToken,
+} from "./config";
 
 // VITE_API_BASE_URL / TOKEN are declared globals in config.ts — set via globalThis
 const setViteBase = (v: string) => {
@@ -10,7 +28,11 @@ const setToken = (v: string) => {
 };
 
 describe("getApiUrl", () => {
-  beforeEach(() => setViteBase(""));
+  beforeEach(() => {
+    setViteBase("");
+    tauriMocks.invoke.mockReset();
+    tauriMocks.isTauri.mockReturnValue(false);
+  });
 
   it("prepends /api prefix when base is empty", () => {
     expect(getApiUrl("/models")).toBe("/api/models");
@@ -39,7 +61,7 @@ describe("getApiToken", () => {
   });
 
   it("returns token from localStorage when present", () => {
-    localStorage.setItem("qwenpaw_auth_token", "stored-token");
+    localStorage.setItem(AUTH_TOKEN_KEY, "stored-token");
     expect(getApiToken()).toBe("stored-token");
   });
 
@@ -58,13 +80,13 @@ describe("setAuthToken / clearAuthToken", () => {
 
   it("setAuthToken writes to localStorage", () => {
     setAuthToken("my-token");
-    expect(localStorage.getItem("qwenpaw_auth_token")).toBe("my-token");
+    expect(localStorage.getItem(AUTH_TOKEN_KEY)).toBe("my-token");
   });
 
   it("clearAuthToken removes token from localStorage", () => {
-    localStorage.setItem("qwenpaw_auth_token", "my-token");
+    localStorage.setItem(AUTH_TOKEN_KEY, "my-token");
     clearAuthToken();
-    expect(localStorage.getItem("qwenpaw_auth_token")).toBeNull();
+    expect(localStorage.getItem(AUTH_TOKEN_KEY)).toBeNull();
   });
 
   it("getApiToken returns empty string after clearAuthToken", () => {
@@ -72,5 +94,31 @@ describe("setAuthToken / clearAuthToken", () => {
     setAuthToken("my-token");
     clearAuthToken();
     expect(getApiToken()).toBe("");
+  });
+});
+
+describe("restartBackend", () => {
+  beforeEach(() => {
+    setViteBase("");
+    tauriMocks.invoke.mockReset();
+    tauriMocks.isTauri.mockReturnValue(false);
+  });
+
+  it("returns configured base URL in Tauri without invoking sidecar restart", async () => {
+    setViteBase("http://localhost:9000");
+    tauriMocks.isTauri.mockReturnValue(true);
+
+    await expect(restartBackend()).resolves.toBe("http://localhost:9000");
+
+    expect(tauriMocks.invoke).not.toHaveBeenCalled();
+  });
+
+  it("invokes sidecar restart when no base URL is configured", async () => {
+    tauriMocks.isTauri.mockReturnValue(true);
+    tauriMocks.invoke.mockResolvedValue(8090);
+
+    await expect(restartBackend()).resolves.toBe("http://127.0.0.1:8090");
+
+    expect(tauriMocks.invoke).toHaveBeenCalledWith("restart_backend");
   });
 });
