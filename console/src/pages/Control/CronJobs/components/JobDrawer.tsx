@@ -703,6 +703,15 @@ export function JobDrawer({
         </Form.Item>
 
         <Form.Item
+          name={["runtime", "clear_context_before_run"]}
+          label={t("cronJobs.runtimeClearContextBeforeRun")}
+          valuePropName="checked"
+          tooltip={t("cronJobs.clearContextBeforeRunTooltip")}
+        >
+          <Switch />
+        </Form.Item>
+
+        <Form.Item
           name={["runtime", "max_concurrency"]}
           label={t("cronJobs.runtimeMaxConcurrency")}
           tooltip={t("cronJobs.maxConcurrencyTooltip")}

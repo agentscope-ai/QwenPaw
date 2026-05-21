@@ -162,6 +162,10 @@ class JobRuntimeSpec(BaseModel):
             "If False, creates isolated context with unique run ID."
         ),
     )
+    clear_context_before_run: bool = Field(
+        default=False,
+        description="Whether to clear context before running agent task.",
+    )
 
 
 class CronJobRequest(BaseModel):

@@ -101,6 +101,36 @@ class CronExecutor:
                 else f"cron:{run_id}"
             )
 
+        # Clear context if requested
+        if job.runtime.clear_context_before_run:
+            logger.info(
+                "cron clear context: job_id=%s session_id=%s",
+                job.id,
+                req["session_id"],
+            )
+            try:
+
+                async def _do_clear() -> None:
+                    clear_req = req.copy()
+                    clear_req["input"] = [
+                        {
+                            "role": "user",
+                            "content": [{"text": "/clear", "type": "text"}],
+                        },
+                    ]
+                    async for _ in self._runner.stream_query(clear_req):
+                        pass
+
+                # Use a short timeout for the clear operation
+                await asyncio.wait_for(_do_clear(), timeout=10.0)
+            except Exception as e:  # pylint: disable=broad-except
+                logger.warning(
+                    "cron clear context failed (swallowed): "
+                    "job_id=%s error=%s",
+                    job.id,
+                    repr(e),
+                )
+
         delivery_error: str | None = None
         baseline_messages = await read_session_messages(
             runner=self._runner,
