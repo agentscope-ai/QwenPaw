@@ -1792,6 +1792,12 @@
       "pin": "Pin",
       "unpin": "Unpin",
       "delete": "Excluir"
+    },
+    "stats": {
+      "tooltip": "Estatísticas de desempenho",
+      "totalTime": "Tempo total",
+      "inputTokens": "Tokens de entrada",
+      "outputTokens": "Tokens de saída"
     }
   },
   "security": {

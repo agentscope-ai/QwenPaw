@@ -1916,6 +1916,12 @@
       "pin": "Pin",
       "unpin": "Unpin",
       "delete": "Delete"
+    },
+    "stats": {
+      "tooltip": "Performance Stats",
+      "totalTime": "Total time",
+      "inputTokens": "Input tokens",
+      "outputTokens": "Output tokens"
     }
   },
   "security": {

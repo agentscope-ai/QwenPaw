@@ -32,6 +32,7 @@ import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { planApi } from "../../api/modules/plan";
+import MessageStats from "./components/MessageStats";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -526,6 +527,11 @@ export default function ChatPage() {
   >(new Map());
   const [planEnabled, setPlanEnabled] = useState(false);
 
+  // Front-end request timing: customFetch sets the start timestamp,
+  // responseParser snapshots the duration when the response completes.
+  const requestStartRef = useRef<number | null>(null);
+  const lastDurationSecondsRef = useRef<number | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     planApi
@@ -950,6 +956,8 @@ export default function ChatPage() {
         }
       }
 
+      requestStartRef.current = Date.now();
+
       const response = await fetch(getApiUrl("/console/chat"), {
         method: "POST",
         headers,
@@ -1120,6 +1128,18 @@ export default function ChatPage() {
               scheduleHistoryClear();
             }
           }
+
+          // Snapshot duration when the response stream completes.
+          if (
+            payload.object === "response" &&
+            (payload.status === "completed" || payload.status === "failed") &&
+            requestStartRef.current
+          ) {
+            lastDurationSecondsRef.current =
+              (Date.now() - requestStartRef.current) / 1000;
+            requestStartRef.current = null;
+          }
+
           return payload as any;
         },
         replaceMediaURL: (url: string) => {
@@ -1157,6 +1177,15 @@ export default function ChatPage() {
         Object.keys(toolRenderConfig).length > 0 ? toolRenderConfig : undefined,
       actions: {
         list: [
+          {
+            render: () => {
+              return (
+                <MessageStats
+                  durationSeconds={lastDurationSecondsRef.current}
+                />
+              );
+            },
+          },
           {
             icon: (
               <span title={t("common.copy")}>

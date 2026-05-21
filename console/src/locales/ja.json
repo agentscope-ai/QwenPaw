@@ -1589,6 +1589,12 @@
       "pin": "ピン留め",
       "unpin": "ピン留め解除",
       "delete": "削除"
+    },
+    "stats": {
+      "tooltip": "パフォーマンス統計",
+      "totalTime": "合計時間",
+      "inputTokens": "入力トークン",
+      "outputTokens": "出力トークン"
     }
   },
   "security": {

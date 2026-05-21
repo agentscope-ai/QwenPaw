@@ -1764,6 +1764,12 @@
       "pin": "置顶",
       "unpin": "取消置顶",
       "delete": "删除"
+    },
+    "stats": {
+      "tooltip": "性能统计",
+      "totalTime": "总耗时",
+      "inputTokens": "输入token",
+      "outputTokens": "输出token"
     }
   },
   "security": {
