@@ -34,8 +34,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "app", "nsis"],
-    "useLocalToolsDir": true,
+    "targets": ["app", "nsis"],
     "icon": [
       "../../scripts/pack/assets/icon.icns",
       "../../scripts/pack/assets/icon.ico"

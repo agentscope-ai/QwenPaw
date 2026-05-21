@@ -131,8 +131,6 @@ rm -rf "${DIST_DIR}"
 mkdir -p "${DIST_DIR}"
 
 # Match the legacy macOS package shape: one zip containing one .app bundle.
-# The DMG remains in Tauri's build output for local debugging, but shipping
-# both doubles the public artifact size and changes the user-facing layout.
 cp -R "${APP_PATH}" "${DIST_DIR}/"
 STAGED_APP_PATH="${DIST_DIR}/$(basename "${APP_PATH}")"
 echo ".app copied to ${STAGED_APP_PATH}"
