@@ -1139,7 +1139,7 @@
     "noBlacklistUsers": "No blacklist users",
     "noPendingApprovals": "No pending approvals",
     "userAdded": "User added successfully",
-    "userRemoved": "User removed successfully",
+    "userRemoved": "User deleted successfully",
     "approveSuccess": "User added to whitelist",
     "denySuccess": "User added to blacklist",
     "dismissSuccess": "Pending entry dismissed",
@@ -1156,8 +1156,8 @@
     "batchDenyConfirm": "Blacklist {{count}} selected users?",
     "batchDismissConfirm": "Dismiss {{count}} selected users?",
     "batchSuccess": "{{count}} users processed successfully",
-    "batchRemove": "Remove",
-    "batchRemoveConfirm": "Remove {{count}} selected users?"
+    "batchRemove": "Delete",
+    "batchRemoveConfirm": "Delete {{count}} selected users?"
   },
   "sessions": {
     "title": "Sessions",

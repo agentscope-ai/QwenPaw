@@ -1067,8 +1067,8 @@
     "batchDenyConfirm": "Adicionar {{count}} usuários à lista negra?",
     "batchDismissConfirm": "Remover {{count}} usuários?",
     "batchSuccess": "{{count}} usuários processados com sucesso",
-    "batchRemove": "Remover",
-    "batchRemoveConfirm": "Remover {{count}} usuários selecionados?"
+    "batchRemove": "Excluir",
+    "batchRemoveConfirm": "Excluir {{count}} usuários selecionados?"
   },
   "sessions": {
     "title": "Sessoes",

@@ -860,7 +860,7 @@
     "batchDenyConfirm": "{{count}}件のユーザーをブラックリストに追加しますか？",
     "batchDismissConfirm": "{{count}}件のユーザーを削除しますか？",
     "batchSuccess": "{{count}}件のユーザーを処理しました",
-    "batchRemove": "一括削除",
+    "batchRemove": "削除",
     "batchRemoveConfirm": "{{count}}件のユーザーを削除しますか？"
   },
   "sessions": {

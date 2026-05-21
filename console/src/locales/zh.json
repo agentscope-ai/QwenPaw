@@ -987,7 +987,7 @@
     "noBlacklistUsers": "暂无黑名单用户",
     "noPendingApprovals": "暂无待审批",
     "userAdded": "用户添加成功",
-    "userRemoved": "用户移除成功",
+    "userRemoved": "用户删除成功",
     "approveSuccess": "已加入白名单",
     "denySuccess": "已加入黑名单",
     "dismissSuccess": "已忽略",
@@ -1004,8 +1004,8 @@
     "batchDenyConfirm": "确认将 {{count}} 位用户加入黑名单？",
     "batchDismissConfirm": "确认忽略 {{count}} 位用户？",
     "batchSuccess": "已成功处理 {{count}} 位用户",
-    "batchRemove": "批量移除",
-    "batchRemoveConfirm": "确认移除 {{count}} 位用户？"
+    "batchRemove": "删除",
+    "batchRemoveConfirm": "确认删除 {{count}} 位用户？"
   },
   "sessions": {
     "title": "会话",
