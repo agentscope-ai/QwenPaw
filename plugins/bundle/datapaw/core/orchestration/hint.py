@@ -57,6 +57,8 @@ class DefaultGraphToHint:
         "{ready_ids}\n"
         "- Even if multiple ready nodes are listed, execute exactly ONE "
         "node at a time.\n"
+        "- If a registered Agent Skill matches this node's task, "
+        "`read_file` its SKILL.md first.\n"
         "- Pick one ready node and call `update_subtask_state(node_id, "
         "'in_progress')` before doing actual work.\n"
         "- Do NOT start another ready node until the current node has been "
