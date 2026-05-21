@@ -44,6 +44,25 @@ def test_sync_loaded_qwenpaw_constant_cors_origins(monkeypatch):
     assert constant_module.CORS_ORIGINS == "tauri://localhost"
 
 
+def test_install_certifi_env_sets_bundle_paths(monkeypatch, tmp_path):
+    cert_file = tmp_path / "cacert.pem"
+    cert_file.write_text("test cert", encoding="utf-8")
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    monkeypatch.delenv("CURL_CA_BUNDLE", raising=False)
+    monkeypatch.setitem(
+        sys.modules,
+        "certifi",
+        types.SimpleNamespace(where=lambda: str(cert_file)),
+    )
+
+    entry._install_certifi_env()
+
+    assert os.environ["SSL_CERT_FILE"] == str(cert_file)
+    assert os.environ["REQUESTS_CA_BUNDLE"] == str(cert_file)
+    assert os.environ["CURL_CA_BUNDLE"] == str(cert_file)
+
+
 def test_run_click_command_wraps_click_exception(capsys):
     @click.command()
     def command():

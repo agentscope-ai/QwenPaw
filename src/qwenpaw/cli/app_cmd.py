@@ -1,4 +1,10 @@
 # -*- coding: utf-8 -*-
+"""CLI entry for the FastAPI server.
+
+The hidden ``--no-write-last-api`` flag is part of the desktop sidecar
+protocol used by ``qwenpaw.tauri.entry``; it is intentionally unavailable in
+normal CLI help and guarded by desktop-only environment variables.
+"""
 from __future__ import annotations
 
 import logging

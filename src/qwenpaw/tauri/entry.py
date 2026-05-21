@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import logging
 import multiprocessing as mp
 import os
 import sys
@@ -18,6 +19,8 @@ from qwenpaw.tauri.env import (
     ensure_desktop_cors_origins,
 )
 from qwenpaw.tauri.logging import install_sidecar_logging
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_qwenpaw_app_not_loaded() -> None:
@@ -54,10 +57,17 @@ def _install_certifi_env() -> None:
     try:
         import certifi
     except Exception:
+        logger.debug(
+            "certifi is unavailable; leaving SSL bundle env unset",
+            exc_info=True,
+        )
         return
 
     cert_file = certifi.where()
     if not cert_file or not os.path.isfile(cert_file):
+        logger.debug(
+            "certifi returned an invalid certificate path: %r", cert_file
+        )
         return
     os.environ.setdefault("SSL_CERT_FILE", cert_file)
     os.environ.setdefault("REQUESTS_CA_BUNDLE", cert_file)

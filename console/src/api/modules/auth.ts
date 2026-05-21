@@ -1,4 +1,4 @@
-import { getApiUrl } from "../config";
+import { AUTH_TOKEN_KEY, getApiUrl } from "../config";
 
 export interface LoginResponse {
   token: string;
@@ -52,7 +52,7 @@ export const authApi = {
     newUsername?: string,
     newPassword?: string,
   ): Promise<LoginResponse> => {
-    const token = localStorage.getItem("qwenpaw_auth_token") || "";
+    const token = localStorage.getItem(AUTH_TOKEN_KEY) || "";
     const res = await fetch(getApiUrl("/auth/update-profile"), {
       method: "POST",
       headers: {

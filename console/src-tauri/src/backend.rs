@@ -16,6 +16,9 @@ use tauri_plugin_shell::process::CommandChild;
 mod command;
 mod events;
 
+const LEGACY_DESKTOP_PORT_START: u16 = 8088;
+const LEGACY_DESKTOP_PORT_END_EXCLUSIVE: u16 = 8188;
+
 /// Shared sidecar process state managed by Tauri.
 #[derive(Default)]
 pub(crate) struct BackendState {
@@ -31,6 +34,11 @@ struct BackendInner {
 }
 
 impl BackendState {
+    fn with_inner<R>(&self, f: impl FnOnce(&mut BackendInner) -> R) -> R {
+        let mut inner = self.inner.lock().expect("backend state poisoned");
+        f(&mut inner)
+    }
+
     fn next_generation(&self) -> u64 {
         self.generation.fetch_add(1, Ordering::SeqCst) + 1
     }
@@ -40,23 +48,21 @@ impl BackendState {
     }
 
     fn port(&self) -> Result<u16, String> {
-        self.inner
-            .lock()
-            .expect("backend state poisoned")
-            .port
-            .ok_or_else(|| "backend port was not initialized".to_string())
+        self.with_inner(|inner| {
+            inner
+                .port
+                .ok_or_else(|| "backend port was not initialized".to_string())
+        })
     }
 
     fn error(&self) -> Option<String> {
-        self.inner
-            .lock()
-            .expect("backend state poisoned")
-            .error
-            .clone()
+        self.with_inner(|inner| inner.error.clone())
     }
 
     fn set_error(&self, message: String) {
-        self.inner.lock().expect("backend state poisoned").error = Some(message);
+        self.with_inner(|inner| {
+            inner.error = Some(message);
+        });
     }
 
     fn set_error_if_current(&self, generation: u64, message: String) {
@@ -66,29 +72,23 @@ impl BackendState {
     }
 
     fn clear_startup_state(&self) {
-        let mut inner = self.inner.lock().expect("backend state poisoned");
-        inner.port = None;
-        inner.error = None;
+        self.with_inner(|inner| {
+            inner.port = None;
+            inner.error = None;
+        });
     }
 
     fn clear_child_if_current(&self, generation: u64) {
         if self.is_current(generation) {
-            self.inner
-                .lock()
-                .expect("backend state poisoned")
-                .child
-                .take();
+            self.with_inner(|inner| {
+                inner.child.take();
+            });
         }
     }
 
     fn stop(&self) {
         self.next_generation();
-        let child = self
-            .inner
-            .lock()
-            .expect("backend state poisoned")
-            .child
-            .take();
+        let child = self.with_inner(|inner| inner.child.take());
         if let Some(child) = child {
             let pid = child.pid();
             log::info!("[backend] stopping process pid={pid}");
@@ -204,11 +204,10 @@ fn start(app: &tauri::AppHandle) {
     drop(port_guard);
     let child_pid = child.pid();
     log::info!("[backend] spawned generation={generation} pid={child_pid} port={port}");
-    {
-        let mut inner = state.inner.lock().expect("backend state poisoned");
+    state.with_inner(|inner| {
         inner.child = Some(child);
         inner.port = Some(port);
-    }
+    });
     events::watch(app.clone(), generation, rx);
 }
 
@@ -228,7 +227,7 @@ fn backend_log_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 /// Reserves a backend port, preferring the legacy desktop range for continuity.
 fn pick_port() -> std::io::Result<(u16, TcpListener)> {
-    for port in 8088..8188 {
+    for port in LEGACY_DESKTOP_PORT_START..LEGACY_DESKTOP_PORT_END_EXCLUSIVE {
         if let Ok(listener) = TcpListener::bind(("127.0.0.1", port)) {
             return Ok((port, listener));
         }
