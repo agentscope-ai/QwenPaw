@@ -4,9 +4,9 @@
   "identifier": "io.agentscope.qwenpaw.desktop",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "npm run sync:tauri-version && npm run dev:tauri",
-    "beforeBuildCommand": "npm run build:tauri"
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "vite --mode tauri",
+    "beforeBuildCommand": "npm run build:prod"
   },
   "app": {
     "withGlobalTauri": false,
@@ -52,7 +52,7 @@
         "languages": [
           "English",
           "SimpChinese",
-          "TradChinese",
+          "Indonesian",
           "Japanese",
           "Russian",
           "PortugueseBR"
@@ -60,7 +60,7 @@
         "customLanguageFiles": {
           "English": "nsis-languages/English.nsh",
           "SimpChinese": "nsis-languages/SimpChinese.nsh",
-          "TradChinese": "nsis-languages/TradChinese.nsh",
+          "Indonesian": "nsis-languages/Indonesian.nsh",
           "Japanese": "nsis-languages/Japanese.nsh",
           "Russian": "nsis-languages/Russian.nsh",
           "PortugueseBR": "nsis-languages/PortugueseBR.nsh"

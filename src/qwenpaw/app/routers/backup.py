@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import APIRouter, Form, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from ...backup import (  # pylint: disable=no-name-in-module
+from ...backup import (
     create_stream,
     delete_backups,
     execute_restore,

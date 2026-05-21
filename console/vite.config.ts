@@ -3,8 +3,6 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
-const host = process.env.TAURI_DEV_HOST;
-
 // Vitest plugin: transforms .css imports inside node_modules to empty stubs.
 // This prevents errors from packages like @agentscope-ai/icons that import CSS.
 const cssStubPlugin = {
@@ -22,35 +20,18 @@ export default defineConfig(({ mode }) => {
   // Use a dedicated Vite-prefixed key so unrelated shell BASE_URL values don't leak into the build.
   const apiBaseUrl = env.VITE_API_BASE_URL ?? "";
   // Tauri sets TAURI_ENV_PLATFORM during build and TAURI_DEV_HOST during dev;
-  // both contexts need the fixed Vite port expected by tauri.conf.json.
+  // in both contexts the Python sidecar port is only known at runtime.
   const isTauriContext =
     mode === "tauri" ||
     Boolean(process.env.TAURI_ENV_PLATFORM || process.env.TAURI_DEV_HOST);
-  const isTauriBuild = Boolean(process.env.TAURI_ENV_PLATFORM);
-  const server = isTauriContext
-    ? {
-        port: 1420,
-        strictPort: true,
-        host: host || false,
-        hmr: host
-          ? {
-              protocol: "ws",
-              host,
-              port: 1421,
-            }
-          : undefined,
-        watch: {
-          ignored: ["**/src-tauri/**"],
-        },
-      }
-    : {
-        host: "0.0.0.0",
-        port: 5173,
-      };
+  const apiBaseUrlDefine = isTauriContext
+    ? `(globalThis.__QWENPAW_API_BASE_URL__ ?? ${JSON.stringify(apiBaseUrl)})`
+    : JSON.stringify(apiBaseUrl);
 
   return {
     define: {
-      VITE_API_BASE_URL: JSON.stringify(apiBaseUrl),
+      VITE_API_BASE_URL: apiBaseUrlDefine,
+      __QWENPAW_CONFIGURED_API_BASE_URL__: JSON.stringify(apiBaseUrl),
       TOKEN: JSON.stringify(env.TOKEN || ""),
       MOBILE: false,
     },
@@ -71,7 +52,10 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "./src"),
       },
     },
-    server,
+    server: {
+      host: "0.0.0.0",
+      port: 5173,
+    },
     test: {
       globals: true,
       environment: "jsdom",
@@ -186,16 +170,6 @@ export default defineConfig(({ mode }) => {
           },
         },
       },
-      // These settings apply only when building inside the Tauri toolchain.
-      // Tauri uses Chromium on Windows and WebKit on macOS/Linux; web builds use Vite defaults.
-      ...(isTauriBuild && {
-        target:
-          process.env.TAURI_ENV_PLATFORM === "windows"
-            ? "chrome105"
-            : "safari15",
-        // don't minify for debug (non-production tauri) builds
-        minify: mode === "production" ? ("esbuild" as const) : (false as const),
-      }),
     },
   };
 });

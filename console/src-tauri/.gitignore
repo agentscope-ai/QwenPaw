@@ -3,3 +3,6 @@
 /target/
 /gen/
 tauri.version.conf.json
+
+# Generated PyInstaller backend sidecar copied by pack-tauri scripts.
+/binaries/

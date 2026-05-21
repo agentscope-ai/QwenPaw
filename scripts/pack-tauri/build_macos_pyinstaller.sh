@@ -96,7 +96,7 @@ rm -rf "${BUNDLE_DIR}/dmg" "${BUNDLE_DIR}/macos"
 cd console
 npm ci
 echo "Syncing Tauri version..."
-npm run sync:tauri-version
+node ../scripts/pack-tauri/sync_tauri_version.mjs
 echo "Building for macOS..."
 npm exec -- tauri build \
     --config src-tauri/tauri.version.conf.json \

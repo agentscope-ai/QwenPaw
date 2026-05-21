@@ -4,7 +4,7 @@ import {
   initRuntimeApiBaseUrl,
   isTauriRuntime,
   restartBackend,
-} from "../api/config";
+} from "./backendRuntime";
 
 export type BackendReadyStatus = "checking" | "ready" | "timeout" | "error";
 

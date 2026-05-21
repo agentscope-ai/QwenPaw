@@ -122,9 +122,3 @@ src/.hypothesis/
 
 # Local File
 /localfile/
-
-# Tauri build scripts copy the generated PyInstaller sidecar here.
-console/src-tauri/binaries/*
-
-# Generated from scripts/pack/assets/icon.svg before Tauri builds.
-console/src-tauri/icons/

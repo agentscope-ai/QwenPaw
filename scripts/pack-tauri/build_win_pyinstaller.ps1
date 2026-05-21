@@ -122,7 +122,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Syncing Tauri version..."
-npm run sync:tauri-version
+node ../scripts/pack-tauri/sync_tauri_version.mjs
 if ($LASTEXITCODE -ne 0) {
     throw "Tauri version sync failed"
 }

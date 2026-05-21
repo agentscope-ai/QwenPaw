@@ -1,79 +1,7 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
-
-// VITE_API_BASE_URL and TOKEN are declared globally in src/vite-env.d.ts.
+declare const VITE_API_BASE_URL: string;
+declare const TOKEN: string;
 
 const AUTH_TOKEN_KEY = "qwenpaw_auth_token";
-
-let runtimeApiBaseUrl = "";
-let initRuntimeApiBaseUrlPromise: Promise<string> | null = null;
-
-export function getApiBaseUrl(): string {
-  return (
-    runtimeApiBaseUrl ||
-    (typeof VITE_API_BASE_URL !== "undefined" ? VITE_API_BASE_URL : "")
-  );
-}
-
-export function isTauriRuntime(): boolean {
-  return isTauri();
-}
-
-export function initRuntimeApiBaseUrl(): Promise<string> {
-  if (!initRuntimeApiBaseUrlPromise) {
-    initRuntimeApiBaseUrlPromise = resolveRuntimeApiBaseUrl().catch((err) => {
-      initRuntimeApiBaseUrlPromise = null;
-      throw err;
-    });
-  }
-  return initRuntimeApiBaseUrlPromise;
-}
-
-async function resolveRuntimeApiBaseUrl(): Promise<string> {
-  const baseUrl = getApiBaseUrl();
-  const tauriRuntime = isTauriRuntime();
-  if (baseUrl || !tauriRuntime) {
-    if (baseUrl && tauriRuntime) {
-      // VITE_API_BASE_URL is set while running inside a Tauri runtime.
-      // The Rust sidecar will start a second backend process that won't
-      // be used; set VITE_API_BASE_URL='' or leave it unset for desktop builds.
-      console.warn(
-        "[Tauri] VITE_API_BASE_URL is set; ignoring backend_port from Rust. " +
-          "You may have two backend processes running.",
-      );
-    }
-    return baseUrl;
-  }
-
-  const port = await invoke<number>("backend_port");
-  runtimeApiBaseUrl = `http://127.0.0.1:${port}`;
-
-  return runtimeApiBaseUrl;
-}
-
-export async function getBackendStartupError(): Promise<string> {
-  if (!isTauriRuntime()) return "";
-  return (await invoke<string | null>("backend_startup_error")) || "";
-}
-
-export async function restartBackend(): Promise<string> {
-  const configuredBaseUrl =
-    typeof VITE_API_BASE_URL !== "undefined" ? VITE_API_BASE_URL : "";
-  if (!isTauriRuntime()) {
-    return getApiBaseUrl();
-  }
-
-  if (configuredBaseUrl) {
-    return configuredBaseUrl;
-  }
-
-  initRuntimeApiBaseUrlPromise = null;
-  runtimeApiBaseUrl = "";
-
-  const port = await invoke<number>("restart_backend");
-  runtimeApiBaseUrl = `http://127.0.0.1:${port}`;
-
-  return runtimeApiBaseUrl;
-}
 
 /**
  * Get the full API URL with /api prefix
@@ -81,7 +9,7 @@ export async function restartBackend(): Promise<string> {
  * @returns Full API URL (e.g., "http://localhost:8088/api/models" or "/api/models")
  */
 export function getApiUrl(path: string): string {
-  const base = getApiBaseUrl();
+  const base = VITE_API_BASE_URL || "";
   const apiPrefix = "/api";
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${base}${apiPrefix}${normalizedPath}`;

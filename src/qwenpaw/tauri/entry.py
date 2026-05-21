@@ -137,7 +137,7 @@ def main() -> None:
     # propagate back to main() for consistent error handling.
     _run_click_command(
         app_cmd,
-        args=["--host", "127.0.0.1", "--port", port, "--no-write-last-api"],
+        args=["--host", "127.0.0.1", "--port", port],
         label="backend startup",
     )
 

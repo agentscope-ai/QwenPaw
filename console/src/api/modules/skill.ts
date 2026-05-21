@@ -1,5 +1,5 @@
 import { request } from "../request";
-import { getApiBaseUrl, getApiUrl } from "../config";
+import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
 import type {
   BuiltinImportSpec,
@@ -10,6 +10,9 @@ import type {
   SkillSpec,
   WorkspaceSkillSummary,
 } from "../types";
+
+// Declare VITE_API_BASE_URL as global (injected by Vite)
+declare const VITE_API_BASE_URL: string;
 
 // Simple in-memory cache with TTL
 const CACHE_TTL_MS = 30000; // 30 seconds
@@ -61,7 +64,8 @@ export function invalidateSkillCache(options?: {
 }
 
 function getStreamApiUrl(): string {
-  return `${getApiBaseUrl()}/api`;
+  const base = typeof VITE_API_BASE_URL === "string" ? VITE_API_BASE_URL : "";
+  return `${base}/api`;
 }
 
 async function _uploadZip(

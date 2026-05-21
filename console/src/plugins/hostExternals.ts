@@ -12,7 +12,9 @@ import React from "react";
 import ReactDOM from "react-dom";
 import * as antd from "antd";
 import * as antdIcons from "@ant-design/icons";
-import { getApiBaseUrl, getApiUrl, getApiToken } from "../api/config";
+import { getApiUrl, getApiToken } from "../api/config";
+
+declare const VITE_API_BASE_URL: string;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -148,6 +150,9 @@ declare global {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function installHostExternals(): void {
+  const apiBaseUrl =
+    typeof VITE_API_BASE_URL !== "undefined" ? VITE_API_BASE_URL : "";
+
   if (!window.QwenPaw) {
     (window as any).QwenPaw = {} as WindowNamespace;
   }
@@ -158,9 +163,7 @@ export function installHostExternals(): void {
       ReactDOM,
       antd,
       antdIcons,
-      get apiBaseUrl() {
-        return getApiBaseUrl();
-      },
+      apiBaseUrl,
       getApiUrl,
       getApiToken,
     };

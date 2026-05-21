@@ -4,6 +4,7 @@ import { useTheme } from "../contexts/ThemeContext";
 import { useTranslation } from "react-i18next";
 import styles from "./BackendLoadingPage.module.less";
 import { type BackendReadyStatus } from "./useBackendReadyPolling";
+import { getStartupMessages } from "./startupMessages";
 
 const BRAND_COLOR = "#ff7f16";
 const ERROR_COLOR = "#ff4d4f";
@@ -24,16 +25,17 @@ export default function BackendLoadingPage({
   onRetry,
 }: BackendLoadingPageProps) {
   const { isDark } = useTheme();
-  const { t } = useTranslation();
+  const { i18n } = useTranslation();
+  const messages = getStartupMessages(i18n.language);
   const hasFailed = status === "timeout" || status === "error";
   const statusText =
     status === "error"
-      ? t("startup.error", "Backend failed to start.")
+      ? messages.error
       : status === "checking"
       ? elapsed === 0
-        ? t("startup.starting")
-        : t("startup.checking")
-      : t("startup.timeout", { seconds: elapsed });
+        ? messages.starting
+        : messages.checking
+      : messages.timeout(elapsed);
 
   const percent = Math.min(Math.round((elapsed / totalSec) * 100), 100);
   const style = {
@@ -76,17 +78,12 @@ export default function BackendLoadingPage({
         {hasFailed && (
           <>
             <p className={styles.hint}>
-              {status === "error"
-                ? t(
-                    "startup.errorHint",
-                    "The backend process could not be launched. Check application logs for details.",
-                  )
-                : t("startup.timeoutHint")}
+              {status === "error" ? messages.errorHint : messages.timeoutHint}
             </p>
             {errorMessage && (
               <details className={styles.details}>
                 <summary className={styles.summary}>
-                  {t("startup.errorDetails", "Show error details")}
+                  {messages.errorDetails}
                 </summary>
                 <pre className={styles.errorDetails}>{errorMessage}</pre>
               </details>
@@ -96,7 +93,7 @@ export default function BackendLoadingPage({
               onClick={onRetry}
               type="button"
             >
-              {t("startup.retry")}
+              {messages.retry}
             </button>
           </>
         )}
