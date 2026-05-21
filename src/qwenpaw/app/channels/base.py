@@ -139,6 +139,11 @@ class BaseChannel(ABC):
         self._filter_tool_messages = filter_tool_messages
         self._filter_thinking = filter_thinking
         self.streaming_enabled = streaming_enabled
+        # Legacy fields — stored for backward compat but not used for
+        # filtering (new ACL gate handles access control).
+        self.dm_policy = dm_policy or "open"
+        self.group_policy = group_policy or "open"
+        self.allow_from = set(allow_from or [])
         self.deny_message = deny_message or ""
         self.require_mention = require_mention
         self.access_control_dm = access_control_dm
