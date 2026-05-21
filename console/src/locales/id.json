@@ -372,7 +372,19 @@
     "dismissSuccess": "Diabaikan",
     "operationFailed": "Operasi gagal",
     "remark": "Catatan",
-    "remarkPlaceholder": "Masukkan catatan (opsional)"
+    "remarkPlaceholder": "Masukkan catatan (opsional)",
+    "filterByChannel": "Filter berdasarkan channel",
+    "selectToOperate": "Pilih item untuk operasi",
+    "selectedCount": "{{count}} dipilih",
+    "batchApprove": "Setujui",
+    "batchDeny": "Daftar hitam",
+    "batchDismiss": "Hapus",
+    "batchApproveConfirm": "Setujui {{count}} pengguna?",
+    "batchDenyConfirm": "Tambahkan {{count}} pengguna ke daftar hitam?",
+    "batchDismissConfirm": "Hapus {{count}} pengguna?",
+    "batchSuccess": "{{count}} pengguna berhasil diproses",
+    "batchRemove": "Hapus",
+    "batchRemoveConfirm": "Hapus {{count}} pengguna yang dipilih?"
   },
   "tools": {
     "title": "Tool Bawaan",

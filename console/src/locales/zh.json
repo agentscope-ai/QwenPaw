@@ -993,7 +993,19 @@
     "dismissSuccess": "已忽略",
     "operationFailed": "操作失败",
     "remark": "备注",
-    "remarkPlaceholder": "输入备注（可选）"
+    "remarkPlaceholder": "输入备注（可选）",
+    "filterByChannel": "按频道筛选",
+    "selectToOperate": "勾选条目进行批量操作",
+    "selectedCount": "已选 {{count}} 项",
+    "batchApprove": "通过",
+    "batchDeny": "加黑名单",
+    "batchDismiss": "删除",
+    "batchApproveConfirm": "确认通过 {{count}} 个用户？",
+    "batchDenyConfirm": "确认将 {{count}} 个用户加入黑名单？",
+    "batchDismissConfirm": "确认删除 {{count}} 个用户？",
+    "batchSuccess": "已成功处理 {{count}} 个用户",
+    "batchRemove": "批量移除",
+    "batchRemoveConfirm": "确认移除 {{count}} 个用户？"
   },
   "sessions": {
     "title": "会话",

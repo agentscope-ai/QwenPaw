@@ -23,7 +23,7 @@ ACCESS_CONTROL_FILE = "access_control.json"
 class PendingEntry:
     """A user who messaged the bot but is not yet on any list."""
 
-    __slots__ = ("user_id", "channel", "timestamp", "first_message")
+    __slots__ = ("user_id", "channel", "timestamp", "first_message", "remark")
 
     def __init__(
         self,
@@ -31,11 +31,13 @@ class PendingEntry:
         channel: str,
         timestamp: float,
         first_message: str = "",
+        remark: str = "",
     ):
         self.user_id = user_id
         self.channel = channel
         self.timestamp = timestamp
         self.first_message = first_message
+        self.remark = remark
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -43,6 +45,7 @@ class PendingEntry:
             "channel": self.channel,
             "timestamp": self.timestamp,
             "first_message": self.first_message,
+            "remark": self.remark,
         }
 
     @classmethod
@@ -52,6 +55,7 @@ class PendingEntry:
             channel=data["channel"],
             timestamp=data.get("timestamp", 0.0),
             first_message=data.get("first_message", ""),
+            remark=data.get("remark", ""),
         )
 
 
@@ -295,21 +299,47 @@ class AccessControlStore:
             result.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
             return result
 
+    def update_pending_remark(
+        self,
+        channel: str,
+        user_id: str,
+        remark: str,
+    ) -> bool:
+        """Update the remark on a pending entry. Returns True if found."""
+        with self._lock:
+            acl = self._acl(channel)
+            for entry in acl.pending:
+                if entry.user_id == user_id and entry.channel == channel:
+                    entry.remark = remark
+                    self._save()
+                    return True
+            return False
+
     def approve_pending(
         self,
         channel: str,
         user_id: str,
         remark: str = "",
     ) -> bool:
-        """Move a pending user to the whitelist. Returns True if found."""
+        """Move a pending user to the whitelist.
+
+        If no remark is provided, carry over the remark from the pending entry.
+        """
         with self._lock:
             acl = self._acl(channel)
+            # Find existing remark from pending entry as fallback
+            effective_remark = remark
+            if not effective_remark:
+                for entry in acl.pending:
+                    if entry.user_id == user_id and entry.channel == channel:
+                        effective_remark = entry.remark
+                        break
             acl.pending = [
                 p
                 for p in acl.pending
                 if not (p.user_id == user_id and p.channel == channel)
             ]
-            acl.whitelist[user_id] = remark
+            acl.whitelist[user_id] = effective_remark
             acl.blacklist.pop(user_id, None)
             self._save()
             return True
@@ -320,15 +350,24 @@ class AccessControlStore:
         user_id: str,
         remark: str = "",
     ) -> bool:
-        """Move a pending user to the blacklist. Returns True if found."""
+        """Move a pending user to the blacklist.
+
+        If no remark is provided, carry over the remark from the pending entry.
+        """
         with self._lock:
             acl = self._acl(channel)
+            effective_remark = remark
+            if not effective_remark:
+                for entry in acl.pending:
+                    if entry.user_id == user_id and entry.channel == channel:
+                        effective_remark = entry.remark
+                        break
             acl.pending = [
                 p
                 for p in acl.pending
                 if not (p.user_id == user_id and p.channel == channel)
             ]
-            acl.blacklist[user_id] = remark
+            acl.blacklist[user_id] = effective_remark
             acl.whitelist.pop(user_id, None)
             self._save()
             return True

@@ -35,10 +35,15 @@ class UserListBody(BaseModel):
     user_ids: List[str]
 
 
-class SingleUserBody(BaseModel):
+class PendingActionEntry(BaseModel):
     channel: str
     user_id: str
     remark: str = ""
+
+
+class PendingActionBody(BaseModel):
+    """Unified body for single or batch pending operations."""
+    entries: List[PendingActionEntry]
 
 
 class UpdateRemarkBody(BaseModel):
@@ -114,31 +119,44 @@ async def get_all_pending(request: Request):
 
 @router.post(
     "/pending/approve",
-    summary="Approve a pending user (add to whitelist)",
+    summary="Approve one or more pending users (add to whitelist)",
 )
-async def approve_pending(request: Request, body: SingleUserBody):
+async def approve_pending(request: Request, body: PendingActionBody):
     store = await _get_store(request)
-    store.approve_pending(body.channel, body.user_id, body.remark)
-    return {"status": "ok"}
+    for entry in body.entries:
+        store.approve_pending(entry.channel, entry.user_id, entry.remark)
+    return {"status": "ok", "count": len(body.entries)}
 
 
 @router.post(
     "/pending/deny",
-    summary="Deny a pending user (add to blacklist)",
+    summary="Deny one or more pending users (add to blacklist)",
 )
-async def deny_pending(request: Request, body: SingleUserBody):
+async def deny_pending(request: Request, body: PendingActionBody):
     store = await _get_store(request)
-    store.deny_pending(body.channel, body.user_id, body.remark)
-    return {"status": "ok"}
+    for entry in body.entries:
+        store.deny_pending(entry.channel, entry.user_id, entry.remark)
+    return {"status": "ok", "count": len(body.entries)}
 
 
 @router.post(
     "/pending/dismiss",
-    summary="Dismiss a pending user (remove without action)",
+    summary="Dismiss one or more pending users (remove without action)",
 )
-async def dismiss_pending(request: Request, body: SingleUserBody):
+async def dismiss_pending(request: Request, body: PendingActionBody):
     store = await _get_store(request)
-    found = store.dismiss_pending(body.channel, body.user_id)
+    for entry in body.entries:
+        store.dismiss_pending(entry.channel, entry.user_id)
+    return {"status": "ok", "count": len(body.entries)}
+
+
+@router.post(
+    "/pending/remark",
+    summary="Update remark on a pending entry",
+)
+async def update_pending_remark(request: Request, body: UpdateRemarkBody):
+    store = await _get_store(request)
+    found = store.update_pending_remark(body.channel, body.user_id, body.remark)
     if not found:
         raise HTTPException(status_code=404, detail="Pending entry not found")
     return {"status": "ok"}

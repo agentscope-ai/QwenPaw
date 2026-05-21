@@ -849,7 +849,19 @@
     "dismissSuccess": "Отклонено",
     "operationFailed": "Операция не удалась",
     "remark": "Примечание",
-    "remarkPlaceholder": "Введите примечание (необязательно)"
+    "remarkPlaceholder": "Введите примечание (необязательно)",
+    "filterByChannel": "Фильтр по каналу",
+    "selectToOperate": "Выберите элементы для операции",
+    "selectedCount": "Выбрано: {{count}}",
+    "batchApprove": "Одобрить",
+    "batchDeny": "В чёрный список",
+    "batchDismiss": "Удалить",
+    "batchApproveConfirm": "Одобрить {{count}} пользователей?",
+    "batchDenyConfirm": "Добавить {{count}} пользователей в чёрный список?",
+    "batchDismissConfirm": "Удалить {{count}} пользователей?",
+    "batchSuccess": "{{count}} пользователей обработано",
+    "batchRemove": "Удалить",
+    "batchRemoveConfirm": "Удалить {{count}} выбранных пользователей?"
   },
   "sessions": {
     "title": "Сессии",

@@ -13,6 +13,7 @@ export interface PendingEntry {
   channel: string;
   timestamp: number;
   first_message: string;
+  remark: string;
 }
 
 export interface ACLUserEntry {
@@ -71,21 +72,35 @@ export const accessControlApi = {
   getAclAllPending: () =>
     request<PendingEntry[]>("/access-control/pending/all"),
 
-  approveAclPending: (channel: string, userId: string, remark: string = "") =>
+  /**
+   * Unified pending action API - works for both single and batch operations.
+   * Pass an array of entries (1 or more).
+   */
+  approveAclPending: (
+    entries: { channel: string; user_id: string; remark?: string }[]
+  ) =>
     request("/access-control/pending/approve", {
       method: "POST",
-      body: JSON.stringify({ channel, user_id: userId, remark }),
+      body: JSON.stringify({ entries }),
     }),
 
-  denyAclPending: (channel: string, userId: string, remark: string = "") =>
+  denyAclPending: (
+    entries: { channel: string; user_id: string; remark?: string }[]
+  ) =>
     request("/access-control/pending/deny", {
       method: "POST",
-      body: JSON.stringify({ channel, user_id: userId, remark }),
+      body: JSON.stringify({ entries }),
     }),
 
-  dismissAclPending: (channel: string, userId: string) =>
+  dismissAclPending: (entries: { channel: string; user_id: string }[]) =>
     request("/access-control/pending/dismiss", {
       method: "POST",
-      body: JSON.stringify({ channel, user_id: userId }),
+      body: JSON.stringify({ entries }),
+    }),
+
+  updatePendingRemark: (channel: string, userId: string, remark: string) =>
+    request("/access-control/pending/remark", {
+      method: "POST",
+      body: JSON.stringify({ channel, user_id: userId, remark }),
     }),
 };

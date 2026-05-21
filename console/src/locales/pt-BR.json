@@ -1056,7 +1056,19 @@
     "dismissSuccess": "Dispensado",
     "operationFailed": "Operação falhou",
     "remark": "Observação",
-    "remarkPlaceholder": "Digite uma observação (opcional)"
+    "remarkPlaceholder": "Digite uma observação (opcional)",
+    "filterByChannel": "Filtrar por canal",
+    "selectToOperate": "Selecione itens para operar",
+    "selectedCount": "{{count}} selecionados",
+    "batchApprove": "Aprovar",
+    "batchDeny": "Lista negra",
+    "batchDismiss": "Remover",
+    "batchApproveConfirm": "Aprovar {{count}} usuários?",
+    "batchDenyConfirm": "Adicionar {{count}} usuários à lista negra?",
+    "batchDismissConfirm": "Remover {{count}} usuários?",
+    "batchSuccess": "{{count}} usuários processados com sucesso",
+    "batchRemove": "Remover",
+    "batchRemoveConfirm": "Remover {{count}} usuários selecionados?"
   },
   "sessions": {
     "title": "Sessoes",

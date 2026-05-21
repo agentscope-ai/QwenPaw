@@ -849,7 +849,19 @@
     "dismissSuccess": "無視しました",
     "operationFailed": "操作に失敗しました",
     "remark": "備考",
-    "remarkPlaceholder": "備考を入力（任意）"
+    "remarkPlaceholder": "備考を入力（任意）",
+    "filterByChannel": "チャンネルで絞り込み",
+    "selectToOperate": "項目を選択して操作",
+    "selectedCount": "{{count}}件選択中",
+    "batchApprove": "承認",
+    "batchDeny": "ブラックリスト",
+    "batchDismiss": "削除",
+    "batchApproveConfirm": "{{count}}件のユーザーを承認しますか？",
+    "batchDenyConfirm": "{{count}}件のユーザーをブラックリストに追加しますか？",
+    "batchDismissConfirm": "{{count}}件のユーザーを削除しますか？",
+    "batchSuccess": "{{count}}件のユーザーを処理しました",
+    "batchRemove": "一括削除",
+    "batchRemoveConfirm": "{{count}}件のユーザーを削除しますか？"
   },
   "sessions": {
     "title": "セッション",

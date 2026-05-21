@@ -1145,7 +1145,19 @@
     "dismissSuccess": "Pending entry dismissed",
     "operationFailed": "Operation failed",
     "remark": "Remark",
-    "remarkPlaceholder": "Enter a remark (optional)"
+    "remarkPlaceholder": "Enter a remark (optional)",
+    "filterByChannel": "Filter by channel",
+    "selectToOperate": "Select items to operate",
+    "selectedCount": "{{count}} selected",
+    "batchApprove": "Approve",
+    "batchDeny": "Blacklist",
+    "batchDismiss": "Dismiss",
+    "batchApproveConfirm": "Approve {{count}} selected users?",
+    "batchDenyConfirm": "Blacklist {{count}} selected users?",
+    "batchDismissConfirm": "Dismiss {{count}} selected users?",
+    "batchSuccess": "{{count}} users processed successfully",
+    "batchRemove": "Remove",
+    "batchRemoveConfirm": "Remove {{count}} selected users?"
   },
   "sessions": {
     "title": "Sessions",
