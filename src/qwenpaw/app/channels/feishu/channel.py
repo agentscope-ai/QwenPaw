@@ -207,6 +207,8 @@ class FeishuChannel(BaseChannel):
         require_mention: bool = False,
         domain: str = "feishu",
         streaming_enabled: bool = False,
+        group_session_mode: str = "per_user",
+        group_session_overrides: Optional[Dict[str, str]] = None,
     ):
         super().__init__(
             process,
@@ -228,6 +230,16 @@ class FeishuChannel(BaseChannel):
         self.encrypt_key = encrypt_key or ""
         self.verification_token = verification_token or ""
         self.domain = domain if domain in ("feishu", "lark") else "feishu"
+        self.group_session_mode = (
+            group_session_mode
+            if group_session_mode in ("shared", "per_user")
+            else "per_user"
+        )
+        self._group_session_overrides = {
+            k: v
+            for k, v in (group_session_overrides or {}).items()
+            if v in ("shared", "per_user")
+        }
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
         )
@@ -302,6 +314,13 @@ class FeishuChannel(BaseChannel):
             streaming_enabled=(
                 os.getenv("FEISHU_STREAMING_ENABLED", "0") == "1"
             ),
+            group_session_mode=os.getenv(
+                "FEISHU_GROUP_SESSION_MODE",
+                "per_user",
+            ),
+            group_session_overrides=json.loads(
+                os.getenv("FEISHU_GROUP_SESSION_OVERRIDES", "{}"),
+            ),
         )
 
     @classmethod
@@ -338,6 +357,29 @@ class FeishuChannel(BaseChannel):
             streaming_enabled=bool(
                 getattr(config, "streaming_enabled", False),
             ),
+            group_session_mode=getattr(
+                config,
+                "group_session_mode",
+                "per_user",
+            ),
+            group_session_overrides=getattr(
+                config,
+                "group_session_overrides",
+                None,
+            ),
+        )
+
+    def _get_group_session_mode(self, chat_id: str, is_group: bool) -> str:
+        """Return the session mode for a given group chat.
+
+        Priority: group_session_overrides[chat_id] > group_session_mode.
+        P2P chats always return "per_user".
+        """
+        if not is_group:
+            return "per_user"
+        return self._group_session_overrides.get(
+            chat_id,
+            self.group_session_mode,
         )
 
     def resolve_session_id(
@@ -916,6 +958,16 @@ class FeishuChannel(BaseChannel):
                 "content_parts": content_parts,
                 "meta": meta,
             }
+            # When group_session_mode is "shared", override user_id to a
+            # group-level identifier so all members share the same session
+            # context file (instead of per-user isolation).
+            # Per-group override in group_session_overrides takes priority.
+            if self._get_group_session_mode(chat_id, is_group) == "shared":
+                group_uid = f"group:{short_session_id_from_full_id(chat_id)}"
+                native["user_id"] = group_uid
+                # Also override meta so build_agent_request_from_native
+                # picks it up (feishu_sender_id has higher priority there).
+                meta["feishu_sender_id"] = group_uid
             logger.info(
                 "feishu recv from=%s chat=%s msg_id=%s type=%s text_len=%s",
                 sender_display[:40],

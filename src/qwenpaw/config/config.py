@@ -238,6 +238,10 @@ class FeishuConfig(BaseChannelConfig):
     domain: 'feishu' for China, 'lark' for international.
     streaming_enabled: enable CardKit streaming card updates for real-time
     typewriter-style text output.
+    group_session_mode: default session sharing mode for group chats
+    ("per_user" or "shared"). "per_user" isolates sessions per user;
+    "shared" makes all group members share one session context.
+    group_session_overrides: per-chat_id override of group_session_mode.
     """
 
     app_id: str = ""
@@ -247,6 +251,8 @@ class FeishuConfig(BaseChannelConfig):
     media_dir: Optional[str] = None
     domain: Literal["feishu", "lark"] = "feishu"
     streaming_enabled: bool = False
+    group_session_mode: Literal["per_user", "shared"] = "per_user"
+    group_session_overrides: Dict[str, Literal["per_user", "shared"]] = {}
 
 
 class QQConfig(BaseChannelConfig):
