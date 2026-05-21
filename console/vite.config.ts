@@ -25,7 +25,9 @@ export default defineConfig(({ mode }) => {
     mode === "tauri" ||
     Boolean(process.env.TAURI_ENV_PLATFORM || process.env.TAURI_DEV_HOST);
   const apiBaseUrlDefine = isTauriContext
-    ? `(globalThis.__QWENPAW_API_BASE_URL__ ?? ${JSON.stringify(apiBaseUrl)})`
+    ? apiBaseUrl
+      ? JSON.stringify(apiBaseUrl)
+      : "globalThis.__QWENPAW_API_BASE_URL__"
     : JSON.stringify(apiBaseUrl);
 
   return {
