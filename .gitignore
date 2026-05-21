@@ -128,3 +128,6 @@ console/src-tauri/binaries/*
 !console/src-tauri/binaries/qwenpaw-backend/
 console/src-tauri/binaries/qwenpaw-backend/*
 !console/src-tauri/binaries/qwenpaw-backend/.gitkeep
+
+# Generated from scripts/pack/assets/icon.svg before Tauri builds.
+console/src-tauri/icons/
