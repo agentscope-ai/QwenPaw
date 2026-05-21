@@ -1052,8 +1052,14 @@ class WeChatChannel(BaseChannel):
         text: str,
         context_token: str,
         client: Optional[ILinkClient] = None,
+        raise_on_error: bool = False,
     ) -> None:
-        """Send text using the shared ILinkClient (or create a temp one)."""
+        """Send text using the shared ILinkClient (or create a temp one).
+
+        Args:
+            raise_on_error: If True, raise ChannelError on API rejection
+                instead of only logging. Used by API-initiated sends.
+        """
         _client = client or self._client
         if not _client or not to_user_id or not text:
             return
@@ -1070,8 +1076,20 @@ class WeChatChannel(BaseChannel):
                         errcode,
                         to_user_id,
                     )
+                    if raise_on_error:
+                        raise ChannelError(
+                            channel_name="wechat",
+                            message=(
+                                f"iLink API rejected: ret={ret} "
+                                f"errcode={errcode} response={resp}"
+                            ),
+                        )
+        except ChannelError:
+            raise
         except Exception:
             logger.exception("wechat _send_text_direct failed")
+            if raise_on_error:
+                raise
 
     async def _send_media_file(
         self,
@@ -1362,8 +1380,12 @@ class WeChatChannel(BaseChannel):
         if not body:
             return
 
+        api_send = bool(m.get("_api_send"))
         for chunk in split_text(body):
-            await self._send_text_direct(to_user_id, chunk, context_token)
+            await self._send_text_direct(
+                to_user_id, chunk, context_token,
+                raise_on_error=api_send,
+            )
 
     async def _on_process_completed(
         self,
