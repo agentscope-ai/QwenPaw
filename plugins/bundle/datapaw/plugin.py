@@ -21,6 +21,11 @@ class DataPawPlugin:
     """DataPaw plugin entry. Wires startup / shutdown hooks only."""
 
     def register(self, api):
+        # Load constants first — its module body inserts PLUGIN_DIR into
+        # sys.path, which is what lets the absolute import of core.routers
+        # below (and later imports inside _on_startup) resolve.
+        from . import constants  # noqa: F401
+
         api.register_startup_hook(
             hook_name="datapaw_init",
             callback=self._on_startup,
@@ -32,12 +37,17 @@ class DataPawPlugin:
             priority=50,
         )
 
-    async def _on_startup(self):
-        # Load constants first — its module body inserts PLUGIN_DIR into
-        # sys.path, which is what lets subsequent `from agents_setup
-        # import …` / `from hooks import …` work as absolute imports.
-        from . import constants  # noqa: F401
+        # HTTP routes are registered at register-time (mirrors qwenpaw-pet),
+        # not in the startup hook: host's register_http_router itself does
+        # the SPA-catch-all-aware mount + bookkeeping for unload cleanup.
+        from core.routers import tasks_router
+        api.register_http_router(
+            tasks_router,
+            prefix="/tasks",                     # final URL: /api/tasks/...
+            tags=["datapaw-tasks"],
+        )
 
+    async def _on_startup(self):
         logger.info("DataPaw plugin starting up")
 
         # Imports inside the hook so plugin.py at register-time stays
@@ -49,12 +59,10 @@ class DataPawPlugin:
             setup_channel_sse_hook,
             setup_runner_hooks,
         )
-        from routers_setup import mount_routers
 
         ensure_builtin_agents()
         setup_runner_hooks()
         setup_channel_sse_hook()
-        mount_routers()
         patch_plugin_loader_unload()
 
         logger.info("DataPaw plugin startup complete")

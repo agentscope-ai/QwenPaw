@@ -39,7 +39,10 @@ from ..orchestration.task_graph import Sop, TaskGraph
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/tasks", tags=["datapaw-tasks"])
+# Prefix is applied at mount time by host's ``api.register_http_router``
+# (host prepends ``/api`` automatically), so this router carries no prefix
+# of its own. See plugin.py for the registration call.
+router = APIRouter(tags=["datapaw-tasks"])
 
 
 # ---------------------------------------------------------------------------
