@@ -26,6 +26,7 @@ const {
   mockGetApiUrl,
   mockSelectedAgent,
   mockSetSelectedAgent,
+  mockGetTranscriptionProviderType,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockGetActiveModels: vi.fn(),
@@ -34,6 +35,7 @@ const {
   mockGetApiUrl: vi.fn((p: string) => `/api${p}`),
   mockSelectedAgent: vi.fn(() => "default"),
   mockSetSelectedAgent: vi.fn(),
+  mockGetTranscriptionProviderType: vi.fn(),
 }));
 
 vi.mock("../../hooks/useAppMessage", () => ({
@@ -99,6 +101,13 @@ vi.mock("@/api/modules/chat", () => ({
     setLastUserMessage: vi.fn(),
     getSessionList: vi.fn(() => Promise.resolve([])),
   },
+}));
+
+vi.mock("@/api/modules/agent", () => ({
+  agentApi: {
+    getTranscriptionProviderType: mockGetTranscriptionProviderType,
+  },
+  TranscriptionError: class TranscriptionError extends Error {},
 }));
 
 vi.mock("antd", async (importOriginal) => {
@@ -197,6 +206,9 @@ describe("ChatPage", () => {
     mockUploadFile.mockResolvedValue({
       url: "uploaded.png",
       file_name: "uploaded.png",
+    });
+    mockGetTranscriptionProviderType.mockResolvedValue({
+      transcription_provider_type: "disabled",
     });
   });
 
@@ -333,6 +345,57 @@ describe("ChatPage", () => {
     expect(mockUploadFile).toHaveBeenCalledWith(smallFile);
     expect(onSuccess).toHaveBeenCalledWith({ url: "/preview/uploaded.png" });
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  // ── voice input mode ───────────────────────────────────────────────────────
+
+  it("does not enable browser speech before transcription provider type loads", async () => {
+    let resolveProviderType!: (value: {
+      transcription_provider_type: string;
+    }) => void;
+    mockGetTranscriptionProviderType.mockReturnValue(
+      new Promise((resolve) => {
+        resolveProviderType = resolve;
+      }),
+    );
+
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+
+    expect(capturedOptions.sender.allowSpeech).toBe(false);
+    expect(capturedOptions.sender.prefix).toBeUndefined();
+
+    act(() => {
+      resolveProviderType({ transcription_provider_type: "disabled" });
+    });
+  });
+
+  it("uses Whisper speech button and disables browser speech when transcription provider is enabled", async () => {
+    mockGetTranscriptionProviderType.mockResolvedValue({
+      transcription_provider_type: "whisper_api",
+    });
+
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+
+    await waitFor(() => {
+      expect(capturedOptions.sender.allowSpeech).toBe(false);
+      expect(capturedOptions.sender.prefix).toBeTruthy();
+    });
+  });
+
+  it("keeps browser speech enabled when transcription provider is disabled", async () => {
+    mockGetTranscriptionProviderType.mockResolvedValue({
+      transcription_provider_type: "disabled",
+    });
+
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+
+    await waitFor(() => {
+      expect(capturedOptions.sender.allowSpeech).toBe(true);
+      expect(capturedOptions.sender.prefix).toBeUndefined();
+    });
   });
 
   // ── multimodal caps ───────────────────────────────────────────────────────
