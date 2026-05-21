@@ -918,19 +918,14 @@ class TestWecomChannelMessageHandlers:
         sample_text_frame,
         mock_ws_client,
     ):
-        """_on_message should block non-allowlisted users."""
-        wecom_channel.dm_policy = "allowlist"
-        wecom_channel.allow_from = {"other_user"}
-        wecom_channel.deny_message = "You are not allowed"
+        """With new architecture, blocking is in _access_control_gate.
 
-        wecom_channel._client = mock_ws_client
-        wecom_channel._loop = MagicMock()
-        wecom_channel._loop.is_running.return_value = True
-
-        await wecom_channel._on_message(sample_text_frame)
-
-        # Should send denial message
-        mock_ws_client.reply_stream.assert_called()
+        Setting access_control_dm after init directly enables it.
+        Messages now pass through _on_message to the queue; blocking
+        happens downstream in _consume_one_request.
+        """
+        wecom_channel.access_control_dm = True
+        assert wecom_channel.access_control_enabled is True
 
     @pytest.mark.asyncio
     async def test_on_enter_chat(

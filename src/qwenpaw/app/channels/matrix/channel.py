@@ -203,63 +203,6 @@ class HistoryEntry:
     media_parts: Optional[List[Any]] = None
 
 
-class MatrixChannelConfig:
-    """Parsed config for MatrixChannel (from config.json channels.matrix)."""
-
-    def __init__(self, raw: dict[str, Any]) -> None:
-        self.enabled: bool = raw.get("enabled", True)
-        self.homeserver: str = raw.get("homeserver", "").rstrip("/")
-        self.user_id: str = raw.get("user_id", "")
-        self.access_token: str = raw.get("access_token", "")
-        # username/password fallback (rarely used in hiclaw)
-        self.password: str = raw.get("password", "")
-        self.device_name: str = raw.get("device_name", "qwenpaw-worker")
-        self.device_id: str = raw.get("device_id", "")
-        # E2EE: when True, enable end-to-end encryption via matrix-nio + libolm
-        self.encryption: bool = raw.get("encryption", False)
-
-        # Allowlist / policy
-        self.dm_policy: str = raw.get("dm_policy", "allowlist")
-        self.allow_from: list[str] = [
-            _normalize_user_id(u) for u in (raw.get("allow_from") or [])
-        ]
-        self.group_policy: str = raw.get("group_policy", "allowlist")
-        self.group_allow_from: list[str] = [
-            _normalize_user_id(u) for u in (raw.get("group_allow_from") or [])
-        ]
-        # Pre-computed union of both allow lists for group message checks
-        self.group_combined_allow: frozenset[str] = frozenset(
-            self.group_allow_from,
-        ) | frozenset(self.allow_from)
-        # Per-room overrides: {"*": {"requireMention": true}, ...}
-        self.groups: dict[str, Any] = raw.get("groups", {})
-
-        self.bot_prefix: str = raw.get("bot_prefix", "")
-        self.filter_tool_messages: bool = raw.get(
-            "filter_tool_messages",
-            False,
-        )
-        self.filter_thinking: bool = raw.get("filter_thinking", False)
-        # Whether the active model supports image inputs. Set by bridge.py.
-        # Defaults to False so images are never sent to a non-vision model.
-        self.vision_enabled: bool = raw.get("vision_enabled", False)
-        # Max non-mentioned messages to buffer per room (0 = disabled).
-        self.history_limit: int = max(
-            0,
-            raw.get("history_limit", DEFAULT_HISTORY_LIMIT),
-        )
-        # matrix-nio sync long-poll timeout (ms); typical 30s
-        self.sync_timeout_ms: int = raw.get("sync_timeout_ms", 30000)
-
-
-def _normalize_user_id(uid: str) -> str:
-    """Lowercase MXID and ensure leading ``@`` for allowlist set membership."""
-    uid = uid.strip().lower()
-    if not uid.startswith("@"):
-        uid = "@" + uid
-    return uid
-
-
 class MatrixChannel(BaseChannel):
     """QwenPaw channel that connects to a Matrix homeserver via matrix-nio."""
 
@@ -269,12 +212,28 @@ class MatrixChannel(BaseChannel):
     def __init__(
         self,
         process: Callable,
-        config: MatrixChannelConfig,
+        homeserver: str = "",
+        matrix_user_id: str = "",
+        access_token: str = "",
+        password: str = "",
+        device_name: str = "qwenpaw-worker",
+        device_id: str = "",
+        encryption: bool = False,
+        dm_disabled: bool = False,
+        group_disabled: bool = False,
+        groups: Optional[Dict[str, Any]] = None,
+        vision_enabled: bool = False,
+        history_limit: int = DEFAULT_HISTORY_LIMIT,
+        sync_timeout_ms: int = 30000,
         on_reply_sent: Optional[Callable] = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
         workspace_dir: Path | None = None,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
+        enabled: bool = True,
+        **_kwargs: Any,
     ) -> None:
         super().__init__(
             process=process,
@@ -282,26 +241,37 @@ class MatrixChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
-        self._cfg = config
+        # Matrix connection
+        self.homeserver: str = homeserver.rstrip("/")
+        self.matrix_user_id: str = matrix_user_id
+        self.access_token: str = access_token
+        self.password: str = password
+        self.device_name: str = device_name
+        self.device_id: str = device_id
+        self.encryption: bool = encryption
+        self.enabled: bool = enabled
+        # Channel-level mute
+        self.dm_disabled: bool = dm_disabled
+        self.group_disabled: bool = group_disabled
+        # Per-room overrides
+        self.groups: Dict[str, Any] = groups or {}
+        # Media / history
+        self.vision_enabled: bool = vision_enabled
+        self.history_limit: int = max(0, history_limit)
+        self.sync_timeout_ms: int = sync_timeout_ms
+
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
         )
         self._client: Optional[AsyncClient] = None
         self._user_id: Optional[str] = None
         self._sync_task: Optional[asyncio.Task] = None
-        self._typing_tasks: Dict[
-            str,
-            asyncio.Task,
-        ] = {}  # room_id -> renewal task
-        self._room_histories: Dict[
-            str,
-            List[HistoryEntry],
-        ] = {}  # per-room history buffer
-        # DM room cache: room_id -> {"members": [user_ids], "ts": timestamp}
-        # Used to reliably detect DM rooms when nio's room.users is unreliable.
+        self._typing_tasks: Dict[str, asyncio.Task] = {}
+        self._room_histories: Dict[str, List[HistoryEntry]] = {}
         self._dm_room_cache: Dict[str, Dict[str, Any]] = {}
-        # Shared HTTP client for media downloads (created in start())
         self._http_client: Optional[httpx.AsyncClient] = None
         self._handled_verification_requests: set[str] = set()
         self._verification_tx_peers: dict[str, tuple[str, str]] = {}
@@ -335,22 +305,42 @@ class MatrixChannel(BaseChannel):
         filter_thinking: bool = False,
         workspace_dir: Path | None = None,
     ) -> "MatrixChannel":
+        # Support pydantic model, dict, or SimpleNamespace
         if isinstance(config, dict):
-            cfg = MatrixChannelConfig(config)
-        elif isinstance(config, MatrixChannelConfig):
-            cfg = config
+            raw = config
         else:
-            # SimpleNamespace or other object — convert to dict via __dict__
-            cfg = MatrixChannelConfig(vars(config))
+            raw = (
+                config.model_dump()
+                if hasattr(config, "model_dump")
+                else vars(config)
+            )
         return cls(
             process=process,
-            config=cfg,
+            homeserver=raw.get("homeserver", ""),
+            matrix_user_id=raw.get("user_id", ""),
+            access_token=raw.get("access_token", ""),
+            password=raw.get("password", ""),
+            device_name=raw.get("device_name", "qwenpaw-worker"),
+            device_id=raw.get("device_id", ""),
+            encryption=raw.get("encryption", False),
+            dm_disabled=raw.get("dm_disabled", False),
+            group_disabled=raw.get("group_disabled", False),
+            groups=raw.get("groups"),
+            vision_enabled=raw.get("vision_enabled", False),
+            history_limit=raw.get("history_limit", DEFAULT_HISTORY_LIMIT),
+            sync_timeout_ms=raw.get("sync_timeout_ms", 30000),
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages
-            or cfg.filter_tool_messages,
-            filter_thinking=filter_thinking or cfg.filter_thinking,
+            filter_tool_messages=(
+                filter_tool_messages or raw.get("filter_tool_messages", False)
+            ),
+            filter_thinking=(
+                filter_thinking or raw.get("filter_thinking", False)
+            ),
             workspace_dir=workspace_dir,
+            access_control_dm=bool(raw.get("access_control_dm", False)),
+            access_control_group=bool(raw.get("access_control_group", False)),
+            enabled=raw.get("enabled", True),
         )
 
     @classmethod
@@ -359,13 +349,12 @@ class MatrixChannel(BaseChannel):
         process: Callable,
         on_reply_sent=None,
     ) -> "MatrixChannel":
-        cfg = MatrixChannelConfig(
-            {
-                "homeserver": os.environ.get("HICLAW_MATRIX_SERVER", ""),
-                "access_token": os.environ.get("HICLAW_MATRIX_TOKEN", ""),
-            },
+        return cls(
+            process=process,
+            homeserver=os.environ.get("HICLAW_MATRIX_SERVER", ""),
+            access_token=os.environ.get("HICLAW_MATRIX_TOKEN", ""),
+            on_reply_sent=on_reply_sent,
         )
-        return cls(process=process, config=cfg, on_reply_sent=on_reply_sent)
 
     # ------------------------------------------------------------------
     # Lifecycle — client, login, event callbacks, _sync_loop
@@ -384,7 +373,7 @@ class MatrixChannel(BaseChannel):
         so the HTTP layer doesn't kill the connection while the
         homeserver is legitimately waiting for new events.
         """
-        sync_s = self._cfg.sync_timeout_ms / 1000
+        sync_s = self.sync_timeout_ms / 1000
         request_timeout = max(sync_s + 30, 60)
         return AsyncClientConfig(
             store_sync_tokens=False,
@@ -399,7 +388,7 @@ class MatrixChannel(BaseChannel):
 
     async def health_check(self) -> Dict[str, Any]:
         """Check Matrix client connection status."""
-        if not getattr(self, "enabled", True) or not self._cfg.homeserver:
+        if not getattr(self, "enabled", True) or not self.homeserver:
             return {
                 "channel": self.channel,
                 "status": "disabled",
@@ -439,7 +428,7 @@ class MatrixChannel(BaseChannel):
         # restore cached token, otherwise we may accidentally bypass the
         # intended auth path.
         has_explicit_identity = (
-            has_password_creds or has_token_cred or self._cfg.user_id
+            has_password_creds or has_token_cred or self.matrix_user_id
         )
         self._load_auth_state(
             restore_token=False,
@@ -449,7 +438,7 @@ class MatrixChannel(BaseChannel):
     def _preflight_e2ee_dependencies(self) -> None:
         """Probe olm before creating AsyncClientConfig;
         disable E2EE if absent."""
-        if not self._cfg.encryption:
+        if not self.encryption:
             return
         try:
             importlib.import_module("olm")
@@ -460,7 +449,7 @@ class MatrixChannel(BaseChannel):
                 "To enable E2EE: pip install matrix-nio[e2e] && "
                 "apt/dnf install libolm-dev",
             )
-            self._cfg.encryption = False
+            self.encryption = False
 
     def _init_async_client(self, resolved_device_id: str) -> None:
         # E2EE: when encryption is enabled, provide store_path so matrix-nio
@@ -468,14 +457,14 @@ class MatrixChannel(BaseChannel):
         # (appropriate for bot use cases where interactive verification is
         # impractical).
         store_path = None
-        if self._cfg.encryption:
+        if self.encryption:
             store_path = self._e2ee_store_path()
             store_path.mkdir(parents=True, exist_ok=True)
         client_config = self._build_client_config(
-            encryption=self._cfg.encryption,
+            encryption=self.encryption,
         )
         self._client = QwenPawMatrixClient(
-            self._cfg.homeserver,
+            self.homeserver,
             # Keep user neutral before auth; token/whoami or login response
             # will set the canonical MXID.
             user="",
@@ -500,9 +489,9 @@ class MatrixChannel(BaseChannel):
         elif "user_id" in login_params:
             login_kwargs["user_id"] = login_user
         if "password" in login_params:
-            login_kwargs["password"] = self._cfg.password
-        if "device_name" in login_params and self._cfg.device_name:
-            login_kwargs["device_name"] = self._cfg.device_name
+            login_kwargs["password"] = self.password
+        if "device_name" in login_params and self.device_name:
+            login_kwargs["device_name"] = self.device_name
         if "device_id" in login_params:
             stable_device_id = (
                 self._client.device_id or resolved_device_id or ""
@@ -525,9 +514,9 @@ class MatrixChannel(BaseChannel):
             login_attempts.append(((), login_kwargs))
         login_attempts.append(
             (
-                (self._cfg.password,),
+                (self.password,),
                 {
-                    "device_name": self._cfg.device_name,
+                    "device_name": self.device_name,
                     **(
                         {"device_id": resolved_device_id}
                         if resolved_device_id
@@ -538,9 +527,9 @@ class MatrixChannel(BaseChannel):
         )
         login_attempts.append(
             (
-                (login_user, self._cfg.password),
+                (login_user, self.password),
                 {
-                    "device_name": self._cfg.device_name,
+                    "device_name": self.device_name,
                     **(
                         {"device_id": resolved_device_id}
                         if resolved_device_id
@@ -577,10 +566,10 @@ class MatrixChannel(BaseChannel):
             "device_name=%s)",
             self._user_id,
             getattr(self._client, "device_id", ""),
-            self._cfg.device_name,
+            self.device_name,
         )
         self._save_auth_state()
-        if self._cfg.encryption and self._client.store_path:
+        if self.encryption and self._client.store_path:
             if self._client.device_id:
                 self._client.load_store()
                 logger.info(
@@ -617,14 +606,14 @@ class MatrixChannel(BaseChannel):
         return False
 
     async def _login_with_access_token(self) -> bool:
-        self._client.access_token = self._cfg.access_token
+        self._client.access_token = self.access_token
         whoami = await self._client.whoami()
         if isinstance(whoami, WhoamiResponse):
-            if self._cfg.user_id and self._cfg.user_id != whoami.user_id:
+            if self.matrix_user_id and self.matrix_user_id != whoami.user_id:
                 logger.error(
                     "MatrixChannel: configured user_id=%s does not match "
                     "access_token owner=%s; refusing stale credentials",
-                    self._cfg.user_id,
+                    self.matrix_user_id,
                     whoami.user_id,
                 )
                 return False
@@ -642,7 +631,7 @@ class MatrixChannel(BaseChannel):
             )
             self._save_auth_state()
             # Load crypto store after user_id and device_id are set
-            if self._cfg.encryption and self._client.store_path:
+            if self.encryption and self._client.store_path:
                 if self._client.device_id:
                     self._client.load_store()
                     logger.info(
@@ -655,7 +644,7 @@ class MatrixChannel(BaseChannel):
                         "no device_id — encryption disabled "
                         "(token may lack device scope)",
                     )
-                    self._cfg.encryption = False
+                    self.encryption = False
             return True
         logger.error("MatrixChannel: token login failed: %s", whoami)
         return False
@@ -676,7 +665,7 @@ class MatrixChannel(BaseChannel):
         )
 
     async def _setup_e2ee_after_login(self) -> bool:
-        if not self._cfg.encryption:
+        if not self.encryption:
             return True
         if self._client.should_upload_keys:
             resp = await self._client.keys_upload()
@@ -727,22 +716,22 @@ class MatrixChannel(BaseChannel):
         return True
 
     async def start(self) -> None:
-        if not self._cfg.homeserver:
+        if not self.homeserver:
             logger.warning(
                 "MatrixChannel: homeserver not configured, skipping",
             )
             return
         self._preflight_e2ee_dependencies()
-        login_user = (self._cfg.user_id or "").strip()
-        has_password_creds = bool(login_user and self._cfg.password)
-        has_token_cred = bool(self._cfg.access_token)
+        login_user = (self.matrix_user_id or "").strip()
+        has_password_creds = bool(login_user and self.password)
+        has_token_cred = bool(self.access_token)
         self._restore_auth_state_before_start(
             has_password_creds=has_password_creds,
             has_token_cred=has_token_cred,
         )
         resolved_device_id = (
-            self._cfg.device_id
-            or self._derive_device_id_from_name(self._cfg.device_name)
+            self.device_id
+            or self._derive_device_id_from_name(self.device_name)
         )
         self._init_async_client(resolved_device_id)
 
@@ -752,7 +741,7 @@ class MatrixChannel(BaseChannel):
                 resolved_device_id,
             ):
                 return
-        elif self._cfg.access_token:
+        elif self.access_token:
             if not await self._login_with_access_token():
                 return
         else:
@@ -816,24 +805,24 @@ class MatrixChannel(BaseChannel):
 
             payload = json.loads(path.read_text())
             restored_any = False
-            if restore_token and not self._cfg.access_token:
-                self._cfg.access_token = str(payload.get("access_token", ""))
-                restored_any = bool(self._cfg.access_token)
+            if restore_token and not self.access_token:
+                self.access_token = str(payload.get("access_token", ""))
+                restored_any = bool(self.access_token)
             if restore_identity:
-                if not self._cfg.user_id:
-                    self._cfg.user_id = str(payload.get("user_id", ""))
-                    restored_any = restored_any or bool(self._cfg.user_id)
-                if not self._cfg.device_id:
-                    self._cfg.device_id = str(payload.get("device_id", ""))
-                    restored_any = restored_any or bool(self._cfg.device_id)
+                if not self.matrix_user_id:
+                    self.matrix_user_id = str(payload.get("user_id", ""))
+                    restored_any = restored_any or bool(self.matrix_user_id)
+                if not self.device_id:
+                    self.device_id = str(payload.get("device_id", ""))
+                    restored_any = restored_any or bool(self.device_id)
             if restored_any:
                 logger.info(
                     "MatrixChannel: restored auth state from %s "
                     "(token=%s, user=%s, device=%s)",
                     path,
-                    bool(self._cfg.access_token),
-                    self._cfg.user_id or "<unknown>",
-                    self._cfg.device_id or "<unknown>",
+                    bool(self.access_token),
+                    self.matrix_user_id or "<unknown>",
+                    self.device_id or "<unknown>",
                 )
             else:
                 logger.debug(
@@ -870,10 +859,10 @@ class MatrixChannel(BaseChannel):
             path = self._auth_state_path()
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(payload))
-            self._cfg.access_token = token
-            self._cfg.user_id = user_id
+            self.access_token = token
+            self.matrix_user_id = user_id
             if device_id:
-                self._cfg.device_id = device_id
+                self.device_id = device_id
         except Exception as exc:
             logger.warning(
                 "MatrixChannel: failed to persist auth state: %s",
@@ -926,11 +915,7 @@ class MatrixChannel(BaseChannel):
         - Claim one-time keys to establish Olm sessions
         - Send outgoing to-device messages (key shares, key requests)
         """
-        if (
-            not self._cfg.encryption
-            or not self._client
-            or not self._client.olm
-        ):
+        if not self.encryption or not self._client or not self._client.olm:
             return
         try:
             if self._client.should_upload_keys:
@@ -1444,7 +1429,7 @@ class MatrixChannel(BaseChannel):
                 self._client.event_callbacks.clear()
                 try:
                     resp = await self._client.sync(
-                        timeout=self._cfg.sync_timeout_ms,
+                        timeout=self.sync_timeout_ms,
                         full_state=True,
                     )
                 finally:
@@ -1483,7 +1468,7 @@ class MatrixChannel(BaseChannel):
             )
             try:
                 resp = await self._client.sync(
-                    timeout=self._cfg.sync_timeout_ms,
+                    timeout=self.sync_timeout_ms,
                     since=next_batch,
                     full_state=True,
                 )
@@ -1509,7 +1494,7 @@ class MatrixChannel(BaseChannel):
         while True:
             try:
                 resp = await self._client.sync(
-                    timeout=self._cfg.sync_timeout_ms,
+                    timeout=self.sync_timeout_ms,
                     since=next_batch,
                     full_state=False,
                 )
@@ -1537,7 +1522,7 @@ class MatrixChannel(BaseChannel):
                         )
                         if self._client:
                             self._client.access_token = ""
-                        self._cfg.access_token = ""
+                        self.access_token = ""
                         return
                     logger.warning("MatrixChannel: sync error: %s", resp)
                     await asyncio.sleep(5)
@@ -1549,64 +1534,37 @@ class MatrixChannel(BaseChannel):
                 await asyncio.sleep(5)
 
     # ------------------------------------------------------------------
-    # Allowlist — policies, per-room requireMention, strip @mention prefix
-    # dm_policy + allow_from; group_policy +
-    # group_allow_from (merged for groups); groups{} per-room
-    # requireMention/autoReply; m.mentions + matrix.to + text mention detect;
-    # _strip_mention_prefix for slash commands (§4).
+    # Channel-level mute, per-room requireMention, strip @mention prefix
     # ------------------------------------------------------------------
 
-    def _check_allowed(
+    def _is_channel_disabled(
         self,
         sender_id: str,
         room_id: str,
         is_dm: bool,
     ) -> bool:
-        """Return True if the sender is allowed to interact in this context."""
-        normalized = _normalize_user_id(sender_id)
-        if is_dm:
-            if self._cfg.dm_policy == "disabled":
-                logger.warning(
-                    "MatrixChannel: dropping DM message (policy=disabled) "
-                    "sender=%s room=%s",
-                    sender_id,
-                    room_id,
-                )
-                return False
-            if self._cfg.dm_policy == "allowlist":
-                if normalized not in self._cfg.allow_from:
-                    logger.warning(
-                        "MatrixChannel: dropping DM message (allowlist miss) "
-                        "sender=%s room=%s normalized=%s",
-                        sender_id,
-                        room_id,
-                        normalized,
-                    )
-                    return False
-        else:
-            if self._cfg.group_policy == "disabled":
-                logger.warning(
-                    "MatrixChannel: dropping group message (policy=disabled) "
-                    "sender=%s room=%s",
-                    sender_id,
-                    room_id,
-                )
-                return False
-            if self._cfg.group_policy == "allowlist":
-                if normalized not in self._cfg.group_combined_allow:
-                    logger.warning(
-                        "MatrixChannel: dropping group message "
-                        "(allowlist miss) sender=%s room=%s normalized=%s",
-                        sender_id,
-                        room_id,
-                        normalized,
-                    )
-                    return False
-        return True
+        """Return True if chat type is muted at channel level."""
+        if is_dm and self.dm_disabled:
+            logger.warning(
+                "MatrixChannel: dropping DM message (dm_disabled) "
+                "sender=%s room=%s",
+                sender_id,
+                room_id,
+            )
+            return True
+        if not is_dm and self.group_disabled:
+            logger.warning(
+                "MatrixChannel: dropping group message (group_disabled) "
+                "sender=%s room=%s",
+                sender_id,
+                room_id,
+            )
+            return True
+        return False
 
     def _require_mention(self, room_id: str) -> bool:
         """Per-room config; default is require mention in group rooms."""
-        room_cfg = self._cfg.groups.get(room_id) or self._cfg.groups.get("*")
+        room_cfg = self.groups.get(room_id) or self.groups.get("*")
         if room_cfg:
             if room_cfg.get("autoReply") is True:
                 return False
@@ -1768,7 +1726,7 @@ class MatrixChannel(BaseChannel):
 
     def _record_history(self, room_id: str, entry: HistoryEntry) -> None:
         """Append *entry* to the per-room history buffer (respect limit)."""
-        limit = self._cfg.history_limit
+        limit = self.history_limit
         if limit <= 0:
             return
         history = self._room_histories.setdefault(room_id, [])
@@ -1804,7 +1762,7 @@ class MatrixChannel(BaseChannel):
 
         Returns a (possibly new) list — the original is not mutated.
         """
-        if self._cfg.history_limit <= 0:
+        if self.history_limit <= 0:
             return content_parts
         history_text = self._build_history_prefix(room_id)
         if not history_text:
@@ -1863,7 +1821,7 @@ class MatrixChannel(BaseChannel):
             body_desc = (
                 f"[sent an image: {body}]" if body else "[sent an image]"
             )
-            if self._cfg.vision_enabled:
+            if self.vision_enabled:
                 mxc_url: str = getattr(event, "url", "") or ""
                 if mxc_url:
                     eid = event.event_id[:8].lstrip("$")
@@ -1938,7 +1896,7 @@ class MatrixChannel(BaseChannel):
             return mxc_url
         server, media_id = rest.split("/", 1)
         return (
-            f"{self._cfg.homeserver}/_matrix/media/v3/download"
+            f"{self.homeserver}/_matrix/media/v3/download"
             f"/{server}/{media_id}"
         )
 
@@ -1954,10 +1912,10 @@ class MatrixChannel(BaseChannel):
             rest = mxc_url[6:]  # strip "mxc://"
             server, media_id = rest.split("/", 1)
             url = (
-                f"{self._cfg.homeserver}/_matrix/media/v3/download"
+                f"{self.homeserver}/_matrix/media/v3/download"
                 f"/{server}/{media_id}"
             )
-            headers = {"Authorization": f"Bearer {self._cfg.access_token}"}
+            headers = {"Authorization": f"Bearer {self.access_token}"}
             if not self._http_client:
                 logger.warning("MatrixChannel: HTTP client not initialized")
                 return None
@@ -1994,10 +1952,10 @@ class MatrixChannel(BaseChannel):
             rest = mxc_url[6:]
             server, media_id = rest.split("/", 1)
             url = (
-                f"{self._cfg.homeserver}/_matrix/media/v3/download"
+                f"{self.homeserver}/_matrix/media/v3/download"
                 f"/{server}/{media_id}"
             )
-            headers = {"Authorization": f"Bearer {self._cfg.access_token}"}
+            headers = {"Authorization": f"Bearer {self.access_token}"}
             if not self._http_client:
                 logger.warning("MatrixChannel: HTTP client not initialized")
                 return None
@@ -2070,7 +2028,7 @@ class MatrixChannel(BaseChannel):
         # after token restore)
         is_dm = await self._is_dm_room(room_id, sender_id, room)
 
-        if not self._check_allowed(sender_id, room_id, is_dm):
+        if self._is_channel_disabled(sender_id, room_id, is_dm):
             return
 
         if not is_dm:
@@ -2140,7 +2098,7 @@ class MatrixChannel(BaseChannel):
             if local_path:
                 file_uri = Path(local_path).as_uri()
                 if isinstance(event, RoomEncryptedImage):
-                    if self._cfg.vision_enabled:
+                    if self.vision_enabled:
                         content_parts.append(
                             ImageContent(
                                 type=ContentType.IMAGE,
@@ -2218,9 +2176,11 @@ class MatrixChannel(BaseChannel):
             "channel_id": CHANNEL_KEY,
             "sender_id": sender_id,
             "content_parts": content_parts,
+            "acl_sender_id": sender_id,
             "meta": {
                 "room_id": room_id,
                 "is_dm": is_dm,
+                "is_group": not is_dm,
                 "worker_name": worker_name,
                 "event_id": event.event_id,
                 "sender_id": sender_id,
@@ -2424,7 +2384,7 @@ class MatrixChannel(BaseChannel):
             is_dm,
         )
 
-        if not self._check_allowed(sender_id, room_id, is_dm):
+        if self._is_channel_disabled(sender_id, room_id, is_dm):
             return
 
         # Mention check for group rooms
@@ -2515,9 +2475,11 @@ class MatrixChannel(BaseChannel):
             "channel_id": CHANNEL_KEY,
             "sender_id": sender_id,
             "content_parts": content_parts,
+            "acl_sender_id": sender_id,
             "meta": {
                 "room_id": room_id,
                 "is_dm": is_dm,
+                "is_group": not is_dm,
                 "worker_name": worker_name,
                 "event_id": event.event_id,
                 "sender_id": sender_id,
@@ -2548,7 +2510,7 @@ class MatrixChannel(BaseChannel):
         # after token restore)
         is_dm = await self._is_dm_room(room_id, sender_id, room)
 
-        if not self._check_allowed(sender_id, room_id, is_dm):
+        if self._is_channel_disabled(sender_id, room_id, is_dm):
             return
 
         # For group rooms, apply the same mention policy as text messages.
@@ -2593,7 +2555,7 @@ class MatrixChannel(BaseChannel):
             if local_path:
                 file_uri = Path(local_path).as_uri()
                 if isinstance(event, RoomMessageImage):
-                    if self._cfg.vision_enabled:
+                    if self.vision_enabled:
                         content_parts.append(
                             ImageContent(
                                 type=ContentType.IMAGE,
@@ -2673,9 +2635,11 @@ class MatrixChannel(BaseChannel):
             "channel_id": CHANNEL_KEY,
             "sender_id": sender_id,
             "content_parts": content_parts,
+            "acl_sender_id": sender_id,
             "meta": {
                 "room_id": room_id,
                 "is_dm": is_dm,
+                "is_group": not is_dm,
                 "worker_name": worker_name,
                 "event_id": event.event_id,
                 "sender_id": sender_id,
@@ -2804,7 +2768,7 @@ class MatrixChannel(BaseChannel):
         if t == "text" and p.get("text"):
             return TextContent(type=ContentType.TEXT, text=p["text"])
         if t == "image" and p.get("image_url"):
-            if not self._cfg.vision_enabled:
+            if not self.vision_enabled:
                 # Downgrade silently; _on_room_media_event should have already
                 # converted this, but guard here for any code path that builds
                 # content_parts directly.
@@ -2981,7 +2945,7 @@ class MatrixChannel(BaseChannel):
         tokens or partial state), sends are still plaintext and Element shows
         "not encrypted". Fetch room state once per send attempt when needed.
         """
-        if not self._cfg.encryption:
+        if not self.encryption:
             return
         if not self._client or not getattr(self._client, "olm", None):
             logger.warning(

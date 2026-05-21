@@ -117,6 +117,8 @@ class MattermostChannel(BaseChannel):
         group_policy: str = "open",
         allow_from: Optional[list] = None,
         deny_message: str = "",
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
@@ -128,6 +130,8 @@ class MattermostChannel(BaseChannel):
             group_policy=group_policy,
             allow_from=allow_from,
             deny_message=deny_message,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
@@ -215,6 +219,12 @@ class MattermostChannel(BaseChannel):
             group_policy=c.get("group_policy") or "open",
             allow_from=c.get("allow_from") or [],
             deny_message=c.get("deny_message") or "",
+            access_control_dm=bool(
+                c.get("access_control_dm", False),
+            ),
+            access_control_group=bool(
+                c.get("access_control_group", False),
+            ),
         )
 
     @classmethod
@@ -514,22 +524,6 @@ class MattermostChannel(BaseChannel):
         message_text: str = post.get("message", "")
         original_root_id: str = post.get("root_id", "")
         is_dm = channel_type == "D"
-
-        # ACL check
-        allowed, error_msg = self._check_allowlist(sender_id, not is_dm)
-        if not allowed:
-            logger.info(
-                "mattermost allowlist blocked: sender=%s",
-                sender_id,
-            )
-            if error_msg:
-                target_root = original_root_id or post_id
-                await self._post_message(
-                    mm_channel_id,
-                    error_msg,
-                    target_root,
-                )
-            return
 
         # 3. Determine effective root_id and session_id
         #

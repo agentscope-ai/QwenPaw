@@ -63,6 +63,8 @@ class DiscordChannel(BaseChannel):
         deny_message: str = "",
         require_mention: bool = False,
         accept_bot_messages: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
@@ -75,6 +77,8 @@ class DiscordChannel(BaseChannel):
             allow_from=allow_from,
             deny_message=deny_message,
             require_mention=require_mention,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self.token = token
@@ -285,19 +289,6 @@ class DiscordChannel(BaseChannel):
                 if is_bot_mentioned:
                     meta["bot_mentioned"] = True
 
-                allowed, error_msg = self._check_allowlist(
-                    str(message.author.id),
-                    is_group,
-                )
-                if not allowed:
-                    logger.info(
-                        "discord allowlist blocked: sender=%s is_group=%s",
-                        message.author.id,
-                        is_group,
-                    )
-                    await message.channel.send(error_msg or "")
-                    return
-
                 if not self._check_group_mention(is_group, meta):
                     return
 
@@ -397,6 +388,12 @@ class DiscordChannel(BaseChannel):
             deny_message=config.deny_message or "",
             require_mention=config.require_mention,
             accept_bot_messages=config.accept_bot_messages,
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
+            ),
         )
 
     async def _resolve_target(self, to_handle, _meta):

@@ -51,20 +51,21 @@ def matrix_config():
         user_id="@bot:example.com",
         access_token="test_token_123",
         bot_prefix="!bot",
-        dm_policy="open",
-        group_policy="open",
-        allow_from=["@allowed:example.com"],
+        dm_disabled=False,
+        group_disabled=False,
         deny_message="Access denied",
         require_mention=False,
     )
 
 
 @pytest.fixture
-def matrix_channel(mock_process, matrix_config):
+def matrix_channel(mock_process):
     """Create MatrixChannel instance."""
-    return MatrixChannel.from_config(
+    return MatrixChannel(
         process=mock_process,
-        config=matrix_config,
+        homeserver="https://matrix.example.com",
+        matrix_user_id="@bot:example.com",
+        access_token="test_token_123",
     )
 
 
@@ -102,16 +103,16 @@ class TestMatrixChannelInit:
 
     def test_init_with_required_params(self, mock_process):
         """Test initialization with required parameters."""
-        config = MatrixConfig(
+        channel = MatrixChannel(
+            process=mock_process,
             homeserver="https://matrix.example.com",
-            user_id="@bot:example.com",
+            matrix_user_id="@bot:example.com",
             access_token="test_token",
         )
-        channel = MatrixChannel(process=mock_process, config=config)
 
-        assert channel._cfg.homeserver == "https://matrix.example.com"
-        assert channel._cfg.user_id == "@bot:example.com"
-        assert channel._cfg.access_token == "test_token"
+        assert channel.homeserver == "https://matrix.example.com"
+        assert channel.matrix_user_id == "@bot:example.com"
+        assert channel.access_token == "test_token"
         assert channel.channel == "matrix"
         assert channel.uses_manager_queue is True
         assert channel._client is None
@@ -119,38 +120,33 @@ class TestMatrixChannelInit:
 
     def test_init_homeserver_trailing_slash(self, mock_process):
         """Test that trailing slash is stripped from homeserver."""
-        config = MatrixConfig(
+        channel = MatrixChannel(
+            process=mock_process,
             homeserver="https://matrix.example.com/",
-            user_id="@bot:example.com",
+            matrix_user_id="@bot:example.com",
             access_token="test_token",
         )
-        channel = MatrixChannel(process=mock_process, config=config)
 
-        assert channel._cfg.homeserver == "https://matrix.example.com"
+        assert channel.homeserver == "https://matrix.example.com"
 
     def test_init_with_all_params(self, mock_process):
         """Test initialization with all optional parameters."""
-        config = MatrixConfig(
-            homeserver="https://matrix.example.com",
-            user_id="@bot:example.com",
-            access_token="test_token",
-            bot_prefix="!cmd",
-            dm_policy="allowlist",
-            group_policy="allowlist",
-            allow_from=["@user:example.com"],
-        )
         channel = MatrixChannel(
             process=mock_process,
-            config=config,
+            homeserver="https://matrix.example.com",
+            matrix_user_id="@bot:example.com",
+            access_token="test_token",
+            dm_disabled=True,
+            group_disabled=False,
+            access_control_dm=True,
             on_reply_sent=Mock(),
             show_tool_details=False,
             filter_tool_messages=True,
             filter_thinking=True,
         )
 
-        assert channel._cfg.bot_prefix == "!cmd"
-        assert channel._cfg.dm_policy == "allowlist"
-        assert channel._cfg.group_policy == "allowlist"
+        assert channel.dm_disabled is True
+        assert channel.group_disabled is False
         assert channel._show_tool_details is False
         assert channel._filter_tool_messages is True
         assert channel._filter_thinking is True
@@ -166,10 +162,10 @@ class TestMatrixChannelFromConfig:
             config=matrix_config,
         )
 
-        assert channel._cfg.enabled is True
-        assert channel._cfg.homeserver == "https://matrix.example.com"
-        assert channel._cfg.user_id == "@bot:example.com"
-        assert channel._cfg.access_token == "test_token_123"
+        assert channel.enabled is True
+        assert channel.homeserver == "https://matrix.example.com"
+        assert channel.matrix_user_id == "@bot:example.com"
+        assert channel.access_token == "test_token_123"
 
     def test_from_config_with_optional_params(
         self,
@@ -230,69 +226,64 @@ class TestMatrixChannelMXC:
         assert result == ""
 
 
-class TestMatrixChannelAllowlist:
-    """Test allowlist checking."""
+class TestMatrixChannelDisabled:
+    """Test channel-level mute (dm_disabled / group_disabled)."""
 
-    def test_check_allowlist_open_policy(self, matrix_channel):
-        """Test that open policy allows all users."""
-        matrix_channel._cfg.dm_policy = "open"
-        matrix_channel._cfg.group_policy = "open"
+    def test_dm_not_disabled(self, matrix_channel):
+        """Test that DMs pass when not disabled."""
+        matrix_channel.dm_disabled = False
 
-        allowed = matrix_channel._check_allowed(
+        result = matrix_channel._is_channel_disabled(
             "@any_user:example.com",
             "!room:example.com",
             is_dm=True,
         )
+        assert result is False
 
-        assert allowed is True
+    def test_dm_disabled(self, matrix_channel):
+        """Test that DMs are blocked when dm_disabled=True."""
+        matrix_channel.dm_disabled = True
 
-    def test_check_allowlist_allowlist_user_allowed(self, matrix_channel):
-        """Test allowed user on allowlist."""
-        matrix_channel._cfg.dm_policy = "allowlist"
-        matrix_channel._cfg.allow_from = ["@allowed:example.com"]
-
-        allowed = matrix_channel._check_allowed(
-            "@allowed:example.com",
+        result = matrix_channel._is_channel_disabled(
+            "@any_user:example.com",
             "!room:example.com",
             is_dm=True,
         )
+        assert result is True
 
-        assert allowed is True
+    def test_group_not_disabled(self, matrix_channel):
+        """Test that group messages pass when not disabled."""
+        matrix_channel.group_disabled = False
 
-    def test_check_allowlist_allowlist_user_denied(self, matrix_channel):
-        """Test denied user not on allowlist."""
-        matrix_channel._cfg.dm_policy = "allowlist"
-        matrix_channel._cfg.allow_from = ["@allowed:example.com"]
-
-        allowed = matrix_channel._check_allowed(
-            "@not_allowed:example.com",
-            "!room:example.com",
-            is_dm=True,
-        )
-
-        assert allowed is False
-
-    def test_check_allowlist_dm_vs_group_policy(self, matrix_channel):
-        """Test different policies for DM and group."""
-        matrix_channel._cfg.dm_policy = "allowlist"
-        matrix_channel._cfg.group_policy = "open"
-        matrix_channel._cfg.allow_from = ["@allowed:example.com"]
-
-        # DM should use allowlist → denied
-        allowed_dm = matrix_channel._check_allowed(
-            "@unknown:example.com",
-            "!room:example.com",
-            is_dm=True,
-        )
-        assert allowed_dm is False
-
-        # Group should be open → allowed
-        allowed_group = matrix_channel._check_allowed(
-            "@unknown:example.com",
+        result = matrix_channel._is_channel_disabled(
+            "@any_user:example.com",
             "!room:example.com",
             is_dm=False,
         )
-        assert allowed_group is True
+        assert result is False
+
+    def test_group_disabled(self, matrix_channel):
+        """Test that group messages are blocked when group_disabled=True."""
+        matrix_channel.group_disabled = True
+
+        result = matrix_channel._is_channel_disabled(
+            "@any_user:example.com",
+            "!room:example.com",
+            is_dm=False,
+        )
+        assert result is True
+
+    def test_dm_disabled_does_not_affect_group(self, matrix_channel):
+        """Test dm_disabled doesn't block group messages."""
+        matrix_channel.dm_disabled = True
+        matrix_channel.group_disabled = False
+
+        result = matrix_channel._is_channel_disabled(
+            "@any_user:example.com",
+            "!room:example.com",
+            is_dm=False,
+        )
+        assert result is False
 
 
 @pytest.mark.asyncio
@@ -374,18 +365,18 @@ class TestMatrixChannelBuildRequest:
 class TestMatrixChannelHandleEvent:
     """Test event handling."""
 
-    async def test_on_room_event_open_policy(
+    async def test_on_room_event_dm_not_disabled(
         self,
         matrix_channel,
         mock_matrix_room,
     ):
-        """Test handling event with open DM policy enqueues the request."""
+        """Test handling event with DM not disabled enqueues the request."""
         matrix_channel._user_id = "@bot:example.com"
         matrix_channel._enqueue = Mock()
         matrix_channel._is_dm_room = AsyncMock(return_value=True)
         matrix_channel._send_read_receipt = AsyncMock()
         matrix_channel._send_typing = AsyncMock()
-        matrix_channel._cfg.dm_policy = "open"
+        matrix_channel.dm_disabled = False
         matrix_channel._get_display_name = Mock(return_value="user")
 
         event = MagicMock(spec=RoomMessageText)
@@ -401,15 +392,14 @@ class TestMatrixChannelHandleEvent:
         payload = matrix_channel._enqueue.call_args[0][0]
         assert payload["sender_id"] == "@user:example.com"
 
-    async def test_on_room_event_deny_message_sent(
+    async def test_on_room_event_dm_disabled(
         self,
         matrix_channel,
         mock_matrix_room,
     ):
-        """Test that blocked user does not get enqueued."""
+        """Test that DM messages are dropped when dm_disabled=True."""
         matrix_channel._user_id = "@bot:example.com"
-        matrix_channel._cfg.dm_policy = "allowlist"
-        matrix_channel._cfg.allow_from = []
+        matrix_channel.dm_disabled = True
         matrix_channel._is_dm_room = AsyncMock(return_value=True)
         matrix_channel._enqueue = Mock()
 
@@ -435,8 +425,8 @@ class TestMatrixChannelHandleEvent:
         matrix_channel._is_dm_room = AsyncMock(return_value=False)
         matrix_channel._send_read_receipt = AsyncMock()
         matrix_channel._send_typing = AsyncMock()
-        matrix_channel._cfg.group_policy = "open"
-        matrix_channel._cfg.require_mention = True
+        matrix_channel.group_disabled = False
+        matrix_channel.require_mention = True
 
         event = MagicMock(spec=RoomMessageText)
         event.sender = "@user:example.com"
@@ -533,6 +523,7 @@ class TestMatrixChannelMediaCallback:
         fake_file.write_bytes(b"fake image")
 
         matrix_channel._user_id = "@bot:example.com"
+        matrix_channel.vision_enabled = True
         matrix_channel._enqueue = Mock()
         matrix_channel._download_mxc = AsyncMock(return_value=str(fake_file))
         matrix_channel._is_dm_room = AsyncMock(return_value=True)
@@ -677,7 +668,7 @@ class TestMatrixChannelStartStop:
 
     async def test_start_when_not_configured(self, matrix_channel):
         """Test start when channel is not properly configured."""
-        matrix_channel._cfg.homeserver = ""
+        matrix_channel.homeserver = ""
 
         await matrix_channel.start()
 
