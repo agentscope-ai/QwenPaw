@@ -561,27 +561,33 @@ class DataPawAgent(QwenPawAgent):
         return response_msg
 
     # --- state_dict / load_state_dict --------------------------------------
-
-    def state_dict(self) -> dict:
-        """Rename ``plan_notebook`` → ``runtime_state`` in the persisted blob.
-
-        Session JSON under the ``agent`` key looks like
-        ``{"memory": {...}, "runtime_state": {...}}``.
-        """
-        data = super().state_dict()
-        if "plan_notebook" in data:
-            data["runtime_state"] = data.pop("plan_notebook")
-        return data
+    #
+    # Persist DataPaw's RuntimeStateManager under the standard
+    # ``plan_notebook`` key (no rename). Host runner's "ensure
+    # plan_notebook dict" check (runner.py:657-685) keys on
+    # ``agent.plan_notebook`` — using a different name causes host to
+    # write its own empty PlanNotebook stub each turn, polluting the
+    # session file and breaking RuntimeStateManager.load_state_dict
+    # (KeyError on the missing ``artifacts`` field).
+    #
+    # state_dict is inherited unchanged: super().state_dict() naturally
+    # serializes ``plan_notebook`` because we did
+    # ``self.plan_notebook = runtime_state`` (StateModule registers the
+    # attribute under that name automatically).
 
     def load_state_dict(self, state_dict: dict, strict: bool = True) -> None:
-        """Reverse the rename and tolerate fork-era ``mode`` field.
+        """Tolerate fork-era ``mode`` and legacy ``runtime_state`` field name.
 
-        Old fork sessions may carry a ``mode`` field that is irrelevant to
-        the plugin; it's silently dropped. ``strict=False`` so schema
-        drift between versions doesn't raise.
+        Old fork sessions carry a ``mode`` field that's irrelevant to
+        plugin form; silently drop it. Earlier plugin builds saved
+        DataPaw state under ``runtime_state`` instead of
+        ``plan_notebook``; rename it back. If both keys exist (e.g.,
+        legacy DataPaw save + host pre-populated stub from a botched
+        turn), DataPaw's ``runtime_state`` wins. ``strict=False`` so
+        schema drift between versions doesn't raise.
         """
         mapped = dict(state_dict)
-        if "runtime_state" in mapped and "plan_notebook" not in mapped:
+        if "runtime_state" in mapped:
             mapped["plan_notebook"] = mapped.pop("runtime_state")
         mapped.pop("mode", None)
         QwenPawAgent.load_state_dict(self, mapped, strict=False)
