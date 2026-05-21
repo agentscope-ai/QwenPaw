@@ -125,9 +125,8 @@ mkdir -p "${BINARIES_DIR}"
 
 DEST="${BINARIES_DIR}/qwenpaw-backend"
 mkdir -p "${DEST}"
-find "${DEST}" -mindepth 1 ! -name .gitkeep -exec rm -rf {} +
+find "${DEST}" -mindepth 1 -exec rm -rf {} +
 cp -R "${BACKEND_DIR}/." "${DEST}/"
-touch "${DEST}/.gitkeep"
 chmod +x "${DEST}/qwenpaw-backend"
 echo "Copied to: ${DEST}"
 echo ""

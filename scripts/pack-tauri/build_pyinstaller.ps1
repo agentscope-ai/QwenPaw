@@ -191,11 +191,8 @@ New-Item -ItemType Directory -Force -Path $BINARIES_DIR | Out-Null
 
 $DEST = Join-Path $BINARIES_DIR "qwenpaw-backend"
 New-Item -ItemType Directory -Force -Path $DEST | Out-Null
-Get-ChildItem -LiteralPath $DEST -Force |
-    Where-Object { $_.Name -ne ".gitkeep" } |
-    Remove-Item -Recurse -Force
+Get-ChildItem -LiteralPath $DEST -Force | Remove-Item -Recurse -Force
 Copy-Item -Recurse -Force (Join-Path $BACKEND_DIR "*") $DEST
-New-Item -ItemType File -Force -Path (Join-Path $DEST ".gitkeep") | Out-Null
 Write-Host "Copied to: $DEST" -ForegroundColor Green
 Write-Host ""
 
