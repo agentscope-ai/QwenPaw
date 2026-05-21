@@ -66,7 +66,8 @@ def _install_certifi_env() -> None:
     cert_file = certifi.where()
     if not cert_file or not os.path.isfile(cert_file):
         logger.debug(
-            "certifi returned an invalid certificate path: %r", cert_file
+            "certifi returned an invalid certificate path: %r",
+            cert_file,
         )
         return
     os.environ.setdefault("SSL_CERT_FILE", cert_file)
