@@ -1065,31 +1065,30 @@ class WeChatChannel(BaseChannel):
             return
         try:
             resp = await _client.send_text(to_user_id, text, context_token)
-            if isinstance(resp, dict):
-                ret = resp.get("ret", 0)
-                errcode = resp.get("errcode", 0)
-                if ret != 0 or errcode != 0:
-                    logger.warning(
-                        "wechat send_text rejected: "
-                        "ret=%s errcode=%s to_user_id=%s",
-                        ret,
-                        errcode,
-                        to_user_id,
-                    )
-                    if raise_on_error:
-                        raise ChannelError(
-                            channel_name="wechat",
-                            message=(
-                                f"iLink API rejected: ret={ret} "
-                                f"errcode={errcode} response={resp}"
-                            ),
-                        )
-        except ChannelError:
-            raise
         except Exception:
             logger.exception("wechat _send_text_direct failed")
             if raise_on_error:
                 raise
+            return
+        if isinstance(resp, dict):
+            ret = resp.get("ret", 0)
+            errcode = resp.get("errcode", 0)
+            if ret != 0 or errcode != 0:
+                logger.warning(
+                    "wechat send_text rejected: "
+                    "ret=%s errcode=%s to_user_id=%s",
+                    ret,
+                    errcode,
+                    to_user_id,
+                )
+                if raise_on_error:
+                    raise ChannelError(
+                        channel_name="wechat",
+                        message=(
+                            f"iLink API rejected: ret={ret} "
+                            f"errcode={errcode} response={resp}"
+                        ),
+                    )
 
     async def _send_media_file(
         self,
@@ -1383,7 +1382,9 @@ class WeChatChannel(BaseChannel):
         api_send = bool(m.get("_api_send"))
         for chunk in split_text(body):
             await self._send_text_direct(
-                to_user_id, chunk, context_token,
+                to_user_id,
+                chunk,
+                context_token,
                 raise_on_error=api_send,
             )
 
