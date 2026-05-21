@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=undefined-all-variable
 """Backup package public API.
 
 Keep this module lightweight: startup imports low-level backup utilities for
 restore-lock cleanup, and eager public API imports pull in the app stack.
+PyInstaller cannot discover these lazy exports, so qwenpaw.spec explicitly
+collects qwenpaw.backup submodules for the Tauri desktop sidecar.
 """
 from __future__ import annotations
 

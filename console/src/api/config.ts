@@ -2,7 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 
 // VITE_API_BASE_URL and TOKEN are declared globally in src/vite-env.d.ts.
 
-const AUTH_TOKEN_KEY = "qwenpaw_auth_token";
+export const AUTH_TOKEN_KEY = "qwenpaw_auth_token";
 
 let runtimeApiBaseUrl = "";
 let initRuntimeApiBaseUrlPromise: Promise<string> | null = null;

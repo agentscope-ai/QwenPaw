@@ -44,9 +44,8 @@ def _kill_process_tree_win32(pid: int) -> None:
 
 def _windows_shell_creationflags() -> int:
     """Return Windows process flags for hidden, killable shell commands."""
-    return (
-        getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
+        subprocess, "CREATE_NO_WINDOW", 0
     )
 
 

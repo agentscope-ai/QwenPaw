@@ -69,7 +69,11 @@ if [ -z "${APPLE_SIGNING_IDENTITY:-}" ] && [ -z "${APPLE_CERTIFICATE:-}" ]; then
     export APPLE_SIGNING_IDENTITY="-"
     echo "Using ad-hoc macOS code signing"
 fi
-export PYINSTALLER_CODESIGN_IDENTITY="${PYINSTALLER_CODESIGN_IDENTITY:-${APPLE_SIGNING_IDENTITY:-}}"
+if [ -z "${PYINSTALLER_CODESIGN_IDENTITY:-}" ]; then
+    # PyInstaller uses the same identity as the final app for bundled Mach-O
+    # files; "-" means ad-hoc signing on macOS.
+    export PYINSTALLER_CODESIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:-}"
+fi
 echo ""
 
 # Step 1: Build PyInstaller backend

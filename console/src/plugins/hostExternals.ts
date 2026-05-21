@@ -26,9 +26,14 @@ export interface HostExternals {
   antd: typeof antd;
   antdIcons: typeof antdIcons;
   /**
-   * Live API base URL. Do not destructure or cache this value because the
-   * Tauri runtime resolves the actual backend port lazily. Prefer `getApiUrl()`
-   * for path-aware API URL composition.
+   * Prefer this function over the legacy `apiBaseUrl` getter. Tauri resolves
+   * the actual backend port lazily, so callers should read the value at use
+   * time instead of destructuring a startup snapshot.
+   */
+  getApiBaseUrl: typeof getApiBaseUrl;
+  /**
+   * @deprecated Use `getApiBaseUrl()` or `getApiUrl()` to avoid caching a
+   * startup snapshot before the Tauri backend port is resolved.
    */
   readonly apiBaseUrl: string;
   getApiUrl: typeof getApiUrl;
@@ -167,6 +172,7 @@ export function installHostExternals(): void {
       get apiBaseUrl() {
         return getApiBaseUrl();
       },
+      getApiBaseUrl,
       getApiUrl,
       getApiToken,
     };
