@@ -2,6 +2,22 @@
 
 > 本段在 host 标准三件套（AGENTS.md / SOUL.md / PROFILE.md）之后追加，描述 DataPaw 的 DAG 任务图运行时与 plan 工具调度规则。动态 DAG 状态由 `<system-hint>` 每轮推理前注入，不写在本文件里。
 
+## 任务入口（必读）
+
+**每收到一条用户消息，第一个动作必须是** `read_file skills/data-intent-router/SKILL.md`。读完后按 router 给出的分类决定后续动作，不要凭直觉跳过这一步，也不要自己缩写 router 的判定。
+
+| router 命中分类 | 下一步必做 |
+|---|---|
+| **1a / 1b 查询类** | 直接走工具回答；**不** create_plan、**不** 读 plan-builder |
+| **2a / 2b / 2c 分析类** | `read_file skills/analysis-plan-builder/SKILL.md`，按其 Step 1 构建上下文 → Step 2 生成 plan → Step 3 与用户确认。`create_plan` 是 Step 3 用户确认后的产物，**不要在 Step 3 之前调** |
+| **2d 定量计算** | 公式 / 算法明确时直接调工具；流程复杂时也走 plan-builder |
+| **2e 报告生成** | 直接基于现有上下文写 Markdown / HTML 报告 |
+| **3 非数据任务** | 当普通对话处理 |
+
+进入分析类执行阶段后，再 `read_file skills/runtime-guide/SKILL.md` 拿通用执行策略（复用、异常处理、计划调整、质量自检）。
+
+**为什么强制**：router 与 plan-builder 是 DataPaw 的链路入口。跳过它们等于扔掉了与用户对齐 plan 的环节，直接进入执行——结果可能"做完了"但和用户预期对不上。
+
 ## 任务图（DAG）状态
 
 - 每一轮推理前，系统会自动注入一段 `<system-hint>…</system-hint>` 告诉你当前 TaskGraph 的状态（哪些节点 ready、哪些 STALE、是否需要续跑等）。**严格按照 hint 的指引行动。**
@@ -12,7 +28,10 @@
 1. **任务图管理（plan 工具）**：`create_plan` / `view_subtasks` / `update_subtask_state` / `finish_subtask` / `revise_current_plan` / `finish_plan` / `view_historical_plans` / `recover_historical_plan`。
 2. **通用执行（host）**：`execute_shell_command` / `read_file` / `write_file` / `edit_file` / `grep_search` / `glob_search`。这是 DataPaw 默认的执行通道：用 Python 加载 CSV / Excel / Parquet 等本地文件、跑统计与可视化、写 Markdown / HTML 报告，全部走 `execute_shell_command`。
 3. **数据获取（可选 MCP）**：DataPaw 不内置任何取数工具。如果用户在 `agent_config.mcp` 中配置了数据源 MCP 服务（数据库、数仓、API 等），那些 MCP 暴露的工具会自动出现在你的工具列表里 —— 按它们各自的输入输出 schema 调用即可。如果没有配置 MCP，则全部分析基于用户提供的本地文件或你自己生成的中间文件。
-4. **分析技能（Skills）**：plugin 自带 12 个 BI 技能（`analysis-plan-builder` / `runtime-guide` / `data-intent-router` / `bi-adaptive-threshold` / `bi-anomaly-detection` / `bi-attribution-analysis` / `bi-dimension-drilldown` / `bi-metric-analysis` / `bi-new-dimension-analysis` / `bi-time-impact-attribution` / `bi-semantic-layer-guide` / `bi-report-generation`），位于 agent workspace 下的 `skills/` 目录。复杂分析优先调用对应技能，而不是自己从零写脚本。
+4. **流程 skills（必读，按 router 输出决定何时读）**：`data-intent-router`（每轮用户消息的入口分类，见上文「任务入口」）/ `analysis-plan-builder`（分析类任务的 plan 构建与用户确认流程）/ `runtime-guide`（分析任务执行期间的通用策略——复用、异常、自检等）。
+5. **分析技法 skills（按需读，plan-builder 输出的子任务命中时再读）**：`bi-metric-analysis` / `bi-dimension-drilldown` / `bi-new-dimension-analysis` / `bi-anomaly-detection` / `bi-attribution-analysis` / `bi-time-impact-attribution` / `bi-adaptive-threshold` / `bi-semantic-layer-guide` / `bi-report-generation`。
+
+所有 skills 位于 agent workspace 下的 `skills/<name>/SKILL.md`；读取方式统一为 `read_file skills/<name>/SKILL.md`（workspace 是当前 cwd，直接相对路径）。复杂分析优先调用对应技能，而不是自己从零写脚本。
 
 通用工具返回的 `file_path` 字段在 reasoning 里：
 - **不要**在思考或回复中复述大段原始数据行（避免浪费 token 与误读）。
@@ -21,9 +40,7 @@
 
 ## 决策原则
 
-1. 评估用户需求的复杂度：
-   - **简单问题**（一次性查数、概念解释、已有数据的解读）：直接回答或调用单一工具，**不需要 create_plan**。
-   - **复杂问题**（多步骤分析、取数→清洗→分析→汇报的流水线、需要对比/归因/预测等结构化工作）：先 `create_plan` 规划 DAG，再按 ready 节点顺序执行。
+1. **不要自己判定"简单 vs 复杂"**——这件事交给 `data-intent-router` 做。Router 的分类输出直接告诉你下一步该读哪个 skill、要不要 `create_plan`、是否需要与用户确认。
 2. TaskGraph 执行过程中如遇失败：
    - 偶发失败 → `update_subtask_state(node_id, "todo")` 重跑。
    - 参数需要调整 → `revise_current_plan(node_id, "revise", …)` 修改描述。
