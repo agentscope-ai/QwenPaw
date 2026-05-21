@@ -5,7 +5,8 @@ import {
   Table,
   Button,
   Input,
-  Tag,
+  Select,
+  Modal,
   Popconfirm,
   Space,
   Typography,
@@ -20,14 +21,12 @@ import {
   type ACLUserEntry,
 } from "../../../../api/modules/accessControl";
 import { getChannelLabel, type ChannelKey } from "./constants";
-import { ChannelIcon } from "./ChannelIcon";
 
 interface AccessControlDrawerProps {
   open: boolean;
   onClose: () => void;
 }
 
-/** Convert Record<string, string> to flat array for Table */
 function toEntries(map: Record<string, string> | undefined): ACLUserEntry[] {
   if (!map) return [];
   return Object.entries(map).map(([userId, remark]) => ({ userId, remark }));
@@ -48,6 +47,7 @@ export function AccessControlDrawer({
     "whitelist",
   );
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [addModalOpen, setAddModalOpen] = useState(false);
   const [batchLoading, setBatchLoading] = useState(false);
 
   const fetchACLs = useCallback(async () => {
@@ -72,23 +72,19 @@ export function AccessControlDrawer({
 
   const channelKeys = Object.keys(allACLs);
   const currentACL = selectedChannel ? allACLs[selectedChannel] : null;
+  const removeApiForTab =
+    activeTab === "whitelist"
+      ? accessControlApi.removeAclWhitelist
+      : accessControlApi.removeAclBlacklist;
 
   const handleAdd = async () => {
     if (!selectedChannel || !newUserId.trim()) return;
+    const addApi =
+      activeTab === "whitelist"
+        ? accessControlApi.addAclWhitelist
+        : accessControlApi.addAclBlacklist;
     try {
-      if (activeTab === "whitelist") {
-        await accessControlApi.addAclWhitelist(
-          selectedChannel,
-          newUserId.trim(),
-          newRemark.trim(),
-        );
-      } else {
-        await accessControlApi.addAclBlacklist(
-          selectedChannel,
-          newUserId.trim(),
-          newRemark.trim(),
-        );
-      }
+      await addApi(selectedChannel, newUserId.trim(), newRemark.trim());
       message.success(t("channels.userAdded"));
       setNewUserId("");
       setNewRemark("");
@@ -101,11 +97,7 @@ export function AccessControlDrawer({
   const handleRemove = async (userId: string) => {
     if (!selectedChannel) return;
     try {
-      if (activeTab === "whitelist") {
-        await accessControlApi.removeAclWhitelist(selectedChannel, userId);
-      } else {
-        await accessControlApi.removeAclBlacklist(selectedChannel, userId);
-      }
+      await removeApiForTab(selectedChannel, userId);
       message.success(t("channels.userRemoved"));
       await fetchACLs();
     } catch {
@@ -117,16 +109,14 @@ export function AccessControlDrawer({
     if (!selectedChannel) return;
     try {
       await accessControlApi.updateAclRemark(selectedChannel, userId, remark);
-      // Update local state immediately without refetching
       setAllACLs((prev) => {
         const channelData = prev[selectedChannel];
         if (!channelData) return prev;
-        const listKey = activeTab;
         return {
           ...prev,
           [selectedChannel]: {
             ...channelData,
-            [listKey]: { ...channelData[listKey], [userId]: remark },
+            [activeTab]: { ...channelData[activeTab], [userId]: remark },
           },
         };
       });
@@ -139,21 +129,13 @@ export function AccessControlDrawer({
     if (!selectedChannel || selectedRowKeys.length === 0) return;
     setBatchLoading(true);
     try {
-      for (const userId of selectedRowKeys) {
-        if (activeTab === "whitelist") {
-          await accessControlApi.removeAclWhitelist(
-            selectedChannel,
-            userId as string
-          );
-        } else {
-          await accessControlApi.removeAclBlacklist(
-            selectedChannel,
-            userId as string
-          );
-        }
-      }
+      await Promise.all(
+        selectedRowKeys.map((userId) =>
+          removeApiForTab(selectedChannel, userId as string),
+        ),
+      );
       message.success(
-        t("channels.batchSuccess", { count: selectedRowKeys.length })
+        t("channels.batchSuccess", { count: selectedRowKeys.length }),
       );
       setSelectedRowKeys([]);
       await fetchACLs();
@@ -165,9 +147,7 @@ export function AccessControlDrawer({
   };
 
   const listData: ACLUserEntry[] = currentACL
-    ? activeTab === "whitelist"
-      ? toEntries(currentACL.whitelist)
-      : toEntries(currentACL.blacklist)
+    ? toEntries(currentACL[activeTab])
     : [];
 
   const columns = [
@@ -177,11 +157,7 @@ export function AccessControlDrawer({
       key: "userId",
       ellipsis: true,
       render: (userId: string) => (
-        <Typography.Text
-          copyable={{ text: userId }}
-          ellipsis
-          style={{ maxWidth: 180 }}
-        >
+        <Typography.Text copyable={{ text: userId }} ellipsis style={{ maxWidth: 200 }}>
           {userId}
         </Typography.Text>
       ),
@@ -205,13 +181,15 @@ export function AccessControlDrawer({
     {
       title: t("channels.actions"),
       key: "actions",
-      width: 60,
+      width: 80,
       render: (_: unknown, record: ACLUserEntry) => (
         <Popconfirm
           title={`Remove ${record.userId}?`}
           onConfirm={() => handleRemove(record.userId)}
         >
-          <Button type="text" danger icon={<DeleteOutlined />} size="small" />
+          <Button type="text" danger size="small">
+            {t("channels.batchRemove")}
+          </Button>
         </Popconfirm>
       ),
     },
@@ -219,44 +197,12 @@ export function AccessControlDrawer({
 
   return (
     <Drawer
-      width={560}
+      width={700}
       title={t("channels.manageAccessControl")}
       open={open}
       onClose={onClose}
       destroyOnClose
     >
-      {channelKeys.length > 0 && (
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            flexWrap: "wrap",
-            marginBottom: 16,
-          }}
-        >
-          {channelKeys.map((key) => (
-            <Tag
-              key={key}
-              color={selectedChannel === key ? "blue" : undefined}
-              style={{
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: 4,
-                padding: "4px 8px",
-              }}
-              onClick={() => {
-                setSelectedChannel(key);
-                setSelectedRowKeys([]);
-              }}
-            >
-              <ChannelIcon channelKey={key as ChannelKey} size={16} />
-              {getChannelLabel(key as ChannelKey, t)}
-            </Tag>
-          ))}
-        </div>
-      )}
-
       <Tabs
         activeKey={activeTab}
         onChange={(k) => {
@@ -267,72 +213,100 @@ export function AccessControlDrawer({
           { key: "whitelist", label: t("channels.whitelist") },
           { key: "blacklist", label: t("channels.blacklist") },
         ]}
+        tabBarExtraContent={
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>
+            {t("channels.addUser")}
+          </Button>
+        }
       />
 
-      <Space.Compact style={{ width: "100%", marginBottom: 12 }}>
-        <Input
-          placeholder={t("channels.addUserPlaceholder")}
-          value={newUserId}
-          onChange={(e) => setNewUserId(e.target.value)}
-          onPressEnter={handleAdd}
-          style={{ flex: 1 }}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <Select
+          value={selectedChannel}
+          onChange={(value) => {
+            setSelectedChannel(value);
+            setSelectedRowKeys([]);
+          }}
+          style={{ width: 180 }}
+          disabled={channelKeys.length === 0}
+          placeholder={t("channels.filterByChannel")}
+          options={channelKeys.map((key) => ({
+            label: getChannelLabel(key as ChannelKey, t),
+            value: key,
+          }))}
         />
-        <Input
-          placeholder={t("channels.remarkPlaceholder")}
-          value={newRemark}
-          onChange={(e) => setNewRemark(e.target.value)}
-          onPressEnter={handleAdd}
-          style={{ flex: 1 }}
-        />
-        <Button
-          icon={<PlusOutlined />}
-          onClick={handleAdd}
-          disabled={!newUserId.trim()}
-        >
-          {t("channels.addUser")}
-        </Button>
-      </Space.Compact>
+        <Space>
+          {selectedRowKeys.length > 0 && (
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+              {t("channels.selectedCount", { count: selectedRowKeys.length })}
+            </Typography.Text>
+          )}
+          <Popconfirm
+            title={t("channels.batchRemoveConfirm", { count: selectedRowKeys.length })}
+            onConfirm={handleBatchRemove}
+            disabled={selectedRowKeys.length === 0}
+          >
+            <Button
+              danger
+              size="small"
+              icon={<DeleteOutlined />}
+              disabled={selectedRowKeys.length === 0}
+              loading={batchLoading}
+            >
+              {t("channels.batchRemove")}
+            </Button>
+          </Popconfirm>
+        </Space>
+      </div>
 
       <Table
         dataSource={listData}
         columns={columns}
         rowKey={(record) => record.userId}
-        rowSelection={{
-          selectedRowKeys,
-          onChange: (keys) => setSelectedRowKeys(keys),
-        }}
+        rowSelection={{ selectedRowKeys, onChange: (keys) => setSelectedRowKeys(keys) }}
         size="small"
         loading={loading}
-        pagination={{ pageSize: 10 }}
+        pagination={{ pageSize: 10, showSizeChanger: false }}
         locale={{
-          emptyText:
-            activeTab === "whitelist"
-              ? t("channels.noWhitelistUsers")
-              : t("channels.noBlacklistUsers"),
+          emptyText: (
+            <div style={{ padding: "48px 0" }}>
+              {activeTab === "whitelist" ? t("channels.noWhitelistUsers") : t("channels.noBlacklistUsers")}
+            </div>
+          ),
         }}
       />
 
-      {/* Batch actions at bottom */}
-      <Space style={{ marginTop: 8 }}>
-        <Popconfirm
-          title={t("channels.batchRemoveConfirm", {
-            count: selectedRowKeys.length,
-          })}
-          onConfirm={handleBatchRemove}
-          disabled={selectedRowKeys.length === 0}
-        >
-          <Button
-            danger
-            size="small"
-            icon={<DeleteOutlined />}
-            disabled={selectedRowKeys.length === 0}
-            loading={batchLoading}
-          >
-            {t("channels.batchRemove")}
-            {selectedRowKeys.length > 0 && ` (${selectedRowKeys.length})`}
-          </Button>
-        </Popconfirm>
-      </Space>
+      <Modal
+        title={t("channels.addUser")}
+        open={addModalOpen}
+        onCancel={() => { setAddModalOpen(false); setNewUserId(""); setNewRemark(""); }}
+        onOk={async () => { await handleAdd(); setAddModalOpen(false); }}
+        okButtonProps={{ disabled: !newUserId.trim() }}
+        destroyOnClose
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size={16}>
+          <div>
+            <Typography.Text strong style={{ display: "block", marginBottom: 6 }}>
+              {t("channels.userId")}
+            </Typography.Text>
+            <Input
+              placeholder={t("channels.addUserPlaceholder")}
+              value={newUserId}
+              onChange={(e) => setNewUserId(e.target.value)}
+            />
+          </div>
+          <div>
+            <Typography.Text strong style={{ display: "block", marginBottom: 6 }}>
+              {t("channels.remark")}
+            </Typography.Text>
+            <Input
+              placeholder={t("channels.remarkPlaceholder")}
+              value={newRemark}
+              onChange={(e) => setNewRemark(e.target.value)}
+            />
+          </div>
+        </Space>
+      </Modal>
     </Drawer>
   );
 }
