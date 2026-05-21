@@ -100,10 +100,16 @@ export function PendingApprovalsDrawer({
 
   const handleRemarkSave = async (entry: PendingEntry, remark: string) => {
     try {
-      await accessControlApi.updatePendingRemark(entry.channel, entry.user_id, remark);
+      await accessControlApi.updatePendingRemark(
+        entry.channel,
+        entry.user_id,
+        remark,
+      );
       setPending((prev) =>
         prev.map((p) =>
-          p.channel === entry.channel && p.user_id === entry.user_id ? { ...p, remark } : p,
+          p.channel === entry.channel && p.user_id === entry.user_id
+            ? { ...p, remark }
+            : p,
         ),
       );
     } catch {
@@ -115,7 +121,9 @@ export function PendingApprovalsDrawer({
     const key = `${entry.channel}:${entry.user_id}`;
     setActionLoading(key);
     try {
-      await ACTION_API_MAP[action]([{ channel: entry.channel, user_id: entry.user_id }]);
+      await ACTION_API_MAP[action]([
+        { channel: entry.channel, user_id: entry.user_id },
+      ]);
       message.success(t(ACTION_SUCCESS_KEY[action]));
       await fetchPending();
     } catch {
@@ -129,7 +137,9 @@ export function PendingApprovalsDrawer({
     setBatchLoading(true);
     try {
       await ACTION_API_MAP[action](selectedEntries);
-      message.success(t("channels.batchSuccess", { count: selectedEntries.length }));
+      message.success(
+        t("channels.batchSuccess", { count: selectedEntries.length }),
+      );
       setSelectedRowKeys([]);
       await fetchPending();
     } catch {
@@ -159,14 +169,15 @@ export function PendingApprovalsDrawer({
       title: t("channels.userId"),
       dataIndex: "user_id",
       key: "user_id",
-      width: 150,
-      ellipsis: true,
+      width: 160,
+      ellipsis: { showTitle: false },
       render: (userId: string) => (
-        <Tooltip title={userId}>
-          <Text copyable={{ text: userId }} style={{ maxWidth: 130 }} ellipsis>
+        <Space size={4}>
+          <Text ellipsis={{ tooltip: userId }} style={{ maxWidth: 120 }}>
             {userId}
           </Text>
-        </Tooltip>
+          <Text copyable={{ text: userId }} />
+        </Space>
       ),
     },
     {
@@ -188,7 +199,10 @@ export function PendingApprovalsDrawer({
       width: 130,
       render: (remark: string, record: PendingEntry) => (
         <Text
-          editable={{ onChange: (value) => handleRemarkSave(record, value), text: remark || "" }}
+          editable={{
+            onChange: (value) => handleRemarkSave(record, value),
+            text: remark || "",
+          }}
         >
           {remark || <span style={{ color: "#bbb" }}>-</span>}
         </Text>
@@ -255,13 +269,23 @@ export function PendingApprovalsDrawer({
       onClose={onClose}
       destroyOnClose
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 12,
+        }}
+      >
         <Select
           mode="multiple"
           allowClear
           placeholder={t("channels.filterByChannel")}
           value={selectedChannels}
-          onChange={(values) => { setSelectedChannels(values); setSelectedRowKeys([]); }}
+          onChange={(values) => {
+            setSelectedChannels(values);
+            setSelectedRowKeys([]);
+          }}
           style={{ minWidth: 200 }}
           options={availableChannels.map((ch) => ({
             label: getChannelLabel(ch as ChannelKey, t),
@@ -275,29 +299,52 @@ export function PendingApprovalsDrawer({
             </Text>
           )}
           <Popconfirm
-            title={t("channels.batchApproveConfirm", { count: selectedRowKeys.length })}
+            title={t("channels.batchApproveConfirm", {
+              count: selectedRowKeys.length,
+            })}
             onConfirm={() => handleBatchAction("approve")}
             disabled={!hasSelection}
           >
-            <Button type="primary" size="small" icon={<CheckOutlined />} disabled={!hasSelection} loading={batchLoading}>
+            <Button
+              type="primary"
+              size="small"
+              icon={<CheckOutlined />}
+              disabled={!hasSelection}
+              loading={batchLoading}
+            >
               {t("channels.batchApprove")}
             </Button>
           </Popconfirm>
           <Popconfirm
-            title={t("channels.batchDenyConfirm", { count: selectedRowKeys.length })}
+            title={t("channels.batchDenyConfirm", {
+              count: selectedRowKeys.length,
+            })}
             onConfirm={() => handleBatchAction("deny")}
             disabled={!hasSelection}
           >
-            <Button size="small" icon={<CloseOutlined />} disabled={!hasSelection} loading={batchLoading}>
+            <Button
+              size="small"
+              icon={<CloseOutlined />}
+              disabled={!hasSelection}
+              loading={batchLoading}
+            >
               {t("channels.batchDeny")}
             </Button>
           </Popconfirm>
           <Popconfirm
-            title={t("channels.batchDismissConfirm", { count: selectedRowKeys.length })}
+            title={t("channels.batchDismissConfirm", {
+              count: selectedRowKeys.length,
+            })}
             onConfirm={() => handleBatchAction("dismiss")}
             disabled={!hasSelection}
           >
-            <Button danger size="small" icon={<DeleteOutlined />} disabled={!hasSelection} loading={batchLoading}>
+            <Button
+              danger
+              size="small"
+              icon={<DeleteOutlined />}
+              disabled={!hasSelection}
+              loading={batchLoading}
+            >
               {t("channels.batchDismiss")}
             </Button>
           </Popconfirm>
@@ -308,7 +355,10 @@ export function PendingApprovalsDrawer({
         dataSource={filteredPending}
         columns={columns}
         rowKey={(r) => `${r.channel}:${r.user_id}`}
-        rowSelection={{ selectedRowKeys, onChange: (keys) => setSelectedRowKeys(keys as string[]) }}
+        rowSelection={{
+          selectedRowKeys,
+          onChange: (keys) => setSelectedRowKeys(keys as string[]),
+        }}
         size="small"
         loading={loading}
         pagination={{ pageSize: 10, showSizeChanger: false }}

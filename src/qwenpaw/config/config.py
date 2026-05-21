@@ -1840,7 +1840,74 @@ def build_fallback_agent_profile_config(
     )
 
 
-def load_agent_config(agent_id: str) -> AgentProfileConfig:
+def _migrate_access_control_fields(  # pylint: disable=too-many-branches
+    channels: dict,
+    workspace_dir: Path,
+) -> bool:
+    """Migrate legacy dm_policy/group_policy/allow_from to new fields.
+
+    Returns True if any field was migrated (caller should rewrite file).
+    """
+    migrated = False
+    for ch_key, ch_cfg in channels.items():
+        if not isinstance(ch_cfg, dict):
+            continue
+        # dm_policy → access_control_dm or dm_disabled
+        dm_policy = ch_cfg.get("dm_policy")
+        if dm_policy is not None:
+            if dm_policy == "allowlist" and "access_control_dm" not in ch_cfg:
+                ch_cfg["access_control_dm"] = True
+            elif dm_policy == "disabled" and "dm_disabled" not in ch_cfg:
+                ch_cfg["dm_disabled"] = True
+            del ch_cfg["dm_policy"]
+            migrated = True
+        # group_policy → access_control_group or group_disabled
+        group_policy = ch_cfg.get("group_policy")
+        if group_policy is not None:
+            if (
+                group_policy == "allowlist"
+                and "access_control_group" not in ch_cfg
+            ):
+                ch_cfg["access_control_group"] = True
+            elif group_policy == "disabled" and "group_disabled" not in ch_cfg:
+                ch_cfg["group_disabled"] = True
+            del ch_cfg["group_policy"]
+            migrated = True
+        # allow_from → access_control.json whitelist
+        allow_from = ch_cfg.get("allow_from")
+        if allow_from and isinstance(allow_from, list):
+            try:
+                from ..app.channels.access_control import (
+                    get_access_control_store,
+                )
+
+                store = get_access_control_store(workspace_dir)
+                store.import_allow_from(ch_key, set(allow_from))
+            except Exception:
+                pass
+            del ch_cfg["allow_from"]
+            migrated = True
+        # group_allow_from (matrix legacy) → whitelist
+        grp_allow = ch_cfg.get("group_allow_from")
+        if grp_allow is not None:
+            if isinstance(grp_allow, list) and grp_allow:
+                try:
+                    from ..app.channels.access_control import (
+                        get_access_control_store,
+                    )
+
+                    store = get_access_control_store(workspace_dir)
+                    store.import_allow_from(ch_key, set(grp_allow))
+                except Exception:
+                    pass
+            del ch_cfg["group_allow_from"]
+            migrated = True
+    return migrated
+
+
+def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
+    agent_id: str,
+) -> AgentProfileConfig:
     """Load agent's complete configuration from workspace/agent.json with
     mtime-based caching.
 
@@ -1931,82 +1998,18 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
             except OSError:
                 pass
 
-        # One-shot migration: convert legacy dm_policy/group_policy/allow_from
-        # to new access_control_dm/access_control_group fields and migrate
-        # allow_from users into access_control.json whitelist.
-        # For dm_policy/group_policy="disabled", preserve as dm_disabled/
-        # group_disabled boolean (channel-level mute, distinct from ACL).
+        # One-shot migration: convert legacy access control fields.
         if isinstance(channels, dict):
-            _acl_migrated = False
-            for _ch_key, _ch_cfg in channels.items():
-                if not isinstance(_ch_cfg, dict):
-                    continue
-                # Handle dm_policy
-                _dm_policy = _ch_cfg.get("dm_policy")
-                if _dm_policy is not None:
-                    if (
-                        _dm_policy == "allowlist"
-                        and "access_control_dm" not in _ch_cfg
-                    ):
-                        _ch_cfg["access_control_dm"] = True
-                    elif (
-                        _dm_policy == "disabled"
-                        and "dm_disabled" not in _ch_cfg
-                    ):
-                        _ch_cfg["dm_disabled"] = True
-                    del _ch_cfg["dm_policy"]
-                    _acl_migrated = True
-                # Handle group_policy
-                _group_policy = _ch_cfg.get("group_policy")
-                if _group_policy is not None:
-                    if (
-                        _group_policy == "allowlist"
-                        and "access_control_group" not in _ch_cfg
-                    ):
-                        _ch_cfg["access_control_group"] = True
-                    elif (
-                        _group_policy == "disabled"
-                        and "group_disabled" not in _ch_cfg
-                    ):
-                        _ch_cfg["group_disabled"] = True
-                    del _ch_cfg["group_policy"]
-                    _acl_migrated = True
-                # Migrate allow_from into access_control.json
-                _allow_from = _ch_cfg.get("allow_from")
-                if _allow_from and isinstance(_allow_from, list):
-                    try:
-                        from ..app.channels.access_control import (
-                            get_access_control_store,
-                        )
-
-                        _store = get_access_control_store(workspace_dir)
-                        _store.import_allow_from(_ch_key, set(_allow_from))
-                    except Exception:
-                        pass
-                    del _ch_cfg["allow_from"]
-                    _acl_migrated = True
-                # Also remove group_allow_from (matrix legacy)
-                if "group_allow_from" in _ch_cfg:
-                    # Import group_allow_from into whitelist too
-                    _grp_allow = _ch_cfg["group_allow_from"]
-                    if _grp_allow and isinstance(_grp_allow, list):
-                        try:
-                            from ..app.channels.access_control import (
-                                get_access_control_store,
-                            )
-
-                            _store = get_access_control_store(workspace_dir)
-                            _store.import_allow_from(
-                                _ch_key, set(_grp_allow)
-                            )
-                        except Exception:
-                            pass
-                    del _ch_cfg["group_allow_from"]
-                    _acl_migrated = True
+            _acl_migrated = _migrate_access_control_fields(
+                channels,
+                workspace_dir,
+            )
             if _acl_migrated:
                 try:
                     with open(
-                        agent_config_path, "w", encoding="utf-8"
+                        agent_config_path,
+                        "w",
+                        encoding="utf-8",
                     ) as f:
                         json.dump(data, f, ensure_ascii=False, indent=2)
                     try:

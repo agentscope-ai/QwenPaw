@@ -72,11 +72,6 @@ export function AccessControlDrawer({
 
   const channelKeys = Object.keys(allACLs);
   const currentACL = selectedChannel ? allACLs[selectedChannel] : null;
-  const removeApiForTab =
-    activeTab === "whitelist"
-      ? accessControlApi.removeAclWhitelist
-      : accessControlApi.removeAclBlacklist;
-
   const handleAdd = async () => {
     if (!selectedChannel || !newUserId.trim()) return;
     const addApi =
@@ -84,7 +79,13 @@ export function AccessControlDrawer({
         ? accessControlApi.addAclWhitelist
         : accessControlApi.addAclBlacklist;
     try {
-      await addApi(selectedChannel, newUserId.trim(), newRemark.trim());
+      await addApi([
+        {
+          channel: selectedChannel,
+          user_id: newUserId.trim(),
+          remark: newRemark.trim(),
+        },
+      ]);
       message.success(t("channels.userAdded"));
       setNewUserId("");
       setNewRemark("");
@@ -96,8 +97,12 @@ export function AccessControlDrawer({
 
   const handleRemove = async (userId: string) => {
     if (!selectedChannel) return;
+    const removeApi =
+      activeTab === "whitelist"
+        ? accessControlApi.removeAclWhitelist
+        : accessControlApi.removeAclBlacklist;
     try {
-      await removeApiForTab(selectedChannel, userId);
+      await removeApi([{ channel: selectedChannel, user_id: userId }]);
       message.success(t("channels.userRemoved"));
       await fetchACLs();
     } catch {
@@ -128,11 +133,16 @@ export function AccessControlDrawer({
   const handleBatchRemove = async () => {
     if (!selectedChannel || selectedRowKeys.length === 0) return;
     setBatchLoading(true);
+    const removeApi =
+      activeTab === "whitelist"
+        ? accessControlApi.removeAclWhitelist
+        : accessControlApi.removeAclBlacklist;
     try {
-      await Promise.all(
-        selectedRowKeys.map((userId) =>
-          removeApiForTab(selectedChannel, userId as string),
-        ),
+      await removeApi(
+        selectedRowKeys.map((userId) => ({
+          channel: selectedChannel,
+          user_id: userId as string,
+        })),
       );
       message.success(
         t("channels.batchSuccess", { count: selectedRowKeys.length }),
@@ -155,11 +165,17 @@ export function AccessControlDrawer({
       title: t("channels.userId"),
       dataIndex: "userId",
       key: "userId",
-      ellipsis: true,
+      ellipsis: { showTitle: false },
       render: (userId: string) => (
-        <Typography.Text copyable={{ text: userId }} ellipsis style={{ maxWidth: 200 }}>
-          {userId}
-        </Typography.Text>
+        <Space size={4}>
+          <Typography.Text
+            ellipsis={{ tooltip: userId }}
+            style={{ maxWidth: 180 }}
+          >
+            {userId}
+          </Typography.Text>
+          <Typography.Text copyable={{ text: userId }} />
+        </Space>
       ),
     },
     {
@@ -214,13 +230,24 @@ export function AccessControlDrawer({
           { key: "blacklist", label: t("channels.blacklist") },
         ]}
         tabBarExtraContent={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setAddModalOpen(true)}
+          >
             {t("channels.addUser")}
           </Button>
         }
       />
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 12,
+        }}
+      >
         <Select
           value={selectedChannel}
           onChange={(value) => {
@@ -242,7 +269,9 @@ export function AccessControlDrawer({
             </Typography.Text>
           )}
           <Popconfirm
-            title={t("channels.batchRemoveConfirm", { count: selectedRowKeys.length })}
+            title={t("channels.batchRemoveConfirm", {
+              count: selectedRowKeys.length,
+            })}
             onConfirm={handleBatchRemove}
             disabled={selectedRowKeys.length === 0}
           >
@@ -263,14 +292,19 @@ export function AccessControlDrawer({
         dataSource={listData}
         columns={columns}
         rowKey={(record) => record.userId}
-        rowSelection={{ selectedRowKeys, onChange: (keys) => setSelectedRowKeys(keys) }}
+        rowSelection={{
+          selectedRowKeys,
+          onChange: (keys) => setSelectedRowKeys(keys),
+        }}
         size="small"
         loading={loading}
         pagination={{ pageSize: 10, showSizeChanger: false }}
         locale={{
           emptyText: (
             <div style={{ padding: "48px 0" }}>
-              {activeTab === "whitelist" ? t("channels.noWhitelistUsers") : t("channels.noBlacklistUsers")}
+              {activeTab === "whitelist"
+                ? t("channels.noWhitelistUsers")
+                : t("channels.noBlacklistUsers")}
             </div>
           ),
         }}
@@ -279,14 +313,24 @@ export function AccessControlDrawer({
       <Modal
         title={t("channels.addUser")}
         open={addModalOpen}
-        onCancel={() => { setAddModalOpen(false); setNewUserId(""); setNewRemark(""); }}
-        onOk={async () => { await handleAdd(); setAddModalOpen(false); }}
+        onCancel={() => {
+          setAddModalOpen(false);
+          setNewUserId("");
+          setNewRemark("");
+        }}
+        onOk={async () => {
+          await handleAdd();
+          setAddModalOpen(false);
+        }}
         okButtonProps={{ disabled: !newUserId.trim() }}
         destroyOnClose
       >
         <Space direction="vertical" style={{ width: "100%" }} size={16}>
           <div>
-            <Typography.Text strong style={{ display: "block", marginBottom: 6 }}>
+            <Typography.Text
+              strong
+              style={{ display: "block", marginBottom: 6 }}
+            >
               {t("channels.userId")}
             </Typography.Text>
             <Input
@@ -296,7 +340,10 @@ export function AccessControlDrawer({
             />
           </div>
           <div>
-            <Typography.Text strong style={{ display: "block", marginBottom: 6 }}>
+            <Typography.Text
+              strong
+              style={{ display: "block", marginBottom: 6 }}
+            >
               {t("channels.remark")}
             </Typography.Text>
             <Input

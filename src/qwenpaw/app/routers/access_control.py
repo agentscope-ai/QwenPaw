@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List
 
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ..channels.access_control import get_access_control_store
@@ -31,19 +31,18 @@ class ACLResponse(BaseModel):
     pending: List[dict] = Field(default_factory=list)
 
 
-class UserListBody(BaseModel):
-    user_ids: List[str]
+class ACLActionEntry(BaseModel):
+    """Entry for whitelist/blacklist/pending batch operations."""
 
-
-class PendingActionEntry(BaseModel):
     channel: str
     user_id: str
     remark: str = ""
 
 
-class PendingActionBody(BaseModel):
-    """Unified body for single or batch pending operations."""
-    entries: List[PendingActionEntry]
+class ACLActionBody(BaseModel):
+    """Unified body for single or batch ACL operations."""
+
+    entries: List[ACLActionEntry]
 
 
 class UpdateRemarkBody(BaseModel):
@@ -121,10 +120,14 @@ async def get_all_pending(request: Request):
     "/pending/approve",
     summary="Approve one or more pending users (add to whitelist)",
 )
-async def approve_pending(request: Request, body: PendingActionBody):
+async def approve_pending(request: Request, body: ACLActionBody):
     store = await _get_store(request)
     for entry in body.entries:
-        store.approve_pending(entry.channel, entry.user_id, entry.remark)
+        store.approve_pending(
+            entry.channel,
+            entry.user_id,
+            entry.remark,
+        )
     return {"status": "ok", "count": len(body.entries)}
 
 
@@ -132,18 +135,22 @@ async def approve_pending(request: Request, body: PendingActionBody):
     "/pending/deny",
     summary="Deny one or more pending users (add to blacklist)",
 )
-async def deny_pending(request: Request, body: PendingActionBody):
+async def deny_pending(request: Request, body: ACLActionBody):
     store = await _get_store(request)
     for entry in body.entries:
-        store.deny_pending(entry.channel, entry.user_id, entry.remark)
+        store.deny_pending(
+            entry.channel,
+            entry.user_id,
+            entry.remark,
+        )
     return {"status": "ok", "count": len(body.entries)}
 
 
 @router.post(
     "/pending/dismiss",
-    summary="Dismiss one or more pending users (remove without action)",
+    summary="Dismiss one or more pending users (remove w/o action)",
 )
-async def dismiss_pending(request: Request, body: PendingActionBody):
+async def dismiss_pending(request: Request, body: ACLActionBody):
     store = await _get_store(request)
     for entry in body.entries:
         store.dismiss_pending(entry.channel, entry.user_id)
@@ -154,11 +161,101 @@ async def dismiss_pending(request: Request, body: PendingActionBody):
     "/pending/remark",
     summary="Update remark on a pending entry",
 )
-async def update_pending_remark(request: Request, body: UpdateRemarkBody):
+async def update_pending_remark(
+    request: Request,
+    body: UpdateRemarkBody,
+):
     store = await _get_store(request)
-    found = store.update_pending_remark(body.channel, body.user_id, body.remark)
+    found = store.update_pending_remark(
+        body.channel,
+        body.user_id,
+        body.remark,
+    )
     if not found:
-        raise HTTPException(status_code=404, detail="Pending entry not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Pending entry not found",
+        )
+    return {"status": "ok"}
+
+
+# ── Whitelist / Blacklist unified batch endpoints ───────────────────────────
+
+
+@router.post(
+    "/whitelist/add",
+    summary="Add one or more users to whitelist",
+)
+async def add_to_whitelist(request: Request, body: ACLActionBody):
+    store = await _get_store(request)
+    for entry in body.entries:
+        store.add_to_whitelist(
+            entry.channel,
+            entry.user_id,
+            entry.remark,
+        )
+    return {"status": "ok", "count": len(body.entries)}
+
+
+@router.post(
+    "/whitelist/remove",
+    summary="Remove one or more users from whitelist",
+)
+async def remove_from_whitelist(
+    request: Request,
+    body: ACLActionBody,
+):
+    store = await _get_store(request)
+    for entry in body.entries:
+        store.remove_from_whitelist(entry.channel, entry.user_id)
+    return {"status": "ok", "count": len(body.entries)}
+
+
+@router.post(
+    "/blacklist/add",
+    summary="Add one or more users to blacklist",
+)
+async def add_to_blacklist(request: Request, body: ACLActionBody):
+    store = await _get_store(request)
+    for entry in body.entries:
+        store.add_to_blacklist(
+            entry.channel,
+            entry.user_id,
+            entry.remark,
+        )
+    return {"status": "ok", "count": len(body.entries)}
+
+
+@router.post(
+    "/blacklist/remove",
+    summary="Remove one or more users from blacklist",
+)
+async def remove_from_blacklist(
+    request: Request,
+    body: ACLActionBody,
+):
+    store = await _get_store(request)
+    for entry in body.entries:
+        store.remove_from_blacklist(entry.channel, entry.user_id)
+    return {"status": "ok", "count": len(body.entries)}
+
+
+@router.post(
+    "/remark",
+    summary="Update remark for a user in whitelist or blacklist",
+)
+async def update_remark(request: Request, body: UpdateRemarkBody):
+    store = await _get_store(request)
+    found = store.update_remark(
+        body.channel,
+        body.user_id,
+        body.remark,
+    )
+    if not found:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found in any list",
+        )
     return {"status": "ok"}
 
 
@@ -173,101 +270,3 @@ async def update_pending_remark(request: Request, body: UpdateRemarkBody):
 async def get_channel_acl(request: Request, channel: str):
     store = await _get_store(request)
     return store.get_acl(channel)
-
-
-@router.put(
-    "/{channel}/whitelist",
-    summary="Set whitelist for a channel",
-)
-async def set_whitelist(request: Request, channel: str, body: UserListBody):
-    store = await _get_store(request)
-    store.set_whitelist(channel, body.user_ids)
-    return {"status": "ok"}
-
-
-@router.post(
-    "/{channel}/whitelist/add",
-    summary="Add a user to channel whitelist",
-)
-async def add_to_whitelist(
-    request: Request,
-    channel: str,
-    user_id: str = Body(..., embed=True),
-    remark: str = Body("", embed=True),
-):
-    store = await _get_store(request)
-    store.add_to_whitelist(channel, user_id, remark)
-    return {"status": "ok"}
-
-
-@router.post(
-    "/{channel}/whitelist/remove",
-    summary="Remove a user from channel whitelist",
-)
-async def remove_from_whitelist(
-    request: Request,
-    channel: str,
-    user_id: str = Body(..., embed=True),
-):
-    store = await _get_store(request)
-    store.remove_from_whitelist(channel, user_id)
-    return {"status": "ok"}
-
-
-@router.put(
-    "/{channel}/blacklist",
-    summary="Set blacklist for a channel",
-)
-async def set_blacklist(request: Request, channel: str, body: UserListBody):
-    store = await _get_store(request)
-    store.set_blacklist(channel, body.user_ids)
-    return {"status": "ok"}
-
-
-@router.post(
-    "/{channel}/blacklist/add",
-    summary="Add a user to channel blacklist",
-)
-async def add_to_blacklist(
-    request: Request,
-    channel: str,
-    user_id: str = Body(..., embed=True),
-    remark: str = Body("", embed=True),
-):
-    store = await _get_store(request)
-    store.add_to_blacklist(channel, user_id, remark)
-    return {"status": "ok"}
-
-
-@router.post(
-    "/{channel}/blacklist/remove",
-    summary="Remove a user from channel blacklist",
-)
-async def remove_from_blacklist(
-    request: Request,
-    channel: str,
-    user_id: str = Body(..., embed=True),
-):
-    store = await _get_store(request)
-    store.remove_from_blacklist(channel, user_id)
-    return {"status": "ok"}
-
-
-@router.post(
-    "/{channel}/remark",
-    summary="Update remark for a user in whitelist or blacklist",
-)
-async def update_remark(
-    request: Request,
-    channel: str,
-    user_id: str = Body(..., embed=True),
-    remark: str = Body("", embed=True),
-):
-    store = await _get_store(request)
-    found = store.update_remark(channel, user_id, remark)
-    if not found:
-        raise HTTPException(
-            status_code=404,
-            detail="User not found in any list",
-        )
-    return {"status": "ok"}

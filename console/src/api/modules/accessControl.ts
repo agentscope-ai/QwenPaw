@@ -27,46 +27,42 @@ export const accessControlApi = {
   getAclChannel: (channel: string) =>
     request<ACLData>(`/access-control/${channel}`),
 
-  setAclWhitelist: (channel: string, userIds: string[]) =>
-    request(`/access-control/${channel}/whitelist`, {
-      method: "PUT",
-      body: JSON.stringify({ user_ids: userIds }),
-    }),
-
-  addAclWhitelist: (channel: string, userId: string, remark: string = "") =>
-    request(`/access-control/${channel}/whitelist/add`, {
+  /**
+   * Unified whitelist/blacklist/remark APIs - work for both single and batch.
+   * Pass an array of entries (1 or more).
+   */
+  addAclWhitelist: (
+    entries: { channel: string; user_id: string; remark?: string }[],
+  ) =>
+    request("/access-control/whitelist/add", {
       method: "POST",
-      body: JSON.stringify({ user_id: userId, remark }),
+      body: JSON.stringify({ entries }),
     }),
 
-  removeAclWhitelist: (channel: string, userId: string) =>
-    request(`/access-control/${channel}/whitelist/remove`, {
+  removeAclWhitelist: (entries: { channel: string; user_id: string }[]) =>
+    request("/access-control/whitelist/remove", {
       method: "POST",
-      body: JSON.stringify({ user_id: userId }),
+      body: JSON.stringify({ entries }),
     }),
 
-  setAclBlacklist: (channel: string, userIds: string[]) =>
-    request(`/access-control/${channel}/blacklist`, {
-      method: "PUT",
-      body: JSON.stringify({ user_ids: userIds }),
-    }),
-
-  addAclBlacklist: (channel: string, userId: string, remark: string = "") =>
-    request(`/access-control/${channel}/blacklist/add`, {
+  addAclBlacklist: (
+    entries: { channel: string; user_id: string; remark?: string }[],
+  ) =>
+    request("/access-control/blacklist/add", {
       method: "POST",
-      body: JSON.stringify({ user_id: userId, remark }),
+      body: JSON.stringify({ entries }),
     }),
 
-  removeAclBlacklist: (channel: string, userId: string) =>
-    request(`/access-control/${channel}/blacklist/remove`, {
+  removeAclBlacklist: (entries: { channel: string; user_id: string }[]) =>
+    request("/access-control/blacklist/remove", {
       method: "POST",
-      body: JSON.stringify({ user_id: userId }),
+      body: JSON.stringify({ entries }),
     }),
 
   updateAclRemark: (channel: string, userId: string, remark: string) =>
-    request(`/access-control/${channel}/remark`, {
+    request("/access-control/remark", {
       method: "POST",
-      body: JSON.stringify({ user_id: userId, remark }),
+      body: JSON.stringify({ channel, user_id: userId, remark }),
     }),
 
   getAclAllPending: () =>
@@ -77,7 +73,7 @@ export const accessControlApi = {
    * Pass an array of entries (1 or more).
    */
   approveAclPending: (
-    entries: { channel: string; user_id: string; remark?: string }[]
+    entries: { channel: string; user_id: string; remark?: string }[],
   ) =>
     request("/access-control/pending/approve", {
       method: "POST",
@@ -85,7 +81,7 @@ export const accessControlApi = {
     }),
 
   denyAclPending: (
-    entries: { channel: string; user_id: string; remark?: string }[]
+    entries: { channel: string; user_id: string; remark?: string }[],
   ) =>
     request("/access-control/pending/deny", {
       method: "POST",

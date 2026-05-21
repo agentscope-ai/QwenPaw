@@ -203,8 +203,6 @@ class HistoryEntry:
     media_parts: Optional[List[Any]] = None
 
 
-
-
 class MatrixChannel(BaseChannel):
     """QwenPaw channel that connects to a Matrix homeserver via matrix-nio."""
 
@@ -334,8 +332,7 @@ class MatrixChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=(
-                filter_tool_messages
-                or raw.get("filter_tool_messages", False)
+                filter_tool_messages or raw.get("filter_tool_messages", False)
             ),
             filter_thinking=(
                 filter_thinking or raw.get("filter_thinking", False)
@@ -918,11 +915,7 @@ class MatrixChannel(BaseChannel):
         - Claim one-time keys to establish Olm sessions
         - Send outgoing to-device messages (key shares, key requests)
         """
-        if (
-            not self.encryption
-            or not self._client
-            or not self._client.olm
-        ):
+        if not self.encryption or not self._client or not self._client.olm:
             return
         try:
             if self._client.should_upload_keys:
@@ -1550,7 +1543,7 @@ class MatrixChannel(BaseChannel):
         room_id: str,
         is_dm: bool,
     ) -> bool:
-        """Return True if this chat type is completely muted at channel level."""
+        """Return True if chat type is muted at channel level."""
         if is_dm and self.dm_disabled:
             logger.warning(
                 "MatrixChannel: dropping DM message (dm_disabled) "

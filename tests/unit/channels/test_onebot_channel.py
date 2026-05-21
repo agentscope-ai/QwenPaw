@@ -258,12 +258,11 @@ class TestHandleMessageEvent:
 
         assert len(enqueued) == 1
 
-    async def test_allowlist_migration_sets_access_control(self):
+    async def test_access_control_dm_flag(self):
         ch = _make_channel(
-            dm_policy="allowlist",
-            allow_from=["99999"],
+            access_control_dm=True,
         )
-        # Legacy dm_policy="allowlist" should migrate to access_control_dm
+        # access_control_dm=True should enable access control
         assert ch.access_control_dm is True
         assert ch.access_control_enabled is True
 
