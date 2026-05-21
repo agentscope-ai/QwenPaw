@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="logo.png" alt="DataPaw" width="320">
+</p>
+
+<p align="center">
   <strong>Data Analysis Plugin for QwenPaw</strong>
 </p>
 
