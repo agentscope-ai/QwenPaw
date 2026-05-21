@@ -37,6 +37,7 @@ def build_env_context(
     working_dir: Optional[str] = None,
     add_hint: bool = True,
     default_shell: Optional[str] = None,
+    extra_system_prompt: Optional[str] = None,
 ) -> str:
     """
     Build environment context with current request context prepended.
@@ -52,6 +53,11 @@ def build_env_context(
         default_shell: Shell executable used by execute_shell_command.
             When provided, included in the context so the LLM can
             generate syntax appropriate for that shell.
+        extra_system_prompt: Optional extra system prompt text injected
+            by the caller (e.g. from the ``extraSystemPrompt`` API
+            parameter).  When provided, it is appended as a dedicated
+            ``Extra Context`` section so the agent can access per-request
+            parameters (API keys, business context, etc.).
     Returns:
         Formatted environment context string
     """
@@ -101,6 +107,14 @@ def build_env_context(
             "tool call indicates the task is complete. To continue a task, "
             "you must generate a tool call or provide useful feedback if "
             "you are blocked.\n",
+        )
+
+    if extra_system_prompt and isinstance(extra_system_prompt, str):
+        parts.append(
+            "- Extra Context:\n"
+            + "\n".join(
+                "  " + line for line in extra_system_prompt.strip().splitlines()
+            ),
         )
 
     return (

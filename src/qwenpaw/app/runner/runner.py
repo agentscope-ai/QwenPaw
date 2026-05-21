@@ -420,6 +420,7 @@ class AgentRunner(Runner):
             if not isinstance(channel_meta, dict):
                 channel_meta = {}
             user_name = channel_meta.get("user_name")
+            extra_system_prompt = channel_meta.get("extra_system_prompt")
 
             # Load agent-specific configuration
             agent_config = load_agent_config(self.agent_id)
@@ -443,6 +444,7 @@ class AgentRunner(Runner):
                     else str(WORKING_DIR)
                 ),
                 default_shell=_default_shell,
+                extra_system_prompt=extra_system_prompt,
             )
 
             # Get MCP clients from manager (hot-reloadable)
