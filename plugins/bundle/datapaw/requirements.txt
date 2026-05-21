@@ -1,0 +1,8 @@
+pandas>=2.0
+numpy>=1.24
+jinja2>=3.0
+ruptures>=1.1
+openpyxl>=3.0
+pyarrow>=14.0
+matplotlib>=3.7
+seaborn>=0.13
