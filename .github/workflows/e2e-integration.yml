@@ -1,9 +1,10 @@
 name: E2E Integration Tests
 
 on:
-  schedule:
-    # Nightly at 2:30 AM UTC
-    - cron: '30 2 * * *'
+  # TODO: 暂时禁用 schedule，等待 backend 启动脚本配置完成
+  # schedule:
+  #   # Nightly at 2:30 AM UTC
+  #   - cron: '30 2 * * *'
   workflow_dispatch:
     inputs:
       test_marker:
