@@ -117,17 +117,6 @@ if (Test-PythonImport "import PyInstaller") {
     Write-Host "PyInstaller installed" -ForegroundColor Green
 }
 
-# Install python-dotenv if not present (required by PyInstaller collect_submodules)
-if (Test-PythonImport "import dotenv") {
-    Write-Host "python-dotenv already installed" -ForegroundColor Green
-} else {
-    Write-Host "Installing python-dotenv..."
-    Install-PythonPackages -Packages @("python-dotenv")
-    Write-Host "python-dotenv installed" -ForegroundColor Green
-}
-
-Write-Host ""
-
 # Install project dependencies (ensures ALL runtime deps are importable)
 Write-Host "== Installing project dependencies ==" -ForegroundColor Yellow
 Install-PythonPackages -Packages @("-e", ".[full]")
