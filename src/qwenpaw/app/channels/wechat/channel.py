@@ -1052,26 +1052,43 @@ class WeChatChannel(BaseChannel):
         text: str,
         context_token: str,
         client: Optional[ILinkClient] = None,
+        raise_on_error: bool = False,
     ) -> None:
-        """Send text using the shared ILinkClient (or create a temp one)."""
+        """Send text using the shared ILinkClient (or create a temp one).
+
+        Args:
+            raise_on_error: If True, raise ChannelError on API rejection
+                instead of only logging. Used by API-initiated sends.
+        """
         _client = client or self._client
         if not _client or not to_user_id or not text:
             return
         try:
             resp = await _client.send_text(to_user_id, text, context_token)
-            if isinstance(resp, dict):
-                ret = resp.get("ret", 0)
-                errcode = resp.get("errcode", 0)
-                if ret != 0 or errcode != 0:
-                    logger.warning(
-                        "wechat send_text rejected: "
-                        "ret=%s errcode=%s to_user_id=%s",
-                        ret,
-                        errcode,
-                        to_user_id,
-                    )
         except Exception:
             logger.exception("wechat _send_text_direct failed")
+            if raise_on_error:
+                raise
+            return
+        if isinstance(resp, dict):
+            ret = resp.get("ret", 0)
+            errcode = resp.get("errcode", 0)
+            if ret != 0 or errcode != 0:
+                logger.warning(
+                    "wechat send_text rejected: "
+                    "ret=%s errcode=%s to_user_id=%s",
+                    ret,
+                    errcode,
+                    to_user_id,
+                )
+                if raise_on_error:
+                    raise ChannelError(
+                        channel_name="wechat",
+                        message=(
+                            f"iLink API rejected: ret={ret} "
+                            f"errcode={errcode} response={resp}"
+                        ),
+                    )
 
     async def _send_media_file(
         self,
@@ -1362,8 +1379,14 @@ class WeChatChannel(BaseChannel):
         if not body:
             return
 
+        api_send = bool(m.get("_api_send"))
         for chunk in split_text(body):
-            await self._send_text_direct(to_user_id, chunk, context_token)
+            await self._send_text_direct(
+                to_user_id,
+                chunk,
+                context_token,
+                raise_on_error=api_send,
+            )
 
     async def _on_process_completed(
         self,
