@@ -11,9 +11,6 @@ SOP load, interrupt recovery) flow in via the session file and are
 surfaced through ``_pending_edits``.
 
 Plugin-form differences vs. the fork:
-- No plan/agent mode split; ``self.mode``, ``set_mode``,
-  ``rebuild_tools_from_mode`` are gone. All 9 plan tools are always
-  registered.
 - No sandbox subsystem; ``DataPawConfig.sandbox``, the sandbox pool and
   the sandbox-backed shell tools are removed. Artifacts land in
   ``default_artifacts_root`` instead.
@@ -586,18 +583,15 @@ class DataPawAgent(QwenPawAgent):
     # attribute under that name automatically).
 
     def load_state_dict(self, state_dict: dict, strict: bool = True) -> None:
-        """Tolerate fork-era ``mode`` and legacy ``runtime_state`` field name.
+        """Tolerate legacy ``runtime_state`` field name.
 
-        Old fork sessions carry a ``mode`` field that's irrelevant to
-        plugin form; silently drop it. Earlier plugin builds saved
-        DataPaw state under ``runtime_state`` instead of
-        ``plan_notebook``; rename it back. If both keys exist (e.g.,
-        legacy DataPaw save + host pre-populated stub from a botched
-        turn), DataPaw's ``runtime_state`` wins. ``strict=False`` so
-        schema drift between versions doesn't raise.
+        Earlier plugin builds saved DataPaw state under ``runtime_state``
+        instead of ``plan_notebook``; rename it back. If both keys exist
+        (e.g., legacy DataPaw save + host pre-populated stub from a
+        botched turn), DataPaw's ``runtime_state`` wins. ``strict=False``
+        so schema drift between versions doesn't raise.
         """
         mapped = dict(state_dict)
         if "runtime_state" in mapped:
             mapped["plan_notebook"] = mapped.pop("runtime_state")
-        mapped.pop("mode", None)
         QwenPawAgent.load_state_dict(self, mapped, strict=False)
