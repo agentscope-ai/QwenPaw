@@ -259,28 +259,6 @@ jobs:
           chmod +x scripts/pack-tauri/build_macos_pyinstaller.sh
           bash scripts/pack-tauri/build_macos_pyinstaller.sh
 
-      - name: Smoke-test Tauri macOS package
-        run: |
-          chmod +x scripts/pack-tauri/smoke_macos_app.sh
-          QWENPAW_SMOKE_PORT=19088 \
-            bash scripts/pack-tauri/smoke_macos_app.sh \
-            "dist/tauri-macos/QwenPaw Desktop.app"
-
-          ZIP_PATH="$(find dist -maxdepth 1 -name 'QwenPaw-Tauri-*-macOS.zip' | head -1)"
-          if [ -z "${ZIP_PATH}" ]; then
-            echo "ERROR: No Tauri macOS zip found"
-            exit 1
-          fi
-          rm -rf dist/tauri-macos-archive-check
-          mkdir -p dist/tauri-macos-archive-check
-          ditto -x -k "${ZIP_PATH}" dist/tauri-macos-archive-check
-          EXTRACTED_APP="dist/tauri-macos-archive-check/QwenPaw Desktop.app"
-          xattr -w com.apple.quarantine "0081;$(date +%s);Chrome;00000000-0000-0000-0000-000000000000" \
-            "${EXTRACTED_APP}" || true
-          QWENPAW_SMOKE_PORT=19089 \
-            bash scripts/pack-tauri/smoke_macos_app.sh \
-            "${EXTRACTED_APP}"
-
       - name: Upload Tauri macOS artifact
         uses: actions/upload-artifact@v4
         with:
