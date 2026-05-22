@@ -27,13 +27,16 @@ class ChatManager:
         self,
         *,
         repo: BaseChatRepository,
+        agent_id: str = "default",
     ):
         """Initialize chat manager.
 
         Args:
             repo: Chat spec repository for persistence
+            agent_id: Agent identifier for session hooks
         """
         self._repo = repo
+        self._agent_id = agent_id
         self._lock = asyncio.Lock()
         logger.debug(
             f"ChatManager created with repo path: {repo.path}",
@@ -138,6 +141,8 @@ class ChatManager:
             logger.info(
                 f"Auto-registered new chat: {spec.id} -> {session_id}",
             )
+            # Fire session.create hook
+            await self._fire_session_create_hook(spec)
             return spec
 
     async def create_chat(self, spec: ChatSpec) -> ChatSpec:
@@ -151,6 +156,8 @@ class ChatManager:
         """
         async with self._lock:
             await self._repo.upsert_chat(spec)
+            # Fire session.create hook
+            await self._fire_session_create_hook(spec)
             return spec
 
     async def patch_chat(
@@ -223,6 +230,12 @@ class ChatManager:
             True if deleted, False if not found
         """
         async with self._lock:
+            # Fire session.end hook for each chat before deletion
+            for chat_id in chat_ids:
+                spec = await self._repo.get_chat(chat_id)
+                if spec:
+                    await self._fire_session_end_hook(spec)
+
             deleted = await self._repo.delete_chats(chat_ids)
 
             if deleted:
@@ -289,3 +302,66 @@ class ChatManager:
                 f"(from {len(matching_chats)} matches)",
             )
             return most_recent.id
+
+    async def _fire_session_create_hook(self, spec: ChatSpec) -> None:
+        """Fire session.create lifecycle hook."""
+        try:
+            from ...plugins.registry import PluginRegistry
+
+            registry = PluginRegistry()
+            await registry.fire_hooks(
+                "session",
+                "session.create",
+                session_id=spec.session_id,
+                chat_id=spec.id,
+                user_id=spec.user_id,
+                channel=spec.channel,
+                agent_id=self._agent_id,
+            )
+        except Exception as e:
+            logger.error(f"session.create hook error: {e}", exc_info=True)
+
+    async def _fire_session_end_hook(self, spec: ChatSpec) -> None:
+        """Fire session.end lifecycle hook."""
+        try:
+            from ...plugins.registry import PluginRegistry
+
+            registry = PluginRegistry()
+            await registry.fire_hooks(
+                "session",
+                "session.end",
+                session_id=spec.session_id,
+                chat_id=spec.id,
+                user_id=spec.user_id,
+                channel=spec.channel,
+                agent_id=self._agent_id,
+            )
+        except Exception as e:
+            logger.error(f"session.end hook error: {e}", exc_info=True)
+
+    async def fire_session_reset_hook(
+        self,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        chat_id: str = "",
+    ) -> None:
+        """Fire session.reset lifecycle hook.
+
+        Called by the runner when a session is reset (e.g. cron memory clear).
+        """
+        try:
+            from ...plugins.registry import PluginRegistry
+
+            registry = PluginRegistry()
+            await registry.fire_hooks(
+                "session",
+                "session.reset",
+                session_id=session_id,
+                chat_id=chat_id,
+                user_id=user_id,
+                channel=channel,
+                agent_id=self._agent_id,
+            )
+        except Exception as e:
+            logger.error(f"session.reset hook error: {e}", exc_info=True)

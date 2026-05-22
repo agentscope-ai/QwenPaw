@@ -2,6 +2,8 @@
 # pylint:disable=too-many-nested-blocks
 """Central plugin registry."""
 
+import asyncio
+import inspect
 from typing import Any, Callable, Dict, List, Optional, Type
 from dataclasses import dataclass, field
 import logging
@@ -118,6 +120,15 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._providers: Dict[str, ProviderRegistration] = {}
         self._startup_hooks: List[HookRegistration] = []
         self._shutdown_hooks: List[HookRegistration] = []
+        self._session_hooks: Dict[str, List[HookRegistration]] = {
+            "session.create": [],
+            "session.reset": [],
+            "session.end": [],
+        }
+        self._message_hooks: Dict[str, List[HookRegistration]] = {
+            "message.before": [],
+            "message.after": [],
+        }
         self._control_commands: List[ControlCommandRegistration] = []
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
@@ -396,6 +407,160 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._shutdown_hooks.copy()
 
+    # ---- Session Lifecycle Hooks ----
+
+    _VALID_SESSION_EVENTS = {"session.create", "session.reset", "session.end"}
+
+    def register_session_hook(
+        self,
+        event: str,
+        plugin_id: str,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+    ):
+        """Register a session lifecycle hook.
+
+        Args:
+            event: One of "session.create", "session.reset", "session.end"
+            plugin_id: Plugin identifier
+            hook_name: Hook name
+            callback: Callback function accepting **context kwargs
+            priority: Priority (lower = earlier execution)
+        """
+        if event not in self._VALID_SESSION_EVENTS:
+            raise ValueError(
+                f"Invalid session event '{event}'. "
+                f"Must be one of {self._VALID_SESSION_EVENTS}",
+            )
+        hook = HookRegistration(
+            plugin_id=plugin_id,
+            hook_name=hook_name,
+            callback=callback,
+            priority=priority,
+        )
+        self._session_hooks[event].append(hook)
+        self._session_hooks[event].sort(key=lambda h: h.priority)
+        logger.info(
+            f"Registered session hook '{hook_name}' for event '{event}' "
+            f"from plugin '{plugin_id}' (priority={priority})",
+        )
+
+    def get_session_hooks(self, event: str) -> List[HookRegistration]:
+        """Get session hooks for a specific event sorted by priority.
+
+        Args:
+            event: Session event name
+
+        Returns:
+            List of HookRegistration
+        """
+        return self._session_hooks.get(event, []).copy()
+
+    # ---- Message Lifecycle Hooks ----
+
+    _VALID_MESSAGE_EVENTS = {"message.before", "message.after"}
+
+    def register_message_hook(
+        self,
+        event: str,
+        plugin_id: str,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+    ):
+        """Register a message lifecycle hook.
+
+        Args:
+            event: One of "message.before", "message.after"
+            plugin_id: Plugin identifier
+            hook_name: Hook name
+            callback: Callback function accepting **context kwargs
+            priority: Priority (lower = earlier execution)
+        """
+        if event not in self._VALID_MESSAGE_EVENTS:
+            raise ValueError(
+                f"Invalid message event '{event}'. "
+                f"Must be one of {self._VALID_MESSAGE_EVENTS}",
+            )
+        hook = HookRegistration(
+            plugin_id=plugin_id,
+            hook_name=hook_name,
+            callback=callback,
+            priority=priority,
+        )
+        self._message_hooks[event].append(hook)
+        self._message_hooks[event].sort(key=lambda h: h.priority)
+        logger.info(
+            f"Registered message hook '{hook_name}' for event '{event}' "
+            f"from plugin '{plugin_id}' (priority={priority})",
+        )
+
+    def get_message_hooks(self, event: str) -> List[HookRegistration]:
+        """Get message hooks for a specific event sorted by priority.
+
+        Args:
+            event: Message event name
+
+        Returns:
+            List of HookRegistration
+        """
+        return self._message_hooks.get(event, []).copy()
+
+    async def fire_hooks(
+        self,
+        hook_type: str,
+        event: str,
+        timeout: float = 30.0,
+        **context,
+    ) -> None:
+        """Fire all registered hooks for an event in priority order.
+
+        Supports both sync and async callbacks. Each hook is guarded by
+        a timeout and individual hook failures are logged without
+        interrupting subsequent hooks.
+
+        Args:
+            hook_type: "session" or "message"
+            event: Event name (e.g. "session.create", "message.before")
+            timeout: Per-hook timeout in seconds (default: 30)
+            **context: Keyword arguments passed to each hook callback
+        """
+        if hook_type == "session":
+            hooks = self._session_hooks.get(event, [])
+        elif hook_type == "message":
+            hooks = self._message_hooks.get(event, [])
+        else:
+            logger.warning(f"Unknown hook type '{hook_type}'")
+            return
+
+        for hook in hooks:
+            try:
+                logger.debug(
+                    f"Firing {hook_type} hook '{hook.hook_name}' "
+                    f"from plugin '{hook.plugin_id}' "
+                    f"(event={event}, priority={hook.priority})",
+                )
+                result = hook.callback(**context)
+                if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                    await asyncio.wait_for(result, timeout=timeout)
+                logger.debug(
+                    f"Completed {hook_type} hook '{hook.hook_name}' "
+                    f"from plugin '{hook.plugin_id}'",
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Hook '{hook.hook_name}' from plugin "
+                    f"'{hook.plugin_id}' timed out after {timeout}s "
+                    f"(event={event})",
+                )
+            except Exception as e:
+                logger.error(
+                    f"Hook '{hook.hook_name}' from plugin "
+                    f"'{hook.plugin_id}' failed (event={event}): {e}",
+                    exc_info=True,
+                )
+
     def register_control_command(
         self,
         plugin_id: str,
@@ -495,6 +660,14 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._shutdown_hooks = [
             h for h in self._shutdown_hooks if h.plugin_id != plugin_id
         ]
+        for event_hooks in self._session_hooks.values():
+            event_hooks[:] = [
+                h for h in event_hooks if h.plugin_id != plugin_id
+            ]
+        for event_hooks in self._message_hooks.values():
+            event_hooks[:] = [
+                h for h in event_hooks if h.plugin_id != plugin_id
+            ]
         self._control_commands = [
             c for c in self._control_commands if c.plugin_id != plugin_id
         ]
