@@ -468,6 +468,56 @@ _EXCLUDE_SUFFIXES = (
 _EXCLUDE_PREFIXES = (".env", "credentials")
 
 
+def _zip_plugin(base: Path, buf: io.BytesIO) -> None:
+    """Pack *base* directory into a ZIP archive written to *buf*."""
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        file_count = 0
+        for file_path in sorted(base.rglob("*")):
+            rel = file_path.relative_to(base)
+
+            if any(part in _EXCLUDE_NAMES for part in rel.parts):
+                continue
+            if rel.suffix in _EXCLUDE_SUFFIXES:
+                continue
+            if any(rel.name.startswith(p) for p in _EXCLUDE_PREFIXES):
+                continue
+            if any(part.startswith(".") for part in rel.parts[:-1]):
+                continue
+
+            try:
+                if not file_path.is_file():
+                    continue
+                if file_path.is_symlink():
+                    continue
+                resolved = file_path.resolve()
+                if not resolved.is_relative_to(base):
+                    continue
+            except (OSError, ValueError):
+                continue
+
+            file_count += 1
+            if file_count > _MAX_EXPORT_FILES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"Plugin exceeds maximum file count "
+                        f"({_MAX_EXPORT_FILES})."
+                    ),
+                )
+
+            file_size = file_path.stat().st_size
+            if file_size > _MAX_EXPORT_FILE_SIZE:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"File '{rel.as_posix()}' exceeds "
+                        f"maximum size limit."
+                    ),
+                )
+
+            zf.write(file_path, rel.as_posix())
+
+
 # ── Routes ───────────────────────────────────────────────────────────────
 
 
@@ -901,53 +951,9 @@ async def export_plugin(plugin_id: str, request: Request):
     filename = f"{safe_plugin_id}-{safe_version}.zip"
 
     buf = io.BytesIO()
-    base = source_path.resolve()
 
     try:
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            file_count = 0
-            for file_path in sorted(base.rglob("*")):
-                rel = file_path.relative_to(base)
-
-                # Skip excluded directories and files by name/suffix/prefix
-                if any(part in _EXCLUDE_NAMES for part in rel.parts):
-                    continue
-                if rel.suffix in _EXCLUDE_SUFFIXES:
-                    continue
-                if any(rel.name.startswith(p) for p in _EXCLUDE_PREFIXES):
-                    continue
-                if any(part.startswith(".") for part in rel.parts[:-1]):
-                    continue
-
-                try:
-                    if not file_path.is_file():
-                        continue
-                    if file_path.is_symlink():
-                        continue
-                    resolved = file_path.resolve()
-                    if not resolved.is_relative_to(base):
-                        continue
-                except (OSError, ValueError):
-                    continue
-
-                file_count += 1
-                if file_count > _MAX_EXPORT_FILES:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"Plugin exceeds maximum file count "
-                        f"({_MAX_EXPORT_FILES}).",
-                    )
-
-                file_size = file_path.stat().st_size
-                if file_size > _MAX_EXPORT_FILE_SIZE:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"File '{rel.as_posix()}' exceeds "
-                        f"maximum size limit.",
-                    )
-
-                zf.write(file_path, rel.as_posix())
-
+        _zip_plugin(source_path.resolve(), buf)
         buf.seek(0)
 
         return StreamingResponse(
