@@ -66,7 +66,7 @@ def test_patch_plugin_loader_unload_idempotent():
 
 
 def test_patch_plugin_loader_unload_swallows_uninstall_errors():
-    """If uninstall raises, host unload still runs (partial cleanup tolerated)."""
+    """If uninstall raises, host unload still runs (partial cleanup ok)."""
     fake_module, FakeLoader = _build_fake_loader_module()
 
     def _boom():

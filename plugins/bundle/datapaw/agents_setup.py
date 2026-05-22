@@ -52,7 +52,7 @@ def _workspace_dir_for(agent_id: str) -> Path:
 
 
 def ensure_builtin_agents() -> None:
-    """Idempotent: ensure ``agent_id=datapaw`` profile + workspace + agent.json."""
+    """Idempotent: ensure ``agent_id=datapaw`` profile + workspace."""
     config = load_config()
     agent_id = BUILTIN_DATAPAW_AGENT_ID
     expected_ws = _workspace_dir_for(agent_id)

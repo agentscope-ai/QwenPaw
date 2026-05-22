@@ -45,7 +45,7 @@ PLUGIN_PROMPTS_DIR = PLUGIN_DIR / "prompts"
 
 
 def _read_master_md() -> str:
-    """Read the plugin's MASTER.md runtime-section, or empty string on failure."""
+    """Read the plugin's MASTER.md runtime-section; empty string on failure."""
     p = PLUGIN_PROMPTS_DIR / "MASTER.md"
     if not p.exists():
         return ""
@@ -86,7 +86,7 @@ class DataPawConfig:
     such as ``get_data`` are expected to come from ``agent_config.mcp``."""
 
     sub_agent_dispatcher: Any = None
-    """P1 extension point for a sub-agent dispatcher. Always ``None`` in MVP."""
+    """P1 extension point for a sub-agent dispatcher. ``None`` in MVP."""
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ class DataPawConfig:
 
 
 def format_pending_edits(edits: list[dict]) -> str:
-    """Render ``_pending_edits`` into an LLM-readable Chinese change summary."""
+    """Render ``_pending_edits`` into an LLM-readable Chinese summary."""
     lines: list[str] = []
     for edit in edits:
         etype = edit.get("type")
@@ -257,7 +257,7 @@ class DataPawAgent(QwenPawAgent):
         self._register_datapaw_tools(namesake_strategy)
 
     def _disable_send_file_to_user_tool(self) -> None:
-        """DataPaw uses artifacts/preview APIs instead of direct file pushing."""
+        """DataPaw uses artifacts / preview APIs, not direct file pushing."""
         if not getattr(self, "toolkit", None):
             return
         if "send_file_to_user" not in getattr(self.toolkit, "tools", {}):
@@ -292,7 +292,7 @@ class DataPawAgent(QwenPawAgent):
         self,
         workspace_dir: Path | None,
     ) -> None:
-        """Hand the RuntimeStateManager a resolver so it can stat artifact sizes."""
+        """Give the RuntimeStateManager a resolver for artifact size stat."""
         context = PathContext(mount_dir=self._artifact_base_dir(workspace_dir))
         self.plan_notebook.path_resolver = context.resolve_artifact_path
 

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 
 def test_smart_factory_routes_datapaw_to_adapter():
-    """factory(request_context={agent_id: 'datapaw'}) → goes to DataPawAgent path."""
+    """factory(request_context={agent_id: 'datapaw'}) → DataPawAgent."""
     from hooks import _SmartAgentFactory
 
     fake_qwen = MagicMock(name="QwenPawAgent")
@@ -28,7 +28,7 @@ def test_smart_factory_routes_datapaw_to_adapter():
 
 
 def test_smart_factory_routes_other_to_qwenpaw():
-    """factory(request_context={agent_id: 'something-else'}) → goes to QwenPawAgent."""
+    """factory(request_context={agent_id: 'other'}) → QwenPawAgent."""
     from hooks import _SmartAgentFactory
 
     fake_qwen = MagicMock(name="QwenPawAgent")
@@ -97,7 +97,7 @@ def test_factory_accepts_main_runner_kwargs_without_typeerror():
             or "got an unexpected keyword argument" in msg
         ):
             raise AssertionError(
-                f"Adapter passes unknown kwarg(s) to host's QwenPawAgent: {msg}",
+                f"Adapter passes unknown kwarg(s) to QwenPawAgent: {msg}",
             ) from e
     except Exception:
         # Other failures (e.g. agentscope wiring with MagicMocks) are fine —
@@ -106,7 +106,7 @@ def test_factory_accepts_main_runner_kwargs_without_typeerror():
 
 
 def test_make_save_hook_calls_session_save_session_state():
-    """save hook → runner.session.save_session_state(session_id, user_id, agent)."""
+    """save hook → runner.session.save_session_state(sid, uid, agent)."""
     import asyncio
     from hooks import _make_save_hook
 

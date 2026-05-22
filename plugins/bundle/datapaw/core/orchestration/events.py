@@ -47,4 +47,4 @@ class TaskEvent(Event):
     """Change type; see :class:`TaskEventType`. Used for logging / debug."""
 
     graph_snapshot: Optional[dict] = None
-    """Post-change TaskGraph snapshot; the frontend replaces the DAG view with it."""
+    """Post-change TaskGraph snapshot; the frontend replaces the DAG view."""

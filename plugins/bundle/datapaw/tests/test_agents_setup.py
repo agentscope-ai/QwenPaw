@@ -14,7 +14,7 @@ def _fake_config(profiles=None, language="zh"):
 
 
 def test_ensure_builtin_agents_writes_profile_when_missing(tmp_path):
-    """First-run: profile absent → create workspace, seed persona, save config."""
+    """First-run: profile absent → create workspace, seed persona, save."""
     from agents_setup import ensure_builtin_agents
 
     fake_cfg = _fake_config(profiles={})
@@ -82,7 +82,7 @@ def test_ensure_builtin_agents_idempotent(tmp_path):
 
     # Already present → save_config should NOT be called.
     save_config.assert_not_called()
-    # save_agent_config is still allowed (keeps agent.json synced with the plugin).
+    # save_agent_config is still allowed (keeps agent.json synced).
     assert save_agent.call_count == 1
 
 
@@ -110,7 +110,7 @@ def test_seed_persona_md_files_copies_en(tmp_path):
 
     assert (tmp_path / "SOUL.md").exists()
     text = (tmp_path / "SOUL.md").read_text(encoding="utf-8")
-    # en/SOUL.md begins with "DataPaw is a reasoning..." in the first few lines.
+    # en/SOUL.md begins with "DataPaw is a reasoning..." up top.
     assert "DataPaw is" in text
 
 
@@ -160,7 +160,7 @@ def test_uninstall_builtin_agents_removes_profile_and_workspace(tmp_path):
 
 
 def test_uninstall_builtin_agents_resets_active_agent_when_datapaw(tmp_path):
-    """If active_agent points to datapaw, uninstall should reset it to default."""
+    """If active_agent points to datapaw, uninstall resets it to default."""
     from agents_setup import uninstall_builtin_agents
     from qwenpaw.config.config import AgentProfileRef
 
@@ -205,7 +205,7 @@ def test_uninstall_builtin_agents_noop_when_not_installed(tmp_path):
 
 
 def test_install_plugin_skills_copies_skills_into_workspace(tmp_path):
-    """All plugin-bundled skill dirs land under workspace/skills/, files present."""
+    """All plugin-bundled skill dirs land under workspace/skills/."""
     from agents_setup import _install_plugin_skills
 
     _install_plugin_skills(tmp_path)
@@ -218,7 +218,7 @@ def test_install_plugin_skills_copies_skills_into_workspace(tmp_path):
 
 
 def test_install_plugin_skills_writes_enabled_manifest(tmp_path):
-    """In skill.json, plugin-bundled skills must be enabled=True and source='plugin:datapaw'."""
+    """In skill.json, plugin skills get enabled=True + source set."""
     from agents_setup import _install_plugin_skills
 
     _install_plugin_skills(tmp_path)
@@ -268,7 +268,7 @@ def test_install_plugin_skills_idempotent(tmp_path):
 
 
 def test_install_plugin_skills_preserves_user_customized_skills(tmp_path):
-    """User-installed customized skills must not be touched by plugin install."""
+    """User-installed customized skills must stay untouched on install."""
     from agents_setup import _install_plugin_skills
     import json as _json
 
@@ -291,7 +291,7 @@ def test_install_plugin_skills_preserves_user_customized_skills(tmp_path):
     }
     manifest_path.write_text(_json.dumps(manifest), encoding="utf-8")
 
-    # Second install: plugin skills keep their state, customized must not be touched.
+    # Second install: plugin skills keep state; customized untouched.
     _install_plugin_skills(tmp_path)
 
     manifest2 = _json.loads(manifest_path.read_text(encoding="utf-8"))

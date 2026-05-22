@@ -125,8 +125,9 @@ class PathContext:
 
     # --- sandbox view → host -----------------------------------------------
 
+    # pylint: disable-next=too-many-return-statements
     def to_host(self, virtual_path: str) -> tuple[Path, str | None]:
-        """Translate a sandbox-view path to a host absolute path (sandbox tool entry).
+        """Translate a sandbox-view path to a host absolute path.
 
         Returns ``(host_abs_path, error_msg)``: success is ``(Path, None)``,
         failure is ``(Path(""), error_msg)``.
@@ -212,7 +213,7 @@ class PathContext:
     # --- host → sandbox view -----------------------------------------------
 
     def to_virtual(self, host_path: str | Path) -> str | None:
-        """Host path → sandbox view; returns ``None`` if outside known mounts."""
+        """Host path → sandbox view; ``None`` if outside known mounts."""
         if not host_path:
             return None
         try:
@@ -239,7 +240,7 @@ class PathContext:
         return "/workspace" if rel_str == "." else f"/workspace/{rel_str}"
 
     def normalize_command(self, command: str) -> tuple[str, bool]:
-        """Rewrite known host prefixes in a shell command string to sandbox literals."""
+        """Rewrite known host prefixes in a shell command to sandbox paths."""
         normalized = command
         changed = False
         if self.skills_dir is not None:

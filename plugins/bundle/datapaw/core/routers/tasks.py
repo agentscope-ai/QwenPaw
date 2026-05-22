@@ -1,25 +1,27 @@
 # -*- coding: utf-8 -*-
 """DataPaw task-panel REST API.
 
-Endpoints:
+All paths below are relative to host's ``/api/tasks`` mount.
 
-- ``GET  /api/tasks/{session_id}`` — current_plan + history summary + artifacts summary
-- ``GET  /api/tasks/{session_id}/sop`` — download active graph SOP YAML (minimal contract, no runtime fields)
-- ``GET  /api/tasks/{session_id}/dag`` — download active graph DAG YAML (structure + runtime)
-- ``GET  /api/tasks/{session_id}/history/{plan_id}`` — fetch a specific historical graph
-- ``GET  /api/tasks/{session_id}/history/{plan_id}/sop`` — historical graph SOP YAML
-- ``PUT  /api/tasks/{session_id}/sop`` — upload an SOP YAML, archive the old graph, rebuild all-todo
-- ``PUT  /api/tasks/{session_id}/dag`` — upload a DAG patch, merge into current graph by node_id
-- ``GET  /api/tasks/{session_id}/files`` — list session-cumulative file artifacts (filter by graph_id / node_id)
-- ``GET  /api/tasks/{session_id}/files/preview`` — inline preview of one file via ``?path=``
-- ``GET  /api/tasks/{session_id}/files/download`` — download one file via ``?path=``
+Read endpoints:
+
+- ``GET  /{session_id}`` — current_plan + history + artifacts summary.
+- ``GET  /{session_id}/sop`` — active graph SOP YAML (minimal contract).
+- ``GET  /{session_id}/dag`` — active graph DAG YAML (structure + runtime).
+- ``GET  /{session_id}/history/{plan_id}`` — fetch one historical graph.
+- ``GET  /{session_id}/history/{plan_id}/sop`` — historical SOP YAML.
+- ``GET  /{session_id}/files`` — list cumulative artifacts (filter by ids).
+- ``GET  /{session_id}/files/preview`` — inline preview via ``?path=``.
+- ``GET  /{session_id}/files/download`` — download one file via ``?path=``.
+
+Write endpoints (only run while no agent is active, else 409):
+
+- ``PUT  /{session_id}/sop`` — replace the active graph from an SOP YAML.
+- ``PUT  /{session_id}/dag`` — merge a DAG patch into the active graph.
 
 SOP minimal contract: only structural fields are allowed (graph:
-name/description/expected_outcome; node: node_id/name/description/
-expected_outcome/deps). Runtime fields are rejected.
-
-Concurrency (MVP): ``PUT`` endpoints only run while no agent is active
-for the session; otherwise 409.
+name / description / expected_outcome; node: node_id / name /
+description / expected_outcome / deps). Runtime fields are rejected.
 """
 from __future__ import annotations
 
@@ -78,7 +80,7 @@ async def _get_session_for_agent(request: Request, agent_id: Optional[str]):
 
 
 async def _get_workspace_for_agent(request: Request, agent_id: Optional[str]):
-    """Return the workspace for a specific agent (used for the running-state check)."""
+    """Return the workspace for an agent (used for running-state check)."""
     manager = _get_multi_agent_manager(request)
     if not agent_id:
         agent_id = request.headers.get("X-Agent-Id") or "default"
@@ -179,7 +181,7 @@ def _ensure_plan_notebook_keys(pn: dict) -> None:
 
 
 def _safe_filename(name: str) -> str:
-    """Convert ``graph.name`` to an HTTP-header-safe filename (ASCII, ≤120 chars).
+    """Convert ``graph.name`` to an HTTP-header-safe filename (ASCII).
 
     HTTP ``Content-Disposition`` headers only allow latin-1; non-ASCII
     characters are replaced with ``"_"`` to avoid UnicodeEncodeError.
@@ -245,16 +247,25 @@ class FileEntry(BaseModel):
     node_id: str
     name: str
     path: str = Field(
-        description="Sandbox-view relative path, identical to FileRef.path passed to finish_subtask.",
+        description=(
+            "Sandbox-view relative path, identical to FileRef.path"
+            " passed to finish_subtask."
+        ),
     )
     mime_type: str
     size_bytes: int
     created_at: str
     preview_url: str = Field(
-        description="Pre-built relative URL; the frontend can GET it directly for inline preview.",
+        description=(
+            "Pre-built relative URL; the frontend can GET it"
+            " directly for inline preview."
+        ),
     )
     download_url: str = Field(
-        description="Pre-built relative URL; the frontend can GET it directly to download.",
+        description=(
+            "Pre-built relative URL; the frontend can GET it"
+            " directly to download."
+        ),
     )
 
 
@@ -270,18 +281,19 @@ def _build_file_urls(
     *,
     user_id: str = "",
 ) -> tuple[str, str]:
-    """Build preview / download URLs scoped to ``session_id`` + artifact path."""
+    """Build preview / download URLs scoped to session + artifact path."""
     encoded_session = quote(session_id, safe="")
     encoded_path = quote(path, safe="")
     user_part = f"&user_id={quote(user_id, safe='')}" if user_id else ""
+    base = f"/api/tasks/{encoded_session}/files"
     return (
-        f"/api/tasks/{encoded_session}/files/preview?path={encoded_path}{user_part}",
-        f"/api/tasks/{encoded_session}/files/download?path={encoded_path}{user_part}",
+        f"{base}/preview?path={encoded_path}{user_part}",
+        f"{base}/download?path={encoded_path}{user_part}",
     )
 
 
 def _extract_artifacts(pn: dict) -> List[ArtifactItem]:
-    """Parse the artifacts list from a plan_notebook dict; skip malformed entries."""
+    """Parse the artifacts list from a plan_notebook dict; skip malformed."""
     raw = pn.get("artifacts") if isinstance(pn, dict) else None
     if not isinstance(raw, list):
         return []
@@ -301,9 +313,10 @@ def _extract_artifacts(pn: dict) -> List[ArtifactItem]:
 
 
 def _get_workspace_dir(
-    workspace: Any, agent_config: Any | None = None
+    workspace: Any,
+    agent_config: Any | None = None,
 ) -> Path:
-    """Infer the agent workspace directory from workspace / runner / agent_config."""
+    """Infer the agent workspace dir from workspace / runner / config."""
     runner = getattr(workspace, "runner", None)
     raw = (
         getattr(runner, "workspace_dir", None)
@@ -403,7 +416,7 @@ _SKIP_SCHEMES: tuple[str, ...] = (
 
 
 def _is_html_artifact(item: ArtifactItem) -> bool:
-    """Return True iff the artifact looks like HTML (mime_type or extension)."""
+    """Return True iff the artifact looks like HTML (mime_type / ext)."""
     mt = (item.mime_type or "").lower()
     if mt.startswith("text/html"):
         return True
@@ -411,7 +424,7 @@ def _is_html_artifact(item: ArtifactItem) -> bool:
 
 
 def _is_external_or_anchor(value: str) -> bool:
-    """Return True for external URLs, anchors, or anything else we should skip."""
+    """Return True for external URLs, anchors, or anything we should skip."""
     v = value.strip()
     if not v or v.startswith("#"):
         return True
@@ -426,7 +439,7 @@ def _rewrite_html_artifact_links(
     *,
     context: PathContext,
 ) -> bytes:
-    """Rewrite relative-path attributes in an HTML doc to host ``file://`` URIs.
+    """Rewrite relative-path attributes in HTML to host ``file://`` URIs.
 
     Rules:
     - Only the attributes listed in ``_HTML_REWRITE_ATTRS`` are touched.
@@ -471,7 +484,7 @@ def _serve_artifact_file(
     *,
     disposition: Literal["inline", "attachment"],
 ) -> Response:
-    """Validate against the artifact whitelist + mount boundary, then serve the file."""
+    """Validate against artifact whitelist + mount boundary, then serve."""
     matched: Optional[ArtifactItem] = next(
         (item for item in artifacts if item.path == path),
         None,
@@ -598,7 +611,7 @@ async def get_sop(
     request: Request,
     user_id: str = Query(default="default"),
 ) -> Response:
-    """Download the active graph's SOP YAML (minimal contract; no runtime fields).
+    """Download the active graph's SOP YAML (minimal contract).
 
     - No active graph → 409.
     - ``application/x-yaml`` with a Content-Disposition filename.
@@ -690,7 +703,7 @@ async def get_historical_plan(
     request: Request,
     user_id: str = Query(default="default"),
 ) -> dict:
-    """Return the full TaskGraph (nodes / outcome) of a specific historical graph."""
+    """Return the full TaskGraph (nodes / outcome) of a historical graph."""
     session, _ = await _get_session_for_agent(
         request,
         getattr(request.state, "agent_id", None),
@@ -863,7 +876,7 @@ async def put_dag(
     body: DAGUploadBody = Body(...),
     user_id: str = Query(default="default"),
 ) -> Ok:
-    """Upload a DAG patch and merge into the current graph. Old graph is not archived."""
+    """Upload a DAG patch and merge into the current graph (no archive)."""
     workspace = await _get_workspace_for_agent(
         request,
         getattr(request.state, "agent_id", None),
@@ -948,7 +961,7 @@ async def list_files(
         description="Filter by node_id; omitted returns all.",
     ),
 ) -> FilesResponse:
-    """List every file-artifact registered via ``finish_subtask`` in this session.
+    """List every file-artifact registered via ``finish_subtask``.
 
     Backed by ``RuntimeStateManager.artifacts`` — an append-only list, so
     file records survive across graph archives.
@@ -1004,7 +1017,10 @@ async def preview_file(
     path: str = Query(
         ...,
         min_length=1,
-        description="``ArtifactItem.path``; must exist in this session's artifacts list.",
+        description=(
+            "``ArtifactItem.path``;"
+            " must exist in this session's artifacts list."
+        ),
     ),
     user_id: str = Query(default="default"),
 ) -> FileResponse:
@@ -1046,7 +1062,10 @@ async def download_file(
     path: str = Query(
         ...,
         min_length=1,
-        description="``ArtifactItem.path``; must exist in this session's artifacts list.",
+        description=(
+            "``ArtifactItem.path``;"
+            " must exist in this session's artifacts list."
+        ),
     ),
     user_id: str = Query(default="default"),
 ) -> FileResponse:
