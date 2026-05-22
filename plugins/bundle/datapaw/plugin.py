@@ -23,8 +23,13 @@ class DataPawPlugin:
     def register(self, api):
         # Load constants first — its module body inserts PLUGIN_DIR into
         # sys.path, which is what lets the absolute import of core.routers
-        # below (and later imports inside _on_startup) resolve.
-        from . import constants  # noqa: F401
+        # below (and later imports inside _on_startup) resolve. Use
+        # importlib instead of a `from . import constants` binding so
+        # pylint doesn't flag an unused import; we only want the
+        # side-effect.
+        import importlib
+
+        importlib.import_module(".constants", __package__)
 
         api.register_startup_hook(
             hook_name="datapaw_init",

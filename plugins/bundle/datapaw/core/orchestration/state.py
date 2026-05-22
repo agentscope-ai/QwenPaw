@@ -48,7 +48,7 @@ from pydantic import ValidationError
 
 from .artifact import ArtifactItem
 from .events import TaskEvent, TaskEventType
-from .hint import DataPawPlanToHint, DefaultGraphToHint
+from .hint import DataPawPlanToHint
 from .task_graph import FileRef, TaskGraph, TaskNode
 
 FilesInput = Optional[
@@ -155,7 +155,8 @@ class RuntimeStateManager(PlanNotebook):
         # given the agent_id-aware payload. Wired by DataPawAgent at init
         # so RuntimeStateManager can stay agent_id-agnostic.
         self._on_broadcast: Callable[
-            [str, dict], Awaitable[None]
+            [str, dict],
+            Awaitable[None],
         ] | None = None
 
         # Re-register ``current_plan`` so deserialization goes through
@@ -206,8 +207,8 @@ class RuntimeStateManager(PlanNotebook):
                 )
 
         graph_snapshot: Optional[dict] = None
-        if self.current_plan is not None:
-            graph_snapshot = self.current_plan.model_dump(mode="json")
+        if self.current_plan is not None:  # type: ignore[has-type]
+            graph_snapshot = self.current_plan.model_dump(mode="json")  # type: ignore[has-type]
 
         if self._sse_event_queue is not None:
             try:
@@ -244,9 +245,9 @@ class RuntimeStateManager(PlanNotebook):
 
     def _resolve_graph_run_status(self) -> str:
         """Map ``TaskGraph.state`` to a RunStatus string."""
-        if self.current_plan is None:
+        if self.current_plan is None:  # type: ignore[has-type]
             return RunStatus.Unknown
-        state = self.current_plan.state
+        state = self.current_plan.state  # type: ignore[has-type]
         return {
             "todo": RunStatus.Created,
             "in_progress": RunStatus.InProgress,
@@ -281,7 +282,7 @@ class RuntimeStateManager(PlanNotebook):
         (agent creates a new graph), ``load_graph`` (REST SOP upload),
         and ``recover_historical_plan`` (resume an archived graph).
         """
-        plan = self.current_plan
+        plan = self.current_plan  # type: ignore[has-type]
         if plan is None:
             return
 
@@ -795,6 +796,9 @@ class RuntimeStateManager(PlanNotebook):
         ]
         for bound_method in tools:
             fn = getattr(bound_method, "__func__", bound_method)
+            # pylint: disable=protected-access
+            # ``_datapaw_annotations_resolved`` is our own per-function
+            # marker attribute; not host private state.
             if getattr(fn, "_datapaw_annotations_resolved", False):
                 continue
             try:

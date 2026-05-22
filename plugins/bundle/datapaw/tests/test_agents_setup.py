@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=unused-argument
+# Several tests take ``tmp_path`` for fixture wiring without referencing it.
 """Tests for plugins/bundle/datapaw/agents_setup.py."""
 from unittest.mock import MagicMock, patch
 
@@ -12,7 +14,7 @@ def _fake_config(profiles=None, language="zh"):
 
 
 def test_ensure_builtin_agents_writes_profile_when_missing(tmp_path):
-    """First-run: profile absent → create workspace, write AgentProfileRef + AgentProfileConfig, seed persona."""
+    """First-run: profile absent → create workspace, seed persona, save config."""
     from agents_setup import ensure_builtin_agents
 
     fake_cfg = _fake_config(profiles={})
@@ -21,12 +23,14 @@ def test_ensure_builtin_agents_writes_profile_when_missing(tmp_path):
     seeded = []
 
     with patch("agents_setup.load_config", return_value=fake_cfg), patch(
-        "agents_setup.save_config", side_effect=lambda c: saved.append(c)
+        "agents_setup.save_config",
+        side_effect=saved.append,
     ), patch("agents_setup.save_agent_config") as save_agent, patch(
         "agents_setup._seed_persona_md_files",
         side_effect=lambda d, language: seeded.append((d, language)),
     ), patch(
-        "agents_setup.WORKING_DIR", tmp_path
+        "agents_setup.WORKING_DIR",
+        tmp_path,
     ):
         ensure_builtin_agents()
 
@@ -58,19 +62,21 @@ def test_ensure_builtin_agents_idempotent(tmp_path):
     fake_cfg = _fake_config(
         profiles={
             "datapaw": AgentProfileRef(
-                id="datapaw", workspace_dir=str(ws_dir)
+                id="datapaw",
+                workspace_dir=str(ws_dir),
             ),
         },
     )
 
     with patch("agents_setup.load_config", return_value=fake_cfg), patch(
-        "agents_setup.save_config"
+        "agents_setup.save_config",
     ) as save_config, patch(
-        "agents_setup.save_agent_config"
+        "agents_setup.save_agent_config",
     ) as save_agent, patch(
-        "agents_setup._seed_persona_md_files"
+        "agents_setup._seed_persona_md_files",
     ), patch(
-        "agents_setup.WORKING_DIR", tmp_path
+        "agents_setup.WORKING_DIR",
+        tmp_path,
     ):
         ensure_builtin_agents()
 
@@ -124,7 +130,7 @@ def test_seed_persona_md_files_unknown_language_falls_back_to_zh(tmp_path):
 
 
 def test_uninstall_builtin_agents_removes_profile_and_workspace(tmp_path):
-    """Uninstall: drop datapaw from config.profiles and remove the workspace dir (agent.json goes with it)."""
+    """Uninstall: drop datapaw profile and rmtree the workspace dir."""
     from agents_setup import uninstall_builtin_agents
     from qwenpaw.config.config import AgentProfileRef
 
@@ -136,14 +142,15 @@ def test_uninstall_builtin_agents_removes_profile_and_workspace(tmp_path):
     fake_cfg = _fake_config(
         profiles={
             "datapaw": AgentProfileRef(
-                id="datapaw", workspace_dir=str(ws_dir)
+                id="datapaw",
+                workspace_dir=str(ws_dir),
             ),
         },
     )
     fake_cfg.agents.active_agent = "default"
 
     with patch("agents_setup.load_config", return_value=fake_cfg), patch(
-        "agents_setup.save_config"
+        "agents_setup.save_config",
     ) as save_config_mock:
         uninstall_builtin_agents()
 
@@ -163,14 +170,15 @@ def test_uninstall_builtin_agents_resets_active_agent_when_datapaw(tmp_path):
     fake_cfg = _fake_config(
         profiles={
             "datapaw": AgentProfileRef(
-                id="datapaw", workspace_dir=str(ws_dir)
+                id="datapaw",
+                workspace_dir=str(ws_dir),
             ),
         },
     )
     fake_cfg.agents.active_agent = "datapaw"
 
     with patch("agents_setup.load_config", return_value=fake_cfg), patch(
-        "agents_setup.save_config"
+        "agents_setup.save_config",
     ):
         uninstall_builtin_agents()
 
@@ -184,7 +192,7 @@ def test_uninstall_builtin_agents_noop_when_not_installed(tmp_path):
     fake_cfg = _fake_config(profiles={})
 
     with patch("agents_setup.load_config", return_value=fake_cfg), patch(
-        "agents_setup.save_config"
+        "agents_setup.save_config",
     ) as save_config_mock:
         uninstall_builtin_agents()
 
@@ -242,13 +250,13 @@ def test_install_plugin_skills_idempotent(tmp_path):
 
     _install_plugin_skills(tmp_path)
     manifest1 = _json.loads(
-        (tmp_path / "skill.json").read_text(encoding="utf-8")
+        (tmp_path / "skill.json").read_text(encoding="utf-8"),
     )
     skills1 = list(manifest1["skills"].keys())
 
     _install_plugin_skills(tmp_path)
     manifest2 = _json.loads(
-        (tmp_path / "skill.json").read_text(encoding="utf-8")
+        (tmp_path / "skill.json").read_text(encoding="utf-8"),
     )
     skills2 = list(manifest2["skills"].keys())
 

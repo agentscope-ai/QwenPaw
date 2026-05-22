@@ -51,7 +51,7 @@ def test_patch_plugin_loader_unload_skips_for_other_plugins():
             FakeLoader().unload_plugin("cloudpaw"),
         )
 
-    assert calls == [], "uninstall hook must not fire for non-datapaw plugins"
+    assert not calls, "uninstall hook must not fire for non-datapaw plugins"
     assert result == ("orig", "cloudpaw", False)
 
 

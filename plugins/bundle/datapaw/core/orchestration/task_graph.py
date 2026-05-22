@@ -17,11 +17,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
-from agentscope.message import Msg
-
 import shortuuid
 import yaml
 from agentscope._utils._common import _get_timestamp
+from agentscope.message import Msg
 from agentscope.plan import Plan, SubTask
 from pydantic import BaseModel, Field, model_validator
 
@@ -36,7 +35,10 @@ class FileRef(BaseModel):
 
     name: str = Field(description="File name, e.g. ``dau_trend.png``.")
     path: str = Field(
-        description="Sandbox-relative path (relative to the sandbox mount root, e.g. ``/workspace``).",
+        description=(
+            "Sandbox-relative path (relative to the sandbox mount"
+            " root, e.g. ``/workspace``)."
+        ),
     )
     mime_type: str = Field(description="MIME type, e.g. ``image/png``.")
 
@@ -64,6 +66,7 @@ class NodeOutput(BaseModel):
 # TaskNode
 # ---------------------------------------------------------------------------
 
+# TaskNode states: parent ``SubTask`` 4-state set plus ``failed`` / ``stale``.
 NodeStatus = Literal[
     "todo",
     "in_progress",
@@ -72,7 +75,6 @@ NodeStatus = Literal[
     "stale",
     "abandoned",
 ]
-"""TaskNode states: parent ``SubTask`` 4-state set plus ``failed`` / ``stale``."""
 
 
 class TaskNode(SubTask):
@@ -220,7 +222,7 @@ _SOP_GRAPH_FORBIDDEN: frozenset = frozenset(
         "finished_at",
         "outcome",
         "state",
-    }
+    },
 )
 _SOP_NODE_ALLOWED: frozenset = frozenset(_SOP_NODE_FIELDS)
 _SOP_NODE_FORBIDDEN: frozenset = frozenset(
@@ -232,7 +234,7 @@ _SOP_NODE_FORBIDDEN: frozenset = frozenset(
         "finished_at",
         "outcome",
         "trace",
-    }
+    },
 )
 
 _DAG_TOP_RUNTIME_IGNORED: frozenset = frozenset(
@@ -243,7 +245,7 @@ _DAG_TOP_RUNTIME_IGNORED: frozenset = frozenset(
         "finished_at",
         "outcome",
         "state",
-    }
+    },
 )
 _DAG_NODE_RUNTIME_IGNORED: frozenset = frozenset(
     {
@@ -254,7 +256,7 @@ _DAG_NODE_RUNTIME_IGNORED: frozenset = frozenset(
         "finished_at",
         "outcome",
         "trace",
-    }
+    },
 )
 _DAG_NODE_ALLOWED: frozenset = frozenset(set(_SOP_NODE_FIELDS) | {"state"})
 _DAG_USER_STATES: frozenset = frozenset({"todo", "stale", "abandoned"})
@@ -557,7 +559,9 @@ class Sop(BaseModel):
 
     def to_yaml(self) -> str:
         return yaml.safe_dump(
-            self.to_dict(), allow_unicode=True, sort_keys=False
+            self.to_dict(),
+            allow_unicode=True,
+            sort_keys=False,
         )
 
 
@@ -668,7 +672,10 @@ class TaskGraph(Plan):
     )
     anchor_message_id: Optional[str] = Field(
         default=None,
-        description="ID of the user message that triggered this graph (used to trace message↔graph linkage).",
+        description=(
+            "ID of the user message that triggered this graph"
+            " (used to trace message↔graph linkage)."
+        ),
     )
     nodes: Dict[str, TaskNode] = Field(
         default_factory=dict,
@@ -771,19 +778,22 @@ class TaskGraph(Plan):
     # --- State refresh ------------------------------------------------------
 
     def refresh_state(self) -> str:
+        # pylint: disable=access-member-before-definition
+        # ``state`` is a pydantic Field on Plan; pylint's flow analysis
+        # doesn't see model-field assignments as definitions.
         """Recompute graph-level state from node states.
 
         Returns a human-readable description of the change, or empty string
         if nothing changed. Overrides parent ``refresh_plan_state`` to
         recognize the extended state enum.
         """
-        if self.state in ("done", "abandoned"):
+        if self.state in ("done", "abandoned"):  # type: ignore[has-type]
             return ""
 
         any_in_progress = any(
             n.state == "in_progress" for n in self.nodes.values()
         )
-        if any_in_progress and self.state == "todo":
+        if any_in_progress and self.state == "todo":  # type: ignore[has-type]
             self.state = "in_progress"
             return "The graph state has been updated to 'in_progress'."
         if not any_in_progress and self.state == "in_progress":

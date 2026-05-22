@@ -26,11 +26,10 @@ from typing import Any, List, Literal, Optional, TYPE_CHECKING, Type
 from agentscope.message import Msg
 from pydantic import BaseModel
 
-from qwenpaw.agents.react_agent import QwenPawAgent, NamesakeStrategy
-from qwenpaw.agents.skill_system.store import get_workspace_skills_dir
-
-from core.path_context import PathContext, default_artifacts_root
 from core.orchestration import RuntimeStateManager
+from core.path_context import PathContext, default_artifacts_root
+from qwenpaw.agents.react_agent import NamesakeStrategy, QwenPawAgent
+from qwenpaw.agents.skill_system.store import get_workspace_skills_dir
 
 if TYPE_CHECKING:
     from qwenpaw.agents.memory import BaseMemoryManager
@@ -205,7 +204,7 @@ class DataPawAgent(QwenPawAgent):
         # Diagnostic-only: avoid calling host helpers on a missing skills dir.
         if workspace_dir is not None:
             skills_path = get_workspace_skills_dir(
-                Path(workspace_dir)
+                Path(workspace_dir),
             ).resolve()
             if skills_path.exists():
                 logger.debug("DataPaw skills dir present at %s", skills_path)
@@ -576,7 +575,11 @@ class DataPawAgent(QwenPawAgent):
     # ``self.plan_notebook = runtime_state`` (StateModule registers the
     # attribute under that name automatically).
 
-    def load_state_dict(self, state_dict: dict, strict: bool = True) -> None:
+    def load_state_dict(
+        self,
+        state_dict: dict,
+        strict: bool = True,  # pylint: disable=unused-argument
+    ) -> None:
         """Tolerate legacy ``runtime_state`` field name.
 
         Earlier plugin builds saved DataPaw state under ``runtime_state``

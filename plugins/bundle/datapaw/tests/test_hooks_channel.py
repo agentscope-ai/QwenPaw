@@ -1,4 +1,9 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=unused-argument,using-constant-test,protected-access
+# Test stubs override signatures for monkeypatch targets (unused-argument);
+# ``if False: yield`` is the standard idiom for an async-generator no-op;
+# the hooks deliberately install ``_extract_datapaw_metadata`` as a
+# class-level helper (protected-access).
 """Tests for hooks.setup_channel_sse_hook and helpers."""
 import asyncio
 
@@ -168,7 +173,7 @@ def test_setup_channel_sse_hook_patches_stream_one_and_adds_static_method():
     assert getattr(FakeChannel.stream_one, "_datapaw_patched", False) is True
     assert hasattr(FakeChannel, "_extract_datapaw_metadata")
     assert FakeChannel._extract_datapaw_metadata({"graph_id": "x"}) == {
-        "graph_id": "x"
+        "graph_id": "x",
     }
 
 

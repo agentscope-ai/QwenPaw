@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=unused-argument,using-constant-test
+# Test stubs override signatures for monkeypatch targets (unused-argument);
+# ``if False: yield`` is the standard idiom for an async-generator no-op.
 """Tests for hooks.setup_runner_hooks and the smart agent factory."""
 from unittest.mock import MagicMock, patch
 
@@ -64,21 +67,21 @@ def test_factory_accepts_main_runner_kwargs_without_typeerror():
     factory = _SmartAgentFactory(fake_qwen)
 
     # Match host runner.py:594 call shape exactly
-    host_kwargs = dict(
-        agent_config=MagicMock(),
-        env_context="ctx",
-        mcp_clients=[],
-        memory_manager=MagicMock(),
-        context_manager=MagicMock(),
-        request_context={
+    host_kwargs = {
+        "agent_config": MagicMock(),
+        "env_context": "ctx",
+        "mcp_clients": [],
+        "memory_manager": MagicMock(),
+        "context_manager": MagicMock(),
+        "request_context": {
             "agent_id": "datapaw",
             "session_id": "s1",
             "user_id": "u1",
         },
-        workspace_dir="/tmp/ws",
-        task_tracker=MagicMock(),
-        plan_notebook=MagicMock(),
-    )
+        "workspace_dir": "/tmp/ws",
+        "task_tracker": MagicMock(),
+        "plan_notebook": MagicMock(),
+    }
 
     # If DataPawAgent.__init__ chains super() with kwargs that the host's
     # QwenPawAgent doesn't accept (e.g., enable_memory_manager), this raises
@@ -153,7 +156,7 @@ def _build_fake_runner_module():
 
 
 def test_setup_runner_hooks_swaps_qwenpaw_and_wraps_query_handler():
-    """After setup: runner module's QwenPawAgent is the factory; query_handler is marked _datapaw_patched."""
+    """After setup: QwenPawAgent is the factory; query_handler is patched."""
     (
         fake_runner_module,
         FakeAgentRunner,

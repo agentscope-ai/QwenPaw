@@ -204,7 +204,10 @@ def _wrap_query_handler(orig_query_handler):
         )
         if not is_datapaw:
             async for item in orig_query_handler(
-                self, msgs, request, **kwargs
+                self,
+                msgs,
+                request,
+                **kwargs,
             ):
                 yield item
             return
@@ -213,7 +216,10 @@ def _wrap_query_handler(orig_query_handler):
         runner_token = _datapaw_runner_var.set(self)
         try:
             async for item in orig_query_handler(
-                self, msgs, request, **kwargs
+                self,
+                msgs,
+                request,
+                **kwargs,
             ):
                 yield item
         finally:
@@ -231,7 +237,9 @@ def setup_runner_hooks(_runner_module=None) -> None:
     fake module without monkeying with ``sys.modules`` import chains.
     """
     if _runner_module is None:
-        import qwenpaw.app.runner.runner as _runner_module  # noqa: F811
+        from qwenpaw.app.runner import (  # type: ignore[no-redef]  # noqa: F811
+            runner as _runner_module,
+        )
 
     if getattr(_runner_module.QwenPawAgent, "_datapaw_factory", False):
         # Already patched (idempotent re-install).
@@ -451,7 +459,9 @@ def patch_plugin_loader_unload(_loader_module=None) -> None:
     The optional ``_loader_module`` argument is for unit tests.
     """
     if _loader_module is None:
-        from qwenpaw.plugins import loader as _loader_module  # noqa: F811
+        from qwenpaw.plugins import (  # type: ignore[no-redef]  # noqa: F811
+            loader as _loader_module,
+        )
 
     PluginLoader = _loader_module.PluginLoader
     orig = PluginLoader.unload_plugin

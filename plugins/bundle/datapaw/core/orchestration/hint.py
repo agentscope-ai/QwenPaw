@@ -267,7 +267,7 @@ class DataPawPlanToHint(DefaultGraphToHint):
         nb = getattr(self, "_bound_notebook", None)
         if nb is None:
             return None
-        return nb() if callable(nb) else nb
+        return nb() if callable(nb) else nb  # pylint: disable=not-callable
 
     def __call__(self, graph: "TaskGraph | None") -> Optional[str]:
         nb = self._get_notebook()
