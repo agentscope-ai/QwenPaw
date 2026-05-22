@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import BackendLoadingPage from "./BackendLoadingPage";
 import useBackendReadyPolling from "./useBackendReadyPolling";
 
@@ -7,11 +7,24 @@ interface Props {
 }
 
 export default function BackendReadyGate({ children }: Props) {
-  const { shouldGate, status, elapsed, totalSec, errorMessage, retry } =
-    useBackendReadyPolling();
+  const {
+    shouldGate,
+    status,
+    elapsed,
+    totalSec,
+    errorMessage,
+    readyUrl,
+    retry,
+  } = useBackendReadyPolling();
 
-  // Browser mode or backend ready.
-  if (!shouldGate || status === "ready") {
+  useEffect(() => {
+    if (shouldGate && status === "ready" && readyUrl) {
+      window.location.replace(readyUrl);
+    }
+  }, [readyUrl, shouldGate, status]);
+
+  // Browser mode, or Tauri after it has navigated to the backend-hosted console.
+  if (!shouldGate) {
     return <>{children}</>;
   }
 

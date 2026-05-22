@@ -94,25 +94,8 @@ if ($missing.Count -gt 0) {
 }
 Write-Host ""
 
-# Step 1: Build PyInstaller backend
-Write-Host "== Step 1: Building PyInstaller Backend ==" -ForegroundColor Yellow
-$PYINSTALLER_SCRIPT = Join-Path $REPO_ROOT "scripts\pack-tauri\build_pyinstaller.ps1"
-& $PYINSTALLER_SCRIPT
-
-if ($LASTEXITCODE -ne 0) {
-    throw "PyInstaller build failed"
-}
-Write-Host "PyInstaller backend ready" -ForegroundColor Green
-Write-Host ""
-
-# Step 2: Build Tauri app
-Write-Host "== Step 2: Building Tauri App ==" -ForegroundColor Yellow
-$BUNDLE_DIR = Join-Path $REPO_ROOT "console\src-tauri\target\release\bundle"
-$NSIS_DIR = Join-Path $BUNDLE_DIR "nsis"
-if (Test-Path $NSIS_DIR) {
-    Remove-Item -Recurse -Force $NSIS_DIR
-}
-
+# Step 1: Build console static assets
+Write-Host "== Step 1: Building Console Static Assets ==" -ForegroundColor Yellow
 Set-Location console
 
 Write-Host "Installing frontend dependencies..."
@@ -132,6 +115,37 @@ node ../scripts/pack-tauri/sync_tauri_version.mjs
 if ($LASTEXITCODE -ne 0) {
     throw "Tauri version sync failed"
 }
+
+Write-Host "Building console frontend..."
+npm run build:prod
+if ($LASTEXITCODE -ne 0) {
+    throw "console frontend build failed"
+}
+
+Set-Location $REPO_ROOT
+Write-Host "Console static assets built" -ForegroundColor Green
+Write-Host ""
+
+# Step 2: Build PyInstaller backend
+Write-Host "== Step 2: Building PyInstaller Backend ==" -ForegroundColor Yellow
+$PYINSTALLER_SCRIPT = Join-Path $REPO_ROOT "scripts\pack-tauri\build_pyinstaller.ps1"
+& $PYINSTALLER_SCRIPT
+
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller build failed"
+}
+Write-Host "PyInstaller backend ready" -ForegroundColor Green
+Write-Host ""
+
+# Step 3: Build Tauri app
+Write-Host "== Step 3: Building Tauri App ==" -ForegroundColor Yellow
+$BUNDLE_DIR = Join-Path $REPO_ROOT "console\src-tauri\target\release\bundle"
+$NSIS_DIR = Join-Path $BUNDLE_DIR "nsis"
+if (Test-Path $NSIS_DIR) {
+    Remove-Item -Recurse -Force $NSIS_DIR
+}
+
+Set-Location console
 
 Write-Host "Building for Windows..."
 npm exec -- tauri build --config src-tauri/tauri.version.conf.json

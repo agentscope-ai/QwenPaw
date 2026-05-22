@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  backendConsoleUrl,
   getBackendStartupError,
   initRuntimeApiBaseUrl,
-  isTauriRuntime,
   restartBackend,
+  shouldUseTauriStartupGate,
 } from "./backendRuntime";
 
 export type BackendReadyStatus = "checking" | "ready" | "timeout" | "error";
@@ -18,14 +19,16 @@ interface BackendReadyPollingState {
   elapsed: number;
   totalSec: number;
   errorMessage: string;
+  readyUrl: string;
   retry: () => void;
 }
 
 export default function useBackendReadyPolling(): BackendReadyPollingState {
-  const shouldGate = isTauriRuntime();
+  const shouldGate = shouldUseTauriStartupGate();
   const [status, setStatus] = useState<BackendReadyStatus>("checking");
   const [elapsed, setElapsed] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
+  const [readyUrl, setReadyUrl] = useState("");
   const runRef = useRef(0);
   const cancelPollingRef = useRef<(() => void) | null>(null);
 
@@ -68,6 +71,7 @@ export default function useBackendReadyPolling(): BackendReadyPollingState {
       setStatus("checking");
       setElapsed(0);
       setErrorMessage("");
+      setReadyUrl("");
 
       const start = Date.now();
 
@@ -84,6 +88,7 @@ export default function useBackendReadyPolling(): BackendReadyPollingState {
               cache: "no-store",
             });
             if (runRef.current === runId && res.ok) {
+              setReadyUrl(backendConsoleUrl(apiBaseUrl));
               setStatus("ready");
               return;
             }
@@ -125,6 +130,7 @@ export default function useBackendReadyPolling(): BackendReadyPollingState {
     setStatus("checking");
     setElapsed(0);
     setErrorMessage("");
+    setReadyUrl("");
 
     restartBackend()
       .then((apiBaseUrl) => {
@@ -164,6 +170,7 @@ export default function useBackendReadyPolling(): BackendReadyPollingState {
     elapsed,
     totalSec: BACKEND_POLL_TIMEOUT_SECONDS,
     errorMessage,
+    readyUrl,
     retry,
   };
 }

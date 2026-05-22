@@ -3,10 +3,10 @@
   "productName": "QwenPaw Desktop",
   "identifier": "io.agentscope.qwenpaw.desktop",
   "build": {
-    "frontendDist": "../dist",
-    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist-tauri",
+    "devUrl": "http://localhost:5173/tauri.html",
     "beforeDevCommand": "vite --mode tauri",
-    "beforeBuildCommand": "npm run build:prod"
+    "beforeBuildCommand": "npm run build:tauri-bootstrap"
   },
   "app": {
     "withGlobalTauri": false,

@@ -24,6 +24,7 @@ def test_install_desktop_runtime_preserves_existing_cors_values(monkeypatch):
     origins = os.environ[DESKTOP_CORS_ORIGINS_ENV].split(",")
     assert origins.count("tauri://localhost") == 1
     assert "https://example.test" in origins
+    assert "http://127.0.0.1:5173" in origins
     assert "http://127.0.0.1:1420" in origins
 
 

@@ -10,22 +10,22 @@ vi.mock("@tauri-apps/api/core", () => ({
   isTauri: tauriMocks.isTauri,
 }));
 
-import { restartBackend } from "./backendRuntime";
+import {
+  backendConsoleUrl,
+  restartBackend,
+  shouldUseTauriStartupGate,
+} from "./backendRuntime";
 
 const setViteBase = (v: string) => {
   (globalThis as any).VITE_API_BASE_URL = v;
-  (globalThis as any).__QWENPAW_CONFIGURED_API_BASE_URL__ = v;
-};
-const clearRuntimeApiBaseUrl = () => {
-  delete (globalThis as any).__QWENPAW_API_BASE_URL__;
 };
 
-describe("restartBackend", () => {
+describe("backendRuntime", () => {
   beforeEach(() => {
     setViteBase("");
-    clearRuntimeApiBaseUrl();
     tauriMocks.invoke.mockReset();
     tauriMocks.isTauri.mockReturnValue(false);
+    window.history.replaceState(null, "", "/");
   });
 
   it("returns configured base URL in Tauri without invoking sidecar restart", async () => {
@@ -44,5 +44,25 @@ describe("restartBackend", () => {
     await expect(restartBackend()).resolves.toBe("http://127.0.0.1:8090");
 
     expect(tauriMocks.invoke).toHaveBeenCalledWith("restart_backend");
+  });
+
+  it("builds the backend-hosted console URL", () => {
+    expect(backendConsoleUrl("http://127.0.0.1:8090/")).toBe(
+      "http://127.0.0.1:8090/console",
+    );
+  });
+
+  it("uses the startup gate for the initial Tauri page", () => {
+    tauriMocks.isTauri.mockReturnValue(true);
+    window.history.replaceState(null, "", "/");
+
+    expect(shouldUseTauriStartupGate()).toBe(true);
+  });
+
+  it("does not gate after Tauri has navigated to the backend console", () => {
+    tauriMocks.isTauri.mockReturnValue(true);
+    window.history.replaceState(null, "", "/console");
+
+    expect(shouldUseTauriStartupGate()).toBe(false);
   });
 });

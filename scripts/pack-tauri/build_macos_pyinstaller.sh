@@ -76,29 +76,38 @@ if [ -z "${PYINSTALLER_CODESIGN_IDENTITY:-}" ]; then
 fi
 echo ""
 
-# Step 1: Build PyInstaller backend
-echo "== Step 1: Building PyInstaller Backend =="
-bash scripts/pack-tauri/build_pyinstaller.sh
-echo "PyInstaller backend built"
-echo ""
-
-echo "== Step 1b: Signing PyInstaller Backend =="
-bash "${SIGN_MACOS_BUNDLE}" \
-    "${REPO_ROOT}/console/src-tauri/binaries/qwenpaw-backend" \
-    "${APPLE_SIGNING_IDENTITY}"
-echo "PyInstaller backend signed"
-echo ""
-
-# Step 2: Build Tauri app
-echo "== Step 2: Building Tauri App =="
-BUNDLE_DIR="${REPO_ROOT}/console/src-tauri/target/release/bundle"
-rm -rf "${BUNDLE_DIR}/dmg" "${BUNDLE_DIR}/macos"
+# Step 1: Build console static assets
+echo "== Step 1: Building Console Static Assets =="
 cd console
 npm ci
 echo "Generating Tauri icons..."
 npm exec -- tauri icon ../scripts/pack/assets/icon.svg
 echo "Syncing Tauri version..."
 node ../scripts/pack-tauri/sync_tauri_version.mjs
+echo "Building console frontend..."
+npm run build:prod
+cd ..
+echo "Console static assets built"
+echo ""
+
+# Step 2: Build PyInstaller backend
+echo "== Step 2: Building PyInstaller Backend =="
+bash scripts/pack-tauri/build_pyinstaller.sh
+echo "PyInstaller backend built"
+echo ""
+
+echo "== Step 2b: Signing PyInstaller Backend =="
+bash "${SIGN_MACOS_BUNDLE}" \
+    "${REPO_ROOT}/console/src-tauri/binaries/qwenpaw-backend" \
+    "${APPLE_SIGNING_IDENTITY}"
+echo "PyInstaller backend signed"
+echo ""
+
+# Step 3: Build Tauri app
+echo "== Step 3: Building Tauri App =="
+BUNDLE_DIR="${REPO_ROOT}/console/src-tauri/target/release/bundle"
+rm -rf "${BUNDLE_DIR}/dmg" "${BUNDLE_DIR}/macos"
+cd console
 echo "Building for macOS..."
 npm exec -- tauri build \
     --config src-tauri/tauri.version.conf.json \
@@ -113,15 +122,15 @@ if [ ! -d "${APP_PATH}" ]; then
     exit 1
 fi
 
-echo "== Step 2b: Signing Final macOS App =="
+echo "== Step 3b: Signing Final macOS App =="
 bash "${SIGN_MACOS_BUNDLE}" \
     "${APP_PATH}" \
     "${APPLE_SIGNING_IDENTITY}"
 echo "Final macOS app signed and verified"
 echo ""
 
-# Step 3: Collect distribution artifacts
-echo "== Step 3: Collecting Distribution Artifacts =="
+# Step 4: Collect distribution artifacts
+echo "== Step 4: Collecting Distribution Artifacts =="
 DIST="${DIST:-dist}"
 if [[ "${DIST}" = /* ]]; then
     DIST_ROOT="${DIST}"

@@ -28,8 +28,24 @@ if sys.platform == "darwin":
 else:
     codesign_identity = None
 
-# The frontend dist is bundled by Tauri (frontendDist in tauri.conf.json) and
-# must NOT be included here. PyInstaller only packages the Python backend.
+def collect_tree(source_dir, target_dir):
+    return [
+        (str(path), str(Path(target_dir) / path.relative_to(source_dir).parent))
+        for path in source_dir.rglob("*")
+        if path.is_file()
+    ]
+
+
+# Match the legacy desktop package: the FastAPI backend serves the web console
+# from qwenpaw/console, so Tauri can navigate to the backend-hosted same-origin
+# console after the sidecar is ready.
+CONSOLE_DIST = REPO_ROOT / "console" / "dist"
+if not (CONSOLE_DIST / "index.html").is_file():
+    raise SystemExit(
+        f"console dist not found at {CONSOLE_DIST}; "
+        "run npm run build:prod in console/ before PyInstaller"
+    )
+
 _data_dirs = [
     ("agents/skills", "qwenpaw/agents/skills"),
     ("agents/md_files", "qwenpaw/agents/md_files"),
@@ -41,6 +57,7 @@ _data_dirs = [
 datas = [
     (str(SRC / src), dst) for src, dst in _data_dirs if (SRC / src).is_dir()
 ]
+datas += collect_tree(CONSOLE_DIST, "qwenpaw/console")
 
 # Include reme package data files (configs, tool yamls, etc.)
 datas += collect_data_files("reme")
