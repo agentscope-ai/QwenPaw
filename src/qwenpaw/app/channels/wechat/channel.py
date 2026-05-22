@@ -155,9 +155,6 @@ class WeChatChannel(BaseChannel):
 
         # Cache last context_token per user for proactive sends
         self._user_context_tokens: Dict[str, str] = {}
-        # Flag: set when context_token is invalid (ret=-2) during a request,
-        # so subsequent sends in the same request are skipped silently.
-        self._context_token_invalid: bool = False
 
         # Cache typing tickets per user (24h TTL)
         self._typing_tickets: Dict[
@@ -1099,17 +1096,19 @@ class WeChatChannel(BaseChannel):
         context_token: str,
         client: Optional[ILinkClient] = None,
         api_initiated: bool = False,
+        send_meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Send text using the shared ILinkClient (or create a temp one).
 
         Args:
             api_initiated: If True, raise ChannelError on send failure.
                 Used by /api/messages/send to provide accurate error feedback.
+            send_meta: If provided, used to track context_token invalidation.
+                When ret=-2, sets send_meta["_wechat_token_invalid"] = True
+                so subsequent sends in the same request are skipped.
         """
         _client = client or self._client
         if not _client or not to_user_id or not text:
-            return
-        if self._context_token_invalid and not api_initiated:
             return
         try:
             resp = await _client.send_text(to_user_id, text, context_token)
@@ -1138,9 +1137,9 @@ class WeChatChannel(BaseChannel):
                         ),
                     )
                 # ret=-2 means context_token is invalid/consumed;
-                # mark flag so subsequent sends in this request are skipped.
-                if ret == -2:
-                    self._context_token_invalid = True
+                # mark meta so subsequent sends in this request are skipped.
+                if ret == -2 and send_meta is not None:
+                    send_meta["_wechat_token_invalid"] = True
 
     async def _send_media_file(
         self,
@@ -1157,8 +1156,6 @@ class WeChatChannel(BaseChannel):
             file_path: Local path to the media file.
             content_type: Type of media (IMAGE/FILE/VIDEO).
         """
-        if self._context_token_invalid:
-            return
         if not self._client or not to_user_id or not context_token:
             logger.warning(
                 "wechat _send_media_file: missing required parameters",
@@ -1364,6 +1361,10 @@ class WeChatChannel(BaseChannel):
         text_parts: List[str] = []
 
         for p in parts:
+            # Skip all sends once context_token is marked invalid
+            if m.get("_wechat_token_invalid"):
+                break
+
             t = getattr(p, "type", None) or (
                 p.get("type") if isinstance(p, dict) else None
             )
@@ -1430,16 +1431,19 @@ class WeChatChannel(BaseChannel):
         if prefix and body:
             body = prefix + "  " + body
 
-        if not body:
+        if not body or m.get("_wechat_token_invalid"):
             return
 
         api_send = bool(m.get("_api_send"))
         for chunk in split_text(body):
+            if m.get("_wechat_token_invalid"):
+                return
             await self._send_text_direct(
                 to_user_id,
                 chunk,
                 context_token,
                 api_initiated=api_send,
+                send_meta=m,
             )
 
     async def _on_process_completed(
@@ -1449,9 +1453,6 @@ class WeChatChannel(BaseChannel):
         send_meta: Dict[str, Any],
     ) -> None:
         """Flush merge buffer (if any) and stop typing indicator."""
-        # Reset context_token_invalid flag for the next request.
-        self._context_token_invalid = False
-
         # Flush any remaining merged messages before finishing
         if self._message_merge_enabled:
             await self._flush_merge_buffer(to_handle)
@@ -1471,9 +1472,6 @@ class WeChatChannel(BaseChannel):
         err_text: str,
     ) -> None:
         """Flush merge buffer, stop typing, and send error message."""
-        # Reset context_token_invalid flag for the next request.
-        self._context_token_invalid = False
-
         # Flush any buffered messages before sending the error
         if self._message_merge_enabled:
             await self._flush_merge_buffer(to_handle)
@@ -1505,8 +1503,16 @@ class WeChatChannel(BaseChannel):
         body = (prefix + "  " + text) if prefix and text else text
         if not body or not to_user_id:
             return
+        send_state: Dict[str, Any] = {}
         for chunk in split_text(body):
-            await self._send_text_direct(to_user_id, chunk, context_token)
+            if send_state.get("_wechat_token_invalid"):
+                return
+            await self._send_text_direct(
+                to_user_id,
+                chunk,
+                context_token,
+                send_meta=send_state,
+            )
 
     # ------------------------------------------------------------------
     # Typing Indicator
