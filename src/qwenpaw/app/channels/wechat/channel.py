@@ -1147,6 +1147,7 @@ class WeChatChannel(BaseChannel):
         context_token: str,
         file_path: str,
         content_type: ContentType,
+        send_meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Send a media file (image/file/video) to WeChat.
 
@@ -1155,6 +1156,7 @@ class WeChatChannel(BaseChannel):
             context_token: Context token from inbound message.
             file_path: Local path to the media file.
             content_type: Type of media (IMAGE/FILE/VIDEO).
+            send_meta: If provided, used to track context_token invalidation.
         """
         if not self._client or not to_user_id or not context_token:
             logger.warning(
@@ -1176,22 +1178,23 @@ class WeChatChannel(BaseChannel):
                 return
 
             # Send based on content type
+            resp: Optional[Dict[str, Any]] = None
             if content_type == ContentType.IMAGE:
-                await self._client.send_image(
+                resp = await self._client.send_image(
                     to_user_id,
                     str(path_obj),
                     context_token,
                 )
             elif content_type == ContentType.FILE:
                 filename = path_obj.name
-                await self._client.send_file(
+                resp = await self._client.send_file(
                     to_user_id,
                     str(path_obj),
                     filename,
                     context_token,
                 )
             elif content_type == ContentType.VIDEO:
-                await self._client.send_video(
+                resp = await self._client.send_video(
                     to_user_id,
                     str(path_obj),
                     context_token,
@@ -1201,6 +1204,23 @@ class WeChatChannel(BaseChannel):
                     "wechat _send_media_file: unsupported content type: %s",
                     content_type,
                 )
+                return
+
+            # Check response for errors (same logic as _send_text_direct)
+            if isinstance(resp, dict):
+                ret = resp.get("ret", 0)
+                errcode = resp.get("errcode", 0)
+                if ret != 0 or errcode != 0:
+                    logger.warning(
+                        "wechat send_media rejected: "
+                        "ret=%s errcode=%s to_user_id=%s type=%s",
+                        ret,
+                        errcode,
+                        to_user_id,
+                        content_type,
+                    )
+                    if ret == -2 and send_meta is not None:
+                        send_meta["_wechat_token_invalid"] = True
         except Exception:
             logger.exception(
                 "wechat _send_media_file failed type=%s path=%s",
@@ -1389,6 +1409,7 @@ class WeChatChannel(BaseChannel):
                         context_token,
                         image_url,
                         ContentType.IMAGE,
+                        send_meta=m,
                     )
             elif t == ContentType.FILE:
                 # Send file
@@ -1401,6 +1422,7 @@ class WeChatChannel(BaseChannel):
                         context_token,
                         file_url,
                         ContentType.FILE,
+                        send_meta=m,
                     )
             elif t == ContentType.VIDEO:
                 # Send video
@@ -1413,6 +1435,7 @@ class WeChatChannel(BaseChannel):
                         context_token,
                         video_url,
                         ContentType.VIDEO,
+                        send_meta=m,
                     )
             elif t == ContentType.AUDIO:
                 # Send audio as file (WeChat has no dedicated audio send)
@@ -1425,6 +1448,7 @@ class WeChatChannel(BaseChannel):
                         context_token,
                         audio_url,
                         ContentType.FILE,
+                        send_meta=m,
                     )
 
         body = "\n".join(text_parts).strip()
