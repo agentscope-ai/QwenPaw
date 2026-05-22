@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 import os
+import signal
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
@@ -20,6 +21,47 @@ from .core import (
 )
 
 MessageHandler = Callable[[dict[str, Any], bool], Awaitable[None]]
+
+
+def _kill_process_tree(pid: int) -> None:
+    """Recursively kill a process and all its descendants via /proc."""
+    try:
+        children = _get_child_pids(pid)
+    except OSError:
+        children = []
+    for child_pid in children:
+        _kill_process_tree(child_pid)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def _get_child_pids(ppid: int) -> list[int]:
+    """Read /proc to find direct children of *ppid*."""
+    result: list[int] = []
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return result
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/stat", encoding="utf-8") as f:
+                stat = f.read()
+        except OSError:
+            continue
+        # Format: pid (comm) state ppid ...
+        # The comm field may contain spaces and parentheses, so find
+        # the last ')' and parse from there.
+        close_paren = stat.rfind(")")
+        if close_paren == -1:
+            continue
+        fields = stat[close_paren + 2 :].split()
+        if len(fields) >= 2 and int(fields[1]) == ppid:
+            result.append(int(entry))
+    return result
 
 
 @dataclass
@@ -380,9 +422,7 @@ class ACPService:
                     await conversation.prompt_task
                 except Exception:
                     pass
-            # Send ACP close_session so the agent can gracefully clean up
-            # child processes; without this, exit_stack.aclose() only kills
-            # the direct subprocess, leaving orphans (see #4611).
+            # Fix #4615: Handle orphan processes for ACP started via node wrapper script.
             try:
                 await asyncio.wait_for(
                     conversation.conn.close_session(
@@ -393,6 +433,9 @@ class ACPService:
             except Exception:
                 pass
         finally:
+            # Fix #4615: Handle orphan processes for ACP executed directly by binary.
+            # Force kill the entire process tree to prevent resource leaks.
+            _kill_process_tree(conversation.process.pid)
             await conversation.exit_stack.aclose()
 
     @staticmethod
