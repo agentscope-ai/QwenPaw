@@ -65,6 +65,19 @@ class MCPClientInfo(BaseModel):
         default=None,
         description="OAuth token status (None if OAuth not configured)",
     )
+    connection_status: Literal[
+        "disabled",
+        "connecting",
+        "available",
+        "unavailable",
+    ] = Field(
+        default="unavailable",
+        description="Runtime connectivity to the MCP server",
+    )
+    connection_message: Optional[str] = Field(
+        default=None,
+        description="Detail when connection_status is unavailable or connecting",
+    )
 
 
 class MCPClientCreateRequest(BaseModel):
@@ -212,7 +225,13 @@ def _build_oauth_status(
     )
 
 
-def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
+def _build_client_info(
+    key: str,
+    client: MCPClientConfig,
+    *,
+    connection_status: str = "unavailable",
+    connection_message: str | None = None,
+) -> MCPClientInfo:
     """Build MCPClientInfo from config with masked sensitive values."""
     masked_env = (
         {k: _mask_env_value(v) for k, v in client.env.items()}
@@ -238,22 +257,45 @@ def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
         env=masked_env,
         cwd=client.cwd,
         oauth_status=_build_oauth_status(client),
+        connection_status=connection_status,  # type: ignore[arg-type]
+        connection_message=connection_message,
     )
 
 
-_RESERVED_KEY_PREFIXES = ("tools/", "toggle/", "oauth/")
+async def _client_info_with_connection(
+    key: str,
+    client: MCPClientConfig,
+    mcp_manager: Any | None,
+    *,
+    probe: bool = False,
+) -> MCPClientInfo:
+    status = "unavailable"
+    message: str | None = None
+    if mcp_manager is not None:
+        status, message = await mcp_manager.resolve_connection_status(
+            key,
+            client,
+            probe=probe,
+        )
+    elif not client.enabled:
+        status, message = "disabled", None
+    return _build_client_info(
+        key,
+        client,
+        connection_status=status,
+        connection_message=message,
+    )
 
 
-def _validate_client_key(client_key: str) -> None:
-    """Raise 400 if the key collides with reserved route prefixes."""
-    lower = client_key.lower()
-    for prefix in _RESERVED_KEY_PREFIXES:
-        if lower == prefix.rstrip("/") or lower.startswith(prefix):
-            raise HTTPException(
-                400,
-                detail=f"MCP client key must not start with reserved "
-                f"prefix '{prefix}'. Please choose a different key.",
-            )
+def _validate_client_key(client_key: str) -> str:
+    """Validate key format; return stripped key or raise HTTP 400."""
+    from ..mcp.client_key import validate_mcp_client_key
+
+    stripped = (client_key or "").strip()
+    error = validate_mcp_client_key(stripped)
+    if error:
+        raise HTTPException(400, detail=error)
+    return stripped
 
 
 class MCPToolInfo(BaseModel):
@@ -342,10 +384,13 @@ async def list_mcp_clients(request: Request) -> List[MCPClientInfo]:
     if mcp_config is None or not mcp_config.clients:
         return []
 
-    return [
-        _build_client_info(key, client)
-        for key, client in mcp_config.clients.items()
-    ]
+    mcp_manager = agent.mcp_manager
+    result: List[MCPClientInfo] = []
+    for key, client in mcp_config.clients.items():
+        result.append(
+            await _client_info_with_connection(key, client, mcp_manager),
+        )
+    return result
 
 
 @router.post(
@@ -363,7 +408,7 @@ async def create_mcp_client(
     from ..agent_context import get_agent_for_request
     from ...config.config import save_agent_config, MCPConfig
 
-    _validate_client_key(client_key)
+    client_key = _validate_client_key(client_key)
 
     agent = await get_agent_for_request(request)
 
@@ -403,6 +448,44 @@ async def create_mcp_client(
     return _build_client_info(client_key, new_client)
 
 
+@router.api_route(
+    "/reconnect/{client_key:path}",
+    methods=["POST", "PATCH"],
+    response_model=MCPClientInfo,
+    summary="Refresh MCP client connectivity",
+)
+async def refresh_mcp_connection(
+    request: Request,
+    client_key: str = Path(...),
+) -> MCPClientInfo:
+    """Reconnect/reload an MCP client and return updated connectivity."""
+    from ..agent_context import get_agent_for_request
+
+    agent = await get_agent_for_request(request)
+    mcp_config = agent.config.mcp
+    if mcp_config is None or client_key not in mcp_config.clients:
+        raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
+
+    client_config = mcp_config.clients[client_key]
+    mcp_manager = agent.mcp_manager
+    if mcp_manager is None:
+        raise HTTPException(
+            503,
+            detail="MCP manager is not ready yet, please try again later",
+        )
+
+    status, message = await mcp_manager.refresh_connection(
+        client_key,
+        client_config,
+    )
+    return _build_client_info(
+        client_key,
+        client_config,
+        connection_status=status,
+        connection_message=message,
+    )
+
+
 @router.patch(
     "/toggle/{client_key:path}",
     response_model=MCPClientInfo,
@@ -430,7 +513,11 @@ async def toggle_mcp_client(
     # Hot reload config (async, non-blocking)
     schedule_agent_reload(request, agent.agent_id)
 
-    return _build_client_info(client_key, client)
+    return await _client_info_with_connection(
+        client_key,
+        client,
+        agent.mcp_manager,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -459,7 +546,11 @@ async def get_mcp_client(
     client = mcp_config.clients.get(client_key)
     if client is None:
         raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
-    return _build_client_info(client_key, client)
+    return await _client_info_with_connection(
+        client_key,
+        client,
+        agent.mcp_manager,
+    )
 
 
 @router.put(

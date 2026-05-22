@@ -87,6 +87,79 @@ class MCPClientManager:
         async with self._lock:
             return self._clients.get(key)
 
+    async def resolve_connection_status(
+        self,
+        key: str,
+        client_config: "MCPClientConfig",
+        *,
+        probe: bool = False,
+        probe_timeout: float = 8.0,
+    ) -> tuple[str, str | None]:
+        """Return runtime connectivity for a configured client.
+
+        Status is one of: ``disabled``, ``connecting``, ``available``,
+        ``unavailable``.
+        """
+        if not client_config.enabled:
+            return "disabled", None
+
+        async with self._lock:
+            client = self._clients.get(key)
+
+        if client is None:
+            return "unavailable", "Client is not connected to the runtime"
+
+        lifecycle_task = getattr(client, "_lifecycle_task", None)
+        if (
+            lifecycle_task is not None
+            and not lifecycle_task.done()
+            and not client.is_connected
+        ):
+            return "connecting", None
+
+        if not client.is_connected:
+            return "unavailable", "MCP server is not connected"
+
+        if not probe:
+            return "available", None
+
+        try:
+            await asyncio.wait_for(client.list_tools(), timeout=probe_timeout)
+            return "available", None
+        except Exception as exc:
+            return "unavailable", str(exc) or exc.__class__.__name__
+
+    async def refresh_connection(
+        self,
+        key: str,
+        client_config: "MCPClientConfig",
+        timeout: float = 30.0,
+    ) -> tuple[str, str | None]:
+        """Reconnect (or reload) a client and probe tool listing."""
+        if not client_config.enabled:
+            return "disabled", None
+
+        client = await self.get_client(key)
+        try:
+            if client is not None and client.is_connected:
+                await asyncio.wait_for(client.reload(), timeout=timeout)
+            else:
+                await self.replace_client(key, client_config, timeout=timeout)
+        except Exception as exc:
+            logger.warning(
+                f"Refresh connection failed for MCP client '{key}': {exc}",
+                exc_info=True,
+            )
+            return "unavailable", str(exc) or exc.__class__.__name__
+
+        probe_timeout = min(timeout, 15.0)
+        return await self.resolve_connection_status(
+            key,
+            client_config,
+            probe=True,
+            probe_timeout=probe_timeout,
+        )
+
     async def replace_client(
         self,
         key: str,
