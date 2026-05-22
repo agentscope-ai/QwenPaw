@@ -127,7 +127,10 @@ class DefaultGraphToHint:
 
     node_in_progress_after_interrupt_key: str = "in_progress_after_interrupt"
 
-    def __call__(self, graph: "TaskGraph | None") -> Optional[str]:
+    def __call__(  # pylint: disable=too-many-return-statements
+        self,
+        graph: "TaskGraph | None",
+    ) -> Optional[str]:
         """Dispatch by graph state, in priority order:
         empty → in_progress → failed → stale → all_done → at_beginning → ready.
         """
@@ -257,7 +260,7 @@ class DataPawPlanToHint(DefaultGraphToHint):
     )
 
     def bind_notebook(self, plan_notebook) -> None:
-        """Store a weak reference to the notebook for flag access on each call."""
+        """Store a weakref to the notebook so each call can read its flags."""
         if plan_notebook is None:
             self._bound_notebook = None
         else:
@@ -272,7 +275,7 @@ class DataPawPlanToHint(DefaultGraphToHint):
     def __call__(self, graph: "TaskGraph | None") -> Optional[str]:
         nb = self._get_notebook()
 
-        # Priority 1: just-mutated lock—present plan + wait, regardless of state.
+        # Priority 1: just-mutated lock — present plan + wait, regardless.
         if (
             nb is not None
             and getattr(nb, "_plan_just_mutated", False)

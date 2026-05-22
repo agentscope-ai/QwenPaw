@@ -126,7 +126,7 @@ class RuntimeStateManager(PlanNotebook):
         graph_to_hint: Optional[Callable] = None,
     ) -> None:
         """Args:
-        storage: Backing store for historical TaskGraphs. Defaults to in-memory.
+        storage: Backing store for historical TaskGraphs. In-memory by default.
         graph_to_hint: Hint generator; defaults to :class:`DataPawPlanToHint`
             (which extends :class:`DefaultGraphToHint` with host plan-flag
             awareness for ``/plan`` command, post-mutation lock, etc).
@@ -183,7 +183,7 @@ class RuntimeStateManager(PlanNotebook):
     # --- trigger_msg_id ----------------------------------------------------
 
     def set_trigger_msg_id(self, msg_id: str) -> None:
-        """Set the triggering message ID, used to populate ``anchor_message_id``."""
+        """Set the triggering message id, used in ``anchor_message_id``."""
         self._trigger_msg_id = msg_id
 
     # --- Hook plumbing -----------------------------------------------------
@@ -207,8 +207,9 @@ class RuntimeStateManager(PlanNotebook):
                 )
 
         graph_snapshot: Optional[dict] = None
-        if self.current_plan is not None:  # type: ignore[has-type]
-            graph_snapshot = self.current_plan.model_dump(mode="json")  # type: ignore[has-type]
+        plan = self.current_plan  # type: ignore[has-type]
+        if plan is not None:
+            graph_snapshot = plan.model_dump(mode="json")
 
         if self._sse_event_queue is not None:
             try:
@@ -326,7 +327,7 @@ class RuntimeStateManager(PlanNotebook):
     # --- Artifact bookkeeping ----------------------------------------------
 
     def _stat_size_bytes(self, rel_path: str) -> int:
-        """Resolve ``rel_path`` and read its size; returns 0 + warning on failure."""
+        """Resolve ``rel_path`` and stat its size; 0 + warning on failure."""
         if self.path_resolver is None:
             logger.warning(
                 "RuntimeStateManager: no path resolver for artifact path %r",
@@ -334,7 +335,7 @@ class RuntimeStateManager(PlanNotebook):
             )
             return 0
         try:
-            path = self.path_resolver(rel_path)
+            path = self.path_resolver(rel_path)  # pylint: disable=not-callable
             return path.stat().st_size
         except Exception:  # pylint: disable=broad-except
             logger.warning(
@@ -538,7 +539,9 @@ class RuntimeStateManager(PlanNotebook):
             if existing_in_progress:
                 return _text(
                     f"已有节点 {existing_in_progress} 正在执行。"
-                    f"请先完成当前节点（调用 finish_subtask 或 update_subtask_state 设置为 done/failed），"
+                    f"请先完成当前节点"
+                    f"（调用 finish_subtask 或"
+                    f" update_subtask_state 设置为 done/failed），"
                     f"再开始执行节点 '{node_id}'。",
                 )
 
@@ -619,6 +622,7 @@ class RuntimeStateManager(PlanNotebook):
             f"Recorded {file_count} file(s). {suffix}",
         )
 
+    # pylint: disable-next=too-many-return-statements
     async def revise_current_plan(  # type: ignore[override]
         self,
         node_id: str,
@@ -769,7 +773,7 @@ class RuntimeStateManager(PlanNotebook):
     def list_tools(
         self,
     ) -> List[Callable[..., Coroutine[Any, Any, ToolResponse]]]:
-        """Return the 8 plan tools (PlanNotebook standard set, all overridden for DAG).
+        """Return the 8 plan tools (PlanNotebook standard set, all overridden).
 
         Note on the type-hint resolution dance below: this module uses
         ``from __future__ import annotations``, so method signatures
@@ -819,7 +823,7 @@ class RuntimeStateManager(PlanNotebook):
     # TaskGraph (a Plan subclass) without further adaptation.
 
     async def get_current_hint(self) -> Msg | None:  # type: ignore[override]
-        """Produce the DAG-state hint, called before each ``_reasoning`` turn."""
+        """Produce the DAG-state hint, called before each reasoning turn."""
         hint_content = self.plan_to_hint(self.current_plan)
         if hint_content:
             return Msg("user", hint_content, "user")

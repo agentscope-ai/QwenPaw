@@ -82,7 +82,9 @@ class TaskNode(SubTask):
 
     state: NodeStatus = Field(
         default="todo",
-        description="Node state (todo/in_progress/done/failed/stale/abandoned).",
+        description=(
+            "Node state (todo/in_progress/done/failed/stale/abandoned)."
+        ),
     )
 
     node_id: str = Field(
@@ -263,8 +265,10 @@ _DAG_USER_STATES: frozenset = frozenset({"todo", "stale", "abandoned"})
 _DAG_BACKEND_STATES: frozenset = frozenset({"done", "in_progress", "failed"})
 
 
-def _validate_sop_dict(data: dict) -> List[Dict[str, Any]]:
-    """Shared SOP validator, used by both ``Sop.from_dict`` and ``TaskGraph.from_sop``.
+def _validate_sop_dict(  # pylint: disable=too-many-branches
+    data: dict,
+) -> List[Dict[str, Any]]:
+    """Shared SOP validator used by ``Sop.from_dict`` + ``TaskGraph.from_sop``.
 
     Rejects forbidden runtime fields, unknown fields, dangling deps, and
     cyclic graphs (Kahn). Returns the processed node list with defaults
@@ -326,7 +330,8 @@ def _validate_sop_dict(data: dict) -> List[Dict[str, Any]]:
         unknown_deps = set(n["deps"]) - node_ids
         if unknown_deps:
             raise ValueError(
-                f"Node '{n['node_id']}' has unknown deps: {sorted(unknown_deps)}.",
+                f"Node '{n['node_id']}'"
+                f" has unknown deps: {sorted(unknown_deps)}.",
             )
 
     # Kahn topological sort to detect cycles.
@@ -351,13 +356,15 @@ def _validate_sop_dict(data: dict) -> List[Dict[str, Any]]:
 
     if visited_count != len(processed_nodes):
         raise ValueError(
-            "SOP DAG contains a cycle. Check 'deps' fields for circular references.",
+            "SOP DAG contains a cycle. Check 'deps' for circular references.",
         )
 
     return processed_nodes
 
 
-def _validate_dag_dict(data: dict) -> List[Dict[str, Any]]:
+def _validate_dag_dict(  # pylint: disable=too-many-branches
+    data: dict,
+) -> List[Dict[str, Any]]:
     """Validate a DAG patch dict; returns processed node list.
 
     Same shape as SOP, plus an optional per-node ``state`` restricted to
@@ -403,7 +410,8 @@ def _validate_dag_dict(data: dict) -> List[Dict[str, Any]]:
             else:
                 raise ValueError(
                     f"Node at index {idx} has invalid state "
-                    f"{clean_node['state']!r}; allowed: {sorted(_DAG_USER_STATES)}.",
+                    f"{clean_node['state']!r};"
+                    f" allowed: {sorted(_DAG_USER_STATES)}.",
                 )
 
         unknown_node = set(clean_node.keys()) - _DAG_NODE_ALLOWED
@@ -427,7 +435,8 @@ def _validate_dag_dict(data: dict) -> List[Dict[str, Any]]:
         unknown_deps = set(n["deps"]) - node_ids
         if unknown_deps:
             raise ValueError(
-                f"Node '{n['node_id']}' has unknown deps: {sorted(unknown_deps)}.",
+                f"Node '{n['node_id']}'"
+                f" has unknown deps: {sorted(unknown_deps)}.",
             )
 
     in_degree: Dict[str, int] = {n["node_id"]: 0 for n in processed_nodes}
@@ -451,7 +460,7 @@ def _validate_dag_dict(data: dict) -> List[Dict[str, Any]]:
 
     if visited_count != len(processed_nodes):
         raise ValueError(
-            "DAG contains a cycle. Check 'deps' fields for circular references.",
+            "DAG contains a cycle. Check 'deps' for circular references.",
         )
 
     return processed_nodes
@@ -511,7 +520,7 @@ class Sop(BaseModel):
 
     @classmethod
     def from_dict(cls, data: dict) -> "Sop":
-        """Strict validation: reject runtime / unknown / dangling-dep / cyclic."""
+        """Strict validation: reject runtime/unknown/dangling-dep/cyclic."""
         _validate_sop_dict(data)
         nodes_raw = data.get("nodes", [])
         sop_nodes: List[SopNode] = []
@@ -577,7 +586,7 @@ class DagNode(SopNode):
 
 
 class Dag(BaseModel):
-    """DAG patch: structure plus user-owned state; ignores backend runtime fields."""
+    """DAG patch: structure plus user-owned state; ignores backend fields."""
 
     name: str
     description: str
@@ -685,7 +694,10 @@ class TaskGraph(Plan):
     subtasks: List[TaskNode] = Field(
         default_factory=list,
         exclude=True,
-        description="Derived from ``nodes``; kept only for parent-class compatibility.",
+        description=(
+            "Derived from ``nodes``;"
+            " kept only for parent-class compatibility."
+        ),
     )
 
     @model_validator(mode="after")
@@ -720,7 +732,7 @@ class TaskGraph(Plan):
     def replace_node(self, node_id: str, node: TaskNode) -> None:
         if node_id not in self.nodes:
             raise KeyError(f"Node '{node_id}' not found.")
-        # Force node_id to match the slot, in case the caller passed a mismatched one.
+        # Force node_id to match the slot if the caller passed a mismatch.
         node.node_id = node_id
         self.nodes[node_id] = node
         self._rebuild_subtasks()
@@ -802,7 +814,7 @@ class TaskGraph(Plan):
         return ""
 
     def refresh_plan_state(self) -> str:
-        """Parent-class compatibility shim; delegates to :meth:`refresh_state`."""
+        """Parent-class shim; delegates to :meth:`refresh_state`."""
         return self.refresh_state()
 
     # --- Rendering / serialization -----------------------------------------
@@ -896,7 +908,7 @@ class TaskGraph(Plan):
 
     @classmethod
     def from_sop(cls, data: "Sop | Dict[str, Any] | str") -> "TaskGraph":
-        """Build an all-``todo`` TaskGraph from an SOP (``Sop`` / dict / YAML string).
+        """Build an all-``todo`` TaskGraph from an SOP (Sop / dict / YAML).
 
         ``graph.id`` and ``created_at`` are regenerated; ``anchor_message_id``,
         ``outcome`` and ``finished_at`` are left empty; state starts at
@@ -925,7 +937,10 @@ class TaskGraph(Plan):
 
     # --- DAG patch merge / export ------------------------------------------
 
-    def apply_dag(self, dag: "Dag | Dict[str, Any] | str") -> DagDiff:
+    def apply_dag(  # pylint: disable=too-many-branches,too-many-statements
+        self,
+        dag: "Dag | Dict[str, Any] | str",
+    ) -> DagDiff:
         """Merge a ``Dag`` patch into this graph by ``node_id``.
 
         Structural fields are user-mutable; per-node ``state`` may only be

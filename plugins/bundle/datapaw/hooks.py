@@ -1,4 +1,9 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
+# Monkey-patches by definition reach into host internals
+# (``notebook._on_graph_change`` / ``channel._datapaw_*`` /
+# ``_patched_query_handler._datapaw_patched`` / ...). The entire module
+# operates in that regime; per-site disables would be noise.
 """Monkey-patches the DataPaw plugin applies to host runtime.
 
 Three patches, all installed from ``plugin._on_startup``:
@@ -51,7 +56,7 @@ _datapaw_runner_var: contextvars.ContextVar = contextvars.ContextVar(
 class _SmartAgentFactory:
     """Callable that dispatches to DataPawAgent or QwenPawAgent.
 
-    ``qwenpaw.app.runner.runner.query_handler`` does ``agent = QwenPawAgent(**kw)``
+    The host's ``query_handler`` does ``agent = QwenPawAgent(**kw)``
     looking up ``QwenPawAgent`` from the runner module's namespace. We rebind
     that name to an instance of this factory so the call routes to the right
     class based on ``request_context["agent_id"]``.
@@ -147,7 +152,7 @@ def _DataPawAgentAdapter(*args, **kwargs):
 
 
 def _make_broadcast_hook(*, agent_id, session_id):
-    """Return an async hook that pushes DataPaw graph events to host's broadcaster.
+    """Return an async hook that pushes graph events to host's broadcaster.
 
     Payload uses ``type="datapaw_graph_update"`` (distinct from host's
     ``type="plan_update"``) so frontend code can route by type without
@@ -171,7 +176,7 @@ def _make_broadcast_hook(*, agent_id, session_id):
 
 
 def _make_save_hook(*, runner, session_id, user_id, agent):
-    """Return an async callable suitable for ``RuntimeStateManager._on_graph_change``."""
+    """Return an async callable for ``RuntimeState._on_graph_change`` hook."""
 
     async def _datapaw_save_hook():
         try:
@@ -196,7 +201,7 @@ def _make_save_hook(*, runner, session_id, user_id, agent):
 
 
 def _wrap_query_handler(orig_query_handler):
-    """Build a thin ``query_handler`` wrapper that stashes contextvars for datapaw sessions."""
+    """Build a ``query_handler`` wrapper that stashes contextvars per turn."""
 
     async def _patched_query_handler(self, msgs, request=None, **kwargs):
         is_datapaw = (
@@ -226,20 +231,20 @@ def _wrap_query_handler(orig_query_handler):
             _datapaw_request_var.reset(request_token)
             _datapaw_runner_var.reset(runner_token)
 
-    _patched_query_handler._datapaw_patched = True  # type: ignore[attr-defined]
+    _patched_query_handler._datapaw_patched = True
     return _patched_query_handler
 
 
 def setup_runner_hooks(_runner_module=None) -> None:
-    """Install the smart factory + query_handler wrapper on host's runner module.
+    """Install the smart factory + query_handler wrapper on the runner module.
 
     The optional ``_runner_module`` argument is used by tests to inject a
     fake module without monkeying with ``sys.modules`` import chains.
     """
     if _runner_module is None:
-        from qwenpaw.app.runner import (  # type: ignore[no-redef]  # noqa: F811
-            runner as _runner_module,
-        )
+        from importlib import import_module
+
+        _runner_module = import_module("qwenpaw.app.runner.runner")
 
     if getattr(_runner_module.QwenPawAgent, "_datapaw_factory", False):
         # Already patched (idempotent re-install).
@@ -331,7 +336,7 @@ def _maybe_inject_node_metadata(
 
 
 def _format_task_event_as_sse(event: Any) -> str:
-    """Turn a DataPaw TaskEvent (or fallback dict) into an SSE ``data:`` frame."""
+    """Turn a TaskEvent (or fallback dict) into an SSE ``data:`` frame."""
     if hasattr(event, "model_dump_json"):
         body = event.model_dump_json()
     else:
@@ -413,7 +418,7 @@ def _wrap_stream_one(orig_stream_one):
 
 
 def setup_channel_sse_hook(_channel_cls=None) -> None:
-    """Wrap ``ConsoleChannel.stream_one`` and add ``_extract_datapaw_metadata``.
+    """Wrap ``ConsoleChannel.stream_one`` + add ``_extract_datapaw_metadata``.
 
     The optional ``_channel_cls`` argument is for unit tests; production
     code path imports the real ``ConsoleChannel`` from host.
@@ -428,7 +433,7 @@ def setup_channel_sse_hook(_channel_cls=None) -> None:
 
     orig = _channel_cls.stream_one
     _channel_cls.stream_one = _wrap_stream_one(orig)
-    _channel_cls._extract_datapaw_metadata = staticmethod(  # type: ignore[attr-defined]
+    _channel_cls._extract_datapaw_metadata = staticmethod(
         _extract_datapaw_metadata,
     )
 
@@ -459,9 +464,9 @@ def patch_plugin_loader_unload(_loader_module=None) -> None:
     The optional ``_loader_module`` argument is for unit tests.
     """
     if _loader_module is None:
-        from qwenpaw.plugins import (  # type: ignore[no-redef]  # noqa: F811
-            loader as _loader_module,
-        )
+        from importlib import import_module
+
+        _loader_module = import_module("qwenpaw.plugins.loader")
 
     PluginLoader = _loader_module.PluginLoader
     orig = PluginLoader.unload_plugin
