@@ -78,6 +78,7 @@ class InMemoryTaskGraphStorage(InMemoryPlanStorage):
             ),
         )
 
+
 if TYPE_CHECKING:
     pass
 
@@ -125,10 +126,10 @@ class RuntimeStateManager(PlanNotebook):
         graph_to_hint: Optional[Callable] = None,
     ) -> None:
         """Args:
-            storage: Backing store for historical TaskGraphs. Defaults to in-memory.
-            graph_to_hint: Hint generator; defaults to :class:`DataPawPlanToHint`
-                (which extends :class:`DefaultGraphToHint` with host plan-flag
-                awareness for ``/plan`` command, post-mutation lock, etc).
+        storage: Backing store for historical TaskGraphs. Defaults to in-memory.
+        graph_to_hint: Hint generator; defaults to :class:`DataPawPlanToHint`
+            (which extends :class:`DefaultGraphToHint` with host plan-flag
+            awareness for ``/plan`` command, post-mutation lock, etc).
         """
         if graph_to_hint is None:
             graph_to_hint = DataPawPlanToHint()
@@ -153,7 +154,9 @@ class RuntimeStateManager(PlanNotebook):
         # Optional per-broadcast hook: invoked on every graph-change event,
         # given the agent_id-aware payload. Wired by DataPawAgent at init
         # so RuntimeStateManager can stay agent_id-agnostic.
-        self._on_broadcast: Callable[[str, dict], Awaitable[None]] | None = None
+        self._on_broadcast: Callable[
+            [str, dict], Awaitable[None]
+        ] | None = None
 
         # Re-register ``current_plan`` so deserialization goes through
         # ``TaskGraph.model_validate``. ``register_state`` overwrites the
@@ -428,13 +431,9 @@ class RuntimeStateManager(PlanNotebook):
         if self.current_plan is not None:
             old_name = self.current_plan.name
             await self._archive_current_plan(
-                reason=(
-                    f"Replaced by a new task graph '{name}'."
-                ),
+                reason=(f"Replaced by a new task graph '{name}'."),
             )
-            replaced_msg = (
-                f"The previous graph '{old_name}' was archived. "
-            )
+            replaced_msg = f"The previous graph '{old_name}' was archived. "
 
         graph = TaskGraph(
             name=name,
@@ -531,14 +530,15 @@ class RuntimeStateManager(PlanNotebook):
         # one reasoning round would bind their traces to the wrong nodes.
         if state == "in_progress" and node.state != "in_progress":
             existing_in_progress = [
-                n.node_id for n in self.current_plan.nodes.values()
+                n.node_id
+                for n in self.current_plan.nodes.values()
                 if n.state == "in_progress" and n.node_id != node_id
             ]
             if existing_in_progress:
                 return _text(
                     f"已有节点 {existing_in_progress} 正在执行。"
                     f"请先完成当前节点（调用 finish_subtask 或 update_subtask_state 设置为 done/failed），"
-                    f"再开始执行节点 '{node_id}'。"
+                    f"再开始执行节点 '{node_id}'。",
                 )
 
         if state == "failed":
@@ -550,6 +550,7 @@ class RuntimeStateManager(PlanNotebook):
             node.state = state
             if state == "in_progress":
                 from agentscope._utils._common import _get_timestamp
+
                 node.started_at = _get_timestamp()
             if state == "todo":
                 node.error = None

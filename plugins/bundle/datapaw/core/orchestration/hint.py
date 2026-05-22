@@ -227,7 +227,7 @@ class DataPawPlanToHint(DefaultGraphToHint):
         "- Present the graph to the user as a Markdown summary: list each "
         "node, its dependencies, and the expected outcome.\n"
         "- End your reply by asking the user to confirm, edit, or cancel "
-        "(e.g. \"是否开始执行？\").\n"
+        '(e.g. "是否开始执行？").\n'
         "- Do NOT call any tool except `finish_plan('abandoned', ...)` "
         "if the user explicitly cancels.\n"
         "The backend has hard-locked all execution tools until the user's "

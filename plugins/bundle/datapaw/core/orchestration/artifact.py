@@ -18,7 +18,9 @@ class ArtifactItem(BaseModel):
     graph_id: str = Field(description="Owning graph id.")
     node_id: str = Field(description="Owning node id.")
     name: str = Field(description="File name, e.g. ``dau_trend.png``.")
-    path: str = Field(description="Sandbox-view relative path; same as ``FileRef.path``.")
+    path: str = Field(
+        description="Sandbox-view relative path; same as ``FileRef.path``."
+    )
     mime_type: str = Field(description="MIME type, e.g. ``image/png``.")
     size_bytes: int = Field(
         default=0,

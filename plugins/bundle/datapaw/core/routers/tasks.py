@@ -72,9 +72,7 @@ async def _get_session_for_agent(request: Request, agent_id: Optional[str]):
     if runner is None or getattr(runner, "session", None) is None:
         raise HTTPException(
             status_code=503,
-            detail=(
-                f"Agent '{agent_id}' runner/session not ready"
-            ),
+            detail=(f"Agent '{agent_id}' runner/session not ready"),
         )
     return runner.session, agent_id
 
@@ -121,7 +119,8 @@ async def _check_not_running(
         return
 
     chat_id = await chat_manager.get_chat_id_by_session(
-        session_id, channel="console",
+        session_id,
+        channel="console",
     )
     if chat_id is not None:
         status = await task_tracker.get_status(chat_id)
@@ -156,9 +155,9 @@ def _archive_current_plan_to_pn(pn: dict, reason: str) -> Optional[str]:
             "abandoned",
             reason,
         )
-    pn.setdefault("storage", {}).setdefault("plans", {})[old.id] = (
-        old.model_dump(mode="json")
-    )
+    pn.setdefault("storage", {}).setdefault("plans", {})[
+        old.id
+    ] = old.model_dump(mode="json")
     return old.id
 
 
@@ -220,7 +219,11 @@ class SOPUploadBody(BaseModel):
     ``from_sop``.
     """
 
-    yaml: str = Field(..., min_length=1, description="SOP YAML text (minimal-contract format).")
+    yaml: str = Field(
+        ...,
+        min_length=1,
+        description="SOP YAML text (minimal-contract format).",
+    )
 
 
 class DAGUploadBody(BaseModel):
@@ -297,7 +300,9 @@ def _extract_artifacts(pn: dict) -> List[ArtifactItem]:
     return items
 
 
-def _get_workspace_dir(workspace: Any, agent_config: Any | None = None) -> Path:
+def _get_workspace_dir(
+    workspace: Any, agent_config: Any | None = None
+) -> Path:
     """Infer the agent workspace directory from workspace / runner / agent_config."""
     runner = getattr(workspace, "runner", None)
     raw = (
@@ -385,8 +390,15 @@ _HTML_REWRITE_ATTRS: tuple[tuple[str, str], ...] = (
 )
 
 _SKIP_SCHEMES: tuple[str, ...] = (
-    "http://", "https://", "file://", "data:",
-    "mailto:", "tel:", "javascript:", "blob:", "about:",
+    "http://",
+    "https://",
+    "file://",
+    "data:",
+    "mailto:",
+    "tel:",
+    "javascript:",
+    "blob:",
+    "about:",
 )
 
 
@@ -481,9 +493,7 @@ def _serve_artifact_file(
     if not host_path.is_file():
         raise HTTPException(
             status_code=404,
-            detail=(
-                f"Artifact file is missing on disk: {matched.path}"
-            ),
+            detail=(f"Artifact file is missing on disk: {matched.path}"),
         )
 
     if not _is_html_artifact(matched):
@@ -498,7 +508,8 @@ def _serve_artifact_file(
     try:
         context = _build_artifact_path_context(workspace, session_id, agent_id)
         rewritten = _rewrite_html_artifact_links(
-            host_path.read_bytes(), context=context,
+            host_path.read_bytes(),
+            context=context,
         )
     except Exception:  # pylint: disable=broad-except
         logger.warning(

@@ -107,8 +107,7 @@ def format_pending_edits(edits: list[dict]) -> str:
             replaced = edit.get("replaced_graph_id")
             node_summary = edit.get("node_summary") or []
             summary_lines = "\n".join(
-                f"  - `{x['id']}`: {x['name']}"
-                f" deps={x.get('deps') or []}"
+                f"  - `{x['id']}`: {x['name']}" f" deps={x.get('deps') or []}"
                 for x in node_summary
                 if isinstance(x, dict)
             )
@@ -136,7 +135,7 @@ def format_pending_edits(edits: list[dict]) -> str:
                 f"- 删除节点：{removed}\n"
                 f"- 用户显式改变状态：{overridden}\n"
                 f"- 下游级联 STALE：{stale}\n"
-                f"- 已 done 节点保留进度，请勿重新执行。"
+                f"- 已 done 节点保留进度，请勿重新执行。",
             )
         elif etype == "node_edited":
             # Legacy rendering for old session files.
@@ -205,7 +204,9 @@ class DataPawAgent(QwenPawAgent):
 
         # Diagnostic-only: avoid calling host helpers on a missing skills dir.
         if workspace_dir is not None:
-            skills_path = get_workspace_skills_dir(Path(workspace_dir)).resolve()
+            skills_path = get_workspace_skills_dir(
+                Path(workspace_dir)
+            ).resolve()
             if skills_path.exists():
                 logger.debug("DataPaw skills dir present at %s", skills_path)
 

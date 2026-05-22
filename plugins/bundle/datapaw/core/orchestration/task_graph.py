@@ -74,6 +74,7 @@ NodeStatus = Literal[
 ]
 """TaskNode states: parent ``SubTask`` 4-state set plus ``failed`` / ``stale``."""
 
+
 class TaskNode(SubTask):
     """DAG execution unit; extends ``SubTask``."""
 
@@ -204,28 +205,57 @@ class TaskNode(SubTask):
 
 _SOP_GRAPH_FIELDS: tuple = ("name", "description", "expected_outcome")
 _SOP_NODE_FIELDS: tuple = (
-    "node_id", "name", "description",
-    "expected_outcome", "deps",
+    "node_id",
+    "name",
+    "description",
+    "expected_outcome",
+    "deps",
 )
 _SOP_GRAPH_ALLOWED: frozenset = frozenset(set(_SOP_GRAPH_FIELDS) | {"nodes"})
-_SOP_GRAPH_FORBIDDEN: frozenset = frozenset({
-    "id", "anchor_message_id", "created_at", "finished_at",
-    "outcome", "state",
-})
+_SOP_GRAPH_FORBIDDEN: frozenset = frozenset(
+    {
+        "id",
+        "anchor_message_id",
+        "created_at",
+        "finished_at",
+        "outcome",
+        "state",
+    }
+)
 _SOP_NODE_ALLOWED: frozenset = frozenset(_SOP_NODE_FIELDS)
-_SOP_NODE_FORBIDDEN: frozenset = frozenset({
-    "state", "output", "error", "started_at", "finished_at",
-    "outcome", "trace",
-})
+_SOP_NODE_FORBIDDEN: frozenset = frozenset(
+    {
+        "state",
+        "output",
+        "error",
+        "started_at",
+        "finished_at",
+        "outcome",
+        "trace",
+    }
+)
 
-_DAG_TOP_RUNTIME_IGNORED: frozenset = frozenset({
-    "id", "anchor_message_id", "created_at", "finished_at",
-    "outcome", "state",
-})
-_DAG_NODE_RUNTIME_IGNORED: frozenset = frozenset({
-    "created_at", "output", "error", "started_at", "finished_at", "outcome",
-    "trace",
-})
+_DAG_TOP_RUNTIME_IGNORED: frozenset = frozenset(
+    {
+        "id",
+        "anchor_message_id",
+        "created_at",
+        "finished_at",
+        "outcome",
+        "state",
+    }
+)
+_DAG_NODE_RUNTIME_IGNORED: frozenset = frozenset(
+    {
+        "created_at",
+        "output",
+        "error",
+        "started_at",
+        "finished_at",
+        "outcome",
+        "trace",
+    }
+)
 _DAG_NODE_ALLOWED: frozenset = frozenset(set(_SOP_NODE_FIELDS) | {"state"})
 _DAG_USER_STATES: frozenset = frozenset({"todo", "stale", "abandoned"})
 _DAG_BACKEND_STATES: frozenset = frozenset({"done", "in_progress", "failed"})
@@ -299,7 +329,9 @@ def _validate_sop_dict(data: dict) -> List[Dict[str, Any]]:
 
     # Kahn topological sort to detect cycles.
     in_degree: Dict[str, int] = {n["node_id"]: 0 for n in processed_nodes}
-    adjacency: Dict[str, List[str]] = {n["node_id"]: [] for n in processed_nodes}
+    adjacency: Dict[str, List[str]] = {
+        n["node_id"]: [] for n in processed_nodes
+    }
     for n in processed_nodes:
         for dep in n["deps"]:
             adjacency[dep].append(n["node_id"])
@@ -356,7 +388,10 @@ def _validate_dag_dict(data: dict) -> List[Dict[str, Any]]:
         clean_node = {
             k: v for k, v in node.items() if k not in _DAG_NODE_RUNTIME_IGNORED
         }
-        if "state" in clean_node and clean_node["state"] not in _DAG_USER_STATES:
+        if (
+            "state" in clean_node
+            and clean_node["state"] not in _DAG_USER_STATES
+        ):
             # ``GET /dag`` round-trip carries backend-owned states (done /
             # in_progress / failed). Treat them as read-only and drop only
             # when the node also carries other runtime fields. A hand-
@@ -394,7 +429,9 @@ def _validate_dag_dict(data: dict) -> List[Dict[str, Any]]:
             )
 
     in_degree: Dict[str, int] = {n["node_id"]: 0 for n in processed_nodes}
-    adjacency: Dict[str, List[str]] = {n["node_id"]: [] for n in processed_nodes}
+    adjacency: Dict[str, List[str]] = {
+        n["node_id"]: [] for n in processed_nodes
+    }
     for n in processed_nodes:
         for dep in n["deps"]:
             adjacency[dep].append(n["node_id"])
@@ -485,7 +522,7 @@ class Sop(BaseModel):
                     description=n["description"],
                     expected_outcome=n["expected_outcome"],
                     deps=n.get("deps", []),
-                )
+                ),
             )
         return cls(
             name=data["name"],
@@ -519,7 +556,9 @@ class Sop(BaseModel):
         }
 
     def to_yaml(self) -> str:
-        return yaml.safe_dump(self.to_dict(), allow_unicode=True, sort_keys=False)
+        return yaml.safe_dump(
+            self.to_dict(), allow_unicode=True, sort_keys=False
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -588,7 +627,11 @@ class Dag(BaseModel):
                         "expected_outcome": n.expected_outcome,
                         "deps": list(n.deps),
                     },
-                    **({"state": n.state} if "state" in n.model_fields_set else {}),
+                    **(
+                        {"state": n.state}
+                        if "state" in n.model_fields_set
+                        else {}
+                    ),
                 }
                 for n in self.nodes
             ],
@@ -942,7 +985,11 @@ class TaskGraph(Plan):
             changed = False
             for field in structural_fields:
                 old = getattr(node, field)
-                new = list(patch_node.deps) if field == "deps" else getattr(patch_node, field)
+                new = (
+                    list(patch_node.deps)
+                    if field == "deps"
+                    else getattr(patch_node, field)
+                )
                 if old != new:
                     setattr(node, field, new)
                     changed = True

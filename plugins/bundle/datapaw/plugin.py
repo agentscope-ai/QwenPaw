@@ -41,9 +41,10 @@ class DataPawPlugin:
         # not in the startup hook: host's register_http_router itself does
         # the SPA-catch-all-aware mount + bookkeeping for unload cleanup.
         from core.routers import tasks_router
+
         api.register_http_router(
             tasks_router,
-            prefix="/tasks",                     # final URL: /api/tasks/...
+            prefix="/tasks",  # final URL: /api/tasks/...
             tags=["datapaw-tasks"],
         )
 

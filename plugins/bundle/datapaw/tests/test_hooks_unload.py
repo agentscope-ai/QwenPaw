@@ -19,9 +19,12 @@ def test_patch_plugin_loader_unload_runs_uninstall_for_datapaw():
     fake_module, FakeLoader = _build_fake_loader_module()
     calls: list = []
 
-    with patch("hooks.uninstall_builtin_agents",
-               side_effect=lambda: calls.append("uninstall")):
+    with patch(
+        "hooks.uninstall_builtin_agents",
+        side_effect=lambda: calls.append("uninstall"),
+    ):
         from hooks import patch_plugin_loader_unload
+
         patch_plugin_loader_unload(_loader_module=fake_module)
 
         result = asyncio.run(
@@ -36,9 +39,12 @@ def test_patch_plugin_loader_unload_skips_for_other_plugins():
     fake_module, FakeLoader = _build_fake_loader_module()
     calls: list = []
 
-    with patch("hooks.uninstall_builtin_agents",
-               side_effect=lambda: calls.append("uninstall")):
+    with patch(
+        "hooks.uninstall_builtin_agents",
+        side_effect=lambda: calls.append("uninstall"),
+    ):
         from hooks import patch_plugin_loader_unload
+
         patch_plugin_loader_unload(_loader_module=fake_module)
 
         result = asyncio.run(
@@ -68,6 +74,7 @@ def test_patch_plugin_loader_unload_swallows_uninstall_errors():
 
     with patch("hooks.uninstall_builtin_agents", side_effect=_boom):
         from hooks import patch_plugin_loader_unload
+
         patch_plugin_loader_unload(_loader_module=fake_module)
 
         result = asyncio.run(FakeLoader().unload_plugin("datapaw"))

@@ -11,8 +11,10 @@ def test_smart_factory_routes_datapaw_to_adapter():
     fake_dp_agent = MagicMock(name="DataPawAgent")
     factory = _SmartAgentFactory(fake_qwen)
 
-    with patch("hooks._import_data_paw_agent",
-               return_value=lambda *a, **kw: fake_dp_agent):
+    with patch(
+        "hooks._import_data_paw_agent",
+        return_value=lambda *a, **kw: fake_dp_agent,
+    ):
         result = factory(
             agent_config=MagicMock(),
             request_context={"agent_id": "datapaw"},
@@ -68,7 +70,11 @@ def test_factory_accepts_main_runner_kwargs_without_typeerror():
         mcp_clients=[],
         memory_manager=MagicMock(),
         context_manager=MagicMock(),
-        request_context={"agent_id": "datapaw", "session_id": "s1", "user_id": "u1"},
+        request_context={
+            "agent_id": "datapaw",
+            "session_id": "s1",
+            "user_id": "u1",
+        },
         workspace_dir="/tmp/ws",
         task_tracker=MagicMock(),
         plan_notebook=MagicMock(),
@@ -83,9 +89,12 @@ def test_factory_accepts_main_runner_kwargs_without_typeerror():
         factory(**host_kwargs)
     except TypeError as e:
         msg = str(e)
-        if "enable_memory_manager" in msg or "got an unexpected keyword argument" in msg:
+        if (
+            "enable_memory_manager" in msg
+            or "got an unexpected keyword argument" in msg
+        ):
             raise AssertionError(
-                f"Adapter passes unknown kwarg(s) to host's QwenPawAgent: {msg}"
+                f"Adapter passes unknown kwarg(s) to host's QwenPawAgent: {msg}",
             ) from e
     except Exception:
         # Other failures (e.g. agentscope wiring with MagicMocks) are fine —
@@ -145,15 +154,26 @@ def _build_fake_runner_module():
 
 def test_setup_runner_hooks_swaps_qwenpaw_and_wraps_query_handler():
     """After setup: runner module's QwenPawAgent is the factory; query_handler is marked _datapaw_patched."""
-    fake_runner_module, FakeAgentRunner, orig_query_handler = _build_fake_runner_module()
+    (
+        fake_runner_module,
+        FakeAgentRunner,
+        orig_query_handler,
+    ) = _build_fake_runner_module()
 
     from hooks import setup_runner_hooks
+
     setup_runner_hooks(_runner_module=fake_runner_module)
 
     assert callable(fake_runner_module.QwenPawAgent)
-    assert getattr(fake_runner_module.QwenPawAgent, "_datapaw_factory", False) is True
+    assert (
+        getattr(fake_runner_module.QwenPawAgent, "_datapaw_factory", False)
+        is True
+    )
     assert FakeAgentRunner.query_handler is not orig_query_handler
-    assert getattr(FakeAgentRunner.query_handler, "_datapaw_patched", False) is True
+    assert (
+        getattr(FakeAgentRunner.query_handler, "_datapaw_patched", False)
+        is True
+    )
 
 
 def test_setup_runner_hooks_idempotent():
@@ -161,6 +181,7 @@ def test_setup_runner_hooks_idempotent():
     fake_runner_module, FakeAgentRunner, _orig = _build_fake_runner_module()
 
     from hooks import setup_runner_hooks
+
     setup_runner_hooks(_runner_module=fake_runner_module)
     first_factory = fake_runner_module.QwenPawAgent
     first_qh = FakeAgentRunner.query_handler

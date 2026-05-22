@@ -20,14 +20,19 @@ def test_ensure_builtin_agents_writes_profile_when_missing(tmp_path):
     saved = []
     seeded = []
 
-    with patch("agents_setup.load_config", return_value=fake_cfg), \
-         patch("agents_setup.save_config", side_effect=lambda c: saved.append(c)), \
-         patch("agents_setup.save_agent_config") as save_agent, \
-         patch("agents_setup._seed_persona_md_files", side_effect=lambda d, language: seeded.append((d, language))), \
-         patch("agents_setup.WORKING_DIR", tmp_path):
+    with patch("agents_setup.load_config", return_value=fake_cfg), patch(
+        "agents_setup.save_config", side_effect=lambda c: saved.append(c)
+    ), patch("agents_setup.save_agent_config") as save_agent, patch(
+        "agents_setup._seed_persona_md_files",
+        side_effect=lambda d, language: seeded.append((d, language)),
+    ), patch(
+        "agents_setup.WORKING_DIR", tmp_path
+    ):
         ensure_builtin_agents()
 
-    assert "datapaw" in fake_cfg.agents.profiles, "datapaw was not written to profiles"
+    assert (
+        "datapaw" in fake_cfg.agents.profiles
+    ), "datapaw was not written to profiles"
     assert len(saved) == 1, "save_config should be called exactly once"
     assert save_agent.call_count == 1
     args, _ = save_agent.call_args
@@ -50,15 +55,23 @@ def test_ensure_builtin_agents_idempotent(tmp_path):
     ws_dir = (tmp_path / "workspaces" / "datapaw").resolve()
     ws_dir.mkdir(parents=True, exist_ok=True)
 
-    fake_cfg = _fake_config(profiles={
-        "datapaw": AgentProfileRef(id="datapaw", workspace_dir=str(ws_dir)),
-    })
+    fake_cfg = _fake_config(
+        profiles={
+            "datapaw": AgentProfileRef(
+                id="datapaw", workspace_dir=str(ws_dir)
+            ),
+        },
+    )
 
-    with patch("agents_setup.load_config", return_value=fake_cfg), \
-         patch("agents_setup.save_config") as save_config, \
-         patch("agents_setup.save_agent_config") as save_agent, \
-         patch("agents_setup._seed_persona_md_files"), \
-         patch("agents_setup.WORKING_DIR", tmp_path):
+    with patch("agents_setup.load_config", return_value=fake_cfg), patch(
+        "agents_setup.save_config"
+    ) as save_config, patch(
+        "agents_setup.save_agent_config"
+    ) as save_agent, patch(
+        "agents_setup._seed_persona_md_files"
+    ), patch(
+        "agents_setup.WORKING_DIR", tmp_path
+    ):
         ensure_builtin_agents()
 
     # Already present → save_config should NOT be called.
@@ -120,13 +133,18 @@ def test_uninstall_builtin_agents_removes_profile_and_workspace(tmp_path):
     (ws_dir / "marker").write_text("x", encoding="utf-8")
     (ws_dir / "agent.json").write_text("{}", encoding="utf-8")
 
-    fake_cfg = _fake_config(profiles={
-        "datapaw": AgentProfileRef(id="datapaw", workspace_dir=str(ws_dir)),
-    })
+    fake_cfg = _fake_config(
+        profiles={
+            "datapaw": AgentProfileRef(
+                id="datapaw", workspace_dir=str(ws_dir)
+            ),
+        },
+    )
     fake_cfg.agents.active_agent = "default"
 
-    with patch("agents_setup.load_config", return_value=fake_cfg), \
-         patch("agents_setup.save_config") as save_config_mock:
+    with patch("agents_setup.load_config", return_value=fake_cfg), patch(
+        "agents_setup.save_config"
+    ) as save_config_mock:
         uninstall_builtin_agents()
 
     assert "datapaw" not in fake_cfg.agents.profiles, "profile was not removed"
@@ -142,13 +160,18 @@ def test_uninstall_builtin_agents_resets_active_agent_when_datapaw(tmp_path):
     ws_dir = tmp_path / "workspaces" / "datapaw"
     ws_dir.mkdir(parents=True)
 
-    fake_cfg = _fake_config(profiles={
-        "datapaw": AgentProfileRef(id="datapaw", workspace_dir=str(ws_dir)),
-    })
+    fake_cfg = _fake_config(
+        profiles={
+            "datapaw": AgentProfileRef(
+                id="datapaw", workspace_dir=str(ws_dir)
+            ),
+        },
+    )
     fake_cfg.agents.active_agent = "datapaw"
 
-    with patch("agents_setup.load_config", return_value=fake_cfg), \
-         patch("agents_setup.save_config"):
+    with patch("agents_setup.load_config", return_value=fake_cfg), patch(
+        "agents_setup.save_config"
+    ):
         uninstall_builtin_agents()
 
     assert fake_cfg.agents.active_agent == "default"
@@ -160,8 +183,9 @@ def test_uninstall_builtin_agents_noop_when_not_installed(tmp_path):
 
     fake_cfg = _fake_config(profiles={})
 
-    with patch("agents_setup.load_config", return_value=fake_cfg), \
-         patch("agents_setup.save_config") as save_config_mock:
+    with patch("agents_setup.load_config", return_value=fake_cfg), patch(
+        "agents_setup.save_config"
+    ) as save_config_mock:
         uninstall_builtin_agents()
 
     save_config_mock.assert_not_called()
@@ -192,13 +216,18 @@ def test_install_plugin_skills_writes_enabled_manifest(tmp_path):
     _install_plugin_skills(tmp_path)
 
     import json as _json
+
     manifest_path = tmp_path / "skill.json"
     assert manifest_path.exists()
     manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
 
     skills = manifest["skills"]
     # At a minimum, these three core skills must be present and enabled.
-    for required in ("analysis-plan-builder", "bi-anomaly-detection", "bi-report-generation"):
+    for required in (
+        "analysis-plan-builder",
+        "bi-anomaly-detection",
+        "bi-report-generation",
+    ):
         assert required in skills, f"manifest is missing {required}"
         entry = skills[required]
         assert entry["enabled"] is True
@@ -212,11 +241,15 @@ def test_install_plugin_skills_idempotent(tmp_path):
     import json as _json
 
     _install_plugin_skills(tmp_path)
-    manifest1 = _json.loads((tmp_path / "skill.json").read_text(encoding="utf-8"))
+    manifest1 = _json.loads(
+        (tmp_path / "skill.json").read_text(encoding="utf-8")
+    )
     skills1 = list(manifest1["skills"].keys())
 
     _install_plugin_skills(tmp_path)
-    manifest2 = _json.loads((tmp_path / "skill.json").read_text(encoding="utf-8"))
+    manifest2 = _json.loads(
+        (tmp_path / "skill.json").read_text(encoding="utf-8")
+    )
     skills2 = list(manifest2["skills"].keys())
 
     assert sorted(skills1) == sorted(skills2)
@@ -256,5 +289,7 @@ def test_install_plugin_skills_preserves_user_customized_skills(tmp_path):
     manifest2 = _json.loads(manifest_path.read_text(encoding="utf-8"))
     custom_entry = manifest2["skills"].get("my-custom")
     assert custom_entry is not None, "user skill was accidentally removed"
-    assert custom_entry["enabled"] is False, "plugin install wrongly flipped user skill's enabled"
+    assert (
+        custom_entry["enabled"] is False
+    ), "plugin install wrongly flipped user skill's enabled"
     assert custom_entry["source"] == "customized"

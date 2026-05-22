@@ -56,12 +56,11 @@ def default_artifacts_root(
     Otherwise: ``{WORKING_DIR}/workspaces/{agent_id}/artifacts``.
     """
     if workspace_dir is not None:
-        return (Path(workspace_dir).expanduser() / ARTIFACTS_DIR_NAME).resolve()
+        return (
+            Path(workspace_dir).expanduser() / ARTIFACTS_DIR_NAME
+        ).resolve()
     return (
-        WORKING_DIR
-        / "workspaces"
-        / agent_id
-        / ARTIFACTS_DIR_NAME
+        WORKING_DIR / "workspaces" / agent_id / ARTIFACTS_DIR_NAME
     ).resolve()
 
 
@@ -115,7 +114,9 @@ class PathContext:
         object.__setattr__(self, "mount_dir", Path(self.mount_dir).resolve())
         if self.skills_dir is not None:
             object.__setattr__(
-                self, "skills_dir", Path(self.skills_dir).resolve(),
+                self,
+                "skills_dir",
+                Path(self.skills_dir).resolve(),
             )
 
     @property
@@ -158,7 +159,7 @@ class PathContext:
                     Path(""),
                     f"Skills 目录未挂载，无法访问 {skills_target}。",
                 )
-            raw_rel = fp[len(skills_target):].lstrip("/")
+            raw_rel = fp[len(skills_target) :].lstrip("/")
             candidate = (self.skills_dir / raw_rel).resolve()
             if not candidate.is_relative_to(self.skills_dir):
                 return (
@@ -173,7 +174,7 @@ class PathContext:
         if fp == "/workspace":
             return self.mount_dir, None
         if fp.startswith(workspace_prefix):
-            raw_rel = fp[len(workspace_prefix):].lstrip("/")
+            raw_rel = fp[len(workspace_prefix) :].lstrip("/")
             candidate = (self.mount_dir / raw_rel).resolve()
             if not candidate.is_relative_to(self.mount_dir):
                 return (
@@ -243,11 +244,15 @@ class PathContext:
         changed = False
         if self.skills_dir is not None:
             normalized, did = _replace_path_token(
-                normalized, str(self.skills_dir), self._skills_target_norm,
+                normalized,
+                str(self.skills_dir),
+                self._skills_target_norm,
             )
             changed = changed or did
         normalized, did = _replace_path_token(
-            normalized, str(self.mount_dir), "/workspace",
+            normalized,
+            str(self.mount_dir),
+            "/workspace",
         )
         changed = changed or did
         return normalized, changed
@@ -278,7 +283,7 @@ class PathContext:
         if fp == "/workspace":
             return self.mount_dir
         if fp.startswith("/workspace/"):
-            fp = fp[len("/workspace/"):]
+            fp = fp[len("/workspace/") :]
         return (self.mount_dir / fp.lstrip("/")).resolve()
 
     def contains(self, path: Path) -> bool:

@@ -226,7 +226,10 @@ def uninstall_builtin_agents() -> None:
     profile = config.agents.profiles.pop(BUILTIN_DATAPAW_AGENT_ID, None)
     if profile is None:
         return
-    if getattr(config.agents, "active_agent", None) == BUILTIN_DATAPAW_AGENT_ID:
+    if (
+        getattr(config.agents, "active_agent", None)
+        == BUILTIN_DATAPAW_AGENT_ID
+    ):
         config.agents.active_agent = "default"
     save_config(config)
     ws = Path(profile.workspace_dir)

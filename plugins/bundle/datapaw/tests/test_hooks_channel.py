@@ -10,12 +10,14 @@ import asyncio
 
 def test_extract_datapaw_metadata_returns_graph_id_and_node_id():
     from hooks import _extract_datapaw_metadata
+
     out = _extract_datapaw_metadata({"graph_id": "g1", "node_id": "n1"})
     assert out == {"graph_id": "g1", "node_id": "n1"}
 
 
 def test_extract_datapaw_metadata_accepts_nested_metadata_shape():
     from hooks import _extract_datapaw_metadata
+
     out = _extract_datapaw_metadata(
         {"metadata": {"graph_id": "g1", "node_id": "n1", "extra": "ignored"}},
     )
@@ -24,12 +26,14 @@ def test_extract_datapaw_metadata_accepts_nested_metadata_shape():
 
 def test_extract_datapaw_metadata_returns_empty_when_no_keys():
     from hooks import _extract_datapaw_metadata
+
     assert _extract_datapaw_metadata({}) == {}
     assert _extract_datapaw_metadata({"unrelated": 1}) == {}
 
 
 def test_extract_datapaw_metadata_handles_partial_keys():
     from hooks import _extract_datapaw_metadata
+
     out = _extract_datapaw_metadata({"graph_id": "g1"})
     assert out == {"graph_id": "g1"}
     assert "node_id" not in out
@@ -37,6 +41,7 @@ def test_extract_datapaw_metadata_handles_partial_keys():
 
 def test_extract_datapaw_metadata_handles_non_dict_input():
     from hooks import _extract_datapaw_metadata
+
     assert _extract_datapaw_metadata(None) == {}
     assert _extract_datapaw_metadata("string") == {}
     assert _extract_datapaw_metadata(123) == {}
@@ -60,6 +65,7 @@ def test_format_task_event_with_model_dump_json():
 
 def test_format_task_event_fallback_for_plain_object():
     from hooks import _format_task_event_as_sse
+
     out = _format_task_event_as_sse("hello")
     assert out.startswith("data: ")
     assert out.endswith("\n\n")
@@ -86,6 +92,7 @@ def test_wrapped_stream_one_drains_datapaw_queue_between_frames():
     class FakeEvent:
         def __init__(self, n):
             self.n = n
+
         def model_dump_json(self):
             return f'{{"object": "task_status", "n": {self.n}}}'
 
@@ -160,7 +167,9 @@ def test_setup_channel_sse_hook_patches_stream_one_and_adds_static_method():
     assert FakeChannel.stream_one is not orig
     assert getattr(FakeChannel.stream_one, "_datapaw_patched", False) is True
     assert hasattr(FakeChannel, "_extract_datapaw_metadata")
-    assert FakeChannel._extract_datapaw_metadata({"graph_id": "x"}) == {"graph_id": "x"}
+    assert FakeChannel._extract_datapaw_metadata({"graph_id": "x"}) == {
+        "graph_id": "x"
+    }
 
 
 def test_setup_channel_sse_hook_idempotent():

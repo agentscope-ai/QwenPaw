@@ -34,10 +34,12 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _datapaw_request_var: contextvars.ContextVar = contextvars.ContextVar(
-    "_datapaw_request", default=None,
+    "_datapaw_request",
+    default=None,
 )
 _datapaw_runner_var: contextvars.ContextVar = contextvars.ContextVar(
-    "_datapaw_runner", default=None,
+    "_datapaw_runner",
+    default=None,
 )
 
 
@@ -76,6 +78,7 @@ class _SmartAgentFactory:
 
 def _import_data_paw_agent():
     from core.agents.base import DataPawAgent
+
     return DataPawAgent
 
 
@@ -150,9 +153,11 @@ def _make_broadcast_hook(*, agent_id, session_id):
     ``type="plan_update"``) so frontend code can route by type without
     confusing DAG snapshots with linear plan responses.
     """
+
     async def _broadcast(event_type: str, payload: dict) -> None:
         try:
             from qwenpaw.plan.broadcast import broadcast_plan_update
+
             broadcast_plan_update(agent_id, payload, session_id=session_id)
         except Exception:  # pylint: disable=broad-except
             logger.warning(
@@ -167,6 +172,7 @@ def _make_broadcast_hook(*, agent_id, session_id):
 
 def _make_save_hook(*, runner, session_id, user_id, agent):
     """Return an async callable suitable for ``RuntimeStateManager._on_graph_change``."""
+
     async def _datapaw_save_hook():
         try:
             await runner.session.save_session_state(
@@ -197,14 +203,18 @@ def _wrap_query_handler(orig_query_handler):
             getattr(self, "agent_id", None) == BUILTIN_DATAPAW_AGENT_ID
         )
         if not is_datapaw:
-            async for item in orig_query_handler(self, msgs, request, **kwargs):
+            async for item in orig_query_handler(
+                self, msgs, request, **kwargs
+            ):
                 yield item
             return
 
         request_token = _datapaw_request_var.set(request)
         runner_token = _datapaw_runner_var.set(self)
         try:
-            async for item in orig_query_handler(self, msgs, request, **kwargs):
+            async for item in orig_query_handler(
+                self, msgs, request, **kwargs
+            ):
                 yield item
         finally:
             _datapaw_request_var.reset(request_token)
@@ -289,7 +299,7 @@ def _maybe_inject_node_metadata(
     if not frame.startswith("data: "):
         return frame
     try:
-        payload = json.loads(frame[len("data: "):].rstrip("\n"))
+        payload = json.loads(frame[len("data: ") :].rstrip("\n"))
     except (json.JSONDecodeError, ValueError):
         return frame
     if not isinstance(payload, dict):
@@ -402,6 +412,7 @@ def setup_channel_sse_hook(_channel_cls=None) -> None:
     """
     if _channel_cls is None:
         from qwenpaw.app.channels.console.channel import ConsoleChannel
+
         _channel_cls = ConsoleChannel
 
     if getattr(_channel_cls.stream_one, "_datapaw_patched", False):
@@ -426,6 +437,7 @@ def uninstall_builtin_agents() -> None:
     uninstall behaviour without touching agents_setup directly.
     """
     from agents_setup import uninstall_builtin_agents as _u
+
     return _u()
 
 
