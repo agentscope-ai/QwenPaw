@@ -212,8 +212,7 @@ export function MCPCreateModal({
                       <code>{`{ "mcpServers": { "key": {...} } }`}</code>
                     </li>
                     <li>
-                      {t("mcp.directFormat")}:{" "}
-                      <code>{`{ "key": {...} }`}</code>
+                      {t("mcp.directFormat")}: <code>{`{ "key": {...} }`}</code>
                     </li>
                     <li>
                       {t("mcp.singleFormat")}:{" "}

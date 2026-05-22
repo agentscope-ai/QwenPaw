@@ -1,8 +1,5 @@
 import type { MCPClientInfo } from "../../../../api/types";
-import {
-  getMcpTemplateById,
-  type MCPMarketTemplate,
-} from "./mcpTemplates";
+import { getMcpTemplateById, type MCPMarketTemplate } from "./mcpTemplates";
 
 export interface MCPMarketClientMeta {
   fromMarket: boolean;
@@ -91,7 +88,9 @@ export function formatMarketDescription(
   return note ? `[market:${templateId}]\n${note}` : `[market:${templateId}]`;
 }
 
-export function parseMarketClientMeta(client: MCPClientInfo): MCPMarketClientMeta {
+export function parseMarketClientMeta(
+  client: MCPClientInfo,
+): MCPMarketClientMeta {
   const raw = (client.description ?? "").trim();
 
   const tagged = raw.match(/^\[market:([^\]]+)\](?:\n([\s\S]*))?$/);

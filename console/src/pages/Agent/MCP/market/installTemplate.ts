@@ -28,10 +28,7 @@ function parseBearerToken(headerValue: string): string {
   return match ? match[1].trim() : trimmed;
 }
 
-export function isClientKeyTaken(
-  key: string,
-  existingKeys: string[],
-): boolean {
+export function isClientKeyTaken(key: string, existingKeys: string[]): boolean {
   const normalized = key.trim().toLowerCase();
   return existingKeys.some((k) => k.toLowerCase() === normalized);
 }
@@ -139,8 +136,7 @@ export function buildClientPayload(
     template.transport === "streamable_http" || template.transport === "sse";
 
   if (isHttp) {
-    const url =
-      (fieldValues.url ?? "").trim() || (template.url ?? "").trim();
+    const url = (fieldValues.url ?? "").trim() || (template.url ?? "").trim();
     const headers: Record<string, string> = {};
     for (const field of template.fields) {
       if (!field.headerKey) continue;
@@ -201,10 +197,9 @@ export function buildClientPayload(
   };
 }
 
-export type MCPClientUpdatePayload = Omit<
-  MCPClientCreatePayload,
-  "name"
-> & { name: string };
+export type MCPClientUpdatePayload = Omit<MCPClientCreatePayload, "name"> & {
+  name: string;
+};
 
 /** Build PUT body for editing an installed market client. */
 export function buildClientUpdatePayload(

@@ -35,10 +35,7 @@ export function isValidMcpClientKey(key: string): boolean {
   return getMcpClientKeyErrorCode(key) === null;
 }
 
-type TranslateFn = (
-  key: string,
-  options?: Record<string, string>,
-) => string;
+type TranslateFn = (key: string, options?: Record<string, string>) => string;
 
 /** Localized validation message for UI and JSON import. */
 export function getMcpClientKeyErrorMessage(

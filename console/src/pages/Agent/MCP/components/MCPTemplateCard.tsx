@@ -18,7 +18,9 @@ export function MCPTemplateCard({
 
   return (
     <div
-      className={`${styles.templateCard} ${selected ? styles.templateCardActive : ""}`}
+      className={`${styles.templateCard} ${
+        selected ? styles.templateCardActive : ""
+      }`}
       onClick={onSelect}
       role="button"
       tabIndex={0}

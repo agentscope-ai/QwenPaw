@@ -18,7 +18,8 @@ def validate_mcp_client_key(client_key: str) -> str | None:
         return "MCP client key must not be empty."
     if len(key) > MCP_CLIENT_KEY_MAX_LEN:
         return (
-            f"MCP client key must be at most {MCP_CLIENT_KEY_MAX_LEN} characters."
+            f"MCP client key must be at most "
+            f"{MCP_CLIENT_KEY_MAX_LEN} characters."
         )
     if not MCP_CLIENT_KEY_PATTERN.fullmatch(key):
         return (

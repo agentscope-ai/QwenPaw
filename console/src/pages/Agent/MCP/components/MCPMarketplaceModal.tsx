@@ -45,9 +45,7 @@ export function MCPMarketplaceModal({
       const name = t(tpl.nameKey).toLowerCase();
       const desc = t(tpl.descriptionKey).toLowerCase();
       return (
-        name.includes(q) ||
-        desc.includes(q) ||
-        tpl.id.toLowerCase().includes(q)
+        name.includes(q) || desc.includes(q) || tpl.id.toLowerCase().includes(q)
       );
     });
   }, [search, category, t]);
@@ -108,7 +106,9 @@ export function MCPMarketplaceModal({
           <div className={styles.categoryTabs}>
             <button
               type="button"
-              className={`${styles.categoryTab} ${category === "all" ? styles.active : ""}`}
+              className={`${styles.categoryTab} ${
+                category === "all" ? styles.active : ""
+              }`}
               onClick={() => setCategory("all")}
             >
               {t("mcp.market.categoryAll")}
@@ -117,7 +117,9 @@ export function MCPMarketplaceModal({
               <button
                 key={cat}
                 type="button"
-                className={`${styles.categoryTab} ${category === cat ? styles.active : ""}`}
+                className={`${styles.categoryTab} ${
+                  category === cat ? styles.active : ""
+                }`}
                 onClick={() => setCategory(cat)}
               >
                 {t(`mcp.market.categories.${cat}`)}

@@ -76,7 +76,8 @@ class MCPClientInfo(BaseModel):
     )
     connection_message: Optional[str] = Field(
         default=None,
-        description="Detail when connection_status is unavailable or connecting",
+        description="Detail when connection_status is unavailable"
+        " or connecting",
     )
 
 

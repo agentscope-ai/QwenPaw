@@ -31,7 +31,13 @@ import {
   ToolOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
-import { ShieldCheck, ShieldAlert, ShieldX, KeyRound, Link2 } from "lucide-react";
+import {
+  ShieldCheck,
+  ShieldAlert,
+  ShieldX,
+  KeyRound,
+  Link2,
+} from "lucide-react";
 import api from "../../../../api";
 import { MCPOAuthSection } from "./MCPOAuthSection";
 import { MCPInstallWizard } from "./MCPInstallWizard";
@@ -105,10 +111,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
     [client, marketMeta, t],
   );
 
-  const marketTemplate = useMemo(
-    () => resolveMarketTemplate(client),
-    [client],
-  );
+  const marketTemplate = useMemo(() => resolveMarketTemplate(client), [client]);
 
   const isRemote =
     client.transport === "streamable_http" || client.transport === "sse";
@@ -309,7 +312,8 @@ export const MCPClientCard = React.memo(function MCPClientCard({
                   />
                 </span>
               </Tooltip>
-              {client.enabled && onRefreshConnection &&
+              {client.enabled &&
+                onRefreshConnection &&
                 (connectionRefreshing ? (
                   <span
                     className={styles.connectivityRefreshLoading}
@@ -331,39 +335,37 @@ export const MCPClientCard = React.memo(function MCPClientCard({
         </div>
 
         {hasOauth && (
-        <div className={styles.cardHeaderOauth}>
-          <div className={styles.oauthIconRow}>
-            {isOauthExpired && (
-              <Tooltip title={t("mcp.oauth.expired")}>
-                <ShieldAlert
-                  size={13}
-                  style={{ color: "#e67e22", flexShrink: 0 }}
-                />
-              </Tooltip>
-            )}
-            {isOauthAuthorized && (
-              <Tooltip title={t("mcp.oauth.authorized")}>
-                <ShieldCheck
-                  size={13}
-                  style={{ color: "#27ae60", flexShrink: 0 }}
-                />
-              </Tooltip>
-            )}
-            {!isOauthAuthorized && !isOauthExpired && (
-              <Tooltip title={t("mcp.oauth.notAuthorized")}>
-                <ShieldX
-                  size={13}
-                  style={{ color: "#7f8c8d", flexShrink: 0 }}
-                />
-              </Tooltip>
-            )}
+          <div className={styles.cardHeaderOauth}>
+            <div className={styles.oauthIconRow}>
+              {isOauthExpired && (
+                <Tooltip title={t("mcp.oauth.expired")}>
+                  <ShieldAlert
+                    size={13}
+                    style={{ color: "#e67e22", flexShrink: 0 }}
+                  />
+                </Tooltip>
+              )}
+              {isOauthAuthorized && (
+                <Tooltip title={t("mcp.oauth.authorized")}>
+                  <ShieldCheck
+                    size={13}
+                    style={{ color: "#27ae60", flexShrink: 0 }}
+                  />
+                </Tooltip>
+              )}
+              {!isOauthAuthorized && !isOauthExpired && (
+                <Tooltip title={t("mcp.oauth.notAuthorized")}>
+                  <ShieldX
+                    size={13}
+                    style={{ color: "#7f8c8d", flexShrink: 0 }}
+                  />
+                </Tooltip>
+              )}
+            </div>
           </div>
-        </div>
         )}
 
-        <p className={styles.mcpDescription}>
-          {displayDescription || "-"}
-        </p>
+        <p className={styles.mcpDescription}>{displayDescription || "-"}</p>
 
         <div className={styles.cardFooter}>
           <Button

@@ -179,7 +179,9 @@ export function useMCP() {
         return updated;
       } catch (error: unknown) {
         const errMsg =
-          error instanceof Error ? error.message : t("mcp.connectivity.refreshError");
+          error instanceof Error
+            ? error.message
+            : t("mcp.connectivity.refreshError");
         message.error(errMsg);
         return null;
       }

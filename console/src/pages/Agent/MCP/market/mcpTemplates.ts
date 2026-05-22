@@ -445,7 +445,8 @@ export const mcpTemplates: MCPMarketTemplate[] = [
         labelKey: "mcp.market.templates.aliyunSls.fields.region",
         type: "text",
         required: false,
-        placeholderKey: "mcp.market.templates.aliyunSls.fields.regionPlaceholder",
+        placeholderKey:
+          "mcp.market.templates.aliyunSls.fields.regionPlaceholder",
       },
     ],
     docsUrl: "https://www.npmjs.com/package/aliyun-sls-mcp",

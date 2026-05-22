@@ -43,10 +43,9 @@ export const mcpApi = {
    * Reconnect and refresh connectivity status for an MCP client
    */
   refreshMCPConnection: (clientKey: string) =>
-    request<MCPClientInfo>(
-      `/mcp/reconnect/${encodeURIComponent(clientKey)}`,
-      { method: "PATCH" },
-    ),
+    request<MCPClientInfo>(`/mcp/reconnect/${encodeURIComponent(clientKey)}`, {
+      method: "PATCH",
+    }),
 
   /**
    * Toggle MCP client enabled status
