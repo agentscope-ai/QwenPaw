@@ -191,6 +191,13 @@ function MarketPage() {
               type="search"
               aria-label={t("market.searchPlaceholder")}
             />
+            <Button
+              type="primary"
+              className={styles.searchButton}
+              loading={market.loading && market.results.length === 0}
+            >
+              {t("common.search")}
+            </Button>
           </div>
         </div>
 

@@ -67,3 +67,29 @@
   background: rgba(239, 240, 243, 0.9);
   color: rgba(20, 20, 19, 0.45);
 }
+
+/* ─── Dark mode ──────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .queueItem {
+    color: rgba(255, 255, 255, 0.88);
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .queueItemMeta {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .queueItemMessage {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .queued {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .cancelled {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.45);
+  }
+}

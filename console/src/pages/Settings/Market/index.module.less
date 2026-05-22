@@ -29,8 +29,7 @@
 
 .searchContainer {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: stretch;
   flex: 1;
   max-width: 600px;
 }
@@ -41,7 +40,8 @@
   height: 36px;
   padding: 0 12px;
   border: 1px solid var(--color-border-secondary, #d9d9d9);
-  border-radius: 6px;
+  border-right: none;
+  border-radius: 6px 0 0 6px;
   font-size: 14px;
   color: rgba(20, 20, 19, 0.88);
   background: var(--color-bg-base, #ffffff);
@@ -55,6 +55,12 @@
   &:focus {
     border-color: #ff7f16;
   }
+}
+
+.searchButton {
+  border-radius: 0 6px 6px 0 !important;
+  height: 36px;
+  flex-shrink: 0;
 }
 
 /* ─── Provider chips (filter row) ────────────────────────────────────────── */
@@ -192,5 +198,31 @@
   .chipActive {
     background: rgba(22, 119, 255, 0.2);
     color: #4da3ff;
+  }
+
+  .chipDisabled {
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.65);
+    }
+  }
+
+  .errorRow {
+    background: rgba(245, 34, 45, 0.12);
+    border-color: rgba(245, 34, 45, 0.25);
+    color: #ff7875;
+  }
+
+  .noMoreText {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .queueDrawer {
+    background: #2a2a2a;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  }
+
+  .queueHeader {
+    color: rgba(255, 255, 255, 0.88);
   }
 }
