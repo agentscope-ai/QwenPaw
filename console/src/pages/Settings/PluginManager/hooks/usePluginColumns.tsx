@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Tag, Tooltip, Button, Space, Typography } from "antd";
-import { Package, Trash2, CheckCircle, XCircle } from "lucide-react";
+import { Package, Trash2, CheckCircle, XCircle, Download } from "lucide-react";
 import type { PluginType, PluginInfo } from "@/api/modules/plugin";
 import { PluginTypeTag } from "../components/PluginTypeTag";
 
@@ -8,12 +8,16 @@ const { Text } = Typography;
 
 interface UsePluginColumnsOptions {
   uninstallingId: string | null;
+  exportingId: string | null;
   onUninstall: (record: PluginInfo) => void;
+  onExport: (record: PluginInfo) => void;
 }
 
 export function usePluginColumns({
   uninstallingId,
+  exportingId,
   onUninstall,
+  onExport,
 }: UsePluginColumnsOptions) {
   const { t } = useTranslation();
 
@@ -92,18 +96,29 @@ export function usePluginColumns({
     {
       title: "",
       key: "actions",
-      width: 100,
+      width: 130,
       render: (_: unknown, record: PluginInfo) => (
-        <Tooltip title={t("pluginManager.uninstall")}>
-          <Button
-            type="text"
-            danger
-            size="small"
-            icon={<Trash2 size={14} />}
-            loading={uninstallingId === record.id}
-            onClick={() => onUninstall(record)}
-          />
-        </Tooltip>
+        <Space size={4}>
+          <Tooltip title={t("pluginManager.export")}>
+            <Button
+              type="text"
+              size="small"
+              icon={<Download size={14} />}
+              loading={exportingId === record.id}
+              onClick={() => onExport(record)}
+            />
+          </Tooltip>
+          <Tooltip title={t("pluginManager.uninstall")}>
+            <Button
+              type="text"
+              danger
+              size="small"
+              icon={<Trash2 size={14} />}
+              loading={uninstallingId === record.id}
+              onClick={() => onUninstall(record)}
+            />
+          </Tooltip>
+        </Space>
       ),
     },
   ];

@@ -2257,7 +2257,10 @@
     "kindBundle": "插件包",
     "kindTool": "工具",
     "filterByName": "按名称筛选",
-    "filterByKind": "按标签筛选"
+    "filterByKind": "按标签筛选",
+    "export": "导出",
+    "exportFailed": "导出插件失败",
+    "exportSuccess": "导出成功"
   },
   "market": {
     "searchPlaceholder": "在多平台中搜索技能",

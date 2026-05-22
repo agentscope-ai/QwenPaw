@@ -4,9 +4,11 @@
 static files.  Also provides runtime install / uninstall endpoints."""
 
 import inspect
+import io
 import json
 import logging
 import mimetypes
+import re
 import shutil
 import tempfile
 import urllib.request
@@ -17,6 +19,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from starlette.responses import StreamingResponse
 
 from ..utils import schedule_agent_reload
 
@@ -435,6 +438,36 @@ def _collect_plugin_runtime_ids(
     return provider_ids, command_names
 
 
+# ── Export limits ────────────────────────────────────────────────────────
+
+_MAX_EXPORT_FILES = 500
+_MAX_EXPORT_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
+
+_EXCLUDE_NAMES = {
+    "__pycache__",
+    ".git",
+    ".hg",
+    ".svn",
+    "node_modules",
+    ".DS_Store",
+    ".eggs",
+    "lightrag_storage",
+    "knowledge",
+    ".aws",
+    ".ssh",
+    "secrets",
+}
+_EXCLUDE_SUFFIXES = (
+    ".pyc",
+    ".pyo",
+    ".egg-info",
+    ".key",
+    ".pem",
+    ".token",
+)
+_EXCLUDE_PREFIXES = (".env", "credentials")
+
+
 # ── Routes ───────────────────────────────────────────────────────────────
 
 
@@ -820,6 +853,120 @@ async def get_plugin_status(plugin_id: str, request: Request):
         status_code=404,
         detail=f"Plugin '{plugin_id}' not found.",
     )
+
+
+@router.get(
+    "/{plugin_id}/export",
+    summary="Export plugin as ZIP archive",
+    description=(
+        "Download a plugin as a ZIP file for backup or sharing. "
+        "Excludes caches, build artifacts, and VCS directories."
+    ),
+)
+async def export_plugin(plugin_id: str, request: Request):
+    """Export a plugin directory as a downloadable ZIP archive."""
+    loader = getattr(request.app.state, "plugin_loader", None)
+
+    source_path: Optional[Path] = None
+    version = "unknown"
+
+    if loader is not None:
+        record = loader.get_loaded_plugin(plugin_id)
+        if record is not None:
+            source_path = record.source_path
+            version = record.manifest.version
+
+    if source_path is None:
+        from ...config.utils import get_plugins_dir
+
+        candidate = get_plugins_dir() / plugin_id
+        if candidate.is_dir() and (candidate / "plugin.json").exists():
+            source_path = candidate
+            try:
+                manifest = json.loads(
+                    (candidate / "plugin.json").read_text(encoding="utf-8"),
+                )
+                version = manifest.get("version", "unknown")
+            except Exception:
+                pass
+
+    if source_path is None or not source_path.is_dir():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Plugin '{plugin_id}' not found.",
+        )
+
+    safe_plugin_id = re.sub(r"[^a-zA-Z0-9._-]", "_", plugin_id)
+    safe_version = re.sub(r"[^a-zA-Z0-9._-]", "_", version)
+    filename = f"{safe_plugin_id}-{safe_version}.zip"
+
+    buf = io.BytesIO()
+    base = source_path.resolve()
+
+    try:
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            file_count = 0
+            for file_path in sorted(base.rglob("*")):
+                rel = file_path.relative_to(base)
+
+                # Skip excluded directories and files by name/suffix/prefix
+                if any(part in _EXCLUDE_NAMES for part in rel.parts):
+                    continue
+                if rel.suffix in _EXCLUDE_SUFFIXES:
+                    continue
+                if any(rel.name.startswith(p) for p in _EXCLUDE_PREFIXES):
+                    continue
+                if any(part.startswith(".") for part in rel.parts[:-1]):
+                    continue
+
+                try:
+                    if not file_path.is_file():
+                        continue
+                    if file_path.is_symlink():
+                        continue
+                    resolved = file_path.resolve()
+                    if not resolved.is_relative_to(base):
+                        continue
+                except (OSError, ValueError):
+                    continue
+
+                file_count += 1
+                if file_count > _MAX_EXPORT_FILES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Plugin exceeds maximum file count "
+                        f"({_MAX_EXPORT_FILES}).",
+                    )
+
+                file_size = file_path.stat().st_size
+                if file_size > _MAX_EXPORT_FILE_SIZE:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File '{rel.as_posix()}' exceeds "
+                        f"maximum size limit.",
+                    )
+
+                zf.write(file_path, rel.as_posix())
+
+        buf.seek(0)
+
+        return StreamingResponse(
+            buf,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            f"Plugin export failed for '{plugin_id}': {exc}",
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Plugin export failed due to an internal error.",
+        ) from exc
 
 
 @router.get(
