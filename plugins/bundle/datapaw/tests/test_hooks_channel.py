@@ -83,7 +83,7 @@ def test_format_task_event_fallback_for_plain_object():
 
 
 def test_wrapped_stream_one_drains_datapaw_queue_between_frames():
-    """Wrap an original stream_one async generator; ensure queue events get yielded."""
+    """Wrap stream_one async generator; queue events get yielded."""
     from hooks import _wrap_stream_one
 
     queue = asyncio.Queue()
