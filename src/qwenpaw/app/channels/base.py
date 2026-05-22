@@ -418,7 +418,11 @@ class BaseChannel(ABC):
                 to_handle = sender_id
             else:
                 to_handle = self.get_to_handle_from_request(payload)
-            await self.send(to_handle, deny_msg, meta)
+            await self.send_content_parts(
+                to_handle,
+                [TextContent(type=ContentType.TEXT, text=deny_msg)],
+                meta,
+            )
         except Exception:
             logger.debug(
                 "%s access control: failed to send deny to %s",

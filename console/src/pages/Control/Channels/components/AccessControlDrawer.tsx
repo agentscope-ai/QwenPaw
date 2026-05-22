@@ -56,7 +56,9 @@ export function AccessControlDrawer({
       const data = await accessControlApi.getAclAll();
       setAllACLs(data);
       const keys = Object.keys(data);
-      if (!selectedChannel && keys.length > 0) {
+      if (keys.length === 0) {
+        setSelectedChannel(null);
+      } else if (!selectedChannel || !keys.includes(selectedChannel)) {
         setSelectedChannel(keys[0]);
       }
     } catch {
@@ -234,6 +236,7 @@ export function AccessControlDrawer({
             type="primary"
             icon={<PlusOutlined />}
             onClick={() => setAddModalOpen(true)}
+            disabled={!selectedChannel}
           >
             {t("channels.addUser")}
           </Button>

@@ -3010,7 +3010,7 @@ class MatrixChannel(BaseChannel):
             logger.error("MatrixChannel: send called but client not ready")
             return
 
-        room_id = to_handle
+        room_id = (meta or {}).get("room_id") or to_handle
 
         # NO_REPLY protocol: agent decided it has nothing to say.
         # Suppress the outgoing message entirely to avoid triggering the
@@ -3074,7 +3074,7 @@ class MatrixChannel(BaseChannel):
         if not self._client:
             return
 
-        room_id = to_handle
+        room_id = (meta or {}).get("room_id") or to_handle
         t = getattr(part, "type", None)
 
         # Extract the local file reference from the content part
