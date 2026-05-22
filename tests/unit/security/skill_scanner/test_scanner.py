@@ -269,6 +269,6 @@ class TestSkillScannerDiscoverFiles:
         (tmp_path / "top.py").write_text("x")
         files = scanner._discover_files(tmp_path)
         assert len(files) == 2
-        paths = {f.relative_path for f in files}
+        paths = {f.relative_path.replace("\\", "/") for f in files}
         assert "top.py" in paths
         assert "sub/nested.py" in paths

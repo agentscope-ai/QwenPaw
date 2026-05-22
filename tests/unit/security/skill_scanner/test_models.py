@@ -190,7 +190,8 @@ class TestSkillFile:
         f = sub / "deep.md"
         f.write_text("# deep")
         sf = SkillFile.from_path(f, tmp_path)
-        assert sf.relative_path == "sub/deep.md"
+        # Use forward-slash for cross-platform comparison
+        assert sf.relative_path.replace("\\", "/") == "sub/deep.md"
         assert sf.file_type == "markdown"
 
 

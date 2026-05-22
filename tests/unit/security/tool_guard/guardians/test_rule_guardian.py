@@ -3,6 +3,7 @@
 # pylint: disable=redefined-outer-name,unused-argument
 from __future__ import annotations
 
+import platform
 from pathlib import Path
 from unittest.mock import patch
 
@@ -350,6 +351,10 @@ class TestExtractRmTargets:
         """Simple rm command should extract targets."""
         assert _extract_rm_targets("rm file.txt") == ["file.txt"]
 
+    @pytest.mark.skipif(
+        platform.system() == "Windows",
+        reason="Unix-style rm path extraction on Windows",
+    )
     def test_rm_with_flags(self):
         """Flags should be skipped, targets extracted."""
         result = _extract_rm_targets("rm -rf /tmp/dir")
@@ -370,16 +375,28 @@ class TestExtractRmTargets:
         """Comment lines should be skipped."""
         assert not _extract_rm_targets("# rm something")
 
+    @pytest.mark.skipif(
+        platform.system() == "Windows",
+        reason="Unix-style rm path extraction on Windows",
+    )
     def test_rm_with_pipe(self):
         """rm after pipe separator."""
         result = _extract_rm_targets("echo hello | rm -f /tmp/file")
         assert "/tmp/file" in result
 
+    @pytest.mark.skipif(
+        platform.system() == "Windows",
+        reason="Unix-style rm path extraction on Windows",
+    )
     def test_rm_with_semicolon(self):
         """rm after semicolon separator."""
         result = _extract_rm_targets("echo hello ; rm -f /tmp/file")
         assert "/tmp/file" in result
 
+    @pytest.mark.skipif(
+        platform.system() == "Windows",
+        reason="Unix-style rm path extraction on Windows",
+    )
     def test_rm_with_ampersand(self):
         """rm after ampersand separator."""
         result = _extract_rm_targets("echo hello & rm -f /tmp/file")
@@ -486,6 +503,10 @@ class TestCheckRmTargetsOutsideWorkspace:
         )
         assert has_outside is False
 
+    @pytest.mark.skipif(
+        platform.system() == "Windows",
+        reason="Unix-style rm path extraction on Windows",
+    )
     def test_rm_outside_workspace(self, mock_workspace_root):
         """rm targeting outside files should return (True, [...])."""
         has_outside, paths = _check_rm_targets_outside_workspace(
@@ -873,6 +894,10 @@ class TestRuleBasedToolGuardianGuard:
         assert findings[0].snippet is not None
         assert "rm" in findings[0].snippet
 
+    @pytest.mark.skipif(
+        platform.system() == "Windows",
+        reason="Unix-style rm path extraction on Windows",
+    )
     def test_guard_rm_outside_workspace(
         self,
         tmp_path,

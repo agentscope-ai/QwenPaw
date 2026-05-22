@@ -35,9 +35,16 @@ class TestResolveFilePath:
 
     @patch("qwenpaw.agents.tools.file_io.get_current_workspace_dir")
     def test_absolute_path_unchanged(self, mock_ws):
+        import sys
+
         mock_ws.return_value = None
         result = _resolve_file_path("/tmp/test.txt")
-        assert result == "/tmp/test.txt"
+        # On Unix, path stays as-is; on Windows, it may get a
+        # drive prefix (e.g. C:\tmp\test.txt)
+        if sys.platform == "win32":
+            assert result.endswith("test.txt")
+        else:
+            assert result == "/tmp/test.txt"
 
     @patch("qwenpaw.agents.tools.file_io.get_current_workspace_dir")
     def test_relative_path_resolved(self, mock_ws):

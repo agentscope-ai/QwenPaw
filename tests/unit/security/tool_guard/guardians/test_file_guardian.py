@@ -252,7 +252,10 @@ class TestNormalizePath:
             return_value=tmp_path,
         ):
             result = _normalize_path("sub/file.txt")
-            assert str(tmp_path) in result
+            # _normalize_path returns forward-slash + lowercase on
+            # Windows, so compare against the normalized workspace root.
+            normalized_root = _normalize_path(str(tmp_path))
+            assert normalized_root in result
 
     def test_tilde_expanded(self, tmp_path: Path):
         with patch(
@@ -456,7 +459,10 @@ class TestIsSensitive:
         Path(dir_path).mkdir()
         guardian.add_sensitive_file(dir_path)
         child = str(Path(dir_path) / "deep" / "file.txt")
-        assert guardian._is_sensitive(child) is True
+        # _is_sensitive expects a normalized path (lowercase, forward
+        # slashes on Windows), so normalize before checking.
+        normalized_child = _normalize_path(child)
+        assert guardian._is_sensitive(normalized_child) is True
 
     def test_no_match(self, guardian, tmp_path):
         path = str(tmp_path / "secret.key")
