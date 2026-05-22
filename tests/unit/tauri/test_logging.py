@@ -6,7 +6,7 @@ import io
 import logging
 import sys
 
-from qwenpaw.tauri import logging as tauri_logging
+from qwenpaw.tauri import sidecar_logging as tauri_logging
 
 
 def test_tee_stream_writes_text_to_both_streams():

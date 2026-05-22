@@ -18,7 +18,7 @@ from qwenpaw.tauri.env import (
     DESKTOP_READY_PREFIX,
     ensure_desktop_cors_origins,
 )
-from qwenpaw.tauri.logging import install_sidecar_logging
+from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
 
 logger = logging.getLogger(__name__)
 

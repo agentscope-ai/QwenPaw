@@ -102,6 +102,10 @@ pub(crate) fn backend_port(state: tauri::State<'_, BackendState>) -> Option<u16>
     state.port()
 }
 
+/// Returns startup failures consumed by the bootstrap gate.
+///
+/// This is not a long-lived backend health signal after the WebView navigates to
+/// the backend-hosted console.
 #[tauri::command]
 pub(crate) fn backend_startup_error(state: tauri::State<'_, BackendState>) -> Option<String> {
     state.error()
