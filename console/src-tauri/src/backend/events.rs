@@ -1,5 +1,6 @@
 //! Sidecar process event handling and stderr capture.
 
+use serde::Deserialize;
 use tauri::Manager;
 use tauri_plugin_shell::process::{CommandEvent, TerminatedPayload};
 
@@ -7,6 +8,12 @@ use super::BackendState;
 
 const MAX_CAPTURED_STDERR_CHARS: usize = 4000;
 const STDERR_TRUNCATION_MARKER: &str = "\n[...stderr truncated...]\n";
+const BACKEND_READY_PREFIX: &str = "QWENPAW_BACKEND_READY ";
+
+#[derive(Deserialize)]
+struct BackendReadyPayload {
+    port: u16,
+}
 
 /// Watches sidecar output and reports failures for the current process generation.
 pub(super) fn watch(
@@ -20,10 +27,13 @@ pub(super) fn watch(
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line) => {
-                    log::info!(
-                        "[backend:{generation}] stdout: {}",
-                        String::from_utf8_lossy(&line),
-                    );
+                    let text = String::from_utf8_lossy(&line);
+                    log::info!("[backend:{generation}] stdout: {}", text.trim_end());
+                    if let Some(port) = ready_port_from_stdout(&text) {
+                        log::info!("[backend:{generation}] ready port={port}");
+                        app.state::<BackendState>()
+                            .set_port_if_current(generation, port);
+                    }
                 }
                 CommandEvent::Stderr(line) => {
                     record_stderr(generation, &mut last_stderr, &line);
@@ -49,6 +59,15 @@ pub(super) fn watch(
         app.state::<BackendState>()
             .clear_child_if_current(generation);
     });
+}
+
+fn ready_port_from_stdout(text: &str) -> Option<u16> {
+    text.lines().find_map(|line| {
+        let payload = line.trim().strip_prefix(BACKEND_READY_PREFIX)?;
+        serde_json::from_str::<BackendReadyPayload>(payload)
+            .ok()
+            .map(|ready| ready.port)
+    })
 }
 
 fn record_stderr(generation: u64, buffer: &mut String, line: &[u8]) {
@@ -114,5 +133,18 @@ mod tests {
         assert!(text.contains(STDERR_TRUNCATION_MARKER));
         assert!(text.ends_with("tail"));
         assert!(!text.contains("middle"));
+    }
+
+    #[test]
+    fn ready_port_from_stdout_parses_protocol_line() {
+        let text = "INFO before\nQWENPAW_BACKEND_READY {\"port\":54321}\n";
+
+        assert_eq!(ready_port_from_stdout(text), Some(54321));
+    }
+
+    #[test]
+    fn ready_port_from_stdout_ignores_other_output() {
+        assert_eq!(ready_port_from_stdout("QWENPAW_BACKEND_READY nope"), None);
+        assert_eq!(ready_port_from_stdout("ordinary stdout"), None);
     }
 }

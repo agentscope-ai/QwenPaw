@@ -12,6 +12,7 @@ export type BackendReadyStatus = "checking" | "ready" | "timeout" | "error";
 export const BACKEND_POLL_INTERVAL_MS = 1000;
 export const BACKEND_POLL_TIMEOUT_SECONDS = 180;
 export const BACKEND_REQUEST_TIMEOUT_MS = 2500;
+export const BACKEND_STARTUP_ERROR_POLL_INTERVAL_MS = 3000;
 
 interface BackendReadyPollingState {
   shouldGate: boolean;
@@ -52,30 +53,44 @@ export default function useBackendReadyPolling(): BackendReadyPollingState {
     [],
   );
 
-  const startPolling = useCallback(
-    (apiBaseUrl: string) => {
-      cancelPolling();
-      const runId = runRef.current;
-      let timer: ReturnType<typeof setTimeout> | null = null;
-      let controller: AbortController | null = null;
+  const startPolling = useCallback(() => {
+    cancelPolling();
+    const runId = runRef.current;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let controller: AbortController | null = null;
 
-      cancelPollingRef.current = () => {
-        if (timer) {
-          clearTimeout(timer);
-          timer = null;
-        }
-        controller?.abort();
-        controller = null;
-      };
+    cancelPollingRef.current = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      controller?.abort();
+      controller = null;
+    };
 
-      setStatus("checking");
-      setElapsed(0);
-      setErrorMessage("");
-      setReadyUrl("");
+    setStatus("checking");
+    setElapsed(0);
+    setErrorMessage("");
+    setReadyUrl("");
 
-      const start = Date.now();
+    const start = Date.now();
+    let lastStartupErrorCheckAt = 0;
 
-      const poll = async () => {
+    const checkStartupError = async (): Promise<boolean> => {
+      const startupError = await getBackendStartupError().catch(() => "");
+      if (runRef.current !== runId) return true;
+      if (!startupError) return false;
+
+      setErrorMessage(startupError);
+      setStatus("error");
+      return true;
+    };
+
+    const poll = async () => {
+      const apiBaseUrl = await initRuntimeApiBaseUrl().catch(() => "");
+      if (runRef.current !== runId) return;
+
+      if (apiBaseUrl) {
         try {
           controller = new AbortController();
           const timeoutId = setTimeout(
@@ -99,30 +114,37 @@ export default function useBackendReadyPolling(): BackendReadyPollingState {
         } catch {
           // Backend not ready yet.
         }
+      }
 
-        if (runRef.current !== runId) return;
-        const startupError = await getBackendStartupError().catch(() => "");
-        if (runRef.current !== runId) return;
-        if (startupError) {
-          setErrorMessage(startupError);
-          setStatus("error");
+      if (runRef.current !== runId) return;
+      const now = Date.now();
+      const seconds = Math.round((now - start) / 1000);
+      if (
+        lastStartupErrorCheckAt === 0 ||
+        now - lastStartupErrorCheckAt >= BACKEND_STARTUP_ERROR_POLL_INTERVAL_MS
+      ) {
+        lastStartupErrorCheckAt = now;
+        if (await checkStartupError()) {
           return;
         }
+      }
 
-        const seconds = Math.round((Date.now() - start) / 1000);
-        setElapsed(seconds);
-        if (seconds >= BACKEND_POLL_TIMEOUT_SECONDS) {
-          setStatus("timeout");
+      if (runRef.current !== runId) return;
+      setElapsed(seconds);
+      if (seconds >= BACKEND_POLL_TIMEOUT_SECONDS) {
+        if (await checkStartupError()) {
           return;
         }
+        if (runRef.current !== runId) return;
+        setStatus("timeout");
+        return;
+      }
 
-        timer = setTimeout(poll, BACKEND_POLL_INTERVAL_MS);
-      };
+      timer = setTimeout(poll, BACKEND_POLL_INTERVAL_MS);
+    };
 
-      void poll();
-    },
-    [cancelPolling],
-  );
+    void poll();
+  }, [cancelPolling]);
 
   const retry = useCallback(() => {
     cancelPolling();
@@ -133,13 +155,9 @@ export default function useBackendReadyPolling(): BackendReadyPollingState {
     setReadyUrl("");
 
     restartBackend()
-      .then((apiBaseUrl) => {
+      .then(() => {
         if (runRef.current !== runId) return;
-        if (apiBaseUrl) {
-          startPolling(apiBaseUrl);
-        } else {
-          setStatus("timeout");
-        }
+        startPolling();
       })
       .catch(() => {
         void showStartupFailure(runId);
@@ -149,17 +167,7 @@ export default function useBackendReadyPolling(): BackendReadyPollingState {
   useEffect(() => {
     if (!shouldGate) return undefined;
 
-    cancelPolling();
-    const runId = runRef.current;
-    initRuntimeApiBaseUrl()
-      .then((apiBaseUrl) => {
-        if (runRef.current === runId) {
-          startPolling(apiBaseUrl);
-        }
-      })
-      .catch(() => {
-        void showStartupFailure(runId);
-      });
+    startPolling();
 
     return cancelPolling;
   }, [cancelPolling, shouldGate, showStartupFailure, startPolling]);

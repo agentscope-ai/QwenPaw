@@ -14,10 +14,17 @@ export function shouldUseTauriStartupGate(): boolean {
 
 export function initRuntimeApiBaseUrl(): Promise<string> {
   if (!initRuntimeApiBaseUrlPromise) {
-    initRuntimeApiBaseUrlPromise = resolveRuntimeApiBaseUrl().catch((err) => {
-      initRuntimeApiBaseUrlPromise = null;
-      throw err;
-    });
+    initRuntimeApiBaseUrlPromise = resolveRuntimeApiBaseUrl()
+      .then((url) => {
+        if (!url) {
+          initRuntimeApiBaseUrlPromise = null;
+        }
+        return url;
+      })
+      .catch((err) => {
+        initRuntimeApiBaseUrlPromise = null;
+        throw err;
+      });
   }
   return initRuntimeApiBaseUrlPromise;
 }
@@ -29,8 +36,8 @@ async function resolveRuntimeApiBaseUrl(): Promise<string> {
     return baseUrl;
   }
 
-  const port = await invoke<number>("backend_port");
-  return `http://127.0.0.1:${port}`;
+  const port = await invoke<number | null>("backend_port");
+  return port ? `http://127.0.0.1:${port}` : "";
 }
 
 function getApiBaseUrl(): string {
@@ -56,18 +63,17 @@ export async function getBackendStartupError(): Promise<string> {
   return (await invoke<string | null>("backend_startup_error")) || "";
 }
 
-export async function restartBackend(): Promise<string> {
+export async function restartBackend(): Promise<void> {
   const configuredBaseUrl = getApiBaseUrl();
   if (!isTauriRuntime()) {
-    return configuredBaseUrl;
+    return;
   }
 
   if (configuredBaseUrl) {
-    return configuredBaseUrl;
+    return;
   }
 
   initRuntimeApiBaseUrlPromise = null;
 
-  const port = await invoke<number>("restart_backend");
-  return `http://127.0.0.1:${port}`;
+  await invoke<void>("restart_backend");
 }

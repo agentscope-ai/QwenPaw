@@ -7,7 +7,6 @@ import logging
 import sys
 
 from qwenpaw.tauri import logging as tauri_logging
-from qwenpaw.tauri.env import DESKTOP_PORT_ENV
 
 
 def test_tee_stream_writes_text_to_both_streams():
@@ -34,7 +33,6 @@ def test_install_sidecar_logging_writes_startup_context_and_tees_output(
     primary_stderr = io.StringIO()
     faulthandler_calls = []
 
-    monkeypatch.setenv(DESKTOP_PORT_ENV, "8090")
     monkeypatch.setattr(sys, "stdout", primary_stdout)
     monkeypatch.setattr(sys, "stderr", primary_stderr)
     monkeypatch.setattr(
@@ -53,7 +51,6 @@ def test_install_sidecar_logging_writes_startup_context_and_tees_output(
 
         content = log_path.read_text(encoding="utf-8")
         assert "qwenpaw tauri sidecar" in content
-        assert "port=8090" in content
         assert "stdout hello" in content
         assert "stderr hello" in content
         assert primary_stdout.getvalue().strip() == "stdout hello"

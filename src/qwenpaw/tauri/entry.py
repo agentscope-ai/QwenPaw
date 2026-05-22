@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import json
 import logging
 import multiprocessing as mp
 import os
+import socket
 import sys
 
 import click
@@ -13,7 +15,7 @@ import click
 from qwenpaw.tauri.env import (
     DESKTOP_APP_ENV,
     DESKTOP_CORS_ORIGINS_ENV,
-    DESKTOP_PORT_ENV,
+    DESKTOP_READY_PREFIX,
     ensure_desktop_cors_origins,
 )
 from qwenpaw.tauri.logging import install_sidecar_logging
@@ -98,26 +100,86 @@ def _run_click_command(
         print(message, file=sys.stderr)
         raise RuntimeError(message) from exc
     except SystemExit as exc:
+        if exc.code in (None, 0):
+            return
         message = f"desktop {label} exited with code {exc.code}"
         print(message, file=sys.stderr)
         raise RuntimeError(message) from exc
+
+
+def _emit_backend_ready(port: int) -> None:
+    payload = json.dumps({"port": port}, separators=(",", ":"))
+    print(f"{DESKTOP_READY_PREFIX} {payload}", flush=True)
+
+
+def _run_backend_server(log_level: str) -> None:
+    import uvicorn
+
+    from qwenpaw.config.utils import write_last_api
+    from qwenpaw.constant import LOG_LEVEL_ENV
+    from qwenpaw.utils.logging import (
+        SuppressPathAccessLogFilter,
+        setup_logger,
+    )
+
+    host = "127.0.0.1"
+    normalized_log_level = log_level.lower()
+    if normalized_log_level not in {
+        "critical",
+        "error",
+        "warning",
+        "info",
+        "debug",
+        "trace",
+    }:
+        normalized_log_level = "info"
+
+    os.environ[LOG_LEVEL_ENV] = normalized_log_level
+    os.environ.pop("QWENPAW_RELOAD_MODE", None)
+    setup_logger(normalized_log_level)
+    if normalized_log_level in ("debug", "trace"):
+        from qwenpaw.cli.main import log_init_timings
+
+        log_init_timings()
+
+    logging.getLogger("uvicorn.access").addFilter(
+        SuppressPathAccessLogFilter(["/console/push-messages"]),
+    )
+
+    config = uvicorn.Config(
+        "qwenpaw.app._app:app",
+        host=host,
+        port=0,
+        reload=False,
+        workers=1,
+        log_level=normalized_log_level,
+    )
+    backend_socket = config.bind_socket()
+    try:
+        port = _socket_port(backend_socket)
+        write_last_api(host, port)
+        _emit_backend_ready(port)
+        uvicorn.Server(config).run(sockets=[backend_socket])
+    except Exception:
+        backend_socket.close()
+        raise
+
+
+def _socket_port(sock: socket.socket) -> int:
+    address = sock.getsockname()
+    if not isinstance(address, tuple) or len(address) < 2:
+        raise RuntimeError(f"unexpected backend socket address: {address!r}")
+    return int(address[1])
 
 
 def main() -> None:
     _ensure_utf8_stdio()
     _install_desktop_runtime()
 
-    from qwenpaw.constant import WORKING_DIR
+    from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR
 
     install_sidecar_logging(WORKING_DIR / "desktop.log")
     _install_certifi_env()
-
-    port = os.environ.get(DESKTOP_PORT_ENV)
-    if not port:
-        raise RuntimeError(
-            f"{DESKTOP_PORT_ENV} not set; "
-            "this entry must be launched by the Tauri shell.",
-        )
 
     # Auto-initialize if no config exists
     config_path = WORKING_DIR / "config.json"
@@ -130,15 +192,7 @@ def main() -> None:
             label="initialization",
         )
 
-    from qwenpaw.cli.app_cmd import app_cmd
-
-    # Start the backend server. Use standalone_mode=False so exceptions
-    # propagate back to main() for consistent error handling.
-    _run_click_command(
-        app_cmd,
-        args=["--host", "127.0.0.1", "--port", port],
-        label="backend startup",
-    )
+    _run_backend_server(os.environ.get(LOG_LEVEL_ENV, "info"))
 
 
 if __name__ == "__main__":

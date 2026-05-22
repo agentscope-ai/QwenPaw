@@ -1,11 +1,8 @@
 //! Backend sidecar lifecycle for the Tauri desktop app.
 
-use std::{
-    net::TcpListener,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Mutex,
-    },
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex,
 };
 
 use tauri::Manager;
@@ -14,9 +11,6 @@ use tauri_plugin_shell::process::CommandChild;
 
 mod command;
 mod events;
-
-const LEGACY_DESKTOP_PORT_START: u16 = 8088;
-const LEGACY_DESKTOP_PORT_END_EXCLUSIVE: u16 = 8188;
 
 /// Shared sidecar process state managed by Tauri.
 #[derive(Default)]
@@ -46,12 +40,8 @@ impl BackendState {
         self.generation.load(Ordering::SeqCst) == generation
     }
 
-    fn port(&self) -> Result<u16, String> {
-        self.with_inner(|inner| {
-            inner
-                .port
-                .ok_or_else(|| "backend port was not initialized".to_string())
-        })
+    fn port(&self) -> Option<u16> {
+        self.with_inner(|inner| inner.port)
     }
 
     fn error(&self) -> Option<String> {
@@ -67,6 +57,15 @@ impl BackendState {
     fn set_error_if_current(&self, generation: u64, message: String) {
         if self.is_current(generation) {
             self.set_error(message);
+        }
+    }
+
+    fn set_port_if_current(&self, generation: u64, port: u16) {
+        if self.is_current(generation) {
+            self.with_inner(|inner| {
+                inner.port = Some(port);
+                inner.error = None;
+            });
         }
     }
 
@@ -99,7 +98,7 @@ impl BackendState {
 }
 
 #[tauri::command]
-pub(crate) fn backend_port(state: tauri::State<'_, BackendState>) -> Result<u16, String> {
+pub(crate) fn backend_port(state: tauri::State<'_, BackendState>) -> Option<u16> {
     state.port()
 }
 
@@ -110,14 +109,14 @@ pub(crate) fn backend_startup_error(state: tauri::State<'_, BackendState>) -> Op
 
 /// Stops the current sidecar, starts a fresh one, and returns its API port.
 #[tauri::command]
-pub(crate) fn restart_backend(app: tauri::AppHandle) -> Result<u16, String> {
+pub(crate) fn restart_backend(app: tauri::AppHandle) -> Result<(), String> {
     stop(&app);
     start(&app);
 
     let state = app.state::<BackendState>();
     match state.error() {
         Some(err) => Err(err),
-        None => state.port(),
+        None => Ok(()),
     }
 }
 
@@ -146,14 +145,6 @@ fn start(app: &tauri::AppHandle) {
     let generation = state.next_generation();
     state.clear_startup_state();
 
-    let (port, port_guard) = match pick_port() {
-        Ok(reserved) => reserved,
-        Err(err) => {
-            state.set_error(format!("failed to reserve backend port: {err}"));
-            return;
-        }
-    };
-
     let command = match command::create(app) {
         Ok(command) => command,
         Err(message) => {
@@ -165,10 +156,9 @@ fn start(app: &tauri::AppHandle) {
     .env("PYTHONIOENCODING", "utf-8")
     .env("PYTHONUNBUFFERED", "1")
     .env("PYTHONFAULTHANDLER", "1")
-    .env("QWENPAW_DESKTOP_APP", "1")
-    .env("QWENPAW_DESKTOP_PORT", port.to_string());
+    .env("QWENPAW_DESKTOP_APP", "1");
 
-    log::info!("[backend] starting generation={generation} port={port}");
+    log::info!("[backend] starting generation={generation}");
 
     let (rx, child) = match command.spawn() {
         Ok(child) => child,
@@ -178,26 +168,10 @@ fn start(app: &tauri::AppHandle) {
         }
     };
 
-    // Hold the listener until after spawn() to shrink the race between
-    // reserving the port in Rust and binding it in the Python sidecar.
-    drop(port_guard);
     let child_pid = child.pid();
-    log::info!("[backend] spawned generation={generation} pid={child_pid} port={port}");
+    log::info!("[backend] spawned generation={generation} pid={child_pid}");
     state.with_inner(|inner| {
         inner.child = Some(child);
-        inner.port = Some(port);
     });
     events::watch(app.clone(), generation, rx);
-}
-
-/// Reserves a backend port, preferring the legacy desktop range for continuity.
-fn pick_port() -> std::io::Result<(u16, TcpListener)> {
-    for port in LEGACY_DESKTOP_PORT_START..LEGACY_DESKTOP_PORT_END_EXCLUSIVE {
-        if let Ok(listener) = TcpListener::bind(("127.0.0.1", port)) {
-            return Ok((port, listener));
-        }
-    }
-
-    let listener = TcpListener::bind(("127.0.0.1", 0))?;
-    Ok((listener.local_addr()?.port(), listener))
 }

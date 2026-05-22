@@ -2,7 +2,12 @@
   ; The Python backend is a Tauri sidecar, not a user-facing window. If it is
   ; left behind during update/uninstall, stop only the copy under $INSTDIR and
   ; wait for the PyInstaller backend bundle to release its file handles.
-  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$$ErrorActionPreference = 'SilentlyContinue'; $$installDir = [System.IO.Path]::GetFullPath('$INSTDIR').TrimEnd('\') + '\'; $$targets = Get-CimInstance Win32_Process -Filter \"Name = 'qwenpaw-backend.exe'\" | Where-Object { $$_.ExecutablePath -and [System.IO.Path]::GetFullPath($$_.ExecutablePath).StartsWith($$installDir, [System.StringComparison]::OrdinalIgnoreCase) }; $$ids = @($$targets | ForEach-Object { $$_.ProcessId }); $$ids | ForEach-Object { Stop-Process -Id $$_ -Force }; if ($$ids.Count -gt 0) { Wait-Process -Id $$ids -Timeout 8 }"`
+  ; The script is unpacked to NSIS' temporary plugin directory. Bypass is scoped
+  ; to this unsigned local installer helper so user PowerShell policy is not
+  ; permanently changed.
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\qwenpaw-stop-backend-sidecar.ps1 "nsis\stop-backend-sidecar.ps1"
+  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-stop-backend-sidecar.ps1" -InstallDir "$INSTDIR"`
   Pop $0
   Pop $1
 !macroend

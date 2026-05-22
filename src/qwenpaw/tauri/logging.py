@@ -6,18 +6,13 @@ from collections.abc import Iterable
 from datetime import datetime
 import faulthandler
 import logging
-import logging.handlers
 import os
 from pathlib import Path
 import platform
 import sys
 from typing import TextIO
 
-from qwenpaw.tauri.env import DESKTOP_PORT_ENV
-
 _LOG_FILE: TextIO | None = None
-_LOG_MAX_BYTES = 5 * 1024 * 1024
-_LOG_BACKUP_COUNT = 3
 
 
 class _TeeStream:
@@ -82,13 +77,12 @@ def install_sidecar_logging(log_path: Path) -> Path:
     _LOG_FILE.write(f"python={sys.executable}\n")
     _LOG_FILE.write(f"argv={sys.argv!r}\n")
     _LOG_FILE.write(f"cwd={os.getcwd()}\n")
-    _LOG_FILE.write(f"port={os.environ.get(DESKTOP_PORT_ENV, '')}\n")
     _LOG_FILE.flush()
 
     sys.stdout = _TeeStream(sys.stdout, _LOG_FILE)  # type: ignore[assignment]
     sys.stderr = _TeeStream(sys.stderr, _LOG_FILE)  # type: ignore[assignment]
     faulthandler.enable(file=_LOG_FILE, all_threads=True)
-    _add_logging_handler(log_path)
+    _add_project_file_handler(log_path)
     logging.getLogger("qwenpaw.tauri").info(
         "Tauri sidecar logging enabled: %s",
         log_path,
@@ -96,25 +90,8 @@ def install_sidecar_logging(log_path: Path) -> Path:
     return log_path
 
 
-def _add_logging_handler(log_path: Path) -> None:
-    logger = logging.getLogger("qwenpaw")
-    resolved = log_path.resolve()
-    for handler in logger.handlers:
-        base = getattr(handler, "baseFilename", None)
-        if base is not None and Path(base).resolve() == resolved:
-            return
+def _add_project_file_handler(log_path: Path) -> None:
+    # Import lazily so qwenpaw.constant is loaded only after desktop env setup.
+    from qwenpaw.utils.logging import add_project_file_handler
 
-    handler = logging.handlers.RotatingFileHandler(
-        resolved,
-        encoding="utf-8",
-        maxBytes=_LOG_MAX_BYTES,
-        backupCount=_LOG_BACKUP_COUNT,
-    )
-    handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s | %(levelname)s | %(name)s:%(lineno)d | %(message)s",
-            "%Y-%m-%d %H:%M:%S",
-        ),
-    )
-    handler.setLevel(logger.level or logging.INFO)
-    logger.addHandler(handler)
+    add_project_file_handler(log_path)

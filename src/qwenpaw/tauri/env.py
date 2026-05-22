@@ -8,15 +8,13 @@ has read import-time environment variables.
 import os
 
 DESKTOP_APP_ENV = "QWENPAW_DESKTOP_APP"
-DESKTOP_PORT_ENV = "QWENPAW_DESKTOP_PORT"
 DESKTOP_CORS_ORIGINS_ENV = "QWENPAW_CORS_ORIGINS"
+DESKTOP_READY_PREFIX = "QWENPAW_BACKEND_READY"
 
 DESKTOP_CORS_ORIGINS = (
     "tauri://localhost",
     "https://tauri.localhost",
     "http://tauri.localhost",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
 )
 
 
