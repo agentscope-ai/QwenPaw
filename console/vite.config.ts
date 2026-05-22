@@ -19,7 +19,6 @@ export default defineConfig(({ mode }) => {
   // Empty = same-origin; frontend and backend served together, no hardcoded host.
   // Use a dedicated Vite-prefixed key so unrelated shell BASE_URL values don't leak into the build.
   const apiBaseUrl = env.VITE_API_BASE_URL ?? "";
-  const isTauriBootstrap = mode === "tauri";
 
   return {
     define: {
@@ -98,27 +97,14 @@ export default defineConfig(({ mode }) => {
       include: ["diff"],
     },
     build: {
-      ...(isTauriBootstrap
-        ? {
-            outDir: "dist-tauri",
-            emptyOutDir: true,
-          }
-        : {}),
       // Output to QwenPaw's console directory,
       // so we don't need to copy files manually after build.
       // outDir: path.resolve(__dirname, "../src/qwenpaw/console"),
       // emptyOutDir: true,
       cssCodeSplit: true,
-      sourcemap: mode !== "production" && !isTauriBootstrap,
+      sourcemap: mode !== "production",
       chunkSizeWarningLimit: 1000,
       rollupOptions: {
-        ...(isTauriBootstrap
-          ? {
-              input: {
-                index: path.resolve(__dirname, "tauri.html"),
-              },
-            }
-          : {}),
         output: {
           manualChunks(id) {
             // React core

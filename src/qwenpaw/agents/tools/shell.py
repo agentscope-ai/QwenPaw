@@ -23,7 +23,8 @@ from ...config.context import (
     get_current_shell_command_timeout,
     get_current_workspace_dir,
 )
-from ...desktop_env import DESKTOP_APP_ENV
+
+DESKTOP_APP_ENV = "QWENPAW_DESKTOP_APP"
 
 
 def _kill_process_tree_win32(pid: int) -> None:

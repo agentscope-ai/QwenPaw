@@ -7,7 +7,9 @@ has read import-time environment variables.
 
 import os
 
-from qwenpaw.desktop_env import DESKTOP_CORS_ORIGINS_ENV
+DESKTOP_APP_ENV = "QWENPAW_DESKTOP_APP"
+DESKTOP_PORT_ENV = "QWENPAW_DESKTOP_PORT"
+DESKTOP_CORS_ORIGINS_ENV = "QWENPAW_CORS_ORIGINS"
 
 DESKTOP_CORS_ORIGINS = (
     "tauri://localhost",
@@ -15,8 +17,6 @@ DESKTOP_CORS_ORIGINS = (
     "http://tauri.localhost",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "http://localhost:1420",
-    "http://127.0.0.1:1420",
 )
 
 

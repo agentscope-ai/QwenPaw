@@ -10,12 +10,10 @@ import sys
 
 import click
 
-from qwenpaw.desktop_env import (
+from qwenpaw.tauri.env import (
     DESKTOP_APP_ENV,
     DESKTOP_CORS_ORIGINS_ENV,
     DESKTOP_PORT_ENV,
-)
-from qwenpaw.tauri.env import (
     ensure_desktop_cors_origins,
 )
 from qwenpaw.tauri.logging import install_sidecar_logging
@@ -77,7 +75,6 @@ def _install_certifi_env() -> None:
 
 def _install_desktop_runtime() -> None:
     os.environ.setdefault(DESKTOP_APP_ENV, "1")
-    _install_certifi_env()
     # Must run before importing the FastAPI app: it applies CORS middleware
     # from qwenpaw.constant.CORS_ORIGINS at import time.
     _ensure_qwenpaw_app_not_loaded()
@@ -108,10 +105,12 @@ def _run_click_command(
 
 def main() -> None:
     _ensure_utf8_stdio()
-    install_sidecar_logging()
     _install_desktop_runtime()
 
     from qwenpaw.constant import WORKING_DIR
+
+    install_sidecar_logging(WORKING_DIR / "desktop.log")
+    _install_certifi_env()
 
     port = os.environ.get(DESKTOP_PORT_ENV)
     if not port:

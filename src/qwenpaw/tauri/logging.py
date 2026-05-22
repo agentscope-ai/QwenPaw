@@ -13,7 +13,7 @@ import platform
 import sys
 from typing import TextIO
 
-from qwenpaw.desktop_env import DESKTOP_BACKEND_LOG_ENV, DESKTOP_PORT_ENV
+from qwenpaw.tauri.env import DESKTOP_PORT_ENV
 
 _LOG_FILE: TextIO | None = None
 _LOG_MAX_BYTES = 5 * 1024 * 1024
@@ -62,13 +62,9 @@ class _TeeStream:
         return False
 
 
-def install_sidecar_logging() -> Path | None:
+def install_sidecar_logging(log_path: Path) -> Path:
     """Mirror early sidecar output to a file and enable native crash traces."""
-    raw_path = os.environ.get(DESKTOP_BACKEND_LOG_ENV)
-    if not raw_path:
-        return None
-
-    log_path = Path(raw_path).expanduser()
+    log_path = Path(log_path).expanduser()
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     global _LOG_FILE  # pylint: disable=global-statement

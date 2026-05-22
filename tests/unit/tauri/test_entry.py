@@ -10,7 +10,7 @@ import click
 import pytest
 
 from qwenpaw.tauri import entry
-from qwenpaw.desktop_env import DESKTOP_CORS_ORIGINS_ENV
+from qwenpaw.tauri.env import DESKTOP_CORS_ORIGINS_ENV
 
 
 def test_install_desktop_runtime_preserves_existing_cors_values(monkeypatch):
@@ -25,7 +25,6 @@ def test_install_desktop_runtime_preserves_existing_cors_values(monkeypatch):
     assert origins.count("tauri://localhost") == 1
     assert "https://example.test" in origins
     assert "http://127.0.0.1:5173" in origins
-    assert "http://127.0.0.1:1420" in origins
 
 
 def test_ensure_qwenpaw_app_not_loaded_rejects_late_cors(monkeypatch):
