@@ -471,6 +471,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           icon: <SparkOtherLine size={16} />,
         },
         {
+          key: "market",
+          label: collapsed ? null : t("nav.market", "Skill Market"),
+          icon: <SparkOtherLine size={16} />,
+        },
+        {
           key: "environments",
           label: collapsed ? null : t("nav.environments"),
           icon: <SparkInternetLine size={16} />,

@@ -2,6 +2,7 @@ import { Button, Drawer, Form, Input, Select } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { PoolSkillSpec } from "../../../../api/types";
 import {
+  deriveInstalledFromLabel,
   getPoolBuiltinStatusLabel,
   getPoolBuiltinStatusTone,
   isSkillBuiltin,
@@ -108,6 +109,14 @@ export function PoolSkillDrawer({
                 </div>
               </div>
             )}
+          <div className={styles.infoSection}>
+            <div className={styles.infoLabel}>
+              {t("skillPool.installedFrom")}
+            </div>
+            <div className={styles.infoBlock}>
+              {deriveInstalledFromLabel(activeSkill.installed_from)}
+            </div>
+          </div>
         </div>
       )}
       <Form form={form} layout="vertical">

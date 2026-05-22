@@ -198,6 +198,7 @@
     "clickToFill": "クリックして URL を入力",
     "invalidSkillUrlSource": "サポートされているマーケットプレイスのスキルURLであることを確認してください",
     "type": "タイプ",
+    "installedFrom": "インストール元",
     "source": "ソース",
     "path": "パス",
     "skillDescription": "説明",
@@ -381,6 +382,7 @@
     "skillCount": "{{count}} スキル",
     "skillName": "スキル名",
     "status": "状態",
+    "installedFrom": "インストール元",
     "updateBuiltin": "更新",
     "updateConfirmTitle": "{{name}} を更新",
     "updateConfirmContent": "バージョン {{version}} に更新しますか？現在のプールコピーが最新の組み込みバージョンに置き換えられます。",
@@ -2143,5 +2145,47 @@
     "detailPayload": "追加情報",
     "detailExecutionTrace": "実行トレース",
     "detailTraceEmpty": "実行トレースはありません"
+  },
+  "market": {
+    "searchPlaceholder": "プラットフォームを横断してスキルを検索",
+    "providerUnavailable": "ソースが利用できません",
+    "noResults": "結果が見つかりません",
+    "startTyping": "上の検索ボックスにキーワードを入力してスキルを探します",
+    "noDescription": "説明はありません",
+    "targetPool": "プール",
+    "targetWorkspace": "ワークスペース",
+    "install": "インストール",
+    "installQueue": "インストールキュー",
+    "clearCompleted": "クリア",
+    "retry": "再試行",
+    "status": {
+      "queued": "待機中",
+      "installing": "インストール中",
+      "completed": "完了",
+      "failed": "失敗",
+      "cancelled": "キャンセル済み"
+    },
+    "loadMore": "もっと読み込む",
+    "noMoreResults": "これ以上ありません",
+    "detail": {
+      "title": "スキルの詳細",
+      "version": "バージョン",
+      "author": "作成者",
+      "sourceUrl": "インストール URL",
+      "slug": "識別子",
+      "missing": "—"
+    },
+    "stats": {
+      "downloads": "ダウンロード数",
+      "installs": "インストール数",
+      "likes": "いいね数",
+      "views": "閲覧数",
+      "category": "カテゴリ",
+      "updatedAt": "更新日"
+    },
+    "queueMsg": {
+      "timedOut": "インストールがタイムアウトしました",
+      "failedPrefix": "失敗：{{msg}}"
+    }
   }
 }

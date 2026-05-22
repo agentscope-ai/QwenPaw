@@ -17,6 +17,7 @@ export interface SkillSpec {
   config?: Record<string, unknown>;
   last_updated?: string;
   emoji?: string;
+  installed_from?: string;
 }
 
 export interface PoolSkillSpec {
@@ -35,6 +36,7 @@ export interface PoolSkillSpec {
   config?: Record<string, unknown>;
   last_updated?: string;
   emoji?: string;
+  installed_from?: string;
 }
 
 export interface BuiltinLanguageSpec {
@@ -102,6 +104,7 @@ export interface HubInstallTaskResponse {
     name?: string;
     enabled?: boolean;
     source_url?: string;
+    installed_from?: string;
     conflicts?: Array<{
       reason?: string;
       skill_name?: string;

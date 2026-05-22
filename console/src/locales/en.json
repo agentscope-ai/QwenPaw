@@ -50,6 +50,7 @@
     "workspace": "Files",
     "skills": "Skills",
     "skillPool": "Skill Pool",
+    "market": "Skill Market",
     "tools": "Tools",
     "mcp": "MCP",
     "acp": "ACP",
@@ -463,6 +464,7 @@
     "clickToFill": "Click to fill in URL",
     "invalidSkillUrlSource": "Please verify the skill URL is from a supported marketplace",
     "type": "Type",
+    "installedFrom": "Installed from",
     "source": "Source",
     "path": "Path",
     "skillDescription": "Description",
@@ -650,6 +652,7 @@
     "skillCount": "{{count}} skills",
     "skillName": "Skill Name",
     "status": "Status",
+    "installedFrom": "Installed from",
     "updateBuiltin": "Update",
     "updateConfirmTitle": "Update {{name}}",
     "updateConfirmContent": "Update to version {{version}}? This will replace the current pool copy with the latest built-in version.",
@@ -2246,5 +2249,47 @@
     "kindTool": "Tool",
     "filterByName": "Filter by name",
     "filterByKind": "Filter by kind"
+  },
+  "market": {
+    "searchPlaceholder": "Search skills across platforms",
+    "providerUnavailable": "Provider unavailable",
+    "noResults": "No results",
+    "startTyping": "Type a query above to search the market",
+    "noDescription": "No description provided",
+    "targetPool": "Pool",
+    "targetWorkspace": "Workspace",
+    "install": "Install",
+    "installQueue": "Install queue",
+    "clearCompleted": "Clear",
+    "retry": "Retry",
+    "status": {
+      "queued": "Queued",
+      "installing": "Installing",
+      "completed": "Done",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "loadMore": "Load more",
+    "noMoreResults": "No more results",
+    "detail": {
+      "title": "Skill details",
+      "version": "Version",
+      "author": "Author",
+      "sourceUrl": "Install URL",
+      "slug": "Slug",
+      "missing": "—"
+    },
+    "stats": {
+      "downloads": "Downloads",
+      "installs": "Installs",
+      "likes": "Likes",
+      "views": "Views",
+      "category": "Category",
+      "updatedAt": "Updated"
+    },
+    "queueMsg": {
+      "timedOut": "Install timed out",
+      "failedPrefix": "Failed: {{msg}}"
+    }
   }
 }

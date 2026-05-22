@@ -259,6 +259,7 @@
     "enterSkillUrl": "Masukkan URL Skill",
     "invalidUrl": "URL tidak valid",
     "type": "Tipe",
+    "installedFrom": "Diinstal dari",
     "source": "Sumber",
     "path": "Path",
     "skillDescription": "Deskripsi",
@@ -321,6 +322,7 @@
     "version": "Versi",
     "skillName": "Nama Skill",
     "status": "Status",
+    "installedFrom": "Diinstal dari",
     "updateBuiltin": "Perbarui",
     "updateSuccess": "Berhasil diperbarui",
     "updateFailed": "Pembaruan gagal"
@@ -661,6 +663,48 @@
       "refreshBackend": "Segarkan log backend",
       "refreshSuccess": "Log disegarkan",
       "copyBackend": "Salin log backend"
+    }
+  },
+  "market": {
+    "searchPlaceholder": "Cari skill di berbagai platform",
+    "providerUnavailable": "Sumber tidak tersedia",
+    "noResults": "Tidak ada hasil",
+    "startTyping": "Ketik kata kunci di atas untuk mencari di marketplace",
+    "noDescription": "Tidak ada deskripsi",
+    "targetPool": "Pool",
+    "targetWorkspace": "Workspace",
+    "install": "Pasang",
+    "installQueue": "Antrean instalasi",
+    "clearCompleted": "Bersihkan",
+    "retry": "Coba lagi",
+    "status": {
+      "queued": "Mengantre",
+      "installing": "Memasang",
+      "completed": "Selesai",
+      "failed": "Gagal",
+      "cancelled": "Dibatalkan"
+    },
+    "loadMore": "Muat lebih banyak",
+    "noMoreResults": "Tidak ada hasil lainnya",
+    "detail": {
+      "title": "Detail skill",
+      "version": "Versi",
+      "author": "Penulis",
+      "sourceUrl": "URL instalasi",
+      "slug": "ID",
+      "missing": "—"
+    },
+    "stats": {
+      "downloads": "Unduhan",
+      "installs": "Instalasi",
+      "likes": "Suka",
+      "views": "Tampilan",
+      "category": "Kategori",
+      "updatedAt": "Diperbarui"
+    },
+    "queueMsg": {
+      "timedOut": "Instalasi habis waktu",
+      "failedPrefix": "Gagal: {{msg}}"
     }
   }
 }

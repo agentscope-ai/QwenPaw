@@ -104,7 +104,7 @@ def test_mcp_toggle_enabled(app_server) -> None:
 
     Test flow:
     1. Create a test agent and one MCP client with enabled=True.
-    2. PATCH /api/mcp/{client_key}/toggle and assert enabled=False.
+    2. PATCH /api/mcp/toggle/{client_key} and assert enabled=False.
     3. GET /api/mcp/{client_key} and verify enabled=False persisted.
     4. PATCH again and verify enabled=True.
     5. Cleanup client and agent.
@@ -112,7 +112,7 @@ def test_mcp_toggle_enabled(app_server) -> None:
     API endpoints:
     - POST /api/agents
     - POST /api/mcp
-    - PATCH /api/mcp/{client_key}/toggle
+    - PATCH /api/mcp/toggle/{client_key}
     - GET /api/mcp/{client_key}
     - DELETE /api/mcp/{client_key}
     - DELETE /api/agents/{agentId}
@@ -148,7 +148,7 @@ def test_mcp_toggle_enabled(app_server) -> None:
 
         toggle_1 = app_server.api_request(
             "PATCH",
-            f"/api/mcp/{client_key}/toggle",
+            f"/api/mcp/toggle/{client_key}",
             headers=headers,
         )
         assert toggle_1.status_code == 200, app_server.logs_tail()
@@ -164,7 +164,7 @@ def test_mcp_toggle_enabled(app_server) -> None:
 
         toggle_2 = app_server.api_request(
             "PATCH",
-            f"/api/mcp/{client_key}/toggle",
+            f"/api/mcp/toggle/{client_key}",
             headers=headers,
         )
         assert toggle_2.status_code == 200, app_server.logs_tail()
@@ -227,7 +227,7 @@ def test_mcp_tools_returns_empty_for_disabled_client(app_server) -> None:
 
         tools_resp = app_server.api_request(
             "GET",
-            f"/api/mcp/{client_key}/tools",
+            f"/api/mcp/tools/{client_key}",
             headers=headers,
         )
         assert tools_resp.status_code == 200, app_server.logs_tail()
@@ -387,17 +387,17 @@ def test_mcp_missing_client_paths_return_404(app_server) -> None:
 
     Test flow:
     1. Create a dedicated test agent.
-    2. Call GET /api/mcp/{client_key}, PATCH /toggle, DELETE, and GET /tools
-       using a missing client_key.
+    2. Call GET /api/mcp/{client_key}, PATCH /toggle/{client_key}, DELETE,
+       and GET /tools/{client_key} using a missing client_key.
     3. Assert all responses are 404 with error details.
     4. Delete test agent.
 
     API endpoints:
     - POST /api/agents
     - GET /api/mcp/{client_key}
-    - PATCH /api/mcp/{client_key}/toggle
+    - PATCH /api/mcp/toggle/{client_key}
     - DELETE /api/mcp/{client_key}
-    - GET /api/mcp/{client_key}/tools
+    - GET /api/mcp/tools/{client_key}
     - DELETE /api/agents/{agentId}
     """
     agent_id = "integ_mcp_missing_01"
@@ -422,7 +422,7 @@ def test_mcp_missing_client_paths_return_404(app_server) -> None:
 
         toggle_resp = app_server.api_request(
             "PATCH",
-            f"/api/mcp/{missing_key}/toggle",
+            f"/api/mcp/toggle/{missing_key}",
             headers=headers,
         )
         assert toggle_resp.status_code == 404, app_server.logs_tail()
@@ -438,7 +438,7 @@ def test_mcp_missing_client_paths_return_404(app_server) -> None:
 
         tools_resp = app_server.api_request(
             "GET",
-            f"/api/mcp/{missing_key}/tools",
+            f"/api/mcp/tools/{missing_key}",
             headers=headers,
         )
         assert tools_resp.status_code == 404, app_server.logs_tail()
@@ -554,7 +554,7 @@ def test_mcp_agent_scoped_routes_update_toggle_delete(app_server) -> None:
     - POST /api/agents
     - POST /api/agents/{agentId}/mcp
     - PUT /api/agents/{agentId}/mcp/{client_key}
-    - PATCH /api/agents/{agentId}/mcp/{client_key}/toggle
+    - PATCH /api/agents/{agentId}/mcp/toggle/{client_key}
     - DELETE /api/agents/{agentId}/mcp/{client_key}
     - GET /api/agents/{agentId}/mcp
     - DELETE /api/agents/{agentId}
@@ -604,7 +604,7 @@ def test_mcp_agent_scoped_routes_update_toggle_delete(app_server) -> None:
 
         toggle_client = app_server.api_request(
             "PATCH",
-            f"{scoped_base}/{client_key}/toggle",
+            f"{scoped_base}/toggle/{client_key}",
         )
         assert toggle_client.status_code == 200, app_server.logs_tail()
         assert toggle_client.json().get("enabled") is True

@@ -22,6 +22,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -52,6 +53,9 @@ logger = logging.getLogger(__name__)
 
 # Max dedup set size
 _WECHAT_PROCESSED_IDS_MAX = 2000
+
+# Time window (seconds) for content-based dedup (same user + same text)
+_TEXT_DEDUP_TTL = 30.0
 
 # Default token file path
 _DEFAULT_TOKEN_FILE = WORKING_DIR / "wechat_bot_token"
@@ -145,6 +149,9 @@ class WeChatChannel(BaseChannel):
         # Message dedup (context_token or derived id)
         self._processed_ids: OrderedDict[str, None] = OrderedDict()
         self._processed_ids_lock = threading.Lock()
+
+        # Content-based dedup: {user_id:content_hash -> timestamp}
+        self._text_dedup: OrderedDict[str, float] = OrderedDict()
 
         # Cache last context_token per user for proactive sends
         self._user_context_tokens: Dict[str, str] = {}
@@ -437,6 +444,26 @@ class WeChatChannel(BaseChannel):
                 self._processed_ids.popitem(last=False)
         return False
 
+    def _is_text_duplicate(self, from_user_id: str, text: str) -> bool:
+        """Content-based dedup within a short time window.
+
+        Catches duplicates that slip past ``_is_duplicate`` when the iLink
+        API delivers the same message across two polls with different
+        ``context_token`` / ``msg_id`` values.
+        """
+        content_hash = hashlib.md5(text.encode()).hexdigest()[:16]
+        key = f"{from_user_id}:{content_hash}"
+        now = time.time()
+        with self._processed_ids_lock:
+            prev_time = self._text_dedup.get(key)
+            if prev_time is not None and now - prev_time < _TEXT_DEDUP_TTL:
+                return True
+            self._text_dedup[key] = now
+            # Evict old entries to bound memory
+            while len(self._text_dedup) > _WECHAT_PROCESSED_IDS_MAX:
+                self._text_dedup.popitem(last=False)
+        return False
+
     # ------------------------------------------------------------------
     # QR code login
     # ------------------------------------------------------------------
@@ -609,6 +636,22 @@ class WeChatChannel(BaseChannel):
                 logger.debug(
                     "wechat: duplicate message skipped: %s",
                     dedup_key[:40],
+                )
+                return
+
+            # Content-based dedup: catch duplicates that arrive with
+            # different context_token / msg_id across separate polls.
+            raw_text = "".join(
+                (item.get("text_item") or {}).get("text", "")
+                for item in (msg.get("item_list") or [])
+                if item.get("type", 0) == 1
+            ).strip()
+            if raw_text and self._is_text_duplicate(from_user_id, raw_text):
+                logger.debug(
+                    "wechat: content-duplicate message skipped: "
+                    "user=%s text_len=%d",
+                    from_user_id[:12],
+                    len(raw_text),
                 )
                 return
 
@@ -1059,19 +1102,31 @@ class WeChatChannel(BaseChannel):
             return
         try:
             resp = await _client.send_text(to_user_id, text, context_token)
-            if isinstance(resp, dict):
-                ret = resp.get("ret", 0)
-                errcode = resp.get("errcode", 0)
-                if ret != 0 or errcode != 0:
-                    logger.warning(
-                        "wechat send_text rejected: "
-                        "ret=%s errcode=%s to_user_id=%s",
-                        ret,
-                        errcode,
-                        to_user_id,
-                    )
         except Exception:
             logger.exception("wechat _send_text_direct failed")
+            return
+
+        if isinstance(resp, dict):
+            ret = resp.get("ret", 0)
+            errcode = resp.get("errcode", 0)
+            if ret != 0 or errcode != 0:
+                logger.warning(
+                    "wechat send_text rejected: "
+                    "ret=%s errcode=%s to_user_id=%s",
+                    ret,
+                    errcode,
+                    to_user_id,
+                )
+                # ret=-2 means context_token is expired/consumed;
+                # continuing to retry is pointless and floods logs.
+                if ret == -2:
+                    raise ChannelError(
+                        channel_name="wechat",
+                        message=(
+                            f"context_token expired (ret=-2) "
+                            f"for user {to_user_id}"
+                        ),
+                    )
 
     async def _send_media_file(
         self,
@@ -1443,8 +1498,6 @@ class WeChatChannel(BaseChannel):
         Returns:
             Typing ticket string (empty if failed)
         """
-        import time
-
         now = time.time()
         cache_ttl = 24 * 3600  # 24 hours
 

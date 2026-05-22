@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from .models import ChatSpec, ChatUpdate
+from .models import ChatSpec, ChatUpdate, SessionSource
 from .repo import BaseChatRepository
 from ..channels.schema import DEFAULT_CHANNEL
 
@@ -83,6 +83,7 @@ class ChatManager:
         user_id: str,
         channel: str = DEFAULT_CHANNEL,
         name: str = "New Chat",
+        source: str | SessionSource = SessionSource.chat,
     ) -> ChatSpec:
         """Get existing chat or create new one.
 
@@ -118,13 +119,18 @@ class ChatManager:
             # Create new
             logger.debug(
                 f"get_or_create_chat: Creating new chat for "
-                f"session_id={session_id}",
+                f"session_id={session_id}, source={source}",
             )
+            try:
+                resolved_source = SessionSource(source)
+            except ValueError:
+                resolved_source = SessionSource.chat
             spec = ChatSpec(
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,
                 name=name,
+                source=resolved_source,
             )
             logger.debug(f"get_or_create_chat: created spec={spec.id}")
             # Call internal create without lock (already locked)

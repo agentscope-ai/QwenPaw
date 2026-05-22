@@ -397,6 +397,7 @@
     "clickToFill": "Click to fill in URL",
     "invalidSkillUrlSource": "Please verify the skill URL is from a supported marketplace",
     "type": "Tipo",
+    "installedFrom": "Instalado de",
     "source": "Origem",
     "path": "Caminho",
     "skillDescription": "Descricao",
@@ -584,6 +585,7 @@
     "skillCount": "{{count}} Skills",
     "skillName": "Skill Nome",
     "status": "Status",
+    "installedFrom": "Instalado de",
     "updateBuiltin": "Atualizar",
     "updateConfirmTitle": "Atualizar {{name}}",
     "updateConfirmContent": "Update to version {{version}}? This will replace the current pool copy with the latest built-in version.",
@@ -2178,5 +2180,47 @@
     "detailPayload": "Dados",
     "detailExecutionTrace": "Rastro de execução",
     "detailTraceEmpty": "Nenhum rastro de execução disponível"
+  },
+  "market": {
+    "searchPlaceholder": "Buscar habilidades em várias plataformas",
+    "providerUnavailable": "Provedor indisponível",
+    "noResults": "Nenhum resultado",
+    "startTyping": "Digite uma consulta acima para buscar no mercado",
+    "noDescription": "Nenhuma descrição fornecida",
+    "targetPool": "Pool",
+    "targetWorkspace": "Workspace",
+    "install": "Instalar",
+    "installQueue": "Fila de instalação",
+    "clearCompleted": "Limpar",
+    "retry": "Tentar novamente",
+    "status": {
+      "queued": "Na fila",
+      "installing": "Instalando",
+      "completed": "Concluído",
+      "failed": "Falhou",
+      "cancelled": "Cancelado"
+    },
+    "loadMore": "Carregar mais",
+    "noMoreResults": "Sem mais resultados",
+    "detail": {
+      "title": "Detalhes da habilidade",
+      "version": "Versão",
+      "author": "Autor",
+      "sourceUrl": "URL de instalação",
+      "slug": "Identificador",
+      "missing": "—"
+    },
+    "stats": {
+      "downloads": "Downloads",
+      "installs": "Instalações",
+      "likes": "Curtidas",
+      "views": "Visualizações",
+      "category": "Categoria",
+      "updatedAt": "Atualizado em"
+    },
+    "queueMsg": {
+      "timedOut": "A instalação expirou",
+      "failedPrefix": "Falhou: {{msg}}"
+    }
   }
 }

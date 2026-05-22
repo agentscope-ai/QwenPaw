@@ -51,7 +51,7 @@ class AsMsgHandler:
                         textual_parts[-1],
                     )
 
-                elif block_type in ["image", "audio", "video"]:
+                elif block_type in ["image", "audio", "video", "file"]:
                     source = block.get("source", {})
                     if source.get("type") == "base64":
                         data = source.get("data", "")
@@ -62,12 +62,6 @@ class AsMsgHandler:
                             await self.count_str_token(url) if url else 10
                         )
                         textual_parts.append(f"[{block_type}] {url}")
-
-                elif block_type == "file":
-                    file_path = block.get("path", "") or block.get("url", "")
-                    file_name = block.get("name", file_path)
-                    textual_parts.append(f"[file] {file_name}: {file_path}")
-                    total_token_count += await self.count_str_token(file_path)
 
                 else:
                     logger.warning(
@@ -126,7 +120,7 @@ class AsMsgHandler:
                     ),
                 )
 
-            elif block_type in ("image", "audio", "video"):
+            elif block_type in ("image", "audio", "video", "file"):
                 source = block.get("source", {})
                 url = source.get("url", "")
                 if source.get("type") == "base64":

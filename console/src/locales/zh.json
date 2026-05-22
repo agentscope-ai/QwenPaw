@@ -50,6 +50,7 @@
     "workspace": "文件",
     "skills": "技能",
     "skillPool": "技能池",
+    "market": "技能市场",
     "tools": "工具",
     "mcp": "MCP",
     "acp": "ACP",
@@ -304,6 +305,7 @@
     "clickToFill": "点击填入 URL",
     "invalidSkillUrlSource": "请确认技能URL来自受支持的技能市场",
     "type": "类型",
+    "installedFrom": "安装来源",
     "source": "来源",
     "path": "路径",
     "skillDescription": "描述",
@@ -489,6 +491,7 @@
     "skillCount": "{{count}} 个技能",
     "skillName": "技能名称",
     "status": "状态",
+    "installedFrom": "安装来源",
     "updateBuiltin": "更新",
     "updateConfirmTitle": "更新 {{name}}",
     "updateConfirmContent": "更新到版本 {{version}}？这将用最新内置版本替换当前池中的副本。",
@@ -2254,5 +2257,47 @@
     "kindTool": "工具",
     "filterByName": "按名称筛选",
     "filterByKind": "按标签筛选"
+  },
+  "market": {
+    "searchPlaceholder": "在多平台中搜索技能",
+    "providerUnavailable": "数据源不可用",
+    "noResults": "没有找到结果",
+    "startTyping": "在上方输入关键字以搜索技能市场",
+    "noDescription": "暂无描述",
+    "targetPool": "技能池",
+    "targetWorkspace": "工作区",
+    "install": "安装",
+    "installQueue": "安装队列",
+    "clearCompleted": "清空",
+    "retry": "重试",
+    "status": {
+      "queued": "排队中",
+      "installing": "安装中",
+      "completed": "已完成",
+      "failed": "失败",
+      "cancelled": "已取消"
+    },
+    "loadMore": "加载更多",
+    "noMoreResults": "没有更多了",
+    "detail": {
+      "title": "技能详情",
+      "version": "版本",
+      "author": "作者",
+      "sourceUrl": "安装地址",
+      "slug": "标识",
+      "missing": "—"
+    },
+    "stats": {
+      "downloads": "下载量",
+      "installs": "安装量",
+      "likes": "点赞",
+      "views": "浏览量",
+      "category": "分类",
+      "updatedAt": "更新时间"
+    },
+    "queueMsg": {
+      "timedOut": "安装超时",
+      "failedPrefix": "失败：{{msg}}"
+    }
   }
 }

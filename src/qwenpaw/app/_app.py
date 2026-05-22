@@ -541,6 +541,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         except Exception as e:
             logger.error(f"Error stopping browsers during shutdown: {e}")
 
+        # Close the shared httpx client owned by the skills hub module.
+        from ..agents.skill_system.hub import aclose_hub_client
+
+        try:
+            await aclose_hub_client()
+        except Exception as e:
+            logger.error(f"Error closing skills hub HTTP client: {e}")
+
         logger.info("Application shutdown complete")
 
 
