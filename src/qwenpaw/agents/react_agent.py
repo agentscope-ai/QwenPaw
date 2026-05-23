@@ -549,7 +549,9 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         for i, client in enumerate(self._mcp_clients):
             client_name = getattr(client, "name", repr(client))
             client_key = getattr(
-                client, "_qwenpaw_mcp_client_key", None
+                client,
+                "_qwenpaw_mcp_client_key",
+                None,
             ) or getattr(client, "name", "mcp")
             # Sanitize client key for use as a tool name prefix
             slug = re.sub(
