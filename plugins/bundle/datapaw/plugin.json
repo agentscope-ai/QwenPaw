@@ -3,10 +3,10 @@
   "name": "DataPaw",
   "version": "0.1.0",
   "type": "general",
-  "description": "DataPaw —— QwenPaw 数据分析增强插件。基于 DAG 任务图分阶段推进复杂数据分析；提供任务面板（结构化 DAG 编辑 + 实时状态推送）。安装完成后请刷新页面以加载插件。",
+  "description": "DataPaw —— QwenPaw 数据分析增强插件。基于 DAG 任务图分阶段推进复杂数据分析；本版本提供任务面板后端能力（DAG REST API + 节点状态 SSE 推送），配套前端面板将在后续版本提供。安装完成后请刷新页面以加载插件。",
   "description_i18n": {
-    "zh-CN": "DataPaw —— QwenPaw 数据分析增强插件。基于 DAG 任务图分阶段推进复杂数据分析；提供任务面板（结构化 DAG 编辑 + 实时状态推送）。安装完成后请刷新页面以加载插件。",
-    "en-US": "DataPaw plugin for QwenPaw — multi-step data analysis with a DAG task graph and a structured task panel that streams node status updates in real time. Refresh the page after install."
+    "zh-CN": "DataPaw —— QwenPaw 数据分析增强插件。基于 DAG 任务图分阶段推进复杂数据分析；本版本提供任务面板后端能力（DAG REST API + 节点状态 SSE 推送），配套前端面板将在后续版本提供。安装完成后请刷新页面以加载插件。",
+    "en-US": "DataPaw plugin for QwenPaw — multi-step data analysis with a DAG task graph. This release ships the task-panel backend (DAG REST API + node-status SSE); the frontend panel will follow in a later release. Refresh the page after install."
   },
   "author": "DataPaw Team",
   "entry": {
@@ -18,7 +18,7 @@
     "category": "data-analysis",
     "features": [
       "dag-task-graph",
-      "task-panel-with-sse",
+      "task-panel-backend",
       "multi-step-planning"
     ]
   }
