@@ -28,10 +28,10 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Any, List, Literal, Optional
+from typing import Any, List, Literal, NamedTuple, Optional
 from urllib.parse import quote, urlsplit
 
-from fastapi import APIRouter, Body, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
@@ -178,6 +178,68 @@ def _ensure_plan_notebook_keys(pn: dict) -> None:
     pn.setdefault("artifacts", [])
     pn.setdefault("_pending_edits", [])
     pn.setdefault("current_plan", None)
+
+
+class _PnContext(NamedTuple):
+    """Bundle returned by :func:`acquire_pn` for PUT-style handlers.
+
+    Carries the session handle, the loaded ``plan_notebook`` dict (with
+    StateModule keys ensured), and the routing parameters needed to
+    persist the mutated dict back via :func:`_persist_pn`.
+    """
+
+    session: Any  # SafeJSONSession-like
+    session_id: str
+    user_id: str
+    pn: dict
+
+
+async def acquire_pn(
+    session_id: str,
+    request: Request,
+    user_id: str = Query(default="default"),
+) -> _PnContext:
+    """FastAPI dependency: fetch + lock-check + load plan_notebook.
+
+    Used by write-side handlers (``put_sop`` / ``put_dag``) to centralize
+    the session → agent_block → plan_notebook plumbing and the
+    ``_check_not_running`` gate. Raises ``503`` if the session is not
+    ready, ``409`` if an agent is actively running for this session.
+    """
+    workspace = await _get_workspace_for_agent(
+        request,
+        getattr(request.state, "agent_id", None),
+    )
+    await _check_not_running(workspace, session_id)
+
+    session = getattr(getattr(workspace, "runner", None), "session", None)
+    if session is None:
+        raise HTTPException(status_code=503, detail="Session not ready")
+
+    state = await session.get_session_state_dict(session_id, user_id=user_id)
+    agent_block = state.setdefault("agent", {})
+    pn = agent_block.get("plan_notebook")
+    if not isinstance(pn, dict):
+        pn = agent_block.get("runtime_state")
+    if not isinstance(pn, dict):
+        pn = {}
+    _ensure_plan_notebook_keys(pn)
+    return _PnContext(
+        session=session,
+        session_id=session_id,
+        user_id=user_id,
+        pn=pn,
+    )
+
+
+async def _persist_pn(ctx: _PnContext) -> None:
+    """Write the (possibly mutated) plan_notebook dict back to the session."""
+    await ctx.session.update_session_state(
+        session_id=ctx.session_id,
+        key="agent.plan_notebook",
+        value=ctx.pn,
+        user_id=ctx.user_id,
+    )
 
 
 def _safe_filename(name: str) -> str:
@@ -774,10 +836,8 @@ async def get_historical_sop(
 
 @router.put("/{session_id}/sop", response_model=Ok)
 async def put_sop(
-    session_id: str,
-    request: Request,
     body: SOPUploadBody = Body(...),
-    user_id: str = Query(default="default"),
+    ctx: _PnContext = Depends(acquire_pn),
 ) -> Ok:
     """Upload an SOP YAML and rebuild the graph (overwrite semantics).
 
@@ -790,14 +850,9 @@ async def put_sop(
        per-node summary.
     5. Persist the entire block back to the session.
 
-    Stop any running agent first — this endpoint returns 409 if one is active.
+    Stop any running agent first — :func:`acquire_pn` returns 409 if one
+    is active.
     """
-    workspace = await _get_workspace_for_agent(
-        request,
-        getattr(request.state, "agent_id", None),
-    )
-    await _check_not_running(workspace, session_id)
-
     try:
         sop = Sop.from_yaml(body.yaml)
         graph = TaskGraph.from_sop(sop)
@@ -812,27 +867,14 @@ async def put_sop(
             detail=f"Failed to parse SOP: {exc}",
         ) from exc
 
-    session = getattr(getattr(workspace, "runner", None), "session", None)
-    if session is None:
-        raise HTTPException(status_code=503, detail="Session not ready")
-
-    state = await session.get_session_state_dict(session_id, user_id=user_id)
-    agent_block = state.setdefault("agent", {})
-    pn = agent_block.get("plan_notebook")
-    if not isinstance(pn, dict):
-        pn = agent_block.get("runtime_state")
-    if not isinstance(pn, dict):
-        pn = {}
-    _ensure_plan_notebook_keys(pn)
-
     replaced_id = _archive_current_plan_to_pn(
-        pn,
+        ctx.pn,
         reason=f"Replaced by SOP '{graph.name}'.",
     )
 
-    pn["current_plan"] = graph.model_dump(mode="json")
+    ctx.pn["current_plan"] = graph.model_dump(mode="json")
 
-    edits = pn.setdefault("_pending_edits", [])
+    edits = ctx.pn.setdefault("_pending_edits", [])
     edits.append(
         {
             "type": "sop_replaced",
@@ -851,12 +893,7 @@ async def put_sop(
         },
     )
 
-    await session.update_session_state(
-        session_id=session_id,
-        key="agent.plan_notebook",
-        value=pn,
-        user_id=user_id,
-    )
+    await _persist_pn(ctx)
 
     return Ok(
         detail=f"SOP '{graph.name}' loaded as the active task graph.",
@@ -871,32 +908,11 @@ async def put_sop(
 
 @router.put("/{session_id}/dag", response_model=Ok)
 async def put_dag(
-    session_id: str,
-    request: Request,
     body: DAGUploadBody = Body(...),
-    user_id: str = Query(default="default"),
+    ctx: _PnContext = Depends(acquire_pn),
 ) -> Ok:
     """Upload a DAG patch and merge into the current graph (no archive)."""
-    workspace = await _get_workspace_for_agent(
-        request,
-        getattr(request.state, "agent_id", None),
-    )
-    await _check_not_running(workspace, session_id)
-
-    session = getattr(getattr(workspace, "runner", None), "session", None)
-    if session is None:
-        raise HTTPException(status_code=503, detail="Session not ready")
-
-    state = await session.get_session_state_dict(session_id, user_id=user_id)
-    agent_block = state.setdefault("agent", {})
-    pn = agent_block.get("plan_notebook")
-    if not isinstance(pn, dict):
-        pn = agent_block.get("runtime_state")
-    if not isinstance(pn, dict):
-        pn = {}
-    _ensure_plan_notebook_keys(pn)
-
-    current = pn.get("current_plan")
+    current = ctx.pn.get("current_plan")
     if not isinstance(current, dict):
         raise HTTPException(
             status_code=409,
@@ -914,8 +930,8 @@ async def put_dag(
             detail=f"Failed to apply DAG: {exc}",
         ) from exc
 
-    pn["current_plan"] = existing.model_dump(mode="json")
-    edits = pn.setdefault("_pending_edits", [])
+    ctx.pn["current_plan"] = existing.model_dump(mode="json")
+    edits = ctx.pn.setdefault("_pending_edits", [])
     edits.append(
         {
             "type": "dag_merged",
@@ -929,12 +945,7 @@ async def put_dag(
         },
     )
 
-    await session.update_session_state(
-        session_id=session_id,
-        key="agent.plan_notebook",
-        value=pn,
-        user_id=user_id,
-    )
+    await _persist_pn(ctx)
 
     return Ok(
         detail=f"DAG '{existing.name}' merged into the active task graph.",

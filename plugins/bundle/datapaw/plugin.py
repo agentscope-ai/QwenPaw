@@ -56,11 +56,21 @@ class DataPawPlugin:
     async def _on_startup(self):
         logger.info("DataPaw plugin starting up")
 
-        # Imports inside the hook so plugin.py at register-time stays
-        # cheap; per cloudpaw / qwenpaw plugin loader contract, register()
-        # only wires the hooks while the actual setup happens at startup.
-        from agents_setup import ensure_builtin_agents
-        from hooks import (
+        # Relative imports (not absolute) so they resolve against the
+        # ``__package__`` host's PluginLoader sets on this module
+        # (``plugin_datapaw``) rather than walking sys.path. Other
+        # plugins (cloudpaw) also ship a top-level ``agents_setup`` /
+        # ``hooks`` module and inject their plugin dir into sys.path
+        # from their own ``constants.py``; an absolute ``from
+        # agents_setup import ...`` could resolve to cloudpaw's file and
+        # blow up on cloudpaw's own ``from .constants`` (no known parent
+        # package in this load context). The ``no relative imports at
+        # module level`` rule from this file's docstring applies only to
+        # the top of plugin.py — method bodies execute after the loader
+        # has set __package__ / __path__.
+        # pylint: disable-next=relative-beyond-top-level
+        from .agents_setup import ensure_builtin_agents
+        from .hooks import (  # pylint: disable=relative-beyond-top-level
             patch_plugin_loader_unload,
             setup_channel_sse_hook,
             setup_runner_hooks,

@@ -265,6 +265,53 @@ _DAG_USER_STATES: frozenset = frozenset({"todo", "stale", "abandoned"})
 _DAG_BACKEND_STATES: frozenset = frozenset({"done", "in_progress", "failed"})
 
 
+def _check_deps_and_topology(
+    processed_nodes: List[Dict[str, Any]],
+    cycle_label: str = "Graph",
+) -> None:
+    """Reject dangling deps and cycles for an already-validated node list.
+
+    Shared by :func:`_validate_sop_dict` and :func:`_validate_dag_dict`
+    after each has done its own per-node field validation. ``cycle_label``
+    prefixes the cycle error so the message keeps the SOP / DAG distinction
+    the originals had — pass ``"SOP DAG"`` or ``"DAG"`` to match the
+    pre-refactor wording.
+    """
+    node_ids = {n["node_id"] for n in processed_nodes}
+    for n in processed_nodes:
+        unknown_deps = set(n["deps"]) - node_ids
+        if unknown_deps:
+            raise ValueError(
+                f"Node '{n['node_id']}'"
+                f" has unknown deps: {sorted(unknown_deps)}.",
+            )
+
+    in_degree: Dict[str, int] = {n["node_id"]: 0 for n in processed_nodes}
+    adjacency: Dict[str, List[str]] = {
+        n["node_id"]: [] for n in processed_nodes
+    }
+    for n in processed_nodes:
+        for dep in n["deps"]:
+            adjacency[dep].append(n["node_id"])
+            in_degree[n["node_id"]] += 1
+
+    queue = [nid for nid, deg in in_degree.items() if deg == 0]
+    visited_count = 0
+    while queue:
+        cur = queue.pop(0)
+        visited_count += 1
+        for downstream in adjacency.get(cur, []):
+            in_degree[downstream] -= 1
+            if in_degree[downstream] == 0:
+                queue.append(downstream)
+
+    if visited_count != len(processed_nodes):
+        raise ValueError(
+            f"{cycle_label} contains a cycle."
+            " Check 'deps' for circular references.",
+        )
+
+
 def _validate_sop_dict(  # pylint: disable=too-many-branches
     data: dict,
 ) -> List[Dict[str, Any]]:
@@ -325,40 +372,7 @@ def _validate_sop_dict(  # pylint: disable=too-many-branches
         n.setdefault("deps", [])
         processed_nodes.append(n)
 
-    node_ids = {n["node_id"] for n in processed_nodes}
-    for n in processed_nodes:
-        unknown_deps = set(n["deps"]) - node_ids
-        if unknown_deps:
-            raise ValueError(
-                f"Node '{n['node_id']}'"
-                f" has unknown deps: {sorted(unknown_deps)}.",
-            )
-
-    # Kahn topological sort to detect cycles.
-    in_degree: Dict[str, int] = {n["node_id"]: 0 for n in processed_nodes}
-    adjacency: Dict[str, List[str]] = {
-        n["node_id"]: [] for n in processed_nodes
-    }
-    for n in processed_nodes:
-        for dep in n["deps"]:
-            adjacency[dep].append(n["node_id"])
-            in_degree[n["node_id"]] += 1
-
-    queue = [nid for nid, deg in in_degree.items() if deg == 0]
-    visited_count = 0
-    while queue:
-        cur = queue.pop(0)
-        visited_count += 1
-        for downstream in adjacency.get(cur, []):
-            in_degree[downstream] -= 1
-            if in_degree[downstream] == 0:
-                queue.append(downstream)
-
-    if visited_count != len(processed_nodes):
-        raise ValueError(
-            "SOP DAG contains a cycle. Check 'deps' for circular references.",
-        )
-
+    _check_deps_and_topology(processed_nodes, cycle_label="SOP DAG")
     return processed_nodes
 
 
@@ -430,39 +444,7 @@ def _validate_dag_dict(  # pylint: disable=too-many-branches
         n.setdefault("deps", [])
         processed_nodes.append(n)
 
-    node_ids = {n["node_id"] for n in processed_nodes}
-    for n in processed_nodes:
-        unknown_deps = set(n["deps"]) - node_ids
-        if unknown_deps:
-            raise ValueError(
-                f"Node '{n['node_id']}'"
-                f" has unknown deps: {sorted(unknown_deps)}.",
-            )
-
-    in_degree: Dict[str, int] = {n["node_id"]: 0 for n in processed_nodes}
-    adjacency: Dict[str, List[str]] = {
-        n["node_id"]: [] for n in processed_nodes
-    }
-    for n in processed_nodes:
-        for dep in n["deps"]:
-            adjacency[dep].append(n["node_id"])
-            in_degree[n["node_id"]] += 1
-
-    queue = [nid for nid, deg in in_degree.items() if deg == 0]
-    visited_count = 0
-    while queue:
-        cur = queue.pop(0)
-        visited_count += 1
-        for downstream in adjacency.get(cur, []):
-            in_degree[downstream] -= 1
-            if in_degree[downstream] == 0:
-                queue.append(downstream)
-
-    if visited_count != len(processed_nodes):
-        raise ValueError(
-            "DAG contains a cycle. Check 'deps' for circular references.",
-        )
-
+    _check_deps_and_topology(processed_nodes, cycle_label="DAG")
     return processed_nodes
 
 

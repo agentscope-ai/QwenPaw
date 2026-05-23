@@ -23,7 +23,7 @@ import shutil
 import time
 from pathlib import Path
 
-from constants import BUILTIN_DATAPAW_AGENT_ID, PLUGIN_DIR
+from core.i18n import tr
 from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentProfileRef,
@@ -39,11 +39,69 @@ from qwenpaw.config.utils import (
 )
 from qwenpaw.constant import WORKING_DIR
 
+# Sibling-module imports last because the conditional ``if/else`` block
+# is a non-import statement and would otherwise force all following
+# imports into ``wrong-import-position``. Conditional pattern: relative
+# when host's PluginLoader sets ``__package__ = "plugin_datapaw"``,
+# absolute when imported via the sys.path-based test conftest. Required
+# so the plugin can co-exist with other plugins (e.g. cloudpaw) that
+# ship a top-level ``constants`` module of their own.
+if __package__:
+    # pylint: disable-next=relative-beyond-top-level
+    from .constants import BUILTIN_DATAPAW_AGENT_ID, PLUGIN_DIR
+else:
+    from constants import BUILTIN_DATAPAW_AGENT_ID, PLUGIN_DIR
+
 logger = logging.getLogger(__name__)
 
 # Tag used to mark plugin-bundled skill entries in the workspace manifest;
 # uninstall path can grep this to know which entries it owns.
 _PLUGIN_SKILL_SOURCE = "plugin:datapaw"
+
+# Filename used to cache per-skill src-dir mtimes so we can skip the
+# rmtree+copytree round-trip when nothing has changed since last install.
+_SKILL_VERSIONS_FILENAME = ".datapaw_versions.json"
+
+
+def _max_mtime(root: Path) -> float:
+    """Return the recursive max ``st_mtime`` of all files under ``root``.
+
+    Used as a cheap content-change signal — we trade hash exactness for an
+    O(N) directory walk and no IO past ``stat()``. Acceptable because the
+    cache only gates a 12-skill copy on startup; a false-negative skip
+    (very unlikely without a manual ``touch -t`` backdate) is recovered
+    by deleting :const:`_SKILL_VERSIONS_FILENAME`.
+    """
+    best = 0.0
+    for p in root.rglob("*"):
+        if p.is_file():
+            try:
+                mt = p.stat().st_mtime
+            except OSError:
+                continue
+            if mt > best:
+                best = mt
+    return best
+
+
+def _load_skill_versions(versions_file: Path) -> dict[str, float]:
+    """Read the per-skill mtime cache; empty dict on any failure."""
+    if not versions_file.exists():
+        return {}
+    try:
+        with versions_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    # Defensive: only keep numeric entries so a corrupt cache doesn't
+    # promote a bogus value into the short-circuit comparison.
+    return {
+        name: float(mt)
+        for name, mt in data.items()
+        if isinstance(name, str) and isinstance(mt, (int, float))
+    }
 
 
 def _workspace_dir_for(agent_id: str) -> Path:
@@ -85,7 +143,7 @@ def ensure_builtin_agents() -> None:
     agent_cfg = AgentProfileConfig(
         id=agent_id,
         name="DataPaw",
-        description="数据分析多步规划 agent，基于 DAG 任务图分阶段推进",
+        description=tr("agent.description", language),
         workspace_dir=str(ws_dir),
         language=language,
         channels=ChannelConfig(),
@@ -147,6 +205,13 @@ def _install_plugin_skills(ws_dir: Path) -> None:
     Idempotent: re-running on the same workspace just refreshes the files
     and re-asserts ``enabled=True`` without disturbing other manifest
     entries (e.g. the user's customized skills with ``source=customized``).
+
+    Per-skill ``rmtree+copytree`` is short-circuited via a cached
+    ``{skill_name: src_max_mtime}`` map stored at
+    ``<ws>/skills/.datapaw_versions.json``; on subsequent startups, skills
+    whose src has not been touched skip the file copy. The manifest
+    reconcile + enable patch still runs every time since it costs little
+    and protects against externally tampered manifest entries.
     """
     src_skills_dir = PLUGIN_DIR / "skills"
     if not src_skills_dir.exists():
@@ -155,6 +220,10 @@ def _install_plugin_skills(ws_dir: Path) -> None:
     dst_skills_dir = ws_dir / "skills"
     dst_skills_dir.mkdir(parents=True, exist_ok=True)
 
+    versions_file = dst_skills_dir / _SKILL_VERSIONS_FILENAME
+    cached_versions = _load_skill_versions(versions_file)
+    updated_versions: dict[str, float] = {}
+
     plugin_skill_names: list[str] = []
     for src in sorted(src_skills_dir.iterdir()):
         if not src.is_dir() or not (src / "SKILL.md").exists():
@@ -162,9 +231,23 @@ def _install_plugin_skills(ws_dir: Path) -> None:
         skill_name = src.name
         plugin_skill_names.append(skill_name)
         dst = dst_skills_dir / skill_name
+
+        src_mtime = _max_mtime(src)
+        cached_mtime = cached_versions.get(skill_name)
+        if (
+            dst.exists()
+            and cached_mtime is not None
+            and cached_mtime >= src_mtime
+        ):
+            # Source unchanged since the last install — keep the cached
+            # mtime so it survives this round-trip and skip the copy.
+            updated_versions[skill_name] = cached_mtime
+            continue
+
         if dst.exists():
             shutil.rmtree(dst)
         shutil.copytree(src, dst)
+        updated_versions[skill_name] = src_mtime
 
     if not plugin_skill_names:
         return
@@ -206,6 +289,21 @@ def _install_plugin_skills(ws_dir: Path) -> None:
 
     manifest["version"] = int(time.time() * 1000)
     write_json_atomic(manifest_path, manifest)
+
+    # Persist the mtime cache last so a partial install (manifest write
+    # fails) does not poison the short-circuit for the next startup.
+    try:
+        versions_file.write_text(
+            json.dumps(updated_versions, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError:
+        logger.warning(
+            "Failed to write %s; next startup will redo all skill copies.",
+            versions_file,
+            exc_info=True,
+        )
+
     logger.info(
         "Installed %d DataPaw plugin skills into %s",
         len(plugin_skill_names),

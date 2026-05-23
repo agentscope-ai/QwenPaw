@@ -29,9 +29,30 @@ import json
 import logging
 from typing import Any
 
-from constants import BUILTIN_DATAPAW_AGENT_ID
+# See ``agents_setup.py`` for rationale — co-existence with other plugins
+# that ship a top-level ``constants`` module of their own. The pylint
+# disable is needed because pylint can't see host's PluginLoader setting
+# ``__package__`` on this module at runtime.
+if __package__:
+    # pylint: disable-next=relative-beyond-top-level
+    from .constants import BUILTIN_DATAPAW_AGENT_ID
+else:
+    from constants import BUILTIN_DATAPAW_AGENT_ID
 
 logger = logging.getLogger(__name__)
+
+
+# Single source of truth for the attribute names this module sets on
+# patched targets to mark "DataPaw has already patched this; do not
+# install again." Keep this list in sync with the actual ``setattr``
+# sites — at the time of writing they are:
+#
+#   * ``runner_module.QwenPawAgent`` (the smart factory instance) ─►
+#     attribute ``_datapaw_factory``
+#   * ``AgentRunner.query_handler``  / ``ConsoleChannel.stream_one`` /
+#     ``PluginLoader.unload_plugin``  (wrapper functions) ─►
+#     attribute ``_datapaw_patched``
+_PATCH_MARKER_ATTRS = ("_datapaw_factory", "_datapaw_patched")
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +93,7 @@ class _SmartAgentFactory:
             agent_id = rc.get("agent_id", "") or ""
 
         if agent_id == BUILTIN_DATAPAW_AGENT_ID:
-            return _DataPawAgentAdapter(*args, **kwargs)
+            return _build_datapaw_agent(*args, **kwargs)
         return self._original(*args, **kwargs)
 
 
@@ -87,7 +108,7 @@ def _import_data_paw_agent():
     return DataPawAgent
 
 
-def _DataPawAgentAdapter(*args, **kwargs):
+def _build_datapaw_agent(*args, **kwargs):
     """Construct a ``DataPawAgent`` and wire datapaw-specific runtime hooks.
 
     ``query_handler`` passes some kwargs that are meaningful to
@@ -134,8 +155,17 @@ def _DataPawAgentAdapter(*args, **kwargs):
         if request is not None:
             try:
                 setattr(request, "_datapaw_sse_queue", queue)
-            except Exception:  # pylint: disable=broad-except
-                pass
+            except AttributeError:
+                # Real Starlette ``Request`` objects accept arbitrary
+                # attributes; the only realistic failure is a frozen test
+                # double. Log a debug line and move on so the agent can
+                # still emit events to its private queue.
+                logger.debug(
+                    "Could not attach _datapaw_sse_queue to request"
+                    " (frozen object?); SSE events stay in a private"
+                    " queue.",
+                    exc_info=True,
+                )
     notebook._sse_event_queue = queue
 
     # Broadcast hook: pipe DAG-change events to host's per-agent SSE
@@ -383,11 +413,14 @@ def _wrap_stream_one(orig_stream_one):
             while not queue.empty():
                 try:
                     event = queue.get_nowait()
-                except Exception:  # pylint: disable=broad-except
+                except asyncio.QueueEmpty:
+                    # Already guarded by ``not queue.empty()`` above; the
+                    # only race is another consumer draining concurrently.
                     break
                 try:
                     yield _format_task_event_as_sse(event)
                 except Exception:  # pylint: disable=broad-except
+                    # SSE stream must not break on a single bad event.
                     logger.debug(
                         "failed to emit datapaw graph event",
                         exc_info=True,
@@ -403,11 +436,14 @@ def _wrap_stream_one(orig_stream_one):
         while not queue.empty():
             try:
                 event = queue.get_nowait()
-            except Exception:  # pylint: disable=broad-except
+            except asyncio.QueueEmpty:
+                # Already guarded by ``not queue.empty()`` above; the
+                # only race is another consumer draining concurrently.
                 break
             try:
                 yield _format_task_event_as_sse(event)
             except Exception:  # pylint: disable=broad-except
+                # SSE stream must not break on a single bad event.
                 logger.debug(
                     "failed to emit tail datapaw graph event",
                     exc_info=True,
@@ -449,7 +485,16 @@ def uninstall_builtin_agents() -> None:
     Tests `patch("hooks.uninstall_builtin_agents", ...)` to intercept
     uninstall behaviour without touching agents_setup directly.
     """
-    from agents_setup import uninstall_builtin_agents as _u
+    # Conditional import: relative when loaded by host's PluginLoader,
+    # absolute when imported via tests' sys.path-based conftest. See the
+    # equivalent comment at the top of this module for rationale.
+    if __package__:
+        # pylint: disable-next=relative-beyond-top-level
+        from .agents_setup import uninstall_builtin_agents as _u
+    else:
+        from agents_setup import (  # type: ignore[no-redef]
+            uninstall_builtin_agents as _u,
+        )
 
     return _u()
 

@@ -42,6 +42,8 @@ from pathlib import Path
 
 from qwenpaw.constant import WORKING_DIR
 
+from .i18n import tr
+
 
 ARTIFACTS_DIR_NAME = "artifacts"
 
@@ -103,12 +105,17 @@ class PathContext:
             defaults to ``"/skills"``.
         current_rel_path: Sandbox current-node cwd, relative to
             ``mount_dir``. ``to_host`` prefixes this onto relative inputs.
+        lang: Locale tag for LLM-facing error messages returned by
+            :meth:`to_host` (``"zh"`` / ``"en"``); defaults to ``"zh"``.
+            Developer-facing strings (logger, exception detail) are
+            English regardless.
     """
 
     mount_dir: Path
     skills_dir: Path | None = None
     skills_target: str = "/skills"
     current_rel_path: str = ""
+    lang: str = "zh"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mount_dir", Path(self.mount_dir).resolve())
@@ -125,75 +132,96 @@ class PathContext:
 
     # --- sandbox view → host -----------------------------------------------
 
-    # pylint: disable-next=too-many-return-statements
     def to_host(self, virtual_path: str) -> tuple[Path, str | None]:
         """Translate a sandbox-view path to a host absolute path.
 
         Returns ``(host_abs_path, error_msg)``: success is ``(Path, None)``,
         failure is ``(Path(""), error_msg)``.
 
-        Rules:
-        - Empty string: rejected (sandbox tools must name a path).
-        - ``/skills`` or ``/skills/...``: joined onto ``skills_dir``;
-          escapes are rejected; if ``skills_dir`` is unset, rejected.
-        - ``/workspace`` or ``/workspace/...``: joined onto ``mount_dir``;
-          escapes rejected.
-        - Any other absolute path: rejected (caller should use a relative
+        Dispatch by prefix:
+        - Empty string → rejected.
+        - ``/skills`` / ``/skills/...`` → :meth:`_resolve_skills`.
+        - ``/workspace`` / ``/workspace/...`` → :meth:`_resolve_workspace`.
+        - Any other absolute path → rejected (caller should use a relative
           path or a ``/workspace/`` prefix).
-        - Relative path: prefixed with ``current_rel_path``; escapes
-          rejected. If ``virtual_path`` already starts with
-          ``current_rel_path``, the prefix is not duplicated.
+        - Relative path → :meth:`_resolve_relative` (prefixed with
+          ``current_rel_path``).
 
         External / artifact callers (which may legitimately pass host
         absolute paths) should use :meth:`resolve_artifact_path` instead.
         """
         fp = str(virtual_path or "").strip()
         if not fp:
-            return Path(""), "文件路径不能为空"
+            return Path(""), tr("path.empty", self.lang)
 
         skills_target = self._skills_target_norm
-
-        # /skills branch.
         if fp == skills_target or fp.startswith(f"{skills_target}/"):
-            if self.skills_dir is None:
-                return (
-                    Path(""),
-                    f"Skills 目录未挂载，无法访问 {skills_target}。",
-                )
-            raw_rel = fp[len(skills_target) :].lstrip("/")
-            candidate = (self.skills_dir / raw_rel).resolve()
-            if not candidate.is_relative_to(self.skills_dir):
-                return (
-                    Path(""),
-                    f"[沙箱安全限制] Skills 路径越界（可能含 ../）：{fp!r} "
-                    f"解析为 {candidate}，必须在 {self.skills_dir} 下。",
-                )
-            return candidate, None
+            return self._resolve_skills(fp)
 
-        # /workspace branch.
-        workspace_prefix = "/workspace/"
-        if fp == "/workspace":
-            return self.mount_dir, None
-        if fp.startswith(workspace_prefix):
-            raw_rel = fp[len(workspace_prefix) :].lstrip("/")
-            candidate = (self.mount_dir / raw_rel).resolve()
-            if not candidate.is_relative_to(self.mount_dir):
-                return (
-                    Path(""),
-                    f"[沙箱安全限制] 路径越界（可能含 ../）：{fp!r} "
-                    f"解析为 {candidate}，必须在挂载目录 {self.mount_dir} 下。",
-                )
-            return candidate, None
+        if fp == "/workspace" or fp.startswith("/workspace/"):
+            return self._resolve_workspace(fp)
 
-        # Other absolute paths: always rejected for sandbox tools.
         if fp.startswith("/"):
-            return (
-                Path(""),
-                f"[沙箱安全限制] 不允许访问沙箱挂载目录以外的绝对路径："
-                f"{fp!r}。请使用相对路径（如 'chart.png'）或 /workspace/ 前缀。",
+            return Path(""), tr(
+                "path.absolute_forbidden",
+                self.lang,
+                fp=fp,
             )
 
-        # Relative path: join against cwd.
+        return self._resolve_relative(fp)
+
+    def _resolve_skills(self, fp: str) -> tuple[Path, str | None]:
+        """Resolve a ``/skills`` or ``/skills/...`` sandbox-view path.
+
+        Caller has already verified the prefix. Rejects when ``skills_dir``
+        is unset and when the resolved path escapes ``skills_dir``.
+        """
+        skills_target = self._skills_target_norm
+        if self.skills_dir is None:
+            return Path(""), tr(
+                "path.skills_unmounted",
+                self.lang,
+                target=skills_target,
+            )
+        raw_rel = fp[len(skills_target) :].lstrip("/")
+        candidate = (self.skills_dir / raw_rel).resolve()
+        if not candidate.is_relative_to(self.skills_dir):
+            return Path(""), tr(
+                "path.skills_escape",
+                self.lang,
+                fp=fp,
+                resolved=candidate,
+                root=self.skills_dir,
+            )
+        return candidate, None
+
+    def _resolve_workspace(self, fp: str) -> tuple[Path, str | None]:
+        """Resolve a ``/workspace`` or ``/workspace/...`` sandbox-view path.
+
+        Caller has already verified the prefix. Rejects when the resolved
+        path escapes ``mount_dir``.
+        """
+        if fp == "/workspace":
+            return self.mount_dir, None
+        raw_rel = fp[len("/workspace/") :].lstrip("/")
+        candidate = (self.mount_dir / raw_rel).resolve()
+        if not candidate.is_relative_to(self.mount_dir):
+            return Path(""), tr(
+                "path.workspace_escape",
+                self.lang,
+                fp=fp,
+                resolved=candidate,
+                root=self.mount_dir,
+            )
+        return candidate, None
+
+    def _resolve_relative(self, fp: str) -> tuple[Path, str | None]:
+        """Resolve a relative sandbox-view path against ``current_rel_path``.
+
+        Caller has already verified that ``fp`` is non-empty and does not
+        start with ``/``. If ``fp`` already starts with ``current_rel_path``,
+        the prefix is not duplicated. Rejects escapes from ``mount_dir``.
+        """
         base_rel = self.current_rel_path.strip().strip("/")
         if base_rel and (fp == base_rel or fp.startswith(f"{base_rel}/")):
             raw_rel = fp
@@ -203,10 +231,12 @@ class PathContext:
             raw_rel = fp
         candidate = (self.mount_dir / raw_rel).resolve()
         if not candidate.is_relative_to(self.mount_dir):
-            return (
-                Path(""),
-                f"[沙箱安全限制] 路径越界（可能含 ../）：{fp!r} "
-                f"解析为 {candidate}，必须在挂载目录 {self.mount_dir} 下。",
+            return Path(""), tr(
+                "path.workspace_escape",
+                self.lang,
+                fp=fp,
+                resolved=candidate,
+                root=self.mount_dir,
             )
         return candidate, None
 

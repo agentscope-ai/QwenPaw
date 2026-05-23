@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import typing
 from pathlib import Path
 from typing import (
     Any,
@@ -37,6 +38,7 @@ from typing import (
 
 from collections import OrderedDict
 
+from agentscope._utils._common import _get_timestamp
 from agentscope.message import Msg, TextBlock
 from agentscope.plan import (
     InMemoryPlanStorage,
@@ -46,6 +48,7 @@ from agentscope.plan import (
 from agentscope.tool import ToolResponse
 from pydantic import ValidationError
 
+from ..i18n import tr
 from .artifact import ArtifactItem
 from .events import TaskEvent, TaskEventType
 from .hint import DataPawPlanToHint
@@ -124,12 +127,16 @@ class RuntimeStateManager(PlanNotebook):
         self,
         storage: Optional[PlanStorageBase] = None,
         graph_to_hint: Optional[Callable] = None,
+        lang: str = "zh",
     ) -> None:
         """Args:
         storage: Backing store for historical TaskGraphs. In-memory by default.
         graph_to_hint: Hint generator; defaults to :class:`DataPawPlanToHint`
             (which extends :class:`DefaultGraphToHint` with host plan-flag
             awareness for ``/plan`` command, post-mutation lock, etc).
+        lang: Locale tag for LLM-facing tool responses (``"zh"`` / ``"en"``).
+            Developer-facing strings (logger, exception detail) stay
+            English regardless. Defaults to ``"zh"``.
         """
         if graph_to_hint is None:
             graph_to_hint = DataPawPlanToHint()
@@ -137,6 +144,7 @@ class RuntimeStateManager(PlanNotebook):
             plan_to_hint=graph_to_hint,
             storage=storage or InMemoryTaskGraphStorage(),
         )
+        self.lang = lang
         # Bind self so the hint generator can read _plan_* flags off this
         # notebook on each __call__. No-op for plain DefaultGraphToHint.
         if hasattr(graph_to_hint, "bind_notebook"):
@@ -520,13 +528,12 @@ class RuntimeStateManager(PlanNotebook):
 
         node = self.current_plan.nodes.get(node_id)
         if node is None:
-            return _text(f"Node '{node_id}' not found.")
+            return _text(
+                tr("state.node_not_found", self.lang, node_id=node_id),
+            )
 
         if state not in ("todo", "in_progress", "failed", "abandoned"):
-            return _text(
-                f"Invalid state '{state}'. Must be one of "
-                "todo/in_progress/failed/abandoned.",
-            )
+            return _text(tr("state.invalid_state", self.lang, state=state))
 
         # Enforce single-in-progress: marking two nodes in_progress in
         # one reasoning round would bind their traces to the wrong nodes.
@@ -538,11 +545,12 @@ class RuntimeStateManager(PlanNotebook):
             ]
             if existing_in_progress:
                 return _text(
-                    f"已有节点 {existing_in_progress} 正在执行。"
-                    f"请先完成当前节点"
-                    f"（调用 finish_subtask 或"
-                    f" update_subtask_state 设置为 done/failed），"
-                    f"再开始执行节点 '{node_id}'。",
+                    tr(
+                        "state.already_running",
+                        self.lang,
+                        ids=existing_in_progress,
+                        node_id=node_id,
+                    ),
                 )
 
         if state == "failed":
@@ -553,8 +561,6 @@ class RuntimeStateManager(PlanNotebook):
             # Reverting from done/abandoned back to todo is allowed.
             node.state = state
             if state == "in_progress":
-                from agentscope._utils._common import _get_timestamp
-
                 node.started_at = _get_timestamp()
             if state == "todo":
                 node.error = None
@@ -786,8 +792,6 @@ class RuntimeStateManager(PlanNotebook):
         each tool function's annotations via ``typing.get_type_hints``
         before returning the list to sidestep the issue.
         """
-        import typing
-
         tools = [
             self.create_plan,
             self.finish_plan,

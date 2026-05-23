@@ -26,6 +26,7 @@ from typing import Any, List, Literal, Optional, TYPE_CHECKING, Type
 from agentscope.message import Msg
 from pydantic import BaseModel
 
+from core.i18n import tr
 from core.orchestration import RuntimeStateManager
 from core.path_context import PathContext, default_artifacts_root
 from qwenpaw.agents.react_agent import NamesakeStrategy, QwenPawAgent
@@ -44,16 +45,30 @@ PLUGIN_DIR = Path(__file__).resolve().parent.parent.parent
 PLUGIN_PROMPTS_DIR = PLUGIN_DIR / "prompts"
 
 
-def _read_master_md() -> str:
-    """Read the plugin's MASTER.md runtime-section; empty string on failure."""
-    p = PLUGIN_PROMPTS_DIR / "MASTER.md"
-    if not p.exists():
-        return ""
-    try:
-        return p.read_text(encoding="utf-8")
-    except Exception:  # pylint: disable=broad-except
-        logger.warning("Failed to read DataPaw MASTER.md", exc_info=True)
-        return ""
+def _read_master_md(lang: str = "zh") -> str:
+    """Read the plugin's MASTER.{lang}.md runtime-section.
+
+    Falls back to ``MASTER.zh.md`` if the requested language pack is
+    missing; finally falls back to a legacy ``MASTER.md`` if neither
+    localized variant exists. Returns the empty string on any read error.
+    """
+    candidates = [
+        PLUGIN_PROMPTS_DIR / f"MASTER.{lang}.md",
+        PLUGIN_PROMPTS_DIR / "MASTER.zh.md",
+        PLUGIN_PROMPTS_DIR / "MASTER.md",
+    ]
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError:
+            logger.warning(
+                "Failed to read DataPaw prompt file %s",
+                path,
+                exc_info=True,
+            )
+    return ""
 
 
 def _get_in_progress_node_id(plan: Any) -> Optional[str]:
@@ -94,14 +109,15 @@ class DataPawConfig:
 # ---------------------------------------------------------------------------
 
 
-def format_pending_edits(edits: list[dict]) -> str:
-    """Render ``_pending_edits`` into an LLM-readable Chinese summary."""
+def format_pending_edits(edits: list[dict], lang: str = "zh") -> str:
+    """Render ``_pending_edits`` into an LLM-readable summary in ``lang``."""
     lines: list[str] = []
+    unnamed = tr("edit.sop_unnamed", lang)
     for edit in edits:
         etype = edit.get("type")
         if etype in ("sop_replaced", "sop_loaded"):
             # ``sop_loaded`` is the legacy name kept for old session files.
-            name = edit.get("name", "未命名")
+            name = edit.get("name", unnamed)
             node_count = edit.get("node_count", "?")
             replaced = edit.get("replaced_graph_id")
             node_summary = edit.get("node_summary") or []
@@ -110,50 +126,50 @@ def format_pending_edits(edits: list[dict]) -> str:
                 for x in node_summary
                 if isinstance(x, dict)
             )
-            head = f"已加载 SOP 模板「{name}」（{node_count} 个节点）"
+            head = tr("edit.sop_loaded_head", lang, name=name, n=node_count)
             if replaced:
-                head += f"，已替换旧图 {replaced}"
-            body = (
-                f"{head}。这是用户提供的执行计划，请按 ready 节点的 deps "
-                f"顺序逐步执行；如无修改诉求，不要再调用 create_plan。"
-            )
+                head += tr("edit.sop_loaded_replaced", lang, gid=replaced)
+            body = tr("edit.sop_loaded_body", lang, head=head)
             if summary_lines:
                 body = body + "\n" + summary_lines
             lines.append(body)
         elif etype == "dag_merged":
-            name = edit.get("name", "未命名")
+            name = edit.get("name", unnamed)
             added = edit.get("added") or []
             removed = edit.get("removed") or []
             modified = edit.get("modified") or []
             overridden = edit.get("state_overridden") or []
             stale = edit.get("stale_propagated") or []
             lines.append(
-                f"用户修订了任务图「{name}」：\n"
-                f"- 新增节点：{added}\n"
-                f"- 修改节点：{modified}（结构变更节点按需 STALE）\n"
-                f"- 删除节点：{removed}\n"
-                f"- 用户显式改变状态：{overridden}\n"
-                f"- 下游级联 STALE：{stale}\n"
-                f"- 已 done 节点保留进度，请勿重新执行。",
+                tr(
+                    "edit.dag_merged",
+                    lang,
+                    name=name,
+                    added=added,
+                    modified=modified,
+                    removed=removed,
+                    overridden=overridden,
+                    stale=stale,
+                ),
             )
         elif etype == "node_edited":
             # Legacy rendering for old session files.
             node_id = edit.get("node_id", "?")
             changes = edit.get("changes", {})
-            lines.append(f"用户在任务面板修改了节点 `{node_id}`：{changes}")
+            lines.append(
+                tr("edit.node_edited", lang, nid=node_id, changes=changes),
+            )
             stale = edit.get("stale_propagated") or []
             if stale:
                 lines.append(
-                    f"  → 下游节点 {stale} 已被标记为 STALE，需要重跑。",
+                    tr("edit.node_stale_warn", lang, stale=stale),
                 )
         elif etype == "graph_replaced":
             # Legacy rendering for old session files.
-            lines.append(
-                "当前活跃图被前端替换。请检查新的 current_plan 并按其执行。",
-            )
+            lines.append(tr("edit.graph_replaced", lang))
         else:
-            lines.append(f"未知外部变更：{edit}")
-    return "\n".join(lines) if lines else "(no pending edits)"
+            lines.append(tr("edit.unknown", lang, raw=edit))
+    return "\n".join(lines) if lines else tr("edit.no_pending", lang)
 
 
 # ---------------------------------------------------------------------------
@@ -197,9 +213,11 @@ class DataPawAgent(QwenPawAgent):
         plan_notebook: Any | None = None,
     ) -> None:
         # _build_sys_prompt runs inside super().__init__ and reads
-        # self._datapaw_config, so configure it before super().
+        # self._datapaw_config and self._lang, so configure both before
+        # super().
         self._datapaw_config = datapaw_config or DataPawConfig()
         self._sub_agent_dispatcher = self._datapaw_config.sub_agent_dispatcher
+        self._lang = getattr(agent_config, "language", None) or "zh"
 
         # Diagnostic-only: avoid calling host helpers on a missing skills dir.
         if workspace_dir is not None:
@@ -233,7 +251,11 @@ class DataPawAgent(QwenPawAgent):
         if runtime_state is None:
             # DataPawPlanToHint is RuntimeStateManager's default — no need
             # to pass graph_to_hint explicitly.
-            runtime_state = RuntimeStateManager()
+            runtime_state = RuntimeStateManager(lang=self._lang)
+        else:
+            # Caller-supplied notebook (tests / explicit injection): align
+            # its locale with the agent so tool responses stay consistent.
+            runtime_state.lang = self._lang
         self.plan_notebook = runtime_state
 
         # Migrate host plan-mode flags from the discarded host
@@ -293,7 +315,10 @@ class DataPawAgent(QwenPawAgent):
         workspace_dir: Path | None,
     ) -> None:
         """Give the RuntimeStateManager a resolver for artifact size stat."""
-        context = PathContext(mount_dir=self._artifact_base_dir(workspace_dir))
+        context = PathContext(
+            mount_dir=self._artifact_base_dir(workspace_dir),
+            lang=self._lang,
+        )
         self.plan_notebook.path_resolver = context.resolve_artifact_path
 
     def _current_graph_id(self) -> str | None:
@@ -404,22 +429,7 @@ class DataPawAgent(QwenPawAgent):
         """DataPaw env hint describing the host workspace paths."""
         workspace_dir = getattr(self, "_workspace_dir", None)
         artifacts_root = self._artifact_base_dir(workspace_dir)
-        return (
-            "<datapaw-analysis-environment>\n"
-            "当前 DataPaw 分析环境：host workspace。\n"
-            "- 使用 host 提供的 `execute_shell_command` 执行命令；"
-            "工作目录是 agent workspace。\n"
-            f"- 数据文件和产物存储在 `{artifacts_root}`；引用时使用 "
-            "`artifacts/<session_id>/<graph_id>/<node_id>/...`。\n"
-            "- Python 脚本可来自 workspace、skills 目录或临时生成文件；"
-            "不要假设脚本必须位于 `artifacts/` 下。\n"
-            "- Matplotlib/Seaborn 绘图时，不要假设宿主机存在某一平台字体；"
-            "如需中文字体，请先探测当前 Python 环境可用字体，再设置 "
-            "`font.sans-serif`。\n"
-            "- 记录 `finish_subtask(files=...)` 时，文件路径仍使用相对 "
-            "artifacts 根的路径，例如 `session/graph/node/chart.png`。\n"
-            "</datapaw-analysis-environment>"
-        )
+        return tr("env.hint", self._lang, root=artifacts_root)
 
     def _build_sys_prompt(self) -> str:
         """Assemble the system prompt in four layers:
@@ -442,7 +452,7 @@ class DataPawAgent(QwenPawAgent):
         if base:
             parts.append(base)
 
-        master = _read_master_md()
+        master = _read_master_md(self._lang)
         if master:
             parts.append(master)
 
@@ -477,10 +487,11 @@ class DataPawAgent(QwenPawAgent):
 
         pending = self.plan_notebook.pop_pending_edits()
         if pending:
-            summary = format_pending_edits(pending)
+            summary = format_pending_edits(pending, self._lang)
+            prefix = tr("edit.notify_prefix", self._lang)
             edit_msg = Msg(
                 "system",
-                f"[外部变更通知]\n{summary}",
+                f"{prefix}\n{summary}",
                 role="system",
             )
             try:
@@ -535,14 +546,12 @@ class DataPawAgent(QwenPawAgent):
         if graph is not None:
             progress = graph.to_markdown()
             text = (
-                f"任务已暂停。当前进度：\n{progress}\n\n"
-                "你可以：\n"
-                "- 直接说「继续」恢复执行\n"
-                "- 告诉我需要修改的内容（如「灵敏度改成 2.0」）\n"
-                "- 在任务面板中修改后点击继续"
+                f"{tr('intr.paused_head', self._lang)}\n"
+                f"{progress}\n\n"
+                f"{tr('intr.options', self._lang)}"
             )
         else:
-            text = "已中断。有什么需要调整的吗？"
+            text = tr("intr.no_plan", self._lang)
 
         response_msg = Msg(
             self.name,
@@ -585,8 +594,20 @@ class DataPawAgent(QwenPawAgent):
         Earlier plugin builds saved DataPaw state under ``runtime_state``
         instead of ``plan_notebook``; rename it back. If both keys exist
         (e.g., legacy DataPaw save + host pre-populated stub from a
-        botched turn), DataPaw's ``runtime_state`` wins. ``strict=False``
-        so schema drift between versions doesn't raise.
+        botched turn), DataPaw's ``runtime_state`` wins.
+
+        .. note::
+
+           The ``strict`` parameter is **intentionally ignored** — DataPaw
+           always delegates to the superclass with ``strict=False`` so
+           schema drift between plugin versions does not raise. The
+           signature keeps ``strict`` for compatibility with host callers
+           that pass it as a keyword (e.g.
+           ``agent.load_state_dict(state, strict=True)``); they get the
+           lenient behavior either way. This is by design: a freshly
+           installed plugin version reading a session JSON written by
+           the previous version must not raise on missing StateModule
+           keys.
         """
         mapped = dict(state_dict)
         if "runtime_state" in mapped:
