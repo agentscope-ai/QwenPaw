@@ -95,6 +95,7 @@ class MCPClientManager:
         probe: bool = False,
         probe_timeout: float = 8.0,
     ) -> tuple[str, str | None]:
+        # pylint: disable=too-many-return-statements
         """Return runtime connectivity for a configured client.
 
         Status is one of: ``disabled``, ``connecting``, ``available``,
