@@ -39,6 +39,12 @@ if __package__:
 else:
     from constants import BUILTIN_DATAPAW_AGENT_ID
 
+# Imported after the conditional block above so plugin-dir sys.path
+# injection (in constants.py) is in effect; ``core`` is a datapaw-only
+# subpackage and does not clash with other plugins' top-level names.
+# pylint: disable-next=wrong-import-position
+from core.sse_metadata import NODE_ROUTING_METADATA_KEYS
+
 logger = logging.getLogger(__name__)
 
 
@@ -314,7 +320,7 @@ def _extract_datapaw_metadata(metadata: Any) -> dict:
     source = raw if isinstance(raw, dict) else metadata
     return {
         key: str(source[key])
-        for key in ("graph_id", "node_id")
+        for key in NODE_ROUTING_METADATA_KEYS
         if source.get(key)
     }
 
@@ -398,6 +404,19 @@ def _wrap_stream_one(orig_stream_one):
             if isinstance(payload, dict) and "content_parts" in payload
             else payload
         )
+        if request_ref is None:
+            # Degraded mode: the native-channel content_parts path
+            # constructs the request internally and we cannot recover a
+            # reference without re-running the (side-effectful) request
+            # builder. TaskEvents emitted during this stream stay
+            # buffered on whatever queue the agent points at and never
+            # reach the frontend over SSE. Logged once per stream so the
+            # silent buffering is at least visible in ops logs.
+            logger.warning(
+                "DataPaw SSE fan-out skipped: stream_one called with a"
+                " content_parts dict payload (native-channel path)."
+                " TaskEvents for this stream will not reach the frontend.",
+            )
         # msg_id -> {graph_id, node_id}, populated from message frames
         # and reused by later content frames with the same msg_id.
         metadata_by_msg_id: dict = {}

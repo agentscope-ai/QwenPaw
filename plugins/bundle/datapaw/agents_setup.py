@@ -185,6 +185,58 @@ def _seed_persona_md_files(ws_dir: Path, language: str = "zh") -> None:
             shutil.copy2(src, dst)
 
 
+def _patch_workspace_manifest_for_plugin_skills(
+    ws_dir: Path,
+    plugin_skill_names: list[str],
+) -> None:
+    """Reconcile host's skill manifest and flip plugin skills to enabled.
+
+    Coupling note: this function reads and writes the on-disk shape of
+    host's ``skill.json``. If host renames the ``enabled`` / ``channels``
+    / ``source`` fields, or adds a required field, this code silently
+    breaks at install time. Isolating it here keeps the host-data-shape
+    coupling in a single, labelled place rather than scattered inside
+    :func:`_install_plugin_skills`.
+    """
+    # Lazy host imports — keep this function importable in isolation
+    # tests that don't set up the full host package.
+    from qwenpaw.agents.skill_system.registry import (
+        reconcile_workspace_manifest,
+    )
+    from qwenpaw.agents.skill_system.store import (
+        get_workspace_skill_manifest_path,
+        write_json_atomic,
+    )
+
+    # Reconcile so manifest entries get created with full metadata.
+    reconcile_workspace_manifest(ws_dir)
+
+    # Read fresh from disk (the read_skill_manifest helper is mtime-cached
+    # and may serve a stale snapshot taken before reconcile finished).
+    manifest_path = get_workspace_skill_manifest_path(ws_dir)
+    with manifest_path.open("r", encoding="utf-8") as f:
+        manifest = json.load(f)
+
+    skills = manifest.setdefault("skills", {})
+    for name in plugin_skill_names:
+        entry = skills.get(name)
+        if entry is None:
+            # Reconcile should have created this; if not, something is
+            # wrong with the SKILL.md — just skip and log.
+            logger.warning(
+                "DataPaw plugin skill %r missing from manifest after"
+                " reconcile; skipping enable",
+                name,
+            )
+            continue
+        entry["enabled"] = True
+        entry["channels"] = entry.get("channels") or ["all"]
+        entry["source"] = _PLUGIN_SKILL_SOURCE
+
+    manifest["version"] = int(time.time() * 1000)
+    write_json_atomic(manifest_path, manifest)
+
+
 def _install_plugin_skills(ws_dir: Path) -> None:
     """Copy DataPaw plugin-bundled skills into the workspace and enable them.
 
@@ -252,43 +304,7 @@ def _install_plugin_skills(ws_dir: Path) -> None:
     if not plugin_skill_names:
         return
 
-    # Lazy host imports — keeps this module importable in isolation tests
-    # that don't set up the full host package.
-    from qwenpaw.agents.skill_system.registry import (
-        reconcile_workspace_manifest,
-    )
-    from qwenpaw.agents.skill_system.store import (
-        get_workspace_skill_manifest_path,
-        write_json_atomic,
-    )
-
-    # Reconcile so manifest entries get created with full metadata.
-    reconcile_workspace_manifest(ws_dir)
-
-    # Read fresh from disk (the read_skill_manifest helper is mtime-cached
-    # and may serve a stale snapshot taken before reconcile finished).
-    manifest_path = get_workspace_skill_manifest_path(ws_dir)
-    with manifest_path.open("r", encoding="utf-8") as f:
-        manifest = json.load(f)
-
-    skills = manifest.setdefault("skills", {})
-    for name in plugin_skill_names:
-        entry = skills.get(name)
-        if entry is None:
-            # Reconcile should have created this; if not, something is
-            # wrong with the SKILL.md — just skip and log.
-            logger.warning(
-                "DataPaw plugin skill %r missing from manifest after"
-                " reconcile; skipping enable",
-                name,
-            )
-            continue
-        entry["enabled"] = True
-        entry["channels"] = entry.get("channels") or ["all"]
-        entry["source"] = _PLUGIN_SKILL_SOURCE
-
-    manifest["version"] = int(time.time() * 1000)
-    write_json_atomic(manifest_path, manifest)
+    _patch_workspace_manifest_for_plugin_skills(ws_dir, plugin_skill_names)
 
     # Persist the mtime cache last so a partial install (manifest write
     # fails) does not poison the short-circuit for the next startup.

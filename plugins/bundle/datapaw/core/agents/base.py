@@ -29,6 +29,7 @@ from pydantic import BaseModel
 from core.i18n import tr
 from core.orchestration import RuntimeStateManager
 from core.path_context import PathContext, default_artifacts_root
+from core.sse_metadata import NODE_ROUTING_METADATA_KEYS
 from qwenpaw.agents.react_agent import NamesakeStrategy, QwenPawAgent
 from qwenpaw.agents.skill_system.store import get_workspace_skills_dir
 
@@ -43,6 +44,21 @@ logger = logging.getLogger(__name__)
 # ``parent`` hops reach the plugin root where ``prompts/`` sits.
 PLUGIN_DIR = Path(__file__).resolve().parent.parent.parent
 PLUGIN_PROMPTS_DIR = PLUGIN_DIR / "prompts"
+
+
+# Private flags host runner stamps on the PlanNotebook it constructs.
+# DataPaw replaces that notebook with its own RuntimeStateManager and
+# must migrate the flags so the /plan command and the post-mutation
+# lock keep working. Keep this tuple in sync with the host setattr
+# sites — adding a new ``_plan_*`` flag on host without updating this
+# list silently breaks the migration.
+_HOST_PLAN_MODE_FLAGS: tuple[str, ...] = (
+    "_plan_tool_gate",
+    "_plan_awaiting_user_confirm",
+    "_plan_just_mutated",
+    "_plan_recently_finished",
+    "_plan_text_only_after_mutation",
+)
 
 
 def _read_master_md(lang: str = "zh") -> str:
@@ -264,13 +280,7 @@ class DataPawAgent(QwenPawAgent):
         # _plan_tool_gate (set on host PlanNotebook before agent init)
         # would be lost.
         if plan_notebook is not None and plan_notebook is not runtime_state:
-            for attr in (
-                "_plan_tool_gate",
-                "_plan_awaiting_user_confirm",
-                "_plan_just_mutated",
-                "_plan_recently_finished",
-                "_plan_text_only_after_mutation",
-            ):
+            for attr in _HOST_PLAN_MODE_FLAGS:
                 if hasattr(plan_notebook, attr):
                     setattr(runtime_state, attr, getattr(plan_notebook, attr))
         self._configure_artifact_path_resolver(workspace_dir)
@@ -344,17 +354,22 @@ class DataPawAgent(QwenPawAgent):
         when ``node_id`` is absent — necessary for LLM output emitted
         between nodes (post-finish_subtask, pre-update_subtask_state),
         during plan-confirmation wait, or in the final summary phase.
+
+        The keys written below must remain a subset of
+        :data:`NODE_ROUTING_METADATA_KEYS` (the channel reader iterates
+        that tuple to extract metadata for SSE content-frame injection).
         """
         graph_id = self._current_graph_id()
         if not graph_id:
             return msg
 
         metadata = dict(getattr(msg, "metadata", None) or {})
-        metadata.setdefault("graph_id", graph_id)
+        graph_key, node_key = NODE_ROUTING_METADATA_KEYS
+        metadata.setdefault(graph_key, graph_id)
 
         node_id = self._current_node_id()
         if node_id:
-            metadata.setdefault("node_id", node_id)
+            metadata.setdefault(node_key, node_id)
 
         msg.metadata = metadata
         return msg
