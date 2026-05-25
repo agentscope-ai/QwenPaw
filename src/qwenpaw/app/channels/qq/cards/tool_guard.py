@@ -140,26 +140,6 @@ def build_approval_keyboard(
     }
 
 
-def build_approval_markdown(
-    tool_name: str,
-    severity: str,
-    body_text: str = "",
-) -> str:
-    """Build the markdown content for the approval message.
-
-    Includes the full tool-guard details (body_text) so users see the
-    complete risk information alongside the approve/deny buttons.
-    """
-    severity_lower = (severity or "medium").lower()
-    header = (
-        f"🛡️ **Tool Approval Required**\n"
-        f"Tool: `{tool_name}` | Severity: `{severity_lower}`"
-    )
-    if body_text:
-        return f"{header}\n\n{body_text}"
-    return header
-
-
 def build_resolved_text(
     tool_name: str,
     action: str,
@@ -256,7 +236,7 @@ async def render(
     )
 
     body_text = context.extract_body_text(getattr(event, "content", None))
-    markdown_content = build_approval_markdown(tool_name, severity, body_text)
+    markdown_content = body_text or "🛡️ Tool Approval Required"
 
     # Resolve send path from meta
     message_type = str(send_meta.get("message_type") or "c2c")
