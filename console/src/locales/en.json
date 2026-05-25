@@ -2380,5 +2380,15 @@
       "timedOut": "Install timed out",
       "failedPrefix": "Failed: {{msg}}"
     }
+  },
+  "startup": {
+    "starting": "Starting backend...",
+    "checking": "Connecting to backend...",
+    "error": "Backend failed to start.",
+    "errorHint": "The backend process could not be launched. Check application logs for details.",
+    "errorDetails": "Show error details",
+    "timeout": "Backend failed to start within {{seconds}} seconds.",
+    "timeoutHint": "Backend failed to start. Please retry, or check application logs for details.",
+    "retry": "Retry"
   }
 }

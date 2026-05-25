@@ -90,6 +90,7 @@ my-plugin/
   "id": "my-plugin",
   "name": "My Plugin",
   "version": "1.0.0",
+  "type": "general",
   "description": "Plugin description",
   "author": "Your Name",
   "entry": {
@@ -100,6 +101,36 @@ my-plugin/
   "meta": {}
 }
 ```
+
+#### 清单字段说明
+
+| 字段             | 类型            | 必填 | 说明                                                                                                                                             |
+| ---------------- | --------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`             | `string`        | 是   | 插件唯一标识，同时作为安装目录名，不能包含路径分隔符。                                                                                           |
+| `version`        | `string`        | 是   | 插件语义化版本号（例如 `1.0.0`）。                                                                                                               |
+| `name`           | `string` 或对象 | 否   | 显示名称，缺省取 `id`。也可写成 `{"zh-CN": "...", "en-US": "..."}`，运行时按"英文优先"的顺序取第一个非空值。                                     |
+| `type`           | `string`        | 否   | 取值之一：`tool`、`provider`、`hook`、`command`、`frontend`、`general`。省略时会按 `meta` / `entry` 推断（仅为兼容旧插件），新插件建议显式声明。 |
+| `description`    | `string` 或对象 | 否   | 插件列表里的简短描述，支持本地化对象形式（同 `name`）。                                                                                          |
+| `author`         | `string`        | 否   | 作者或组织名称。                                                                                                                                 |
+| `entry.backend`  | `string`        | 否\* | 相对插件目录的 Python 入口文件路径，需在其中导出 `plugin`。                                                                                      |
+| `entry.frontend` | `string`        | 否\* | 已构建的前端 bundle 路径（如 `dist/index.js`）。                                                                                                 |
+| `dependencies`   | `string[]`      | 否   | Python 依赖列表，安装时通过 pip / uv 自动安装。                                                                                                  |
+| `min_version`    | `string`        | 否   | 需要的最低 QwenPaw 版本，缺省 `0.1.0`。                                                                                                          |
+| `meta`           | `object`        | 否   | 自由元数据。前端 UI 与 `type` 推断都会读取（如 `meta.tools[]`、`meta.hook_type`、`meta.provider_id`）。                                          |
+| `entry_point`    | `string`        | 否   | **遗留字段。** 等价于 `entry.backend`，仅为兼容老插件保留，新插件请使用 `entry.backend`。                                                        |
+
+\* `entry.backend`、`entry.frontend`（或遗留 `entry_point`）至少需要提供其中之一。
+
+#### `type` 取值
+
+| 取值       | 适用场景                                             |
+| ---------- | ---------------------------------------------------- |
+| `tool`     | 注册一个或多个 Agent 工具（LLM 可调用的函数）。      |
+| `provider` | 注册自定义 LLM 提供商 / 模型端点。                   |
+| `hook`     | 在应用启动 / 关闭时执行代码。                        |
+| `command`  | 注册 `/slash` 控制命令。                             |
+| `frontend` | 提供前端 JS bundle，由 UI 动态加载。                 |
+| `general`  | 兜底类型，用于组合型插件或不属于以上任何类别的插件。 |
 
 #### plugin.py
 
@@ -159,6 +190,7 @@ my-plugin/
   "id": "my-plugin",
   "name": "My Plugin",
   "version": "1.0.0",
+  "type": "frontend",
   "author": "Your Name",
   "entry": { "frontend": "dist/index.js" }
 }
@@ -280,6 +312,7 @@ cd my-llm-provider
   "id": "my-llm-provider",
   "name": "My LLM Provider",
   "version": "1.0.0",
+  "type": "provider",
   "description": "Custom LLM provider for enterprise",
   "author": "Your Name",
   "entry": {
@@ -418,6 +451,7 @@ cd monitoring-hook
   "id": "monitoring-hook",
   "name": "Monitoring Hook",
   "version": "1.0.0",
+  "type": "hook",
   "description": "Initialize monitoring service at startup",
   "author": "Your Name",
   "entry": {
@@ -507,6 +541,7 @@ cd status-command
   "id": "status-command",
   "name": "Status Command",
   "version": "1.0.0",
+  "type": "command",
   "description": "Custom status command",
   "author": "Your Name",
   "entry": {
@@ -652,6 +687,7 @@ mkdir welcome-plugin && cd welcome-plugin
   "id": "welcome-plugin",
   "name": "Welcome Plugin",
   "version": "1.0.0",
+  "type": "frontend",
   "description": "Welcome page plugin",
   "author": "Your Name",
   "entry": { "frontend": "dist/index.js" }
@@ -768,6 +804,7 @@ mkdir tool-render-plugin && cd tool-render-plugin
   "id": "tool-render-plugin",
   "name": "Tool Render Plugin",
   "version": "1.0.0",
+  "type": "frontend",
   "description": "Custom tool result renderer",
   "author": "Your Name",
   "entry": { "frontend": "dist/index.js" }
@@ -830,6 +867,7 @@ mkdir custom-greeting-plugin && cd custom-greeting-plugin
   "id": "custom-greeting-plugin",
   "name": "Custom Greeting",
   "version": "1.0.0",
+  "type": "frontend",
   "description": "Customize chat greeting",
   "author": "Your Name",
   "entry": { "frontend": "dist/index.js" }
@@ -902,6 +940,7 @@ mkdir pet-api-plugin && cd pet-api-plugin
   "id": "pet-api-plugin",
   "name": "Pet API Plugin",
   "version": "1.0.0",
+  "type": "general",
   "description": "Expose a small REST API under /api/pets",
   "author": "Your Name",
   "entry": {

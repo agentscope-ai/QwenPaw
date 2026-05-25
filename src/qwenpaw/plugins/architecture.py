@@ -3,8 +3,10 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PluginType(str, Enum):
@@ -33,114 +35,157 @@ class PluginType(str, Enum):
     """Fallback for plugins that do not match any specific category."""
 
 
-@dataclass
-class PluginEntryPoints:
+class PluginEntryPoints(BaseModel):
     """Plugin entry points for frontend and backend."""
+
+    model_config = ConfigDict(extra="ignore")
 
     frontend: Optional[str] = None
     backend: Optional[str] = None
 
 
-@dataclass
-class PluginManifest:
+def _coerce_manifest_str(value: Any) -> str:
+    """Return a display string from manifest text or legacy i18n object.
+
+    Manifests may carry ``name`` / ``description`` either as plain
+    strings or as ``{"zh-CN": ..., "en-US": ...}`` mappings.  This
+    helper picks the first non-empty localised value with English first.
+    """
+    if isinstance(value, dict):
+        return str(
+            value.get("en-US")
+            or value.get("en")
+            or value.get("zh-CN")
+            or value.get("zh")
+            or "",
+        )
+    return str(value) if value is not None else ""
+
+
+def _infer_type_from_meta(
+    meta: Dict[str, Any],
+    entry: PluginEntryPoints,
+) -> PluginType:
+    """Infer the primary type from meta fields (legacy fallback).
+
+    Used when ``plugin.json`` does not set the explicit ``type`` field,
+    which is the case for older manifests written before the field
+    existed.
+
+    Args:
+        meta: Parsed ``meta`` section of the manifest.
+        entry: Parsed entry points.
+
+    Returns:
+        Best-guess :class:`PluginType`.
+    """
+    if meta.get("tools") or meta.get("tool_name"):
+        return PluginType.TOOL
+    if meta.get("chat_model") or meta.get("provider_id"):
+        return PluginType.PROVIDER
+    if meta.get("hook_type"):
+        return PluginType.HOOK
+    if meta.get("command_name") or meta.get("commands"):
+        return PluginType.COMMAND
+    if entry.frontend:
+        return PluginType.FRONTEND
+    return PluginType.GENERAL
+
+
+class PluginManifest(BaseModel):
     """Plugin manifest definition.
 
-    The ``plugin_type`` field should be set explicitly via the
-    ``"type"`` key in ``plugin.json``.  For legacy manifests that omit
-    it, :meth:`from_dict` falls back to a best-effort inference from
-    ``meta`` so old plugins continue to work without modification.
+    Validated against ``plugin.json``.  Unknown top-level fields are
+    ignored so manifests can carry display-only data (e.g.
+    ``description_i18n``) or packaging-only flags (e.g. ``publish``)
+    without tripping validation.
+
+    The ``plugin_type`` field should be set explicitly via the ``type``
+    key in ``plugin.json``.  Manifests that omit it fall back to a
+    best-effort inference from ``meta`` so old plugins keep loading.
     """
 
-    id: str
-    name: str
-    version: str
+    model_config = ConfigDict(
+        extra="ignore",
+        arbitrary_types_allowed=True,
+    )
+
+    id: str = Field(..., min_length=1)
+    version: str = Field(..., min_length=1)
+    name: str = ""
     description: str = ""
     author: str = ""
-    entry: PluginEntryPoints = field(default_factory=PluginEntryPoints)
-    dependencies: List[str] = field(default_factory=list)
+    entry: PluginEntryPoints = Field(default_factory=PluginEntryPoints)
+    dependencies: List[str] = Field(default_factory=list)
     min_version: str = "0.1.0"
-    meta: Dict[str, Any] = field(default_factory=dict)
+    meta: Dict[str, Any] = Field(default_factory=dict)
     plugin_type: PluginType = PluginType.GENERAL
 
+    @model_validator(mode="before")
     @classmethod
-    def _type_from_meta(
-        cls,
-        meta: Dict[str, Any],
-        entry: PluginEntryPoints,
-    ) -> PluginType:
-        """Infer the primary type from meta fields (legacy fallback).
+    def _normalise_input(cls, data: Any) -> Any:
+        """Normalise raw ``plugin.json`` input before field validation.
 
-        Args:
-            meta: Parsed ``meta`` section of the manifest.
-            entry: Parsed entry points.
-
-        Returns:
-            Best-guess :class:`PluginType`.
+        Handles three legacy shapes that real manifests still use:
+          * ``name`` / ``description`` / ``author`` given as
+            ``{"zh-CN": ..., "en-US": ...}`` mappings.
+          * Top-level ``entry_point`` instead of ``entry.backend``.
+          * Missing or invalid ``type`` — inferred from ``meta``.
         """
-        if meta.get("tools") or meta.get("tool_name"):
-            return PluginType.TOOL
-        if meta.get("chat_model") or meta.get("provider_id"):
-            return PluginType.PROVIDER
-        if meta.get("hook_type"):
-            return PluginType.HOOK
-        if meta.get("command_name") or meta.get("commands"):
-            return PluginType.COMMAND
-        if entry.frontend:
-            return PluginType.FRONTEND
-        return PluginType.GENERAL
+        if not isinstance(data, dict):
+            return data
 
-    @staticmethod
-    def _coerce_manifest_str(value: Any) -> str:
-        """Return a display string from manifest text or legacy i18n object."""
-        if isinstance(value, dict):
-            return str(
-                value.get("en-US")
-                or value.get("en")
-                or value.get("zh-CN")
-                or value.get("zh")
-                or "",
-            )
-        return str(value) if value is not None else ""
+        # Work on a shallow copy so callers' dicts aren't mutated.
+        data = dict(data)
+
+        # Localised text → display string.
+        for key in ("name", "description", "author"):
+            if key in data:
+                data[key] = _coerce_manifest_str(data[key])
+
+        # ``name`` defaults to ``id`` when missing or empty.
+        if not data.get("name"):
+            data["name"] = data.get("id", "")
+
+        # ``entry`` may be absent; merge legacy ``entry_point`` into it.
+        entry_data = data.get("entry") or {}
+        if not isinstance(entry_data, dict):
+            entry_data = {}
+        legacy_entry_point = data.get("entry_point")
+        if legacy_entry_point and not entry_data.get("backend"):
+            entry_data["backend"] = legacy_entry_point
+        data["entry"] = entry_data
+
+        # Resolve ``type``: explicit value wins; otherwise infer.  We
+        # need the parsed entry/meta to infer, so do a light parse here.
+        raw_type = data.get("type")
+        try:
+            data["plugin_type"] = PluginType(raw_type)
+        except (ValueError, TypeError):
+            tmp_entry = PluginEntryPoints(**entry_data)
+            tmp_meta = data.get("meta") or {}
+            data["plugin_type"] = _infer_type_from_meta(tmp_meta, tmp_entry)
+
+        return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PluginManifest":
         """Create a manifest from a ``plugin.json`` dictionary.
+
+        Thin wrapper around :meth:`model_validate` kept for backwards
+        compatibility with existing callers (loader, routers, tests).
 
         Args:
             data: Parsed ``plugin.json`` content.
 
         Returns:
             :class:`PluginManifest` instance.
+
+        Raises:
+            pydantic.ValidationError: If required fields are missing
+                or have the wrong type.
         """
-        entry_data = data.get("entry", {})
-        legacy_entry_point = data.get("entry_point", "plugin.py")
-        entry = PluginEntryPoints(
-            frontend=entry_data.get("frontend"),
-            backend=entry_data.get("backend") or legacy_entry_point,
-        )
-        meta = data.get("meta", {})
-
-        # Prefer the explicit "type" field; fall back to inference so
-        # that manifests written before this field was introduced keep
-        # working without any changes.
-        raw_type = data.get("type", "")
-        try:
-            plugin_type = PluginType(raw_type)
-        except ValueError:
-            plugin_type = cls._type_from_meta(meta, entry)
-
-        return cls(
-            id=data["id"],
-            name=cls._coerce_manifest_str(data.get("name") or data["id"]),
-            version=data["version"],
-            description=cls._coerce_manifest_str(data.get("description", "")),
-            author=cls._coerce_manifest_str(data.get("author", "")),
-            entry=entry,
-            dependencies=data.get("dependencies", []),
-            min_version=data.get("min_version", "0.1.0"),
-            meta=meta,
-            plugin_type=plugin_type,
-        )
+        return cls.model_validate(data)
 
 
 @dataclass
