@@ -104,33 +104,33 @@ my-plugin/
 
 #### Manifest Field Reference
 
-| Field             | Type               | Required | Description                                                                                                                                                                |
-| ----------------- | ------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`              | `string`           | yes      | Unique plugin identifier. Used as the install directory name; must not contain path separators.                                                                            |
-| `version`         | `string`           | yes      | Semantic version of the plugin (e.g. `1.0.0`).                                                                                                                             |
-| `name`            | `string` \| object | no       | Display name. Defaults to `id`. May also be `{"zh-CN": "...", "en-US": "..."}`; the first non-empty localised value is used (English preferred).                           |
-| `type`            | `string`           | no       | One of `tool`, `provider`, `hook`, `command`, `frontend`, `general`. When omitted, the type is inferred from `meta` / `entry` (legacy plugins). Prefer setting explicitly. |
-| `description`     | `string` \| object | no       | Short description shown in the plugin list. Localised form is accepted (see `name`).                                                                                       |
-| `author`          | `string`           | no       | Author or organisation name.                                                                                                                                               |
-| `entry.backend`   | `string`           | no\*     | Path (relative to plugin dir) of the Python entry file that exports `plugin`.                                                                                              |
-| `entry.frontend`  | `string`           | no\*     | Path of the built frontend bundle (e.g. `dist/index.js`).                                                                                                                  |
-| `dependencies`    | `string[]`         | no       | Python package requirements installed via pip/uv at install time.                                                                                                          |
-| `min_version`     | `string`           | no       | Minimum QwenPaw version required. Defaults to `0.1.0`.                                                                                                                     |
-| `meta`            | `object`           | no       | Free-form plugin metadata. Used by the UI and by `type` inference (e.g. `meta.tools[]`, `meta.hook_type`, `meta.provider_id`).                                             |
-| `entry_point`     | `string`           | no       | **Legacy.** Equivalent to `entry.backend`. Still accepted for backwards compatibility with older plugins; new plugins should use `entry.backend`.                          |
+| Field            | Type               | Required | Description                                                                                                                                                                |
+| ---------------- | ------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`             | `string`           | yes      | Unique plugin identifier. Used as the install directory name; must not contain path separators.                                                                            |
+| `version`        | `string`           | yes      | Semantic version of the plugin (e.g. `1.0.0`).                                                                                                                             |
+| `name`           | `string` \| object | no       | Display name. Defaults to `id`. May also be `{"zh-CN": "...", "en-US": "..."}`; the first non-empty localised value is used (English preferred).                           |
+| `type`           | `string`           | no       | One of `tool`, `provider`, `hook`, `command`, `frontend`, `general`. When omitted, the type is inferred from `meta` / `entry` (legacy plugins). Prefer setting explicitly. |
+| `description`    | `string` \| object | no       | Short description shown in the plugin list. Localised form is accepted (see `name`).                                                                                       |
+| `author`         | `string`           | no       | Author or organisation name.                                                                                                                                               |
+| `entry.backend`  | `string`           | no\*     | Path (relative to plugin dir) of the Python entry file that exports `plugin`.                                                                                              |
+| `entry.frontend` | `string`           | no\*     | Path of the built frontend bundle (e.g. `dist/index.js`).                                                                                                                  |
+| `dependencies`   | `string[]`         | no       | Python package requirements installed via pip/uv at install time.                                                                                                          |
+| `min_version`    | `string`           | no       | Minimum QwenPaw version required. Defaults to `0.1.0`.                                                                                                                     |
+| `meta`           | `object`           | no       | Free-form plugin metadata. Used by the UI and by `type` inference (e.g. `meta.tools[]`, `meta.hook_type`, `meta.provider_id`).                                             |
+| `entry_point`    | `string`           | no       | **Legacy.** Equivalent to `entry.backend`. Still accepted for backwards compatibility with older plugins; new plugins should use `entry.backend`.                          |
 
 \* At least one of `entry.backend` / `entry.frontend` (or legacy `entry_point`) must be provided.
 
 #### `type` values
 
-| Value      | When to use                                                            |
-| ---------- | ---------------------------------------------------------------------- |
-| `tool`     | Registers one or more agent tools (functions the LLM can call).        |
-| `provider` | Registers a custom LLM provider / model endpoint.                      |
-| `hook`     | Runs code during application startup or shutdown.                      |
-| `command`  | Registers one or more `/slash` control commands.                       |
-| `frontend` | Ships a frontend JS bundle loaded dynamically by the UI.               |
-| `general`  | Fallback for plugins that combine multiple capabilities or don't fit.  |
+| Value      | When to use                                                           |
+| ---------- | --------------------------------------------------------------------- |
+| `tool`     | Registers one or more agent tools (functions the LLM can call).       |
+| `provider` | Registers a custom LLM provider / model endpoint.                     |
+| `hook`     | Runs code during application startup or shutdown.                     |
+| `command`  | Registers one or more `/slash` control commands.                      |
+| `frontend` | Ships a frontend JS bundle loaded dynamically by the UI.              |
+| `general`  | Fallback for plugins that combine multiple capabilities or don't fit. |
 
 #### plugin.py
 
