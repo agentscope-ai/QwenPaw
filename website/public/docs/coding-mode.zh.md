@@ -22,15 +22,13 @@ QwenPaw 的普通聊天模式适合「问答 + 临时任务」，但当你想让
 
 ### 1. 切换到 Coding 模式
 
-在聊天界面顶部找到 `Code` / `Chat` 切换按钮，点击 `Code` 即可进入：
-
-[图片：补充 Chat 页面顶部 Code/Chat 切换按钮的位置截图]
+在聊天界面顶部找到 `Code` / `Chat` 切换按钮，点击 `Code` 即可进入。
 
 ### 2. 选择项目目录
 
 首次进入会弹出项目选择窗口，选择本地任意一个仓库目录即可。Agent 将以**这个目录**为操作中心——读写文件、跑 shell 命令、查 git 状态都默认落在这里。
 
-[图片：补充项目选择弹窗的截图]
+![项目选择弹窗](https://img.alicdn.com/imgextra/i3/O1CN01ofmycu235UOvIHxKZ_!!6000000007204-2-tps-3346-1670.png)
 
 ### 3. 开始干活
 
@@ -40,7 +38,7 @@ QwenPaw 的普通聊天模式适合「问答 + 临时任务」，但当你想让
 - 「在 `tests/` 下加一个 `test_login_rate_limit.py`，覆盖 5 次失败后锁定 10 分钟的场景」
 - 「这个分支相比 main 改了哪些文件？帮我写个 PR description」
 
-[图片：补充 Coding 模式 IDE 主界面截图——文件树 + 编辑器 + 聊天面板三栏]
+![Coding 模式 IDE 主界面](https://img.alicdn.com/imgextra/i4/O1CN014tF5921HlXCevvsBH_!!6000000000798-2-tps-3340-1678.png)
 
 ---
 

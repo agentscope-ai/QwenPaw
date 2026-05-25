@@ -22,15 +22,13 @@ QwenPaw's regular Chat mode is great for Q&A and one-off tasks. But once you wan
 
 ### 1. Switch to Coding Mode
 
-In the chat header, find the `Code` / `Chat` toggle button and click `Code` to enter:
-
-[Image: screenshot of the Code/Chat toggle button location in the chat header]
+In the chat header, find the `Code` / `Chat` toggle button and click `Code` to enter.
 
 ### 2. Pick a Project Directory
 
 The first time you enter Coding Mode, a project picker opens. Choose any local repository directory. The Agent will treat **this directory** as its operation center — file reads / writes, shell commands and git lookups all default to here.
 
-[Image: screenshot of the project selection modal]
+![Project selection modal](https://img.alicdn.com/imgextra/i3/O1CN01ofmycu235UOvIHxKZ_!!6000000007204-2-tps-3346-1670.png)
 
 ### 3. Start Working
 
@@ -40,7 +38,7 @@ After the IDE view loads, you get three panels: file tree on the left, tabbed ed
 - "Add `tests/test_login_rate_limit.py` covering a 10-minute lockout after 5 failures"
 - "What files changed on this branch vs main? Draft me a PR description"
 
-[Image: screenshot of the Coding Mode IDE layout — file tree + editor + chat panel]
+![Coding Mode IDE layout](https://img.alicdn.com/imgextra/i4/O1CN014tF5921HlXCevvsBH_!!6000000000798-2-tps-3340-1678.png)
 
 ---
 
