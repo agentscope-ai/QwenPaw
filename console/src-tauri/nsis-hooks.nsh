@@ -6,7 +6,7 @@
   ; to this unsigned local installer helper so user PowerShell policy is not
   ; permanently changed.
   InitPluginsDir
-  File /oname=$PLUGINSDIR\qwenpaw-stop-backend-sidecar.ps1 "${__FILE__}\..\nsis\stop-backend-sidecar.ps1"
+  File /oname=$PLUGINSDIR\qwenpaw-stop-backend-sidecar.ps1 "..\..\..\..\nsis\stop-backend-sidecar.ps1"
   nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-stop-backend-sidecar.ps1" -InstallDir "$INSTDIR"`
   Pop $0
   Pop $1
