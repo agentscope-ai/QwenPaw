@@ -8,6 +8,7 @@ import ConsolePollService from "../../components/ConsolePollService";
 import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
 import { lazyImportWithRetry } from "../../utils/lazyWithRetry";
 import { usePlugins } from "../../plugins/PluginContext";
+import { useCodingMode } from "../../stores/codingModeStore";
 import styles from "../index.module.less";
 
 // Chat is eagerly loaded (default landing page)
@@ -47,6 +48,15 @@ const PluginManagerPage = lazyImportWithRetry(
 );
 
 const { Content } = Layout;
+
+// Route "/" lands here. If Coding Mode was on last session (persisted in
+// store), keep the user in the IDE layout instead of dropping to /chat —
+// otherwise the toggle button reads "Chat" while the page shows Chat, and
+// users have to click Code twice to get back into the IDE.
+function DefaultRedirect() {
+  const { codingMode } = useCodingMode();
+  return <Navigate to={codingMode ? "/coding" : "/chat"} replace />;
+}
 
 const pathToKey: Record<string, string> = {
   "/chat": "chat",
@@ -111,7 +121,7 @@ export default function MainLayout() {
                 }
               >
                 <Routes>
-                  <Route path="/" element={<Navigate to="/chat" replace />} />
+                  <Route path="/" element={<DefaultRedirect />} />
                   <Route path="/chat/*" element={<Chat />} />
                   <Route path="/coding" element={<CodingPage />} />
                   <Route path="/channels" element={<ChannelsPage />} />

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from ..agent_context import get_agent_for_request
+from ..utils import schedule_agent_reload
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,12 @@ async def post_coding_mode_toggle(
         config.id,
         config,
     )
+
+    # Reload the agent so the new coding_mode.enabled value is picked up:
+    # CodingModeMixin._coding_mode_enabled() reads the in-memory
+    # _agent_config (not hot-reloaded), and the lsp / ast_search tools
+    # are only wired in _create_toolkit at construction time.
+    schedule_agent_reload(request, config.id)
 
     logger.info(
         "Coding Mode %s for agent %s",
