@@ -73,6 +73,30 @@ class MacOSSandboxExecProvider:
         return roots
 
     @staticmethod
+    def _escape_profile_string(raw: str) -> str:
+        """Escape a string for quoted sandbox-exec profile literals."""
+        return (
+            raw.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+        )
+
+    @staticmethod
+    def _validate_profile_path(raw: str) -> None:
+        """Reject unsafe control characters for profile path literals."""
+        for ch in raw:
+            if ord(ch) < 0x20 or ord(ch) == 0x7F:
+                raise ValueError(
+                    "sandbox profile path contains forbidden control character",
+                )
+
+    @staticmethod
+    def _quoted_profile_path(raw: str) -> str:
+        MacOSSandboxExecProvider._validate_profile_path(raw)
+        return MacOSSandboxExecProvider._escape_profile_string(raw)
+
+    @staticmethod
     def _profile_text(policy: FileWhitelistPolicy, working_dir: str) -> str:
         read_roots, write_roots = policy.allowed_roots_for_shell()
         read_set = MacOSSandboxExecProvider._normalized_roots(read_roots)
@@ -107,14 +131,22 @@ class MacOSSandboxExecProvider:
             "(allow file-read-metadata)",
         ]
         for root in read_roots:
-            lines.append(f'(allow file-read* (subpath "{root}"))')
+            safe_root = MacOSSandboxExecProvider._quoted_profile_path(root)
+            lines.append(f'(allow file-read* (subpath "{safe_root}"))')
         for root in write_roots:
-            lines.append(f'(allow file-write* (subpath "{root}"))')
+            safe_root = MacOSSandboxExecProvider._quoted_profile_path(root)
+            lines.append(f'(allow file-write* (subpath "{safe_root}"))')
         return "\n".join(lines)
 
     def prepare(self, command: str, working_dir: str) -> SandboxPreparation:
         policy = FileWhitelistPolicy.from_config()
-        profile = self._profile_text(policy, working_dir=working_dir)
+        try:
+            profile = self._profile_text(policy, working_dir=working_dir)
+        except ValueError as exc:
+            return SandboxPreparation(
+                command=command,
+                blocked_reason=f"invalid sandbox profile path: {exc}",
+            )
         wrapped = (
             f"sandbox-exec -p {shlex.quote(profile)} "
             f"/bin/sh -c {shlex.quote(command)}"
