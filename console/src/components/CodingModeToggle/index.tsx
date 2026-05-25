@@ -122,7 +122,7 @@ export default function CodingModeToggle() {
             {codingMode ? <MessageSquare size={14} /> : <Code size={14} />}
           </span>
           <span className={styles.label}>
-            {codingMode ? t("common.cancel", { defaultValue: "Chat" }) : "Code"}
+            {codingMode ? t("codingMode.btnChat") : t("codingMode.btnCode")}
           </span>
         </button>
       </Tooltip>

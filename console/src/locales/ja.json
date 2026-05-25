@@ -2155,6 +2155,8 @@
     "confirmBtn": "コーディングモードを有効にする",
     "enterTooltip": "コーディングモードに入る",
     "exitTooltip": "コーディングモードを終了する",
+    "btnCode": "コード",
+    "btnChat": "チャット",
     "selectProject": "コーディングプロジェクトを選択",
     "selectProjectDesc": "作業するプロジェクトを選択するか、デフォルトのワークスペースを使用してください",
     "tabWorkspace": "デフォルトワークスペース",

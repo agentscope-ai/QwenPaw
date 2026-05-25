@@ -2267,6 +2267,8 @@
     "confirmBtn": "确认",
     "enterTooltip": "进入编程模式",
     "exitTooltip": "退出编程模式",
+    "btnCode": "代码",
+    "btnChat": "聊天",
     "selectProject": "选择编程项目",
     "selectProjectDesc": "选择一个项目开始工作，或使用默认工作区",
     "tabWorkspace": "默认工作区",

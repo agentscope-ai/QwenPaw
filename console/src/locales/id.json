@@ -674,6 +674,8 @@
     "confirmBtn": "Aktifkan Mode Coding",
     "enterTooltip": "Masuk ke Mode Coding",
     "exitTooltip": "Keluar dari Mode Coding",
+    "btnCode": "Kode",
+    "btnChat": "Obrolan",
     "selectProject": "Pilih Proyek Kode",
     "selectProjectDesc": "Pilih proyek untuk dikerjakan, atau gunakan workspace default",
     "tabWorkspace": "Workspace Default",

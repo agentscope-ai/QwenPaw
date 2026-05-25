@@ -2190,6 +2190,8 @@
     "confirmBtn": "Ativar Modo de Codificação",
     "enterTooltip": "Entrar no Modo de Codificação",
     "exitTooltip": "Sair do Modo de Codificação",
+    "btnCode": "Código",
+    "btnChat": "Chat",
     "selectProject": "Selecionar Projeto de Código",
     "selectProjectDesc": "Escolha um projeto para trabalhar ou use o workspace padrão",
     "tabWorkspace": "Workspace Padrão",

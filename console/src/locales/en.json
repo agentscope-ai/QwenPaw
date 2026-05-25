@@ -2259,6 +2259,8 @@
     "confirmBtn": "Confirm",
     "enterTooltip": "Enter Coding Mode",
     "exitTooltip": "Exit Coding Mode",
+    "btnCode": "Code",
+    "btnChat": "Chat",
     "selectProject": "Select Coding Project",
     "selectProjectDesc": "Choose a project to work on, or use the default workspace",
     "tabWorkspace": "Default Workspace",
