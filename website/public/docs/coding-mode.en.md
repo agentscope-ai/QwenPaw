@@ -8,11 +8,11 @@ QwenPaw's regular Chat mode is great for Q&A and one-off tasks. But once you wan
 
 ## When to Use Coding Mode
 
-| Scenario                                                       | Recommended mode  |
-| -------------------------------------------------------------- | ----------------- |
-| One-off Q&A, throwaway scripts, casual chat                    | Regular Chat mode |
+| Scenario                                                        | Recommended mode  |
+| --------------------------------------------------------------- | ----------------- |
+| One-off Q&A, throwaway scripts, casual chat                     | Regular Chat mode |
 | Reading code, editing files, fixing bugs, refactoring in a repo | **Coding Mode**   |
-| Cross-project exploration not tied to a single codebase        | Regular Chat mode |
+| Cross-project exploration not tied to a single codebase         | Regular Chat mode |
 
 > **Rule of thumb**: turn Coding Mode on when you want the Agent to treat a directory as its workshop and stay there. Keep it off for quick one-shot questions.
 
@@ -59,10 +59,10 @@ The Agent is told:
 
 ### 2. Auto-Registers Two Code-Understanding Tools
 
-| Tool          | Purpose                                                                                                   | Auto-enabled when                                       |
-| ------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `lsp`         | Precise symbol queries — definition / references / jump-to. Best for "where is X defined? who calls Y?" | At least one LSP server is detected (Python/TS bundled) |
-| `ast_search`  | Structural code queries via AST — best for "all functions taking `Request` returning `Response`"        | The `ast-grep` CLI is installed (bundled)               |
+| Tool         | Purpose                                                                                                 | Auto-enabled when                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `lsp`        | Precise symbol queries — definition / references / jump-to. Best for "where is X defined? who calls Y?" | At least one LSP server is detected (Python/TS bundled) |
+| `ast_search` | Structural code queries via AST — best for "all functions taking `Request` returning `Response`"        | The `ast-grep` CLI is installed (bundled)               |
 
 Both tools are **read-only** — they never modify files. The Agent prefers them over `grep` to avoid false positives and misses.
 
