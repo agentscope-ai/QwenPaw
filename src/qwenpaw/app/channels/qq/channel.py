@@ -1458,8 +1458,6 @@ class QQChannel(BaseChannel):
     ) -> None:
         """Handle one WS message event via spec lookup."""
         spec = _MESSAGE_EVENT_SPECS.get(event_type)
-        print('*'*100)
-        print(d)
         if spec is None:
             return
         author = d.get("author") or {}
