@@ -29,9 +29,14 @@ export function useSyncCodingMode(): void {
         setProjectDir(selectedAgent, state.project_dir);
       })
       .catch((err) => {
-        // Don't swallow silently — log so a misconfigured backend is
-        // visible in the console, but don't block the UI either.
+        if (cancelled) return;
+        // Log so a misconfigured backend is visible — then mark the
+        // agent initialized with safe defaults. Without this the
+        // DefaultRedirect spinner and CodingModeToggle stay disabled
+        // forever on any GET failure.
         console.warn("Failed to sync coding mode state:", err);
+        setCodingMode(selectedAgent, false);
+        setProjectDir(selectedAgent, null);
       });
     return () => {
       cancelled = true;

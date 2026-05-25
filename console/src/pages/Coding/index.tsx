@@ -20,13 +20,12 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
-  CheckSquare,
 } from "lucide-react";
 import FileTree from "./FileTree";
 import TabbedEditor from "./TabbedEditor";
 import GitPanel from "./GitPanel";
 import Chat from "../Chat";
-import { useCodingMode, useCurrentTodos } from "../../stores/codingModeStore";
+import { useCodingMode } from "../../stores/codingModeStore";
 import {
   useCurrentTabs,
   useCurrentActiveTabPath,
@@ -40,10 +39,6 @@ type LeftPane = "files" | "git";
 
 export default function CodingPage() {
   const { codingMode } = useCodingMode();
-  const todos = useCurrentTodos();
-  const pendingTodos = todos.filter(
-    (t) => t.status !== "done" && t.status !== "cancelled",
-  ).length;
 
   // ---- Panel visibility --------------------------------------------------
   const [leftOpen, setLeftOpen] = useState(true);
@@ -180,18 +175,6 @@ export default function CodingPage() {
         </Tooltip>
 
         <div className={styles.actBarSpacer} />
-
-        {pendingTodos > 0 && (
-          <Tooltip
-            title={`${pendingTodos} tasks in progress`}
-            placement="right"
-          >
-            <div className={styles.actBadge}>
-              <CheckSquare size={16} />
-              <span className={styles.actBadgeNum}>{pendingTodos}</span>
-            </div>
-          </Tooltip>
-        )}
       </div>
 
       {/* ── Three-column resizable layout ──────────────────────────────── */}

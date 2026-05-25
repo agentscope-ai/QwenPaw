@@ -39,7 +39,7 @@ async def get_coding_mode(request: Request) -> dict:
     from ...config.config import load_agent_config
 
     workspace = await get_agent_for_request(request)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     config = await loop.run_in_executor(
         None,
         load_agent_config,
@@ -73,7 +73,7 @@ async def post_coding_mode_toggle(
 
     workspace = await get_agent_for_request(request)
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     config = await loop.run_in_executor(
         None,
         load_agent_config,

@@ -1,20 +1,12 @@
 import { create } from "zustand";
 import { useAgentStore } from "./agentStore";
 
-export interface TodoItem {
-  id: string;
-  content: string;
-  status: "pending" | "in_progress" | "done" | "cancelled";
-}
-
 interface CodingModeState {
   /**
    * Whether Coding Mode is active per agentId. Key absent → not yet
    * fetched from backend (UI should treat as loading).
    */
   codingModeByAgent: Record<string, boolean>;
-  /** Live TODO list, keyed by agentId */
-  todosByAgent: Record<string, TodoItem[]>;
   /**
    * Active coding project directory path, keyed by agentId.
    * Key absent / undefined → never selected (show picker on next toggle).
@@ -24,7 +16,6 @@ interface CodingModeState {
   projectDirByAgent: Record<string, string | null>;
 
   setCodingMode: (agentId: string, enabled: boolean) => void;
-  setTodos: (agentId: string, todos: TodoItem[]) => void;
   setProjectDir: (agentId: string, path: string | null) => void;
 }
 
@@ -34,17 +25,11 @@ interface CodingModeState {
 // real backend state across tabs / sessions.
 export const useCodingModeStore = create<CodingModeState>((set) => ({
   codingModeByAgent: {},
-  todosByAgent: {},
   projectDirByAgent: {},
 
   setCodingMode: (agentId: string, enabled: boolean) =>
     set((state: CodingModeState) => ({
       codingModeByAgent: { ...state.codingModeByAgent, [agentId]: enabled },
-    })),
-
-  setTodos: (agentId: string, todos: TodoItem[]) =>
-    set((state: CodingModeState) => ({
-      todosByAgent: { ...state.todosByAgent, [agentId]: todos },
     })),
 
   setProjectDir: (agentId: string, path: string | null) =>
@@ -71,13 +56,6 @@ export function useCodingMode(): {
     initialized: selectedAgent in codingModeByAgent,
     setCodingMode: (enabled: boolean) => setCodingMode(selectedAgent, enabled),
   };
-}
-
-/** Convenience hook: todos for the currently selected agent */
-export function useCurrentTodos(): TodoItem[] {
-  const { selectedAgent } = useAgentStore();
-  const { todosByAgent } = useCodingModeStore();
-  return todosByAgent[selectedAgent] ?? [];
 }
 
 /** Convenience hook: coding project directory for the currently selected agent.
