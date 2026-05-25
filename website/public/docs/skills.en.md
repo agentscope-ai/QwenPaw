@@ -317,6 +317,31 @@ Common workspace operations:
 
 ---
 
+## Skill Market
+
+Search and install skills from multiple marketplaces in one place — open
+**Settings → Skill Market** in the Console. This is the search-driven alternative to the per-URL **Import from URL** flow above.
+
+Three providers ship out of the box:
+
+- **ClawHub** — public, always enabled.
+- **ModelScope** — public, always enabled.
+- **Aliyun** — requires credentials in **Settings → Environments**;
+  without them the provider chip is disabled and the tooltip explains why.
+
+How it works:
+
+- Search runs in parallel across enabled providers; a failure on one provider surfaces as a banner while results from the others still render.
+- Each card has a target picker: **Pool** (shared) or **Workspace** (current agent).
+- Installs run through a queue (one at a time) with retry and cancel; name conflicts surface as a failed item with the server message — rename the existing workspace skill and retry the install.
+
+After install, every skill remembers its origin in an `installed_from` field, shown in the skill drawer as **Installed from**. Values include `clawhub`,
+`modelscope`, `aliyun`, `skills-sh`, `lobehub`, `skillsmp`, `github`, `url`, `zip`. Skills with no recorded origin (built-ins, hand-created, legacy entries) display an empty value.
+
+The per-URL **Import from URL** flow above remains the way to pull from sources not covered by these search providers (skills.sh, lobehub.com, github.com, etc.).
+
+---
+
 ## Channel routing
 
 Each skill can be restricted to specific channels. By default, skills apply to

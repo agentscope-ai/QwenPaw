@@ -75,7 +75,7 @@ class AsBlockStat(BaseModel):
             if not include_thinking or not self.text:
                 return ""
             return f"[think]: {self._truncate(self.text, max_length)}"
-        if self.block_type in ("image", "audio", "video"):
+        if self.block_type in ["image", "audio", "video", "file"]:
             content = self.media_url if self.media_url else ""
             return f"[{self.block_type}]: {content}"
         if self.block_type == "tool_use":

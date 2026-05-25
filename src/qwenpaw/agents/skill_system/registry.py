@@ -940,6 +940,9 @@ def reconcile_pool_manifest() -> dict[str, Any]:
                     new_entry["config"] = config
                 if existing_tags is not None:
                     new_entry["tags"] = existing_tags
+                existing_installed_from = existing.get("installed_from")
+                if existing_installed_from:
+                    new_entry["installed_from"] = existing_installed_from
                 skills[skill_name] = new_entry
             except Exception:
                 logger.warning(
@@ -1043,6 +1046,9 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
                 existing_tags = existing.get("tags")
                 if existing_tags is not None:
                     next_entry["tags"] = existing_tags
+                existing_installed_from = existing.get("installed_from")
+                if existing_installed_from:
+                    next_entry["installed_from"] = existing_installed_from
                 skills[skill_name] = next_entry
                 skills[skill_name].pop("sync_to_hub", None)
                 skills[skill_name].pop("sync_to_pool", None)

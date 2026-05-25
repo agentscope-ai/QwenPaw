@@ -42,6 +42,65 @@ from .store import (
 )
 
 
+def _register_pool_skill_entry(
+    payload: dict[str, Any],
+    skill_name: str,
+    skill_dir: Path,
+    *,
+    source: str = "customized",
+    protected: bool = False,
+    installed_from: str = "",
+    config: dict[str, Any] | None = None,
+    tags: Any | None = None,
+    preserve_from: dict[str, Any] | None = None,
+) -> None:
+    """Upsert a pool skill entry — single source of truth for entry shape."""
+    payload.setdefault("skills", {})
+    if preserve_from is None:
+        preserve_from = payload["skills"].get(skill_name) or {}
+
+    entry = build_skill_metadata(
+        skill_name,
+        skill_dir,
+        source=source,
+        protected=protected,
+    )
+
+    installed_from_final = installed_from or str(
+        preserve_from.get("installed_from", "") or "",
+    )
+    if installed_from_final:
+        entry["installed_from"] = installed_from_final
+
+    if config is not None:
+        entry["config"] = dict(config)
+    elif "config" in preserve_from:
+        entry["config"] = preserve_from["config"]
+
+    if tags is not None:
+        entry["tags"] = tags
+    elif preserve_from.get("tags") is not None:
+        entry["tags"] = preserve_from["tags"]
+
+    if source == "builtin":
+        builtin_language = (
+            str(
+                preserve_from.get("builtin_language", "") or "",
+            )
+            .strip()
+            .lower()
+        )
+        if builtin_language:
+            entry["builtin_language"] = builtin_language
+        builtin_source_name = str(
+            preserve_from.get("builtin_source_name", "") or "",
+        ).strip()
+        if builtin_source_name:
+            entry["builtin_source_name"] = builtin_source_name
+
+    payload["skills"][skill_name] = entry
+
+
 class SkillPoolService:
     """Shared skill-pool lifecycle service.
 
@@ -88,6 +147,7 @@ class SkillPoolService:
         scripts: dict[str, Any] | None = None,
         extra_files: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
+        installed_from: str = "",
     ) -> str | None:
         validate_skill_content(content)
         skill_name = normalize_skill_dir_name(name)
@@ -110,15 +170,15 @@ class SkillPoolService:
             copy_skill_dir(staged_dir, skill_dir)
 
         def _update(payload: dict[str, Any]) -> None:
-            payload.setdefault("skills", {})
-            payload["skills"][skill_name] = build_skill_metadata(
+            _register_pool_skill_entry(
+                payload,
                 skill_name,
                 skill_dir,
                 source="customized",
-                protected=False,
+                installed_from=installed_from,
+                config=config,
+                preserve_from={},
             )
-            if config is not None:
-                payload["skills"][skill_name]["config"] = dict(config)
 
         try:
             mutate_json(
@@ -193,6 +253,9 @@ class SkillPoolService:
                 )
             )
             for skill_dir, skill_name in found:
+                validate_skill_content(
+                    (skill_dir / "SKILL.md").read_text(encoding="utf-8"),
+                )
                 scan_skill_dir_or_raise(skill_dir, skill_name)
             conflicts: list[dict[str, Any]] = []
             planned: list[tuple[Path, str]] = []
@@ -240,13 +303,14 @@ class SkillPoolService:
             if imported:
 
                 def _update(payload: dict[str, Any]) -> None:
-                    payload.setdefault("skills", {})
                     for name in imported:
-                        payload["skills"][name] = build_skill_metadata(
+                        _register_pool_skill_entry(
+                            payload,
                             name,
                             pool_dir / name,
                             source="customized",
-                            protected=False,
+                            installed_from="zip",
+                            preserve_from={},
                         )
 
                 mutate_json(
@@ -332,11 +396,11 @@ class SkillPoolService:
     ) -> dict[str, Any]:
         try:
             skill_name = normalize_skill_dir_name(skill_name)
-            normalized_target = normalize_skill_dir_name(
-                target_name or skill_name,
-            )
         except SkillsError:
             return {"success": False, "reason": "not_found"}
+        normalized_target = normalize_skill_dir_name(
+            target_name or skill_name,
+        )
         manifest = read_skill_pool_manifest()
         entry = manifest.get("skills", {}).get(skill_name)
         if entry is None:
@@ -456,34 +520,15 @@ class SkillPoolService:
         )
 
         def _update(payload: dict[str, Any]) -> None:
-            payload.setdefault("skills", {})
             current_entry = payload["skills"].get(skill_name) or entry or {}
-            next_entry = build_skill_metadata(
+            _register_pool_skill_entry(
+                payload,
                 skill_name,
                 skill_dir,
                 source=source,
-                protected=False,
+                config=new_config,
+                preserve_from=current_entry,
             )
-            next_entry["config"] = new_config
-            if source == "builtin":
-                builtin_language = (
-                    str(
-                        current_entry.get("builtin_language", "") or "",
-                    )
-                    .strip()
-                    .lower()
-                )
-                if builtin_language:
-                    next_entry["builtin_language"] = builtin_language
-                builtin_source_name = str(
-                    current_entry.get("builtin_source_name", "") or "",
-                ).strip()
-                if builtin_source_name:
-                    next_entry["builtin_source_name"] = builtin_source_name
-            existing_tags = current_entry.get("tags")
-            if existing_tags is not None:
-                next_entry["tags"] = existing_tags
-            payload["skills"][skill_name] = next_entry
 
         mutate_json(
             get_pool_skill_manifest_path(),
@@ -526,19 +571,15 @@ class SkillPoolService:
         )
 
         def _update(payload: dict[str, Any]) -> None:
-            payload.setdefault("skills", {})
             current_entry = payload["skills"].get(skill_name) or entry or {}
-            next_entry = build_skill_metadata(
+            _register_pool_skill_entry(
+                payload,
                 final_name,
                 skill_dir,
                 source="customized",
-                protected=False,
+                config=new_config,
+                preserve_from=current_entry,
             )
-            next_entry["config"] = new_config
-            existing_tags = current_entry.get("tags")
-            if existing_tags is not None:
-                next_entry["tags"] = existing_tags
-            payload["skills"][final_name] = next_entry
             payload["skills"].pop(skill_name, None)
 
         mutate_json(
@@ -599,20 +640,21 @@ class SkillPoolService:
         workspace_entry = ws_manifest.get("skills", {}).get(skill_name, {})
         ws_config = workspace_entry.get("config") or {}
         ws_tags = workspace_entry.get("tags")
+        ws_installed_from = str(
+            workspace_entry.get("installed_from", "") or "",
+        )
 
         def _update(payload: dict[str, Any]) -> None:
-            payload.setdefault("skills", {})
-            pool_entry = build_skill_metadata(
+            _register_pool_skill_entry(
+                payload,
                 final_name,
                 target_dir,
                 source="customized",
-                protected=False,
+                installed_from=ws_installed_from,
+                config=ws_config if ws_config else None,
+                tags=ws_tags,
+                preserve_from={},
             )
-            if ws_config:
-                pool_entry["config"] = ws_config
-            if ws_tags is not None:
-                pool_entry["tags"] = ws_tags
-            payload["skills"][final_name] = pool_entry
 
         mutate_json(
             get_pool_skill_manifest_path(),
@@ -790,6 +832,7 @@ class SkillPoolService:
 
         pool_config = entry.get("config") or {}
         pool_tags = entry.get("tags")
+        pool_installed_from = str(entry.get("installed_from", "") or "")
 
         def _update(payload: dict[str, Any]) -> None:
             payload.setdefault("skills", {})
@@ -805,6 +848,7 @@ class SkillPoolService:
                 "enabled": True,
                 "channels": ["all"],
                 "source": metadata["source"],
+                "installed_from": pool_installed_from,
                 "config": pool_config,
                 "metadata": metadata,
                 "requirements": metadata["requirements"],

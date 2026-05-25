@@ -7,6 +7,7 @@ import type { FormInstance } from "antd";
 import type { SkillSpec } from "../../../../api/types";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
 import { api } from "../../../../api";
+import { deriveInstalledFromLabel } from "../../../../utils/skill";
 
 /** Parse YAML frontmatter from a `---`-delimited content string. */
 export function parseFrontmatter(
@@ -375,6 +376,12 @@ export function SkillDrawer({
           <>
             <Form.Item name="source" label={t("skills.type")}>
               <Input disabled />
+            </Form.Item>
+            <Form.Item label={t("skills.installedFrom")}>
+              <Input
+                disabled
+                value={deriveInstalledFromLabel(editingSkill.installed_from)}
+              />
             </Form.Item>
           </>
         )}

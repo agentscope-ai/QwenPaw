@@ -12,6 +12,8 @@ sessions_mount_dir/
 coverage.xml
 htmlcov/
 htmlcov.zip
+htmlcov-integration/
+.integration_coverage/
 
 # cookbook
 cookbook/_build
@@ -112,5 +114,11 @@ src/.hypothesis/
 # Qoder IDE
 .qoder/
 
+# Cursor IDE
+.cursor/
+
 # Worktrees
 .worktrees/
+
+# Local File
+/localfile/
