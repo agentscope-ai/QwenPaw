@@ -37,6 +37,7 @@ def build_env_context(
     working_dir: Optional[str] = None,
     add_hint: bool = True,
     default_shell: Optional[str] = None,
+    project_dir: Optional[str] = None,
 ) -> str:
     """
     Build environment context with current request context prepended.
@@ -52,6 +53,11 @@ def build_env_context(
         default_shell: Shell executable used by execute_shell_command.
             When provided, included in the context so the LLM can
             generate syntax appropriate for that shell.
+        project_dir: When set (Coding Mode), the agent's "Working
+            directory" line is replaced with an explicit
+            "Project directory" + "Agent workspace (internal)" pair
+            so the LLM stops treating the workspace as home.
+
     Returns:
         Formatted environment context string
     """
@@ -81,7 +87,17 @@ def build_env_context(
     if default_shell:
         parts.append(f"- Default Shell: {default_shell}")
 
-    if working_dir is not None:
+    if project_dir:
+        parts.append(
+            f"- Project directory (Coding Mode — operate here): "
+            f"{project_dir}",
+        )
+        if working_dir is not None and str(working_dir) != str(project_dir):
+            parts.append(
+                f"- Agent workspace (internal — do NOT touch unless "
+                f"the user explicitly asks): {working_dir}",
+            )
+    elif working_dir is not None:
         parts.append(f"- Working directory: {working_dir}")
     parts.append(
         f"- Current date: {now.strftime('%Y-%m-%d')} "
