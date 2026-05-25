@@ -1,47 +1,31 @@
-name: Tests
+name: Full Tests Nightly
+
+# Nightly sweep of the entire test suite (unit + contract + integration)
+# with combined coverage. tests.yml runs the PR (p0) and pre-merge
+# (p0+p1) integration tiers gated by event name; this workflow exercises
+# the full integration suite (all markers including p2) and re-runs unit
+# / contract on every supported platform/python combo to catch nightly
+# drift, then renders per-tier and combined coverage numbers.
+#
+# Independent of tests.yml so it can run unattended without going through
+# the manual maintainer-approval gate that protects PR/push CI.
+#
+# Coverage data files (.coverage.unit / .coverage.contract /
+# .coverage.integration plus their cobertura xml) are produced on a
+# single matrix entry (ubuntu-latest + python 3.10, historically the
+# fastest combination) per test class and consumed by coverage-report,
+# which only combines and renders — it does not run pytest itself.
 
 on:
-  push:
-    branches: [main, master, dev, develop]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'pyproject.toml'
-      - 'setup.py'
-      - '.github/workflows/tests.yml'
-  pull_request:
-    branches: [main, master, dev, develop]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'pyproject.toml'
-      - 'setup.py'
-      - '.github/workflows/tests.yml'
+  schedule:
+    # 18:17 UTC daily ~= 02:17 Beijing the next day.
+    # Off-the-hour to avoid the global GitHub Actions cron rush at :00 / :30.
+    - cron: '17 18 * * *'
   workflow_dispatch:
 
-# Coverage data is collected on a single matrix entry per test class
-# (ubuntu-latest + python 3.10, historically the fastest combination)
-# instead of being re-run from scratch in coverage-report. The data files
-# (.coverage.unit / .coverage.contract / .coverage.integration plus their
-# cobertura xml) are uploaded as short-lived artifacts and consumed by the
-# coverage-report job, which only combines and renders — it does not run
-# pytest itself anymore.
-
 jobs:
-  approval-gate:
-    name: Maintainer Approval
-    runs-on: ubuntu-latest
-    environment: maintainer-approved
-    steps:
-      - name: Approval granted
-        run: echo "Approved by maintainer"
-
   unit-tests:
     name: Unit Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
-    needs: approval-gate
-    if: |
-      always() &&
-      needs.approval-gate.result == 'success'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -123,10 +107,6 @@ jobs:
 
   contract-tests:
     name: Contract Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
-    needs: approval-gate
-    if: |
-      always() &&
-      needs.approval-gate.result == 'success'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -206,10 +186,6 @@ jobs:
 
   integrated-tests:
     name: Integrated Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
-    needs: approval-gate
-    if: |
-      always() &&
-      needs.approval-gate.result == 'success'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -258,34 +234,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,full]"
 
-      - name: Check if integrated tests exist
-        id: check-integrated
-        shell: bash
-        run: |
-          if [ -d "tests/integration" ] && compgen -G "tests/integration/*.py" > /dev/null; then
-            echo "has_tests=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_tests=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Determine pytest marker expression
-        id: marker
-        if: steps.check-integrated.outputs.has_tests == 'true'
-        shell: bash
-        run: |
-          # PR gate -> p0 only (fast feedback)
-          # push / workflow_dispatch -> p0 + p1 (full pre-merge gate)
-          # nightly full sweep lives in full-tests-nightly.yml
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-            EXPR="integration and p0"
-          else
-            EXPR="integration and (p0 or p1)"
-          fi
-          echo "expr=$EXPR" >> "$GITHUB_OUTPUT"
-          echo "Selected marker expression: $EXPR"
-
-      - name: Run integrated tests
-        if: steps.check-integrated.outputs.has_tests == 'true'
+      - name: Run integration suite (full sweep)
         shell: bash
         env:
           # Subprocess coverage on the ubuntu/py3.10 entry only. conftest.py
@@ -293,12 +242,13 @@ jobs:
           # not pay the tracer overhead.
           QWENPAW_INTEGRATION_COVERAGE: ${{ (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10') && '1' || '' }}
         run: |
+          # Nightly always runs the full -m integration sweep (p0 + p1 +
+          # p2), unlike tests.yml which gates by GITHUB_EVENT_NAME.
           if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
              [ "${{ matrix.python-version }}" = "3.10" ]; then
             # Subprocess coverage entry. Parent process must not carry
             # --cov, hence --no-cov here.
-            pytest tests/integration -v --no-cov \
-              -m "${{ steps.marker.outputs.expr }}"
+            pytest tests/integration -v --no-cov -m integration
             cp .integration_coverage/integration_subproc \
               .coverage.integration
             # `coverage xml` honours fail_under and exits 2 when below;
@@ -306,13 +256,11 @@ jobs:
             coverage xml --data-file=.coverage.integration \
               -o coverage.integration.xml || [ "$?" -eq 2 ]
           else
-            pytest tests/integration -v \
-              -m "${{ steps.marker.outputs.expr }}"
+            pytest tests/integration -v -m integration
           fi
 
       - name: Upload integration coverage data
         if: |
-          steps.check-integrated.outputs.has_tests == 'true' &&
           matrix.os == 'ubuntu-latest' &&
           matrix.python-version == '3.10'
         uses: actions/upload-artifact@v4
@@ -327,15 +275,12 @@ jobs:
 
   coverage-report:
     name: Coverage Report
-    needs: [approval-gate, unit-tests, contract-tests, integrated-tests]
-    if: |
-      always() &&
-      needs.approval-gate.result == 'success'
+    needs: [unit-tests, contract-tests, integrated-tests]
+    if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -400,7 +345,7 @@ jobs:
           echo "COMBINED=${COMBINED:-n/a}"
 
           {
-            echo "## 📊 Coverage report"
+            echo "## 📊 Coverage report (nightly full sweep)"
             echo ""
             echo "| Test category | Coverage |"
             echo "|---|---|"
@@ -410,47 +355,12 @@ jobs:
             echo "| **Combined** | **${COMBINED:-n/a}%** |"
             echo ""
             echo "> Combined = \`coverage combine\` of unit + contract + integration (subprocess mode)."
+            echo "> Integration ran the full \`-m integration\` sweep (p0 + p1 + p2)."
             echo "> HTML reports under workflow artifact \`coverage-reports\` (\`htmlcov-combined\` / \`htmlcov-integration\`)."
             echo "> Coverage is collected only on the ubuntu/py3.10 matrix entry; other matrix entries verify cross-platform compatibility without the tracer overhead."
           } > coverage_summary.md
 
           cat coverage_summary.md >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Sticky coverage PR comment
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const body = fs.readFileSync('coverage_summary.md', 'utf8');
-            const marker = '<!-- qwenpaw-coverage-summary -->';
-            const finalBody = `${marker}\n${body}`;
-            const comments = await github.paginate(
-              github.rest.issues.listComments,
-              {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-              },
-            );
-            const existing = comments.find(
-              (c) => c.body && c.body.includes(marker),
-            );
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body: finalBody,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: finalBody,
-              });
-            }
 
       - name: Upload coverage artifacts
         if: always()
@@ -464,26 +374,20 @@ jobs:
             coverage.combined.xml
             htmlcov-combined/
             htmlcov-integration/
-          retention-days: 7
+          retention-days: 14
 
   test-summary:
     name: Test Summary
-    needs: [approval-gate, unit-tests, contract-tests, integrated-tests, coverage-report]
+    needs: [unit-tests, contract-tests, integrated-tests, coverage-report]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Check test results
         shell: bash
         run: |
-          echo "Approval gate: ${{ needs.approval-gate.result }}"
           echo "Unit tests: ${{ needs.unit-tests.result }}"
           echo "Contract tests: ${{ needs.contract-tests.result }}"
           echo "Integrated tests: ${{ needs.integrated-tests.result }}"
-
-          if [ "${{ needs.approval-gate.result }}" != "success" ]; then
-            echo "❌ Approval not granted"
-            exit 1
-          fi
 
           if [ "${{ needs.unit-tests.result }}" = "failure" ] || \
              [ "${{ needs.contract-tests.result }}" = "failure" ] || \
