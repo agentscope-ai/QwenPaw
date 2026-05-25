@@ -266,6 +266,7 @@
     "acpServer": "ACP Integration",
     "memory": "Memory",
     "memoryEvolvingAndProactive": "Memory-Evolving & Proactive",
+    "codingMode": "Coding Mode",
     "context": "Context",
     "commands": "Magic commands",
     "plan": "Plan mode",
