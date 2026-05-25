@@ -10,7 +10,7 @@
  * File tree and Chat can each be toggled from the activity bar.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { Badge, Tooltip } from "antd";
 import {
@@ -23,10 +23,17 @@ import {
   CheckSquare,
 } from "lucide-react";
 import FileTree from "./FileTree";
-import TabbedEditor, { type EditorTab } from "./TabbedEditor";
+import TabbedEditor from "./TabbedEditor";
 import GitPanel from "./GitPanel";
 import Chat from "../Chat";
 import { useCodingMode, useCurrentTodos } from "../../stores/codingModeStore";
+import {
+  useCurrentTabs,
+  useCurrentActiveTabPath,
+  useCodingTabsStore,
+} from "../../stores/codingTabsStore";
+import { useAgentStore } from "../../stores/agentStore";
+import { workspaceApi } from "../../api/modules/workspace";
 import styles from "./index.module.less";
 
 type LeftPane = "files" | "git";
@@ -51,43 +58,83 @@ export default function CodingPage() {
     [leftPane],
   );
 
-  // ---- Editor tabs -------------------------------------------------------
-  const [tabs, setTabs] = useState<EditorTab[]>([]);
-  const [activeTabPath, setActiveTabPath] = useState("");
+  // ---- Editor tabs (per-agent, persisted) --------------------------------
+  const { selectedAgent } = useAgentStore();
+  const tabs = useCurrentTabs();
+  const activeTabPath = useCurrentActiveTabPath();
+  const { openTab, closeTab, setActiveTab, setTabContent, setTabDirty } =
+    useCodingTabsStore();
 
-  const handleFileSelect = useCallback((path: string, content: string) => {
-    setTabs((prev) => {
-      if (prev.find((t) => t.path === path)) return prev;
-      return [...prev, { path, content, dirty: false }];
+  // Hydrate persisted tab contents (path-list survives reload but content
+  // doesn't — re-fetch from disk via the cached loadCodeFile). Drop tabs
+  // whose file no longer exists on disk.
+  useEffect(() => {
+    let cancelled = false;
+    const toHydrate = tabs.filter((t) => t.content === "");
+    if (toHydrate.length === 0) return undefined;
+
+    void Promise.all(
+      toHydrate.map(async (t) => {
+        try {
+          const result = await workspaceApi.loadCodeFile(t.path);
+          return { path: t.path, content: result.content ?? "", ok: true };
+        } catch {
+          return { path: t.path, content: "", ok: false };
+        }
+      }),
+    ).then((results) => {
+      if (cancelled) return;
+      for (const r of results) {
+        if (r.ok) {
+          setTabContent(selectedAgent, r.path, r.content);
+        } else {
+          closeTab(selectedAgent, r.path);
+        }
+      }
     });
-    setActiveTabPath(path);
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+    // Re-run on agent switch; ignore tabs/setters churn — the content==""
+    // filter naturally short-circuits when nothing needs hydration.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAgent]);
+
+  const handleFileSelect = useCallback(
+    (path: string, content: string) => {
+      openTab(selectedAgent, { path, content, dirty: false });
+      setActiveTab(selectedAgent, path);
+    },
+    [selectedAgent, openTab, setActiveTab],
+  );
+
+  const handleTabSelect = useCallback(
+    (path: string) => setActiveTab(selectedAgent, path),
+    [selectedAgent, setActiveTab],
+  );
 
   const handleTabClose = useCallback(
     (path: string) => {
-      setTabs((prev) => {
-        const next = prev.filter((t) => t.path !== path);
-        if (activeTabPath === path) {
-          const idx = prev.findIndex((t) => t.path === path);
-          setActiveTabPath(next[idx]?.path ?? next[idx - 1]?.path ?? "");
-        }
-        return next;
-      });
+      const idx = tabs.findIndex((t) => t.path === path);
+      closeTab(selectedAgent, path);
+      if (activeTabPath === path) {
+        const fallback = tabs[idx + 1]?.path ?? tabs[idx - 1]?.path ?? "";
+        setActiveTab(selectedAgent, fallback);
+      }
     },
-    [activeTabPath],
+    [tabs, activeTabPath, selectedAgent, closeTab, setActiveTab],
   );
 
-  const handleTabDirtyChange = useCallback((path: string, dirty: boolean) => {
-    setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, dirty } : t)));
-  }, []);
+  const handleTabDirtyChange = useCallback(
+    (path: string, dirty: boolean) => setTabDirty(selectedAgent, path, dirty),
+    [selectedAgent, setTabDirty],
+  );
 
   const handleTabContentChange = useCallback(
-    (path: string, content: string) => {
-      setTabs((prev) =>
-        prev.map((t) => (t.path === path ? { ...t, content } : t)),
-      );
-    },
-    [],
+    (path: string, content: string) =>
+      setTabContent(selectedAgent, path, content),
+    [selectedAgent, setTabContent],
   );
 
   if (!codingMode) {
@@ -177,7 +224,7 @@ export default function CodingPage() {
             <TabbedEditor
               tabs={tabs}
               activeTabPath={activeTabPath}
-              onTabSelect={setActiveTabPath}
+              onTabSelect={handleTabSelect}
               onTabClose={handleTabClose}
               onTabDirtyChange={handleTabDirtyChange}
               onTabContentChange={handleTabContentChange}

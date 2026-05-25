@@ -10,7 +10,7 @@
  *   • Cmd/Ctrl+S to save
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Editor, {
   DiffEditor,
   type Monaco,
@@ -34,23 +34,19 @@ import { workspaceApi } from "../../api/modules/workspace";
 import { useWorkspaceWatch } from "../../hooks/useWorkspaceWatch";
 import { useTheme } from "../../contexts/ThemeContext";
 import { setTextareaValue } from "../Chat/utils";
+import {
+  useCurrentDiffs,
+  useCodingTabsStore,
+  type EditorTab,
+} from "../../stores/codingTabsStore";
+import { useAgentStore } from "../../stores/agentStore";
 import styles from "./TabbedEditor.module.less";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface EditorTab {
-  path: string;
-  content: string;
-  dirty: boolean;
-}
-
-/** Pending diff produced when the agent modifies a file externally. */
-interface PendingDiff {
-  original: string;
-  modified: string;
-}
+export type { EditorTab };
 
 interface TabbedEditorProps {
   tabs: EditorTab[];
@@ -170,18 +166,57 @@ export default function TabbedEditor({
   const undoInProgressRef = useRef<Set<string>>(new Set());
 
   /**
-   * Pending diffs keyed by file path.
-   * When the agent modifies a file while it is open, we capture the original
-   * content and the new (modified) content so the user can review.
+   * Pending diffs keyed by file path, persisted per-agent. When the agent
+   * modifies a file while it is open, we capture the original baseline and
+   * the new (modified) content so the user can review. After a reload, the
+   * `modified` side is null until the hydrate effect re-fetches it.
    */
-  const [pendingDiffs, setPendingDiffs] = useState<Map<string, PendingDiff>>(
-    new Map(),
-  );
+  const { selectedAgent } = useAgentStore();
+  const pendingDiffs = useCurrentDiffs();
+  const { setDiff, removeDiff, updateDiffModified } = useCodingTabsStore();
 
   const activeTab = tabs.find((t) => t.path === activeTabPath) ?? null;
-  const activeDiff = activeTabPath
-    ? pendingDiffs.get(activeTabPath)
-    : undefined;
+  const activeDiffRaw = activeTabPath ? pendingDiffs[activeTabPath] : undefined;
+  // Only render the diff editor once the modified side has been hydrated.
+  const activeDiff =
+    activeDiffRaw && activeDiffRaw.modified !== null
+      ? { original: activeDiffRaw.original, modified: activeDiffRaw.modified }
+      : undefined;
+
+  // Hydrate the `modified` side of any persisted diff by re-reading the
+  // current disk content. Drop diffs whose file no longer exists.
+  useEffect(() => {
+    let cancelled = false;
+    const toHydrate = Object.entries(pendingDiffs).filter(
+      ([, d]) => d.modified === null,
+    );
+    if (toHydrate.length === 0) return undefined;
+
+    void Promise.all(
+      toHydrate.map(async ([path]) => {
+        try {
+          const result = await workspaceApi.loadCodeFile(path);
+          return { path, modified: result.content ?? "", ok: true };
+        } catch {
+          return { path, modified: "", ok: false };
+        }
+      }),
+    ).then((results) => {
+      if (cancelled) return;
+      for (const r of results) {
+        if (r.ok) {
+          updateDiffModified(selectedAgent, r.path, r.modified);
+        } else {
+          removeDiff(selectedAgent, r.path);
+        }
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAgent]);
 
   // ---- Monaco setup -------------------------------------------------------
 
@@ -340,29 +375,28 @@ export default function TabbedEditor({
    * The file on disk is already updated; we just clear the diff state.
    */
   const handleKeep = useCallback(() => {
-    const diff = pendingDiffs.get(activeTabPath);
-    if (!diff) return;
-    setPendingDiffs((prev) => {
-      const next = new Map(prev);
-      next.delete(activeTabPath);
-      return next;
-    });
+    const diff = pendingDiffs[activeTabPath];
+    if (!diff || diff.modified === null) return;
+    removeDiff(selectedAgent, activeTabPath);
     onTabContentChange(activeTabPath, diff.modified);
     onTabDirtyChange(activeTabPath, false);
-  }, [activeTabPath, pendingDiffs, onTabContentChange, onTabDirtyChange]);
+  }, [
+    activeTabPath,
+    pendingDiffs,
+    selectedAgent,
+    removeDiff,
+    onTabContentChange,
+    onTabDirtyChange,
+  ]);
 
   /**
    * Undo: dismiss the diff and revert to the original content.
    * Writes the original content back to disk.
    */
   const handleUndo = useCallback(async () => {
-    const diff = pendingDiffs.get(activeTabPath);
+    const diff = pendingDiffs[activeTabPath];
     if (!diff) return;
-    setPendingDiffs((prev) => {
-      const next = new Map(prev);
-      next.delete(activeTabPath);
-      return next;
-    });
+    removeDiff(selectedAgent, activeTabPath);
     // Suppress the watcher so the revert write doesn't spawn a new diff
     undoInProgressRef.current.add(activeTabPath);
     try {
@@ -375,7 +409,14 @@ export default function TabbedEditor({
     }
     onTabContentChange(activeTabPath, diff.original);
     onTabDirtyChange(activeTabPath, false);
-  }, [activeTabPath, pendingDiffs, onTabContentChange, onTabDirtyChange]);
+  }, [
+    activeTabPath,
+    pendingDiffs,
+    selectedAgent,
+    removeDiff,
+    onTabContentChange,
+    onTabDirtyChange,
+  ]);
 
   // ---- File-watch: show inline diff instead of silent reload ---------------
 
@@ -396,7 +437,7 @@ export default function TabbedEditor({
     );
     if (!affected) return;
 
-    const existingDiff = pendingDiffs.get(path);
+    const existingDiff = pendingDiffs[path];
 
     workspaceApi
       .loadCodeFile(path)
@@ -407,25 +448,15 @@ export default function TabbedEditor({
           // There is already a pending diff — update only the modified side so
           // the user sees the cumulative change (original → latest agent edit).
           if (newModified === existingDiff.modified) return;
-          setPendingDiffs((prev) => {
-            const cur = prev.get(path);
-            if (!cur) return prev;
-            const next = new Map(prev);
-            next.set(path, { original: cur.original, modified: newModified });
-            return next;
-          });
+          updateDiffModified(selectedAgent, path, newModified);
         } else {
           // First edit — capture current editor content as baseline original.
           const originalContent =
             editorRef.current?.getValue() ?? tab?.content ?? "";
           if (newModified === originalContent) return;
-          setPendingDiffs((prev) => {
-            const next = new Map(prev);
-            next.set(path, {
-              original: originalContent,
-              modified: newModified,
-            });
-            return next;
+          setDiff(selectedAgent, path, {
+            original: originalContent,
+            modified: newModified,
           });
         }
       })
@@ -458,7 +489,7 @@ export default function TabbedEditor({
       <div className={styles.tabBar}>
         {tabs.map((tab) => {
           const active = tab.path === activeTabPath;
-          const hasDiff = pendingDiffs.has(tab.path);
+          const hasDiff = Boolean(pendingDiffs[tab.path]);
           return (
             <div
               key={tab.path}
