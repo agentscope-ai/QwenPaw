@@ -133,3 +133,113 @@ def test_working_guidelines_updated() -> None:
     assert "Read before you write" in prompt
     assert "Prefer targeted edits" in prompt
     assert "Summarise after each batch" in prompt
+
+
+# ----------------------------------------------------------------------
+# Tool registration hook
+# ----------------------------------------------------------------------
+
+
+class _FakeToolkit:
+    """Minimal stand-in for ``agentscope.tool.Toolkit``."""
+
+    def __init__(self) -> None:
+        self.registered: list[str] = []
+
+    def register_tool_function(
+        self,
+        func,
+        namesake_strategy: str = "skip",
+        async_execution: bool = False,
+    ) -> None:
+        del namesake_strategy, async_execution
+        self.registered.append(getattr(func, "__name__", repr(func)))
+
+
+def test_register_coding_mode_tools_skips_when_disabled(monkeypatch) -> None:
+    agent = _CodingAgent()
+    agent._agent_config = {"coding_mode": {"enabled": False}}
+    toolkit = _FakeToolkit()
+
+    # Even if both deps are available, disabled mode must register nothing.
+    monkeypatch.setattr(
+        "qwenpaw.agents.coding_mode_mixin.detect_available_lsp_languages",
+        lambda _root: {"python": ["pylsp"]},
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.coding_mode_mixin.ast_tool.is_ast_grep_available",
+        lambda: True,
+    )
+
+    agent._register_coding_mode_tools(toolkit)
+    assert not toolkit.registered
+
+
+def test_register_coding_mode_tools_registers_both(monkeypatch) -> None:
+    agent = _CodingAgent()
+    agent._agent_config = {
+        "coding_mode": {"enabled": True, "project_dir": "/tmp/proj"},
+    }
+    toolkit = _FakeToolkit()
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.coding_mode_mixin.detect_available_lsp_languages",
+        lambda _root: {"python": ["pylsp"]},
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.coding_mode_mixin.ast_tool.is_ast_grep_available",
+        lambda: True,
+    )
+
+    agent._register_coding_mode_tools(toolkit)
+
+    assert "lsp" in toolkit.registered
+    assert "ast_search" in toolkit.registered
+
+
+def test_register_coding_mode_tools_omits_lsp_when_no_languages(
+    monkeypatch,
+) -> None:
+    agent = _CodingAgent()
+    agent._agent_config = {
+        "coding_mode": {"enabled": True, "project_dir": "/tmp/proj"},
+    }
+    toolkit = _FakeToolkit()
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.coding_mode_mixin.detect_available_lsp_languages",
+        lambda _root: {},
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.coding_mode_mixin.ast_tool.is_ast_grep_available",
+        lambda: True,
+    )
+
+    agent._register_coding_mode_tools(toolkit)
+
+    assert "lsp" not in toolkit.registered
+    assert "ast_search" in toolkit.registered
+
+
+def test_register_coding_mode_tools_omits_ast_when_cli_missing(
+    monkeypatch,
+) -> None:
+    agent = _CodingAgent()
+    agent._agent_config = {
+        "coding_mode": {"enabled": True, "project_dir": "/tmp/proj"},
+    }
+    toolkit = _FakeToolkit()
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.coding_mode_mixin.detect_available_lsp_languages",
+        lambda _root: {"python": ["pylsp"]},
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.coding_mode_mixin.ast_tool.is_ast_grep_available",
+        lambda: False,
+    )
+
+    agent._register_coding_mode_tools(toolkit)
+
+    assert "lsp" in toolkit.registered
+    assert "ast_search" not in toolkit.registered

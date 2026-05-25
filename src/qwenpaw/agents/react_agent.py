@@ -231,7 +231,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
         # Register hooks
         self._register_hooks()
 
-    def _create_toolkit(
+    def _create_toolkit(  # pylint: disable=too-many-branches
         self,
         namesake_strategy: NamesakeStrategy = "skip",
         effective_skills: list[str] | None = None,
@@ -394,6 +394,17 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
                 logger.warning(
                     f"Failed to register task management tools: {e}",
                 )
+
+        # Coding Mode tools (lsp, ast_search) — only registered when
+        # coding_mode.enabled is True and the underlying CLI / language
+        # server is reachable.  See CodingModeMixin.
+        try:
+            self._register_coding_mode_tools(
+                toolkit,
+                namesake_strategy=namesake_strategy,
+            )
+        except Exception as e:  # pylint: disable=broad-except
+            logger.warning(f"Failed to register Coding Mode tools: {e}")
 
         return toolkit
 

@@ -10,6 +10,16 @@ Provides one behaviour activated when ``coding_mode.enabled`` is
 from __future__ import annotations
 
 import logging
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from ..constant import WORKING_DIR
+from .tools import ast_tool
+from .tools._lsp_servers import detect_available_lsp_languages
+from .tools.lsp_tool import make_lsp_tool
+
+if TYPE_CHECKING:
+    from agentscope.tool import Toolkit
 
 logger = logging.getLogger(__name__)
 
@@ -178,3 +188,62 @@ class CodingModeMixin:
         if cm is None:
             return False
         return bool(getattr(cm, "enabled", False))
+
+    # ------------------------------------------------------------------
+    # Tool registration hook (called from QwenPawAgent._create_toolkit)
+    # ------------------------------------------------------------------
+
+    def _register_coding_mode_tools(
+        self,
+        toolkit: "Toolkit",
+        namesake_strategy: str = "skip",
+    ) -> None:
+        """Register Coding Mode tools (`lsp`, `ast_search`) on the toolkit.
+
+        Both tools are smart-discovered: they only get registered if
+        their underlying dependency is reachable (an LSP server / the
+        ``ast-grep`` CLI). Failure to register either tool is logged but
+        never raised — Coding Mode must still work without them.
+        """
+        if not self._coding_mode_enabled():
+            return
+        project_dir = Path(
+            self._get_coding_project_dir()
+            or str(getattr(self, "_workspace_dir", "") or WORKING_DIR),
+        )
+
+        try:
+            available = detect_available_lsp_languages(project_dir)
+            if available:
+                toolkit.register_tool_function(
+                    make_lsp_tool(available),
+                    namesake_strategy=namesake_strategy,
+                    async_execution=True,
+                )
+                logger.info(
+                    "Registered Coding Mode lsp tool with languages: %s",
+                    sorted(available.keys()),
+                )
+            else:
+                logger.info(
+                    "No LSP servers discovered for project_dir=%s; "
+                    "skipping lsp tool",
+                    project_dir,
+                )
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning(f"Failed to register lsp tool: {exc}")
+
+        try:
+            if ast_tool.is_ast_grep_available():
+                toolkit.register_tool_function(
+                    ast_tool.ast_search,
+                    namesake_strategy=namesake_strategy,
+                    async_execution=True,
+                )
+                logger.info("Registered Coding Mode ast_search tool")
+            else:
+                logger.info(
+                    "ast-grep CLI not found; skipping ast_search tool",
+                )
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning(f"Failed to register ast_search tool: {exc}")
