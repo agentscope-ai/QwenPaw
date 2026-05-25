@@ -1067,13 +1067,6 @@ class CodingModeConfig(BaseModel):
         default=False,
         description="Enable Coding Mode IDE layout and tools",
     )
-    diff_approval_enabled: bool = Field(
-        default=True,
-        description=(
-            "Require user approval before write_file / edit_file / "
-            "append_file executes (shows inline diff)"
-        ),
-    )
     project_dir: Optional[str] = Field(
         default=None,
         description=(

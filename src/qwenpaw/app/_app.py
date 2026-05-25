@@ -658,7 +658,7 @@ app.include_router(api_router, prefix="/api")
 # Approval router: /api/approval/approve, /api/approval/deny, etc.
 app.include_router(approval_router, prefix="/api")
 
-# Coding Mode router: /api/coding-mode, /api/coding-mode/diff-approval/{id}
+# Coding Mode router: /api/coding-mode
 app.include_router(coding_mode_router, prefix="/api")
 
 # Agent-scoped router: /api/agents/{agentId}/chats, etc.
