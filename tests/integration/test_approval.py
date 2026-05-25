@@ -90,3 +90,31 @@ def test_approval_list_returns_empty_by_default(app_server) -> None:
     payload = resp.json()
     assert payload.get("count") == 0
     assert payload.get("pending_approvals") == []
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_approval_list_filters_by_session_id(app_server) -> None:
+    """Test purpose:
+    - Verify GET /api/approval/list with a ``session_id`` query parameter
+      exercises the cross-session filter path
+      (``get_pending_by_root_session``) and still returns the empty
+      contract on a clean app. Console's approval drawer hits this path.
+
+    Test flow:
+    1. GET /api/approval/list with a synthetic session_id query parameter.
+    2. Assert 200 with ``count`` == 0 and ``pending_approvals`` == [].
+
+    API endpoints:
+    - GET /api/approval/list
+    """
+    resp = app_server.api_request(
+        "GET",
+        "/api/approval/list",
+        params={"session_id": "integ-approval-list-filter-session"},
+        timeout=_APPROVAL_HTTP_TIMEOUT,
+    )
+    assert resp.status_code == 200, app_server.logs_tail()
+    payload = resp.json()
+    assert payload.get("count") == 0
+    assert payload.get("pending_approvals") == []

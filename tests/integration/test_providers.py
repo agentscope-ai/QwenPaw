@@ -95,3 +95,32 @@ def test_set_active_model_rejects_unknown_provider_404(app_server) -> None:
     assert (
         "integ_unknown_provider_xyz" in detail or "not found" in detail.lower()
     )
+
+
+@pytest.mark.integration
+@pytest.mark.p0
+def test_active_model_get_effective_scope_contract(app_server) -> None:
+    """Test purpose:
+    - Verify GET /api/models/active (default scope=effective) returns the
+      ActiveModelsInfo contract. Console calls this on every page load
+      to render the current-model selector; a regression makes the whole
+      Console appear broken from a user's perspective.
+
+    Test flow:
+    1. GET /api/models/active without scope query param (router default
+       is ``effective``).
+    2. Assert 200 and the response is a JSON object with the
+       ``active_llm`` key (value may be null on a fresh workspace).
+
+    API endpoints:
+    - GET /api/models/active
+    """
+    resp = app_server.api_request(
+        "GET",
+        "/api/models/active",
+        timeout=_PROVIDERS_HTTP_TIMEOUT,
+    )
+    assert resp.status_code == 200, app_server.logs_tail()
+    payload = resp.json()
+    assert isinstance(payload, dict)
+    assert "active_llm" in payload
