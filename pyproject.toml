@@ -50,6 +50,13 @@ dependencies = [
     "anyio>=4.0.0,<4.13.0",
     "watchfiles>=0.22",
     "orjson>=3.9",
+    # Coding Mode — Python LSP server bundled as a zero-config fallback
+    # so the `lsp` tool always works for .py files (see PROPOSAL §3.4).
+    "python-lsp-server[all]>=1.10",
+    # Coding Mode — multi-language AST pattern matcher used by ast_search.
+    # Pure-Python wrapper around a prebuilt Rust binary; PyPI distributes
+    # wheels for all three OSes.
+    "ast-grep-cli>=0.20",
 ]
 
 [tool.setuptools.dynamic]
