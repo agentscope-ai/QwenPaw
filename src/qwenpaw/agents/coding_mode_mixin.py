@@ -29,20 +29,6 @@ _CODING_SYSTEM_PROMPT_TEMPLATE = """\
 
 You are currently operating in **Coding Mode**.
 
-### Active project
-The user's active coding project directory is: `{project_dir}`
-
-All file operations (`read_file`, `write_file`, `edit_file`,
-`list_directory`, etc.) should use paths **relative to the project
-directory above** unless the user explicitly specifies an absolute
-path.  Do NOT read or write outside this directory unless explicitly
-asked.
-
-### Agent workspace
-The internal QwenPaw workspace (configs, sessions, memory) is located
-at: `{workspace_dir}` — do NOT touch files here unless the user
-explicitly asks.
-
 ### Task tracking
 
 Before starting any non-trivial task:
@@ -90,6 +76,23 @@ the matches first, then call `edit_file` for each location.
 
 Fall back to `grep_search` only when LSP / AST cannot answer.
 
+### File operations
+
+File-IO tools (`read_file`, `write_file`, `edit_file`,
+`list_directory`, etc.) resolve **relative** paths against the
+**agent workspace**, NOT the active project.  Always pass
+**absolute paths** rooted at the active project directory (shown
+below) — never a bare filename or a path relative to the project.
+
+### Shell commands
+
+`execute_shell_command` defaults its cwd to the **agent workspace**.
+When the command should run inside the project, always pass
+`cwd="<active project dir>"` (or prefix with
+`cd <active project dir> && ...`).  Do NOT assume `ls`, `cat`,
+`find`, `git`, etc. land in the project — without an explicit `cwd`
+they land in the workspace.
+
 ### Working guidelines
 1. **Read before you write** — always read the relevant file(s) first.
 2. **Prefer targeted edits** — use `edit_file` over full-file \
@@ -102,6 +105,30 @@ what remains.
 
 Keep reasoning concise.  Prefer small, verifiable steps over large \
 monolithic changes.
+
+### Active project
+
+The active project directory for this session is:
+
+    {project_dir}
+
+This is **THE** project — do NOT enumerate the agent workspace or
+its `coding_projects/` subfolder looking for "which project to work
+on".  Sibling directories are unrelated repositories and are out of
+scope unless the user explicitly switches.
+
+Every `read_file` / `write_file` / `edit_file` / `list_directory`
+call must use an absolute path that starts with the directory above.
+Every `execute_shell_command` call that touches project files must
+pass `cwd` equal to the directory above.
+
+### Agent workspace
+
+The internal QwenPaw workspace (configs, sessions, memory) is at:
+
+    {workspace_dir}
+
+Do NOT read or write here unless the user explicitly asks.
 """
 
 

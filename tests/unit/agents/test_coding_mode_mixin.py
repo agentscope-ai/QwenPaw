@@ -135,6 +135,70 @@ def test_working_guidelines_updated() -> None:
     assert "Summarise after each batch" in prompt
 
 
+def test_file_operations_section_requires_absolute_paths() -> None:
+    agent = _CodingAgent()
+    agent._agent_config = {
+        "coding_mode": {"enabled": True, "project_dir": "/x"},
+    }
+    prompt = agent._build_sys_prompt()
+
+    assert "### File operations" in prompt
+    assert "absolute paths" in prompt
+    # The misleading old wording must be gone — tools resolve relative
+    # paths against the workspace, NOT the project.
+    assert "relative to the project directory above" not in prompt
+
+
+def test_shell_commands_section_requires_explicit_cwd() -> None:
+    agent = _CodingAgent()
+    agent._agent_config = {
+        "coding_mode": {"enabled": True, "project_dir": "/x"},
+    }
+    prompt = agent._build_sys_prompt()
+
+    assert "### Shell commands" in prompt
+    assert "`cwd=" in prompt
+    assert "default" in prompt.lower()
+    assert "workspace" in prompt
+
+
+def test_active_project_section_forbids_workspace_browsing() -> None:
+    agent = _CodingAgent()
+    agent._agent_config = {
+        "coding_mode": {
+            "enabled": True,
+            "project_dir": "/home/user/repo",
+        },
+    }
+    prompt = agent._build_sys_prompt()
+
+    assert "### Active project" in prompt
+    assert "/home/user/repo" in prompt
+    assert "do NOT enumerate" in prompt
+    assert "coding_projects/" in prompt
+
+
+def test_dynamic_dirs_render_at_the_end_for_prompt_cache() -> None:
+    agent = _CodingAgent()
+    agent._agent_config = {
+        "coding_mode": {
+            "enabled": True,
+            "project_dir": "/home/user/repo",
+        },
+    }
+    prompt = agent._build_sys_prompt()
+
+    # The dynamic project_dir / workspace_dir must appear AFTER the
+    # static guideline sections so the static prefix can be cached
+    # across project switches.
+    idx_static_last = prompt.rfind("Working guidelines")
+    idx_project = prompt.find("/home/user/repo")
+    idx_workspace = prompt.find("/tmp/workspace")
+    assert idx_static_last != -1
+    assert idx_project > idx_static_last
+    assert idx_workspace > idx_static_last
+
+
 # ----------------------------------------------------------------------
 # Tool registration hook
 # ----------------------------------------------------------------------
