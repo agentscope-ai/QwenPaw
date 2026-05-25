@@ -14,6 +14,7 @@ import { gitApi } from "../../api/modules/git";
 import { codingProjectApi } from "../../api/modules/codingProject";
 import { useWorkspaceWatch } from "../../hooks/useWorkspaceWatch";
 import { useProjectDir } from "../../stores/codingModeStore";
+import { useCodeFileCacheStore } from "../../stores/codeFileCacheStore";
 import ProjectSelectModal from "../../components/ProjectSelectModal";
 import type { MdFileInfo } from "../../api/types";
 import styles from "./FileTree.module.less";
@@ -339,21 +340,35 @@ export default function FileTree({ onFileSelect }: FileTreeProps) {
     }
   }, [loadGitStatus]);
 
-  // Reload file tree when project switches (projectDir from store)
+  // Reload file tree when project switches (projectDir from store).
+  // The cached file contents belong to the previous project root and would
+  // be returned for matching paths in the new project — wipe them.
   useEffect(() => {
+    useCodeFileCacheStore.getState().clear();
     void load();
   }, [load, projectDir]);
 
-  // Re-fetch on any file change (structural) or file modification (git status may change)
+  // SSE handler: split by event type so saving an open file doesn't trigger
+  // a full tree rescan, and so we drop stale entries from the file content
+  // cache before the user opens the changed file again.
   useWorkspaceWatch((events) => {
-    const hasChange = events.some(
-      (e) =>
-        e.change === "added" ||
-        e.change === "deleted" ||
-        e.change === "modified",
-    );
-    if (hasChange) {
+    const cache = useCodeFileCacheStore.getState();
+    let hasStructural = false;
+    let hasModified = false;
+    for (const e of events) {
+      if (e.change === "added" || e.change === "deleted") {
+        hasStructural = true;
+        cache.invalidate(e.path);
+      } else if (e.change === "modified") {
+        hasModified = true;
+        cache.invalidate(e.path);
+      }
+    }
+    if (hasStructural) {
       void load();
+    } else if (hasModified) {
+      // Tree shape unchanged; only git decoration could have changed.
+      void loadGitStatus();
     }
   });
 

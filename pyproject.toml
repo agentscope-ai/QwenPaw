@@ -49,6 +49,7 @@ dependencies = [
     # anyio 4.13.0: _deliver_cancellation busy-loop / getpid storm (QwenPaw#2632)
     "anyio>=4.0.0,<4.13.0",
     "watchfiles>=0.22",
+    "orjson>=3.9",
 ]
 
 [tool.setuptools.dynamic]

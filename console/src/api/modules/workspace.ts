@@ -1,6 +1,7 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import { useCodeFileCacheStore } from "../../stores/codeFileCacheStore";
 import type { MdFileInfo, MdFileContent, DailyMemoryFile } from "../types";
 
 function getSelectedAgentId(): string {
@@ -159,13 +160,49 @@ export const workspaceApi = {
       })),
     ),
 
-  loadCodeFile: (filePath: string) =>
-    request<{ path: string; content: string }>(
+  /**
+   * Load a workspace file's text content.
+   *
+   * Cache strategy: returns the in-memory cached content immediately when
+   * present (no network). Otherwise issues a GET with `If-None-Match` from
+   * the cached ETag (if any) so a hard-refresh can short-circuit to 304.
+   * Cache invalidation lives in `FileTree`'s SSE handler.
+   */
+  loadCodeFile: async (
+    filePath: string,
+  ): Promise<{ path: string; content: string }> => {
+    const cache = useCodeFileCacheStore.getState();
+    const cached = cache.get(filePath);
+    if (cached) {
+      return { path: filePath, content: cached.content };
+    }
+
+    const url = getApiUrl(
       `/workspace/code-files/${filePath
         .split("/")
         .map(encodeURIComponent)
         .join("/")}`,
-    ),
+    );
+    const headers = new Headers();
+    for (const [k, v] of Object.entries(buildAuthHeaders())) {
+      headers.set(k, v);
+    }
+    // The browser handles `If-None-Match` automatically from its HTTP cache;
+    // we only need to populate the in-memory cache from the response.
+    const response = await fetch(url, { headers });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      const err = new Error(text || `Request failed: ${response.status}`);
+      (err as Error & { status?: number }).status = response.status;
+      throw err;
+    }
+
+    const data = (await response.json()) as { path: string; content: string };
+    const etag = response.headers.get("ETag");
+    cache.set(filePath, data.content, etag);
+    return data;
+  },
 
   saveCodeFile: (filePath: string, content: string) =>
     request<{ path: string; size: number }>(
@@ -177,7 +214,12 @@ export const workspaceApi = {
         method: "PUT",
         body: JSON.stringify({ content }),
       },
-    ),
+    ).then((result) => {
+      // Local edit: drop the cached entry — next read will refetch with the
+      // server's new ETag. Cheaper than threading content through here.
+      useCodeFileCacheStore.getState().invalidate(filePath);
+      return result;
+    }),
 
   /** Returns the URL for the SSE file-watch stream (Coding Mode). */
   getWatchUrl: () => getApiUrl("/workspace/watch"),

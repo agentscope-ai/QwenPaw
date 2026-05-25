@@ -13,7 +13,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, ORJSONResponse
 from agentscope_runtime.engine.app import AgentApp
 from agentscope_runtime.engine.schemas.exception import (
     AppBaseException,
@@ -558,6 +558,7 @@ app = FastAPI(
     docs_url="/docs" if DOCS_ENABLED else None,
     redoc_url="/redoc" if DOCS_ENABLED else None,
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
+    default_response_class=ORJSONResponse,
 )
 
 # Add agent context middleware for agent-scoped routes

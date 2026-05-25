@@ -11,6 +11,7 @@ import asyncio
 import io
 import json
 import shutil
+import stat
 import tempfile
 import os
 import zipfile
@@ -18,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException, UploadFile, File, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import ORJSONResponse, Response, StreamingResponse
 from watchfiles import awatch, Change
 from pydantic import BaseModel, Field
 
@@ -186,23 +187,49 @@ def _should_skip(rel_parts: tuple[str, ...]) -> bool:
     return any(p.startswith(".") or p in _SKIP_NAMES for p in rel_parts)
 
 
+def _is_skipped_name(name: str) -> bool:
+    return name.startswith(".") or name in _SKIP_NAMES
+
+
 def _list_all_files(workspace_dir: Path) -> list[dict]:
-    """Recursively list all non-hidden workspace files."""
+    """Recursively list all non-hidden workspace files.
+
+    Uses ``os.walk(topdown=True)`` and prunes ``dirnames`` in place so that
+    we never descend into ``node_modules`` / ``.venv`` / ``.git`` etc. — the
+    previous ``Path.rglob('*')`` walked them fully and filtered after the
+    fact, which is the dominant cost on real projects. Each file is stat'd
+    exactly once. Paths are returned with POSIX ``/`` separators so the
+    frontend ``buildTree`` (which splits on ``/``) works on Windows too.
+    """
     files: list[dict] = []
+    root = str(workspace_dir)
     try:
-        for entry in sorted(workspace_dir.rglob("*")):
-            rel = entry.relative_to(workspace_dir)
-            if _should_skip(rel.parts):
-                continue
-            if entry.is_file():
-                stat = entry.stat()
+        for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+            # Prune in place — must mutate, not rebind, for os.walk to honor.
+            dirnames[:] = sorted(
+                d for d in dirnames if not _is_skipped_name(d)
+            )
+            rel_dir = os.path.relpath(dirpath, root)
+            for name in sorted(filenames):
+                if _is_skipped_name(name):
+                    continue
+                full = os.path.join(dirpath, name)
+                try:
+                    st = os.stat(full)
+                except OSError:
+                    continue
+                rel = (
+                    name
+                    if rel_dir == "."
+                    else f"{rel_dir}/{name}".replace(os.sep, "/")
+                )
                 files.append(
                     {
-                        "filename": str(rel),
-                        "path": str(rel),
-                        "size": stat.st_size,
+                        "filename": rel,
+                        "path": rel,
+                        "size": st.st_size,
                         "modified_time": datetime.fromtimestamp(
-                            stat.st_mtime,
+                            st.st_mtime,
                             tz=timezone.utc,
                         ).isoformat(),
                     },
@@ -270,62 +297,94 @@ async def read_binary_file(
             detail=f"Preview not supported for .{ext} files",
         )
 
-    def _read_bytes() -> bytes:
-        size = target.stat().st_size
-        if size > _BINARY_FILE_MAX_BYTES:
-            raise ValueError(
-                f"File too large for preview ({size // 1024 // 1024} MB"
-                f" > {_BINARY_FILE_MAX_BYTES // 1024 // 1024} MB limit)",
-            )
-        return target.read_bytes()
-
     try:
-        data = await asyncio.to_thread(_read_bytes)
+        size = await asyncio.to_thread(lambda: target.stat().st_size)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="File not found") from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=413, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
+    except OSError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    if size > _BINARY_FILE_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"File too large for preview ({size // 1024 // 1024} MB"
+                f" > {_BINARY_FILE_MAX_BYTES // 1024 // 1024} MB limit)"
+            ),
+        )
+
+    def _iter_chunks(chunk_size: int = 64 * 1024):
+        with open(target, "rb") as fh:
+            while True:
+                data = fh.read(chunk_size)
+                if not data:
+                    break
+                yield data
+
     return StreamingResponse(
-        iter([data]),
+        _iter_chunks(),
         media_type=mime,
-        headers={"Content-Length": str(len(data))},
+        headers={"Content-Length": str(size)},
     )
+
+
+def _file_etag(stat_result: os.stat_result) -> str:
+    """Build a weak ETag from mtime+size — cheap and good enough for IDE."""
+    return f'W/"{stat_result.st_mtime_ns}-{stat_result.st_size}"'
 
 
 @router.get(
     "/code-files/{file_path:path}",
     summary="Read any workspace file (Coding Mode)",
 )
-async def read_code_file(file_path: str, request: Request) -> dict:
+async def read_code_file(file_path: str, request: Request):
     """Return the text content of *file_path* inside the workspace.
 
+    Adds a weak ETag (mtime_ns + size) so repeat opens of an unchanged file
+    short-circuit to ``304 Not Modified`` and skip the read entirely.
     Returns HTTP 413 if the file exceeds ``_CODE_FILE_MAX_BYTES`` (5 MB) to
     avoid flooding the browser with huge binary or log files.
     """
     workspace = await get_agent_for_request(request)
     target = safe_join(get_coding_dir(workspace), file_path)
-    if not await asyncio.to_thread(target.is_file):
+
+    def _stat() -> os.stat_result:
+        return target.stat()
+
+    try:
+        st = await asyncio.to_thread(_stat)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if not stat.S_ISREG(st.st_mode):
         raise HTTPException(status_code=404, detail="File not found")
 
+    etag = _file_etag(st)
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+
+    if st.st_size > _CODE_FILE_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"File too large to open in editor "
+                f"({st.st_size // 1024 // 1024} MB"
+                f" > {_CODE_FILE_MAX_BYTES // 1024 // 1024} MB limit)"
+            ),
+        )
+
     def _read() -> str:
-        size = target.stat().st_size
-        if size > _CODE_FILE_MAX_BYTES:
-            raise ValueError(
-                f"File too large to open in editor ({size // 1024 // 1024} MB"
-                f" > {_CODE_FILE_MAX_BYTES // 1024 // 1024} MB limit)",
-            )
         return target.read_text(encoding="utf-8", errors="replace")
 
     try:
         content = await asyncio.to_thread(_read)
-    except ValueError as exc:
-        raise HTTPException(status_code=413, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"path": file_path, "content": content}
+    return ORJSONResponse(
+        {"path": file_path, "content": content},
+        headers={"ETag": etag},
+    )
 
 
 @router.put(
