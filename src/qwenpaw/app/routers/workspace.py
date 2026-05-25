@@ -476,7 +476,9 @@ async def watch_workspace_files(request: Request) -> StreamingResponse:
                         if change_type is Change.deleted
                         else "modified"
                     )
-                    events.append({"change": change_name, "path": str(rel)})
+                    events.append(
+                        {"change": change_name, "path": rel.as_posix()},
+                    )
 
                 if events:
                     payload = json.dumps(

@@ -132,7 +132,7 @@ async def _exclude_nested_repos(cwd: Path) -> None:
     def _scan() -> list[str]:
         try:
             return [
-                str(p.parent.relative_to(cwd)) + "/"
+                p.parent.relative_to(cwd).as_posix() + "/"
                 for p in cwd.rglob(".git")
                 if p.is_dir() and p != cwd / ".git"
             ]
