@@ -906,13 +906,19 @@ class TestDingTalkResolveSession:
         assert result == "dingtalk:user456"
 
     def test_to_handle_from_target_formats_correctly(self, dingtalk_channel):
-        """to_handle_from_target should format handle with session_id."""
+        """to_handle_from_target should include user_id prefix for DM."""
         result = dingtalk_channel.to_handle_from_target(
             user_id="user123",
             session_id="sess_abc",
         )
+        assert result == "dingtalk:sw:user123_sess_abc"
 
-        assert result == "dingtalk:sw:sess_abc"
+        # Without user_id, falls back to suffix-only key (group chat)
+        result_no_user = dingtalk_channel.to_handle_from_target(
+            user_id="",
+            session_id="sess_abc",
+        )
+        assert result_no_user == "dingtalk:sw:sess_abc"
 
     def test_route_from_handle_sw(self, dingtalk_channel):
         """_route_from_handle should parse 'dingtalk:sw:' format."""
