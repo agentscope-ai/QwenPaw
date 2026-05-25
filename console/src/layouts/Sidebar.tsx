@@ -539,83 +539,85 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         collapsed ? ` ${styles.siderCollapsed}` : ""
       }${isDark ? ` ${styles.siderDark}` : ""}`}
     >
-      {collapsed ? (
-        <nav className={styles.collapsedNav}>
-          {collapsedNavItems.map((item) => {
-            const isActive = selectedKey === item.key;
-            return (
-              <Tooltip
-                key={item.key}
-                title={item.label}
-                placement="right"
-                overlayInnerStyle={{
-                  background: "rgba(0,0,0,0.75)",
-                  color: "#fff",
-                }}
-              >
-                <button
-                  className={`${styles.collapsedNavItem} ${
-                    isActive ? styles.collapsedNavItemActive : ""
-                  }`}
-                  onClick={() => navigate(item.path)}
+      <div className={styles.sidebarScrollArea}>
+        {collapsed ? (
+          <nav className={styles.collapsedNav}>
+            {collapsedNavItems.map((item) => {
+              const isActive = selectedKey === item.key;
+              return (
+                <Tooltip
+                  key={item.key}
+                  title={item.label}
+                  placement="right"
+                  overlayInnerStyle={{
+                    background: "rgba(0,0,0,0.75)",
+                    color: "#fff",
+                  }}
                 >
-                  {item.icon}
+                  <button
+                    className={`${styles.collapsedNavItem} ${
+                      isActive ? styles.collapsedNavItemActive : ""
+                    }`}
+                    onClick={() => navigate(item.path)}
+                  >
+                    {item.icon}
+                  </button>
+                </Tooltip>
+              );
+            })}
+          </nav>
+        ) : (
+          <>
+            {/* Agent-scoped section: selector + Chat + Control + Workspace */}
+            <div className={styles.agentScopedSection}>
+              <div className={styles.agentSelectorContainer}>
+                <AgentSelector collapsed={collapsed} />
+                {/* Chat entry — sticky together with agent selector */}
+                <button
+                  className={`${styles.stickyChatButton}${
+                    selectedKey === "chat"
+                      ? ` ${styles.stickyChatButtonActive}`
+                      : ""
+                  }`}
+                  onClick={() => navigate("/chat")}
+                >
+                  <SparkChatTabFill size={16} />
+                  <span>{t("nav.chat")}</span>
                 </button>
-              </Tooltip>
-            );
-          })}
-        </nav>
-      ) : (
-        <>
-          {/* Agent-scoped section: selector + Chat + Control + Workspace */}
-          <div className={styles.agentScopedSection}>
-            <div className={styles.agentSelectorContainer}>
-              <AgentSelector collapsed={collapsed} />
-              {/* Chat entry — sticky together with agent selector */}
-              <button
-                className={`${styles.stickyChatButton}${
-                  selectedKey === "chat"
-                    ? ` ${styles.stickyChatButtonActive}`
-                    : ""
-                }`}
-                onClick={() => navigate("/chat")}
-              >
-                <SparkChatTabFill size={16} />
-                <span>{t("nav.chat")}</span>
-              </button>
+              </div>
+              <Menu
+                mode="inline"
+                selectedKeys={[selectedKey]}
+                openKeys={DEFAULT_OPEN_KEYS}
+                onClick={({ key }) => {
+                  const path = KEY_TO_PATH[String(key)];
+                  if (path) navigate(path);
+                }}
+                items={agentMenuItems}
+                theme={isDark ? "dark" : "light"}
+                className={styles.sideMenu}
+              />
             </div>
+
+            {/* Global settings section */}
             <Menu
               mode="inline"
               selectedKeys={[selectedKey]}
-              openKeys={DEFAULT_OPEN_KEYS}
+              openKeys={[
+                ...DEFAULT_OPEN_KEYS,
+                ...(pluginRoutes.length > 0 ? ["plugins-group"] : []),
+              ]}
               onClick={({ key }) => {
-                const path = KEY_TO_PATH[String(key)];
-                if (path) navigate(path);
+                const path = KEY_TO_PATH[String(key)] ?? `/${String(key)}`;
+                navigate(path);
               }}
-              items={agentMenuItems}
+              items={settingsMenuItems}
               theme={isDark ? "dark" : "light"}
               className={styles.sideMenu}
             />
-          </div>
-
-          {/* Global settings section */}
-          <Menu
-            mode="inline"
-            selectedKeys={[selectedKey]}
-            openKeys={[
-              ...DEFAULT_OPEN_KEYS,
-              ...(pluginRoutes.length > 0 ? ["plugins-group"] : []),
-            ]}
-            onClick={({ key }) => {
-              const path = KEY_TO_PATH[String(key)] ?? `/${String(key)}`;
-              navigate(path);
-            }}
-            items={settingsMenuItems}
-            theme={isDark ? "dark" : "light"}
-            className={styles.sideMenu}
-          />
-        </>
-      )}
+          </>
+        )}
+      </div>
 
       {authEnabled && !collapsed && (
         <div className={styles.authActions}>
