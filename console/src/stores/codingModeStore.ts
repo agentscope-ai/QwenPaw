@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 import { useAgentStore } from "./agentStore";
 
 export interface TodoItem {
@@ -9,7 +8,10 @@ export interface TodoItem {
 }
 
 interface CodingModeState {
-  /** Whether Coding Mode is active per agentId */
+  /**
+   * Whether Coding Mode is active per agentId. Key absent → not yet
+   * fetched from backend (UI should treat as loading).
+   */
   codingModeByAgent: Record<string, boolean>;
   /** Live TODO list, keyed by agentId */
   todosByAgent: Record<string, TodoItem[]>;
@@ -26,43 +28,47 @@ interface CodingModeState {
   setProjectDir: (agentId: string, path: string | null) => void;
 }
 
-export const useCodingModeStore = create<CodingModeState>()(
-  persist<CodingModeState>(
-    (set) => ({
-      codingModeByAgent: {},
-      todosByAgent: {},
-      projectDirByAgent: {},
+// Backend (agent.json) is the source of truth. State is held in-memory
+// only and refilled on every app boot via useSyncCodingMode — see
+// MainLayout. Persisting here would let stale browser cache mask the
+// real backend state across tabs / sessions.
+export const useCodingModeStore = create<CodingModeState>((set) => ({
+  codingModeByAgent: {},
+  todosByAgent: {},
+  projectDirByAgent: {},
 
-      setCodingMode: (agentId: string, enabled: boolean) =>
-        set((state: CodingModeState) => ({
-          codingModeByAgent: { ...state.codingModeByAgent, [agentId]: enabled },
-        })),
+  setCodingMode: (agentId: string, enabled: boolean) =>
+    set((state: CodingModeState) => ({
+      codingModeByAgent: { ...state.codingModeByAgent, [agentId]: enabled },
+    })),
 
-      setTodos: (agentId: string, todos: TodoItem[]) =>
-        set((state: CodingModeState) => ({
-          todosByAgent: { ...state.todosByAgent, [agentId]: todos },
-        })),
+  setTodos: (agentId: string, todos: TodoItem[]) =>
+    set((state: CodingModeState) => ({
+      todosByAgent: { ...state.todosByAgent, [agentId]: todos },
+    })),
 
-      setProjectDir: (agentId: string, path: string | null) =>
-        set((state: CodingModeState) => ({
-          projectDirByAgent: { ...state.projectDirByAgent, [agentId]: path },
-        })),
-    }),
-    {
-      name: "qwenpaw-coding-mode",
-    },
-  ),
-);
+  setProjectDir: (agentId: string, path: string | null) =>
+    set((state: CodingModeState) => ({
+      projectDirByAgent: { ...state.projectDirByAgent, [agentId]: path },
+    })),
+}));
 
-/** Convenience hook: coding mode status for the currently selected agent */
+/** Convenience hook: coding mode status for the currently selected agent.
+ *
+ * `initialized` is true once useSyncCodingMode has populated the store
+ * for the selected agent — gate route decisions on it to avoid the
+ * "default = false → flash chat → fetch resolves → page mismatch" bug.
+ */
 export function useCodingMode(): {
   codingMode: boolean;
+  initialized: boolean;
   setCodingMode: (enabled: boolean) => void;
 } {
   const { selectedAgent } = useAgentStore();
   const { codingModeByAgent, setCodingMode } = useCodingModeStore();
   return {
     codingMode: codingModeByAgent[selectedAgent] ?? false,
+    initialized: selectedAgent in codingModeByAgent,
     setCodingMode: (enabled: boolean) => setCodingMode(selectedAgent, enabled),
   };
 }

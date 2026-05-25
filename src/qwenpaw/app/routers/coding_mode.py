@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Coding Mode API endpoints.
 
-Provides an endpoint for toggling Coding Mode on/off per agent.
+Provides endpoints for reading and toggling Coding Mode per agent.
 """
 from __future__ import annotations
 
@@ -22,6 +22,35 @@ class CodingModeToggleRequest(BaseModel):
     """Request body for toggling Coding Mode."""
 
     enabled: bool
+
+
+@router.get(
+    "",
+    summary="Get Coding Mode state for the current agent",
+)
+async def get_coding_mode(request: Request) -> dict:
+    """Return Coding Mode state from agent.json.
+
+    Frontend calls this on agent switch / app boot so the UI state
+    (toggle label, IDE layout) tracks the backend instead of stale
+    browser cache.
+    """
+    import asyncio
+    from ...config.config import load_agent_config
+
+    workspace = await get_agent_for_request(request)
+    loop = asyncio.get_event_loop()
+    config = await loop.run_in_executor(
+        None,
+        load_agent_config,
+        workspace.agent_id,
+    )
+    cm = config.coding_mode
+    return {
+        "enabled": bool(cm.enabled),
+        "project_dir": cm.project_dir,
+        "agent_id": config.id,
+    }
 
 
 @router.post(

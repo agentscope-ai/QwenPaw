@@ -14,7 +14,7 @@ const CONFIRMED_KEY = "qwenpaw-coding-mode-confirmed";
 
 export default function CodingModeToggle() {
   const { t } = useTranslation();
-  const { codingMode, setCodingMode } = useCodingMode();
+  const { codingMode, initialized, setCodingMode } = useCodingMode();
   const { selectedAgent } = useAgentStore();
   const navigate = useNavigate();
   const { projectDir } = useProjectDir();
@@ -111,7 +111,7 @@ export default function CodingModeToggle() {
           type="button"
           className={`${styles.toggle} ${codingMode ? styles.active : ""}`}
           onClick={() => void toggle()}
-          disabled={loading}
+          disabled={loading || !initialized}
           aria-label={
             codingMode
               ? t("codingMode.exitTooltip")
