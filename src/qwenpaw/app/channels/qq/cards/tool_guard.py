@@ -84,10 +84,18 @@ def build_approval_keyboard(
     ctx = session_ctx or {}
 
     approve_data = _build_action_data(
-        APPROVE_KEY, request_id, tool_name, severity_lower, ctx,
+        APPROVE_KEY,
+        request_id,
+        tool_name,
+        severity_lower,
+        ctx,
     )
     deny_data = _build_action_data(
-        DENY_KEY, request_id, tool_name, severity_lower, ctx,
+        DENY_KEY,
+        request_id,
+        tool_name,
+        severity_lower,
+        ctx,
     )
 
     return {
@@ -106,7 +114,9 @@ def build_approval_keyboard(
                                 "type": 1,
                                 "permission": {"type": 2},
                                 "data": approve_data,
-                                "unsupport_tips": "Please use /approval approve",
+                                "unsupport_tips": (
+                                    "Please use /approval approve"
+                                ),
                             },
                         },
                         {
@@ -176,8 +186,10 @@ def parse_interaction_event(
 
     Returns None if the event is not a tool-guard button action.
     """
-    data_str = str(event_data.get("data", {}).get("resolved", {})
-                   .get("button_data") or "")
+    data_str = str(
+        event_data.get("data", {}).get("resolved", {}).get("button_data")
+        or "",
+    )
     if not data_str:
         # Try alternate path: d.data might be the button action data directly
         data_str = str(event_data.get("button_data") or "")
@@ -304,7 +316,11 @@ async def _send_keyboard_message(
     from ..channel import _api_request_async, _get_next_msg_seq
 
     path, use_msg_seq, seq_key = channel._resolve_send_path(
-        message_type, sender_id, channel_id, group_openid, guild_id=guild_id,
+        message_type,
+        sender_id,
+        channel_id,
+        group_openid,
+        guild_id=guild_id,
     )
 
     body: Dict[str, Any] = {
@@ -369,8 +385,9 @@ async def handle(
     tool_name = parsed.get("tool_name") or "tool"
     session_ctx = parsed.get("session_ctx") or {}
 
-    # Extract operator info from the interaction event
-    # group: group_member_openid, c2c: user_openid, guild: data.resolved.user_id
+    # Extract operator info from the interaction event.
+    # group: group_member_openid, c2c: user_openid,
+    # guild: data.resolved.user_id
     operator_member_openid = str(
         event_data.get("group_member_openid")
         or event_data.get("user_openid")
@@ -403,7 +420,9 @@ async def handle(
 
     # 3. Resolve operator display (openid last 6 chars; QQ API doesn't
     #    expose nicknames in group/c2c openid scenarios).
-    operator_display = operator_member_openid[-6:] if operator_member_openid else ""
+    operator_display = (
+        operator_member_openid[-6:] if operator_member_openid else ""
+    )
 
     # 4. Send resolved status message showing who approved/denied
     await _send_resolved_message(
@@ -445,11 +464,14 @@ async def _ack_interaction(
             {"code": code},
         )
         logger.debug(
-            "qq interaction ack: id=%s code=%d", interaction_id[:20], code,
+            "qq interaction ack: id=%s code=%d",
+            interaction_id[:20],
+            code,
         )
     except Exception:
         logger.exception(
-            "qq interaction ack failed: id=%s", interaction_id[:20],
+            "qq interaction ack failed: id=%s",
+            interaction_id[:20],
         )
 
 
