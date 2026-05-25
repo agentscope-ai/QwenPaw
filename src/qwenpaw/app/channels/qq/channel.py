@@ -1458,6 +1458,8 @@ class QQChannel(BaseChannel):
     ) -> None:
         """Handle one WS message event via spec lookup."""
         spec = _MESSAGE_EVENT_SPECS.get(event_type)
+        print('*'*100)
+        print(d)
         if spec is None:
             return
         author = d.get("author") or {}
@@ -1475,10 +1477,12 @@ class QQChannel(BaseChannel):
             return
         msg_id = d.get("id", "")
         att = d.get("attachments") or []
+        is_group = spec.message_type in ("group", "guild")
         meta: Dict[str, Any] = {
             "message_type": spec.message_type,
             "message_id": msg_id,
             "sender_id": sender,
+            "is_group": is_group,
             "incoming_raw": d,
             "attachments": att,
         }
