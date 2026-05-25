@@ -35,7 +35,7 @@ def test_unix_preserves_multiline_control_blocks(monkeypatch):
 
 
 def test_windows_collapses_newlines(monkeypatch):
-    """cmd.exe cannot handle embedded newlines reliably, so keep old behavior."""
+    """Keep newline collapsing on Windows for cmd.exe compatibility."""
     monkeypatch.setattr(sys, "platform", "win32")
 
     cmd = "echo A\necho B"
@@ -44,7 +44,7 @@ def test_windows_collapses_newlines(monkeypatch):
 
 
 def test_windows_collapses_carriage_returns(monkeypatch):
-    """Windows newline normalization also handles carriage-return-only input."""
+    """Also handle carriage-return-only input on Windows."""
     monkeypatch.setattr(sys, "platform", "win32")
 
     cmd = "echo A\recho B"
