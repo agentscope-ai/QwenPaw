@@ -74,12 +74,16 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
 
     run_key must be ChatSpec.id (chat_id) so it matches list_chats/get_chat.
     """
+    extra_system_prompt = None
     if isinstance(request_data, AgentRequest):
         channel_id = getattr(request_data, "channel", None) or "console"
         sender_id = request_data.user_id or "default"
         session_id = request_data.session_id or "default"
         content_parts = (
             list(request_data.input[0].content) if request_data.input else []
+        )
+        extra_system_prompt = getattr(
+            request_data, "extraSystemPrompt", None,
         )
     else:
         channel_id = request_data.get("channel", "console")
@@ -92,15 +96,20 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
                 content_parts.extend(list(content_part.content or []))
             elif isinstance(content_part, dict) and "content" in content_part:
                 content_parts.extend(content_part["content"] or [])
+        extra_system_prompt = request_data.get("extraSystemPrompt")
+
+    meta = {
+        "session_id": session_id,
+        "user_id": sender_id,
+    }
+    if extra_system_prompt and isinstance(extra_system_prompt, str):
+        meta["extra_system_prompt"] = extra_system_prompt
 
     native_payload = {
         "channel_id": channel_id,
         "sender_id": sender_id,
         "content_parts": content_parts,
-        "meta": {
-            "session_id": session_id,
-            "user_id": sender_id,
-        },
+        "meta": meta,
     }
     return native_payload
 
