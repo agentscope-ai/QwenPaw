@@ -904,6 +904,7 @@ class FeishuChannel(BaseChannel):
             native = {
                 "channel_id": self.channel,
                 "sender_id": sender_display,
+                "acl_sender_id": sender_id,
                 "user_id": sender_display,
                 "session_id": session_id,
                 "content_parts": content_parts,

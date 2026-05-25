@@ -295,6 +295,7 @@ class DiscordChannel(BaseChannel):
                 native = {
                     "channel_id": self.channel,
                     "sender_id": str(message.author),
+                    "acl_sender_id": str(message.author.id),
                     "content_parts": content_parts,
                     "meta": meta,
                 }

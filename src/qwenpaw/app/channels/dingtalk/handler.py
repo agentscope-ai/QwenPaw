@@ -565,6 +565,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             native = {
                 "channel_id": "dingtalk",
                 "sender_id": sender,
+                "acl_sender_id": meta.get("sender_dingtalk_id") or sender,
                 "content_parts": parts_to_send,
                 "meta": meta,
             }
