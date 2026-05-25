@@ -151,6 +151,8 @@ class WecomChannel(BaseChannel):
         deny_message: str = "",
         max_reconnect_attempts: int = -1,
         streaming_enabled: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
@@ -163,6 +165,8 @@ class WecomChannel(BaseChannel):
             allow_from=allow_from,
             deny_message=deny_message,
             streaming_enabled=streaming_enabled,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self.bot_id = bot_id
@@ -281,6 +285,12 @@ class WecomChannel(BaseChannel):
             streaming_enabled=bool(
                 getattr(config, "streaming_enabled", False),
             ),
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -361,30 +371,11 @@ class WecomChannel(BaseChannel):
         return request
 
     def merge_native_items(self, items: List[Any]) -> Any:
-        """Merge same-session native payloads: concat content_parts.
-
-        Reuses the first processing_stream_id so the existing
-        "Thinking…" bubble is taken over by the real reply.
-        """
+        """Merge same-session native payloads: concat content_parts."""
         if not items:
             return None
         first = items[0] if isinstance(items[0], dict) else {}
         merged_parts: List[Any] = []
-
-        # Reuse the first processing_stream_id; cancel extras.
-        reuse_sid = ""
-        reuse_frame = None
-        for item in items:
-            meta = (item if isinstance(item, dict) else {}).get("meta") or {}
-            sid = meta.get("wecom_processing_stream_id", "")
-            if sid and not reuse_sid:
-                reuse_sid = sid
-                reuse_frame = meta.get("wecom_frame")
-            elif sid:
-                # Extra processing indicator — cancel its keepalive.
-                task = self._keepalive_tasks.pop(sid, None)
-                if task is not None and not task.done():
-                    task.cancel()
 
         for it in items:
             p = it if isinstance(it, dict) else {}
@@ -392,11 +383,6 @@ class WecomChannel(BaseChannel):
         last = items[-1] if isinstance(items[-1], dict) else {}
 
         merged_meta = dict(last.get("meta") or {})
-
-        if reuse_sid:
-            merged_meta["wecom_processing_stream_id"] = reuse_sid
-            if reuse_frame is not None:
-                merged_meta["wecom_frame"] = reuse_frame
 
         return {
             "channel_id": first.get("channel_id") or self.channel,
@@ -698,54 +684,12 @@ class WecomChannel(BaseChannel):
                 "is_group": is_group,
             }
 
-            allowed, error_msg = self._check_allowlist(sender_id, is_group)
-            if not allowed:
-                logger.info(
-                    "wecom allowlist blocked: sender=%s is_group=%s",
-                    sender_id,
-                    is_group,
-                )
-                await self._send_text_via_frame(
-                    frame,
-                    error_msg or "Access denied.",
-                )
-                return
-
             session_id = self.resolve_session_id(sender_id, meta)
 
-            # Only show "Thinking…" when session is idle.
-            processing_stream_id = ""
-            session_is_busy = session_id in self._processing_sessions
-            if text_parts and self._client and not session_is_busy:
-                processing_stream_id = generate_req_id("stream")
-                try:
-                    await self._client.reply_stream(
-                        frame,
-                        stream_id=processing_stream_id,
-                        content=_PROCESSING_TEXT,
-                        finish=False,
-                    )
-                except Exception:
-                    logger.debug("wecom failed to send processing indicator")
-                    processing_stream_id = ""
-            if processing_stream_id:
-                meta["wecom_processing_stream_id"] = processing_stream_id
-                # Keep stream alive while agent is generating.
-                self._keepalive_tasks[
-                    processing_stream_id
-                ] = asyncio.create_task(
-                    self._keepalive_processing(
-                        frame,
-                        processing_stream_id,
-                    ),
-                )
             native = {
                 "channel_id": self.channel,
                 "sender_id": sender_id,
-                # Group chats: all members share one chat by default
-                # (user_id="group"); when share_session_in_group is
-                # False, use sender_id so each member is isolated.
-                # session_id stays group-level for reply routing.
+                "acl_sender_id": sender_id,
                 "user_id": (
                     "group"
                     if (is_group and self.share_session_in_group)
@@ -1125,6 +1069,48 @@ class WecomChannel(BaseChannel):
             logger.exception("wecom _send_text_via_frame failed")
 
     # ------------------------------------------------------------------
+    # Pre-process hook (runs after access control gate)
+    # ------------------------------------------------------------------
+
+    async def _before_consume_process(self, request: "AgentRequest") -> None:
+        """Send 'Thinking…' placeholder stream (runs after ACL gate)."""
+        meta = getattr(request, "channel_meta", None) or {}
+        frame = meta.get("wecom_frame")
+        has_text = bool(getattr(request, "input", None))
+
+        if not (has_text and self._client and frame):
+            return
+
+        processing_stream_id = generate_req_id("stream")
+        try:
+            await self._client.reply_stream(
+                frame,
+                stream_id=processing_stream_id,
+                content=_PROCESSING_TEXT,
+                finish=False,
+            )
+        except Exception:
+            logger.debug("wecom failed to send processing indicator")
+            return
+
+        setattr(request, "_wecom_processing_stream_id", processing_stream_id)
+        self._keepalive_tasks[processing_stream_id] = asyncio.create_task(
+            self._keepalive_processing(frame, processing_stream_id),
+        )
+
+    @staticmethod
+    def _inject_processing_sid(
+        request: "AgentRequest",
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Bridge processing_stream_id from request to send_meta."""
+        if "wecom_processing_stream_id" not in send_meta:
+            sid = getattr(request, "_wecom_processing_stream_id", "")
+            if sid:
+                send_meta["wecom_processing_stream_id"] = sid
+                setattr(request, "_wecom_processing_stream_id", "")
+
+    # ------------------------------------------------------------------
     # Streaming hooks (real-time delta push via reply_stream)
     # ------------------------------------------------------------------
 
@@ -1182,6 +1168,9 @@ class WecomChannel(BaseChannel):
         accumulated_text: str = "",
     ) -> None:
         """Allocate a stream_id for this stream_type."""
+        # Inject processing_stream_id created in _before_consume_process
+        self._inject_processing_sid(request, send_meta)
+
         frame = send_meta.get("wecom_frame")
         if not frame or not self._client:
             return
@@ -1303,6 +1292,8 @@ class WecomChannel(BaseChannel):
         send_meta: Dict[str, Any],
     ) -> None:
         """Render card-flagged events via the card handler; else default."""
+        # Inject processing_stream_id for non-streaming path
+        self._inject_processing_sid(request, send_meta)
         if await self._card_handler.try_send_card_for_event(
             to_handle,
             event,

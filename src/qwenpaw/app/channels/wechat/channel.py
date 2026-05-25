@@ -91,6 +91,8 @@ class WeChatChannel(BaseChannel):
         deny_message: str = "",
         message_merge_enabled: bool = False,
         message_merge_delay_ms: int = 0,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
@@ -102,6 +104,8 @@ class WeChatChannel(BaseChannel):
             group_policy=group_policy,
             allow_from=allow_from,
             deny_message=deny_message,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self.bot_token = bot_token
@@ -278,6 +282,12 @@ class WeChatChannel(BaseChannel):
                 0,
             )
             or 0,
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -841,25 +851,6 @@ class WeChatChannel(BaseChannel):
                 "wechat_group_id": group_id,
                 "is_group": is_group,
             }
-
-            allowed, error_msg = self._check_allowlist(from_user_id, is_group)
-            if not allowed:
-                logger.info(
-                    "wechat allowlist blocked: sender=%s is_group=%s",
-                    from_user_id,
-                    is_group,
-                )
-                if error_msg and context_token:
-                    self._dispatch_to_main_loop(
-                        self._send_text_direct(
-                            from_user_id,
-                            error_msg,
-                            context_token,
-                            client,
-                        ),
-                        description="send deny message",
-                    )
-                return
 
             # Save latest context_token for proactive sends (heartbeat/cron)
             if from_user_id and context_token:

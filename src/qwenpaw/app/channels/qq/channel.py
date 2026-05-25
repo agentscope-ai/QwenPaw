@@ -666,6 +666,8 @@ class QQChannel(BaseChannel):
         workspace_dir: Path | None = None,
         max_reconnect_attempts: int = 100,
         ack_message: str = "",
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
@@ -673,6 +675,8 @@ class QQChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self.app_id = app_id
@@ -830,6 +834,12 @@ class QQChannel(BaseChannel):
                 100,
             ),
             ack_message=getattr(config, "ack_message", ""),
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
+            ),
         )
 
     def _resolve_send_path(
@@ -1465,10 +1475,12 @@ class QQChannel(BaseChannel):
             return
         msg_id = d.get("id", "")
         att = d.get("attachments") or []
+        is_group = spec.message_type in ("group", "guild")
         meta: Dict[str, Any] = {
             "message_type": spec.message_type,
             "message_id": msg_id,
             "sender_id": sender,
+            "is_group": is_group,
             "incoming_raw": d,
             "attachments": att,
         }

@@ -64,6 +64,7 @@ import {
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
+import { openExternalLink } from "../../utils/openExternalLink";
 
 const CHAT_ATTACHMENT_MAX_MB = 10;
 
@@ -802,6 +803,7 @@ export default function ChatPage() {
   const pendingClearHistoryRef = useRef(false);
   const whisperSpeechRef = useRef<WhisperSpeechButtonRef>(null);
   const [whisperEnabled, setWhisperEnabled] = useState(false);
+  const [whisperChecked, setWhisperChecked] = useState(false);
 
   // Check if Whisper transcription is configured
   useEffect(() => {
@@ -810,7 +812,8 @@ export default function ChatPage() {
       .then((res) => {
         setWhisperEnabled(res.transcription_provider_type !== "disabled");
       })
-      .catch(() => setWhisperEnabled(false));
+      .catch(() => setWhisperEnabled(false))
+      .finally(() => setWhisperChecked(true));
   }, []);
 
   const handleWhisperTranscription = useCallback((text: string) => {
@@ -828,6 +831,15 @@ export default function ChatPage() {
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
   useChatInputDraft(isChatActive);
+
+  const onFileCardClick = useCallback(
+    (fileInfo: { name?: string; size?: number; url?: string }) => {
+      if (fileInfo.url) {
+        openExternalLink(fileInfo.url);
+      }
+    },
+    [],
+  );
 
   // Shortcut key for voice recording (Ctrl+Shift+M or Cmd+Shift+M on Mac)
   useEffect(() => {
@@ -1177,7 +1189,7 @@ export default function ChatPage() {
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
-        allowSpeech: !whisperEnabled,
+        allowSpeech: whisperChecked && !whisperEnabled,
         prefix: whisperEnabled ? (
           <WhisperSpeechButton
             ref={whisperSpeechRef}
@@ -1245,6 +1257,7 @@ export default function ChatPage() {
         replaceMediaURL: (url: string) => {
           return toDisplayUrl(url);
         },
+        onFileCardClick,
         cancel(data: { session_id: string }) {
           const resolvedChatId =
             sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
@@ -1301,6 +1314,10 @@ export default function ChatPage() {
     toolRenderConfig,
     scheduleHistoryClear,
     planEnabled,
+    onFileCardClick,
+    whisperChecked,
+    whisperEnabled,
+    handleWhisperTranscription,
   ]);
 
   return (

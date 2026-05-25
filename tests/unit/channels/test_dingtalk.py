@@ -3131,28 +3131,26 @@ class TestDingTalkLoadSessionWebhookEntry:
 class TestDingTalkAdditionalCoverage:
     """Additional tests to reach 60% coverage."""
 
-    def test_check_allowlist_empty(self, dingtalk_channel):
-        """Check allowlist when empty allows all."""
-        dingtalk_channel.allow_from = set()
+    def test_access_control_disabled_allows_all(self, dingtalk_channel):
+        """Access control disabled allows all users."""
+        dingtalk_channel.access_control_dm = False
+        dingtalk_channel.access_control_group = False
 
-        allowed, _ = dingtalk_channel._check_allowlist("any_user", False)
-        assert allowed is True
+        assert dingtalk_channel.access_control_enabled is False
 
-    def test_check_allowlist_blocked(self, dingtalk_channel):
-        """Check blocked user in allowlist."""
-        dingtalk_channel.allow_from = {"user1", "user2"}
-        dingtalk_channel.dm_policy = "allowlist"
+    def test_access_control_dm_enabled(self, dingtalk_channel):
+        """Access control dm enabled makes access_control_enabled True."""
+        dingtalk_channel.access_control_dm = True
+        dingtalk_channel.access_control_group = False
 
-        allowed, msg = dingtalk_channel._check_allowlist("other_user", False)
-        assert allowed is False
-        assert "not authorized" in msg
+        assert dingtalk_channel.access_control_enabled is True
 
-    def test_check_allowlist_allowed(self, dingtalk_channel):
-        """Check allowed user in allowlist."""
-        dingtalk_channel.allow_from = {"user1", "user2"}
+    def test_access_control_group_enabled(self, dingtalk_channel):
+        """Access control group enabled makes access_control_enabled True."""
+        dingtalk_channel.access_control_dm = False
+        dingtalk_channel.access_control_group = True
 
-        allowed, _ = dingtalk_channel._check_allowlist("user1", False)
-        assert allowed is True
+        assert dingtalk_channel.access_control_enabled is True
 
     def test_check_group_mention_not_required(self, dingtalk_channel):
         """Check group mention when not required."""

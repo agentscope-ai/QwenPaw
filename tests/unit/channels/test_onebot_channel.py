@@ -258,19 +258,13 @@ class TestHandleMessageEvent:
 
         assert len(enqueued) == 1
 
-    async def test_allowlist_blocks_unknown_user(self):
+    async def test_access_control_dm_flag(self):
         ch = _make_channel(
-            dm_policy="allowlist",
-            allow_from=["99999"],
+            access_control_dm=True,
         )
-        ch._enqueue = MagicMock()
-        ch.send = AsyncMock()
-
-        event = _make_message_event(user_id=12345)
-        await ch._handle_message_event(event)
-
-        ch._enqueue.assert_not_called()
-        ch.send.assert_called_once()  # deny message sent
+        # access_control_dm=True should enable access control
+        assert ch.access_control_dm is True
+        assert ch.access_control_enabled is True
 
     async def test_allowlist_allows_permitted_user(self):
         ch = _make_channel(
