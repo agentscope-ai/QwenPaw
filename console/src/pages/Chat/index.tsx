@@ -63,6 +63,7 @@ import {
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
+import { openExternalLink } from "../../utils/openExternalLink";
 
 const CHAT_ATTACHMENT_MAX_MB = 10;
 
@@ -471,6 +472,97 @@ function useMessageHistoryNavigation(
   }, [isChatActive, isComposingRef, getUserMessagesWithText]);
 }
 
+// ---------------------------------------------------------------------------
+// Chat input draft persistence
+// ---------------------------------------------------------------------------
+
+const DRAFT_STORAGE_KEY = "qwenpaw_chat_input_draft";
+
+interface DraftState {
+  value: string;
+  selectionStart: number;
+  selectionEnd: number;
+}
+
+function useChatInputDraft(isChatActive: () => boolean) {
+  useEffect(() => {
+    if (!isChatActive()) return;
+
+    let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const getTextarea = (): HTMLTextAreaElement | null => {
+      const sender = document.querySelector('[class*="sender"]');
+      return sender?.querySelector("textarea") as HTMLTextAreaElement | null;
+    };
+
+    const saveDraft = (textarea: HTMLTextAreaElement) => {
+      const draft: DraftState = {
+        value: textarea.value,
+        selectionStart: textarea.selectionStart,
+        selectionEnd: textarea.selectionEnd,
+      };
+      if (draft.value) {
+        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+      } else {
+        localStorage.removeItem(DRAFT_STORAGE_KEY);
+      }
+    };
+
+    const handleInput = (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (target?.tagName !== "TEXTAREA") return;
+      if (!target?.closest('[class*="sender"]')) return;
+
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        saveDraft(target as HTMLTextAreaElement);
+      }, 300);
+    };
+
+    // Restore draft on mount with polling for textarea readiness
+    let restoreAttempts = 0;
+    const maxRestoreAttempts = 20;
+    const restoreInterval = setInterval(() => {
+      restoreAttempts++;
+      const textarea = getTextarea();
+      if (textarea) {
+        clearInterval(restoreInterval);
+        const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+        if (raw) {
+          try {
+            const draft: DraftState = JSON.parse(raw);
+            if (draft.value) {
+              setTextareaValue(textarea, draft.value);
+              requestAnimationFrame(() => {
+                textarea.selectionStart = draft.selectionStart;
+                textarea.selectionEnd = draft.selectionEnd;
+              });
+            }
+          } catch {
+            // Ignore malformed data
+          }
+        }
+      } else if (restoreAttempts >= maxRestoreAttempts) {
+        clearInterval(restoreInterval);
+      }
+    }, 100);
+
+    document.addEventListener("input", handleInput, true);
+
+    return () => {
+      clearInterval(restoreInterval);
+      if (saveTimer) clearTimeout(saveTimer);
+      document.removeEventListener("input", handleInput, true);
+
+      // Final save on unmount
+      const textarea = getTextarea();
+      if (textarea) {
+        saveDraft(textarea);
+      }
+    };
+  }, [isChatActive]);
+}
+
 function RuntimeLoadingBridge({
   bridgeRef,
 }: {
@@ -723,6 +815,16 @@ export default function ChatPage() {
   }, []);
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
+  useChatInputDraft(isChatActive);
+
+  const onFileCardClick = useCallback(
+    (fileInfo: { name?: string; size?: number; url?: string }) => {
+      if (fileInfo.url) {
+        openExternalLink(fileInfo.url);
+      }
+    },
+    [],
+  );
 
   // Shortcut key for voice recording (Ctrl+Shift+M or Cmd+Shift+M on Mac)
   useEffect(() => {
@@ -1127,6 +1229,7 @@ export default function ChatPage() {
         replaceMediaURL: (url: string) => {
           return toDisplayUrl(url);
         },
+        onFileCardClick,
         cancel(data: { session_id: string }) {
           const resolvedChatId =
             sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
@@ -1183,6 +1286,7 @@ export default function ChatPage() {
     toolRenderConfig,
     scheduleHistoryClear,
     planEnabled,
+    onFileCardClick,
     whisperChecked,
     whisperEnabled,
     handleWhisperTranscription,

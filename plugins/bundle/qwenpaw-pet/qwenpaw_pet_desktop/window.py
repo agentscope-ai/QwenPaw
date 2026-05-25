@@ -209,11 +209,12 @@ class PetWindow(QWidget):
         ev_name = event.get("event")
         text = event.get("text")
 
-        if self._drop_stale_event(event):
+        if self._is_stale_event(event):
             return
         if self._handle_early_lifecycle(ev_name, event):
             return
 
+        self._advance_event_serial(event)
         state = state_for_event(ev_name, event.get("state"))
         self._apply_bubble_text(ev_name, text)
         self.set_state(state)
@@ -221,14 +222,18 @@ class PetWindow(QWidget):
         self._schedule_post_event_timing(ev_name, state, event)
         self.update()
 
-    def _drop_stale_event(self, event: dict[str, Any]) -> bool:
+    def _is_stale_event(self, event: dict[str, Any]) -> bool:
         serial = event.get("serial")
         if isinstance(serial, int) and serial > 0:
             if serial < self._last_event_serial:
                 self.update()
                 return True
-            self._last_event_serial = serial
         return False
+
+    def _advance_event_serial(self, event: dict[str, Any]) -> None:
+        serial = event.get("serial")
+        if isinstance(serial, int) and serial > self._last_event_serial:
+            self._last_event_serial = serial
 
     def _handle_early_lifecycle(
         self,
@@ -275,6 +280,7 @@ class PetWindow(QWidget):
             return True
 
         if self._approval_pending and ev_name == "tool.result":
+            self._advance_event_serial(event)
             state = state_for_event(ev_name, event.get("state"))
             self.set_state(state)
             self._write_state(event)
@@ -363,6 +369,7 @@ class PetWindow(QWidget):
                 return
             if self._approval_pending:
                 return
+            self._turn_complete = False
             self.set_state("idle")
 
         QTimer.singleShot(duration_ms, _revert_animation_only)

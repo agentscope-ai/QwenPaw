@@ -9,8 +9,20 @@ import pytest
 from packaging.version import Version
 
 
+@pytest.mark.integration
+@pytest.mark.p2
 def test_version_import() -> None:
-    """Test that version can be imported without errors."""
+    """Test purpose:
+    - Verify the version module can be imported directly, preventing missing
+      version metadata in release artifacts.
+
+    Test flow:
+    1. Import ``__version__`` from ``qwenpaw.__version__``.
+    2. Assert it is a non-empty string.
+
+    API endpoints:
+    - None (Python module import only)
+    """
     from qwenpaw.__version__ import __version__
 
     assert __version__ is not None
@@ -18,8 +30,20 @@ def test_version_import() -> None:
     assert len(__version__) > 0
 
 
+@pytest.mark.integration
+@pytest.mark.p2
 def test_version_pep440_compliant() -> None:
-    """Test that version follows PEP 440 format."""
+    """Test purpose:
+    - Verify the project version string is PEP 440 compliant.
+
+    Test flow:
+    1. Import ``__version__``.
+    2. Parse it with ``packaging.version.Version``.
+    3. Assert parsed string equals the original.
+
+    API endpoints:
+    - None (Python version-format validation only)
+    """
     from qwenpaw.__version__ import __version__
 
     try:
@@ -29,8 +53,20 @@ def test_version_pep440_compliant() -> None:
         pytest.fail(f"Version '{__version__}' is not PEP 440 compliant: {e}")
 
 
+@pytest.mark.integration
+@pytest.mark.p2
 def test_version_via_subprocess() -> None:
-    """Test that version can be accessed via subprocess."""
+    """Test purpose:
+    - Verify version retrieval also works in an isolated Python subprocess.
+
+    Test flow:
+    1. Run a subprocess that imports and prints ``__version__``.
+    2. Assert return code is 0.
+    3. Assert output is non-empty and includes a version separator.
+
+    API endpoints:
+    - None (Python subprocess execution only)
+    """
     result = subprocess.run(
         [
             sys.executable,

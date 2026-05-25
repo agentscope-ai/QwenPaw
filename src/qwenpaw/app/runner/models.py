@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any, Dict
 from uuid import uuid4
 
@@ -10,6 +11,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from agentscope_runtime.engine.schemas.agent_schemas import Message
 
 from ..channels.schema import DEFAULT_CHANNEL
+
+
+class SessionSource(str, Enum):
+    """Identifies how a session was initiated.
+
+    For future using.
+    """
+
+    chat = "chat"
+    cron = "cron"
 
 
 class ChatSpec(BaseModel):
@@ -48,6 +59,10 @@ class ChatSpec(BaseModel):
     pinned: bool = Field(
         default=False,
         description="Whether the chat is pinned to the top",
+    )
+    source: SessionSource = Field(
+        default=SessionSource.chat,
+        description="What initiated this session (chat, cron, …)",
     )
 
 

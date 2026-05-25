@@ -55,7 +55,7 @@ export function useOfficialPlugins({ onInstalled }: UseOfficialPluginsOptions) {
         });
         message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
         onInstalled();
-        await loadCatalog();
+        setTimeout(() => window.location.reload(), 800);
       } catch (err) {
         const msg =
           err instanceof Error ? err.message : t("pluginManager.installFailed");

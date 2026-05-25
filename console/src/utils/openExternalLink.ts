@@ -13,12 +13,17 @@ export function openExternalLink(
 ): void {
   if (!url) return;
 
+  // Resolve relative URLs to absolute (needed for pywebview which runs outside the WebView context)
+  const fullUrl = url.startsWith("http")
+    ? url
+    : `${window.location.origin}${url}`;
+
   const pywebview = (window as any).pywebview;
   if (pywebview?.api?.open_external_link) {
     // Desktop app: use pywebview bridge to open in system browser
-    pywebview.api.open_external_link(url);
+    pywebview.api.open_external_link(fullUrl);
   } else {
     // Web browser: use standard window.open
-    window.open(url, target, features);
+    window.open(fullUrl, target, features);
   }
 }

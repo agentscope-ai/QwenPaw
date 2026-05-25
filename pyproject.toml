@@ -13,6 +13,8 @@ dependencies = [
     "dingtalk-stream>=0.24.3",
     "alibabacloud-dingtalk>=2.2.42",
     "alibabacloud-tea-openapi>=0.4.4",
+    "alibabacloud-credentials>=0.3.0",
+    "alibabacloud-tea-util>=0.3.0",
     "uvicorn>=0.40.0",
     "apscheduler>=3.11.2,<4",
     "playwright>=1.49.0",
@@ -118,6 +120,9 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "p0: critical user flows (messaging, CRUD, global config, security); PR smoke gate",
+    "p1: supported features (settings, scoped overrides, helpers); nightly regression",
+    "p2: error paths, 404 handling, validation, contracts, metadata",
     "unit: marks tests as unit tests",
     "contract: marks tests as contract tests",
     "integration: marks tests as integration tests",

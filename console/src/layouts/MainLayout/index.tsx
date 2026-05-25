@@ -22,6 +22,7 @@ const HeartbeatPage = lazyImportWithRetry("../../pages/Control/Heartbeat");
 const AgentConfigPage = lazyImportWithRetry("../../pages/Agent/Config");
 const SkillsPage = lazyImportWithRetry("../../pages/Agent/Skills");
 const SkillPoolPage = lazyImportWithRetry("../../pages/Settings/SkillPool");
+const MarketPage = lazyImportWithRetry("../../pages/Settings/Market");
 const ToolsPage = lazyImportWithRetry("../../pages/Agent/Tools");
 const WorkspacePage = lazyImportWithRetry("../../pages/Agent/Workspace");
 const MCPPage = lazyImportWithRetry("../../pages/Agent/MCP");
@@ -54,6 +55,7 @@ const pathToKey: Record<string, string> = {
   "/heartbeat": "heartbeat",
   "/skills": "skills",
   "/skill-pool": "skill-pool",
+  "/market": "market",
   "/tools": "tools",
   "/mcp": "mcp",
   "/acp": "acp",
@@ -115,6 +117,7 @@ export default function MainLayout() {
                   <Route path="/heartbeat" element={<HeartbeatPage />} />
                   <Route path="/skills" element={<SkillsPage />} />
                   <Route path="/skill-pool" element={<SkillPoolPage />} />
+                  <Route path="/market" element={<MarketPage />} />
                   <Route path="/tools" element={<ToolsPage />} />
                   <Route path="/mcp" element={<MCPPage />} />
                   <Route path="/acp" element={<ACPPage />} />

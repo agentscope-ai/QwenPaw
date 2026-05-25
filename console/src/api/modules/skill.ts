@@ -293,16 +293,24 @@ export const skillApi = {
       method: "DELETE",
     }),
 
-  startHubSkillInstall: (payload: {
-    bundle_url: string;
-    version?: string;
-    enable?: boolean;
-    target_name?: string;
-  }) =>
-    request<HubInstallTaskResponse>("/skills/hub/install/start", {
+  startHubSkillInstall: (
+    payload: {
+      bundle_url: string;
+      version?: string;
+      enable?: boolean;
+      target_name?: string;
+    },
+    agentId?: string,
+  ) => {
+    const headers = agentId
+      ? new Headers({ "X-Agent-Id": agentId })
+      : undefined;
+    return request<HubInstallTaskResponse>("/skills/hub/install/start", {
       method: "POST",
+      headers,
       body: JSON.stringify(payload),
-    }),
+    });
+  },
 
   importPoolSkillFromHub: (payload: {
     bundle_url: string;
@@ -319,18 +327,25 @@ export const skillApi = {
       body: JSON.stringify(payload),
     }),
 
-  getHubSkillInstallStatus: (taskId: string) =>
-    request<HubInstallTaskResponse>(
+  getHubSkillInstallStatus: (taskId: string, agentId?: string) => {
+    const headers = agentId
+      ? new Headers({ "X-Agent-Id": agentId })
+      : undefined;
+    return request<HubInstallTaskResponse>(
       `/skills/hub/install/status/${encodeURIComponent(taskId)}`,
-    ),
+      { headers },
+    );
+  },
 
-  cancelHubSkillInstall: (taskId: string) =>
-    request<{ task_id: string; status: string }>(
+  cancelHubSkillInstall: (taskId: string, agentId?: string) => {
+    const headers = agentId
+      ? new Headers({ "X-Agent-Id": agentId })
+      : undefined;
+    return request<{ task_id: string; status: string }>(
       `/skills/hub/install/cancel/${encodeURIComponent(taskId)}`,
-      {
-        method: "POST",
-      },
-    ),
+      { method: "POST", headers },
+    );
+  },
 
   listPoolBuiltinSources: () =>
     request<BuiltinImportSpec[]>("/skills/pool/builtin-sources"),

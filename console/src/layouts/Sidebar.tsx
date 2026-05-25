@@ -41,6 +41,7 @@ import {
   SparkDebugLine,
   SparkSaveLine,
   SparkEmailLine,
+  SparkCardLine,
 } from "@agentscope-ai/icons";
 import { Package } from "lucide-react";
 import { clearAuthToken } from "../api/config";
@@ -469,6 +470,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           key: "skill-pool",
           label: collapsed ? null : t("nav.skillPool", "Skill Pool"),
           icon: <SparkOtherLine size={16} />,
+        },
+        {
+          key: "market",
+          label: collapsed ? null : t("nav.market", "Skill Market"),
+          icon: <SparkCardLine size={16} />,
         },
         {
           key: "environments",
