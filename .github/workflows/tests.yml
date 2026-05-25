@@ -151,11 +151,27 @@ jobs:
             echo "has_tests=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Determine pytest marker expression
+        id: marker
+        if: steps.check-integrated.outputs.has_tests == 'true'
+        shell: bash
+        run: |
+          # PR gate -> p0 only (fast feedback)
+          # push / workflow_dispatch -> p0 + p1 (full pre-merge gate)
+          # nightly full sweep lives in integration-nightly.yml
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            EXPR="integration and p0"
+          else
+            EXPR="integration and (p0 or p1)"
+          fi
+          echo "expr=$EXPR" >> "$GITHUB_OUTPUT"
+          echo "Selected marker expression: $EXPR"
+
       - name: Run integrated tests
         if: steps.check-integrated.outputs.has_tests == 'true'
         shell: bash
         run: |
-          pytest tests/integration -v
+          pytest tests/integration -v -m "${{ steps.marker.outputs.expr }}"
 
   coverage-report:
     name: Coverage Report

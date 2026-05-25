@@ -187,13 +187,13 @@ def test_mcp_tools_returns_empty_for_disabled_client(app_server) -> None:
     Test flow:
     1. Create a test agent.
     2. Create a disabled MCP client.
-    3. GET /api/mcp/{client_key}/tools and assert empty list.
+    3. GET /api/mcp/tools/{client_key} and assert empty list.
     4. Cleanup client and agent.
 
     API endpoints:
     - POST /api/agents
     - POST /api/mcp
-    - GET /api/mcp/{client_key}/tools
+    - GET /api/mcp/tools/{client_key}
     - DELETE /api/mcp/{client_key}
     - DELETE /api/agents/{agentId}
     """
