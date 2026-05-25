@@ -88,7 +88,8 @@ class MacOSSandboxExecProvider:
         for ch in raw:
             if ord(ch) < 0x20 or ord(ch) == 0x7F:
                 raise ValueError(
-                    "sandbox profile path contains forbidden control character",
+                    "sandbox profile path contains forbidden "
+                    "control character",
                 )
 
     @staticmethod
