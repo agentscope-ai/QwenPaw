@@ -69,7 +69,7 @@ description: 将 BI 数据分析结果组织成可视化 HTML 报告。当分析
 | 参数              | 说明                                     |
 | ----------------- | ---------------------------------------- |
 | --sections        | 主题卡片 JSON 文件路径，支持多个（必填） |
-| --output-file     | 输出报告文件路径，HTML 格式（必填）      |
+| --output / -o     | 输出报告文件路径，HTML 格式（必填）      |
 | --report-title    | 报告总标题（多主题场景使用）             |
 | --overall-summary | 跨主题核心结论摘要（多主题场景使用）     |
 
@@ -79,14 +79,14 @@ description: 将 BI 数据分析结果组织成可视化 HTML 报告。当分析
 # 多主题
 python scripts/report_builder.py \
     --sections sections_001.json sections_002.json \
-    --output-file report.html \
+    --output report.html \
     --report-title "XXX 产品 2025 年 12 月数据分析报告" \
     --overall-summary "<p>跨主题核心结论摘要...</p>"
 
 # 单主题（不传 report-title 和 overall-summary，让主题卡片直接展示）
 python scripts/report_builder.py \
     --sections sections_001.json \
-    --output-file report.html
+    --output report.html
 ```
 
 ### 5：生成后自检
