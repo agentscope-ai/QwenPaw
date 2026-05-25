@@ -1074,10 +1074,6 @@ class CodingModeConfig(BaseModel):
             "append_file executes (shows inline diff)"
         ),
     )
-    todo_write_enabled: bool = Field(
-        default=True,
-        description="Enable todo_write tool for task progress tracking",
-    )
     project_dir: Optional[str] = Field(
         default=None,
         description=(

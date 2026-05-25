@@ -22,7 +22,7 @@ from fastapi.responses import StreamingResponse
 from watchfiles import awatch, Change
 from pydantic import BaseModel, Field
 
-from ..utils import schedule_agent_reload
+from ..utils import safe_join, schedule_agent_reload
 from ...config import (
     load_config,
     save_config,
@@ -260,13 +260,7 @@ async def read_binary_file(
     Rejects files that are not in ``_MIME_MAP`` or exceed 50 MB.
     """
     workspace = await get_agent_for_request(request)
-    root = get_coding_dir(workspace).resolve()
-    target = (root / file_path).resolve()
-    if not str(target).startswith(str(root)):
-        raise HTTPException(
-            status_code=400,
-            detail="Path traversal not allowed",
-        )
+    target = safe_join(get_coding_dir(workspace), file_path)
 
     ext = target.suffix.lstrip(".").lower()
     mime = _MIME_MAP.get(ext)
@@ -312,13 +306,7 @@ async def read_code_file(file_path: str, request: Request) -> dict:
     avoid flooding the browser with huge binary or log files.
     """
     workspace = await get_agent_for_request(request)
-    root = get_coding_dir(workspace).resolve()
-    target = (root / file_path).resolve()
-    if not str(target).startswith(str(root)):
-        raise HTTPException(
-            status_code=400,
-            detail="Path traversal not allowed",
-        )
+    target = safe_join(get_coding_dir(workspace), file_path)
     if not await asyncio.to_thread(target.is_file):
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -356,13 +344,7 @@ async def write_code_file(
         {"content": "<new file content>"}
     """
     workspace = await get_agent_for_request(request)
-    root = get_coding_dir(workspace).resolve()
-    target = (root / file_path).resolve()
-    if not str(target).startswith(str(root)):
-        raise HTTPException(
-            status_code=400,
-            detail="Path traversal not allowed",
-        )
+    target = safe_join(get_coding_dir(workspace), file_path)
     content = body.get("content", "")
     if not isinstance(content, str):
         raise HTTPException(status_code=422, detail="content must be a string")

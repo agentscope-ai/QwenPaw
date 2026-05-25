@@ -4,7 +4,7 @@
  * Features:
  *   • Current branch + branch switcher (dropdown)
  *   • Changed-files list with stage/unstage checkboxes
- *   • Per-file diff viewer (Monaco DiffEditor)
+ *   • Per-file diff viewer (unified diff text)
  *   • Commit message input + Commit button
  *   • Recent commits log
  */
@@ -21,7 +21,6 @@ import {
   Tag,
   Tooltip,
 } from "antd";
-import { DiffEditor } from "@monaco-editor/react";
 import {
   GitBranch,
   GitCommit,
@@ -40,7 +39,6 @@ import type {
   CommitInfo,
   GitChangedFile,
 } from "../../api/modules/git";
-import { useTheme } from "../../contexts/ThemeContext";
 import { useProjectDir } from "../../stores/codingModeStore";
 import styles from "./GitPanel.module.less";
 
@@ -64,7 +62,6 @@ function StatusBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 
 export default function GitPanel() {
-  const { isDark } = useTheme();
   const { projectDir } = useProjectDir();
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<GitStatus | null>(null);
@@ -508,16 +505,7 @@ export default function GitPanel() {
         width="80vw"
         styles={{ body: { padding: 0 } }}
       >
-        {diffFile && (
-          <DiffEditor
-            height="60vh"
-            original={extractOriginal(diffFile.diff)}
-            modified={extractModified(diffFile.diff)}
-            language="plaintext"
-            theme={isDark ? "vs-dark" : "light"}
-            options={{ readOnly: true, minimap: { enabled: false } }}
-          />
-        )}
+        {diffFile && <UnifiedDiffView diff={diffFile.diff} />}
       </Modal>
 
       {/* New branch modal */}
@@ -611,23 +599,35 @@ function FileRow({
 }
 
 // ---------------------------------------------------------------------------
-// Diff parsing helpers
+// Unified diff viewer
 // ---------------------------------------------------------------------------
 
-/** Extract the "before" side from a unified diff. */
-function extractOriginal(diff: string): string {
-  return diff
-    .split("\n")
-    .filter((l) => l.startsWith("-") && !l.startsWith("---"))
-    .map((l) => l.slice(1))
-    .join("\n");
-}
-
-/** Extract the "after" side from a unified diff. */
-function extractModified(diff: string): string {
-  return diff
-    .split("\n")
-    .filter((l) => l.startsWith("+") && !l.startsWith("+++"))
-    .map((l) => l.slice(1))
-    .join("\n");
+function UnifiedDiffView({ diff }: { diff: string }) {
+  if (!diff.trim()) {
+    return <div className={styles.diffEmpty}>No diff available.</div>;
+  }
+  const lines = diff.split("\n");
+  return (
+    <pre className={styles.diffViewer}>
+      {lines.map((line, i) => {
+        let cls = styles.diffCtx;
+        if (line.startsWith("+++") || line.startsWith("---")) {
+          cls = styles.diffMeta;
+        } else if (line.startsWith("@@")) {
+          cls = styles.diffHunk;
+        } else if (line.startsWith("+")) {
+          cls = styles.diffAdd;
+        } else if (line.startsWith("-")) {
+          cls = styles.diffDel;
+        } else if (line.startsWith("diff ") || line.startsWith("index ")) {
+          cls = styles.diffMeta;
+        }
+        return (
+          <div key={i} className={cls}>
+            {line || " "}
+          </div>
+        );
+      })}
+    </pre>
+  );
 }

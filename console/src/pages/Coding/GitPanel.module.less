@@ -296,3 +296,51 @@
 .spinning {
   animation: spin 1s linear infinite;
 }
+
+// ---- Unified diff viewer -------------------------------------------------
+.diffViewer {
+  margin: 0;
+  padding: 8px 0;
+  height: 60vh;
+  overflow: auto;
+  background: var(--bg-secondary, #fafafa);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+
+  > div {
+    padding: 0 12px;
+    min-height: 18px;
+  }
+}
+
+.diffAdd {
+  background: rgba(76, 175, 80, 0.12);
+  color: #2e7d32;
+}
+
+.diffDel {
+  background: rgba(244, 67, 54, 0.12);
+  color: #c62828;
+}
+
+.diffHunk {
+  color: var(--primary-color, #1677ff);
+  background: var(--item-hover-bg, rgba(0, 0, 0, 0.03));
+}
+
+.diffMeta {
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.45));
+}
+
+.diffCtx {
+  color: var(--text-primary, rgba(0, 0, 0, 0.85));
+}
+
+.diffEmpty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+  font-size: 13px;
+}

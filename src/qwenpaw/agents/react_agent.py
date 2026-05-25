@@ -56,7 +56,6 @@ from .tools import (
     read_file,
     send_file_to_user,
     set_user_timezone,
-    todo_write,
     view_image,
     view_video,
     write_file,
@@ -90,7 +89,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
     - Bootstrap guidance for first-time setup
     - System command handling (/compact, /new, etc.)
     - Tool-guard security interception (via ToolGuardMixin)
-    - Coding Mode features: TodoWrite + Inline Diff (via CodingModeMixin)
+    - Coding Mode features: Inline Diff (via CodingModeMixin)
 
     MRO note
     ~~~~~~~~
@@ -306,16 +305,6 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             **(
                 {"materialize_skill": materialize_skill}
                 if "make-skill" in effective_skills
-                else {}
-            ),
-            # Coding Mode: only when enabled in agent config
-            **(
-                {"todo_write": todo_write}
-                if getattr(
-                    getattr(self._agent_config, "coding_mode", None),
-                    "todo_write_enabled",
-                    False,
-                )
                 else {}
             ),
         }

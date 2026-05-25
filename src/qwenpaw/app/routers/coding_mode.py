@@ -40,8 +40,7 @@ async def post_coding_mode_toggle(
 ) -> dict:
     """Toggle Coding Mode on or off.
 
-    Persists the setting in ``agent.json`` under ``coding_mode.enabled``
-    and also enables / disables the ``todo_write`` tool accordingly.
+    Persists the setting in ``agent.json`` under ``coding_mode.enabled``.
 
     Returns:
         Dict with ``enabled`` field reflecting the new state.
@@ -59,7 +58,6 @@ async def post_coding_mode_toggle(
     )
 
     config.coding_mode.enabled = body.enabled
-    config.coding_mode.todo_write_enabled = body.enabled
 
     await loop.run_in_executor(
         None,

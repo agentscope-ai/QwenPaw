@@ -20,6 +20,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..agent_context import get_agent_for_request, get_coding_dir
+from ..utils import safe_project_dest
 from ...constant import CODING_PROJECT_SUBDIR
 
 logger = logging.getLogger(__name__)
@@ -143,9 +144,9 @@ async def create_project(body: CreateProjectRequest, request: Request) -> dict:
 
     workspace = await get_agent_for_request(request)
     base = _projects_base(workspace.workspace_dir)
+    target = safe_project_dest(base, name)
 
     def _make_dir() -> Path:
-        target = (base / name).resolve()
         target.mkdir(parents=True, exist_ok=True)
         return target
 
@@ -211,7 +212,7 @@ async def clone_project(
             detail="Cannot derive repo name from URL",
         )
 
-    target = base / repo_name
+    target = safe_project_dest(base, repo_name)
 
     agent_id = workspace.agent_id  # capture before entering generator
 
@@ -308,7 +309,7 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
 
     dest_name = body.name.strip() if body.name else source.name
     base = _projects_base(workspace.workspace_dir)
-    dest = base / dest_name
+    dest = safe_project_dest(base, dest_name)
 
     def _copy() -> Path:
         import shutil
@@ -374,18 +375,27 @@ async def upload_zip(
     """
     workspace = await get_agent_for_request(request)
     base = _projects_base(workspace.workspace_dir)
-    dest = base / name
+    dest = safe_project_dest(base, name)
 
     content = await file.read()
 
     def _extract() -> Path:
         base.mkdir(parents=True, exist_ok=True)
         dest.mkdir(parents=True, exist_ok=True)
+        dest_resolved = dest.resolve()
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
             for member in zf.namelist():
-                member_path = (dest / member).resolve()
-                if not str(member_path).startswith(str(dest.resolve())):
-                    raise ValueError(f"Zip slip detected for member: {member}")
+                if Path(member).is_absolute():
+                    raise ValueError(
+                        f"Absolute path in zip not allowed: {member}",
+                    )
+                member_path = (dest_resolved / member).resolve()
+                try:
+                    member_path.relative_to(dest_resolved)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Zip slip detected for member: {member}",
+                    ) from exc
             zf.extractall(str(dest))
         return dest
 

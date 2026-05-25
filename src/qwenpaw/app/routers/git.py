@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ..agent_context import get_agent_for_request, get_coding_dir
+from ..utils import safe_join
 
 logger = logging.getLogger(__name__)
 
@@ -409,12 +410,7 @@ async def get_diff(
     if staged:
         args.append("--staged")
     if path:
-        target = (cwd / path).resolve()
-        if not str(target).startswith(str(cwd.resolve())):
-            raise HTTPException(
-                status_code=400,
-                detail="Path traversal not allowed",
-            )
+        safe_join(cwd, path)
         args += ["--", path]
     rc, out, err = await _git(cwd, *args)
     if rc != 0:
@@ -426,7 +422,7 @@ async def get_diff(
 async def stage_files(body: StageRequest, request: Request) -> dict:
     workspace = await get_agent_for_request(request)
     paths = body.paths if body.paths else ["."]
-    rc, _, err = await _git(get_coding_dir(workspace), "add", *paths)
+    rc, _, err = await _git(get_coding_dir(workspace), "add", "--", *paths)
     if rc != 0:
         raise HTTPException(status_code=400, detail=err.strip())
     return {"staged": paths}
@@ -440,6 +436,7 @@ async def unstage_files(body: UnstageRequest, request: Request) -> dict:
         get_coding_dir(workspace),
         "restore",
         "--staged",
+        "--",
         *paths,
     )
     if rc != 0:
@@ -478,9 +475,9 @@ async def discard_changes(body: DiscardRequest, request: Request) -> dict:
     workspace = await get_agent_for_request(request)
     cwd = get_coding_dir(workspace)
     targets = body.paths if body.paths else ["."]
-    rc, _, err = await _git(cwd, "restore", *targets)
+    rc, _, err = await _git(cwd, "restore", "--", *targets)
     # Also try to remove untracked files; errors here are non-fatal
-    await _git(cwd, "clean", "-fd", *targets)
+    await _git(cwd, "clean", "-fd", "--", *targets)
     if rc != 0 and err.strip():
         raise HTTPException(status_code=400, detail=err.strip())
     return {"discarded": targets}
