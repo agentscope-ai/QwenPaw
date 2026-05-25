@@ -76,3 +76,34 @@
   border-radius: 0 4px 4px 0;
   line-height: 1.6;
 }
+
+// ---- Dark mode -----------------------------------------------------------
+// Match the GitHub / Resources <Button type="text"> rendered by antd's
+// dark algorithm — same text color and a subdued border.
+:global(.dark-mode) {
+  .toggle {
+    border-color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.85);
+
+    &:hover:not(:disabled) {
+      border-color: #4da3ff;
+      color: #4da3ff;
+      background: rgba(22, 119, 255, 0.12);
+    }
+
+    &.active {
+      border-color: #4da3ff;
+      color: #4da3ff;
+      background: rgba(22, 119, 255, 0.18);
+    }
+  }
+
+  .modalDesc {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .modalNote {
+    color: rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
