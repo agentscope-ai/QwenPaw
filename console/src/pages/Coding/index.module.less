@@ -207,3 +207,76 @@
   font-size: 14px;
   color: var(--text-tertiary, rgba(0, 0, 0, 0.25));
 }
+
+// ---- Dark mode -----------------------------------------------------------
+:global(.dark-mode) {
+  .root {
+    background: #141414;
+  }
+
+  .activityBar {
+    background: #1a1a1a;
+    border-right-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .actBtn {
+    color: rgba(255, 255, 255, 0.55);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .actBtnActive {
+    color: #4da3ff;
+    background: rgba(22, 119, 255, 0.18);
+
+    &:hover {
+      background: rgba(22, 119, 255, 0.28) !important;
+    }
+  }
+
+  .sep::after {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .leftPanel,
+  .rightPanel {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .chatHeader {
+    background: #1a1a1a;
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .chatTitle {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .chatCloseBtn {
+    color: rgba(255, 255, 255, 0.45);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .chatReopenBtn {
+    background: #1f1f1f;
+    border-color: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.65);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+
+    &:hover {
+      color: #4da3ff;
+      border-color: #4da3ff;
+    }
+  }
+
+  .disabled {
+    color: rgba(255, 255, 255, 0.35);
+  }
+}

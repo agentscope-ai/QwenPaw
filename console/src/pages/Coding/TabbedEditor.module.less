@@ -249,3 +249,71 @@
   color: var(--text-tertiary, rgba(0, 0, 0, 0.25));
   margin: 0;
 }
+
+// ---- Dark mode -----------------------------------------------------------
+:global(.dark-mode) {
+  .wrap,
+  .empty,
+  .tabActive {
+    background: #1e1e1e;
+  }
+
+  .tabBar {
+    background: #1a1a1a;
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .tab {
+    color: rgba(255, 255, 255, 0.55);
+    border-right-color: rgba(255, 255, 255, 0.06);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .tabActive {
+    color: rgba(255, 255, 255, 0.88);
+    border-bottom-color: #4da3ff;
+  }
+
+  .closeBtn {
+    color: rgba(255, 255, 255, 0.4);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .toolbar {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .fileName {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .iconBtn {
+    color: rgba(255, 255, 255, 0.55);
+
+    &:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .previewActiveBtn {
+    color: #4da3ff !important;
+    background: rgba(22, 119, 255, 0.18) !important;
+  }
+
+  .emptyIcon {
+    color: rgba(255, 255, 255, 0.15);
+  }
+
+  .emptyText {
+    color: rgba(255, 255, 255, 0.35);
+  }
+}

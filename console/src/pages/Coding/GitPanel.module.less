@@ -344,3 +344,108 @@
   color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
   font-size: 13px;
 }
+
+// ---- Dark mode -----------------------------------------------------------
+:global(.dark-mode) {
+  .branchBar {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .branchIcon {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .sectionHeader {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .showMoreBtn {
+    color: rgba(255, 255, 255, 0.45);
+    border-top-color: rgba(255, 255, 255, 0.08);
+
+    &:hover {
+      color: #4da3ff;
+      background: rgba(22, 119, 255, 0.1);
+    }
+  }
+
+  .fileRow:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .fileName,
+  .logMsg {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .commitBox {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .logEntry {
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+  }
+
+  .logHash,
+  .newBranchOption,
+  .diffHunk {
+    color: #4da3ff;
+  }
+
+  .logMeta,
+  .diffMeta,
+  .diffEmpty {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .iconBtn {
+    color: rgba(255, 255, 255, 0.55);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .newBranchOption {
+    border-top-color: rgba(255, 255, 255, 0.08);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
+  }
+
+  .badge {
+    background: #4da3ff;
+  }
+
+  .empty {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .diffViewer {
+    background: #1a1a1a;
+  }
+
+  .diffAdd {
+    background: rgba(82, 196, 26, 0.18);
+    color: #95de64;
+  }
+
+  .diffDel {
+    background: rgba(255, 77, 79, 0.18);
+    color: #ff7875;
+  }
+
+  .diffHunk {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .diffCtx {
+    color: rgba(255, 255, 255, 0.85);
+  }
+}

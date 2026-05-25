@@ -218,3 +218,73 @@
 .git_deleted {
   color: #f47e7e;
 }
+
+// ---- Dark mode -----------------------------------------------------------
+:global(.dark-mode) {
+  .tree {
+    background: #1a1a1a;
+    border-right-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .projectBar {
+    background: #1a1a1a;
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .projectName {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .projectSwitchBtn {
+    color: rgba(255, 255, 255, 0.45);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.7);
+    }
+  }
+
+  .treeHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .treeTitle {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .refreshBtn {
+    color: rgba(255, 255, 255, 0.55);
+
+    &:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .node {
+    &:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    &.selected {
+      background: rgba(22, 119, 255, 0.18);
+      color: #4da3ff;
+
+      .fileIcon {
+        color: #4da3ff;
+      }
+    }
+  }
+
+  .nodeIcon {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .fileIcon {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .nodeName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+}

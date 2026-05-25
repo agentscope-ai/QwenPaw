@@ -209,3 +209,94 @@
     background: var(--item-hover-bg, rgba(0, 0, 0, 0.04));
   }
 }
+
+// ---- Dark mode -----------------------------------------------------------
+:global(.dark-mode) {
+  .imageWrap {
+    background: #141414;
+  }
+
+  .markdownWrap {
+    color: rgba(255, 255, 255, 0.85);
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    h1 {
+      border-bottom-color: rgba(255, 255, 255, 0.12);
+    }
+
+    h2 {
+      border-bottom-color: rgba(255, 255, 255, 0.08);
+    }
+
+    a {
+      color: #4da3ff;
+    }
+
+    blockquote {
+      border-left-color: #4da3ff;
+      background: rgba(22, 119, 255, 0.08);
+      color: rgba(255, 255, 255, 0.65);
+    }
+
+    code {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    pre {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    table {
+      th,
+      td {
+        border-color: rgba(255, 255, 255, 0.12);
+      }
+
+      th {
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      tr:nth-child(even) {
+        background: rgba(255, 255, 255, 0.03);
+      }
+    }
+
+    hr {
+      border-top-color: rgba(255, 255, 255, 0.12);
+    }
+  }
+
+  .csvNote {
+    color: rgba(255, 255, 255, 0.55);
+    background: rgba(250, 173, 20, 0.15);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .csvTable {
+    th,
+    td {
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    th {
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    tr:nth-child(even) td {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.06);
+    }
+  }
+}
