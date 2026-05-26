@@ -27,6 +27,8 @@ from qwenpaw.agents.utils.audio_transcription import (
     list_transcription_providers,
     transcribe_audio,
 )
+from qwenpaw.providers.ollama_provider import OllamaProvider
+from qwenpaw.providers.openai_provider import OpenAIProvider
 
 _MOD = "qwenpaw.agents.utils.audio_transcription"
 
@@ -37,81 +39,94 @@ _MOD = "qwenpaw.agents.utils.audio_transcription"
 
 
 class TestUrlForProvider:
-    """Tests for _url_for_provider."""
+    """Tests for _url_for_provider.
+
+    Uses real OpenAIProvider / OllamaProvider instances rather than mocks:
+    _url_for_provider lazy-imports these classes inside the function body
+    (``from ...providers.openai_provider import OpenAIProvider``), so
+    patching ``audio_transcription.OpenAIProvider`` does not affect the
+    function-local name, and patching ``isinstance`` at module scope does
+    not intercept the builtin used inside the function. Real instances
+    exercise the actual isinstance branches.
+    """
 
     def test_openai_provider_with_key(self):
-        provider = MagicMock()
-        provider.api_key = "sk-test"
-        provider.base_url = "https://api.openai.com"
-        provider.require_api_key = True
-
-        with patch(
-            f"{_MOD}.OpenAIProvider",
-            create=True,
-        ) as mock_cls:
-            mock_cls.return_value = provider
-            # Directly test the isinstance branch
-            with patch(
-                f"{_MOD}.isinstance",
-                side_effect=lambda obj, cls: True
-                if obj is provider
-                else isinstance(obj, cls),
-            ):
-                result = _url_for_provider(provider)
-                assert result is not None
-                assert result[0] == "https://api.openai.com/v1"
+        provider = OpenAIProvider(
+            id="openai",
+            name="OpenAI",
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+            require_api_key=True,
+        )
+        result = _url_for_provider(provider)
+        assert result is not None
+        assert result == ("https://api.openai.com/v1", "sk-test")
 
     def test_openai_provider_no_key(self):
-        provider = MagicMock()
-        provider.api_key = ""
-        provider.require_api_key = True
+        provider = OpenAIProvider(
+            id="openai",
+            name="OpenAI",
+            base_url="https://api.openai.com",
+            api_key="",
+            require_api_key=True,
+        )
+        result = _url_for_provider(provider)
+        assert result is None
 
-        with patch(
-            f"{_MOD}.isinstance",
-            side_effect=lambda obj, cls: True
-            if obj is provider
-            else isinstance(obj, cls),
-        ):
-            result = _url_for_provider(provider)
-            assert result is None
+    def test_openai_provider_no_key_not_required(self):
+        provider = OpenAIProvider(
+            id="openai-local",
+            name="OpenAI-local",
+            base_url="http://localhost:8000",
+            api_key="",
+            require_api_key=False,
+        )
+        result = _url_for_provider(provider)
+        assert result == ("http://localhost:8000/v1", "")
 
     def test_ollama_provider(self):
-        provider = MagicMock()
-        provider.base_url = "http://localhost:11434"
-        provider.api_key = ""
-
-        with patch(
-            f"{_MOD}.isinstance",
-            side_effect=lambda obj, cls: (
-                True
-                if obj is provider
-                and hasattr(cls, "__name__")
-                and "Ollama" in cls.__name__
-                else isinstance(obj, cls)
-            ),
-        ):
-            result = _url_for_provider(provider)
-            assert result is not None
+        # Real Ollama configs set require_api_key=False (see
+        # provider_manager.PROVIDER_OLLAMA). OllamaProvider extends
+        # OpenAIProvider, so it's matched by the OpenAIProvider isinstance
+        # branch — exercising the realistic credential path.
+        provider = OllamaProvider(
+            id="ollama",
+            name="Ollama",
+            base_url="http://localhost:11434",
+            api_key="",
+            require_api_key=False,
+        )
+        result = _url_for_provider(provider)
+        assert result is not None
+        assert result == ("http://localhost:11434/v1", "")
 
     def test_unknown_provider_returns_none(self):
-        provider = MagicMock()
+        # A bare object is neither OpenAIProvider nor OllamaProvider.
+        provider = MagicMock(spec=[])
         result = _url_for_provider(provider)
         assert result is None
 
     def test_base_url_already_has_v1(self):
-        provider = MagicMock()
-        provider.api_key = "key"
-        provider.base_url = "https://api.openai.com/v1"
-        provider.require_api_key = True
+        provider = OpenAIProvider(
+            id="openai",
+            name="OpenAI",
+            base_url="https://api.openai.com/v1",
+            api_key="key",
+            require_api_key=True,
+        )
+        result = _url_for_provider(provider)
+        assert result == ("https://api.openai.com/v1", "key")
 
-        with patch(
-            f"{_MOD}.isinstance",
-            side_effect=lambda obj, cls: True
-            if obj is provider
-            else isinstance(obj, cls),
-        ):
-            result = _url_for_provider(provider)
-            assert result[0] == "https://api.openai.com/v1"
+    def test_base_url_trailing_slash_stripped(self):
+        provider = OpenAIProvider(
+            id="openai",
+            name="OpenAI",
+            base_url="https://api.openai.com/",
+            api_key="key",
+            require_api_key=True,
+        )
+        result = _url_for_provider(provider)
+        assert result == ("https://api.openai.com/v1", "key")
 
 
 # ---------------------------------------------------------------------------
