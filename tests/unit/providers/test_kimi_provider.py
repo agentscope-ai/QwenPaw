@@ -39,8 +39,9 @@ def test_kimi_provider_configs() -> None:
 def test_kimi_models_list() -> None:
     """Verify Kimi model definitions."""
     model_ids = [m.id for m in KIMI_MODELS]
+    assert "kimi-k2.6" in model_ids
     assert "kimi-k2.5" in model_ids
-    assert len(KIMI_MODELS) == 1
+    assert len(KIMI_MODELS) == 2
 
 
 @pytest.fixture
@@ -96,7 +97,9 @@ def test_kimi_has_expected_models(isolated_secret_dir) -> None:
     assert provider_cn is not None
     assert provider_intl is not None
 
+    assert provider_cn.has_model("kimi-k2.6")
     assert provider_cn.has_model("kimi-k2.5")
+    assert provider_intl.has_model("kimi-k2.6")
     assert provider_intl.has_model("kimi-k2.5")
 
 

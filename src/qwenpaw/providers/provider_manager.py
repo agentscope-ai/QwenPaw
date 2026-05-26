@@ -450,6 +450,13 @@ MINIMAX_MODELS: List[ModelInfo] = [
 
 KIMI_MODELS: List[ModelInfo] = [
     ModelInfo(
+        id="kimi-k2.6",
+        name="Kimi K2.6",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
         id="kimi-k2.5",
         name="Kimi K2.5",
         supports_image=True,
