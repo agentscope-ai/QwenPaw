@@ -44,19 +44,15 @@ export default function WorkspacePage() {
       duration: 0,
     });
     try {
-      const { blob, filename } = await workspaceApi.downloadWorkspace();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      message.success({
-        content: t("workspace.downloadSuccess"),
-        key: "workspace-download",
-      });
+      const downloaded = await workspaceApi.downloadWorkspaceFile();
+      if (downloaded) {
+        message.success({
+          content: t("workspace.downloadSuccess"),
+          key: "workspace-download",
+        });
+      } else {
+        message.destroy("workspace-download");
+      }
     } catch (error) {
       console.error("Download failed:", error);
       message.error({

@@ -6,6 +6,8 @@ use tauri::{Manager, RunEvent, WindowEvent};
 pub fn run() {
     let build_result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             backend::backend_port,
             backend::backend_startup_error,

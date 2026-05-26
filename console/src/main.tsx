@@ -3,10 +3,12 @@ import App from "./App.tsx";
 import "./i18n";
 import { installHostExternals } from "./plugins/hostExternals";
 import { registerHostModulesEager } from "./plugins/dynamicModuleRegistry";
+import { installTauriExternalLinkInterceptor } from "./tauri/externalLinkInterceptor";
 
 // Expose host dependencies (React, antd, etc.) on window
 // so that plugin UI modules can use them without bundling their own copies.
 installHostExternals();
+installTauriExternalLinkInterceptor();
 
 // Dynamic module registration - no generated files needed!
 // Automatically discovers all modules in src/pages at build time
