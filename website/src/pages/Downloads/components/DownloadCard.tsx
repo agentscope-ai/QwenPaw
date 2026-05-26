@@ -143,14 +143,14 @@ export function DownloadCard({
           <DetailRow label={t("downloads.version")} value={selected.version} />
           <DetailRow label={t("downloads.size")} value={selected.size} />
           <DetailRow label={t("downloads.updated")} value={updatedDate} />
+          <div>
+            <div className="my-3 border-t border-border" />
+            <dt className="mb-1 font-medium text-site-text-muted">SHA256:</dt>
+            <dd className="m-0 font-mono text-xs leading-relaxed break-all text-site-text-muted">
+              {selected.sha256}
+            </dd>
+          </div>
         </dl>
-        <div className="my-3 border-t border-border" />
-        <div>
-          <dt className="mb-1 font-medium text-site-text-muted">SHA256:</dt>
-          <dd className="m-0 font-mono text-xs leading-relaxed break-all text-site-text-muted">
-            {selected.sha256}
-          </dd>
-        </div>
       </div>
     </div>
   );
