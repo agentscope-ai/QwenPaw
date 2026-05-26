@@ -12,7 +12,7 @@ interface ReleaseNote {
   date?: string;
 }
 
-const RELEASE_NOTES_DATA: { version: string; date?: string }[] = [
+export const RELEASE_NOTES_DATA: { version: string; date?: string }[] = [
   { version: "v1.1.8" },
   { version: "v1.1.7" },
   { version: "v1.1.6" },
