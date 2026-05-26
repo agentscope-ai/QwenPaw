@@ -22,6 +22,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ...utils.command_runner import CommandExecutionError, run_command_async
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,16 +43,15 @@ async def _git_cmd(
 ) -> tuple[int, str]:
     """Run a git sub-command asynchronously, return (returncode, stdout)."""
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "git",
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        result = await run_command_async(
+            ["git", *args],
             cwd=cwd,
+            encoding="utf-8",
+            check=False,
+            timeout=10,
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
-        return proc.returncode or 0, stdout.decode().strip()
-    except (asyncio.TimeoutError, OSError):
+        return result.returncode, result.stdout.strip()
+    except CommandExecutionError:
         return 1, ""
 
 

@@ -18,8 +18,8 @@ from qwenpaw.utils.command_runner import (
     run_command_async,
     shutdown_process,
     shutdown_process_sync,
-    start_multiprocessing_process,
     start_command_async,
+    start_multiprocessing_process,
 )
 
 
@@ -38,6 +38,11 @@ def test_run_command_returns_combined_output(
             stderr="stderr line\n",
         )
 
+    monkeypatch.setattr(
+        command_runner,
+        "windows_hidden_subprocess_kwargs",
+        lambda: {},
+    )
     monkeypatch.setattr(command_runner.subprocess, "run", fake_run)
 
     result = run_command(["demo", "--flag"], cwd=Path("/tmp/demo"))
@@ -48,6 +53,33 @@ def test_run_command_returns_combined_output(
         "command": ["demo", "--flag"],
         "cwd": os.fspath(Path("/tmp/demo")),
     }
+
+
+def test_run_command_hides_windows_console(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded: dict[str, object] = {}
+
+    def fake_run(*args, **kwargs) -> subprocess.CompletedProcess[str]:
+        del args
+        recorded.update(kwargs)
+        return subprocess.CompletedProcess(
+            args=["demo"],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+
+    monkeypatch.setattr(
+        command_runner,
+        "windows_hidden_subprocess_kwargs",
+        lambda: {"creationflags": 0x08000000},
+    )
+    monkeypatch.setattr(command_runner.subprocess, "run", fake_run)
+
+    run_command(["demo"])
+
+    assert recorded["creationflags"] == 0x08000000
 
 
 def test_run_command_raises_for_non_zero_exit(
@@ -143,6 +175,11 @@ async def test_start_command_async_uses_asyncio_subprocess(
         return fake_process
 
     monkeypatch.setattr(
+        command_runner,
+        "windows_hidden_subprocess_kwargs",
+        lambda _creationflags=0: {},
+    )
+    monkeypatch.setattr(
         command_runner.asyncio,
         "create_subprocess_exec",
         fake_create_subprocess_exec,
@@ -170,6 +207,49 @@ async def test_start_command_async_uses_asyncio_subprocess(
     }
 
 
+@pytest.mark.asyncio
+async def test_start_command_async_hides_windows_console(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded: dict[str, object] = {}
+
+    class _FakeAsyncProcess:
+        pid = 4321
+        returncode: int | None = None
+        stdout = None
+
+        async def wait(self) -> int:
+            return 0
+
+        def terminate(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            return None
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        del args
+        recorded.update(kwargs)
+        return _FakeAsyncProcess()
+
+    monkeypatch.setattr(
+        command_runner,
+        "windows_hidden_subprocess_kwargs",
+        lambda creationflags=0: {
+            "creationflags": creationflags | 0x08000000,
+        },
+    )
+    monkeypatch.setattr(
+        command_runner.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    await start_command_async(["demo"], creationflags=0x00000200)
+
+    assert recorded["creationflags"] == 0x08000200
+
+
 def test_coerce_subprocess_path_supports_generic_pathlike() -> None:
     class _CustomPathLike:
         def __fspath__(self) -> str:
@@ -179,6 +259,46 @@ def test_coerce_subprocess_path_supports_generic_pathlike() -> None:
         command_runner._coerce_subprocess_path(_CustomPathLike())
         == "custom/path"
     )
+
+
+def test_windows_hidden_subprocess_kwargs_returns_empty_on_posix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(command_runner.os, "name", "posix", raising=False)
+
+    assert not command_runner.windows_hidden_subprocess_kwargs()
+
+
+def test_windows_hidden_subprocess_kwargs_returns_flags_on_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(command_runner.os, "name", "nt", raising=False)
+    monkeypatch.setattr(
+        command_runner.subprocess,
+        "CREATE_NO_WINDOW",
+        0x08000000,
+        raising=False,
+    )
+
+    assert command_runner.windows_hidden_subprocess_kwargs() == {
+        "creationflags": 0x08000000,
+    }
+
+
+def test_windows_hidden_subprocess_kwargs_preserves_existing_flags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(command_runner.os, "name", "nt", raising=False)
+    monkeypatch.setattr(
+        command_runner.subprocess,
+        "CREATE_NO_WINDOW",
+        0x08000000,
+        raising=False,
+    )
+
+    assert command_runner.windows_hidden_subprocess_kwargs(0x00000200) == {
+        "creationflags": 0x08000200,
+    }
 
 
 @pytest.mark.asyncio
@@ -220,6 +340,12 @@ async def test_start_command_async_falls_back_to_threaded_popen_on_windows(
 
     monkeypatch.setattr(command_runner.os, "name", "nt", raising=False)
     monkeypatch.setattr(
+        command_runner.subprocess,
+        "CREATE_NO_WINDOW",
+        0x08000000,
+        raising=False,
+    )
+    monkeypatch.setattr(
         command_runner.asyncio,
         "create_subprocess_exec",
         fail_create_subprocess_exec,
@@ -246,6 +372,7 @@ async def test_start_command_async_falls_back_to_threaded_popen_on_windows(
             {
                 "stdout": subprocess.PIPE,
                 "stderr": subprocess.STDOUT,
+                "creationflags": 0x08000000,
             },
         ),
     ]

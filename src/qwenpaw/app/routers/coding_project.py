@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from ..agent_context import get_agent_for_request, get_coding_dir
 from ..utils import safe_project_dest
 from ...constant import CODING_PROJECT_SUBDIR
+from ...utils.command_runner import run_command_async, start_command_async
 
 logger = logging.getLogger(__name__)
 
@@ -153,15 +154,12 @@ async def create_project(body: CreateProjectRequest, request: Request) -> dict:
 
     project_path = await asyncio.to_thread(_make_dir)
 
-    # git init
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        "init",
+    await run_command_async(
+        ["git", "init"],
         cwd=str(project_path),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        check=False,
+        timeout=None,
     )
-    await proc.communicate()
 
     # Set as active project
     await asyncio.to_thread(
@@ -221,12 +219,8 @@ async def clone_project(
         try:
             base.mkdir(parents=True, exist_ok=True)
 
-            proc = await asyncio.create_subprocess_exec(
-                "git",
-                "clone",
-                "--progress",
-                url,
-                str(target),
+            proc = await start_command_async(
+                ["git", "clone", "--progress", url, str(target)],
                 stdout=asyncio.subprocess.PIPE,
                 # git writes progress to stderr
                 stderr=asyncio.subprocess.STDOUT,
