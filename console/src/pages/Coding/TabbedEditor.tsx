@@ -111,8 +111,8 @@ const stripTrailingNewlines = (s: string) => s.replace(/\n+$/, "");
 
 // Classify a Monaco selection into one of three copy modes:
 //   • whole-file  → output just the path (file contents fully covered)
-//   • lines-only  → output `path:Lx-y` (selection spans complete lines)
-//   • with-code   → output `path:Lx-y` + fenced code block (column-level partial)
+//   • lines-only  → output `path:x-y` (selection spans complete lines)
+//   • with-code   → output `path:x-y` + fenced code block (column-level partial)
 // Geometric quirk handled: a triple-click style selection ending at column 1
 // of the next line is normalised so the displayed end line is the previous one.
 function detectCopyMode(
