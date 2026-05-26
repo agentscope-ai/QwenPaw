@@ -60,18 +60,18 @@
 
 ## 新闻
 
-- [2026-05-19] 我们发布了 **v1.1.8**！完整更新说明见 [v1.1.8 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+- [2026-05-26] 我们发布了 **v1.1.9**！完整更新说明见 [v1.1.9 发布说明](https://qwenpaw.agentscope.io/release-notes)。
 
-  - **[v1.1.8] 新增**：官方插件资源（网站下载 + 控制台一键安装）；QwenPaw Pet 桌面宠物；CloudPaw 阿里云部署插件；`/make-skill` 命令；自定义 HTTP Headers 与鉴权模式；支持模型独立配置上下文；收件箱批量操作；聊天历史抽屉固定。
-  - **[v1.1.8] 安全**：备份信任控制；Skill 与 AgentMd 路径穿越防护；插件 API 认证。
-  - **[v1.1.8] 修复**：企业微信/微信/QQ 频道稳定性；按模型限速；SSE 连接泄漏。
-  - **[v1.1.8] 感谢新贡献者**：@Morxi。
+  - **[v1.1.9] 新增**：Coding 模式；技能市场；基于 Tauri 的桌面应用；后台任务超时配置；定时任务隔离执行。
+  - **[v1.1.9] 变更**：插件管理器界面改版；技能内容校验；控制台界面调整。
+  - **[v1.1.9] 修复**：微信消息去重与可靠性；钉钉中文文件名解码；QwenPaw Pet Windows 兼容性。
+  - **[v1.1.9] 感谢新贡献者**：@DICKQI、@Zachary-wW、@youngchan1988。
+
+- [2026-05-19] 我们发布了 **v1.1.8**！完整更新说明见 [v1.1.8 发布说明](https://qwenpaw.agentscope.io/release-notes)。
 
 - [2026-05-14] 我们发布了 **v1.1.7**！完整更新说明见 [v1.1.7 发布说明](https://qwenpaw.agentscope.io/release-notes)。
 
 - [2026-05-09] 我们发布了 **v1.1.6**！完整更新说明见 [v1.1.6 发布说明](https://qwenpaw.agentscope.io/release-notes)。
-
-- [2026-04-29] 我们发布了 **v1.1.5**！完整更新说明见 [v1.1.5 发布说明](https://qwenpaw.agentscope.io/release-notes)。
 
 - [2026-04-12] **CoPaw 正式更名为 QwenPaw**：这是一次品牌名称焕新，也是我们迈向下一阶段开源的重要一步。
 

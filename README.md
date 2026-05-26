@@ -60,18 +60,18 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-- [2026-05-19] We've released **v1.1.8**! See the full [v1.1.8 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+- [2026-05-26] We've released **v1.1.9**! See the full [v1.1.9 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
-  - **[v1.1.8] Added**: Official plugin resources (website download + one-click install from console); QwenPaw Pet desktop companion; CloudPaw Alibaba Cloud deployment plugin; `/make-skill` command; custom HTTP headers & auth mode; per-model context configuration; Inbox batch operations; pinned chat history drawer.
-  - **[v1.1.8] Security**: Backup trust controls; Skill & AgentMd path traversal prevention; plugin API auth.
-  - **[v1.1.8] Fixed**: WeCom/WeChat/QQ channel stability; per-model rate limiter; SSE connection leak.
-  - **[v1.1.8] New Contributors**: @Morxi.
+  - **[v1.1.9] Added**: Coding mode; Skill Market; Tauri-based desktop app; background task timeout; isolated cron sessions.
+  - **[v1.1.9] Changed**: Plugin manager UI redesign; skill content validation; console UI refresh.
+  - **[v1.1.9] Fixed**: WeChat message dedup & reliability; DingTalk Chinese filename decoding; QwenPaw Pet Windows compatibility.
+  - **[v1.1.9] New Contributors**: @DICKQI, @Zachary-wW, @youngchan1988.
+
+- [2026-05-19] We've released **v1.1.8**! See the full [v1.1.8 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
 - [2026-05-14] We've released **v1.1.7**! See the full [v1.1.7 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
 - [2026-05-09] We've released **v1.1.6**! See the full [v1.1.6 Release Notes](https://qwenpaw.agentscope.io/release-notes).
-
-- [2026-04-29] We've released **v1.1.5**! See the full [v1.1.5 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
 - [2026-04-12] **CoPaw is Officially Rebranding to QwenPaw**: This rebranding marks an important step forward into our next phase of open-source development.
 
