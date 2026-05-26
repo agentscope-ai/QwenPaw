@@ -4,6 +4,16 @@ import { DOWNLOADS_HEADER_BG_URL } from "../constants";
 
 export type DownloadsTab = "desktop" | "plugins";
 
+export const DOWNLOADS_TAB_IDS = {
+  desktop: "downloads-tab-desktop",
+  plugins: "downloads-tab-plugins",
+} as const satisfies Record<DownloadsTab, string>;
+
+export const DOWNLOADS_PANEL_IDS = {
+  desktop: "downloads-panel-desktop",
+  plugins: "downloads-panel-plugins",
+} as const satisfies Record<DownloadsTab, string>;
+
 interface DownloadsHeaderProps {
   activeTab: DownloadsTab;
   onTabChange: (tab: DownloadsTab) => void;
@@ -48,13 +58,18 @@ export function DownloadsHeader({
             className="pointer-events-none absolute bottom-0 left-[calc(50%-50vw)] h-px w-screen bg-border"
             aria-hidden
           />
-          <div className="relative mx-auto flex max-w-md justify-center gap-10">
+          <div
+            role="tablist"
+            className="relative mx-auto flex max-w-md justify-center gap-10"
+          >
             {showDesktopTab && (
               <button
                 type="button"
+                id={DOWNLOADS_TAB_IDS.desktop}
                 className={tabClass("desktop")}
-                aria-selected={activeTab === "desktop"}
                 role="tab"
+                aria-selected={activeTab === "desktop"}
+                aria-controls={DOWNLOADS_PANEL_IDS.desktop}
                 onClick={() => onTabChange("desktop")}
               >
                 {t("downloads.desktopTitle")}
@@ -63,9 +78,11 @@ export function DownloadsHeader({
             {showPluginsTab && (
               <button
                 type="button"
+                id={DOWNLOADS_TAB_IDS.plugins}
                 className={tabClass("plugins")}
-                aria-selected={activeTab === "plugins"}
                 role="tab"
+                aria-selected={activeTab === "plugins"}
+                aria-controls={DOWNLOADS_PANEL_IDS.plugins}
                 onClick={() => onTabChange("plugins")}
               >
                 {t("downloads.pluginsTitle")}

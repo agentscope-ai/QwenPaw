@@ -5,6 +5,8 @@ import { useSiteConfig } from "@/config-context";
 import { CDN_BASE, PLATFORM_ICONS } from "./constants";
 import { DownloadCard } from "./components/DownloadCard";
 import {
+  DOWNLOADS_PANEL_IDS,
+  DOWNLOADS_TAB_IDS,
   DownloadsHeader,
   type DownloadsTab,
 } from "./components/DownloadsHeader";
@@ -199,7 +201,11 @@ export default function Downloads() {
         {!loading && !isEmpty && (
           <section className="mb-16">
             {showDesktopPanel && desktopIndex && (
-              <div role="tabpanel" aria-label={t("downloads.desktopTitle")}>
+              <div
+                id={DOWNLOADS_PANEL_IDS.desktop}
+                role="tabpanel"
+                aria-labelledby={DOWNLOADS_TAB_IDS.desktop}
+              >
                 <ProductSection
                   title={t("downloads.desktopTitle")}
                   description={t("downloads.desktopDesc")}
@@ -243,7 +249,11 @@ export default function Downloads() {
             )}
 
             {showPluginsPanel && pluginsIndex && (
-              <div role="tabpanel" aria-label={t("downloads.pluginsTitle")}>
+              <div
+                id={DOWNLOADS_PANEL_IDS.plugins}
+                role="tabpanel"
+                aria-labelledby={DOWNLOADS_TAB_IDS.plugins}
+              >
                 <PluginsSection pluginsIndex={pluginsIndex} />
               </div>
             )}

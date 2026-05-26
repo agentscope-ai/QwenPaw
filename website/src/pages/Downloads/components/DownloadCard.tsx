@@ -89,10 +89,10 @@ export function DownloadCard({
       </div>
 
       {versions.length > 1 && (
-        <div className="mb-4">
-          <label className="mb-1.5 block text-sm font-medium text-site-text">
+        <label className="mb-4 block">
+          <span className="mb-1.5 block text-sm font-medium text-site-text">
             {t("downloads.selectVersion")}
-          </label>
+          </span>
           <select
             className="w-full cursor-pointer appearance-none rounded-md border border-border bg-surface py-2.5 pr-10 pl-3 text-sm text-site-text transition-colors hover:border-(--color-primary) focus:outline-none focus-visible:border-(--color-primary) focus-visible:ring-2 focus-visible:ring-(--color-primary)/15"
             style={{
@@ -126,7 +126,7 @@ export function DownloadCard({
               </optgroup>
             )}
           </select>
-        </div>
+        </label>
       )}
 
       <a

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { motion } from "motion/react";
 import { DottedlinedownArrowIcon, PathIcon } from "@/components/Icon";
 import ShinyText from "@/components/ShinyText";
-import { RELEASE_NOTES_DATA } from "@/pages/ReleaseNotes";
+import { LATEST_RELEASE_VERSION } from "@/pages/releaseNotesData";
 
 const container = {
   hidden: { opacity: 0, y: 14 },
@@ -83,7 +83,7 @@ export function Hero() {
             <PathIcon size={16} />
             <ShinyText
               text={t("hero.releaseNote", {
-                version: RELEASE_NOTES_DATA[0]!.version,
+                version: LATEST_RELEASE_VERSION,
               })}
               speed={1.8}
               delay={0}
