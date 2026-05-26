@@ -762,14 +762,22 @@ class TestRuleBasedToolGuardianGuard:
         """Rules with tool filter should only fire for that tool."""
         rule_data = {
             "id": "WRITE_SECRET",
-            "category": "hardcoded_secrets",
+            "category": "credential_exposure",
             "severity": "CRITICAL",
             "tool": "write_file",
+            "params": ["content"],
             "patterns": [r"password\s*=\s*['\"][^'\"]+['\"]"],
             "description": "Secret in write",
         }
         (tmp_path / "rules.yaml").write_text(yaml.dump([rule_data]))
         guardian = RuleBasedToolGuardian(rules_dir=tmp_path)
+        # Positive control: rule MUST fire for the configured tool so we know
+        # the rule actually loaded (a silently-rejected rule would also make
+        # the negative assertion below pass vacuously).
+        assert guardian.guard(
+            "write_file",
+            {"content": "password = 'secret123'"},
+        )
         # Should NOT fire for read_file
         findings = guardian.guard(
             "read_file",
