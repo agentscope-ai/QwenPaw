@@ -63,6 +63,28 @@ def _clean_provider_specific_fields(
                 block.pop(field, None)
 
 
+def _strip_unsigned_thinking_for_anthropic(msgs: list[Msg]) -> None:
+    """Drop thinking blocks that lack a non-empty ``signature``.
+
+    Anthropic requires ``thinking.signature`` on every thinking block in the
+    request. Blocks carried over from other providers (OpenAI/Qwen reasoning,
+    Gemini thoughts, etc.) have no signature and would 400 the request. Native
+    Claude thinking blocks always carry one, so they survive untouched.
+    """
+    for msg in msgs:
+        if not isinstance(msg.content, list):
+            continue
+        msg.content = [
+            block
+            for block in msg.content
+            if not (
+                isinstance(block, dict)
+                and block.get("type") == "thinking"
+                and not block.get("signature")
+            )
+        ]
+
+
 def _clone_msg(msg: Msg) -> Msg:
     """Return a deep copy of an AgentScope message."""
     return Msg.from_dict(deepcopy(msg.to_dict()))
@@ -150,6 +172,8 @@ def normalize_messages_for_model_request(
     # the repair has had its chance.
     normalized = _sanitize_tool_messages(normalized)
     _clean_provider_specific_fields(normalized, target_family)
+    if target_family == "anthropic":
+        _strip_unsigned_thinking_for_anthropic(normalized)
     if not supports_multimodal:
         _strip_media_blocks_in_place(normalized)
     return normalized
