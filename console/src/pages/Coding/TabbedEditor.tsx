@@ -6,7 +6,7 @@
  *       - Switches to DiffEditor (renderSideBySide: false → VS Code inline style)
  *       - "Keep" accepts the new content; "Undo" reverts to original
  *   • Preview mode for images, Markdown, PDF, CSV (toggle per tab)
- *   • Ctrl/Cmd+C copies code with @file:Lx-y context for Chat injection
+ *   • Ctrl/Cmd+C copies code with `path:line[-line]` context for Chat
  *   • Cmd/Ctrl+S to save
  */
 
@@ -105,17 +105,69 @@ function appendToChat(text: string): void {
   textarea.focus();
 }
 
+type CopyMode = "whole-file" | "lines-only" | "with-code";
+
+const stripTrailingNewlines = (s: string) => s.replace(/\n+$/, "");
+
+// Classify a Monaco selection into one of three copy modes:
+//   • whole-file  → output just the path (file contents fully covered)
+//   • lines-only  → output `path:Lx-y` (selection spans complete lines)
+//   • with-code   → output `path:Lx-y` + fenced code block (column-level partial)
+// Geometric quirk handled: a triple-click style selection ending at column 1
+// of the next line is normalised so the displayed end line is the previous one.
+function detectCopyMode(
+  selection: {
+    startLineNumber: number;
+    startColumn: number;
+    endLineNumber: number;
+    endColumn: number;
+  },
+  model: MonacoEditor.ITextModel,
+): {
+  mode: CopyMode;
+  code: string;
+  startLine: number;
+  endLine: number;
+} {
+  const code = model.getValueInRange(selection);
+  const startLine = selection.startLineNumber;
+  let endLine = selection.endLineNumber;
+  if (endLine > startLine && selection.endColumn === 1) {
+    endLine -= 1;
+  }
+
+  if (stripTrailingNewlines(code) === stripTrailingNewlines(model.getValue())) {
+    return { mode: "whole-file", code, startLine, endLine };
+  }
+
+  const lines: string[] = [];
+  for (let l = startLine; l <= endLine; l += 1) {
+    lines.push(model.getLineContent(l));
+  }
+  if (stripTrailingNewlines(code) === lines.join("\n")) {
+    return { mode: "lines-only", code, startLine, endLine };
+  }
+
+  return { mode: "with-code", code, startLine, endLine };
+}
+
 function formatSelectionForChat(
   filePath: string,
   code: string,
   startLine: number,
   endLine: number,
+  mode: CopyMode,
 ): string {
-  const lang = getLanguage(filePath);
+  if (mode === "whole-file") {
+    return filePath;
+  }
   const lineRange =
-    startLine === endLine ? `L${startLine}` : `L${startLine}-${endLine}`;
-  const fileName = filePath.split("/").pop() ?? filePath;
-  return `\`${fileName}\` \`${lineRange}\`\n\`\`\`${lang}\n// ${filePath}:${lineRange}\n${code}\n\`\`\``;
+    startLine === endLine ? `${startLine}` : `${startLine}-${endLine}`;
+  if (mode === "lines-only") {
+    return `${filePath}:${lineRange}`;
+  }
+  const lang = getLanguage(filePath);
+  return `${filePath}:${lineRange}\n\`\`\`${lang}\n${code}\n\`\`\``;
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +298,7 @@ export default function TabbedEditor({
         );
       });
 
-      // Ctrl/Cmd+C → copy with @file:Lx-y context
+      // Ctrl/Cmd+C → copy with `path:line[-line]` context
       editor.addCommand(
         monaco.KeyMod.CtrlCmd | (monaco.KeyCode.KeyC as unknown as number),
         () => {
@@ -257,20 +309,17 @@ export default function TabbedEditor({
           }
           const model = editor.getModel();
           if (!model) return;
-          const code = model.getValueInRange(sel);
           const filePath = activeTabPathRef.current;
           if (!filePath) {
-            navigator.clipboard.writeText(code).catch(() => undefined);
+            navigator.clipboard
+              .writeText(model.getValueInRange(sel))
+              .catch(() => undefined);
             return;
           }
+          const { mode, code, startLine, endLine } = detectCopyMode(sel, model);
           navigator.clipboard
             .writeText(
-              formatSelectionForChat(
-                filePath,
-                code,
-                sel.startLineNumber,
-                sel.endLineNumber,
-              ),
+              formatSelectionForChat(filePath, code, startLine, endLine, mode),
             )
             .catch(() => undefined);
         },
@@ -297,20 +346,17 @@ export default function TabbedEditor({
           }
           const model = modifiedEditor.getModel();
           if (!model) return;
-          const code = model.getValueInRange(sel);
           const filePath = activeTabPathRef.current;
           if (!filePath) {
-            navigator.clipboard.writeText(code).catch(() => undefined);
+            navigator.clipboard
+              .writeText(model.getValueInRange(sel))
+              .catch(() => undefined);
             return;
           }
+          const { mode, code, startLine, endLine } = detectCopyMode(sel, model);
           navigator.clipboard
             .writeText(
-              formatSelectionForChat(
-                filePath,
-                code,
-                sel.startLineNumber,
-                sel.endLineNumber,
-              ),
+              formatSelectionForChat(filePath, code, startLine, endLine, mode),
             )
             .catch(() => undefined);
         },
@@ -356,15 +402,16 @@ export default function TabbedEditor({
     if (!selection) return;
     const model = editor.getModel();
     if (!model) return;
-    const code = selection.isEmpty()
-      ? model.getValue()
-      : model.getValueInRange(selection);
-    const startLine = selection.isEmpty() ? 1 : selection.startLineNumber;
-    const endLine = selection.isEmpty()
-      ? model.getLineCount()
-      : selection.endLineNumber;
+    // Empty selection ≡ whole-file copy via button.
+    if (selection.isEmpty()) {
+      appendToChat(
+        formatSelectionForChat(activeTabPath, "", 1, 1, "whole-file"),
+      );
+      return;
+    }
+    const { mode, code, startLine, endLine } = detectCopyMode(selection, model);
     appendToChat(
-      formatSelectionForChat(activeTabPath, code, startLine, endLine),
+      formatSelectionForChat(activeTabPath, code, startLine, endLine, mode),
     );
   }, [activeTabPath]);
 
