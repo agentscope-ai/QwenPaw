@@ -22,6 +22,7 @@ import type { ProviderInfo, ModelInfo } from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
+import { useCodingMode } from "../../stores/codingModeStore";
 import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
@@ -602,6 +603,15 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark } = useTheme();
+  const { codingMode, initialized } = useCodingMode();
+
+  // Redirect to /coding when coding mode is active
+  useEffect(() => {
+    if (initialized && codingMode) {
+      navigate("/coding", { replace: true });
+    }
+  }, [initialized, codingMode, navigate]);
+
   const chatId = useMemo(() => {
     const match = location.pathname.match(/^\/chat\/(.+)$/);
     return match?.[1];
