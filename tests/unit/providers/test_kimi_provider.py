@@ -40,12 +40,7 @@ def test_kimi_models_list() -> None:
     """Verify Kimi model definitions."""
     model_ids = [m.id for m in KIMI_MODELS]
     assert "kimi-k2.5" in model_ids
-    assert "kimi-k2-0905-preview" in model_ids
-    assert "kimi-k2-0711-preview" in model_ids
-    assert "kimi-k2-turbo-preview" in model_ids
-    assert "kimi-k2-thinking" in model_ids
-    assert "kimi-k2-thinking-turbo" in model_ids
-    assert len(KIMI_MODELS) == 6
+    assert len(KIMI_MODELS) == 1
 
 
 @pytest.fixture
@@ -101,16 +96,8 @@ def test_kimi_has_expected_models(isolated_secret_dir) -> None:
     assert provider_cn is not None
     assert provider_intl is not None
 
-    for model_id in [
-        "kimi-k2.5",
-        "kimi-k2-0905-preview",
-        "kimi-k2-0711-preview",
-        "kimi-k2-turbo-preview",
-        "kimi-k2-thinking",
-        "kimi-k2-thinking-turbo",
-    ]:
-        assert provider_cn.has_model(model_id)
-        assert provider_intl.has_model(model_id)
+    assert provider_cn.has_model("kimi-k2.5")
+    assert provider_intl.has_model("kimi-k2.5")
 
 
 async def test_kimi_activate_models(
@@ -125,7 +112,7 @@ async def test_kimi_activate_models(
     assert manager.active_model.provider_id == "kimi-cn"
     assert manager.active_model.model == "kimi-k2.5"
 
-    await manager.activate_model("kimi-intl", "kimi-k2-thinking")
+    await manager.activate_model("kimi-intl", "kimi-k2.5")
     assert manager.active_model is not None
     assert manager.active_model.provider_id == "kimi-intl"
-    assert manager.active_model.model == "kimi-k2-thinking"
+    assert manager.active_model.model == "kimi-k2.5"
