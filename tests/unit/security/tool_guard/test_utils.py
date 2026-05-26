@@ -16,6 +16,7 @@ from qwenpaw.security.tool_guard.utils import (
     _parse_guarded_tokens,
     log_findings,
     logger,
+    resolve_auto_denied_rules,
     resolve_denied_tools,
     resolve_guarded_tools,
 )
@@ -257,6 +258,117 @@ class TestResolveDeniedTools:
         mock_env_loader.return_value = ""
         mock_config.return_value.security.tool_guard.denied_tools = []
         result = resolve_denied_tools()
+        assert result == set()
+
+
+# ---------------------------------------------------------------------------
+# resolve_auto_denied_rules
+# ---------------------------------------------------------------------------
+
+
+class TestResolveAutoDeniedRules:
+    """Tests for resolve_auto_denied_rules.
+
+    Mirrors the priority chain of resolve_denied_tools:
+        user_defined > env var > config.json > default(empty).
+    """
+
+    def test_user_defined_takes_priority(self):
+        """User-supplied set wins over env and config."""
+        result = resolve_auto_denied_rules(
+            user_defined=["RULE_A", "RULE_B"],
+        )
+        assert result == {"RULE_A", "RULE_B"}
+
+    def test_user_defined_strips_whitespace_and_empty(self):
+        """Whitespace is stripped and empty/whitespace tokens dropped."""
+        result = resolve_auto_denied_rules(
+            user_defined=["  RULE_A  ", "", "  ", "RULE_B"],
+        )
+        assert result == {"RULE_A", "RULE_B"}
+
+    def test_user_defined_empty_iterable_yields_empty_set(self):
+        """An empty user-supplied iterable short-circuits to empty set
+        and does NOT fall through to env/config."""
+        with patch(
+            "qwenpaw.security.tool_guard.utils.EnvVarLoader.get_str",
+            return_value="SHOULD_NOT_BE_READ",
+        ):
+            result = resolve_auto_denied_rules(user_defined=[])
+        assert result == set()
+
+    def test_env_var_consulted_when_user_defined_is_none(
+        self,
+        mock_env_loader,
+    ):
+        """Env var QWENPAW_TOOL_GUARD_AUTO_DENIED_RULES is read next."""
+        mock_env_loader.return_value = "RULE_X,RULE_Y"
+        result = resolve_auto_denied_rules()
+        assert result == {"RULE_X", "RULE_Y"}
+
+    def test_env_var_whitespace_stripped(self, mock_env_loader):
+        """Whitespace around comma-separated env tokens is stripped."""
+        mock_env_loader.return_value = "  RULE_X , RULE_Y  "
+        result = resolve_auto_denied_rules()
+        assert result == {"RULE_X", "RULE_Y"}
+
+    def test_env_var_empty_string_falls_through_to_config(
+        self,
+        mock_env_loader,
+        mock_config,
+    ):
+        """Empty env-var falls through to the config-derived value."""
+        mock_env_loader.return_value = ""
+        mock_config.return_value.security.tool_guard.auto_denied_rules = [
+            "RULE_CFG",
+        ]
+        result = resolve_auto_denied_rules()
+        assert result == {"RULE_CFG"}
+
+    def test_config_strips_whitespace_and_drops_empty(
+        self,
+        mock_env_loader,
+        mock_config,
+    ):
+        """Whitespace stripped and empty entries dropped from config list."""
+        mock_env_loader.return_value = ""
+        mock_config.return_value.security.tool_guard.auto_denied_rules = [
+            " RULE_CFG ",
+            "",
+            "  ",
+        ]
+        result = resolve_auto_denied_rules()
+        assert result == {"RULE_CFG"}
+
+    def test_config_empty_list_falls_through_to_default(
+        self,
+        mock_env_loader,
+        mock_config,
+    ):
+        """Falsy config.auto_denied_rules falls through to default empty."""
+        mock_env_loader.return_value = ""
+        mock_config.return_value.security.tool_guard.auto_denied_rules = []
+        result = resolve_auto_denied_rules()
+        assert result == set()
+
+    def test_default_is_empty_set(
+        self,
+        mock_env_loader,
+        mock_config,  # pylint: disable=unused-argument
+    ):
+        """With nothing specified anywhere the default is an empty set."""
+        mock_env_loader.return_value = ""
+        result = resolve_auto_denied_rules()
+        assert result == set()
+
+    def test_config_load_failure_falls_to_default(self, mock_env_loader):
+        """If config loading raises, fall through to default empty set."""
+        mock_env_loader.return_value = ""
+        with patch(
+            "qwenpaw.security.tool_guard.utils._load_config_tool_guard",
+            return_value=None,
+        ):
+            result = resolve_auto_denied_rules()
         assert result == set()
 
 

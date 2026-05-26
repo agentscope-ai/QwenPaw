@@ -86,6 +86,7 @@ def engine_with_defaults():
     eng._guardians = [g1, g2]
     eng._guarded_tools = None
     eng._denied_tools = set()
+    eng._auto_denied_rules = set()
     return eng
 
 
@@ -248,6 +249,90 @@ class TestToolGuardEngineIsDenied:
     ):
         engine_with_defaults._denied_tools = {"rm_rf"}
         assert engine_with_defaults.is_denied("read_file") is False
+
+
+# ===================================================================
+# TestToolGuardEngineShouldAutoDenyResult
+# ===================================================================
+
+
+class TestToolGuardEngineShouldAutoDenyResult:
+    """Tests for ToolGuardEngine.should_auto_deny_result.
+
+    The method returns True only when at least one finding's rule_id is
+    listed in the engine's auto-deny rule set; otherwise False. None /
+    empty results / empty rule set all short-circuit to False.
+    """
+
+    def _make_result(self, findings):
+        return ToolGuardResult(
+            tool_name="execute_shell_command",
+            params={"command": "x"},
+            findings=findings,
+            guard_duration_seconds=0.0,
+        )
+
+    def test_returns_false_when_result_is_none(self, engine_with_defaults):
+        engine_with_defaults._auto_denied_rules = {"R1"}
+        assert engine_with_defaults.should_auto_deny_result(None) is False
+
+    def test_returns_false_when_findings_empty(self, engine_with_defaults):
+        engine_with_defaults._auto_denied_rules = {"R1"}
+        result = self._make_result([])
+        assert engine_with_defaults.should_auto_deny_result(result) is False
+
+    def test_returns_false_when_auto_deny_rules_empty(
+        self,
+        engine_with_defaults,
+    ):
+        """No auto-deny rules → never auto-deny regardless of findings."""
+        engine_with_defaults._auto_denied_rules = set()
+        result = self._make_result([_make_finding(rule_id="R1")])
+        assert engine_with_defaults.should_auto_deny_result(result) is False
+
+    def test_returns_true_when_finding_matches_rule(
+        self,
+        engine_with_defaults,
+    ):
+        engine_with_defaults._auto_denied_rules = {"R1"}
+        result = self._make_result([_make_finding(rule_id="R1")])
+        assert engine_with_defaults.should_auto_deny_result(result) is True
+
+    def test_returns_false_when_findings_dont_match(
+        self,
+        engine_with_defaults,
+    ):
+        engine_with_defaults._auto_denied_rules = {"DANGEROUS_RULE"}
+        result = self._make_result(
+            [
+                _make_finding(rule_id="OTHER_1"),
+                _make_finding(rule_id="OTHER_2"),
+            ],
+        )
+        assert engine_with_defaults.should_auto_deny_result(result) is False
+
+    def test_returns_true_when_any_finding_matches(
+        self,
+        engine_with_defaults,
+    ):
+        """Among multiple findings, a single matching rule_id triggers."""
+        engine_with_defaults._auto_denied_rules = {"DANGEROUS"}
+        result = self._make_result(
+            [
+                _make_finding(rule_id="HARMLESS"),
+                _make_finding(rule_id="DANGEROUS"),
+                _make_finding(rule_id="OTHER"),
+            ],
+        )
+        assert engine_with_defaults.should_auto_deny_result(result) is True
+
+    def test_auto_denied_rules_property_reflects_state(
+        self,
+        engine_with_defaults,
+    ):
+        """Public ``auto_denied_rules`` property exposes the configured set."""
+        engine_with_defaults._auto_denied_rules = {"R1", "R2"}
+        assert engine_with_defaults.auto_denied_rules == {"R1", "R2"}
 
 
 # ===================================================================

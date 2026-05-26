@@ -28,6 +28,7 @@ def mock_config():
     tool_guard_cfg = MagicMock()
     tool_guard_cfg.guarded_tools = None
     tool_guard_cfg.denied_tools = None
+    tool_guard_cfg.auto_denied_rules = None
 
     security_cfg = MagicMock()
     security_cfg.tool_guard = tool_guard_cfg
