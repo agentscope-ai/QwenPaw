@@ -17,17 +17,22 @@ export function useChannels() {
   const fetchChannels = useCallback(async () => {
     setLoading(true);
     try {
-      const [data, types, schemas] = await Promise.all([
+      const [data, types] = await Promise.all([
         api.listChannels(),
         api.listChannelTypes(),
-        api.listChannelSchemas(),
       ]);
       if (data)
         setChannels(data as unknown as Record<string, Record<string, unknown>>);
       if (types) setChannelTypes(types);
-      if (schemas) setChannelSchemas(schemas);
     } catch (error) {
       console.error("❌ Failed to load channels:", error);
+    }
+    // Fetch schemas separately so failures don't block core channel loading
+    try {
+      const schemas = await api.listChannelSchemas();
+      if (schemas) setChannelSchemas(schemas);
+    } catch {
+      // Plugin system may not be available; non-critical
     } finally {
       setLoading(false);
     }

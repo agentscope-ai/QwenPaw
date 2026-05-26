@@ -1334,7 +1334,7 @@ export function ChannelDrawer({
       return (
         <>
           {channelSchema.description && (
-            <div style={{ marginBottom: 12, color: "#666", fontSize: 13 }}>
+            <div className={styles.schemaDescription}>
               {channelSchema.description}
             </div>
           )}
@@ -1352,6 +1352,7 @@ export function ChannelDrawer({
                     label={field.label}
                     rules={rules}
                     tooltip={field.help}
+                    initialValue={field.default}
                   >
                     <Input.Password placeholder={field.placeholder} />
                   </Form.Item>
@@ -1364,6 +1365,7 @@ export function ChannelDrawer({
                     label={field.label}
                     rules={rules}
                     tooltip={field.help}
+                    initialValue={field.default}
                   >
                     <InputNumber
                       style={{ width: "100%" }}
@@ -1379,6 +1381,7 @@ export function ChannelDrawer({
                     label={field.label}
                     valuePropName="checked"
                     tooltip={field.help}
+                    initialValue={field.default}
                   >
                     <Switch />
                   </Form.Item>
@@ -1391,6 +1394,7 @@ export function ChannelDrawer({
                     label={field.label}
                     rules={rules}
                     tooltip={field.help}
+                    initialValue={field.default}
                   >
                     <Select
                       placeholder={field.placeholder}
@@ -1409,6 +1413,7 @@ export function ChannelDrawer({
                     label={field.label}
                     rules={rules}
                     tooltip={field.help}
+                    initialValue={field.default}
                   >
                     <Input placeholder={field.placeholder} />
                   </Form.Item>
