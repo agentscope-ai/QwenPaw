@@ -398,6 +398,13 @@ class PluginApi:
             ...             "label": "Bot Token",
             ...             "type": "password",
             ...             "required": True,
+            ...             "placeholder": "xoxb-...",
+            ...         },
+            ...         {
+            ...             "name": "signing_secret",
+            ...             "label": "Signing Secret",
+            ...             "type": "password",
+            ...             "required": True,
             ...         },
             ...     ],
             ... )
