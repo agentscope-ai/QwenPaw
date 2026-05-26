@@ -100,7 +100,6 @@ export default function Downloads() {
         }
 
         const mainIndex: MainIndex = await mainIndexResponse.json();
-        console.log("Main index loaded:", mainIndex);
         const [desktopData, pluginsData] = await Promise.all([
           mainIndex.products?.desktop
             ? fetchProductIndex(mainIndex.products.desktop.index_url)
@@ -109,7 +108,6 @@ export default function Downloads() {
             ? fetchProductIndex(mainIndex.products.plugins.index_url)
             : Promise.resolve(null),
         ]);
-        console.log("Product indices loaded:", { desktopData, pluginsData });
         if (cancelled) return;
 
         if (desktopData) setDesktopIndex(desktopData);
