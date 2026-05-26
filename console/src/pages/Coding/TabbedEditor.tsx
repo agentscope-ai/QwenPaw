@@ -477,9 +477,13 @@ export default function TabbedEditor({
     // If an undo revert write is in flight, don't create a diff
     if (undoInProgressRef.current.has(path)) return;
 
+    // Treat `added` the same as `modified` for an already-open tab: atomic
+    // saves (e.g. macOS `sed -i ''`, vim, VSCode) replace the file via
+    // rename, which FSEvents reports as a creation rather than a content
+    // change. From the editor's POV, the path's contents just differ.
     const affected = events.some(
       (e) =>
-        e.change === "modified" &&
+        (e.change === "modified" || e.change === "added") &&
         e.path.replace(/\\/g, "/") === path.replace(/\\/g, "/"),
     );
     if (!affected) return;
