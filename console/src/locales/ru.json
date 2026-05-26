@@ -2077,13 +2077,16 @@
     "parameters": "Параметры",
     "approve": "Подтвердить",
     "deny": "Отклонить",
+    "approveAll": "Подтвердить All",
     "source": "Источник",
     "subSession": "Подагент",
     "approved": "Вызов инструмента подтвержден",
     "denied": "Вызов инструмента отклонен",
     "approveFailed": "Не удалось подтвердить",
     "cancelTask": "Отменить задачу",
-    "denyFailed": "Не удалось отклонить"
+    "denyFailed": "Не удалось отклонить",
+    "approvedAll": "Вызов инструмента подтвержден (all)",
+    "approveAllFailed": "Failed to approve all tools"
   },
   "pluginManager": {
     "title": "Менеджер плагинов",

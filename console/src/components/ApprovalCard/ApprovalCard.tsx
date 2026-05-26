@@ -24,6 +24,7 @@ export interface ApprovalCardProps {
   rootSessionId?: string;
   onApprove: (requestId: string) => Promise<void>;
   onDeny: (requestId: string) => Promise<void>;
+  onApproveAll?: () => Promise<void>;
   onCancel?: () => void;
   onAcknowledge?: (requestId: string) => Promise<void>;
 }
@@ -44,6 +45,7 @@ export function ApprovalCard({
   rootSessionId,
   onApprove,
   onDeny,
+  onApproveAll,
   onCancel,
   onAcknowledge,
 }: ApprovalCardProps) {
@@ -54,7 +56,7 @@ export function ApprovalCard({
     [agents],
   );
   const [loading, setLoading] = useState<
-    "approve" | "deny" | "acknowledge" | null
+    "approve" | "deny" | "approveAll" | "acknowledge" | null
   >(null);
   const [remaining, setRemaining] = useState<number>(timeoutSeconds);
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -122,6 +124,16 @@ export function ApprovalCard({
     setLoading("deny");
     try {
       await onDeny(requestId);
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const handleApproveAll = async () => {
+    if (!onApproveAll) return;
+    setLoading("approveAll");
+    try {
+      await onApproveAll();
     } finally {
       setLoading(null);
     }
@@ -312,6 +324,18 @@ export function ApprovalCard({
             >
               {t("approval.approve", "Approve")}
             </Button>
+            {onApproveAll && (
+              <Button
+                type="default"
+                icon={<Check size={14} />}
+                onClick={handleApproveAll}
+                loading={loading === "approveAll"}
+                disabled={loading !== null}
+                className={styles.approveAllButton}
+              >
+                {t("approval.approveAll", "Approve All")}
+              </Button>
+            )}
           </>
         )}
       </div>

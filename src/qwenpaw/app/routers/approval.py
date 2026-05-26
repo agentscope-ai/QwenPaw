@@ -40,6 +40,20 @@ class ApprovalActionResponse(BaseModel):
     request_id: str
 
 
+class ApprovalAllRequest(BaseModel):
+    """Request body for bulk approve-all action."""
+
+    session_id: str = Field(..., description="Root session ID")
+
+
+class ApprovalAllResponse(BaseModel):
+    """Response for bulk approve-all action."""
+
+    success: bool
+    message: str
+    approved_count: int
+
+
 class ApprovalListResponse(BaseModel):
     """Response for listing pending approvals."""
 
@@ -181,6 +195,42 @@ async def post_approval_deny(
         message=f"Tool '{resolved.tool_name}' denied: {reason}",
         tool_name=resolved.tool_name,
         request_id=body.request_id,
+    )
+
+
+@router.post(
+    "/approve-all",
+    response_model=ApprovalAllResponse,
+    summary="Approve all pending tool executions for a session",
+)
+async def post_approval_approve_all(
+    request: Request,  # pylint: disable=unused-argument
+    body: ApprovalAllRequest,
+) -> ApprovalAllResponse:
+    """Approve all pending tool executions for a root session.
+
+    Resolves all pending Futures with APPROVED, unblocking the agent
+    from all queued approval requests in one go.
+    """
+    svc = get_approval_service()
+
+    logger.info(
+        "Approval approve-all request: session_id=%s",
+        body.session_id,
+    )
+
+    approved_count = await svc.approve_all_by_root_session(body.session_id)
+
+    logger.info(
+        "Approval approve-all completed: session=%s count=%d",
+        body.session_id,
+        approved_count,
+    )
+
+    return ApprovalAllResponse(
+        success=True,
+        message=f"Approved {approved_count} pending tool execution(s)",
+        approved_count=approved_count,
     )
 
 

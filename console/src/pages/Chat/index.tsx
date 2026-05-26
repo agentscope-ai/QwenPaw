@@ -780,6 +780,22 @@ export default function ChatPage() {
     [approvalRequests, chatId, t, message, setApprovals],
   );
 
+  const handleApproveAll = useCallback(async () => {
+    const rootSessionId = window.currentSessionId || chatId || "";
+    try {
+      await commandsApi.approveAll(rootSessionId);
+      // Clear all pending approvals from UI at once
+      setApprovals([]);
+      setApprovalRequests(new Map());
+      message.success(t("approval.approvedAll", "All pending tools approved"));
+    } catch (error) {
+      message.error(
+        t("approval.approveAllFailed", "Failed to approve all tools"),
+      );
+      console.error("Failed to approve all:", error);
+    }
+  }, [chatId, t, message, setApprovals]);
+
   // Use custom hooks for better separation of concerns
   const isComposingRef = useIMEComposition(isChatActive);
   const multimodalCaps = useMultimodalCapabilities(
@@ -1348,6 +1364,7 @@ export default function ChatPage() {
             rootSessionId={request.rootSessionId}
             onApprove={handleApprove}
             onDeny={handleDeny}
+            onApproveAll={handleApproveAll}
             onCancel={() => {
               const sessionId =
                 request.rootSessionId || window.currentSessionId || "";

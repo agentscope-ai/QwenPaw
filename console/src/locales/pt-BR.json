@@ -2097,13 +2097,16 @@
     "parameters": "Parameters",
     "approve": "Approve",
     "deny": "Deny",
+    "approveAll": "Approve All",
     "source": "Origem",
     "subSession": "Sub-Agent",
     "approved": "Tool call approved",
     "denied": "Tool call denied",
     "approveFailed": "Falhou to approve",
     "cancelTask": "Cancelar Task",
-    "denyFailed": "Falhou to deny"
+    "denyFailed": "Falhou to deny",
+    "approvedAll": "Tool call approved (all)",
+    "approveAllFailed": "Failed to approve all tools"
   },
   "pluginManager": {
     "title": "Gerenciador de Plugins",

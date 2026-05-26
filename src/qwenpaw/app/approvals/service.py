@@ -343,6 +343,46 @@ class ApprovalService:
             )
         return cancelled
 
+    async def approve_all_by_root_session(
+        self,
+        root_session_id: str,
+    ) -> int:
+        """Approve all pending approvals for root session and its children.
+
+        Called when user selects "approve all" to skip step-by-step
+        confirmation for the current task.
+
+        Args:
+            root_session_id: Root session ID
+
+        Returns:
+            Number of approvals approved
+        """
+        now = time.time()
+        approved = 0
+        async with self._lock:
+            to_approve = [
+                k
+                for k, p in self._pending.items()
+                if p.root_session_id == root_session_id
+                and p.status == "pending"
+            ]
+            for k in to_approve:
+                pending = self._pending.pop(k)
+                pending.status = ApprovalDecision.APPROVED.value
+                pending.resolved_at = now
+                if not pending.future.done():
+                    pending.future.set_result(ApprovalDecision.APPROVED)
+                approved += 1
+        if approved:
+            logger.info(
+                "Approval: bulk-approved %d pending approval(s) "
+                "for root session %s",
+                approved,
+                root_session_id[:8],
+            )
+        return approved
+
     async def cancel_all_pending_by_root_session(
         self,
         root_session_id: str,

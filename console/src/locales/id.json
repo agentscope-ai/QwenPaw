@@ -805,5 +805,9 @@
     "timeout": "Backend gagal dimulai dalam {{seconds}} detik.",
     "timeoutHint": "Backend gagal dimulai. Coba lagi, atau periksa log aplikasi untuk detail.",
     "retry": "Coba lagi"
+  },
+  "approval": {
+    "approvedAll": "Approved (all)",
+    "approveAllFailed": "Failed to approve all tools"
   }
 }

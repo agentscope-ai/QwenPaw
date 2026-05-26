@@ -46,4 +46,19 @@ export const commandsApi = {
       }),
     });
   },
+
+  /** Approve all pending tool executions for a session at once */
+  approveAll: async (
+    sessionId: string,
+  ): Promise<{ success: boolean; message: string; approved_count: number }> => {
+    console.log("[commandsApi] Sending approve-all for session:", sessionId);
+    return request<{
+      success: boolean;
+      message: string;
+      approved_count: number;
+    }>("/approval/approve-all", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+  },
 };
