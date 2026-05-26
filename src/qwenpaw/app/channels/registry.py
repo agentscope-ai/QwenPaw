@@ -190,8 +190,24 @@ def register_custom_channel_routes(app) -> None:
             logger.exception("Failed to load custom channel routes: %s", name)
 
 
+def _get_plugin_channels() -> dict[str, type[BaseChannel]]:
+    """Return channel classes registered via the plugin system."""
+    try:
+        from ...plugins.registry import PluginRegistry
+
+        registry = PluginRegistry()
+        return {
+            key: reg.channel_class
+            for key, reg in registry.get_registered_channels().items()
+        }
+    except Exception:
+        logger.debug("plugin channel discovery skipped", exc_info=True)
+        return {}
+
+
 def get_channel_registry() -> dict[str, type[BaseChannel]]:
-    """Built-in channel classes + custom channels from custom_channels/."""
+    """Built-in + custom_channels/ + plugin-registered channels."""
     out = _get_cached_builtin_channels()
     out.update(_discover_custom_channels())
+    out.update(_get_plugin_channels())
     return out
