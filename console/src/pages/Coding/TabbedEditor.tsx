@@ -35,7 +35,7 @@ import { workspaceApi } from "../../api/modules/workspace";
 import { useWorkspaceWatch } from "../../hooks/useWorkspaceWatch";
 import { useTheme } from "../../contexts/ThemeContext";
 import { setTextareaValue } from "../Chat/utils";
-import { setLastEditorCopy } from "./lastEditorCopy";
+import { clearLastEditorCopy, setLastEditorCopy } from "./lastEditorCopy";
 import {
   useCurrentDiffs,
   useCodingTabsStore,
@@ -413,19 +413,23 @@ export default function TabbedEditor({
    */
   useEffect(() => {
     const onCopy = () => {
+      // Any copy event that does NOT originate from our editor
+      // invalidates the cache — otherwise a same-text copy elsewhere
+      // (e.g. a markdown preview in the same page) would still trigger
+      // the formatted swap on the next chat paste.
       const path = activeTabPathRef.current;
-      if (!path) return;
-      // Prefer the diff editor's modified pane when in diff mode,
-      // otherwise fall back to the regular editor.
       const editor: MonacoEditor.IStandaloneCodeEditor | null =
         diffEditorRef.current?.getModifiedEditor() ?? editorRef.current;
-      if (!editor) return;
-      // Only act when the copy originated from this editor (focused).
-      if (!editor.hasTextFocus()) return;
+      if (!path || !editor || !editor.hasTextFocus()) {
+        clearLastEditorCopy();
+        return;
+      }
       const sel = editor.getSelection();
       const model = editor.getModel();
-      if (!sel || !model) return;
-      if (sel.isEmpty()) return;
+      if (!sel || !model || sel.isEmpty()) {
+        clearLastEditorCopy();
+        return;
+      }
       const { mode, code, startLine, endLine } = detectCopyMode(sel, model);
       const formatted = formatSelectionForChat(
         path,
@@ -436,6 +440,8 @@ export default function TabbedEditor({
       );
       if (formatted !== code) {
         setLastEditorCopy({ text: code, formatted, ts: Date.now() });
+      } else {
+        clearLastEditorCopy();
       }
     };
     document.addEventListener("copy", onCopy, true);
