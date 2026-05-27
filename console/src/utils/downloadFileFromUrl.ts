@@ -121,7 +121,11 @@ async function logTauriDownloadDiagnostic(
         ...options.headers,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ source: "download-file", ...payload }),
+      body: JSON.stringify({
+        source: "download-file",
+        page_url: downloadUrlForLog(window.location.href),
+        ...payload,
+      }),
     });
   } catch (error) {
     console.warn("[download] failed to write desktop diagnostic", error);

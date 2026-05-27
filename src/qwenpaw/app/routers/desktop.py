@@ -25,6 +25,7 @@ class OpenExternalLinkRequest(BaseModel):
 class DesktopDiagnosticRequest(BaseModel):
     source: str
     step: str
+    page_url: str | None = None
     url: str | None = None
     filename: str | None = None
     status: int | None = None
@@ -59,10 +60,11 @@ def record_desktop_diagnostic(payload: DesktopDiagnosticRequest) -> dict:
 
     error = payload.error or {}
     logger.info(
-        "[desktop-diagnostics] source=%s step=%s url=%s filename=%s "
-        "status=%s bytes=%s has_save_path=%s error=%s:%s",
+        "[desktop-diagnostics] source=%s step=%s page_url=%s url=%s "
+        "filename=%s status=%s bytes=%s has_save_path=%s error=%s:%s",
         _safe_log_text(payload.source),
         _safe_log_text(payload.step),
+        _safe_log_text(payload.page_url),
         _safe_log_text(payload.url),
         _safe_log_text(payload.filename),
         payload.status,
