@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
-# pylint: disable=line-too-long,unused-argument,unused-variable,redefined-outer-name
+# pylint: disable=line-too-long,unused-argument,unused-variable
+# pylint: disable=redefined-outer-name,protected-access
 """Unit tests for AsMsgHandler context_check with tool_use/tool_result alignment."""
 
 import pytest
 from agentscope.message import Msg
 
 from qwenpaw.agents.context.as_msg_handler import AsMsgHandler
+from qwenpaw.agents.context.light_context_manager import LightContextManager
 from qwenpaw.agents.utils.estimate_token_counter import EstimatedTokenCounter
+from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
 
 
 class MockTokenCounter(EstimatedTokenCounter):
@@ -16,9 +19,11 @@ class MockTokenCounter(EstimatedTokenCounter):
     def __init__(self, token_map: dict[str, int] | None = None):
         super().__init__()
         self.token_map = token_map or {}
+        self.count_calls = 0
 
     async def count(self, text: str = "", messages: list | None = None) -> int:
         """Count tokens based on text length or predefined mapping."""
+        self.count_calls += 1
         if text in self.token_map:
             return self.token_map[text]
         # Simple estimation: roughly 4 chars per token for Chinese
@@ -467,3 +472,304 @@ class TestAsMsgHandlerToolAlignment:
         assert (
             tool_use_ids_in_keep == tool_result_ids_in_keep
         ), f"tool_use ids: {tool_use_ids_in_keep}, tool_result ids: {tool_result_ids_in_keep}"
+
+
+class TestAsMsgHandlerTokenOverride:
+    """Test request-level token overrides."""
+
+    @pytest.mark.asyncio
+    async def test_context_check_uses_total_tokens_override(self):
+        token_counter = MockTokenCounter()
+        handler = AsMsgHandler(token_counter)
+        messages = [
+            Msg(name="user", role="user", content="abcd", metadata={}),
+            Msg(
+                name="assistant",
+                role="assistant",
+                content="efgh",
+                metadata={},
+            ),
+        ]
+
+        result = await handler.context_check(
+            messages=messages,
+            context_compact_threshold=10,
+            context_compact_reserve=1,
+            total_tokens_override=20,
+        )
+
+        msgs_to_compact, msgs_to_keep, total_tokens, keep_tokens = result
+        assert total_tokens == 20
+        assert msgs_to_compact == messages[:1]
+        assert msgs_to_keep == messages[1:]
+        assert keep_tokens == 1
+
+    @pytest.mark.asyncio
+    async def test_context_check_override_under_threshold_skips_full_count(
+        self,
+    ):
+        token_counter = MockTokenCounter()
+        handler = AsMsgHandler(token_counter)
+        messages = [
+            Msg(name="user", role="user", content="abcd", metadata={}),
+            Msg(
+                name="assistant",
+                role="assistant",
+                content="efgh",
+                metadata={},
+            ),
+        ]
+
+        result = await handler.context_check(
+            messages=messages,
+            context_compact_threshold=10,
+            context_compact_reserve=1,
+            total_tokens_override=2,
+        )
+
+        msgs_to_compact, msgs_to_keep, total_tokens, keep_tokens = result
+        assert msgs_to_compact == []
+        assert msgs_to_keep == messages
+        assert total_tokens == 2
+        assert keep_tokens == 2
+        assert token_counter.count_calls == 0
+
+
+class TestLightContextManagerTokenSnapshot:
+    """Test request-level prompt usage reuse."""
+
+    @pytest.mark.asyncio
+    async def test_uses_latest_prompt_usage_for_matching_snapshot(
+        self,
+        tmp_path,
+    ):
+        TokenRecordingModelWrapper._latest_usage_by_session.clear()
+        manager = LightContextManager(str(tmp_path), "default")
+        token_counter = MockTokenCounter()
+        handler = AsMsgHandler(token_counter)
+        session_id = "session-1"
+        first_messages = [
+            Msg(name="user", role="user", content="abcd", metadata={}),
+        ]
+
+        first = await manager._resolve_context_total_override(
+            session_id=session_id,
+            messages=first_messages,
+            msg_handler=handler,
+        )
+        assert first is None
+
+        TokenRecordingModelWrapper._latest_usage_by_session[session_id] = {
+            "prompt_tokens": 10,
+            "sequence": 1,
+        }
+        current_messages = [
+            *first_messages,
+            Msg(
+                name="assistant",
+                role="assistant",
+                content="efgh",
+                metadata={},
+            ),
+        ]
+
+        override = await manager._resolve_context_total_override(
+            session_id=session_id,
+            messages=current_messages,
+            msg_handler=handler,
+        )
+
+        assert override == 11
+        assert token_counter.count_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_snapshots_are_kept_per_session(self, tmp_path):
+        TokenRecordingModelWrapper._latest_usage_by_session.clear()
+        manager = LightContextManager(str(tmp_path), "default")
+        token_counter = MockTokenCounter()
+        handler = AsMsgHandler(token_counter)
+        session_a = "session-a"
+        session_b = "session-b"
+        messages_a = [
+            Msg(name="user", role="user", content="abcd", metadata={}),
+        ]
+        messages_b = [
+            Msg(name="user", role="user", content="ijkl", metadata={}),
+        ]
+
+        await manager._resolve_context_total_override(
+            session_id=session_a,
+            messages=messages_a,
+            msg_handler=handler,
+        )
+        await manager._resolve_context_total_override(
+            session_id=session_b,
+            messages=messages_b,
+            msg_handler=handler,
+        )
+
+        TokenRecordingModelWrapper._latest_usage_by_session[session_a] = {
+            "prompt_tokens": 10,
+            "sequence": 1,
+        }
+        override = await manager._resolve_context_total_override(
+            session_id=session_a,
+            messages=[
+                *messages_a,
+                Msg(
+                    name="assistant",
+                    role="assistant",
+                    content="efgh",
+                    metadata={},
+                ),
+            ],
+            msg_handler=handler,
+        )
+
+        assert override == 11
+
+    @pytest.mark.asyncio
+    async def test_latest_usage_without_snapshot_is_not_used(self, tmp_path):
+        TokenRecordingModelWrapper._latest_usage_by_session.clear()
+        manager = LightContextManager(str(tmp_path), "default")
+        token_counter = MockTokenCounter()
+        handler = AsMsgHandler(token_counter)
+        session_id = "session-1"
+        TokenRecordingModelWrapper._latest_usage_by_session[session_id] = {
+            "prompt_tokens": 10,
+            "sequence": 1,
+        }
+
+        override = await manager._resolve_context_total_override(
+            session_id=session_id,
+            messages=[
+                Msg(name="user", role="user", content="abcd", metadata={}),
+            ],
+            msg_handler=handler,
+        )
+
+        assert override is None
+        assert token_counter.count_calls == 0
+
+    @pytest.mark.asyncio
+    async def test_missing_prompt_usage_falls_back_to_full_estimate(
+        self,
+        tmp_path,
+    ):
+        TokenRecordingModelWrapper._latest_usage_by_session.clear()
+        manager = LightContextManager(str(tmp_path), "default")
+        token_counter = MockTokenCounter()
+        handler = AsMsgHandler(token_counter)
+        session_id = "session-1"
+        messages = [
+            Msg(name="user", role="user", content="abcd", metadata={}),
+        ]
+
+        await manager._resolve_context_total_override(
+            session_id=session_id,
+            messages=messages,
+            msg_handler=handler,
+        )
+        TokenRecordingModelWrapper._latest_usage_by_session[session_id] = {
+            "prompt_tokens": 0,
+            "sequence": 1,
+        }
+
+        override = await manager._resolve_context_total_override(
+            session_id=session_id,
+            messages=[
+                *messages,
+                Msg(
+                    name="assistant",
+                    role="assistant",
+                    content="efgh",
+                    metadata={},
+                ),
+            ],
+            msg_handler=handler,
+        )
+
+        assert override is None
+        assert token_counter.count_calls == 0
+
+    @pytest.mark.asyncio
+    async def test_malformed_prompt_usage_falls_back_to_full_estimate(
+        self,
+        tmp_path,
+    ):
+        TokenRecordingModelWrapper._latest_usage_by_session.clear()
+        manager = LightContextManager(str(tmp_path), "default")
+        token_counter = MockTokenCounter()
+        handler = AsMsgHandler(token_counter)
+        session_id = "session-1"
+        messages = [
+            Msg(name="user", role="user", content="abcd", metadata={}),
+        ]
+
+        await manager._resolve_context_total_override(
+            session_id=session_id,
+            messages=messages,
+            msg_handler=handler,
+        )
+        TokenRecordingModelWrapper._latest_usage_by_session[session_id] = {
+            "prompt_tokens": "bad",
+            "sequence": 1,
+        }
+
+        override = await manager._resolve_context_total_override(
+            session_id=session_id,
+            messages=[
+                *messages,
+                Msg(
+                    name="assistant",
+                    role="assistant",
+                    content="efgh",
+                    metadata={},
+                ),
+            ],
+            msg_handler=handler,
+        )
+
+        assert override is None
+        assert token_counter.count_calls == 0
+
+    @pytest.mark.asyncio
+    async def test_prompt_usage_override_ignores_static_estimate(
+        self,
+        tmp_path,
+    ):
+        TokenRecordingModelWrapper._latest_usage_by_session.clear()
+        manager = LightContextManager(str(tmp_path), "default")
+        token_counter = MockTokenCounter()
+        handler = AsMsgHandler(token_counter)
+        session_id = "session-1"
+        messages = [
+            Msg(name="user", role="user", content="abcd", metadata={}),
+        ]
+
+        await manager._resolve_context_total_override(
+            session_id=session_id,
+            messages=messages,
+            msg_handler=handler,
+        )
+        TokenRecordingModelWrapper._latest_usage_by_session[session_id] = {
+            "prompt_tokens": 10,
+            "sequence": 1,
+        }
+
+        override = await manager._resolve_context_total_override(
+            session_id=session_id,
+            messages=[
+                *messages,
+                Msg(
+                    name="assistant",
+                    role="assistant",
+                    content="efgh",
+                    metadata={},
+                ),
+            ],
+            msg_handler=handler,
+        )
+
+        assert override == 11
+        assert token_counter.count_calls == 1

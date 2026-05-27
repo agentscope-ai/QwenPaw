@@ -106,6 +106,13 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
     session_id = getattr(request, "session_id", "") or ""
     user_id = getattr(request, "user_id", "") or ""
     channel_name = getattr(request, "channel", "") or ""
+    from ..agent_context import (
+        set_current_agent_id,
+        set_current_session_id,
+    )
+
+    set_current_agent_id(runner.agent_id)
+    set_current_session_id(session_id)
 
     # Daemon path
     parsed = parse_daemon_query(query)

@@ -2,10 +2,12 @@
 # pylint: disable=too-many-nested-blocks,too-many-branches
 # pylint: disable=too-many-return-statements,too-many-statements
 """Context manager for agents with compaction support."""
+
 import logging
 import os
 import sys
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Set
@@ -39,9 +41,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _get_current_session_id() -> str:
+    """Return the current session id without creating import cycles."""
+    from ...app.agent_context import get_current_session_id
+
+    return get_current_session_id() or ""
+
+
 def _fmt_tokens(n: int) -> str:
     """Format token count as e.g. '82.3k' or '450'."""
     return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+
+
+@dataclass
+class _TokenEstimateSnapshot:
+    """Message boundary for applying the next provider usage reading."""
+
+    message_count: int
+    usage_sequence_floor: int
 
 
 @context_registry.register("light")
@@ -65,8 +82,12 @@ class LightContextManager(BaseContextManager):
             agent_id: Agent ID for config loading.
         """
         super().__init__(working_dir=working_dir, agent_id=agent_id)
+        self._token_estimate_snapshots: dict[
+            str,
+            _TokenEstimateSnapshot,
+        ] = {}
         logger.info(
-            f"LightContextManager init: "
+            "LightContextManager init: "
             f"agent_id={agent_id}, working_dir={working_dir}",
         )
 
@@ -203,7 +224,7 @@ class LightContextManager(BaseContextManager):
         output: str | list[dict],
         max_bytes: int,
         encoding: str = "utf-8",
-    ) -> str | list[dict]:
+    ) -> tuple[str | list[dict], bool]:
         """Prune output by truncating to max_bytes.
 
         Args:
@@ -212,19 +233,26 @@ class LightContextManager(BaseContextManager):
             encoding: Character encoding.
 
         Returns:
-            Pruned output.
+            Tuple of (pruned output, whether output changed).
         """
         if isinstance(output, str):
-            return self._truncate_tool_result(output, max_bytes, encoding)
+            pruned = self._truncate_tool_result(output, max_bytes, encoding)
+            return pruned, pruned != output
         if isinstance(output, list):
+            changed = False
             for block in output:
                 if isinstance(block, dict) and block.get("type") == "text":
-                    block["text"] = self._truncate_tool_result(
-                        block.get("text", ""),
+                    original_text = block.get("text", "")
+                    pruned_text = self._truncate_tool_result(
+                        original_text,
                         max_bytes,
                         encoding,
                     )
-        return output
+                    if pruned_text != original_text:
+                        block["text"] = pruned_text
+                        changed = True
+            return output, changed
+        return output, False
 
     async def _prune_tool_result(
         self,
@@ -233,7 +261,7 @@ class LightContextManager(BaseContextManager):
         old_max_bytes: int = 3000,
         recent_max_bytes: int = DEFAULT_MAX_BYTES,
         **_kwargs,
-    ) -> list[Msg]:
+    ) -> bool:
         """Process all messages, truncating large tool results.
 
         Args:
@@ -245,10 +273,12 @@ class LightContextManager(BaseContextManager):
                 (unused here, set in init).
 
         Returns:
-            Processed messages list.
+            True if any tool result was changed.
         """
         if not messages:
-            return messages
+            return False
+
+        changed = False
 
         # Count recent tool_result messages from the end
         recent_count = 0
@@ -327,12 +357,15 @@ class LightContextManager(BaseContextManager):
                         if tool_id in exempt_tool_ids
                         else max_bytes
                     )
-                    block["output"] = self._prune_output(
+                    pruned_output, output_changed = self._prune_output(
                         output,
                         effective_max_bytes,
                     )
+                    if output_changed:
+                        block["output"] = pruned_output
+                        changed = True
 
-        return messages
+        return changed
 
     @staticmethod
     async def _check_context(
@@ -340,6 +373,7 @@ class LightContextManager(BaseContextManager):
         context_compact_threshold: int,
         context_compact_reserve: int,
         as_token_counter: EstimatedTokenCounter,
+        total_tokens_override: int | None = None,
     ) -> tuple[list[Msg], list[Msg], int, int]:
         """Check context size and determine if compaction is needed.
 
@@ -365,7 +399,92 @@ class LightContextManager(BaseContextManager):
             messages=messages,
             context_compact_threshold=context_compact_threshold,
             context_compact_reserve=context_compact_reserve,
+            total_tokens_override=total_tokens_override,
         )
+
+    def _clear_token_estimate_snapshot(
+        self,
+        session_id: str | None = None,
+    ) -> None:
+        """Invalidate request-level token cache after context mutation."""
+        if session_id:
+            self._token_estimate_snapshots.pop(session_id, None)
+            return
+        self._token_estimate_snapshots.clear()
+
+    @staticmethod
+    def _peek_latest_prompt_usage(
+        session_id: str,
+    ) -> tuple[int, int]:
+        """Return latest recorded prompt tokens and its monotonic sequence."""
+        if not session_id:
+            return 0, 0
+        try:
+            from ...token_usage.model_wrapper import (
+                TokenRecordingModelWrapper,
+            )
+
+            usage = TokenRecordingModelWrapper.peek_usage_for_session(
+                session_id,
+            )
+        except Exception:
+            logger.debug("Failed to peek latest token usage", exc_info=True)
+            return 0, 0
+        if not usage:
+            return 0, 0
+        try:
+            prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
+            sequence = int(usage.get("sequence", 0) or 0)
+        except (TypeError, ValueError):
+            logger.debug("Ignoring malformed token usage: %s", usage)
+            return 0, 0
+        return max(prompt_tokens, 0), max(sequence, 0)
+
+    async def _resolve_context_total_override(
+        self,
+        *,
+        session_id: str,
+        messages: list[Msg],
+        msg_handler: AsMsgHandler,
+    ) -> int | None:
+        """Use provider prompt tokens for the previous snapshot if it matches.
+
+        The provider usage describes the full prompt from the previous
+        pre-reasoning snapshot. If the current context still has at least as
+        many messages, only the appended messages are estimated locally.
+        """
+        prompt_tokens, usage_sequence = self._peek_latest_prompt_usage(
+            session_id,
+        )
+        override: int | None = None
+        snapshot = self._token_estimate_snapshots.get(session_id)
+
+        if (
+            prompt_tokens > 0
+            and snapshot is not None
+            and usage_sequence > snapshot.usage_sequence_floor
+            and len(messages) >= snapshot.message_count
+        ):
+            delta_tokens = 0
+            for msg in messages[snapshot.message_count :]:
+                delta_tokens += (
+                    await msg_handler.stat_message(msg)
+                ).total_tokens
+            override = max(0, prompt_tokens + delta_tokens)
+            logger.debug(
+                "Applied provider prompt usage to context estimate: "
+                "prompt_tokens=%s delta_tokens=%s ctx_override=%s session=%s",
+                prompt_tokens,
+                delta_tokens,
+                override,
+                session_id,
+            )
+
+        self._token_estimate_snapshots[session_id] = _TokenEstimateSnapshot(
+            message_count=len(messages),
+            usage_sequence_floor=usage_sequence,
+        )
+        return override
 
     @staticmethod
     def _is_valid_summary(content: str) -> bool:
@@ -750,7 +869,20 @@ class LightContextManager(BaseContextManager):
                 context_compact_threshold - str_token_count
             )
 
-            if left_compact_threshold <= 0:
+            messages = await memory.get_memory(prepend_summary=False)
+            msg_handler = AsMsgHandler(token_counter)
+            ctx_total_tokens_override = (
+                await self._resolve_context_total_override(
+                    session_id=_get_current_session_id(),
+                    messages=messages,
+                    msg_handler=msg_handler,
+                )
+            )
+
+            if (
+                ctx_total_tokens_override is None
+                and left_compact_threshold <= 0
+            ):
                 logger.warning(
                     "The context_compact_threshold is set too low; "
                     "the combined token length of system_prompt and "
@@ -761,7 +893,16 @@ class LightContextManager(BaseContextManager):
                 )
                 return None
 
-            messages = await memory.get_memory(prepend_summary=False)
+            check_context_threshold = (
+                context_compact_threshold
+                if ctx_total_tokens_override is not None
+                else left_compact_threshold
+            )
+            fallback_context_reserve = (
+                context_compact_threshold
+                if ctx_total_tokens_override is not None
+                else left_compact_threshold
+            )
 
             (
                 messages_to_compact,
@@ -770,9 +911,10 @@ class LightContextManager(BaseContextManager):
                 ctx_keep_tokens,
             ) = await self._check_context(
                 messages=messages,
-                context_compact_threshold=left_compact_threshold,
+                context_compact_threshold=check_context_threshold,
                 context_compact_reserve=context_compact_reserve,
                 as_token_counter=token_counter,
+                total_tokens_override=ctx_total_tokens_override,
             )
 
             if not messages_to_compact:
@@ -784,7 +926,11 @@ class LightContextManager(BaseContextManager):
             compact_count = len(messages_to_compact)
             keep_count = len(messages_to_keep)
 
-            total_tokens = str_token_count + ctx_total_tokens
+            total_tokens = (
+                ctx_total_tokens
+                if ctx_total_tokens_override is not None
+                else str_token_count + ctx_total_tokens
+            )
             keep_tokens = ctx_keep_tokens
 
             pct = total_tokens / max_len * 100 if max_len > 0 else 0
@@ -831,16 +977,21 @@ class LightContextManager(BaseContextManager):
                         ctx_keep_tokens,
                     ) = await self._check_context(
                         messages=messages,
-                        context_compact_threshold=left_compact_threshold,
-                        context_compact_reserve=left_compact_threshold,
+                        context_compact_threshold=check_context_threshold,
+                        context_compact_reserve=fallback_context_reserve,
                         as_token_counter=token_counter,
+                        total_tokens_override=ctx_total_tokens_override,
                     )
                     messages_to_compact = fallback_to_compact
                     messages_to_keep = fallback_to_keep
                     compact_content = memory.get_compressed_summary() or ""
                     keep_count = len(messages_to_keep)
                     compact_count = len(messages_to_compact)
-                    total_tokens = str_token_count + ctx_total_tokens
+                    total_tokens = (
+                        ctx_total_tokens
+                        if ctx_total_tokens_override is not None
+                        else str_token_count + ctx_total_tokens
+                    )
                     pct = total_tokens / max_len * 100 if max_len > 0 else 0
                     token_line = (
                         f"📝 {_fmt_tokens(total_tokens)} / "
@@ -848,8 +999,8 @@ class LightContextManager(BaseContextManager):
                     )
                     if compact_count > 0:
                         msg_line = (
-                            f"💬 Fallback: keep({keep_count})"
-                            f" + drop({compact_count})"
+                            f"💬 Fallback: keep({keep_count}) + "
+                            f"drop({compact_count})"
                         )
                     else:
                         msg_line = f"💬 Fallback: keep({keep_count}) msgs"
@@ -889,16 +1040,21 @@ class LightContextManager(BaseContextManager):
                     ctx_keep_tokens,
                 ) = await self._check_context(
                     messages=messages,
-                    context_compact_threshold=left_compact_threshold,
-                    context_compact_reserve=left_compact_threshold,
+                    context_compact_threshold=check_context_threshold,
+                    context_compact_reserve=fallback_context_reserve,
                     as_token_counter=token_counter,
+                    total_tokens_override=ctx_total_tokens_override,
                 )
                 messages_to_compact = fallback_to_compact
                 messages_to_keep = fallback_to_keep
                 compact_content = memory.get_compressed_summary() or ""
                 keep_count = len(messages_to_keep)
                 compact_count = len(messages_to_compact)
-                total_tokens = str_token_count + ctx_total_tokens
+                total_tokens = (
+                    ctx_total_tokens
+                    if ctx_total_tokens_override is not None
+                    else str_token_count + ctx_total_tokens
+                )
                 pct = total_tokens / max_len * 100 if max_len > 0 else 0
                 token_line = (
                     f"📝 {_fmt_tokens(total_tokens)} / "
@@ -906,8 +1062,8 @@ class LightContextManager(BaseContextManager):
                 )
                 if compact_count > 0:
                     msg_line = (
-                        f"💬 Fallback: keep({keep_count})"
-                        f" + drop({compact_count})"
+                        f"💬 Fallback: keep({keep_count}) + "
+                        f"drop({compact_count})"
                     )
                 else:
                     msg_line = f"💬 Fallback: keep({keep_count}) msgs"
@@ -954,13 +1110,17 @@ class LightContextManager(BaseContextManager):
 
             memory = agent.memory
             messages = await memory.get_memory(prepend_summary=False)
-            await self._prune_tool_result(
+            tool_result_changed = await self._prune_tool_result(
                 messages=messages,
                 recent_n=trc.pruning_recent_n,
                 old_max_bytes=trc.pruning_old_msg_max_bytes,
                 recent_max_bytes=trc.pruning_recent_msg_max_bytes,
                 retention_days=trc.offload_retention_days,
             )
+            if tool_result_changed:
+                self._clear_token_estimate_snapshot(
+                    _get_current_session_id(),
+                )
         except Exception as e:
             logger.exception(
                 "Failed to prune tool results in post_acting hook: %s",
@@ -1008,4 +1168,7 @@ class LightContextManager(BaseContextManager):
         return AgentContext(
             token_counter=get_token_counter(agent_config),
             dialog_path=dialog_path,
+            on_context_rewritten=lambda: self._clear_token_estimate_snapshot(
+                _get_current_session_id(),
+            ),
         )

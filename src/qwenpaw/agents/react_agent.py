@@ -1390,6 +1390,11 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
 
             msg.content = new_content
 
+        if total_stripped > 0:
+            notify = getattr(self.memory, "notify_context_rewritten", None)
+            if callable(notify):
+                notify()
+
         return total_stripped
 
     # pylint: disable=protected-access
