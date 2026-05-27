@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import { isTauriRuntime } from "../tauri/backendRuntime";
+import { getApiUrl } from "../api/config";
+import {
+  isBackendHostedConsole,
+  isTauriRuntime,
+} from "../tauri/backendRuntime";
 
 const URL_WITH_SCHEME_RE = /^[a-z][a-z\d+\-.]*:/i;
 const HTTP_PROTOCOLS = new Set(["http:", "https:"]);
@@ -80,6 +84,34 @@ function externalUrlForLog(url: string): string {
   }
 }
 
+async function openViaDesktopBackend(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(getApiUrl("/desktop/open-external-link"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    if (response.ok) {
+      console.info("[external-link] desktop backend open succeeded", {
+        url: externalUrlForLog(url),
+      });
+      return true;
+    }
+
+    console.warn("[external-link] desktop backend open failed", {
+      status: response.status,
+      url: externalUrlForLog(url),
+    });
+  } catch (error) {
+    console.warn("[external-link] desktop backend open failed", {
+      error,
+      url: externalUrlForLog(url),
+    });
+  }
+
+  return false;
+}
+
 /**
  * Open an external URL in the user's system browser when running under a
  * desktop shell, and fall back to window.open in the web console.
@@ -120,6 +152,18 @@ export function openExternalLink(
         });
       },
     );
+    return;
+  }
+
+  if (isBackendHostedConsole()) {
+    console.info("[external-link] opening via desktop backend", {
+      url: externalUrlForLog(fullUrl),
+    });
+    void openViaDesktopBackend(fullUrl).then((opened) => {
+      if (!opened) {
+        window.open(fullUrl, target, features);
+      }
+    });
     return;
   }
 

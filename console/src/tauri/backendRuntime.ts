@@ -53,7 +53,7 @@ function getApiBaseUrl(): string {
   return typeof VITE_API_BASE_URL !== "undefined" ? VITE_API_BASE_URL : "";
 }
 
-function isBackendHostedConsole(): boolean {
+export function isBackendHostedConsole(): boolean {
   if (typeof window === "undefined") return false;
   const { protocol, hostname, pathname } = window.location;
   return (

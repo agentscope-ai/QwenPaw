@@ -163,6 +163,42 @@ describe("openExternalLink", () => {
     );
   });
 
+  it("opens backend-hosted desktop links through the desktop backend", async () => {
+    window.history.replaceState(null, "", "/console/inbox");
+    fetchMock.mockResolvedValue(new Response("{}", { status: 200 }));
+
+    openExternalLink("https://github.com/agentscope-ai/QwenPaw");
+    await Promise.resolve();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/desktop/open-external-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: "https://github.com/agentscope-ai/QwenPaw",
+      }),
+    });
+    expect(windowOpen).not.toHaveBeenCalled();
+  });
+
+  it("falls back to window.open when the desktop backend is unavailable", async () => {
+    window.history.replaceState(null, "", "/console/inbox");
+    fetchMock.mockResolvedValue(new Response("nope", { status: 404 }));
+
+    openExternalLink("https://github.com/agentscope-ai/QwenPaw");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/desktop/open-external-link",
+      expect.any(Object),
+    );
+    expect(windowOpen).toHaveBeenCalledWith(
+      "https://github.com/agentscope-ai/QwenPaw",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  });
+
   it("does not add auth query parameters to generic external links", () => {
     localStorage.setItem("qwenpaw_auth_token", "tok");
 
