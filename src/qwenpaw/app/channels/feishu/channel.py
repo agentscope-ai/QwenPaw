@@ -628,7 +628,30 @@ class FeishuChannel(BaseChannel):
         )
 
     async def _on_message(self, data: "P2ImMessageReceiveV1") -> None:
-        """Handle one Feishu message: dedup, parse, download media, enqueue."""
+        """Handle one Feishu message: dedup, parse, download media, enqueue.
+
+        Thread/topic reply behavior (feishu_thread_id in meta):
+
+        +---------------------------------------+---------------------+
+        | Scenario                              | Behavior            |
+        +---------------------------------------+---------------------+
+        | 1. Topic group, new topic, @agent     | Reply in thread     |
+        | 2. Normal group, @agent (no topic)    | Normal reply        |
+        | 3. In thread (any group), @agent      | Reply in thread,    |
+        |                                       | with quoted context |
+        | 4. In thread, no @agent               | No reply            |
+        | 5. In thread, no @agent, then edit    | No reply            |
+        |    message to add @agent              | (dedup by msg_id)   |
+        +---------------------------------------+---------------------+
+
+        For scenarios 1 and 3, ``user_id`` is overridden to
+        ``thread:{short_thread_id}`` so all participants in the same
+        topic share one session context file.
+
+        For scenario 5: Feishu edit events carry the same ``message_id``
+        as the original.  Since the original was already recorded in
+        ``_processed_message_ids``, the edit is silently dropped.
+        """
         if not data or not getattr(data, "event", None):
             return
         try:
@@ -929,6 +952,10 @@ class FeishuChannel(BaseChannel):
             # When message is in a topic thread, override user_id to the
             # thread_id so all members in the same topic share one session
             # (analogous to shared mode using group_id).
+            #
+            # This ensures that when multiple users chat in the same topic,
+            # they all share a single conversation context (session file),
+            # rather than each having their own isolated session.
             if thread_id:
                 thread_uid = (
                     f"thread:{short_session_id_from_full_id(thread_id)}"
@@ -1977,6 +2004,12 @@ class FeishuChannel(BaseChannel):
         # will render via post markdown rather than interactive
         # card chunks (build_interactive_content_chunks is
         # intentionally skipped).
+        #
+        # Usage scenarios:
+        # - Topic group, new topic @agent -> reply_in_thread (post)
+        # - Normal group @agent (no topic) -> send_text (normal)
+        # - In thread @agent -> reply_in_thread (post)
+        # - In thread no @agent -> dropped by _check_group_mention
         thread_msg_id = ""
         if meta and meta.get("feishu_thread_id"):
             thread_msg_id = meta.get("feishu_message_id", "")
