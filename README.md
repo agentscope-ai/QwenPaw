@@ -60,7 +60,7 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-- [2026-05-26] **v1.1.9 — Coding Mode** | Your agent just became a dev.
+- [2026-05-27] **v1.1.9 — Coding Mode** | Your agent just became a dev.
 
   > **Coding Mode** brings a full IDE layout — file tree, tabbed editor with inline diff review, and a Git panel — directly into QwenPaw. [Read the docs →](https://qwenpaw.agentscope.io/docs/coding-mode)
 

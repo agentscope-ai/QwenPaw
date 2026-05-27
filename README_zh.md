@@ -60,7 +60,7 @@
 
 ## 新闻
 
-- [2026-05-26] **v1.1.9 — Coding 模式** | Agent 变身开发者。
+- [2026-05-27] **v1.1.9 — Coding 模式** | Agent 变身开发者。
 
   > **Coding 模式**将完整 IDE 布局（文件树 + 标签编辑器 + 内联 Diff + Git 面板）直接嵌入 QwenPaw。[查看文档 →](https://qwenpaw.agentscope.io/docs/coding-mode)
 

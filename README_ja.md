@@ -58,7 +58,7 @@
 
 ## ニュース
 
-- [2026-05-26] **v1.1.9 — Coding モード** | エージェントが開発者に。
+- [2026-05-27] **v1.1.9 — Coding モード** | エージェントが開発者に。
 
   > **Coding モード**はフル IDE レイアウト（ファイルツリー + タブ付きエディタ + インライン Diff + Git パネル）を QwenPaw に直接搭載します。[ドキュメント →](https://qwenpaw.agentscope.io/docs/coding-mode)
 
