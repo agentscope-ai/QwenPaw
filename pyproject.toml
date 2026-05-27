@@ -99,6 +99,7 @@ dev = [
     "pre-commit>=4.2.0",
     "pytest-cov>=6.2.1",
     "hypothesis>=6.0.0",
+    "respx>=0.21.0",
 ]
 local = [
     "huggingface_hub>=0.20.0",
