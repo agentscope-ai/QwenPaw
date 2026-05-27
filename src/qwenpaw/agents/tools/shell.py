@@ -24,6 +24,7 @@ from ...config.context import (
     get_current_workspace_dir,
 )
 
+
 def _kill_process_tree_win32(pid: int) -> None:
     """Kill a process and all its descendants on Windows via taskkill.
 
