@@ -9,7 +9,7 @@
 | router 命中分类 | 下一步必做 |
 |---|---|
 | **1a / 1b 查询类** | 直接走工具回答；**不** create_plan、**不** 读 plan-builder |
-| **2a / 2b / 2c 分析类** | `read_file skills/analysis-plan-builder/SKILL.md`，按其 Step 1 构建上下文 → Step 2 生成 plan → Step 3 与用户确认。`create_plan` 是 Step 3 用户确认后的产物，**不要在 Step 3 之前调** |
+| **2a / 2b / 2c 分析类** | `read_file skills/analysis-plan-builder/SKILL.md`，按其指引产出 plan 草稿；随后将草稿转写为 DAG 节点调 `create_plan`，用户确认统一交给 plan-lock |
 | **2d 定量计算** | 公式 / 算法明确时直接调工具；流程复杂时也走 plan-builder |
 | **2e 报告生成** | 直接基于现有上下文写 Markdown / HTML 报告 |
 | **3 非数据任务** | 当普通对话处理 |

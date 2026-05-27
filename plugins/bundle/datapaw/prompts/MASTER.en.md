@@ -9,7 +9,7 @@
 | Router classification | Next required action |
 |---|---|
 | **1a / 1b query** | Answer directly using tools; do **not** `create_plan`, do **not** read the plan-builder. |
-| **2a / 2b / 2c analysis** | `read_file skills/analysis-plan-builder/SKILL.md`. Follow its Step 1 to build context → Step 2 to draft a plan → Step 3 to confirm with the user. `create_plan` is the artifact of Step 3 after user confirmation; **do not call it before Step 3**. |
+| **2a / 2b / 2c analysis** | `read_file skills/analysis-plan-builder/SKILL.md` and follow it to produce a plan draft; then translate the draft into DAG nodes and call `create_plan`. User confirmation is handled uniformly by the plan-lock. |
 | **2d quantitative computation** | If the formula / algorithm is clear, call the tool directly; if the workflow is complex, go through the plan-builder. |
 | **2e report generation** | Compose a Markdown / HTML report directly from existing context. |
 | **3 non-data task** | Handle as regular conversation. |
