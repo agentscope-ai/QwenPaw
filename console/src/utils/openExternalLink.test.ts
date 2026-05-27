@@ -395,6 +395,25 @@ describe("openExternalLink", () => {
     expect(tauriMocks.invoke).not.toHaveBeenCalled();
   });
 
+  it("sanitizes Tauri save dialog filenames for Windows", async () => {
+    tauriMocks.isTauri.mockReturnValue(true);
+    dialogMocks.save.mockResolvedValue("C:\\Downloads\\backup.zip");
+    fetchMock.mockResolvedValue(new Response("zip"));
+
+    await expect(
+      downloadFileFromUrl(
+        "/api/backups/abc/export",
+        "Backup 2026-05-22 14:13.zip",
+      ),
+    ).resolves.toBe(true);
+
+    expect(dialogMocks.save).toHaveBeenCalledWith({
+      defaultPath: "Backup 2026-05-22 14_13.zip",
+    });
+    expect(fetchMock).toHaveBeenCalled();
+    expect(fsMocks.writeFile).toHaveBeenCalled();
+  });
+
   it("reports Tauri download cancellation without writing a file", async () => {
     tauriMocks.isTauri.mockReturnValue(true);
     dialogMocks.save.mockResolvedValue(null);

@@ -41,6 +41,14 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
   document.body.removeChild(a);
 }
 
+function sanitizeSaveFilename(filename: string): string {
+  const sanitized = filename
+    .replace(/[<>:"/\\|?*]/g, "_")
+    .trim()
+    .replace(/[. ]+$/g, "");
+  return sanitized || "download";
+}
+
 async function fetchDownloadBlob(
   url: string,
   options: DownloadFileOptions,
@@ -67,7 +75,9 @@ export async function downloadFileFromUrl(
   if (!requestUrl) return false;
 
   if (isTauriRuntime()) {
-    const savePath = await save({ defaultPath: filename });
+    const savePath = await save({
+      defaultPath: sanitizeSaveFilename(filename),
+    });
     // False means the user cancelled the native save dialog; it is not an error.
     if (!savePath) {
       return false;
