@@ -180,6 +180,22 @@ describe("openExternalLink", () => {
     expect(windowOpen).not.toHaveBeenCalled();
   });
 
+  it("prefers the desktop backend for backend-hosted Tauri consoles", async () => {
+    tauriMocks.isTauri.mockReturnValue(true);
+    window.history.replaceState(null, "", "/console/inbox");
+    fetchMock.mockResolvedValue(new Response("{}", { status: 200 }));
+
+    openExternalLink("https://github.com/agentscope-ai/QwenPaw");
+    await Promise.resolve();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/desktop/open-external-link",
+      expect.any(Object),
+    );
+    expect(tauriMocks.invoke).not.toHaveBeenCalled();
+    expect(windowOpen).not.toHaveBeenCalled();
+  });
+
   it("falls back to window.open when the desktop backend is unavailable", async () => {
     window.history.replaceState(null, "", "/console/inbox");
     fetchMock.mockResolvedValue(new Response("nope", { status: 404 }));

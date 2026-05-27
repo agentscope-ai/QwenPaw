@@ -135,6 +135,18 @@ export function openExternalLink(
     return;
   }
 
+  if (isBackendHostedConsole()) {
+    console.info("[external-link] opening via desktop backend", {
+      url: externalUrlForLog(fullUrl),
+    });
+    void openViaDesktopBackend(fullUrl).then((opened) => {
+      if (!opened) {
+        window.open(fullUrl, target, features);
+      }
+    });
+    return;
+  }
+
   if (isTauriRuntime()) {
     console.info("[external-link] opening via Tauri", {
       url: externalUrlForLog(fullUrl),
@@ -152,18 +164,6 @@ export function openExternalLink(
         });
       },
     );
-    return;
-  }
-
-  if (isBackendHostedConsole()) {
-    console.info("[external-link] opening via desktop backend", {
-      url: externalUrlForLog(fullUrl),
-    });
-    void openViaDesktopBackend(fullUrl).then((opened) => {
-      if (!opened) {
-        window.open(fullUrl, target, features);
-      }
-    });
     return;
   }
 
