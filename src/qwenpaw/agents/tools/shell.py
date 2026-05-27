@@ -44,14 +44,6 @@ def _kill_process_tree_win32(pid: int) -> None:
         pass
 
 
-def _windows_shell_creationflags() -> int:
-    """Return Windows process flags for shell commands."""
-    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    if os.environ.get(DESKTOP_APP_ENV):
-        flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    return flags
-
-
 def _collapse_newlines_outside_quotes(cmd: str) -> str:
     r"""Collapse newlines outside quoted strings; preserve those inside.
 
@@ -305,7 +297,7 @@ def _execute_subprocess_sync(
             text=False,
             cwd=cwd,
             env=env,
-            creationflags=_windows_shell_creationflags(),
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
         )
 
         # Parent copies are no longer needed — the child inherited its own
