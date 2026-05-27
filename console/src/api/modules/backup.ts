@@ -75,18 +75,6 @@ export const backupApi = {
   exportBackup: async (id: string, name: string) => {
     const url = getApiUrl(`/backups/${id}/export`);
 
-    // In pywebview desktop, <a>.click() downloads are silently ignored.
-    // Use the native save dialog exposed via the pywebview bridge instead.
-    const pywebviewApi = window.pywebview?.api;
-    if (pywebviewApi?.save_file) {
-      const fullUrl = url.startsWith("http")
-        ? url
-        : `${window.location.origin}${url}`;
-      const saved = await pywebviewApi.save_file(fullUrl, `${name}.zip`);
-      if (!saved) return;
-      return;
-    }
-
     await downloadFileFromUrl(url, `${name}.zip`, {
       headers: buildAuthHeaders(),
       errorMessage: "Export failed",

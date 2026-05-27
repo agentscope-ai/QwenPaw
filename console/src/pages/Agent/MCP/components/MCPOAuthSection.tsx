@@ -13,8 +13,7 @@ import {
 import { useTranslation } from "react-i18next";
 import api from "../../../../api";
 import type { MCPClientOAuthStatus } from "../../../../api/types";
-import { isTauriRuntime } from "../../../../tauri/backendRuntime";
-import { openExternalLink } from "../../../../utils/openExternalLink";
+import { openExternalPopup } from "../../../../utils/openExternalLink";
 
 interface MCPOAuthSectionProps {
   /** MCP server URL — used for OAuth discovery */
@@ -52,17 +51,10 @@ const OAUTH_MESSAGE_TYPE = "mcp-oauth";
 const OAUTH_STORAGE_KEY = "mcp_oauth_result";
 
 function openOAuthAuthorizationUrl(authUrl: string): Window | null | undefined {
-  if (isTauriRuntime()) {
-    openExternalLink(authUrl);
-    return null;
-  }
-
-  return (
-    window.open(
-      authUrl,
-      "mcp-oauth-popup",
-      "width=520,height=680,menubar=no,toolbar=no,location=yes,status=no",
-    ) ?? undefined
+  return openExternalPopup(
+    authUrl,
+    "mcp-oauth-popup",
+    "width=520,height=680,menubar=no,toolbar=no,location=yes,status=no",
   );
 }
 

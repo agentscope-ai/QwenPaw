@@ -23,7 +23,7 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
 }));
 
 import { downloadFileFromUrl } from "./downloadFileFromUrl";
-import { openExternalLink } from "./openExternalLink";
+import { openExternalLink, openExternalPopup } from "./openExternalLink";
 import { installTauriExternalLinkInterceptor } from "../tauri/externalLinkInterceptor";
 
 describe("openExternalLink", () => {
@@ -161,6 +161,43 @@ describe("openExternalLink", () => {
       "_blank",
       "noopener,noreferrer",
     );
+  });
+
+  it("opens popups directly in the web console", () => {
+    const popup = {} as Window;
+    windowOpen.mockReturnValue(popup);
+
+    const result = openExternalPopup(
+      "https://auth.example.com/authorize",
+      "mcp-oauth-popup",
+      "width=520,height=680",
+    );
+
+    expect(result).toBe(popup);
+    expect(windowOpen).toHaveBeenCalledWith(
+      "https://auth.example.com/authorize",
+      "mcp-oauth-popup",
+      "width=520,height=680",
+    );
+  });
+
+  it("routes desktop popups through the external link opener", async () => {
+    window.history.replaceState(null, "", "/console/inbox");
+    fetchMock.mockResolvedValue(new Response("{}", { status: 200 }));
+
+    const result = openExternalPopup(
+      "https://auth.example.com/authorize",
+      "mcp-oauth-popup",
+      "width=520,height=680",
+    );
+    await Promise.resolve();
+
+    expect(result).toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/desktop/open-external-link",
+      expect.any(Object),
+    );
+    expect(windowOpen).not.toHaveBeenCalled();
   });
 
   it("opens backend-hosted desktop links through the desktop backend", async () => {
@@ -393,6 +430,33 @@ describe("openExternalLink", () => {
       expect.any(Uint8Array),
     );
     expect(tauriMocks.invoke).not.toHaveBeenCalled();
+  });
+
+  it("uses the pywebview save bridge for legacy desktop downloads", async () => {
+    const saveFile = vi.fn().mockResolvedValue(true);
+    (window as any).pywebview = {
+      api: {
+        save_file: saveFile,
+      },
+    };
+
+    await expect(
+      downloadFileFromUrl(
+        "/api/backups/abc/export",
+        "Backup 2026-05-22 14:13.zip",
+        {
+          headers: { Authorization: "Bearer tok" },
+          errorMessage: "Export failed",
+        },
+      ),
+    ).resolves.toBe(true);
+
+    expect(saveFile).toHaveBeenCalledWith(
+      "http://localhost:3000/api/backups/abc/export",
+      "Backup 2026-05-22 14_13.zip",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(dialogMocks.save).not.toHaveBeenCalled();
   });
 
   it("sanitizes Tauri save dialog filenames for Windows", async () => {

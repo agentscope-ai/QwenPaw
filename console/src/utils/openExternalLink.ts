@@ -14,6 +14,7 @@ const SUPPORTED_EXTERNAL_PROTOCOLS = new Set([
   "tel:",
 ]);
 const TAURI_OPEN_EXTERNAL_LINK_COMMAND = "open_external_link";
+type ExternalLinkRuntime = "pywebview" | "backend-hosted" | "tauri" | "browser";
 
 export function resolveExternalUrl(url: string): string | null {
   const trimmedUrl = url.trim();
@@ -84,6 +85,23 @@ function externalUrlForLog(url: string): string {
   }
 }
 
+function detectExternalLinkRuntime(fullUrl: string): ExternalLinkRuntime {
+  const pywebviewApi = getPyWebViewApi();
+  if (pywebviewApi?.open_external_link && isHttpExternalUrl(fullUrl)) {
+    return "pywebview";
+  }
+
+  if (isBackendHostedConsole()) {
+    return "backend-hosted";
+  }
+
+  if (isTauriRuntime()) {
+    return "tauri";
+  }
+
+  return "browser";
+}
+
 async function openViaDesktopBackend(url: string): Promise<boolean> {
   try {
     const response = await fetch(getApiUrl("/desktop/open-external-link"), {
@@ -126,49 +144,64 @@ export function openExternalLink(
   const fullUrl = resolveSupportedExternalUrl(url);
   if (!fullUrl) return;
 
-  const pywebviewApi = getPyWebViewApi();
-  if (pywebviewApi?.open_external_link && isHttpExternalUrl(fullUrl)) {
-    console.info("[external-link] opening via pywebview", {
-      url: externalUrlForLog(fullUrl),
-    });
-    pywebviewApi.open_external_link(fullUrl);
-    return;
+  switch (detectExternalLinkRuntime(fullUrl)) {
+    case "pywebview": {
+      console.info("[external-link] opening via pywebview", {
+        url: externalUrlForLog(fullUrl),
+      });
+      getPyWebViewApi()?.open_external_link(fullUrl);
+      return;
+    }
+    case "backend-hosted": {
+      console.info("[external-link] opening via desktop backend", {
+        url: externalUrlForLog(fullUrl),
+      });
+      void openViaDesktopBackend(fullUrl).then((opened) => {
+        if (!opened) {
+          window.open(fullUrl, target, features);
+        }
+      });
+      return;
+    }
+    case "tauri": {
+      console.info("[external-link] opening via Tauri", {
+        url: externalUrlForLog(fullUrl),
+      });
+      void invoke(TAURI_OPEN_EXTERNAL_LINK_COMMAND, { url: fullUrl }).then(
+        () => {
+          console.info("[external-link] Tauri open command succeeded", {
+            url: externalUrlForLog(fullUrl),
+          });
+        },
+        (error) => {
+          console.warn("[external-link] Tauri open command failed", {
+            error,
+            url: externalUrlForLog(fullUrl),
+          });
+        },
+      );
+      return;
+    }
+    case "browser":
+      console.info("[external-link] opening via window.open", {
+        url: externalUrlForLog(fullUrl),
+      });
+      window.open(fullUrl, target, features);
+  }
+}
+
+export function openExternalPopup(
+  url: string,
+  target: string = "_blank",
+  features: string = "noopener,noreferrer",
+): Window | null | undefined {
+  const fullUrl = resolveSupportedExternalUrl(url);
+  if (!fullUrl) return undefined;
+
+  if (detectExternalLinkRuntime(fullUrl) !== "browser") {
+    openExternalLink(fullUrl, target, features);
+    return null;
   }
 
-  if (isBackendHostedConsole()) {
-    console.info("[external-link] opening via desktop backend", {
-      url: externalUrlForLog(fullUrl),
-    });
-    void openViaDesktopBackend(fullUrl).then((opened) => {
-      if (!opened) {
-        window.open(fullUrl, target, features);
-      }
-    });
-    return;
-  }
-
-  if (isTauriRuntime()) {
-    console.info("[external-link] opening via Tauri", {
-      url: externalUrlForLog(fullUrl),
-    });
-    void invoke(TAURI_OPEN_EXTERNAL_LINK_COMMAND, { url: fullUrl }).then(
-      () => {
-        console.info("[external-link] Tauri open command succeeded", {
-          url: externalUrlForLog(fullUrl),
-        });
-      },
-      (error) => {
-        console.warn("[external-link] Tauri open command failed", {
-          error,
-          url: externalUrlForLog(fullUrl),
-        });
-      },
-    );
-    return;
-  }
-
-  console.info("[external-link] opening via window.open", {
-    url: externalUrlForLog(fullUrl),
-  });
-  window.open(fullUrl, target, features);
+  return window.open(fullUrl, target, features) ?? undefined;
 }

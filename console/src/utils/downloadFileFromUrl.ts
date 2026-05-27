@@ -1,12 +1,18 @@
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { isTauriRuntime } from "../tauri/backendRuntime";
-import { resolveExternalUrl } from "./openExternalLink";
+import { isHttpExternalUrl, resolveExternalUrl } from "./openExternalLink";
 
 export interface DownloadFileOptions {
   headers?: Record<string, string>;
   errorMessage?: string;
   preferResponseFilename?: boolean;
+}
+
+type PyWebViewApi = NonNullable<Window["pywebview"]>["api"];
+
+function getPyWebViewApi(): PyWebViewApi | undefined {
+  return window.pywebview?.api;
 }
 
 function filenameFromContentDisposition(value: string | null): string {
@@ -74,9 +80,15 @@ export async function downloadFileFromUrl(
   const requestUrl = resolveExternalUrl(url);
   if (!requestUrl) return false;
 
+  const safeFilename = sanitizeSaveFilename(filename);
+  const pywebviewApi = getPyWebViewApi();
+  if (pywebviewApi?.save_file && isHttpExternalUrl(requestUrl)) {
+    return pywebviewApi.save_file(requestUrl, safeFilename);
+  }
+
   if (isTauriRuntime()) {
     const savePath = await save({
-      defaultPath: sanitizeSaveFilename(filename),
+      defaultPath: safeFilename,
     });
     // False means the user cancelled the native save dialog; it is not an error.
     if (!savePath) {
