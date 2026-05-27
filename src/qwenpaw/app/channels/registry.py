@@ -200,8 +200,14 @@ def _get_plugin_channels() -> dict[str, type[BaseChannel]]:
             key: reg.channel_class
             for key, reg in registry.get_registered_channels().items()
         }
+    except ImportError:
+        logger.debug("plugin channel discovery skipped (not installed)")
+        return {}
     except Exception:
-        logger.debug("plugin channel discovery skipped", exc_info=True)
+        logger.warning(
+            "plugin channel discovery failed",
+            exc_info=True,
+        )
         return {}
 
 
@@ -209,5 +215,14 @@ def get_channel_registry() -> dict[str, type[BaseChannel]]:
     """Built-in + custom_channels/ + plugin-registered channels."""
     out = _get_cached_builtin_channels()
     out.update(_discover_custom_channels())
-    out.update(_get_plugin_channels())
+    # Only add plugin channels that don't conflict with existing keys
+    for key, ch_cls in _get_plugin_channels().items():
+        if key in out:
+            logger.warning(
+                "Plugin channel '%s' skipped: key already exists in "
+                "built-in or custom_channels/",
+                key,
+            )
+            continue
+        out[key] = ch_cls
     return out

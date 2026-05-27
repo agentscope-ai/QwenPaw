@@ -607,6 +607,24 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                         exc_info=True,
                     )
 
+            # ---- Reload agents if plugin channels were registered ----
+            # Plugins load after agents start, so ChannelManager may
+            # have missed plugin-registered channels. Trigger reload
+            # for all running agents to pick them up.
+            if plugin_loader.registry.get_registered_channels():
+                logger.debug(
+                    "Plugin channels detected, reloading agents to "
+                    "pick up new channels...",
+                )
+                for agent_id in multi_agent_manager.list_loaded_agents():
+                    try:
+                        await multi_agent_manager.reload_agent(agent_id)
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to reload agent '{agent_id}' "
+                            f"for plugin channels: {e}",
+                        )
+
             # ---- Approval Service ----
             try:
                 default_agent = await workspace_registry.get_agent(

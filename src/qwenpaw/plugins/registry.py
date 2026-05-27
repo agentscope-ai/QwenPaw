@@ -839,7 +839,13 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         return self._channels.get(channel_key)
 
     def _unregister_plugin_channels(self, plugin_id: str) -> None:
-        """Remove all channels registered by a plugin (used on unload)."""
+        """Remove all channels registered by a plugin (used on unload).
+
+        Note: This only removes the registration from the registry.
+        Already-instantiated channel instances in ChannelManager are
+        cleaned up when the workspace triggers a config reload
+        (schedule_agent_reload), which rebuilds the ChannelManager.
+        """
         to_remove = [
             key
             for key, reg in self._channels.items()

@@ -409,25 +409,31 @@ class PluginApi:
             ...     ],
             ... )
         """
-        if self._registry:
-            channel_key = getattr(channel_class, "channel", None)
-            if not channel_key:
-                raise ValueError(
-                    f"channel_class {channel_class!r} must have a "
-                    f"'channel' class attribute as the channel key",
-                )
-            self._registry.register_channel(
-                plugin_id=self.plugin_id,
-                channel_key=channel_key,
-                channel_class=channel_class,
-                label=label,
-                description=description,
-                config_fields=config_fields,
+        if not self._registry:
+            logger.warning(
+                f"Plugin '{self.plugin_id}' cannot register channel: "
+                f"registry unavailable",
             )
-            logger.info(
-                f"Plugin '{self.plugin_id}' registered channel "
-                f"'{channel_key}'",
+            return
+
+        channel_key = getattr(channel_class, "channel", None)
+        if not channel_key:
+            raise ValueError(
+                f"channel_class {channel_class!r} must have a "
+                f"'channel' class attribute as the channel key",
             )
+        self._registry.register_channel(
+            plugin_id=self.plugin_id,
+            channel_key=channel_key,
+            channel_class=channel_class,
+            label=label,
+            description=description,
+            config_fields=config_fields,
+        )
+        logger.info(
+            f"Plugin '{self.plugin_id}' registered channel "
+            f"'{channel_key}'",
+        )
 
     @property
     def runtime(self):
