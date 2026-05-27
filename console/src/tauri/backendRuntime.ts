@@ -5,16 +5,7 @@ declare const VITE_API_BASE_URL: string;
 let initRuntimeApiBaseUrlPromise: Promise<string> | null = null;
 
 export function isTauriRuntime(): boolean {
-  return isTauri() || hasTauriInternals();
-}
-
-function hasTauriInternals(): boolean {
-  if (typeof window === "undefined") return false;
-
-  return (
-    typeof (window as { __TAURI_INTERNALS__?: { invoke?: unknown } })
-      .__TAURI_INTERNALS__?.invoke === "function"
-  );
+  return isTauri();
 }
 
 export function shouldUseTauriStartupGate(): boolean {
@@ -53,7 +44,7 @@ function getApiBaseUrl(): string {
   return typeof VITE_API_BASE_URL !== "undefined" ? VITE_API_BASE_URL : "";
 }
 
-export function isBackendHostedConsole(): boolean {
+function isBackendHostedConsole(): boolean {
   if (typeof window === "undefined") return false;
   const { protocol, hostname, pathname } = window.location;
   return (

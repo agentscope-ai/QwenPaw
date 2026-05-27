@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useUploadLimitStore } from "../../../stores/uploadLimitStore";
+import { DownloadCancelledError } from "../../../utils/downloadFileFromUrl";
 
 export default function WorkspacePage() {
   const { t } = useTranslation();
@@ -44,16 +45,16 @@ export default function WorkspacePage() {
       duration: 0,
     });
     try {
-      const downloaded = await workspaceApi.downloadWorkspaceFile();
-      if (downloaded) {
-        message.success({
-          content: t("workspace.downloadSuccess"),
-          key: "workspace-download",
-        });
-      } else {
-        message.destroy("workspace-download");
-      }
+      await workspaceApi.downloadWorkspace();
+      message.success({
+        content: t("workspace.downloadSuccess"),
+        key: "workspace-download",
+      });
     } catch (error) {
+      if (error instanceof DownloadCancelledError) {
+        message.destroy("workspace-download");
+        return;
+      }
       console.error("Download failed:", error);
       message.error({
         content:

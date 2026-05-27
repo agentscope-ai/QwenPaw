@@ -22,8 +22,11 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
   writeFile: fsMocks.writeFile,
 }));
 
-import { downloadFileFromUrl } from "./downloadFileFromUrl";
-import { openExternalLink, openExternalPopup } from "./openExternalLink";
+import {
+  DownloadCancelledError,
+  downloadFileFromUrl,
+} from "./downloadFileFromUrl";
+import { openExternalLink } from "./openExternalLink";
 import { installTauriExternalLinkInterceptor } from "../tauri/externalLinkInterceptor";
 
 describe("openExternalLink", () => {
@@ -163,88 +166,27 @@ describe("openExternalLink", () => {
     );
   });
 
-  it("opens popups directly in the web console", () => {
-    const popup = {} as Window;
-    windowOpen.mockReturnValue(popup);
-
-    const result = openExternalPopup(
-      "https://auth.example.com/authorize",
-      "mcp-oauth-popup",
-      "width=520,height=680",
-    );
-
-    expect(result).toBe(popup);
-    expect(windowOpen).toHaveBeenCalledWith(
-      "https://auth.example.com/authorize",
-      "mcp-oauth-popup",
-      "width=520,height=680",
-    );
-  });
-
-  it("routes desktop popups through the external link opener", async () => {
+  it("uses the Tauri command from backend-hosted Tauri consoles", () => {
+    (window as any).__TAURI_INTERNALS__ = {
+      invoke: vi.fn(),
+    };
     window.history.replaceState(null, "", "/console/inbox");
-    fetchMock.mockResolvedValue(new Response("{}", { status: 200 }));
-
-    const result = openExternalPopup(
-      "https://auth.example.com/authorize",
-      "mcp-oauth-popup",
-      "width=520,height=680",
-    );
-    await Promise.resolve();
-
-    expect(result).toBeNull();
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/desktop/open-external-link",
-      expect.any(Object),
-    );
-    expect(windowOpen).not.toHaveBeenCalled();
-  });
-
-  it("opens backend-hosted desktop links through the desktop backend", async () => {
-    window.history.replaceState(null, "", "/console/inbox");
-    fetchMock.mockResolvedValue(new Response("{}", { status: 200 }));
 
     openExternalLink("https://github.com/agentscope-ai/QwenPaw");
-    await Promise.resolve();
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/desktop/open-external-link", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        url: "https://github.com/agentscope-ai/QwenPaw",
-      }),
+    expect(tauriMocks.invoke).toHaveBeenCalledWith("open_external_link", {
+      url: "https://github.com/agentscope-ai/QwenPaw",
     });
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(windowOpen).not.toHaveBeenCalled();
   });
 
-  it("prefers the desktop backend for backend-hosted Tauri consoles", async () => {
-    tauriMocks.isTauri.mockReturnValue(true);
+  it("uses window.open for backend-hosted browser consoles", () => {
     window.history.replaceState(null, "", "/console/inbox");
-    fetchMock.mockResolvedValue(new Response("{}", { status: 200 }));
 
     openExternalLink("https://github.com/agentscope-ai/QwenPaw");
-    await Promise.resolve();
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/desktop/open-external-link",
-      expect.any(Object),
-    );
-    expect(tauriMocks.invoke).not.toHaveBeenCalled();
-    expect(windowOpen).not.toHaveBeenCalled();
-  });
-
-  it("falls back to window.open when the desktop backend is unavailable", async () => {
-    window.history.replaceState(null, "", "/console/inbox");
-    fetchMock.mockResolvedValue(new Response("nope", { status: 404 }));
-
-    openExternalLink("https://github.com/agentscope-ai/QwenPaw");
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/desktop/open-external-link",
-      expect.any(Object),
-    );
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(windowOpen).toHaveBeenCalledWith(
       "https://github.com/agentscope-ai/QwenPaw",
       "_blank",
@@ -341,6 +283,22 @@ describe("openExternalLink", () => {
       );
 
       expect(tauriMocks.invoke).toHaveBeenCalledTimes(1);
+
+      cleanupA();
+      tauriMocks.invoke.mockClear();
+      anchor.addEventListener("click", (event) => event.preventDefault(), {
+        once: true,
+      });
+
+      anchor.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+        }),
+      );
+
+      expect(tauriMocks.invoke).not.toHaveBeenCalled();
     } finally {
       anchor.remove();
       cleanupA();
@@ -375,23 +333,36 @@ describe("openExternalLink", () => {
     }
   });
 
-  it("routes Tauri window.open calls through the external link command", () => {
+  it("does not intercept modified Tauri anchor clicks", () => {
     tauriMocks.isTauri.mockReturnValue(true);
     const cleanup = installTauriExternalLinkInterceptor();
+    const targetClickDefaultPrevented: boolean[] = [];
+    const targetClick = vi.fn((event: MouseEvent) => {
+      targetClickDefaultPrevented.push(event.defaultPrevented);
+      event.preventDefault();
+    });
+    const anchor = document.createElement("a");
+    anchor.href = "https://example.com/docs";
+    anchor.target = "_blank";
+    anchor.addEventListener("click", targetClick);
+    document.body.appendChild(anchor);
 
     try {
-      const result = window.open(
-        "https://example.com/search",
-        "_blank",
-        "noopener",
+      anchor.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          ctrlKey: true,
+        }),
       );
 
-      expect(result).toBeNull();
-      expect(tauriMocks.invoke).toHaveBeenCalledWith("open_external_link", {
-        url: "https://example.com/search",
-      });
+      expect(targetClick).toHaveBeenCalledTimes(1);
+      expect(targetClickDefaultPrevented).toEqual([false]);
+      expect(tauriMocks.invoke).not.toHaveBeenCalled();
       expect(windowOpen).not.toHaveBeenCalled();
     } finally {
+      anchor.remove();
       cleanup();
     }
   });
@@ -413,7 +384,7 @@ describe("openExternalLink", () => {
         headers: { "X-Agent-Id": "agent-a" },
         preferResponseFilename: true,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBeUndefined();
 
     expect(dialogMocks.save).toHaveBeenCalledWith({
       defaultPath: "workspace.zip",
@@ -449,14 +420,33 @@ describe("openExternalLink", () => {
           errorMessage: "Export failed",
         },
       ),
-    ).resolves.toBe(true);
+    ).resolves.toBeUndefined();
 
     expect(saveFile).toHaveBeenCalledWith(
       "http://localhost:3000/api/backups/abc/export",
       "Backup 2026-05-22 14_13.zip",
+      { Authorization: "Bearer tok" },
     );
     expect(fetchMock).not.toHaveBeenCalled();
     expect(dialogMocks.save).not.toHaveBeenCalled();
+  });
+
+  it("keeps legacy pywebview downloads backward-compatible without headers", async () => {
+    const saveFile = vi.fn().mockResolvedValue(true);
+    (window as any).pywebview = {
+      api: {
+        save_file: saveFile,
+      },
+    };
+
+    await expect(
+      downloadFileFromUrl("/api/backups/abc/export", "backup.zip"),
+    ).resolves.toBeUndefined();
+
+    expect(saveFile).toHaveBeenCalledWith(
+      "http://localhost:3000/api/backups/abc/export",
+      "backup.zip",
+    );
   });
 
   it("sanitizes Tauri save dialog filenames for Windows", async () => {
@@ -469,7 +459,7 @@ describe("openExternalLink", () => {
         "/api/backups/abc/export",
         "Backup 2026-05-22 14:13.zip",
       ),
-    ).resolves.toBe(true);
+    ).resolves.toBeUndefined();
 
     expect(dialogMocks.save).toHaveBeenCalledWith({
       defaultPath: "Backup 2026-05-22 14_13.zip",
@@ -487,7 +477,7 @@ describe("openExternalLink", () => {
       downloadFileFromUrl("/api/workspace/download", "workspace.zip", {
         headers: { "X-Agent-Id": "agent-a" },
       }),
-    ).resolves.toBe(false);
+    ).rejects.toBeInstanceOf(DownloadCancelledError);
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(fsMocks.writeFile).not.toHaveBeenCalled();
@@ -515,7 +505,7 @@ describe("openExternalLink", () => {
       downloadFileFromUrl("https://evil.example/api/export", "backup.zip", {
         headers: { "X-Agent-Id": "agent-a" },
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBeUndefined();
 
     expect(fetchMock).toHaveBeenCalledWith("https://evil.example/api/export", {
       headers: { "X-Agent-Id": "agent-a" },
@@ -547,7 +537,7 @@ describe("openExternalLink", () => {
       downloadFileFromUrl("/api/backups/abc/export", "backup.zip", {
         preferResponseFilename: true,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBeUndefined();
 
     expect(click).toHaveBeenCalled();
     expect(URL.revokeObjectURL).not.toHaveBeenCalledWith("blob:download");

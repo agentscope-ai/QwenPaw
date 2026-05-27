@@ -6,7 +6,7 @@ use std::sync::{
 };
 
 use tauri::Manager;
-use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
+use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_shell::process::CommandChild;
 
 mod command;
@@ -126,27 +126,14 @@ pub(crate) fn restart_backend(app: tauri::AppHandle) -> Result<(), String> {
 
 /// Installs backend-related plugins and starts the sidecar during app setup.
 pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let log_dir = app.path().app_log_dir()?;
-
     app.handle().plugin(
         tauri_plugin_log::Builder::default()
             .clear_targets()
-            .targets([
-                Target::new(TargetKind::Stdout),
-                Target::new(TargetKind::LogDir {
-                    file_name: Some("qwenpaw-tauri".into()),
-                }),
-            ])
+            .targets([Target::new(TargetKind::Stdout)])
             .level(log::LevelFilter::Info)
-            .rotation_strategy(RotationStrategy::KeepSome(5))
-            .max_file_size(1_000_000)
             .build(),
     )?;
 
-    log::info!(
-        "[diagnostics] Tauri log file target enabled dir={}",
-        log_dir.display()
-    );
     start(app.handle());
     Ok(())
 }

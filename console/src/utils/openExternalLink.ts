@@ -1,12 +1,8 @@
-import { invoke } from "@tauri-apps/api/core";
-import { getApiUrl } from "../api/config";
-import {
-  isBackendHostedConsole,
-  isTauriRuntime,
-} from "../tauri/backendRuntime";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 
 const URL_WITH_SCHEME_RE = /^[a-z][a-z\d+\-.]*:/i;
 const HTTP_PROTOCOLS = new Set(["http:", "https:"]);
+// Keep in sync with console/src-tauri/src/external_link.rs.
 const SUPPORTED_EXTERNAL_PROTOCOLS = new Set([
   "http:",
   "https:",
@@ -14,7 +10,7 @@ const SUPPORTED_EXTERNAL_PROTOCOLS = new Set([
   "tel:",
 ]);
 const TAURI_OPEN_EXTERNAL_LINK_COMMAND = "open_external_link";
-type ExternalLinkRuntime = "pywebview" | "backend-hosted" | "tauri" | "browser";
+type ExternalLinkRuntime = "pywebview" | "tauri" | "browser";
 
 export function resolveExternalUrl(url: string): string | null {
   const trimmedUrl = url.trim();
@@ -76,6 +72,21 @@ function getPyWebViewApi(): PyWebViewApi | undefined {
   return window.pywebview?.api;
 }
 
+export function isDesktopTauriRuntime(): boolean {
+  // When Tauri loads a remote-origin console, injected internals can still be
+  // available even when the SDK helper does not report the runtime.
+  return isTauri() || hasTauriInternals();
+}
+
+function hasTauriInternals(): boolean {
+  if (typeof window === "undefined") return false;
+
+  return (
+    typeof (window as { __TAURI_INTERNALS__?: { invoke?: unknown } })
+      .__TAURI_INTERNALS__?.invoke === "function"
+  );
+}
+
 function externalUrlForLog(url: string): string {
   try {
     const parsedUrl = new URL(url);
@@ -85,54 +96,26 @@ function externalUrlForLog(url: string): string {
   }
 }
 
+// Runtime priority is intentional: the legacy pywebview bridge has its own
+// opener, while packaged Tauri should use the native command exposed to the
+// WebView, including backend-hosted remote origins allowed by capabilities.
 function detectExternalLinkRuntime(fullUrl: string): ExternalLinkRuntime {
   const pywebviewApi = getPyWebViewApi();
   if (pywebviewApi?.open_external_link && isHttpExternalUrl(fullUrl)) {
     return "pywebview";
   }
 
-  if (isBackendHostedConsole()) {
-    return "backend-hosted";
-  }
-
-  if (isTauriRuntime()) {
+  if (isDesktopTauriRuntime()) {
     return "tauri";
   }
 
   return "browser";
 }
 
-async function openViaDesktopBackend(url: string): Promise<boolean> {
-  try {
-    const response = await fetch(getApiUrl("/desktop/open-external-link"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    });
-    if (response.ok) {
-      console.info("[external-link] desktop backend open succeeded", {
-        url: externalUrlForLog(url),
-      });
-      return true;
-    }
-
-    console.warn("[external-link] desktop backend open failed", {
-      status: response.status,
-      url: externalUrlForLog(url),
-    });
-  } catch (error) {
-    console.warn("[external-link] desktop backend open failed", {
-      error,
-      url: externalUrlForLog(url),
-    });
-  }
-
-  return false;
-}
-
 /**
  * Open an external URL in the user's system browser when running under a
- * desktop shell, and fall back to window.open in the web console.
+ * desktop shell, and fall back to window.open in the web console. This is
+ * fire-and-forget: desktop bridge failures are logged asynchronously.
  */
 export function openExternalLink(
   url: string,
@@ -146,33 +129,11 @@ export function openExternalLink(
 
   switch (detectExternalLinkRuntime(fullUrl)) {
     case "pywebview": {
-      console.info("[external-link] opening via pywebview", {
-        url: externalUrlForLog(fullUrl),
-      });
       getPyWebViewApi()?.open_external_link(fullUrl);
       return;
     }
-    case "backend-hosted": {
-      console.info("[external-link] opening via desktop backend", {
-        url: externalUrlForLog(fullUrl),
-      });
-      void openViaDesktopBackend(fullUrl).then((opened) => {
-        if (!opened) {
-          window.open(fullUrl, target, features);
-        }
-      });
-      return;
-    }
     case "tauri": {
-      console.info("[external-link] opening via Tauri", {
-        url: externalUrlForLog(fullUrl),
-      });
-      void invoke(TAURI_OPEN_EXTERNAL_LINK_COMMAND, { url: fullUrl }).then(
-        () => {
-          console.info("[external-link] Tauri open command succeeded", {
-            url: externalUrlForLog(fullUrl),
-          });
-        },
+      void invoke(TAURI_OPEN_EXTERNAL_LINK_COMMAND, { url: fullUrl }).catch(
         (error) => {
           console.warn("[external-link] Tauri open command failed", {
             error,
@@ -183,25 +144,6 @@ export function openExternalLink(
       return;
     }
     case "browser":
-      console.info("[external-link] opening via window.open", {
-        url: externalUrlForLog(fullUrl),
-      });
       window.open(fullUrl, target, features);
   }
-}
-
-export function openExternalPopup(
-  url: string,
-  target: string = "_blank",
-  features: string = "noopener,noreferrer",
-): Window | null | undefined {
-  const fullUrl = resolveSupportedExternalUrl(url);
-  if (!fullUrl) return undefined;
-
-  if (detectExternalLinkRuntime(fullUrl) !== "browser") {
-    openExternalLink(fullUrl, target, features);
-    return null;
-  }
-
-  return window.open(fullUrl, target, features) ?? undefined;
 }

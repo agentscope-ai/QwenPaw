@@ -7,7 +7,6 @@ import { useTranslation } from "react-i18next";
 import { Button, Modal } from "@agentscope-ai/design";
 import styles from "./index.module.less";
 import api from "../api";
-import { MarkdownExternalLink } from "../components/MarkdownExternalLink";
 import { openExternalLink } from "../utils/openExternalLink";
 import {
   GITHUB_URL,
@@ -153,6 +152,10 @@ export default function Header() {
       });
   };
 
+  const handleNavClick = (url: string) => {
+    openExternalLink(url);
+  };
+
   return (
     <>
       <AntHeader className={styles.header}>
@@ -190,27 +193,27 @@ export default function Header() {
                   key: "tutorial",
                   icon: <ReadOutlined />,
                   label: t("header.tutorial"),
-                  onClick: () => openExternalLink(getDocsUrl(i18n.language)),
+                  onClick: () => handleNavClick(getDocsUrl(i18n.language)),
                 },
                 {
                   key: "featureDemos",
                   icon: <PlayCircleOutlined />,
                   label: t("header.featureDemos"),
                   onClick: () =>
-                    openExternalLink(getFeatureDemosUrl(i18n.language)),
+                    handleNavClick(getFeatureDemosUrl(i18n.language)),
                 },
                 {
                   key: "changelog",
                   icon: <FileTextOutlined />,
                   label: t("header.changelog"),
                   onClick: () =>
-                    openExternalLink(getReleaseNotesUrl(i18n.language)),
+                    handleNavClick(getReleaseNotesUrl(i18n.language)),
                 },
                 {
                   key: "faq",
                   icon: <QuestionCircleOutlined />,
                   label: t("header.faq"),
-                  onClick: () => openExternalLink(getFaqUrl(i18n.language)),
+                  onClick: () => handleNavClick(getFaqUrl(i18n.language)),
                 },
               ] as MenuProps["items"],
             }}
@@ -223,7 +226,7 @@ export default function Header() {
             <Button
               type="text"
               icon={<GithubOutlined />}
-              onClick={() => openExternalLink(GITHUB_URL)}
+              onClick={() => handleNavClick(GITHUB_URL)}
             >
               {t("header.github")}
             </Button>
@@ -248,7 +251,7 @@ export default function Header() {
             key="releases"
             type="primary"
             className={styles.updateViewReleasesBtn}
-            onClick={() => openExternalLink(getReleaseNotesUrl(i18n.language))}
+            onClick={() => handleNavClick(getReleaseNotesUrl(i18n.language))}
           >
             {t("sidebar.updateModal.viewReleases")}
           </Button>,
@@ -277,7 +280,21 @@ export default function Header() {
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
-                a: MarkdownExternalLink,
+                a({ href, children, ...props }: any) {
+                  return (
+                    <a
+                      {...props}
+                      href={href}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (href) handleNavClick(href);
+                      }}
+                      style={{ cursor: "pointer" }}
+                    >
+                      {children}
+                    </a>
+                  );
+                },
                 code({ node, className, children, ...props }: any) {
                   const match = /language-(\w+)/.exec(className || "");
                   const isBlock =

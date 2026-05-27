@@ -1,7 +1,10 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
-import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
+import {
+  DownloadCancelledError,
+  downloadFileFromUrl,
+} from "../../utils/downloadFileFromUrl";
 import type {
   BackupMeta,
   BackupTrustMode,
@@ -75,10 +78,17 @@ export const backupApi = {
   exportBackup: async (id: string, name: string) => {
     const url = getApiUrl(`/backups/${id}/export`);
 
-    await downloadFileFromUrl(url, `${name}.zip`, {
-      headers: buildAuthHeaders(),
-      errorMessage: "Export failed",
-    });
+    try {
+      await downloadFileFromUrl(url, `${name}.zip`, {
+        headers: buildAuthHeaders(),
+        errorMessage: "Export failed",
+      });
+    } catch (error) {
+      if (error instanceof DownloadCancelledError) {
+        return;
+      }
+      throw error;
+    }
   },
 
   importBackup: async (

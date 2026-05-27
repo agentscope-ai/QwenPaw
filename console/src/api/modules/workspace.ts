@@ -5,37 +5,6 @@ import { useCodeFileCacheStore } from "../../stores/codeFileCacheStore";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 import type { MdFileInfo, MdFileContent, DailyMemoryFile } from "../types";
 
-function getSelectedAgentId(): string {
-  try {
-    // Read from sessionStorage first (per-tab agent), fall back to localStorage
-    const agentStorage =
-      sessionStorage.getItem("qwenpaw-agent-storage") ||
-      localStorage.getItem("qwenpaw-agent-storage");
-    if (agentStorage) {
-      const parsed = JSON.parse(agentStorage);
-      const selectedAgent = parsed?.state?.selectedAgent;
-      if (selectedAgent) {
-        return selectedAgent;
-      }
-    }
-  } catch (error) {
-    console.warn("Failed to get selected agent from storage:", error);
-  }
-  return "default";
-}
-
-function generateFallbackFilename(): string {
-  const agentId = getSelectedAgentId();
-  const now = new Date();
-  const timestamp = now
-    .toISOString()
-    .replace(/[-:]/g, "")
-    .replace(/\..+/, "")
-    .replace("T", "_")
-    .slice(0, 15); // YYYYMMDD_HHMMSS
-  return `qwenpaw_workspace_${agentId}_${timestamp}.zip`;
-}
-
 export const workspaceApi = {
   listFiles: () =>
     request<MdFileInfo[]>("/workspace/files").then((files) =>
@@ -57,16 +26,13 @@ export const workspaceApi = {
       },
     ),
 
-  downloadWorkspaceFile: async (): Promise<boolean> =>
-    downloadFileFromUrl(
-      getApiUrl("/workspace/download"),
-      generateFallbackFilename(),
-      {
-        headers: buildAuthHeaders(),
-        errorMessage: "Workspace download failed",
-        preferResponseFilename: true,
-      },
-    ),
+  // Workspace package download
+  downloadWorkspace: () =>
+    downloadFileFromUrl(getApiUrl("/workspace/download"), "workspace.zip", {
+      headers: buildAuthHeaders(),
+      errorMessage: "Workspace download failed",
+      preferResponseFilename: true,
+    }),
 
   // File upload functionality
   uploadFile: async (

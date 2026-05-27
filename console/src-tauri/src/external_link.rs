@@ -1,21 +1,19 @@
 use tauri_plugin_shell::ShellExt;
 
+// Keep in sync with console/src/utils/openExternalLink.ts.
+const SUPPORTED_EXTERNAL_PREFIXES: [&str; 4] = ["http://", "https://", "mailto:", "tel:"];
+
 #[tauri::command]
 pub(crate) fn open_external_link(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    let url_for_log = external_url_for_log(&url);
-    log::info!("[external-link] open requested url={url_for_log}");
-
     validate_external_url(&url)?;
 
     #[allow(deprecated)]
     let open_result = app.shell().open(url.clone(), None);
 
     match open_result {
-        Ok(()) => {
-            log::info!("[external-link] open succeeded url={url_for_log}");
-            Ok(())
-        }
+        Ok(()) => Ok(()),
         Err(err) => {
+            let url_for_log = external_url_for_log(&url);
             log::warn!("[external-link] open failed url={url_for_log}: {err}");
             Err(err.to_string())
         }
@@ -35,10 +33,9 @@ fn validate_external_url(url: &str) -> Result<(), String> {
     }
 
     let lowercase_url = trimmed_url.to_ascii_lowercase();
-    if lowercase_url.starts_with("http://")
-        || lowercase_url.starts_with("https://")
-        || lowercase_url.starts_with("mailto:")
-        || lowercase_url.starts_with("tel:")
+    if SUPPORTED_EXTERNAL_PREFIXES
+        .iter()
+        .any(|prefix| lowercase_url.starts_with(prefix))
     {
         return Ok(());
     }

@@ -1,7 +1,10 @@
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
-import { isTauriRuntime } from "../tauri/backendRuntime";
-import { isHttpExternalUrl, resolveExternalUrl } from "./openExternalLink";
+import {
+  isDesktopTauriRuntime,
+  isHttpExternalUrl,
+  resolveExternalUrl,
+} from "./openExternalLink";
 
 export interface DownloadFileOptions {
   headers?: Record<string, string>;
@@ -9,9 +12,22 @@ export interface DownloadFileOptions {
   preferResponseFilename?: boolean;
 }
 
-type PyWebViewApi = NonNullable<Window["pywebview"]>["api"];
+export class DownloadCancelledError extends Error {
+  constructor() {
+    super("Download cancelled");
+    this.name = "DownloadCancelledError";
+  }
+}
 
-function getPyWebViewApi(): PyWebViewApi | undefined {
+interface PyWebViewDownloadApi {
+  save_file?: (
+    url: string,
+    filename: string,
+    headers?: Record<string, string>,
+  ) => Promise<boolean>;
+}
+
+function getPyWebViewApi(): PyWebViewDownloadApi | undefined {
   return window.pywebview?.api;
 }
 
@@ -48,6 +64,8 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
 }
 
 function sanitizeSaveFilename(filename: string): string {
+  // Use Windows-safe names for native dialogs so suggested filenames work
+  // across both packaged desktop shells and all supported OS file systems.
   const sanitized = filename
     .replace(/[<>:"/\\|?*]/g, "_")
     .trim()
@@ -78,30 +96,44 @@ export async function downloadFileFromUrl(
   url: string,
   filename: string,
   options: DownloadFileOptions = {},
-): Promise<boolean> {
-  if (!url) return false;
+): Promise<void> {
+  if (!url) {
+    throw new Error(options.errorMessage || "Download URL is empty");
+  }
 
   const requestUrl = resolveExternalUrl(url);
-  if (!requestUrl) return false;
+  if (!requestUrl) {
+    throw new Error(options.errorMessage || "Download URL is invalid");
+  }
 
   const safeFilename = sanitizeSaveFilename(filename);
   const pywebviewApi = getPyWebViewApi();
   if (pywebviewApi?.save_file && isHttpExternalUrl(requestUrl)) {
-    return pywebviewApi.save_file(requestUrl, safeFilename);
+    const headers = options.headers ?? {};
+    const saved =
+      Object.keys(headers).length > 0
+        ? await pywebviewApi.save_file(requestUrl, safeFilename, headers)
+        : await pywebviewApi.save_file(requestUrl, safeFilename);
+    if (!saved) {
+      throw new DownloadCancelledError();
+    }
+    return;
   }
 
-  if (isTauriRuntime()) {
+  if (isDesktopTauriRuntime()) {
     const savePath = await save({
       defaultPath: safeFilename,
     });
-    // False means the user cancelled the native save dialog; it is not an error.
+    // No path means the user cancelled the native save dialog; it is not an error.
     if (!savePath) {
-      return false;
+      throw new DownloadCancelledError();
     }
 
     const { blob } = await fetchDownloadBlob(requestUrl, options);
+    // The Tauri fs plugin write path currently buffers the whole response.
+    // Large exports should be revisited if a streaming write API is adopted.
     await writeFile(savePath, new Uint8Array(await blob.arrayBuffer()));
-    return true;
+    return;
   }
 
   const { blob, filename: responseFilename } = await fetchDownloadBlob(
@@ -109,5 +141,4 @@ export async function downloadFileFromUrl(
     options,
   );
   triggerBrowserDownload(blob, responseFilename || filename);
-  return true;
 }
