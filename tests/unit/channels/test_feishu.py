@@ -31,6 +31,7 @@ from typing import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from qwenpaw.app.channels.base import ContentType, OutgoingContentPart
 
 
 # =============================================================================
@@ -2694,6 +2695,35 @@ class TestFeishuChannelThreadReply:
         data.event.sender.name = "Thread User"
         return data
 
+    @pytest.fixture
+    def mock_reply_message_request(self):
+        """Patch ReplyMessageRequest and ReplyMessageRequestBody."""
+        mock_builder = MagicMock()
+        mock_request = MagicMock()
+        mock_builder.message_id.return_value = mock_builder
+        mock_builder.request_body.return_value = mock_builder
+        mock_builder.build.return_value = mock_request
+
+        mock_body_builder = MagicMock()
+        mock_body = MagicMock()
+        mock_body_builder.msg_type.return_value = mock_body_builder
+        mock_body_builder.content.return_value = mock_body_builder
+        mock_body_builder.reply_in_thread.return_value = mock_body_builder
+        mock_body_builder.uuid.return_value = mock_body_builder
+        mock_body_builder.build.return_value = mock_body
+
+        with (
+            patch(
+                "qwenpaw.app.channels.feishu.channel.ReplyMessageRequest",
+            ) as mock_request_class,
+            patch(
+                "qwenpaw.app.channels.feishu.channel.ReplyMessageRequestBody",
+            ) as mock_body_class,
+        ):
+            mock_request_class.builder.return_value = mock_builder
+            mock_body_class.builder.return_value = mock_body_builder
+            yield
+
     @pytest.mark.asyncio
     async def test_on_message_extracts_thread_id_to_meta(
         self,
@@ -2704,7 +2734,7 @@ class TestFeishuChannelThreadReply:
         # Use a container to capture the enqueued native payload
         captured = {}
 
-        async def capture_enqueue(native):
+        def capture_enqueue(native):
             captured["native"] = native
 
         feishu_channel._enqueue = capture_enqueue
@@ -2739,7 +2769,7 @@ class TestFeishuChannelThreadReply:
 
         captured = {}
 
-        async def capture_enqueue(native):
+        def capture_enqueue(native):
             captured["native"] = native
 
         feishu_channel._enqueue = capture_enqueue
@@ -2759,7 +2789,7 @@ class TestFeishuChannelThreadReply:
         """Should override user_id to thread:{short_id} for thread msgs."""
         captured = {}
 
-        async def capture_enqueue(native):
+        def capture_enqueue(native):
             captured["native"] = native
 
         feishu_channel._enqueue = capture_enqueue
@@ -2782,7 +2812,7 @@ class TestFeishuChannelThreadReply:
         feishu_channel.group_session_mode = "shared"
         captured = {}
 
-        async def capture_enqueue(native):
+        def capture_enqueue(native):
             captured["native"] = native
 
         feishu_channel._enqueue = capture_enqueue
@@ -2799,7 +2829,11 @@ class TestFeishuChannelThreadReply:
     # -------------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_reply_in_thread_success(self, feishu_channel):
+    async def test_reply_in_thread_success(
+        self,
+        feishu_channel,
+        mock_reply_message_request,
+    ):
         """Should call reply API and return message_id."""
         mock_resp = MagicMock()
         mock_resp.success.return_value = True

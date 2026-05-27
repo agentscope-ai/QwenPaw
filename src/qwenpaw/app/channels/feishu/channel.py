@@ -2040,9 +2040,7 @@ class FeishuChannel(BaseChannel):
                         if file_key:
                             ext = Path(path_or_url).suffix.lower().lstrip(".")
                             mtype = (
-                                "audio"
-                                if ext in ("ogg", "opus")
-                                else "file"
+                                "audio" if ext in ("ogg", "opus") else "file"
                             )
                             content = json.dumps(
                                 {"file_key": file_key},
