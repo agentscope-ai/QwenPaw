@@ -961,6 +961,11 @@ pre code.hljs .hljs-attr {
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-site-bg: var(--bg);
+  --color-site-text: var(--text);
+  --color-site-text-muted: var(--text-muted);
+  --color-mascot-accent: var(--mascot-accent);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);

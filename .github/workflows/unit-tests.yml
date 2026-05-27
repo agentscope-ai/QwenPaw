@@ -6,6 +6,7 @@ on:
     paths:
       - 'src/qwenpaw/**'
       - 'tests/unit/**'
+      - 'tests/contract/**'
       - 'tests/conftest.py'
       - 'pyproject.toml'
       - '.github/workflows/unit-tests.yml'
@@ -14,6 +15,7 @@ on:
     paths:
       - 'src/qwenpaw/**'
       - 'tests/unit/**'
+      - 'tests/contract/**'
       - 'tests/conftest.py'
       - 'pyproject.toml'
       - '.github/workflows/unit-tests.yml'
@@ -38,6 +40,7 @@ jobs:
       always() &&
       (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -66,9 +69,11 @@ jobs:
             --tb=line \
             -q
 
-      - name: Run agents unit tests (gate — must pass)
+      - name: Run L1 hard gate tests (must pass)
         run: |
           pytest \
+            tests/unit/security \
+            tests/contract/security \
             tests/unit/agents/hooks \
             tests/unit/agents/memory \
             tests/unit/agents/utils \

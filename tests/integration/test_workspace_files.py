@@ -259,7 +259,7 @@ def test_api_workspace_header_and_scoped_consistency(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p1
+@pytest.mark.p0
 def test_api_workspace_download_zip_contract(app_server) -> None:
     """Test purpose:
     - Verify workspace download returns a valid zip stream with expected HTTP
@@ -334,7 +334,7 @@ def test_api_workspace_download_zip_contract(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p1
+@pytest.mark.p0
 def test_api_workspace_upload_zip_merge(app_server) -> None:
     """Test purpose:
     - Verify workspace upload accepts a zip archive and merges files into the

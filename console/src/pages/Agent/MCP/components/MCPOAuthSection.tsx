@@ -13,6 +13,7 @@ import {
 import { useTranslation } from "react-i18next";
 import api from "../../../../api";
 import type { MCPClientOAuthStatus } from "../../../../api/types";
+import { openExternalLink } from "../../../../utils/openExternalLink";
 
 interface MCPOAuthSectionProps {
   /** MCP server URL — used for OAuth discovery */
@@ -45,8 +46,6 @@ type OAuthPhase =
   | "success"
   | "error"
   | "revoking";
-
-const OAUTH_MESSAGE_TYPE = "mcp-oauth";
 
 export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
   url,
@@ -104,15 +103,6 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
   // Capture before any type narrowing caused by isAuthorized/isExpired guards
   const isRevoking = phase === "revoking";
 
-  // Clean up popup message listener
-  const cleanupRef = React.useRef<(() => void) | null>(null);
-
-  useEffect(() => {
-    return () => {
-      cleanupRef.current?.();
-    };
-  }, []);
-
   const handleStartOAuth = useCallback(async () => {
     if (!url.trim()) {
       setErrorMsg(t("mcp.oauth.noUrl"));
@@ -126,10 +116,6 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
     setPhase("starting");
     setErrorMsg("");
 
-    const STORAGE_KEY = "mcp_oauth_result";
-    // Clear any stale result from a previous attempt
-    localStorage.removeItem(STORAGE_KEY);
-
     try {
       const resp = await api.startOAuth(clientKey, {
         url,
@@ -140,118 +126,15 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
       });
 
       setPhase("waiting");
-
-      const popup = window.open(
-        resp.auth_url,
-        "mcp-oauth-popup",
-        "width=520,height=680,menubar=no,toolbar=no,location=yes,status=no",
-      );
-
-      if (!popup) {
-        setPhase("error");
-        setErrorMsg(t("mcp.oauth.popupBlocked"));
-        return;
-      }
-
-      // Use a flag to prevent duplicate handling
-      let didFinish = false;
-      // eslint-disable-next-line prefer-const
-      let cleanupFn = () => {};
-
-      const onResult = (status: string, errText?: string) => {
-        if (didFinish) return;
-        didFinish = true;
-        cleanupFn();
-        localStorage.removeItem(STORAGE_KEY);
-        if (status === "success") {
-          setPhase("success");
-          onAuthChanged?.();
-        } else {
-          setPhase("error");
-          setErrorMsg(errText || t("mcp.oauth.authFailed"));
-        }
-      };
-
-      // Primary: postMessage (works when window.opener is available)
-      // Restrict to same origin to prevent malicious pages from faking success.
-      const handleMessage = (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-        if (event.data?.type !== OAUTH_MESSAGE_TYPE) return;
-        onResult(event.data.status, event.data.error);
-      };
-
-      // Secondary: localStorage storage event (works cross-origin, same host)
-      const handleStorage = (event: StorageEvent) => {
-        if (event.key !== STORAGE_KEY || !event.newValue) return;
-        try {
-          const data = JSON.parse(event.newValue);
-          if (data?.type !== OAUTH_MESSAGE_TYPE) return;
-          onResult(data.status, data.error);
-        } catch {
-          // ignore malformed value
-        }
-      };
-
-      // Fallback: poll popup state; when closed check backend for token
-      const pollInterval = setInterval(async () => {
-        if (!popup.closed) return;
-        if (didFinish) {
-          clearInterval(pollInterval);
-          return;
-        }
-        cleanupFn();
-        // For existing clients query backend as last resort
-        if (clientKey) {
-          try {
-            const st = await api.getOAuthStatus(clientKey);
-            if (st.authorized) {
-              didFinish = true;
-              setPhase("success");
-              onAuthChanged?.();
-              return;
-            }
-          } catch {
-            // ignore
-          }
-        }
-        if (!didFinish) {
-          didFinish = true;
-          setPhase((prev) => {
-            if (prev === "waiting") {
-              setErrorMsg(t("mcp.oauth.windowClosed"));
-              return "error";
-            }
-            return prev;
-          });
-        }
-      }, 800);
-
-      cleanupFn = () => {
-        window.removeEventListener("message", handleMessage);
-        window.removeEventListener("storage", handleStorage);
-        clearInterval(pollInterval);
-        cleanupRef.current = null;
-      };
-
-      window.addEventListener("message", handleMessage);
-      window.addEventListener("storage", handleStorage);
-      cleanupRef.current = cleanupFn;
+      openExternalLink(resp.auth_url);
+      // The existing useEffect polls backend every 2s while phase === "waiting"
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : t("mcp.oauth.startFailed");
       setPhase("error");
       setErrorMsg(msg);
     }
-  }, [
-    url,
-    clientKey,
-    scope,
-    clientId,
-    authEndpoint,
-    tokenEndpoint,
-    onAuthChanged,
-    t,
-  ]);
+  }, [url, clientKey, scope, clientId, authEndpoint, tokenEndpoint, t]);
 
   const handleRevoke = useCallback(async () => {
     if (!clientKey) return;

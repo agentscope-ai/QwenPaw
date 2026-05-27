@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import { ChevronDown, ChevronRight, FileText, Menu } from "lucide-react";
+import { RELEASE_NOTES_DATA } from "@/pages/releaseNotesData";
 
 interface ReleaseNote {
   version: string;

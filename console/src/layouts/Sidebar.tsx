@@ -48,6 +48,7 @@ import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import api from "../api";
 import { usePlugins } from "../plugins/PluginContext";
+import { useCodingMode } from "../stores/codingModeStore";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
 import { KEY_TO_PATH, DEFAULT_OPEN_KEYS } from "./constants";
@@ -80,6 +81,10 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const { message } = useAppMessage();
   const { isDark } = useTheme();
   const { pluginRoutes } = usePlugins();
+  // When coding mode is on, the sidebar "Chat" entry should land on /coding
+  // (FileTree + Editor + Chat panel) rather than the bare Chat page.
+  const { codingMode } = useCodingMode();
+  const chatPath = codingMode ? "/coding" : "/chat";
   const [authEnabled, setAuthEnabled] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
@@ -211,7 +216,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     {
       key: "chat",
       icon: <SparkChatTabFill size={18} />,
-      path: "/chat",
+      path: chatPath,
       label: t("nav.chat"),
     },
     {
@@ -578,7 +583,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                     ? ` ${styles.stickyChatButtonActive}`
                     : ""
                 }`}
-                onClick={() => navigate("/chat")}
+                onClick={() => navigate(chatPath)}
               >
                 <SparkChatTabFill size={16} />
                 <span>{t("nav.chat")}</span>
