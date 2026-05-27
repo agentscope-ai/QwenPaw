@@ -168,6 +168,7 @@
     "fileContent": "文件内容...",
     "uploadSuccess": "文件上传成功",
     "uploadFailed": "文件上传失败",
+    "downloadPreparing": "正在准备工作区下载...",
     "downloadSuccess": "工作区下载成功",
     "downloadFailed": "工作区下载失败",
     "zipOnly": "仅支持上传 .zip 文件",

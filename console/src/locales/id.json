@@ -463,6 +463,7 @@
     "fileContent": "Konten file...",
     "uploadSuccess": "File berhasil diunggah",
     "uploadFailed": "Gagal mengunggah file",
+    "downloadPreparing": "Mempersiapkan unduhan workspace...",
     "downloadSuccess": "Workspace berhasil diunduh",
     "downloadFailed": "Gagal mengunduh workspace",
     "zipOnly": "Hanya file .zip yang didukung untuk unggahan",

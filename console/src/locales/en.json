@@ -365,6 +365,7 @@
     "fileContent": "File content...",
     "uploadSuccess": "File uploaded successfully",
     "uploadFailed": "File upload failed",
+    "downloadPreparing": "Preparing workspace download...",
     "downloadSuccess": "Workspace downloaded successfully",
     "downloadFailed": "Workspace download failed",
     "zipOnly": "Only .zip files are supported for upload",

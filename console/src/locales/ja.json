@@ -171,6 +171,7 @@
     "fileContent": "ファイルの内容...",
     "uploadSuccess": "ファイルのアップロードに成功しました",
     "uploadFailed": "ファイルのアップロードに失敗しました",
+    "downloadPreparing": "ワークスペースのダウンロードを準備中...",
     "downloadSuccess": "ワークスペースのダウンロードに成功しました",
     "downloadFailed": "ワークスペースのダウンロードに失敗しました",
     "zipOnly": "アップロードできるのは .zip ファイルのみです",

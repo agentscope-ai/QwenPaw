@@ -298,6 +298,7 @@
     "fileContent": "File content...",
     "uploadSuccess": "Arquivo enviado com sucesso",
     "uploadFailed": "Falha ao enviar arquivo",
+    "downloadPreparing": "Preparando download do workspace...",
     "downloadSuccess": "Workspace downloaded successfully",
     "downloadFailed": "Workspace Baixar Falhou",
     "zipOnly": "Only .zip files are supported for upload",
