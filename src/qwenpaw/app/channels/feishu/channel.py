@@ -1699,9 +1699,12 @@ class FeishuChannel(BaseChannel):
         receive_id_type: str,
         receive_id: str,
         part: OutgoingContentPart,
+        thread_msg_id: str = "",
     ) -> Optional[str]:
         """Upload image and send as msg_type=image (image_key) per API.
 
+        When *thread_msg_id* is provided, replies in thread instead of
+        sending a new message.
         Returns the message_id on success, None on failure.
         """
         logger.info(
@@ -1725,6 +1728,12 @@ class FeishuChannel(BaseChannel):
             image_key[:24] if image_key else "",
         )
         content = json.dumps({"image_key": image_key}, ensure_ascii=False)
+        if thread_msg_id:
+            return await self._reply_in_thread(
+                thread_msg_id,
+                "image",
+                content,
+            )
         return await self._send_message(
             receive_id_type,
             receive_id,
@@ -1795,9 +1804,12 @@ class FeishuChannel(BaseChannel):
         receive_id_type: str,
         receive_id: str,
         part: OutgoingContentPart,
+        thread_msg_id: str = "",
     ) -> Optional[str]:
         """Upload file and send file message (msg_type=file, file_key).
 
+        When *thread_msg_id* is provided, replies in thread instead of
+        sending a new message.
         Returns the message_id on success, None on failure.
         """
         logger.info(
@@ -1823,6 +1835,12 @@ class FeishuChannel(BaseChannel):
         content = json.dumps({"file_key": file_key}, ensure_ascii=False)
         ext = Path(path_or_url).suffix.lower().lstrip(".")
         msg_type = "audio" if ext in ("ogg", "opus") else "file"
+        if thread_msg_id:
+            return await self._reply_in_thread(
+                thread_msg_id,
+                msg_type,
+                content,
+            )
         return await self._send_message(
             receive_id_type,
             receive_id,
@@ -1998,30 +2016,12 @@ class FeishuChannel(BaseChannel):
         for part in media_parts:
             pt = getattr(part, "type", None)
             if pt == ContentType.IMAGE:
-                if thread_msg_id:
-                    data, filename = await self._part_to_image_bytes(part)
-                    if data:
-                        image_key = await self._upload_image(data, filename)
-                        if image_key:
-                            content = json.dumps(
-                                {"image_key": image_key},
-                                ensure_ascii=False,
-                            )
-                            msg_id = await self._reply_in_thread(
-                                thread_msg_id,
-                                "image",
-                                content,
-                            )
-                        else:
-                            msg_id = None
-                    else:
-                        msg_id = None
-                else:
-                    msg_id = await self._send_image(
-                        receive_id_type,
-                        receive_id,
-                        part,
-                    )
+                msg_id = await self._send_image(
+                    receive_id_type,
+                    receive_id,
+                    part,
+                    thread_msg_id=thread_msg_id,
+                )
                 logger.info(
                     "feishu send_content_parts: image sent ok=%s",
                     bool(msg_id),
@@ -2033,34 +2033,12 @@ class FeishuChannel(BaseChannel):
                 ContentType.VIDEO,
                 ContentType.AUDIO,
             ):
-                if thread_msg_id:
-                    path_or_url = await self._part_to_file_path_or_url(part)
-                    if path_or_url:
-                        file_key = await self._upload_file(path_or_url)
-                        if file_key:
-                            ext = Path(path_or_url).suffix.lower().lstrip(".")
-                            mtype = (
-                                "audio" if ext in ("ogg", "opus") else "file"
-                            )
-                            content = json.dumps(
-                                {"file_key": file_key},
-                                ensure_ascii=False,
-                            )
-                            msg_id = await self._reply_in_thread(
-                                thread_msg_id,
-                                mtype,
-                                content,
-                            )
-                        else:
-                            msg_id = None
-                    else:
-                        msg_id = None
-                else:
-                    msg_id = await self._send_file(
-                        receive_id_type,
-                        receive_id,
-                        part,
-                    )
+                msg_id = await self._send_file(
+                    receive_id_type,
+                    receive_id,
+                    part,
+                    thread_msg_id=thread_msg_id,
+                )
                 logger.info(
                     "feishu send_content_parts: file sent ok=%s type=%s",
                     bool(msg_id),
