@@ -7,8 +7,8 @@ Extends AgentScope's ``PlanNotebook`` with:
 - ``_pending_edits`` so the agent can observe frontend edits / SOP loads
 - ``_trigger_msg_id``, set on ``create_plan`` to populate
   ``TaskGraph.anchor_message_id``
-- Hook surface: ``_on_graph_change`` (save trigger) and
-  ``_sse_event_queue`` (UI fan-out) fired by ``_notify_graph_change``
+- Hook surface: ``DAGStore`` persistence plus legacy ``_sse_event_queue``
+  compatibility fan-out fired by ``_notify_graph_change``
 - Unified archive path (``_archive_current_plan``) shared by the three
   active-graph switch paths
 - 8 overridden PlanNotebook tools adapted to ``node_id``, plus a new
@@ -50,6 +50,7 @@ from pydantic import ValidationError
 
 from ..i18n import tr
 from .artifact import ArtifactItem
+from .dag_store import DAGStore
 from .events import TaskEvent, TaskEventType
 from .hint import DataPawPlanToHint
 from .task_graph import FileRef, TaskGraph, TaskNode
@@ -157,7 +158,6 @@ class RuntimeStateManager(PlanNotebook):
         self.path_resolver: Callable[[str], Path] | None = None
 
         # Hook slots; set at runtime by AgentRunner / DataPawAgent.
-        self._on_graph_change: Callable[[], Awaitable[None]] | None = None
         self._sse_event_queue: asyncio.Queue | None = None
         # Optional per-broadcast hook: invoked on every graph-change event,
         # given the agent_id-aware payload. Wired by DataPawAgent at init
@@ -166,6 +166,8 @@ class RuntimeStateManager(PlanNotebook):
             [str, dict],
             Awaitable[None],
         ] | None = None
+        self._dag_store: DAGStore | None = None
+        self._dag_session_id: str = ""
 
         # Re-register ``current_plan`` so deserialization goes through
         # ``TaskGraph.model_validate``. ``register_state`` overwrites the
@@ -188,6 +190,16 @@ class RuntimeStateManager(PlanNotebook):
         )
         self.register_state("_pending_edits")
 
+    def configure_dag_store(
+        self,
+        dag_store: DAGStore,
+        *,
+        session_id: str,
+    ) -> None:
+        """Attach the per-session DAG backing store."""
+        self._dag_store = dag_store
+        self._dag_session_id = session_id
+
     # --- trigger_msg_id ----------------------------------------------------
 
     def set_trigger_msg_id(self, msg_id: str) -> None:
@@ -199,18 +211,19 @@ class RuntimeStateManager(PlanNotebook):
     async def _notify_graph_change(self, event_type: str) -> None:
         """Fan-out a graph-change event.
 
-        Two things happen here:
-        1. Call ``_on_graph_change()`` → host triggers a mid-flight save.
-        2. Construct a ``TaskEvent`` and push it on ``_sse_event_queue`` →
-           reaches the SSE stream consumed by the frontend.
+        Primary path: persist the full RuntimeStateManager state through
+        ``DAGStore``. The old chat-stream queue remains temporarily for
+        compatibility until the metadata/SSE follow-up TODOs remove it.
         """
-        if self._on_graph_change is not None:
+        if self._dag_store is not None and self._dag_session_id:
             try:
-                await self._on_graph_change()
+                await self._dag_store.write(
+                    self._dag_session_id,
+                    self.state_dict(),
+                )
             except Exception:  # pylint: disable=broad-except
                 logger.warning(
-                    "RuntimeStateManager: _on_graph_change hook raised; "
-                    "continuing",
+                    "RuntimeStateManager: DAGStore.write failed; continuing",
                     exc_info=True,
                 )
 

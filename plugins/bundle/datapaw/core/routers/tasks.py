@@ -32,11 +32,12 @@ from typing import Any, List, Literal, NamedTuple, Optional
 from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..path_context import PathContext, shared_artifacts_root
 from ..orchestration.artifact import ArtifactItem
+from ..orchestration.dag_store import DAGBroadcaster, DAGStore, format_sse
 from ..orchestration.task_graph import Sop, TaskGraph
 
 logger = logging.getLogger(__name__)
@@ -87,33 +88,14 @@ async def _get_workspace_for_agent(request: Request, agent_id: Optional[str]):
     return await manager.get_agent(agent_id)
 
 
-def _extract_plan_notebook(state: dict) -> dict:
-    """Pull the plan_notebook dict out of session state (may be absent).
-
-    ``DataPawAgent`` persists its ``RuntimeStateManager`` under the
-    StateModule key ``plan_notebook`` (see ``agents/base.py`` comments
-    around ``state_dict`` / ``load_state_dict``). The legacy ``runtime_state``
-    key is still tolerated so PUT writes that haven't been consumed by
-    the agent yet remain visible to GETs.
-    """
-    agent_state = state.get("agent") if isinstance(state, dict) else None
-    if not isinstance(agent_state, dict):
-        return {}
-    pn = agent_state.get("plan_notebook")
-    if not isinstance(pn, dict):
-        pn = agent_state.get("runtime_state")
-    return pn if isinstance(pn, dict) else {}
-
-
 async def _check_not_running(
     workspace: Any,
     session_id: str,
 ) -> None:
     """Raise 409 if an agent is actively running for this session.
 
-    Without this guard, PUT / PATCH writes race against the
-    ``_on_graph_change`` hook and the runner's ``finally``-block
-    persistence (read-modify-write of the session JSON).
+    Without this guard, PUT / PATCH writes race against the agent's
+    ``DAGStore`` writes and the runner's final persistence.
     """
     chat_manager = getattr(workspace, "chat_manager", None)
     task_tracker = getattr(workspace, "task_tracker", None)
@@ -164,16 +146,7 @@ def _archive_current_plan_to_pn(pn: dict, reason: str) -> Optional[str]:
 
 
 def _ensure_plan_notebook_keys(pn: dict) -> None:
-    """Make sure plan_notebook has all keys ``load_state_dict`` expects.
-
-    DataPawAgent persists via StateModule, and ``load_state_dict(strict=True)``
-    requires every key in ``_module_dict`` (storage) and ``_attribute_dict``
-    (current_plan / artifacts / _pending_edits) to be present. If any PUT
-    endpoint writes JSON missing those keys, ``load_session_state`` raises
-    KeyError, the runner swallows it and skips state loading, and the
-    ``finally`` block then overwrites the session file with empty agent
-    state — silently losing the SOP that was just uploaded.
-    """
+    """Make sure the DAG runtime block has the expected top-level keys."""
     pn.setdefault("storage", {"plans": {}})
     pn.setdefault("artifacts", [])
     pn.setdefault("_pending_edits", [])
@@ -183,14 +156,14 @@ def _ensure_plan_notebook_keys(pn: dict) -> None:
 class _PnContext(NamedTuple):
     """Bundle returned by :func:`acquire_pn` for PUT-style handlers.
 
-    Carries the session handle, the loaded ``plan_notebook`` dict (with
-    StateModule keys ensured), and the routing parameters needed to
-    persist the mutated dict back via :func:`_persist_pn`.
+    Carries the session handle, the loaded DAG runtime dict, and the routing
+    parameters needed to persist the mutated dict back via :func:`_persist_pn`.
     """
 
     session: Any  # SafeJSONSession-like
     session_id: str
     user_id: str
+    dag_store: DAGStore
     pn: dict
 
 
@@ -199,12 +172,12 @@ async def acquire_pn(
     request: Request,
     user_id: str = Query(default="default"),
 ) -> _PnContext:
-    """FastAPI dependency: fetch + lock-check + load plan_notebook.
+    """FastAPI dependency: fetch + lock-check + load DAG runtime state.
 
-    Used by write-side handlers (``put_sop`` / ``put_dag``) to centralize
-    the session → agent_block → plan_notebook plumbing and the
-    ``_check_not_running`` gate. Raises ``503`` if the session is not
-    ready, ``409`` if an agent is actively running for this session.
+    Used by write-side handlers (``put_sop`` / ``put_dag``) to centralize the
+    session → ``DAGStore`` plumbing and the ``_check_not_running`` gate. Raises
+    ``503`` if the session is not ready, ``409`` if an agent is actively
+    running for this session.
     """
     workspace = await _get_workspace_for_agent(
         request,
@@ -212,15 +185,13 @@ async def acquire_pn(
     )
     await _check_not_running(workspace, session_id)
 
-    session = getattr(getattr(workspace, "runner", None), "session", None)
+    runner = getattr(workspace, "runner", None)
+    session = getattr(runner, "session", None)
     if session is None:
         raise HTTPException(status_code=503, detail="Session not ready")
 
-    state = await session.get_session_state_dict(session_id, user_id=user_id)
-    agent_block = state.setdefault("agent", {})
-    pn = agent_block.get("plan_notebook")
-    if not isinstance(pn, dict):
-        pn = agent_block.get("runtime_state")
+    dag_store = DAGStore.from_session(session, user_id=user_id)
+    pn = await dag_store.read(session_id)
     if not isinstance(pn, dict):
         pn = {}
     _ensure_plan_notebook_keys(pn)
@@ -228,18 +199,26 @@ async def acquire_pn(
         session=session,
         session_id=session_id,
         user_id=user_id,
+        dag_store=dag_store,
         pn=pn,
     )
 
 
 async def _persist_pn(ctx: _PnContext) -> None:
-    """Write the (possibly mutated) plan_notebook dict back to the session."""
-    await ctx.session.update_session_state(
-        session_id=ctx.session_id,
-        key="agent.plan_notebook",
-        value=ctx.pn,
-        user_id=ctx.user_id,
-    )
+    """Write the possibly mutated runtime-state dict to the DAG store."""
+    await ctx.dag_store.write(ctx.session_id, ctx.pn)
+
+
+async def _load_pn_for_request(
+    session: Any,
+    session_id: str,
+    *,
+    user_id: str,
+) -> dict:
+    """Load DataPaw DAG runtime state through ``DAGStore``."""
+    dag_store = DAGStore.from_session(session, user_id=user_id)
+    pn = await dag_store.read(session_id)
+    return pn if isinstance(pn, dict) else {}
 
 
 def _safe_filename(name: str) -> str:
@@ -355,7 +334,7 @@ def _build_file_urls(
 
 
 def _extract_artifacts(pn: dict) -> List[ArtifactItem]:
-    """Parse the artifacts list from a plan_notebook dict; skip malformed."""
+    """Parse the artifacts list from a DAG runtime dict; skip malformed."""
     raw = pn.get("artifacts") if isinstance(pn, dict) else None
     if not isinstance(raw, list):
         return []
@@ -628,11 +607,11 @@ async def get_tasks(
         request,
         request.state.agent_id if hasattr(request.state, "agent_id") else None,
     )
-    state = await session.get_session_state_dict(
-        session_id=session_id,
+    pn = await _load_pn_for_request(
+        session,
+        session_id,
         user_id=user_id,
     )
-    pn = _extract_plan_notebook(state)
 
     storage_plans = (
         pn.get("storage", {}).get("plans", {}) if isinstance(pn, dict) else {}
@@ -682,8 +661,11 @@ async def get_sop(
         request,
         getattr(request.state, "agent_id", None),
     )
-    state = await session.get_session_state_dict(session_id, user_id=user_id)
-    pn = _extract_plan_notebook(state)
+    pn = await _load_pn_for_request(
+        session,
+        session_id,
+        user_id=user_id,
+    )
     current = pn.get("current_plan") if isinstance(pn, dict) else None
     if not isinstance(current, dict):
         raise HTTPException(
@@ -710,6 +692,45 @@ async def get_sop(
 
 
 # ---------------------------------------------------------------------------
+# GET /api/tasks/{session_id}/dag/events — stream active graph snapshots
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{session_id}/dag/events")
+async def stream_dag_events(
+    session_id: str,
+    request: Request,
+    user_id: str = Query(default="default"),
+) -> StreamingResponse:
+    """Stream DataPaw DAG snapshots over an independent SSE connection."""
+    session, _ = await _get_session_for_agent(
+        request,
+        getattr(request.state, "agent_id", None),
+    )
+    dag_store = DAGStore.from_session(session, user_id=user_id)
+    queue = DAGBroadcaster.subscribe(session_id)
+
+    async def gen():
+        try:
+            snapshot = await dag_store.read(session_id)
+            if snapshot is not None:
+                yield format_sse(snapshot)
+            while True:
+                if await request.is_disconnected():
+                    break
+                snapshot = await queue.get()
+                yield format_sse(snapshot)
+        finally:
+            DAGBroadcaster.unsubscribe(session_id, queue)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+# ---------------------------------------------------------------------------
 # GET /api/tasks/{session_id}/dag — download active graph DAG YAML
 # ---------------------------------------------------------------------------
 
@@ -726,8 +747,11 @@ async def get_dag(
         request,
         getattr(request.state, "agent_id", None),
     )
-    state = await session.get_session_state_dict(session_id, user_id=user_id)
-    pn = _extract_plan_notebook(state)
+    pn = await _load_pn_for_request(
+        session,
+        session_id,
+        user_id=user_id,
+    )
     current = pn.get("current_plan") if isinstance(pn, dict) else None
     if not isinstance(current, dict):
         raise HTTPException(
@@ -770,8 +794,11 @@ async def get_historical_plan(
         request,
         getattr(request.state, "agent_id", None),
     )
-    state = await session.get_session_state_dict(session_id, user_id=user_id)
-    pn = _extract_plan_notebook(state)
+    pn = await _load_pn_for_request(
+        session,
+        session_id,
+        user_id=user_id,
+    )
     storage_plans = pn.get("storage", {}).get("plans", {})
     if not isinstance(storage_plans, dict) or plan_id not in storage_plans:
         raise HTTPException(
@@ -802,8 +829,11 @@ async def get_historical_sop(
         request,
         getattr(request.state, "agent_id", None),
     )
-    state = await session.get_session_state_dict(session_id, user_id=user_id)
-    pn = _extract_plan_notebook(state)
+    pn = await _load_pn_for_request(
+        session,
+        session_id,
+        user_id=user_id,
+    )
     storage_plans = pn.get("storage", {}).get("plans", {})
     if not isinstance(storage_plans, dict) or plan_id not in storage_plans:
         raise HTTPException(
@@ -981,11 +1011,11 @@ async def list_files(
         request,
         getattr(request.state, "agent_id", None),
     )
-    state = await session.get_session_state_dict(
-        session_id=session_id,
+    pn = await _load_pn_for_request(
+        session,
+        session_id,
         user_id=user_id,
     )
-    pn = _extract_plan_notebook(state)
     artifacts = _extract_artifacts(pn)
 
     entries: List[FileEntry] = []
@@ -1040,11 +1070,11 @@ async def preview_file(
         request,
         getattr(request.state, "agent_id", None),
     )
-    state = await session.get_session_state_dict(
-        session_id=session_id,
+    pn = await _load_pn_for_request(
+        session,
+        session_id,
         user_id=user_id,
     )
-    pn = _extract_plan_notebook(state)
     artifacts = _extract_artifacts(pn)
 
     workspace = await _get_workspace_for_agent(
@@ -1085,11 +1115,11 @@ async def download_file(
         request,
         getattr(request.state, "agent_id", None),
     )
-    state = await session.get_session_state_dict(
-        session_id=session_id,
+    pn = await _load_pn_for_request(
+        session,
+        session_id,
         user_id=user_id,
     )
-    pn = _extract_plan_notebook(state)
     artifacts = _extract_artifacts(pn)
 
     workspace = await _get_workspace_for_agent(

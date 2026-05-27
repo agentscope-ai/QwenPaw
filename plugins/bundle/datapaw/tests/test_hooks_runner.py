@@ -105,37 +105,6 @@ def test_factory_accepts_main_runner_kwargs_without_typeerror():
         pass
 
 
-def test_make_save_hook_calls_session_save_session_state():
-    """save hook → runner.session.save_session_state(sid, uid, agent)."""
-    import asyncio
-    from hooks import _make_save_hook
-
-    runner = MagicMock()
-    runner.session.save_session_state = MagicMock(
-        return_value=_async_noop(),
-    )
-    agent = MagicMock(name="agent")
-
-    hook = _make_save_hook(
-        runner=runner,
-        session_id="sess1",
-        user_id="user1",
-        agent=agent,
-    )
-
-    asyncio.run(hook())
-
-    runner.session.save_session_state.assert_called_once_with(
-        session_id="sess1",
-        user_id="user1",
-        agent=agent,
-    )
-
-
-async def _async_noop():
-    return None
-
-
 def _build_fake_runner_module():
     """Construct a self-contained fake `qwenpaw.app.runner.runner` module."""
     fake_runner_module = type("M", (), {})()

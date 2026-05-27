@@ -152,6 +152,26 @@ def test_wrapped_stream_one_passthrough_when_no_queue():
     assert out == ["data: a\n\n", "data: b\n\n"]
 
 
+def test_wrapped_stream_one_native_content_parts_does_not_warn(caplog):
+    """Native content_parts path should not log obsolete DAG fan-out warning."""
+    from hooks import _wrap_stream_one
+
+    payload = {"content_parts": []}
+
+    async def orig(self, payload):
+        yield "data: a\n\n"
+
+    wrapped = _wrap_stream_one(orig)
+
+    async def _run():
+        return [f async for f in wrapped(None, payload)]
+
+    out = asyncio.run(_run())
+
+    assert out == ["data: a\n\n"]
+    assert "DataPaw SSE fan-out skipped" not in caplog.text
+
+
 # ---------------------------------------------------------------------------
 # setup_channel_sse_hook installer
 # ---------------------------------------------------------------------------

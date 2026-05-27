@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
 # Monkey-patches by definition reach into host internals
-# (``notebook._on_graph_change`` / ``channel._datapaw_*`` /
+# (``notebook._sse_event_queue`` / ``channel._datapaw_*`` /
 # ``_patched_query_handler._datapaw_patched`` / ...). The entire module
 # operates in that regime; per-site disables would be noise.
 """Monkey-patches the DataPaw plugin applies to host runtime.
@@ -12,9 +12,9 @@ Three patches, all installed from ``plugin._on_startup``:
    with a smart factory that returns ``DataPawAgent`` when
    ``request_context["agent_id"] == "datapaw"``, plus a thin wrapper around
    ``AgentRunner.query_handler`` that stashes ``request`` / ``runner`` in
-   contextvars so the adapter can wire ``_on_graph_change`` and the SSE
-   queue after agent construction. **No copy of host's 500-line query_handler
-   is required** — the integration uses two small mechanisms instead.
+   contextvars so the adapter can wire ``DAGStore`` and the SSE queue after
+   agent construction. **No copy of host's 500-line query_handler is
+   required** — the integration uses two small mechanisms instead.
 2. ``setup_channel_sse_hook`` — replaces ``ConsoleChannel.stream_one`` so the
    DAG ``TaskEvent`` queue attached to ``request._datapaw_sse_queue`` gets
    drained into SSE frames alongside the regular message stream (Phase 8).
@@ -143,12 +143,22 @@ def _build_datapaw_agent(*args, **kwargs):
         return agent
 
     if runner is not None and session_id:
-        notebook._on_graph_change = _make_save_hook(
-            runner=runner,
-            session_id=session_id,
-            user_id=user_id,
-            agent=agent,
-        )
+        try:
+            from core.orchestration.dag_store import DAGStore
+
+            notebook.configure_dag_store(
+                DAGStore.from_session(
+                    runner.session,
+                    user_id=user_id or "default",
+                ),
+                session_id=session_id,
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "DataPaw DAGStore wiring failed for session=%s",
+                session_id,
+                exc_info=True,
+            )
 
     # SSE queue: prefer one already attached to request by the channel layer
     # (Phase 8 ConsoleChannel patch); otherwise create a private buffer so the
@@ -209,26 +219,6 @@ def _make_broadcast_hook(*, agent_id, session_id):
             )
 
     return _broadcast
-
-
-def _make_save_hook(*, runner, session_id, user_id, agent):
-    """Return an async callable for ``RuntimeState._on_graph_change`` hook."""
-
-    async def _datapaw_save_hook():
-        try:
-            await runner.session.save_session_state(
-                session_id=session_id,
-                user_id=user_id,
-                agent=agent,
-            )
-        except Exception:  # pylint: disable=broad-except
-            logger.warning(
-                "DataPaw intermediate save failed for session=%s",
-                session_id,
-                exc_info=True,
-            )
-
-    return _datapaw_save_hook
 
 
 # ---------------------------------------------------------------------------
@@ -386,13 +376,10 @@ def _format_task_event_as_sse(event: Any) -> str:
 def _wrap_stream_one(orig_stream_one):
     """Build a ``stream_one`` wrapper that drains DataPaw TaskEvents into SSE.
 
-    Strategy: after each frame the original yields, peek at
-    ``request._datapaw_sse_queue`` and emit any buffered ``TaskEvent`` as
-    extra SSE frames. ``request`` is identified as ``payload`` itself in the
-    typical request-object code path (HTTP POST). When ``payload`` is a dict
-    (e.g. content_parts native channel input), the original constructs
-    ``request`` internally and we cannot safely re-construct it without
-    side effects; in that case datapaw events stay buffered (degraded mode).
+    Strategy: keep chat metadata injection in this wrapper. Legacy TaskEvent
+    drain is attempted only when ``payload`` is already a request object with
+    ``_datapaw_sse_queue``; DAG updates now have their own
+    ``/api/tasks/{sid}/dag/events`` stream.
     """
 
     async def _patched_stream_one(self, payload):
@@ -404,19 +391,6 @@ def _wrap_stream_one(orig_stream_one):
             if isinstance(payload, dict) and "content_parts" in payload
             else payload
         )
-        if request_ref is None:
-            # Degraded mode: the native-channel content_parts path
-            # constructs the request internally and we cannot recover a
-            # reference without re-running the (side-effectful) request
-            # builder. TaskEvents emitted during this stream stay
-            # buffered on whatever queue the agent points at and never
-            # reach the frontend over SSE. Logged once per stream so the
-            # silent buffering is at least visible in ops logs.
-            logger.warning(
-                "DataPaw SSE fan-out skipped: stream_one called with a"
-                " content_parts dict payload (native-channel path)."
-                " TaskEvents for this stream will not reach the frontend.",
-            )
         # msg_id -> {graph_id, node_id}, populated from message frames
         # and reused by later content frames with the same msg_id.
         metadata_by_msg_id: dict = {}

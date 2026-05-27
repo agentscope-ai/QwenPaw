@@ -205,9 +205,8 @@ class DataPawAgent(QwenPawAgent):
     - ``_reasoning`` / ``_acting`` / ``_summarizing``: append to the
       current node's trace.
     - ``handle_interrupt``: return a Msg containing the DAG progress.
-    - ``state_dict`` / ``load_state_dict``: rename ``plan_notebook`` to
-      ``runtime_state`` in the persisted session JSON and tolerate
-      cross-version schema drift.
+    - ``state_dict`` / ``load_state_dict``: keep DAG state out of session
+      JSON and restore it from the DAG backing file.
     - ``print``: inject ``graph_id`` / ``node_id`` into message metadata
       for SSE downstream consumption.
     """
@@ -586,30 +585,40 @@ class DataPawAgent(QwenPawAgent):
 
     # --- state_dict / load_state_dict --------------------------------------
     #
-    # Persist DataPaw's RuntimeStateManager under the standard
-    # ``plan_notebook`` key (no rename). Host runner's "ensure
-    # plan_notebook dict" check (runner.py:657-685) keys on
-    # ``agent.plan_notebook`` — using a different name causes host to
-    # write its own empty PlanNotebook stub each turn, polluting the
-    # session file and breaking RuntimeStateManager.load_state_dict
-    # (KeyError on the missing ``artifacts`` field).
-    #
-    # state_dict is inherited unchanged: super().state_dict() naturally
-    # serializes ``plan_notebook`` because we did
-    # ``self.plan_notebook = runtime_state`` (StateModule registers the
-    # attribute under that name automatically).
+    # DataPaw DAG state is persisted through ``DAGStore`` into
+    # ``sessions/dag/<user_id>_<sid>.json``. The host session JSON still owns
+    # regular agent state such as memory/toolkit, but embedded DAG fields are
+    # ignored.
+
+    def state_dict(self) -> dict:
+        notebook = self.plan_notebook
+        dag_store = getattr(notebook, "_dag_store", None)
+        dag_session_id = getattr(notebook, "_dag_session_id", "")
+        if dag_store is not None and dag_session_id:
+            try:
+                dag_store.write_sync(dag_session_id, notebook.state_dict())
+            except Exception:  # pylint: disable=broad-except
+                logger.warning(
+                    "DataPawAgent: DAGStore final save failed",
+                    exc_info=True,
+                )
+
+        state = super().state_dict()
+        state.pop("plan_notebook", None)
+        state.pop("runtime_state", None)
+        return state
 
     def load_state_dict(
         self,
         state_dict: dict,
         strict: bool = True,  # pylint: disable=unused-argument
     ) -> None:
-        """Tolerate legacy ``runtime_state`` field name.
+        """Load host state and restore DAG state from the DAG backing file.
 
-        Earlier plugin builds saved DataPaw state under ``runtime_state``
-        instead of ``plan_notebook``; rename it back. If both keys exist
-        (e.g., legacy DataPaw save + host pre-populated stub from a
-        botched turn), DataPaw's ``runtime_state`` wins.
+        The file under ``sessions/dag/`` is the only authoritative DAG backing
+        store. Any session-embedded ``plan_notebook`` / ``runtime_state`` block
+        is discarded before delegating to the host loader so it cannot
+        overwrite DataPaw's runtime state.
 
         .. note::
 
@@ -625,6 +634,16 @@ class DataPawAgent(QwenPawAgent):
            keys.
         """
         mapped = dict(state_dict)
-        if "runtime_state" in mapped:
-            mapped["plan_notebook"] = mapped.pop("runtime_state")
+        mapped.pop("runtime_state", None)
+        mapped.pop("plan_notebook", None)
         QwenPawAgent.load_state_dict(self, mapped, strict=False)
+        notebook = self.plan_notebook
+        dag_store = getattr(notebook, "_dag_store", None)
+        dag_session_id = getattr(notebook, "_dag_session_id", "")
+
+        stored = None
+        if dag_store is not None and dag_session_id:
+            stored = dag_store.read_sync(dag_session_id)
+
+        if isinstance(stored, dict):
+            notebook.restore_state(stored)
