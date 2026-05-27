@@ -18,7 +18,7 @@ import json
 import shutil
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import pytest
 
@@ -108,7 +108,7 @@ def _make_event(
 
 
 @pytest.fixture(autouse=True)
-def _isolate_inbox(app_server) -> None:
+def _isolate_inbox(app_server) -> Iterator[None]:
     """Wipe inbox state before and after every test in this module."""
     _clean_inbox(app_server.working_dir)
     yield
@@ -261,9 +261,7 @@ def test_inbox_list_events_filter_by_source_type(app_server) -> None:
         "evt-approval-01",
         "evt-approval-02",
     }
-    assert all(
-        event["source_type"] == "approval" for event in approval_events
-    )
+    assert all(event["source_type"] == "approval" for event in approval_events)
 
 
 @pytest.mark.integration

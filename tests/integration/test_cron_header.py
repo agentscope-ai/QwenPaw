@@ -187,7 +187,9 @@ def test_cron_header_jobs_create_three_then_list_returns_all(
         for job_id in job_ids:
             assert job_id in listed_ids, f"missing {job_id} in {listed_ids}"
 
-        by_id = {item["id"]: item for item in items if item.get("id") in job_ids}
+        by_id = {
+            item["id"]: item for item in items if item.get("id") in job_ids
+        }
         for job_id, (name, _user) in zip(job_ids, expected):
             assert by_id[job_id].get("name") == name
             assert by_id[job_id].get("enabled") is True
@@ -404,7 +406,7 @@ def test_cron_header_job_history_with_seeded_records_returns_chronological(
     spec = _minimal_text_cron_spec(name="integ header history seed")
     job_id = _create_cron_job(app_server, spec)
     try:
-        seeded = [
+        seeded: list[dict[str, Any]] = [
             {
                 "run_at": "2026-05-26T08:00:00+00:00",
                 "status": "success",

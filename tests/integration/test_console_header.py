@@ -50,7 +50,9 @@ def test_console_chat_stop_header_returns_stopped_false_for_unknown_chat_id(
 
 @pytest.mark.integration
 @pytest.mark.p2
-def test_console_push_messages_header_returns_dict_contract(app_server) -> None:
+def test_console_push_messages_header_returns_dict_contract(
+    app_server,
+) -> None:
     """Test purpose:
     - Verify GET /api/console/push-messages returns the documented
       contract ``{"messages": [...], "pending_approvals": [...]}`` on
@@ -81,7 +83,9 @@ def test_console_push_messages_header_returns_dict_contract(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p2
-def test_console_debug_backend_logs_header_returns_contract(app_server) -> None:
+def test_console_debug_backend_logs_header_returns_contract(
+    app_server,
+) -> None:
     """Test purpose:
     - Verify GET /api/console/debug/backend-logs returns the documented
       contract (``path / exists / lines / updated_at / size / content``)

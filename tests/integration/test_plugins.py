@@ -98,8 +98,14 @@ def _list_loaded_plugin_ids(app_server) -> set[str]:
     payload = resp.json()
     # The router returns a list[dict] of loaded plugins; tolerate a
     # dict wrapper if the shape ever changes.
-    items = payload if isinstance(payload, list) else payload.get("plugins", [])
-    return {item.get("id") for item in items if isinstance(item, dict)}
+    items = (
+        payload if isinstance(payload, list) else payload.get("plugins", [])
+    )
+    return {
+        str(item["id"])
+        for item in items
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
 
 
 def _delete_plugin(app_server, plugin_id: str):
@@ -272,7 +278,9 @@ def test_plugins_list_returns_empty_array_contract(app_server) -> None:
     )
     assert resp.status_code == 200, app_server.logs_tail()
     payload = resp.json()
-    items = payload if isinstance(payload, list) else payload.get("plugins", [])
+    items = (
+        payload if isinstance(payload, list) else payload.get("plugins", [])
+    )
     assert isinstance(items, list)
 
 
@@ -305,9 +313,10 @@ def test_plugins_catalog_returns_200_with_plugins_field_contract(
     assert resp.status_code == 200, app_server.logs_tail()
     payload = resp.json()
     assert isinstance(payload, dict), f"expected dict, got {type(payload)}"
-    assert isinstance(payload.get("plugins"), list), (
-        f"plugins field missing or not a list: {payload}"
-    )
+    assert isinstance(
+        payload.get("plugins"),
+        list,
+    ), f"plugins field missing or not a list: {payload}"
 
 
 @pytest.mark.integration
@@ -454,7 +463,8 @@ def test_plugins_install_official_cloudpaw_lifecycle(app_server) -> None:
 
     try:
         install_payload = _install_local_official_plugin(
-            app_server, source_path,
+            app_server,
+            source_path,
         )
         assert install_payload.get("id") == plugin_id
         assert install_payload.get("loaded") is True
@@ -508,7 +518,8 @@ def test_plugins_install_official_gpt_image2_lifecycle(app_server) -> None:
 
     try:
         install_payload = _install_local_official_plugin(
-            app_server, source_path,
+            app_server,
+            source_path,
         )
         assert install_payload.get("id") == plugin_id
 
@@ -625,7 +636,10 @@ def test_plugins_upload_force_replaces_existing(app_server) -> None:
         assert conflict.status_code == 409, app_server.logs_tail()
 
         replace = _upload_plugin_zip(
-            app_server, plugin_id, zip_v2, force=True,
+            app_server,
+            plugin_id,
+            zip_v2,
+            force=True,
         )
         assert replace.status_code == 200, app_server.logs_tail()
 

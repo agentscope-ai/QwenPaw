@@ -329,15 +329,17 @@ def test_backup_export_returns_valid_zip_with_manifest(app_server) -> None:
                 (
                     n
                     for n in names
-                    if n.endswith(("meta.json", "manifest.json", "backup.json"))
+                    if n.endswith(
+                        ("meta.json", "manifest.json", "backup.json"),
+                    )
                 ),
                 None,
             )
             assert manifest_name is not None, f"no manifest in zip: {names}"
             manifest_text = zf.read(manifest_name).decode("utf-8")
-            assert backup_id in manifest_text, (
-                f"backup_id missing from manifest: {manifest_text[:200]}"
-            )
+            assert (
+                backup_id in manifest_text
+            ), f"backup_id missing from manifest: {manifest_text[:200]}"
     finally:
         _delete_backup(app_server, backup_id)
 
