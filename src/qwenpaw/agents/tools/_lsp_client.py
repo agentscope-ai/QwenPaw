@@ -18,19 +18,14 @@ import logging
 import os
 import queue
 import subprocess
-import sys
 import threading
 from pathlib import Path
 from typing import Any, Optional
 
 LOGGER = logging.getLogger(__name__)
 
-# Hide Windows console window when spawning the server.
-_SUBPROCESS_FLAGS = (
-    getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    if sys.platform == "win32"
-    else 0
-)
+# Avoid CREATE_NO_WINDOW because it can trigger Windows Defender.
+_SUBPROCESS_FLAGS = 0
 
 _DEFAULT_TIMEOUT = 15.0
 _INITIALIZE_TIMEOUT = 30.0

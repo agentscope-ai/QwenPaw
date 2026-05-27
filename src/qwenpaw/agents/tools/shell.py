@@ -24,9 +24,6 @@ from ...config.context import (
     get_current_workspace_dir,
 )
 
-DESKTOP_APP_ENV = "QWENPAW_DESKTOP_APP"
-
-
 def _kill_process_tree_win32(pid: int) -> None:
     """Kill a process and all its descendants on Windows via taskkill.
 
@@ -46,10 +43,7 @@ def _kill_process_tree_win32(pid: int) -> None:
 
 def _windows_shell_creationflags() -> int:
     """Return Windows process flags for shell commands."""
-    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    if os.environ.get(DESKTOP_APP_ENV):
-        flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    return flags
+    return getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
 
 def _collapse_newlines_outside_quotes(cmd: str) -> str:
