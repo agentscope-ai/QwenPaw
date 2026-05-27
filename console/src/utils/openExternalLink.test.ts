@@ -50,6 +50,7 @@ describe("openExternalLink", () => {
     windowOpen.mockReset();
     vi.spyOn(window, "open").mockImplementation(windowOpen);
     delete (window as any).pywebview;
+    delete (window as any).__TAURI_INTERNALS__;
     localStorage.clear();
     (globalThis as any).VITE_API_BASE_URL = "";
     (globalThis as any).TOKEN = "";
@@ -105,29 +106,42 @@ describe("openExternalLink", () => {
     expect(windowOpen).not.toHaveBeenCalled();
   });
 
-  it("uses Tauri shell open for supported non-HTTP schemes", () => {
+  it("uses the Tauri external link command for supported non-HTTP schemes", () => {
     tauriMocks.isTauri.mockReturnValue(true);
 
     openExternalLink("mailto:support@example.com");
 
-    expect(tauriMocks.invoke).toHaveBeenCalledWith("plugin:shell|open", {
-      path: "mailto:support@example.com",
+    expect(tauriMocks.invoke).toHaveBeenCalledWith("open_external_link", {
+      url: "mailto:support@example.com",
     });
     expect(windowOpen).not.toHaveBeenCalled();
   });
 
-  it("uses the Tauri shell open command in the Tauri desktop app", () => {
+  it("uses the Tauri external link command in the Tauri desktop app", () => {
     tauriMocks.isTauri.mockReturnValue(true);
 
     openExternalLink("https://qwenpaw.agentscope.io/docs/intro?lang=zh");
 
-    expect(tauriMocks.invoke).toHaveBeenCalledWith("plugin:shell|open", {
-      path: "https://qwenpaw.agentscope.io/docs/intro?lang=zh",
+    expect(tauriMocks.invoke).toHaveBeenCalledWith("open_external_link", {
+      url: "https://qwenpaw.agentscope.io/docs/intro?lang=zh",
     });
     expect(windowOpen).not.toHaveBeenCalled();
   });
 
-  it("logs Tauri shell open failures without falling back to window.open", async () => {
+  it("uses injected Tauri internals when isTauri is false", () => {
+    (window as any).__TAURI_INTERNALS__ = {
+      invoke: vi.fn(),
+    };
+
+    openExternalLink("https://github.com/agentscope-ai/QwenPaw");
+
+    expect(tauriMocks.invoke).toHaveBeenCalledWith("open_external_link", {
+      url: "https://github.com/agentscope-ai/QwenPaw",
+    });
+    expect(windowOpen).not.toHaveBeenCalled();
+  });
+
+  it("logs Tauri external link failures without falling back to window.open", async () => {
     tauriMocks.isTauri.mockReturnValue(true);
     tauriMocks.invoke.mockRejectedValue(new Error("permission denied"));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -166,8 +180,8 @@ describe("openExternalLink", () => {
 
     openExternalLink("/docs/faq");
 
-    expect(tauriMocks.invoke).toHaveBeenCalledWith("plugin:shell|open", {
-      path: "http://localhost:3000/docs/faq",
+    expect(tauriMocks.invoke).toHaveBeenCalledWith("open_external_link", {
+      url: "http://localhost:3000/docs/faq",
     });
   });
 
@@ -193,8 +207,8 @@ describe("openExternalLink", () => {
       expect(cancelled).toBe(true);
       expect(targetClick).toHaveBeenCalledTimes(1);
       expect(targetClick.mock.calls[0]?.[0].defaultPrevented).toBe(true);
-      expect(tauriMocks.invoke).toHaveBeenCalledWith("plugin:shell|open", {
-        path: "https://example.com/docs",
+      expect(tauriMocks.invoke).toHaveBeenCalledWith("open_external_link", {
+        url: "https://example.com/docs",
       });
       expect(windowOpen).not.toHaveBeenCalled();
     } finally {
@@ -222,8 +236,8 @@ describe("openExternalLink", () => {
       );
 
       expect(tauriMocks.invoke).toHaveBeenCalledTimes(1);
-      expect(tauriMocks.invoke).toHaveBeenCalledWith("plugin:shell|open", {
-        path: "https://example.com/docs",
+      expect(tauriMocks.invoke).toHaveBeenCalledWith("open_external_link", {
+        url: "https://example.com/docs",
       });
 
       cleanupB();
@@ -272,7 +286,7 @@ describe("openExternalLink", () => {
     }
   });
 
-  it("routes Tauri window.open calls through the shell plugin", () => {
+  it("routes Tauri window.open calls through the external link command", () => {
     tauriMocks.isTauri.mockReturnValue(true);
     const cleanup = installTauriExternalLinkInterceptor();
 
@@ -284,8 +298,8 @@ describe("openExternalLink", () => {
       );
 
       expect(result).toBeNull();
-      expect(tauriMocks.invoke).toHaveBeenCalledWith("plugin:shell|open", {
-        path: "https://example.com/search",
+      expect(tauriMocks.invoke).toHaveBeenCalledWith("open_external_link", {
+        url: "https://example.com/search",
       });
       expect(windowOpen).not.toHaveBeenCalled();
     } finally {

@@ -9,6 +9,7 @@ const SUPPORTED_EXTERNAL_PROTOCOLS = new Set([
   "mailto:",
   "tel:",
 ]);
+const TAURI_OPEN_EXTERNAL_LINK_COMMAND = "open_external_link";
 
 export function resolveExternalUrl(url: string): string | null {
   const trimmedUrl = url.trim();
@@ -70,6 +71,15 @@ function getPyWebViewApi(): PyWebViewApi | undefined {
   return window.pywebview?.api;
 }
 
+function externalUrlForLog(url: string): string {
+  try {
+    const parsedUrl = new URL(url);
+    return `${parsedUrl.protocol}//${parsedUrl.host}${parsedUrl.pathname}`;
+  } catch {
+    return "<unparseable>";
+  }
+}
+
 /**
  * Open an external URL in the user's system browser when running under a
  * desktop shell, and fall back to window.open in the web console.
@@ -86,16 +96,35 @@ export function openExternalLink(
 
   const pywebviewApi = getPyWebViewApi();
   if (pywebviewApi?.open_external_link && isHttpExternalUrl(fullUrl)) {
+    console.info("[external-link] opening via pywebview", {
+      url: externalUrlForLog(fullUrl),
+    });
     pywebviewApi.open_external_link(fullUrl);
     return;
   }
 
   if (isTauriRuntime()) {
-    void invoke("plugin:shell|open", { path: fullUrl }).catch((error) => {
-      console.warn("Failed to open external link", error);
+    console.info("[external-link] opening via Tauri", {
+      url: externalUrlForLog(fullUrl),
     });
+    void invoke(TAURI_OPEN_EXTERNAL_LINK_COMMAND, { url: fullUrl }).then(
+      () => {
+        console.info("[external-link] Tauri open command succeeded", {
+          url: externalUrlForLog(fullUrl),
+        });
+      },
+      (error) => {
+        console.warn("[external-link] Tauri open command failed", {
+          error,
+          url: externalUrlForLog(fullUrl),
+        });
+      },
+    );
     return;
   }
 
+  console.info("[external-link] opening via window.open", {
+    url: externalUrlForLog(fullUrl),
+  });
   window.open(fullUrl, target, features);
 }

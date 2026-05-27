@@ -1,4 +1,5 @@
 mod backend;
+mod external_link;
 
 use tauri::{Manager, RunEvent, WindowEvent};
 
@@ -12,6 +13,7 @@ pub fn run() {
             backend::backend_port,
             backend::backend_startup_error,
             backend::restart_backend,
+            external_link::open_external_link,
         ])
         .manage(backend::BackendState::default())
         .setup(backend::setup)

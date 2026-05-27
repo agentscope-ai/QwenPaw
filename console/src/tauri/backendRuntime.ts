@@ -5,7 +5,16 @@ declare const VITE_API_BASE_URL: string;
 let initRuntimeApiBaseUrlPromise: Promise<string> | null = null;
 
 export function isTauriRuntime(): boolean {
-  return isTauri();
+  return isTauri() || hasTauriInternals();
+}
+
+function hasTauriInternals(): boolean {
+  if (typeof window === "undefined") return false;
+
+  return (
+    typeof (window as { __TAURI_INTERNALS__?: { invoke?: unknown } })
+      .__TAURI_INTERNALS__?.invoke === "function"
+  );
 }
 
 export function shouldUseTauriStartupGate(): boolean {
