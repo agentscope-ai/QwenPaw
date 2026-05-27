@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw Sessions 模块 P0 级端到端测试用例
+QwenPaw Sessions module P0 end-to-end test cases.
 
-P0 级别定义：
-- 核心用户操作流程
-- 多个功能点组合覆盖
-- 真实用户场景模拟
-- 高优先级功能验证
+P0 definition:
+- Core user flows
+- Multi-feature combined coverage
+- Real user scenarios
+- High-priority functionality
 
-测试框架：pytest + Playwright + Page Object Pattern
-执行命令：pytest tests/test_sessions_p0.py -v
+Stack: pytest + Playwright + Page Object Pattern
+Run with: pytest tests/test_sessions_p0.py -v
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# SESS-001: 会话列表展示 + 过滤 + 详情查看
+# SESS-001: Session list display + filter + detail view
 # ============================================================================
 
 @pytest.mark.integration
@@ -39,100 +39,100 @@ logger = logging.getLogger(__name__)
 @pytest.mark.sessions_core
 class TestSessionListFilterAndDetail:
     """
-    SESS-001: 会话列表展示 + 过滤 + 详情查看
+    SESS-001: Session list display + filter + detail view.
 
-    组合覆盖功能点：
-    1. Sessions 页面访问与加载
-    2. 会话列表表格展示（列验证）
-    3. UserID 过滤
-    4. Channel 过滤
-    5. 列表排序
-    6. 会话详情查看
+    Combined coverage:
+    1. Sessions page navigation and load
+    2. Session list table display (column verification)
+    3. UserID filter
+    4. Channel filter
+    5. List sorting
+    6. Session detail view
 
-    业务场景：
-    用户进入 Sessions 管理页面，查看会话列表，
-    通过过滤和排序快速定位目标会话，然后查看会话详情。
+    Scenario:
+    A user opens the Sessions management page, browses the list,
+    narrows down via filter and sort, then views session detail.
     """
 
     @pytest.mark.test_id("SESS-001")
     def test_session_list_filter_and_detail(self, sessions_page: SessionsPage, request: pytest.FixtureRequest):
         """
-        验证会话列表展示、过滤、排序和详情查看
+        Verify session list display, filtering, sorting and detail view.
 
-        测试步骤：
-        1. 访问 Sessions 页面，验证表格加载
-        2. 验证表格关键列（ID / UserID / Channel / Created）
-        3. 验证过滤器可用（UserID / Channel）
-        4. 验证排序功能（表头可点击）
-        5. 查看第一条会话详情
+        Steps:
+        1. Visit the Sessions page and verify the table loads
+        2. Verify key columns (ID / UserID / Channel / Created)
+        3. Verify filters are available (UserID / Channel)
+        4. Verify sorting (table header is clickable)
+        5. View detail for the first session
         """
         test_name = request.node.name
 
-        log_test_step("1. 访问 Sessions 页面，验证表格加载")
+        log_test_step("1. Visit the Sessions page and verify the table loads")
         sessions_page.open()
         session_count = sessions_page.get_session_count()
-        logger.info(f"会话数量：{session_count}")
+        logger.info(f"Session count: {session_count}")
 
-        log_test_step("2. 验证表格关键列")
+        log_test_step("2. Verify key table columns")
         table_header = sessions_page.page.locator("thead th")
         header_count = table_header.count()
-        assert header_count >= 3, f"表格应至少有3列，实际 {header_count} 列"
-        logger.info(f"✅ 表格列数：{header_count}")
+        assert header_count >= 3, f"Table should have at least 3 columns, got {header_count}"
+        logger.info(f"Table column count: {header_count}")
 
-        log_test_step("3. 验证过滤器并执行过滤操作")
+        log_test_step("3. Verify filters and run a filter operation")
         userid_input = sessions_page.page.locator(sessions_page.FILTER_USER_ID_INPUT).first
         if userid_input.count() > 0 and userid_input.is_visible(timeout=3000):
-            # 输入一个过滤值并验证
+            # Type a filter value and verify
             userid_input.fill("e2e_test_filter")
             sessions_page.page.wait_for_timeout(1500)
             filtered_count = sessions_page.get_session_count()
-            logger.info(f"过滤后会话数量：{filtered_count}")
+            logger.info(f"Session count after filter: {filtered_count}")
             assert filtered_count <= session_count, \
-                f"过滤后数量({filtered_count})不应超过原始数量({session_count})"
-            logger.info("✅ UserID 过滤器功能正常")
-            # 清空过滤
+                f"Filtered count ({filtered_count}) should not exceed original count ({session_count})"
+            logger.info("UserID filter works")
+            # Clear filter
             userid_input.fill("")
             sessions_page.page.wait_for_timeout(1000)
         else:
-            logger.info("ℹ️ 未找到 UserID 过滤器输入框")
+            logger.info("UserID filter input not found")
 
-        log_test_step("4. 验证排序功能（点击表头）")
+        log_test_step("4. Verify sorting (click table header)")
         headers = sessions_page.page.locator("thead th")
-        assert headers.count() > 0, "应该存在表头"
-        # 点击第一个可排序表头
+        assert headers.count() > 0, "Table headers should exist"
+        # Click the first sortable header
         first_header = headers.first
         first_header.click()
         sessions_page.page.wait_for_timeout(1000)
-        logger.info("✅ 已点击表头排序")
+        logger.info("Clicked header to sort")
 
-        log_test_step("5. 查看第一条会话详情")
+        log_test_step("5. View detail for the first session")
         refreshed_count = sessions_page.get_session_count()
         if refreshed_count > 0:
             visible_rows = sessions_page.page.locator("tbody tr:not([aria-hidden='true'])")
-            assert visible_rows.count() > 0, "应该有可见的会话行"
+            assert visible_rows.count() > 0, "Visible session rows should exist"
             first_row = visible_rows.first
             first_row.click()
             sessions_page.page.wait_for_timeout(2000)
-            # 验证详情面板或抽屉打开
+            # Verify the detail panel or drawer opens
             detail_panel = sessions_page.page.locator('.qwenpaw-drawer, .qwenpaw-modal, [class*="detail"]').first
             if detail_panel.count() > 0 and detail_panel.is_visible(timeout=3000):
                 detail_text = detail_panel.text_content() or ""
-                assert len(detail_text) > 10, "会话详情内容不应为空"
-                logger.info(f"✅ 会话详情面板已打开，内容长度: {len(detail_text)}")
+                assert len(detail_text) > 10, "Session detail content should not be empty"
+                logger.info(f"Session detail panel opened, content length: {len(detail_text)}")
                 sessions_page.page.keyboard.press("Escape")
                 sessions_page.page.wait_for_timeout(500)
             else:
-                logger.info("ℹ️ 点击行后未打开详情面板（可能使用路由跳转）")
-            logger.info(f"✅ 可见会话行数：{visible_rows.count()}")
+                logger.info("Clicking row did not open a detail panel (may use route navigation)")
+            logger.info(f"Visible session rows: {visible_rows.count()}")
         else:
-            logger.info("ℹ️ 无会话数据，跳过详情查看")
+            logger.info("No session data, skipping detail view")
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - 会话列表展示、过滤、排序、详情功能正常")
+        logger.info(f"Test {test_name} passed - session list display, filter, sort and detail OK")
 
 
 # ============================================================================
-# SESS-002: 编辑会话 + 删除会话 + 批量删除
+# SESS-002: Edit session + delete session + batch delete
 # ============================================================================
 
 @pytest.mark.integration
@@ -140,55 +140,55 @@ class TestSessionListFilterAndDetail:
 @pytest.mark.sessions_edit
 class TestEditAndDeleteSession:
     """
-    SESS-002: 编辑会话 + 删除会话 + 批量删除
+    SESS-002: Edit session + delete session + batch delete.
 
-    组合覆盖功能点：
-    1. 点击编辑按钮打开编辑弹窗
-    2. 验证编辑弹窗和表单
-    3. 取消编辑关闭弹窗
-    4. 验证删除按钮可用
-    5. 验证批量选择和批量删除功能
+    Combined coverage:
+    1. Click the edit button to open the edit dialog
+    2. Verify the edit dialog and form
+    3. Cancel editing and close the dialog
+    4. Verify the delete button is available
+    5. Verify batch selection and batch delete
 
-    业务场景：
-    管理员打开编辑弹窗查看会话信息后取消，
-    然后验证单条删除和批量删除功能可用。
+    Scenario:
+    Admin opens the edit dialog to inspect a session, cancels,
+    then verifies single delete and batch delete are available.
     """
 
     @pytest.mark.test_id("SESS-002")
     def test_edit_and_delete_session(self, sessions_page: SessionsPage, ensure_session_data, request: pytest.FixtureRequest):
         """
-        验证编辑、删除、批量删除功能
+        Verify edit, delete and batch-delete features.
 
-        测试步骤：
-        1. 访问 Sessions 页面
-        2. 验证有可操作的会话
-        3. 点击编辑按钮，验证弹窗打开
-        4. 取消编辑，验证弹窗关闭
-        5. 验证删除按钮可用
-        6. 验证批量选择和批量删除功能
+        Steps:
+        1. Visit the Sessions page
+        2. Verify operable sessions exist
+        3. Click the edit button and verify the dialog opens
+        4. Cancel editing and verify the dialog closes
+        5. Verify the delete button is available
+        6. Verify batch selection and batch-delete
         """
         test_name = request.node.name
 
-        log_test_step("1. 访问 Sessions 页面")
+        log_test_step("1. Visit the Sessions page")
         sessions_page.open()
         sessions_page.step_shot("01_sessions_page_opened")
 
-        log_test_step("2. 验证有可操作的会话")
+        log_test_step("2. Verify operable sessions exist")
         session_count = sessions_page.get_session_count()
         assert session_count > 0, (
-            "ensure_session_data fixture 应已创建测试数据，但页面会话数为 0"
+            "ensure_session_data fixture should have created test data, but the page shows 0 sessions"
         )
         first_row = sessions_page.page.locator(sessions_page.SESSION_TABLE_ROW).first
 
-        # --- 编辑功能：必须真的能打开和关闭 drawer ---
-        log_test_step("3. 点击编辑按钮，验证弹窗打开")
-        # 注意：被测系统 Action 列 fixed="right"，可能在行内查找不到按钮，
-        # 这里用页面级的 EDIT_BTN 选择器并取第一个匹配（覆盖固定列影子表场景）。
+        # --- Edit: must actually open and close the drawer ---
+        log_test_step("3. Click the edit button and verify the dialog opens")
+        # Note: SUT has Action column fixed="right"; in-row lookup may miss the button.
+        # Use the page-level EDIT_BTN selector and take the first match (covers fixed-column shadow row).
         page_edit_btns = sessions_page.page.locator(sessions_page.EDIT_BTN)
         edit_btn_count = page_edit_btns.count()
         assert edit_btn_count > 0, (
-            f"页面上未找到任何编辑按钮（行数={session_count}）。"
-            f"page object EDIT_BTN 选择器可能未覆盖真实 DOM，请检查 fixed-right 列结构。"
+            f"No edit button found on the page (rows={session_count}). "
+            f"Page object EDIT_BTN selector may not cover real DOM; check fixed-right column structure."
         )
         edit_btn = page_edit_btns.first
         edit_btn.scroll_into_view_if_needed()
@@ -197,67 +197,65 @@ class TestEditAndDeleteSession:
         expect(
             sessions_page.page.locator(sessions_page.SESSION_DRAWER).first
         ).to_be_visible(timeout=5000)
-        logger.info("✅ 编辑弹窗已打开")
+        logger.info("Edit dialog opened")
         sessions_page.step_shot("03_edit_drawer_opened")
 
-        log_test_step("4. 取消编辑，验证弹窗关闭")
+        log_test_step("4. Cancel editing and verify the dialog closes")
         cancel_btns = sessions_page.page.locator(sessions_page.FORM_CANCEL_BTN)
         if cancel_btns.count() > 0 and cancel_btns.first.is_visible():
             cancel_btns.first.click()
         else:
-            # 兜底：按 ESC 关闭 drawer
+            # Fallback: press ESC to close the drawer
             sessions_page.page.keyboard.press("Escape")
         expect(
             sessions_page.page.locator(sessions_page.SESSION_DRAWER).first
         ).to_be_hidden(timeout=5000)
         sessions_page.step_shot("04_edit_drawer_closed")
-        logger.info("✅ 编辑弹窗已关闭")
+        logger.info("Edit dialog closed")
 
-        # --- 删除功能：按钮必须存在且可用 ---
-        log_test_step("5. 验证删除按钮可用")
+        # --- Delete: the button must exist and be enabled ---
+        log_test_step("5. Verify the delete button is available")
         page_delete_btns = sessions_page.page.locator(sessions_page.DELETE_BTN)
         del_count = page_delete_btns.count()
-        assert del_count > 0, "页面上未找到任何删除按钮"
+        assert del_count > 0, "No delete button found on the page"
         first_delete = page_delete_btns.first
-        assert first_delete.is_enabled(), "第一个删除按钮应该可用"
-        logger.info(f"✅ 删除按钮验证通过（共 {del_count} 个删除按钮）")
+        assert first_delete.is_enabled(), "First delete button should be enabled"
+        logger.info(f"Delete button verified ({del_count} delete buttons)")
         sessions_page.step_shot("05_delete_btn_visible")
 
-        # --- 批量删除功能：checkbox 必须真的能选中 ---
-        log_test_step("6. 验证批量选择 checkbox 可勾选")
+        # --- Batch delete: checkbox must actually be selectable ---
+        log_test_step("6. Verify batch-selection checkbox is selectable")
         row_checkboxes = sessions_page.page.locator(
             'tbody tr .qwenpaw-checkbox-input, '
             'tbody tr .ant-checkbox-input, '
             'tbody tr input[type="checkbox"]'
         )
         cb_count = row_checkboxes.count()
-        assert cb_count > 0, "未找到任何行 checkbox（批量选择应该可用）"
+        assert cb_count > 0, "No row checkboxes found (batch selection should be available)"
         first_cb = row_checkboxes.first
         first_cb.click(force=True)
         sessions_page.page.wait_for_timeout(800)
         sessions_page.step_shot("06_first_checkbox_checked")
-        # 勾选后页面上应该出现批量删除按钮（fixed bar 或 toolbar）
+        # After selection, a batch-delete button should appear (fixed bar or toolbar)
         batch_btns = sessions_page.page.locator(
-            'button.qwenpaw-btn-dangerous:has-text("删除"), '
             'button.qwenpaw-btn-dangerous:has-text("Delete"), '
-            'button:has-text("批量删除"), '
             'button:has-text("Batch Delete")'
         )
-        # 这一步是软校验：批量删除按钮文案/类名因前端实现而异，看到任意一个 dangerous 按钮即可
+        # This is a soft check: batch-delete button text/class varies by frontend; any dangerous button is fine
         assert batch_btns.count() > 0, (
-            "勾选 checkbox 后应该出现批量删除/dangerous 按钮，但未找到。"
+            "A batch-delete / dangerous button should appear after selecting a checkbox, but none found."
         )
-        logger.info(f"✅ 勾选 checkbox 后批量删除按钮已出现（{batch_btns.count()} 个）")
-        # 取消勾选，避免污染下一个用例
+        logger.info(f"Batch-delete button appeared after selecting checkbox ({batch_btns.count()})")
+        # Unselect to avoid polluting the next test
         first_cb.click(force=True)
         sessions_page.page.wait_for_timeout(300)
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - 编辑、删除、批量删除功能验证完成")
+        logger.info(f"Test {test_name} passed - edit, delete and batch-delete verified")
 
 
 # ============================================================================
-# SESS-003: 会话名称编辑保存
+# SESS-003: Session name edit and save
 # ============================================================================
 
 @pytest.mark.integration
@@ -265,20 +263,21 @@ class TestEditAndDeleteSession:
 @pytest.mark.sessions_edit
 class TestSessionEditAndSave:
     """
-    SESS-003: 会话名称编辑保存
-    
-    覆盖功能点：
-    1. 点击编辑按钮打开编辑抽屉
-    2. 验证编辑抽屉打开
-    3. 修改会话名称
-    4. 保存并验证名称更新
-    5. 恢复原始名称
-    
-    业务场景：
-    用户编辑会话名称以更好地标识会话内容，保存后验证名称已更新，
-    最后恢复原始名称以保持环境干净。
+    SESS-003: Session name edit and save.
+
+    Coverage:
+    1. Click the edit button to open the edit drawer
+    2. Verify the edit drawer opens
+    3. Modify the session name
+    4. Save and verify the name updated
+    5. Restore the original name
+
+    Scenario:
+    A user edits the session name to better identify the conversation,
+    saves it and verifies the name update, then restores the original name
+    to keep the environment clean.
     """
-    
+
     @pytest.mark.test_id("SESS-003")
     def test_session_edit_name_and_save(
         self,
@@ -287,121 +286,121 @@ class TestSessionEditAndSave:
         request: pytest.FixtureRequest,
     ):
         """
-        验证会话名称编辑和保存功能
-        
-        测试步骤：
-        1. 访问 Sessions 页面
-        2. 验证有可操作的会话
-        3. 点击第一条会话的编辑按钮
-        4. 验证编辑抽屉打开
-        5. 修改会话名称为 "E2E_Test_Renamed_xxx"
-        6. 点击保存按钮
-        7. 验证抽屉关闭
-        8. 验证列表中会话名称已更新
-        9. 恢复原始名称（再次编辑并保存）
+        Verify session name edit-and-save flow.
+
+        Steps:
+        1. Visit the Sessions page
+        2. Verify operable sessions exist
+        3. Click the edit button on the first session
+        4. Verify the edit drawer opens
+        5. Change the session name to "E2E_Test_Renamed_xxx"
+        6. Click save
+        7. Verify the drawer closes
+        8. Verify the new name appears in the list
+        9. Restore the original name (edit and save again)
         """
         test_name = request.node.name
-        
-        log_test_step("1. 访问 Sessions 页面")
+
+        log_test_step("1. Visit the Sessions page")
         sessions_page.open()
-        
-        log_test_step("2. 验证有可操作的会话")
+
+        log_test_step("2. Verify operable sessions exist")
         session_count = sessions_page.get_session_count()
         if session_count == 0:
-            pytest.skip("没有可操作的会话")
-        
+            pytest.skip("No operable sessions")
+
         first_row = sessions_page.page.locator(sessions_page.SESSION_TABLE_ROW).first
-        
-        # 获取原始会话名称
-        original_name_cell = first_row.locator('td').nth(1)  # 假设名称在第2列
+
+        # Get the original session name
+        original_name_cell = first_row.locator('td').nth(1)  # Assume the name is in the 2nd column
         original_name = original_name_cell.text_content().strip() if original_name_cell.count() > 0 else ""
-        logger.info(f"原始会话名称：{original_name}")
-        
-        log_test_step("3. 点击第一条会话的编辑按钮")
-        # 源码：Action 列 fixed="right"，按钮是 Button type="link" size="small"
-        # 需要在固定列中查找编辑按钮
-        edit_btn = first_row.locator('button:has-text("Edit"), button:has-text("编辑")').first
+        logger.info(f"Original session name: {original_name}")
+
+        log_test_step("3. Click the edit button on the first session")
+        # Source: Action column fixed="right"; button is Button type="link" size="small"
+        # Need to find the edit button within the fixed column
+        edit_btn = first_row.locator('button:has-text("Edit")').first
         if not edit_btn.is_visible():
-            # 尝试在固定列中查找
-            fixed_row = sessions_page.page.locator('.qwenpaw-table-cell-fix-right button:has-text("Edit"), .qwenpaw-table-cell-fix-right button:has-text("编辑")').first
+            # Try the fixed column
+            fixed_row = sessions_page.page.locator('.qwenpaw-table-cell-fix-right button:has-text("Edit")').first
             if fixed_row.is_visible():
                 edit_btn = fixed_row
         if not edit_btn.is_visible():
-            pytest.skip("编辑按钮不可用")
-        
+            pytest.skip("Edit button not available")
+
         edit_btn.click()
-        
-        log_test_step("4. 验证编辑抽屉打开")
+
+        log_test_step("4. Verify the edit drawer opens")
         expect(sessions_page.page.locator(sessions_page.SESSION_DRAWER).first).to_be_visible(timeout=5000)
-        logger.info("✅ 编辑抽屉已打开")
-        
-        log_test_step("5. 修改会话名称")
+        logger.info("Edit drawer opened")
+
+        log_test_step("5. Modify the session name")
         new_name = f"E2E_Test_Renamed_{request.node.name[-8:]}"
         name_input = sessions_page.page.locator(sessions_page.SESSION_DRAWER).first.locator('input').first
         if name_input.count() > 0 and name_input.is_visible():
             name_input.fill(new_name)
-            logger.info(f"已输入新名称：{new_name}")
+            logger.info(f"Entered new name: {new_name}")
         else:
-            # 尝试其他可能的输入框选择器
-            name_input = sessions_page.page.locator('#sessionName, [name="sessionName"], input[placeholder*="名称"]').first
+            # Try other possible input selectors
+            name_input = sessions_page.page.locator('#sessionName, [name="sessionName"]').first
             if name_input.count() > 0:
                 name_input.fill(new_name)
-                logger.info(f"已输入新名称：{new_name}")
+                logger.info(f"Entered new name: {new_name}")
             else:
-                pytest.skip("未找到名称输入框")
-        
-        log_test_step("6. 点击保存按钮")
+                pytest.skip("Name input not found")
+
+        log_test_step("6. Click the save button")
         save_btn = sessions_page.page.locator(sessions_page.FORM_SUBMIT_BTN).first
         if save_btn.count() == 0:
-            save_btn = sessions_page.page.locator('button:has-text("保存"), button:has-text("Save"), button.qwenpaw-btn-primary').first
+            save_btn = sessions_page.page.locator('button:has-text("Save"), button.qwenpaw-btn-primary').first
         if save_btn.count() > 0 and save_btn.is_visible():
             save_btn.click()
-            logger.info("已点击保存按钮")
+            logger.info("Clicked save button")
         else:
-            pytest.skip("未找到保存按钮")
-        
-        log_test_step("7. 验证抽屉关闭")
+            pytest.skip("Save button not found")
+
+        log_test_step("7. Verify the drawer closes")
         expect(sessions_page.page.locator(sessions_page.SESSION_DRAWER).first).to_be_hidden(timeout=5000)
-        logger.info("✅ 编辑抽屉已关闭")
-        
-        log_test_step("8. 验证列表中会话名称已更新（强断言）")
+        logger.info("Edit drawer closed")
+
+        log_test_step("8. Verify the new name appears in the list (hard assert)")
         sessions_page.page.wait_for_timeout(1500)
-        # 主动刷新页面，确保看到的是最新数据（避免乐观更新缓存假象）
+        # Reload the page to ensure we see the latest data (avoid optimistic-update cache illusion)
         sessions_page.page.reload()
         sessions_page.page.wait_for_load_state("domcontentloaded")
         sessions_page.page.wait_for_timeout(2000)
         sessions_page.step_shot("08_after_save_reloaded")
 
-        # 在整个表格的所有行里查找 new_name（不限定第一行，因为排序可能变化）
+        # Search for new_name across all rows in the table (not just the first, sort order may change)
         page_text = sessions_page.page.locator("tbody").inner_text() or ""
         assert new_name in page_text, (
-            f"保存后整个会话列表的文本中未发现新名称 '{new_name}'，"
-            f"可能保存未真正生效。表格内容预览: {page_text[:300]}"
+            f"New name '{new_name}' not found in session list text after save; "
+            f"save may not have taken effect. Table preview: {page_text[:300]}"
         )
-        logger.info(f"✅ 会话列表中已找到新名称：{new_name}")
-        
-        log_test_step("9. 恢复原始名称")
+        logger.info(f"Found new name in session list: {new_name}")
+
+        log_test_step("9. Restore the original name")
         if original_name:
             edit_btn.click()
             expect(sessions_page.page.locator(sessions_page.SESSION_DRAWER).first).to_be_visible(timeout=5000)
-            
+
             name_input = sessions_page.page.locator(sessions_page.SESSION_DRAWER).first.locator('input').first
             if name_input.count() > 0:
                 name_input.fill(original_name)
                 save_btn = sessions_page.page.locator(sessions_page.FORM_SUBMIT_BTN).first
                 if save_btn.count() == 0:
-                    save_btn = sessions_page.page.locator('button:has-text("保存"), button:has-text("Save"), button.qwenpaw-btn-primary').first
+                    save_btn = sessions_page.page.locator('button:has-text("Save"), button.qwenpaw-btn-primary').first
                 if save_btn.count() > 0:
                     save_btn.click()
                     expect(sessions_page.page.locator(sessions_page.SESSION_DRAWER).first).to_be_hidden(timeout=5000)
-                    logger.info(f"✅ 已恢复原始名称：{original_name}")
-        
+                    logger.info(f"Restored original name: {original_name}")
+
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed")
+        logger.info(f"Test {test_name} passed")
 
 
 # ============================================================================
-# SESS-004: 批量删除会话执行
+# SESS-004: Batch delete sessions
 # ============================================================================
 
 @pytest.mark.integration
@@ -409,20 +408,20 @@ class TestSessionEditAndSave:
 @pytest.mark.sessions_batch
 class TestSessionBatchDelete:
     """
-    SESS-004: 批量删除会话执行
-    
-    覆盖功能点：
-    1. 勾选多个会话的 checkbox
-    2. 验证批量删除按钮变为可用
-    3. 点击批量删除按钮
-    4. 确认删除
-    5. 验证会话数量减少
-    
-    业务场景：
-    用户批量选择并删除多个不需要的会话，提高管理效率。
-    注意：由于是破坏性操作，如果会话数量不足则跳过。
+    SESS-004: Batch delete sessions.
+
+    Coverage:
+    1. Tick checkboxes for multiple sessions
+    2. Verify the batch-delete button becomes available
+    3. Click the batch-delete button
+    4. Confirm deletion
+    5. Verify the session count decreased
+
+    Scenario:
+    A user batch-selects and deletes multiple unwanted sessions for efficiency.
+    Note: this is destructive, skip if there are insufficient sessions.
     """
-    
+
     @pytest.mark.test_id("SESS-004")
     def test_session_batch_delete(
         self,
@@ -431,39 +430,39 @@ class TestSessionBatchDelete:
         request: pytest.FixtureRequest,
     ):
         """
-        验证批量删除会话功能
-        
-        测试步骤：
-        1. 访问 Sessions 页面
-        2. 验证有至少2条会话
-        3. 勾选前两条会话的 checkbox
-        4. 验证批量删除按钮变为可用
-        5. 点击批量删除按钮
-        6. 确认删除（如有确认弹窗）
-        7. 验证会话数量减少
+        Verify batch delete sessions.
+
+        Steps:
+        1. Visit the Sessions page
+        2. Verify at least 2 sessions exist
+        3. Tick checkboxes for the first two sessions
+        4. Verify the batch-delete button becomes available
+        5. Click the batch-delete button
+        6. Confirm deletion (if a confirm dialog appears)
+        7. Verify the session count decreased
         """
         test_name = request.node.name
-        
-        log_test_step("1. 访问 Sessions 页面")
+
+        log_test_step("1. Visit the Sessions page")
         sessions_page.open()
-        
-        log_test_step("2. 验证有至少2条会话")
+
+        log_test_step("2. Verify at least 2 sessions exist")
         session_count = sessions_page.get_session_count()
         if session_count < 2:
-            pytest.skip(f"会话数量不足，需要至少2条，当前只有{session_count}条")
-        
-        log_test_step("3. 勾选前两条会话的 checkbox")
-        # 源码：Table rowSelection，每行 tbody tr 中有 checkbox
-        # 注意：不要选全选框（thead 中的），要选 tbody 中每行的
-        # 使用更宽泛的选择器，兼容 antd 和 qwenpaw 前缀
+            pytest.skip(f"Insufficient sessions; need at least 2, have {session_count}")
+
+        log_test_step("3. Tick checkboxes for the first two sessions")
+        # Source: Table rowSelection; each tbody tr has a checkbox.
+        # Don't tick the select-all (in thead); tick the tbody row checkboxes.
+        # Use broad selectors to cover both antd and qwenpaw prefixes
         row_checkboxes = sessions_page.page.locator(
             'tbody tr .qwenpaw-checkbox-input, '
             'tbody tr .ant-checkbox-input, '
             'tbody tr input[type="checkbox"]'
         ).all()
         if len(row_checkboxes) < 2:
-            pytest.skip(f"无法找到足够的行 checkbox，找到 {len(row_checkboxes)} 个")
-        
+            pytest.skip(f"Not enough row checkboxes found; got {len(row_checkboxes)}")
+
         checked_count = 0
         for i in range(min(2, len(row_checkboxes))):
             checkbox = row_checkboxes[i]
@@ -471,77 +470,69 @@ class TestSessionBatchDelete:
                 checkbox.click(force=True)
                 sessions_page.page.wait_for_timeout(800)
                 checked_count += 1
-                logger.info(f"已勾选第 {i + 1} 条会话的 checkbox")
-        assert checked_count >= 1, "至少应成功勾选 1 条会话"
-        logger.info(f"已勾选 {checked_count} 条会话的 checkbox")
-        
-        log_test_step("4. 验证批量删除按钮出现")
-        # 源码：selectedRowKeys.length > 0 时才渲染 Button type="primary" danger
-        # antd Button type="primary" danger 的 class 可能是 qwenpaw-btn-primary + qwenpaw-btn-dangerous
+                logger.info(f"Ticked checkbox for session #{i + 1}")
+        assert checked_count >= 1, "At least 1 session checkbox should be ticked"
+        logger.info(f"Ticked {checked_count} session checkbox(es)")
+
+        log_test_step("4. Verify the batch-delete button appears")
+        # Source: button Type="primary" danger renders only when selectedRowKeys.length > 0
+        # antd Button type="primary" danger may have classes qwenpaw-btn-primary + qwenpaw-btn-dangerous
         batch_delete_btn = None
         batch_btn_selectors = [
-            'button.qwenpaw-btn-dangerous:has-text("删除")',
             'button.qwenpaw-btn-dangerous:has-text("Delete")',
-            'button:has-text("批量删除")',
             'button:has-text("Batch Delete")',
-            'button:has-text("删除")',
             'button:has-text("Delete")',
         ]
         for selector in batch_btn_selectors:
             btn = sessions_page.page.locator(selector).first
             if btn.count() > 0 and btn.is_visible(timeout=3000):
                 batch_delete_btn = btn
-                logger.info(f"找到批量删除按钮: {selector}")
+                logger.info(f"Found batch-delete button: {selector}")
                 break
-        
-        assert batch_delete_btn is not None, "未找到批量删除按钮"
-        logger.info("批量删除按钮已出现")
-        
-        log_test_step("5. 记录删除前的会话数量")
+
+        assert batch_delete_btn is not None, "Batch-delete button not found"
+        logger.info("Batch-delete button appeared")
+
+        log_test_step("5. Record session count before deletion")
         count_before = sessions_page.get_session_count()
-        logger.info(f"删除前会话数量：{count_before}")
-        
-        log_test_step("6. 点击批量删除按钮")
+        logger.info(f"Session count before deletion: {count_before}")
+
+        log_test_step("6. Click the batch-delete button")
         batch_delete_btn.click()
         sessions_page.page.wait_for_timeout(1500)
-        
-        log_test_step("7. 确认删除（如有确认弹窗）")
-        # 源码：Modal.confirm, okType="danger"
-        # 先显式等待弹窗出现
+
+        log_test_step("7. Confirm deletion (if a confirm dialog appears)")
+        # Source: Modal.confirm, okType="danger"
+        # Explicitly wait for the dialog to appear
         modal_visible = False
         try:
             modal = sessions_page.page.locator('.qwenpaw-modal, .ant-modal').first
             modal.wait_for(state="visible", timeout=5000)
             modal_visible = True
-            logger.info("确认弹窗已出现")
+            logger.info("Confirm dialog appeared")
         except Exception:
-            logger.warning("未检测到弹窗出现，尝试直接匹配确认按钮")
+            logger.warning("No dialog detected, trying to match the confirm button directly")
 
         sessions_page.page.wait_for_timeout(500)
-        
-        # 多种选择器尝试匹配确认按钮
+
+        # Try multiple selectors to match the confirm button
         confirm_btn = None
         confirm_selectors = [
-            # Modal.confirm 中 okType="danger" 的按钮
+            # Modal.confirm okType="danger" buttons
             '.qwenpaw-modal-confirm-btns .qwenpaw-btn-dangerous',
             '.qwenpaw-modal-confirm-btns .qwenpaw-btn-primary',
             '.qwenpaw-modal .qwenpaw-btn-dangerous',
             '.qwenpaw-modal .qwenpaw-btn-primary',
-            # antd 原始前缀
+            # Original antd prefixes
             '.ant-modal-confirm-btns .ant-btn-dangerous',
             '.ant-modal-confirm-btns .ant-btn-primary',
             '.ant-modal .ant-btn-primary',
-            # 通用文本匹配
-            '.qwenpaw-modal button:has-text("确定")',
-            '.qwenpaw-modal button:has-text("确认")',
+            # Generic text matchers
             '.qwenpaw-modal button:has-text("OK")',
             '.qwenpaw-modal button:has-text("Delete")',
-            '.qwenpaw-modal button:has-text("删除")',
-            '.ant-modal button:has-text("确定")',
             '.ant-modal button:has-text("OK")',
-            # Popconfirm 或其他确认组件
+            # Popconfirm or other confirm components
             '.qwenpaw-popconfirm button.qwenpaw-btn-primary',
-            'button:has-text("确定")',
             'button:has-text("OK")',
         ]
         for selector in confirm_selectors:
@@ -549,36 +540,36 @@ class TestSessionBatchDelete:
                 btn = sessions_page.page.locator(selector).first
                 if btn.count() > 0 and btn.is_visible(timeout=2000):
                     confirm_btn = btn
-                    logger.info(f"找到确认按钮: {selector}")
+                    logger.info(f"Found confirm button: {selector}")
                     break
             except Exception:
                 continue
-        
+
         if confirm_btn is not None:
             confirm_btn.click()
-            logger.info("✅ 已点击确认删除按钮")
+            logger.info("Clicked confirm-delete button")
         else:
-            logger.warning("未找到确认弹窗按钮，尝试通过键盘 Enter 确认")
+            logger.warning("Confirm-dialog button not found, trying to confirm via Enter")
             sessions_page.page.keyboard.press("Enter")
-        
-        # 等待删除 API 完成和列表刷新
+
+        # Wait for the delete API to finish and the list to refresh
         sessions_page.page.wait_for_timeout(5000)
-        
-        log_test_step("8. 验证会话数量减少")
-        # 等待列表刷新
+
+        log_test_step("8. Verify session count decreased")
+        # Wait for the list to refresh
         sessions_page.page.reload()
         sessions_page.page.wait_for_load_state("domcontentloaded")
         sessions_page.page.wait_for_timeout(3000)
         count_after = sessions_page.get_session_count()
-        logger.info(f"删除后会话数量：{count_after}")
-        
+        logger.info(f"Session count after deletion: {count_after}")
+
         assert count_after < count_before, \
-            f"会话数量未减少：删除前{count_before}，删除后{count_after}"
-        
-        logger.info(f"✅ 会话数量从 {count_before} 减少到 {count_after}")
-        
+            f"Session count did not decrease: before={count_before}, after={count_after}"
+
+        logger.info(f"Session count went from {count_before} down to {count_after}")
+
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed")
+        logger.info(f"Test {test_name} passed")
 
 
 # ============================================================================
@@ -587,17 +578,17 @@ class TestSessionBatchDelete:
 
 @pytest.fixture(scope="function")
 def sessions_page(page: Page) -> SessionsPage:
-    """创建 SessionsPage 实例"""
+    """Create a SessionsPage instance."""
     return SessionsPage(page)
 
 
 @pytest.fixture(scope="function")
 def ensure_session_data(page: Page):
-    """确保 Sessions 页面有足够的测试数据（至少 3 条）。
+    """Ensure the Sessions page has enough test data (at least 3 entries).
 
-    通过 POST /api/console/chat 发送消息来自动创建 Session，
-    每个 Session 使用不同的 session_id 和 user_id。
-    测试结束后自动通过 API 删除创建的测试 Session。
+    Sends messages via POST /api/console/chat to auto-create sessions,
+    each with a different session_id and user_id. After the test, the
+    created test sessions are deleted via the API.
     """
     base_url = config.base_url
     page.goto(f"{base_url}/sessions")
@@ -613,11 +604,11 @@ def ensure_session_data(page: Page):
     created_session_ids = []
 
     if needed == 0:
-        logger.info(f"已有 {existing_count} 条 Session，无需创建")
+        logger.info(f"Already have {existing_count} sessions; no creation needed")
         yield created_session_ids
         return
 
-    logger.info(f"当前 {existing_count} 条 Session，需创建 {needed} 条")
+    logger.info(f"Currently {existing_count} sessions; need to create {needed} more")
 
     for i in range(needed):
         session_id = f"e2e_sess_{int(time.time() * 1000)}_{i}"
@@ -650,24 +641,24 @@ def ensure_session_data(page: Page):
         if result.get("ok"):
             created_session_ids.append(session_id)
         else:
-            logger.warning(f"  创建 Session 失败: {result}")
+            logger.warning(f"  Failed to create session: {result}")
         page.wait_for_timeout(1500)
-        logger.info(f"  创建 Session: sid={session_id}, uid={user_id}")
+        logger.info(f"  Created session: sid={session_id}, uid={user_id}")
 
-    # 刷新页面验证数据已创建
+    # Reload page to verify data was created
     page.reload()
     page.wait_for_timeout(2000)
-    logger.info(f"✅ 已创建 {needed} 条测试 Session")
+    logger.info(f"Created {needed} test sessions")
 
     yield created_session_ids
 
-    # ---- teardown: 清理创建的测试 Session ----
+    # ---- teardown: clean up created test sessions ----
     if not created_session_ids:
         return
 
-    logger.info(f"🧹 开始清理 {len(created_session_ids)} 条测试 Session")
+    logger.info(f"Starting cleanup of {len(created_session_ids)} test sessions")
     try:
-        # 先通过 /api/chats 获取列表，找到 session_id 对应的 UUID (id 字段)
+        # Fetch /api/chats to map session_id -> UUID (id field)
         chat_list = page.evaluate(
             """async (targetSessionIds) => {
                 try {
@@ -685,7 +676,7 @@ def ensure_session_data(page: Page):
             created_session_ids,
         )
         if not chat_list.get("ok"):
-            logger.warning(f"  ⚠️ 获取 Session 列表失败: {chat_list}")
+            logger.warning(f"  Failed to fetch session list: {chat_list}")
             return
 
         for match in chat_list.get("matches", []):
@@ -706,18 +697,18 @@ def ensure_session_data(page: Page):
                     uuid,
                 )
                 if delete_result.get("ok"):
-                    logger.info(f"  🗑️ 已删除 Session: {sid} (uuid={uuid})")
+                    logger.info(f"  Deleted session: {sid} (uuid={uuid})")
                 else:
-                    logger.warning(f"  ⚠️ 删除失败: {sid} -> {delete_result}")
+                    logger.warning(f"  Delete failed: {sid} -> {delete_result}")
             except Exception as delete_error:
-                logger.warning(f"  ⚠️ 删除异常: {sid} -> {delete_error}")
+                logger.warning(f"  Delete exception: {sid} -> {delete_error}")
     except Exception as cleanup_error:
-        logger.warning(f"  ⚠️ 清理过程异常: {cleanup_error}")
-    logger.info("🧹 测试 Session 清理完成")
+        logger.warning(f"  Cleanup process exception: {cleanup_error}")
+    logger.info("Test session cleanup complete")
 
 
 # ============================================================================
-# P1 级测试用例：会话过滤组合查询
+# P1 test case: combined session filtering
 # ============================================================================
 
 @pytest.mark.integration
@@ -725,83 +716,83 @@ def ensure_session_data(page: Page):
 @pytest.mark.sessions_filter
 class TestSessionFilterByUseridAndChannel:
     """
-    SESS-P1-001: 会话按 UserID 和 Channel 组合过滤
-    
-    覆盖功能点：
-    1. UserID 输入框过滤
-    2. Channel 下拉选择过滤
-    3. 组合过滤结果验证
-    4. 清除过滤条件恢复列表
+    SESS-P1-001: Filter sessions by UserID and Channel combined.
+
+    Coverage:
+    1. Filter by UserID input
+    2. Filter by Channel dropdown
+    3. Verify combined filter results
+    4. Clear filters and verify the list is restored
     """
 
     def test_session_filter_by_userid_and_channel(self, page: Page, ensure_session_data):
-        """测试会话的 UserID 和 Channel 组合过滤功能"""
-        log_test_step("导航到会话管理页面")
+        """Test combined session filter by UserID and Channel."""
+        log_test_step("Navigate to the session management page")
         page.goto(f"{config.base_url}/sessions")
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
-        
-        log_test_step("查找过滤控件")
-        # 源码 FilterBar.tsx: UserID 输入框 placeholder 为 t("sessions.filterUserId")
-        # Channel 选择器 placeholder 为 t("sessions.filterChannel")
+
+        log_test_step("Find filter controls")
+        # Source FilterBar.tsx: UserID input placeholder is t("sessions.filterUserId");
+        # Channel selector placeholder is t("sessions.filterChannel")
         userid_input = page.locator(
             "input[placeholder*='user'], input[placeholder*='User'], "
             "input[placeholder*='userid'], input[placeholder*='UserId'], "
             "input[placeholder*='ID'], input[placeholder*='id']"
         ).first
         channel_select = page.locator(".qwenpaw-select, .ant-select").first
-        
-        # 至少需要一个过滤控件
+
+        # At least one filter control must exist
         has_userid_input = userid_input.count() > 0
         has_channel_select = channel_select.count() > 0
         assert has_userid_input or has_channel_select, \
-            "未找到任何过滤控件（UserID 输入框或 Channel 选择器）"
-        logger.info(f"✅ 过滤控件：UserID输入框={'有' if has_userid_input else '无'}, Channel选择器={'有' if has_channel_select else '无'}")
-        
-        log_test_step("获取初始会话列表")
+            "No filter controls found (UserID input or Channel selector)"
+        logger.info(f"Filter controls: UserID input={'yes' if has_userid_input else 'no'}, Channel selector={'yes' if has_channel_select else 'no'}")
+
+        log_test_step("Get the initial session list")
         session_row_selector = "tbody tr:not(.qwenpaw-table-placeholder):not(.qwenpaw-table-measure-row)"
         initial_sessions = page.locator(session_row_selector).all()
         initial_count = len(initial_sessions)
-        assert initial_count > 0, "ensure_session_data fixture 应已创建测试数据，但会话列表仍为空"
-        logger.info(f"初始会话数量: {initial_count}")
-        
+        assert initial_count > 0, "ensure_session_data fixture should have created test data, but session list is still empty"
+        logger.info(f"Initial session count: {initial_count}")
+
         if has_userid_input:
-            log_test_step("提取第一个会话的 UserID")
+            log_test_step("Extract UserID from the first session")
             first_session = initial_sessions[0]
             cells = first_session.locator("td").all()
-            assert len(cells) >= 2, "会话行的列数不足"
+            assert len(cells) >= 2, "Session row has too few columns"
             test_userid = cells[1].inner_text().strip()
-            assert len(test_userid) > 0, "无法提取 UserID"
-            logger.info(f"使用测试 UserID: {test_userid}")
-            
-            log_test_step(f"输入 UserID 过滤: {test_userid}")
+            assert len(test_userid) > 0, "Could not extract UserID"
+            logger.info(f"Using test UserID: {test_userid}")
+
+            log_test_step(f"Enter UserID filter: {test_userid}")
             userid_input.fill(test_userid)
             page.wait_for_timeout(2000)
-            
-            log_test_step("验证过滤结果")
+
+            log_test_step("Verify filter results")
             filtered_sessions = page.locator(session_row_selector).all()
             filtered_count = len(filtered_sessions)
             assert filtered_count <= initial_count, \
-                f"过滤后会话数量({filtered_count})不应超过初始数量({initial_count})"
-            logger.info(f"✅ UserID 过滤后会话数量: {filtered_count}（初始: {initial_count}）")
-            
-            # 验证过滤结果中包含目标 UserID
+                f"Filtered session count ({filtered_count}) should not exceed initial ({initial_count})"
+            logger.info(f"After UserID filter: {filtered_count} sessions (initial: {initial_count})")
+
+            # Verify the filtered results contain the target UserID
             if filtered_count > 0:
                 first_filtered_cells = filtered_sessions[0].locator("td").all()
                 if len(first_filtered_cells) >= 2:
                     result_userid = first_filtered_cells[1].inner_text().strip()
                     assert test_userid in result_userid or result_userid in test_userid, \
-                        f"过滤结果的 UserID({result_userid}) 不匹配输入({test_userid})"
-                    logger.info(f"✅ 过滤结果 UserID 匹配: {result_userid}")
-            
-            log_test_step("清除过滤并验证恢复")
+                        f"Filtered UserID ({result_userid}) does not match input ({test_userid})"
+                    logger.info(f"Filtered UserID matches: {result_userid}")
+
+            log_test_step("Clear filter and verify list is restored")
             userid_input.fill("")
             page.wait_for_timeout(2000)
-            
+
             restored_sessions = page.locator(session_row_selector).all()
             restored_count = len(restored_sessions)
             assert abs(restored_count - initial_count) <= 2, \
-                f"清除过滤后数量异常：初始 {initial_count}，恢复后 {restored_count}"
-            logger.info(f"✅ 清除过滤后恢复到 {restored_count} 条（初始 {initial_count}）")
-        
-        logger.info("✅ 会话过滤测试完成")
+                f"Restored count is off: initial {initial_count}, restored {restored_count}"
+            logger.info(f"After clearing filter, restored to {restored_count} sessions (initial {initial_count})")
+
+        logger.info("Session filter test complete")

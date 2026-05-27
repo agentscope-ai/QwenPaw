@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw E2E 测试框架配置模块
+QwenPaw E2E Test Framework Configuration Module
 
-提供统一的配置管理，支持环境变量覆盖。
+Provides unified configuration management with environment variable overrides.
 """
 from __future__ import annotations
 
@@ -14,23 +14,24 @@ from typing import Optional
 
 @dataclass
 class BrowserConfig:
-    """浏览器配置"""
+    """Browser configuration"""
     browser_type: str = "chromium"  # chromium, firefox, webkit
     headless: bool = True
     viewport_width: int = 1920
     viewport_height: int = 1080
-    slow_mo: int = 0  # 慢动作模式（毫秒），调试时使用
-    timeout: int = 30000  # 默认超时（毫秒）
+    slow_mo: int = 0  # Slow motion mode (milliseconds), used for debugging
+    timeout: int = 30000  # Default timeout (milliseconds)
     args: list = field(default_factory=lambda: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
         "--disable-gpu",
-        # 禁用 Chrome 翻译弹窗（被测系统 UI 是英文，Chrome 检测到
-        # locale 不匹配会弹"是否翻译此页面"，遮挡元素 / 劫持焦点）
+        # Disable Chrome translation popup (the system under test has English UI;
+        # if Chrome detects a locale mismatch it pops up "Translate this page?",
+        # which obscures elements / hijacks focus)
         "--disable-features=TranslateUI",
         "--disable-translate",
-        # 禁用其他可能的干扰弹窗
+        # Disable other potentially interfering popups
         "--disable-notifications",
         "--disable-popup-blocking",
         "--disable-infobars",
@@ -41,11 +42,11 @@ class BrowserConfig:
 
 @dataclass
 class ServerConfig:
-    """服务器配置"""
+    """Server configuration"""
     base_url: str = "http://localhost:8088"
-    api_base_url: str = ""  # 留空则使用 base_url + /api
-    api_key: str = ""       # 集成测试用 API Key
-    model_key: str = ""     # Model 连接测试用 Key
+    api_base_url: str = ""  # Leave empty to use base_url + /api
+    api_key: str = ""       # API Key for integration tests
+    model_key: str = ""     # Key for Model connection tests
     timeout: int = 30000
     retry_count: int = 3
     retry_delay: float = 1.0
@@ -53,7 +54,7 @@ class ServerConfig:
 
 @dataclass
 class TestConfig:
-    """测试配置"""
+    """Test configuration"""
     user_id: str = "default"
     channel: str = "console"
     screenshot_on_fail: bool = True
@@ -64,7 +65,7 @@ class TestConfig:
 
 @dataclass
 class PathConfig:
-    """路径配置"""
+    """Path configuration"""
     base_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent)
     tests_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent)
     data_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent / "data")
@@ -77,17 +78,17 @@ class PathConfig:
 
 class Config:
     """
-    统一配置管理类
-    
-    使用单例模式，支持环境变量覆盖。
-    
-    环境变量列表：
-    - QWENPAW_BASE_URL: 服务器地址
-    - QWENPAW_HEADLESS: 是否无头模式 (true/false)
-    - QWENPAW_TIMEOUT: 超时时间（毫秒）
-    - QWENPAW_USER_ID: 用户 ID
-    - QWENPAW_CHANNEL: 频道名称
-    - PLAYWRIGHT_SLOW_MO: 慢动作时间（毫秒）
+    Unified configuration manager.
+
+    Uses the singleton pattern and supports environment variable overrides.
+
+    Environment variables:
+    - QWENPAW_BASE_URL: Server URL
+    - QWENPAW_HEADLESS: Headless mode (true/false)
+    - QWENPAW_TIMEOUT: Timeout (milliseconds)
+    - QWENPAW_USER_ID: User ID
+    - QWENPAW_CHANNEL: Channel name
+    - PLAYWRIGHT_SLOW_MO: Slow motion delay (milliseconds)
     """
     
     _instance: Optional["Config"] = None
@@ -112,15 +113,15 @@ class Config:
         self._initialized = True
     
     def _load_from_env(self):
-        """从环境变量加载配置"""
-        # 服务器配置
+        """Load configuration from environment variables"""
+        # Server configuration
         if os.getenv("QWENPAW_BASE_URL"):
             self.server.base_url = os.getenv("QWENPAW_BASE_URL")
-        
-        # 浏览器配置
+
+        # Browser configuration
         headless_env = os.getenv("QWENPAW_HEADLESS", "true").lower()
         self.browser.headless = headless_env in ("true", "1", "yes")
-        
+
         if os.getenv("QWENPAW_TIMEOUT"):
             try:
                 timeout = int(os.getenv("QWENPAW_TIMEOUT"))
@@ -128,31 +129,31 @@ class Config:
                 self.server.timeout = timeout
             except ValueError:
                 import warnings
-                warnings.warn(f"QWENPAW_TIMEOUT 值无效: '{os.getenv('QWENPAW_TIMEOUT')}'，使用默认值")
-        
+                warnings.warn(f"Invalid QWENPAW_TIMEOUT value: '{os.getenv('QWENPAW_TIMEOUT')}', using default")
+
         if os.getenv("PLAYWRIGHT_SLOW_MO"):
             self.browser.slow_mo = int(os.getenv("PLAYWRIGHT_SLOW_MO"))
-        
-        # 测试配置
+
+        # Test configuration
         if os.getenv("QWENPAW_USER_ID"):
             self.test.user_id = os.getenv("QWENPAW_USER_ID")
-        
+
         if os.getenv("QWENPAW_CHANNEL"):
             self.test.channel = os.getenv("QWENPAW_CHANNEL")
 
-        # API Key 配置
+        # API Key configuration
         if os.getenv("QWENPAW_API_KEY"):
             self.server.api_key = os.getenv("QWENPAW_API_KEY")
 
         if os.getenv("QWENPAW_MODEL_KEY"):
             self.server.model_key = os.getenv("QWENPAW_MODEL_KEY")
 
-        # 设置 API 基础 URL
+        # Set API base URL
         if not self.server.api_base_url:
             self.server.api_base_url = f"{self.server.base_url}/api"
-    
+
     def _ensure_directories(self):
-        """确保所有需要的目录存在"""
+        """Ensure all required directories exist"""
         for dir_path in [
             self.paths.reports_dir,
             self.paths.screenshots_dir,
@@ -172,10 +173,10 @@ class Config:
         return self.server.api_base_url
 
 
-# 全局配置实例
+# Global configuration instance
 config = Config()
 
 
 def get_config() -> Config:
-    """获取配置实例"""
+    """Get the configuration instance"""
     return config

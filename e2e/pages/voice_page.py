@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw Voice 页面对象
+QwenPaw Voice page object.
 
-封装 Voice 页面的所有交互操作，提供业务级别的方法。
+Wraps all interactions on the Voice page and exposes business-level methods.
 """
 from __future__ import annotations
 
@@ -18,105 +18,105 @@ logger = logging.getLogger(__name__)
 
 class VoicePage(BasePage):
     """
-    Voice 页面对象
-    
-    封装 Voice 页面的所有用户操作：
-    - 语音服务配置展示
-    - 启用/禁用语音服务
-    - 查看语音服务状态
+    Voice page object.
+
+    Wraps all user actions on the Voice page:
+    - Display voice service configuration
+    - Enable/disable the voice service
+    - Read voice service status
     """
-    
+
     PAGE_TITLE = "QwenPaw Console"
     PAGE_URL = f"{config.base_url}/settings/voice"
-    
-    # ========== 选择器定义 ==========
-    
-    # 页面加载标志
+
+    # ========== Selector definitions ==========
+
+    # Page load indicator
     PAGE_LOAD_INDICATOR = '.qwenpaw-switch, .qwenpaw-switch-input, [class*=voiceToggle]'
-    
-    # 语音服务开关
+
+    # Voice service switch
     VOICE_TOGGLE_SELECTOR = '.qwenpaw-switch, .qwenpaw-switch-input, [class*=voiceToggle]'
-    
-    # 配置表单
+
+    # Configuration form
     CONFIG_FORM_SELECTOR = '.qwenpaw-form, [class*=configForm], form'
-    
-    # 成功消息
+
+    # Success message
     SUCCESS_MESSAGE_SELECTOR = '.qwenpaw-message-success, .qwenpaw-notification-success'
-    
-    # ========== 导航方法 ==========
-    
+
+    # ========== Navigation methods ==========
+
     def open(self) -> "VoicePage":
-        """打开 Voice 页面"""
-        logger.info("打开 Voice 页面")
+        """Open the Voice page."""
+        logger.info("Open the Voice page")
         self.goto()
         self.wait_for_page_loaded()
         return self
-    
+
     def wait_for_page_loaded(self, timeout: Optional[int] = None) -> "VoicePage":
-        """等待页面加载完成"""
+        """Wait for the page to finish loading."""
         timeout = timeout or self.timeout
         expect(self.page.locator(self.PAGE_LOAD_INDICATOR).first).to_be_visible(timeout=timeout)
         return self
-    
-    # ========== 语音服务操作方法 ==========
-    
+
+    # ========== Voice service methods ==========
+
     def get_voice_toggle(self) -> Locator:
-        """获取语音服务开关"""
+        """Return the voice service switch."""
         toggle = self.page.locator(self.VOICE_TOGGLE_SELECTOR).first
         expect(toggle).to_be_visible(timeout=5000)
-        logger.debug("获取语音服务开关")
+        logger.debug("Getting voice service switch")
         return toggle
-    
+
     def is_voice_enabled(self) -> bool:
-        """检查语音是否启用"""
+        """Return whether the voice service is enabled."""
         toggle = self.get_voice_toggle()
         toggle_class = toggle.get_attribute('class')
         is_checked = 'checked' in toggle_class if toggle_class else False
-        logger.debug(f"语音服务状态: {'已启用' if is_checked else '已禁用'}")
+        logger.debug(f"Voice service status: {'enabled' if is_checked else 'disabled'}")
         return is_checked
-    
+
     def toggle_voice(self) -> "VoicePage":
-        """切换语音开关"""
+        """Toggle the voice switch."""
         toggle = self.get_voice_toggle()
         toggle.click()
-        logger.info("切换语音开关")
+        logger.info("Toggled voice switch")
         return self
-    
+
     def enable_voice(self) -> "VoicePage":
-        """启用语音服务"""
+        """Enable the voice service."""
         if not self.is_voice_enabled():
             self.toggle_voice()
         return self
-    
+
     def disable_voice(self) -> "VoicePage":
-        """禁用语音服务"""
+        """Disable the voice service."""
         if self.is_voice_enabled():
             self.toggle_voice()
         return self
-    
-    # ========== 断言方法 ==========
-    
+
+    # ========== Assertion methods ==========
+
     def assert_voice_toggle_visible(self) -> "VoicePage":
-        """断言语音开关可见"""
+        """Assert that the voice switch is visible."""
         toggle = self.get_voice_toggle()
         expect(toggle).to_be_visible(timeout=5000)
         return self
-    
+
     def assert_voice_enabled(self) -> "VoicePage":
-        """断言语音已启用"""
-        assert self.is_voice_enabled(), "语音服务应该是启用状态"
+        """Assert that the voice service is enabled."""
+        assert self.is_voice_enabled(), "Voice service should be enabled"
         return self
-    
+
     def assert_voice_disabled(self) -> "VoicePage":
-        """断言语音已禁用"""
-        assert not self.is_voice_enabled(), "语音服务应该是禁用状态"
+        """Assert that the voice service is disabled."""
+        assert not self.is_voice_enabled(), "Voice service should be disabled"
         return self
-    
+
     def assert_config_saved(self) -> "VoicePage":
-        """断言配置保存成功"""
+        """Assert that the configuration was saved."""
         success_msg = self.page.locator(self.SUCCESS_MESSAGE_SELECTOR).first
         if success_msg.is_visible(timeout=3000):
-            logger.info("✅ 保存成功消息显示")
+            logger.info("Save success message displayed")
         else:
-            logger.info("ℹ️ 未找到保存成功消息（可能自动保存）")
+            logger.info("No save success message found (auto-save may be enabled)")
         return self

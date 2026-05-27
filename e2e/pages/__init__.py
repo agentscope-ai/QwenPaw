@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw E2E 测试框架 - Pages 模块
+QwenPaw E2E test framework - Pages module.
 
-导出所有页面对象。
+Exports all page object classes.
 """
 from pages.base_page import BasePage
 from pages.chat_page import ChatPage

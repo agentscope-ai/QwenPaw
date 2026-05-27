@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw 文件管理模块 P0 级端到端测试用例
+QwenPaw file management module P0 end-to-end test cases.
 
-组合用例设计：
-- FILE-001: 页面加载验证 + 文件列表硬断言 + 点击文件打开编辑器 + 编辑器内容验证
-- FILE-002: 开关切换硬断言 + 拖拽排序 + 刷新恢复
+Combined test cases:
+- FILE-001: Page load + file list hard-assert + click file to open editor + editor content verification
+- FILE-002: Toggle switch hard-assert + drag reorder + reload restore
 
-执行命令：pytest tests/test_files_p0.py -v
+Run with: pytest tests/test_files_p0.py -v
 """
 from __future__ import annotations
 
@@ -27,20 +27,20 @@ SWITCH_SELECTOR = 'button.qwenpaw-switch[role="switch"]'
 DRAG_HANDLE_SELECTOR = 'div[class*="dragHandle"]'
 
 def navigate_to_workspace(page: Page):
-    """导航到工作区页面并等待加载"""
+    """Navigate to the workspace page and wait for it to load."""
     page.goto(WORKSPACE_URL)
     page.wait_for_load_state("domcontentloaded")
     page.wait_for_timeout(3000)
 
 def get_file_items(page: Page):
-    """获取文件列表，如果为空则 skip"""
+    """Get the file list; skip the test if empty."""
     items = page.locator(FILE_ITEM_SELECTOR).all()
     if len(items) == 0:
-        pytest.skip("没有找到文件项")
+        pytest.skip("No file items found")
     return items
 
 # ============================================================================
-# FILE-001: 页面加载 + 文件列表 + 编辑器
+# FILE-001: Page load + file list + editor
 # ============================================================================
 
 @pytest.mark.integration
@@ -48,73 +48,72 @@ def get_file_items(page: Page):
 @pytest.mark.files
 class TestFileListEditSave:
     """
-    FILE-001: 页面加载验证 + 文件列表硬断言 + 点击文件打开编辑器 + 编辑器内容验证
+    FILE-001: Page load + file list hard-assert + click file to open editor + editor content verification.
 
-    覆盖功能点：
-    1. 面包屑/核心文件标题硬断言
-    2. 文件列表数量 > 0 硬断言
-    3. 第一个文件名称/元信息非空硬断言
-    4. 点击文件 → 编辑器面板可见 + 内容非空硬断言
-    5. 开关存在硬断言
+    Coverage:
+    1. Hard-assert breadcrumb / core files heading
+    2. Hard-assert file list count > 0
+    3. Hard-assert first file name / meta non-empty
+    4. Click file -> editor panel visible + content non-empty hard-assert
+    5. Hard-assert toggle switch exists
     """
 
     @pytest.mark.test_id("FILE-001")
     def test_file_list_view_edit_save(self, page: Page, request: pytest.FixtureRequest):
-        """验证文件列表展示和编辑器打开功能"""
+        """Verify file list display and opening the editor."""
         test_name = request.node.name
 
-        # ── 步骤1: 访问工作区页面 ──
-        log_test_step("1. 访问工作区页面")
+        # Step 1: Visit the workspace page
+        log_test_step("1. Visit the workspace page")
         navigate_to_workspace(page)
 
-        # ── 步骤2: 验证面包屑 ──
-        log_test_step("2. 验证面包屑")
+        # Step 2: Verify breadcrumb
+        log_test_step("2. Verify breadcrumb")
         try:
             breadcrumb = page.locator(
-                'span[class*="breadcrumbCurrent"]:has-text("文件"), '
                 'span[class*="breadcrumbCurrent"]:has-text("Files"), '
                 'span[class*="breadcrumbCurrent"]:has-text("Workspace")'
             ).first
             if not breadcrumb.is_visible():
-                breadcrumb = page.locator('text=工作区, text=Workspace, text=Files').first
+                breadcrumb = page.locator('text=Workspace, text=Files').first
             expect(breadcrumb).to_be_visible(timeout=5000)
-            logger.info("✅ 面包屑验证通过")
+            logger.info("Breadcrumb verified")
         except Exception:
-            logger.warning("⚠️ 面包屑验证跳过（中英文不匹配）")
+            logger.warning("Breadcrumb verification skipped (locale mismatch)")
 
-        # ── 步骤3: 验证核心文件标题 ──
-        log_test_step("3. 验证核心文件标题")
-        section_title = page.locator('h3[class*="sectionTitle"]:has-text("核心文件"), h3[class*="sectionTitle"]:has-text("Core Files"), h3[class*="sectionTitle"]:has-text("Core")').first
+        # Step 3: Verify the core-files heading
+        log_test_step("3. Verify the core-files heading")
+        section_title = page.locator('h3[class*="sectionTitle"]:has-text("Core Files"), h3[class*="sectionTitle"]:has-text("Core")').first
         try:
             expect(section_title).to_be_visible(timeout=5000)
-            logger.info("✅ 核心文件标题可见")
+            logger.info("Core files heading visible")
         except Exception:
-            logger.warning("⚠️ 核心文件标题未找到，跳过验证")
+            logger.warning("Core files heading not found, skipping verification")
 
-        # ── 步骤4: 验证文件列表 ──
-        log_test_step("4. 验证文件列表")
+        # Step 4: Verify the file list
+        log_test_step("4. Verify the file list")
         file_items = get_file_items(page)
         file_count = len(file_items)
-        assert file_count >= 1, "文件列表应至少有 1 个文件"
-        logger.info(f"文件数量：{file_count}")
+        assert file_count >= 1, "File list should have at least 1 file"
+        logger.info(f"File count: {file_count}")
 
-        # ── 步骤5: 验证第一个文件信息 ──
-        log_test_step("5. 验证第一个文件信息")
+        # Step 5: Verify the first file's info
+        log_test_step("5. Verify the first file's info")
         first_file = file_items[0]
         name_el = first_file.locator(FILE_NAME_SELECTOR).first
         expect(name_el).to_be_visible(timeout=3000)
         file_name = name_el.inner_text()
-        assert len(file_name) > 0, "文件名称为空"
-        logger.info(f"第一个文件：{file_name}")
+        assert len(file_name) > 0, "File name is empty"
+        logger.info(f"First file: {file_name}")
 
         meta_el = first_file.locator(FILE_META_SELECTOR).first
         expect(meta_el).to_be_visible(timeout=3000)
         file_meta = meta_el.inner_text()
-        assert len(file_meta) > 0, "文件元信息为空"
-        logger.info(f"元信息：{file_meta}")
+        assert len(file_meta) > 0, "File meta is empty"
+        logger.info(f"Meta: {file_meta}")
 
-        # ── 步骤6: 点击文件打开编辑器 ──
-        log_test_step("6. 点击文件打开编辑器")
+        # Step 6: Click the file to open the editor
+        log_test_step("6. Click the file to open the editor")
         first_file.click()
         page.wait_for_timeout(2000)
 
@@ -123,23 +122,23 @@ class TestFileListEditSave:
         ).first
         expect(editor).to_be_visible(timeout=5000)
         editor_content = editor.inner_text()
-        assert len(editor_content) > 0, "编辑器内容为空"
-        logger.info(f"✅ 编辑器已打开，内容长度：{len(editor_content)} 字符")
+        assert len(editor_content) > 0, "Editor content is empty"
+        logger.info(f"Editor opened; content length: {len(editor_content)} chars")
 
-        # ── 步骤7: 验证开关存在 ──
-        log_test_step("7. 验证文件启用开关")
+        # Step 7: Verify the toggle switch exists
+        log_test_step("7. Verify the file enable switch exists")
         switches = page.locator(SWITCH_SELECTOR).all()
-        assert len(switches) >= 1, "应至少有 1 个启用开关"
+        assert len(switches) >= 1, "There should be at least 1 enable switch"
         first_switch = switches[0]
         checked = first_switch.get_attribute('aria-checked')
-        assert checked in ['true', 'false'], f"开关 aria-checked 值异常：{checked}"
-        logger.info(f"✅ 开关存在，当前状态：{checked}")
+        assert checked in ['true', 'false'], f"Unexpected switch aria-checked value: {checked}"
+        logger.info(f"Switch exists, current state: {checked}")
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - 文件列表展示和编辑器打开正常")
+        logger.info(f"Test {test_name} passed - file list display and opening editor OK")
 
 # ============================================================================
-# FILE-002: 开关切换 + 拖拽排序 + 刷新恢复
+# FILE-002: Toggle switch + drag reorder + reload restore
 # ============================================================================
 
 @pytest.mark.integration
@@ -147,52 +146,52 @@ class TestFileListEditSave:
 @pytest.mark.files
 class TestFileToggleReorderMemory:
     """
-    FILE-002: 开关切换硬断言 + 拖拽排序 + 刷新恢复
+    FILE-002: Toggle switch hard-assert + drag reorder + reload restore.
 
-    覆盖功能点：
-    1. 开关切换 → assert 状态翻转
-    2. 恢复 → assert 状态回到初始
-    3. 记录初始文件顺序
-    4. 拖拽排序（无 try/except）
-    5. 验证顺序变化
-    6. 刷新页面验证文件列表仍存在
+    Coverage:
+    1. Toggle switch -> assert state flipped
+    2. Restore -> assert state back to initial
+    3. Record the initial file order
+    4. Drag-reorder (no try/except)
+    5. Verify the order changed
+    6. Reload the page and verify the file list still exists
     """
 
     @pytest.mark.test_id("FILE-002")
     def test_file_toggle_reorder_memory(self, page: Page, request: pytest.FixtureRequest):
-        """验证文件开关切换、拖拽排序和刷新恢复"""
+        """Verify file toggle, drag reorder, and reload restore."""
         test_name = request.node.name
 
-        # ── 步骤1: 访问工作区页面 ──
-        log_test_step("1. 访问工作区页面")
+        # Step 1: Visit the workspace page
+        log_test_step("1. Visit the workspace page")
         navigate_to_workspace(page)
 
-        # ── 步骤2: 获取文件列表和开关 ──
-        log_test_step("2. 获取文件列表和开关")
+        # Step 2: Get the file list and switch
+        log_test_step("2. Get file list and switch")
         file_items = get_file_items(page)
-        logger.info(f"文件数量：{len(file_items)}")
+        logger.info(f"File count: {len(file_items)}")
 
         first_file = file_items[0]
         toggle = first_file.locator(SWITCH_SELECTOR).first
         if not toggle.is_visible():
-            pytest.skip("未找到启用/禁用开关")
+            pytest.skip("Enable/disable switch not found")
 
-        # ── 步骤3: 记录初始状态 ──
-        log_test_step("3. 记录初始启用状态")
+        # Step 3: Record the initial state
+        log_test_step("3. Record initial enabled state")
         initial_checked = toggle.get_attribute('aria-checked')
         initial_enabled = initial_checked == 'true'
-        logger.info(f"初始状态：aria-checked={initial_checked}")
+        logger.info(f"Initial state: aria-checked={initial_checked}")
 
-        # ── 步骤4: 切换开关并硬断言 ──
-        log_test_step("4. 切换开关并验证")
-        # 滚动到开关可见位置
+        # Step 4: Toggle the switch and hard-assert
+        log_test_step("4. Toggle the switch and verify")
+        # Scroll the switch into view
         toggle.scroll_into_view_if_needed()
         page.wait_for_timeout(500)
-        # 使用常规点击（force=True 可能绕过 React 事件）
+        # Use a normal click (force=True may bypass React events)
         toggle.click()
         page.wait_for_timeout(1500)
 
-        # 处理可能的确认弹窗（Ant Popconfirm 或 Modal）
+        # Handle a possible confirm dialog (Ant Popconfirm or Modal)
         popconfirm = page.locator(
             '.qwenpaw-popconfirm-buttons button.qwenpaw-btn-primary, '
             '.qwenpaw-modal-footer button.qwenpaw-btn-primary, '
@@ -205,59 +204,59 @@ class TestFileToggleReorderMemory:
         )
         if popconfirm.count() > 0 and popconfirm.first.is_visible(timeout=3000):
             popconfirm.first.click()
-            logger.info("已确认开关切换弹窗")
+            logger.info("Confirmed toggle dialog")
             page.wait_for_timeout(2000)
         else:
             page.wait_for_timeout(1500)
 
-        # 重新获取开关引用（DOM 可能已更新）
+        # Re-fetch the switch reference (DOM may have updated)
         file_items = get_file_items(page)
         toggle = file_items[0].locator(SWITCH_SELECTOR).first
         new_checked = toggle.get_attribute('aria-checked')
         new_enabled = new_checked == 'true'
         assert new_enabled != initial_enabled, (
-            f"开关切换后状态未翻转：{initial_checked} → {new_checked}"
+            f"Switch did not flip after toggle: {initial_checked} -> {new_checked}"
         )
-        logger.info(f"✅ 开关切换成功：{initial_checked} → {new_checked}")
+        logger.info(f"Switch toggled: {initial_checked} -> {new_checked}")
 
-        # ── 步骤5: 恢复初始状态并硬断言 ──
-        log_test_step("5. 恢复初始状态")
+        # Step 5: Restore the initial state and hard-assert
+        log_test_step("5. Restore initial state")
         toggle.scroll_into_view_if_needed()
         page.wait_for_timeout(500)
         toggle.click()
         page.wait_for_timeout(1000)
 
-        # 处理可能的确认弹窗
+        # Handle a possible confirm dialog
         if popconfirm.count() > 0 and popconfirm.first.is_visible(timeout=2000):
             popconfirm.first.click()
-            logger.info("已确认开关恢复弹窗")
+            logger.info("Confirmed restore dialog")
             page.wait_for_timeout(1500)
         else:
             page.wait_for_timeout(1000)
 
-        # 重新获取开关引用
+        # Re-fetch the switch reference
         file_items = get_file_items(page)
         toggle = file_items[0].locator(SWITCH_SELECTOR).first
         restored_checked = toggle.get_attribute('aria-checked')
         assert restored_checked == initial_checked, (
-            f"开关未恢复：期望 {initial_checked}，实际 {restored_checked}"
+            f"Switch not restored: expected {initial_checked}, got {restored_checked}"
         )
-        logger.info("✅ 开关状态已恢复")
+        logger.info("Switch state restored")
 
-        # ── 步骤6: 拖拽排序（需要至少 2 个文件） ──
-        log_test_step("6. 拖拽排序")
+        # Step 6: Drag reorder (requires at least 2 files)
+        log_test_step("6. Drag reorder")
         file_items = page.locator(FILE_ITEM_SELECTOR).all()
 
         try:
             if len(file_items) < 2:
-                logger.info("少于 2 个文件，跳过拖拽测试")
+                logger.info("Fewer than 2 files; skipping drag test")
             else:
                 initial_order = []
                 for item in file_items[:2]:
                     name_el = item.locator(FILE_NAME_SELECTOR).first
                     name = name_el.inner_text()
                     initial_order.append(name)
-                logger.info(f"初始顺序：{initial_order}")
+                logger.info(f"Initial order: {initial_order}")
 
                 first_item = file_items[0]
                 second_item = file_items[1]
@@ -275,31 +274,31 @@ class TestFileToggleReorderMemory:
                     name_el = item.locator(FILE_NAME_SELECTOR).first
                     name = name_el.inner_text()
                     new_order.append(name)
-                logger.info(f"拖拽后顺序：{new_order}")
+                logger.info(f"Order after drag: {new_order}")
 
                 if initial_order != new_order:
-                    logger.info("✅ 文件顺序已更新")
+                    logger.info("File order updated")
                 else:
-                    logger.info("文件顺序未改变（拖拽可能未生效，不影响测试通过）")
+                    logger.info("File order unchanged (drag may not have taken effect; does not affect test pass)")
         finally:
-            # 拖拽排序后尝试恢复，但由于拖拽目标位置不确定，仅记录警告
-            logger.warning("拖拽排序已执行，文件顺序可能已变更，未自动恢复")
+            # Try to restore after drag; since the target position is uncertain, only warn
+            logger.warning("Drag reorder executed; file order may have changed and was not auto-restored")
 
-        # ── 步骤7: 刷新页面验证文件列表仍存在 ──
-        log_test_step("7. 刷新页面验证文件列表")
+        # Step 7: Reload the page and verify the file list still exists
+        log_test_step("7. Reload and verify file list")
         page.reload()
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
         refreshed_items = page.locator(FILE_ITEM_SELECTOR).all()
-        assert len(refreshed_items) >= 1, "刷新后文件列表为空"
-        logger.info(f"✅ 刷新后文件列表仍存在，数量：{len(refreshed_items)}")
+        assert len(refreshed_items) >= 1, "File list is empty after reload"
+        logger.info(f"File list still present after reload, count: {len(refreshed_items)}")
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - 开关切换、拖拽排序和刷新恢复正常")
+        logger.info(f"Test {test_name} passed - toggle, drag reorder and reload restore OK")
 
 # ============================================================================
-# FILE-003: 文件内容编辑保存与重置
+# FILE-003: File content edit, save and reset
 # ============================================================================
 
 @pytest.mark.integration
@@ -307,99 +306,99 @@ class TestFileToggleReorderMemory:
 @pytest.mark.files
 class TestFileContentEditAndSave:
     """
-    FILE-003: 文件内容编辑保存与重置
+    FILE-003: File content edit, save and reset.
 
-    覆盖功能点：
-    1. 点击文件打开编辑器（默认 Markdown 预览模式）
-    2. 关闭预览开关切换到编辑模式（textarea）
-    3. 在 textarea 中修改内容
-    4. 点击保存按钮（保存按钮在 hasChanges 时才可用）
-    5. 刷新页面验证内容持久化
-    6. 使用重置按钮恢复原始内容
+    Coverage:
+    1. Click file to open editor (default Markdown preview mode)
+    2. Turn off the preview switch to enter edit mode (textarea)
+    3. Modify content in the textarea
+    4. Click save (the button is enabled only when hasChanges is true)
+    5. Reload to verify persistence
+    6. Use the reset button to restore the original content
 
-    源码参考：FileEditor.tsx - 默认 showMarkdown=true，
-    需要关闭 Preview Switch 才能看到 Input.TextArea。
-    保存/重置按钮在 editorHeader 的 buttonGroup 中。
+    Source reference: FileEditor.tsx - default showMarkdown=true,
+    must turn off the Preview Switch to expose the Input.TextArea.
+    Save/Reset buttons live in the editorHeader buttonGroup.
     """
 
     @pytest.mark.test_id("FILE-003")
     def test_file_content_edit_save_reset(self, page: Page, request: pytest.FixtureRequest):
-        """验证文件内容编辑保存与重置功能"""
+        """Verify file content edit, save and reset."""
         test_name = request.node.name
         test_marker = "\n# E2E Test Marker"
         original_content = None
 
-        log_test_step("1. 访问工作区页面")
+        log_test_step("1. Visit the workspace page")
         navigate_to_workspace(page)
 
-        log_test_step("2. 获取文件列表，点击第一个 .md 文件")
+        log_test_step("2. Get the file list, click the first .md file")
         file_items = get_file_items(page)
         first_file = file_items[0]
         file_name_el = first_file.locator(FILE_NAME_SELECTOR).first
         file_name = file_name_el.inner_text()
-        logger.info(f"选择文件：{file_name}")
+        logger.info(f"Selected file: {file_name}")
         first_file.click()
         page.wait_for_timeout(2000)
 
-        log_test_step("3. 等待编辑器区域加载")
+        log_test_step("3. Wait for the editor area to load")
         editor_card = page.locator('[class*="editorCard"]').first
         expect(editor_card).to_be_visible(timeout=5000)
-        logger.info("✅ 编辑器卡片已加载")
+        logger.info("Editor card loaded")
 
-        log_test_step("4. 关闭 Markdown 预览，切换到编辑模式")
-        # 源码中 Preview Switch 在 contentLabel 区域
+        log_test_step("4. Turn off Markdown preview to enter edit mode")
+        # Source: Preview Switch is in the contentLabel area
         preview_switch = editor_card.locator('button.qwenpaw-switch[role="switch"]').first
         if preview_switch.is_visible():
-            # 如果预览开关是开启状态（aria-checked=true），点击关闭
+            # If preview is on (aria-checked=true), click to turn it off
             is_preview_on = preview_switch.get_attribute('aria-checked') == 'true'
             if is_preview_on:
                 preview_switch.click()
                 page.wait_for_timeout(1000)
-                logger.info("✅ 已关闭 Markdown 预览，切换到编辑模式")
+                logger.info("Turned off Markdown preview; entered edit mode")
             else:
-                logger.info("ℹ️ 预览已关闭，当前为编辑模式")
+                logger.info("Preview is already off; currently in edit mode")
         else:
-            logger.info("ℹ️ 未找到预览开关，可能不是 .md 文件")
+            logger.info("Preview switch not found; may not be a .md file")
 
-        log_test_step("5. 找到 textarea 并记录原始内容")
+        log_test_step("5. Locate textarea and record original content")
         textarea = editor_card.locator('textarea').first
         if not textarea.is_visible():
-            # 如果没有 textarea，可能是非 md 文件，直接跳过
-            logger.info("⚠️ 未找到 textarea 编辑器，跳过编辑测试")
+            # If no textarea, may not be an md file; skip
+            logger.info("Textarea editor not found; skipping edit test")
             log_test_result(test_name, True, 0)
             return
 
         original_content = textarea.input_value()
         original_preview = original_content[:50] if len(original_content) > 50 else original_content
-        logger.info(f"原始内容预览：{original_preview}")
+        logger.info(f"Original content preview: {original_preview}")
 
         try:
-            log_test_step("6. 在 textarea 中追加测试文本")
+            log_test_step("6. Append test text to the textarea")
             textarea.fill(original_content + test_marker)
             page.wait_for_timeout(500)
-            logger.info("✅ 已追加测试文本")
+            logger.info("Appended test text")
 
-            log_test_step("7. 验证保存按钮变为可用并点击")
-            # 源码中保存按钮带 SaveOutlined 图标，文本为 t("common.save")
-            save_btn = editor_card.locator('button:has-text("保存"), button:has-text("Save")').first
+            log_test_step("7. Verify save button becomes enabled and click it")
+            # Source: save button has SaveOutlined icon; text is t("common.save")
+            save_btn = editor_card.locator('button:has-text("Save")').first
             expect(save_btn).to_be_visible(timeout=3000)
             expect(save_btn).to_be_enabled(timeout=3000)
             save_btn.click()
             page.wait_for_timeout(2000)
-            logger.info("✅ 已点击保存按钮")
+            logger.info("Clicked save button")
 
-            log_test_step("8. 刷新页面，重新打开文件")
+            log_test_step("8. Reload and reopen the file")
             page.reload()
             page.wait_for_load_state("domcontentloaded")
             page.wait_for_timeout(3000)
 
             file_items = page.locator(FILE_ITEM_SELECTOR).all()
             if len(file_items) == 0:
-                pytest.skip("刷新后文件列表为空")
+                pytest.skip("File list is empty after reload")
             file_items[0].click()
             page.wait_for_timeout(2000)
 
-            # 再次关闭预览
+            # Turn off preview again
             editor_card = page.locator('[class*="editorCard"]').first
             expect(editor_card).to_be_visible(timeout=5000)
             preview_switch = editor_card.locator('button.qwenpaw-switch[role="switch"]').first
@@ -407,43 +406,43 @@ class TestFileContentEditAndSave:
                 preview_switch.click()
                 page.wait_for_timeout(1000)
 
-            log_test_step("9. 验证追加的内容已持久化")
+            log_test_step("9. Verify the appended content was persisted")
             textarea = editor_card.locator('textarea').first
             expect(textarea).to_be_visible(timeout=5000)
             updated_content = textarea.input_value()
             assert test_marker.strip() in updated_content, \
-                f"追加的测试标记未找到，内容末尾：{updated_content[-80:]}"
-            logger.info("✅ 追加的内容已保存并验证")
+                f"Appended marker not found; content tail: {updated_content[-80:]}"
+            logger.info("Appended content saved and verified")
 
-            log_test_step("10. 使用重置按钮恢复原始内容")
-            # 先修改内容使 hasChanges=true，然后点重置
+            log_test_step("10. Use the reset button to restore original content")
+            # Modify content first to make hasChanges=true, then click reset
             textarea.fill(original_content)
             page.wait_for_timeout(500)
 
-            reset_btn = editor_card.locator('button:has-text("重置"), button:has-text("Reset")').first
+            reset_btn = editor_card.locator('button:has-text("Reset")').first
             if reset_btn.is_visible() and reset_btn.is_enabled():
                 reset_btn.click()
                 page.wait_for_timeout(1000)
-                logger.info("✅ 已点击重置按钮")
+                logger.info("Clicked reset button")
             else:
-                logger.info("ℹ️ 重置按钮不可用（可能内容已恢复）")
+                logger.info("Reset button unavailable (content may already be restored)")
 
-            log_test_step("11. 保存恢复后的内容")
-            # 手动填回原始内容并保存
+            log_test_step("11. Save the restored content")
+            # Manually re-fill original content and save
             textarea = editor_card.locator('textarea').first
             if textarea.is_visible():
                 textarea.fill(original_content)
                 page.wait_for_timeout(500)
-                save_btn = editor_card.locator('button:has-text("保存"), button:has-text("Save")').first
+                save_btn = editor_card.locator('button:has-text("Save")').first
                 if save_btn.is_visible() and save_btn.is_enabled():
                     save_btn.click()
                     page.wait_for_timeout(2000)
-                    logger.info("✅ 已保存恢复后的内容")
+                    logger.info("Saved restored content")
 
             log_test_result(test_name, True, 0)
-            logger.info(f"✅ Test {test_name} passed - 文件内容编辑保存与重置功能正常")
+            logger.info(f"Test {test_name} passed - file content edit, save and reset OK")
         finally:
-            # 确保文件内容恢复到原始状态
+            # Ensure the file content is restored to original
             if original_content is not None:
                 try:
                     editor_card = page.locator('[class*="editorCard"]').first
@@ -451,16 +450,16 @@ class TestFileContentEditAndSave:
                     if textarea.is_visible():
                         textarea.fill(original_content)
                         page.wait_for_timeout(500)
-                        save_btn = editor_card.locator('button:has-text("保存"), button:has-text("Save")').first
+                        save_btn = editor_card.locator('button:has-text("Save")').first
                         if save_btn.is_visible() and save_btn.is_enabled():
                             save_btn.click()
                             page.wait_for_timeout(2000)
-                            logger.info("✅ 清理：已恢复文件原始内容")
+                            logger.info("Cleanup: file content restored to original")
                 except Exception:
-                    logger.warning("清理失败：无法恢复文件原始内容")
+                    logger.warning("Cleanup failed: could not restore original file content")
 
 # ============================================================================
-# FILE-004: 工作空间上传下载
+# FILE-004: Workspace upload and download
 # ============================================================================
 
 @pytest.mark.integration
@@ -468,51 +467,49 @@ class TestFileContentEditAndSave:
 @pytest.mark.files
 class TestWorkspaceUploadDownload:
     """
-    FILE-004: 工作空间上传下载
+    FILE-004: Workspace upload and download.
 
-    组合覆盖功能点：
-    1. 访问工作区页面
-    2. 找到下载工作空间按钮
-    3. 验证下载按钮可见且可用
-    4. 找到上传工作空间按钮
-    5. 验证上传按钮可见且可用
-    6. 点击上传按钮验证文件选择器触发（不实际上传）
+    Combined coverage:
+    1. Visit the workspace page
+    2. Find the download-workspace button
+    3. Verify the download button is visible and enabled
+    4. Find the upload-workspace button
+    5. Verify the upload button is visible and enabled
+    6. Click the upload button to verify the file selector triggers (without actually uploading)
 
-    业务场景：
-    管理员验证工作空间的上传和下载功能按钮是否正常显示和可用，
-    确保用户可以方便地管理工作空间文件。
+    Scenario:
+    Admin verifies that workspace upload/download buttons display and work correctly,
+    so users can conveniently manage workspace files.
     """
 
     @pytest.mark.test_id("FILE-004")
     def test_workspace_download_and_upload_button(self, page: Page, request: pytest.FixtureRequest):
-        """验证工作空间上传下载按钮功能"""
+        """Verify workspace upload and download buttons."""
         test_name = request.node.name
 
-        log_test_step("1. 访问工作区页面")
+        log_test_step("1. Visit the workspace page")
         navigate_to_workspace(page)
 
-        log_test_step("2. 找到下载工作空间按钮")
-        # 源码：Button size="small" onClick={handleDownload} icon={<DownloadOutlined />}
-        # 按钮在 PageHeader 的 extra 区域的 actionButtons div 中
+        log_test_step("2. Find the download-workspace button")
+        # Source: Button size="small" onClick={handleDownload} icon={<DownloadOutlined />}
+        # Button lives in PageHeader extra area inside actionButtons div
         download_btn = page.locator(
-            '[class*="actionButtons"] button:has-text("下载"), '
             '[class*="actionButtons"] button:has-text("Download")'
         ).first
         if not download_btn.is_visible():
-            # 备选：通过 DownloadOutlined 图标定位
+            # Fallback: locate by DownloadOutlined icon
             download_btn = page.locator('button .anticon-download').first
             if download_btn.is_visible():
                 download_btn = download_btn.locator('..')
 
-        log_test_step("3. 验证下载按钮可见且可用")
+        log_test_step("3. Verify download button is visible and enabled")
         expect(download_btn).to_be_visible(timeout=5000)
-        assert download_btn.is_enabled(), "下载按钮应该可用"
-        logger.info("✅ 下载按钮可见且可用")
+        assert download_btn.is_enabled(), "Download button should be enabled"
+        logger.info("Download button visible and enabled")
 
-        log_test_step("4. 找到上传工作空间按钮")
-        # 源码：Button size="small" onClick={handleUploadClick} icon={<UploadOutlined />}
+        log_test_step("4. Find the upload-workspace button")
+        # Source: Button size="small" onClick={handleUploadClick} icon={<UploadOutlined />}
         upload_btn = page.locator(
-            '[class*="actionButtons"] button:has-text("上传"), '
             '[class*="actionButtons"] button:has-text("Upload")'
         ).first
         if not upload_btn.is_visible():
@@ -520,23 +517,23 @@ class TestWorkspaceUploadDownload:
             if upload_btn.is_visible():
                 upload_btn = upload_btn.locator('..')
 
-        log_test_step("5. 验证上传按钮可见且可用")
+        log_test_step("5. Verify upload button is visible and enabled")
         expect(upload_btn).to_be_visible(timeout=5000)
-        assert upload_btn.is_enabled(), "上传按钮应该可用"
-        logger.info("✅ 上传按钮可见且可用")
+        assert upload_btn.is_enabled(), "Upload button should be enabled"
+        logger.info("Upload button visible and enabled")
 
-        log_test_step("6. 验证隐藏的文件输入框存在（accept=.zip）")
-        # 源码中有一个隐藏的 <input type="file" accept=".zip">
+        log_test_step("6. Verify the hidden file input exists (accept=.zip)")
+        # Source has a hidden <input type="file" accept=".zip">
         file_input = page.locator('input[type="file"][accept=".zip"]').first
-        assert file_input.count() > 0, "应存在隐藏的文件上传输入框"
-        logger.info("✅ 隐藏文件输入框存在，accept=.zip")
+        assert file_input.count() > 0, "A hidden file upload input should exist"
+        logger.info("Hidden file input exists, accept=.zip")
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - 工作空间上传下载按钮功能正常")
+        logger.info(f"Test {test_name} passed - workspace upload/download buttons OK")
 
 
 # ============================================================================
-# FILE-P1-004: 每日记忆展开/折叠查看
+# FILE-P1-004: Daily memory expand/collapse view
 # ============================================================================
 
 @pytest.mark.integration
@@ -544,48 +541,48 @@ class TestWorkspaceUploadDownload:
 @pytest.mark.files
 class TestDailyMemoryView:
     """
-    FILE-P1-004: 每日记忆展开/折叠查看
+    FILE-P1-004: Daily memory expand/collapse view.
 
-    覆盖功能点：
-    1. 在文件列表中找到每日记忆区域
-    2. 展开每日记忆查看内容
-    3. 折叠每日记忆
+    Coverage:
+    1. Find the daily memory section in the file list
+    2. Expand a daily memory entry to view its content
+    3. Collapse a daily memory entry
     """
 
     @pytest.mark.test_id("FILE-P1-004")
     def test_daily_memory_view(self, page: Page, request: pytest.FixtureRequest):
-        """测试每日记忆展开/折叠功能"""
+        """Test daily memory expand/collapse."""
         test_name = request.node.name
 
-        log_test_step("导航到工作空间页面")
+        log_test_step("Navigate to the workspace page")
         page.goto(f"{config.base_url}/workspace")
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
-        log_test_step("查找每日记忆区域")
+        log_test_step("Find the daily memory section")
         memory_section = page.locator(
-            ':text("Daily"), :text("Memory"), :text("记忆"), '
+            ':text("Daily"), :text("Memory"), '
             ':text("daily"), :text("memory"), '
             '[class*="memory"], [class*="Memory"]'
         ).first
 
         if memory_section.count() == 0:
-            logger.info("未找到每日记忆区域，验证文件列表存在")
+            logger.info("Daily memory section not found; verifying file list exists")
             file_list = page.locator(
                 '[class*="fileList"], [class*="FileList"], '
                 '.qwenpaw-tree, .ant-tree'
             ).first
             if file_list.count() > 0:
-                logger.info("✅ 文件列表存在")
+                logger.info("File list exists")
             else:
-                logger.info("文件列表也未找到，页面可能为空")
+                logger.info("File list also not found; page may be empty")
             log_test_result(test_name, True, 0)
             return
 
-        logger.info("✅ 找到每日记忆区域")
+        logger.info("Found daily memory section")
 
-        log_test_step("查找可展开的记忆项")
-        # 每日记忆通常使用 Collapse 或可点击的列表项
+        log_test_step("Find expandable memory items")
+        # Daily memory typically uses Collapse or clickable list items
         expandable_items = page.locator(
             '.qwenpaw-collapse-header, .ant-collapse-header, '
             '[class*="memoryItem"], [class*="memory-item"], '
@@ -593,37 +590,37 @@ class TestDailyMemoryView:
         ).all()
 
         if len(expandable_items) > 0:
-            logger.info(f"找到 {len(expandable_items)} 个可展开的记忆项")
+            logger.info(f"Found {len(expandable_items)} expandable memory items")
 
-            log_test_step("展开第一个记忆项")
+            log_test_step("Expand the first memory item")
             expandable_items[0].click()
             page.wait_for_timeout(1000)
 
-            # 验证展开后有内容
+            # Verify expanded content
             expanded_content = page.locator(
                 '.qwenpaw-collapse-content-active, .ant-collapse-content-active, '
                 '[class*="memoryContent"], [class*="memory-content"]'
             ).first
             if expanded_content.count() > 0:
                 content_text = expanded_content.inner_text()
-                logger.info(f"✅ 记忆内容已展开，长度：{len(content_text)}")
+                logger.info(f"Memory content expanded; length: {len(content_text)}")
             else:
-                logger.info("展开后未找到明确的内容区域")
+                logger.info("No explicit content area found after expansion")
 
-            log_test_step("折叠记忆项")
+            log_test_step("Collapse the memory item")
             expandable_items[0].click()
             page.wait_for_timeout(500)
-            logger.info("✅ 记忆项已折叠")
+            logger.info("Memory item collapsed")
         else:
-            logger.info("未找到可展开的记忆项，可能使用了其他展示方式")
-            # 尝试点击记忆区域
+            logger.info("No expandable memory items found; another display mechanism may be used")
+            # Try clicking the memory section
             memory_section.click()
             page.wait_for_timeout(1000)
 
         log_test_result(test_name, True, 0)
 
 # ============================================================================
-# FILE-P1-005: Markdown 实时预览
+# FILE-P1-005: Markdown live preview
 # ============================================================================
 
 @pytest.mark.integration
@@ -631,50 +628,50 @@ class TestDailyMemoryView:
 @pytest.mark.files
 class TestMarkdownPreview:
     """
-    FILE-P1-005: Markdown 实时预览
+    FILE-P1-005: Markdown live preview.
 
-    覆盖功能点：
-    1. 在文件列表中选择一个 Markdown 文件
-    2. 验证编辑器区域存在
-    3. 验证预览区域存在
+    Coverage:
+    1. Select a Markdown file in the file list
+    2. Verify the editor area exists
+    3. Verify the preview area exists
     """
 
     @pytest.mark.test_id("FILE-P1-005")
     def test_markdown_preview(self, page: Page, request: pytest.FixtureRequest):
-        """测试 Markdown 实时预览功能"""
+        """Test Markdown live preview."""
         test_name = request.node.name
 
-        log_test_step("导航到工作空间页面")
+        log_test_step("Navigate to the workspace page")
         page.goto(f"{config.base_url}/workspace")
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
-        log_test_step("查找文件列表中的 Markdown 文件")
+        log_test_step("Find Markdown files in the file list")
         md_files = page.locator(
             ':text(".md"), :text("README"), '
             '[class*="file"]:has-text(".md")'
         ).all()
 
         if len(md_files) == 0:
-            # 尝试查找文件树中的任何文件
+            # Fall back to any file in the file tree
             file_items = page.locator(
                 '.qwenpaw-tree-treenode, .ant-tree-treenode, '
                 '[class*="fileItem"], [class*="file-item"]'
             ).all()
             if len(file_items) > 0:
-                logger.info(f"找到 {len(file_items)} 个文件项，点击第一个")
+                logger.info(f"Found {len(file_items)} file items; clicking the first")
                 file_items[0].click()
                 page.wait_for_timeout(2000)
             else:
-                logger.info("文件列表为空，跳过 Markdown 预览测试")
+                logger.info("File list is empty; skipping Markdown preview test")
                 log_test_result(test_name, True, 0)
                 return
         else:
-            logger.info(f"找到 {len(md_files)} 个 Markdown 相关文件")
+            logger.info(f"Found {len(md_files)} Markdown-related files")
             md_files[0].click()
             page.wait_for_timeout(2000)
 
-        log_test_step("验证编辑器/预览区域存在")
+        log_test_step("Verify editor/preview areas exist")
         editor_area = page.locator(
             'textarea, [class*="editor"], [class*="Editor"], '
             '[class*="CodeMirror"], [class*="monaco"], '
@@ -691,92 +688,92 @@ class TestMarkdownPreview:
         has_preview = preview_area.count() > 0
 
         if has_editor:
-            logger.info("✅ 编辑器区域存在")
+            logger.info("Editor area exists")
         if has_preview:
-            logger.info("✅ 预览区域存在")
+            logger.info("Preview area exists")
             preview_content = preview_area.inner_text()
-            logger.info(f"预览内容长度：{len(preview_content)}")
+            logger.info(f"Preview content length: {len(preview_content)}")
 
         if not has_editor and not has_preview:
-            # 验证至少有文件内容展示
+            # At least verify a file content area exists
             content_area = page.locator(
                 '[class*="content"], pre, code'
             ).first
             if content_area.count() > 0:
-                logger.info("✅ 找到文件内容展示区域")
+                logger.info("Found a file content display area")
             else:
-                logger.info("未找到编辑器或预览区域")
+                logger.info("Neither editor nor preview area found")
 
         log_test_result(test_name, True, 0)
 
 
 # ============================================================================
-# FILE-P2-001: ZIP 上传恢复工作区
+# FILE-P2-001: Restore workspace via ZIP upload
 # ============================================================================
 
 @pytest.mark.integration
 @pytest.mark.p2
 @pytest.mark.files
 class TestWorkspaceZipUpload:
-    """FILE-P2-001: ZIP 上传恢复工作区"""
+    """FILE-P2-001: Restore workspace via ZIP upload."""
 
     @pytest.mark.test_id("FILE-P2-001")
     def test_workspace_zip_upload(self, page: Page, request: pytest.FixtureRequest):
-        """测试 ZIP 上传恢复工作区"""
+        """Test restoring workspace via ZIP upload."""
         test_name = request.node.name
 
-        log_test_step("导航到工作空间页面")
+        log_test_step("Navigate to the workspace page")
         page.goto(f"{config.base_url}/workspace")
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
-        log_test_step("查找上传按钮")
+        log_test_step("Find the upload button")
         upload_btn = page.locator(
-            'button:has-text("Upload"), button:has-text("上传"), '
+            'button:has-text("Upload"), '
             'button:has(.anticon-upload)'
         ).first
-        assert upload_btn.count() > 0, "工作区页面应有上传按钮"
+        assert upload_btn.count() > 0, "Workspace page should have an upload button"
         expect(upload_btn).to_be_visible(timeout=5000)
-        logger.info("✅ 上传按钮存在且可见")
+        logger.info("Upload button exists and visible")
 
-        log_test_step("验证隐藏的 ZIP 文件输入框")
+        log_test_step("Verify the hidden ZIP file input")
         file_input = page.locator('input[type="file"][accept=".zip"], input[type="file"]').first
         if file_input.count() > 0:
-            logger.info("✅ ZIP 文件输入框存在")
+            logger.info("ZIP file input exists")
         else:
-            logger.info("ℹ️ 未找到 ZIP 文件输入框（上传可能通过其他方式触发）")
+            logger.info("ZIP file input not found (upload may be triggered differently)")
 
         log_test_result(test_name, True, 0)
 
 
 # ============================================================================
-# FILE-P2-002: ZIP 下载工作区
+# FILE-P2-002: Download workspace as ZIP
 # ============================================================================
 
 @pytest.mark.integration
 @pytest.mark.p2
 @pytest.mark.files
 class TestWorkspaceZipDownload:
-    """FILE-P2-002: ZIP 下载工作区"""
+    """FILE-P2-002: Download workspace as ZIP."""
 
     @pytest.mark.test_id("FILE-P2-002")
     def test_workspace_zip_download(self, page: Page, request: pytest.FixtureRequest):
-        """测试 ZIP 下载工作区"""
+        """Test downloading workspace as ZIP."""
         test_name = request.node.name
 
-        log_test_step("导航到工作空间页面")
+        log_test_step("Navigate to the workspace page")
         page.goto(f"{config.base_url}/workspace")
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
-        log_test_step("查找下载按钮")
+        log_test_step("Find the download button")
         download_btn = page.locator(
-            'button:has-text("Download"), button:has-text("下载"), '
+            'button:has-text("Download"), '
             'button:has(.anticon-download)'
         ).first
-        assert download_btn.count() > 0, "工作区页面应有下载按钮"
+        assert download_btn.count() > 0, "Workspace page should have a download button"
         expect(download_btn).to_be_visible(timeout=5000)
-        assert download_btn.is_enabled(), "下载按钮应该可用"
-        logger.info("✅ 下载按钮存在且可用")
+        assert download_btn.is_enabled(), "Download button should be enabled"
+        logger.info("Download button exists and enabled")
 
         log_test_result(test_name, True, 0)

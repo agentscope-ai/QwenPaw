@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw MCP 模块 P0 级端到端测试用例
+QwenPaw MCP module P0 end-to-end tests
 
-组合用例设计：
-- MCP-001: 页面加载验证 + 卡片信息硬断言 + 启用/禁用切换 + 状态恢复
-- MCP-002: 创建对话框打开 + 标题/格式说明验证 + JSON 填写 + 取消关闭
+Combined test design:
+- MCP-001: Page load + card info hard assertions + enable/disable toggle + state restore
+- MCP-002: Create dialog open + title/format hint validation + JSON fill + cancel close
 
-执行命令：pytest tests/test_mcp_p0.py -v
+Run command: pytest tests/test_mcp_p0.py -v
 """
 from __future__ import annotations
 
@@ -27,14 +27,14 @@ CREATE_BTN_SELECTOR = 'button.qwenpaw-btn-primary:has-text("创建客户端"), b
 
 
 def navigate_to_mcp(page: Page):
-    """导航到 MCP 页面并等待加载"""
+    """Navigate to the MCP page and wait for it to load."""
     page.goto(MCP_URL)
     page.wait_for_load_state("domcontentloaded")
     page.wait_for_timeout(2000)
 
 
 # ============================================================================
-# MCP-001: 页面加载 + 卡片信息 + 启用/禁用切换
+# MCP-001: Page load + card info + enable/disable toggle
 # ============================================================================
 
 @pytest.mark.integration
@@ -42,122 +42,122 @@ def navigate_to_mcp(page: Page):
 @pytest.mark.mcp
 class TestMCPListAndOperations:
     """
-    MCP-001: 页面加载 + 卡片信息硬断言 + 启用/禁用切换 + 状态恢复
+    MCP-001: Page load + card info hard assertions + enable/disable toggle + state restore
 
-    覆盖功能点：
-    1. 面包屑硬断言
-    2. 创建按钮硬断言
-    3. 卡片标题/类型/状态硬断言
-    4. 启用/禁用按钮切换 + assert 状态变化 + 恢复
+    Functional coverage:
+    1. Breadcrumb hard assertion
+    2. Create button hard assertion
+    3. Card title/type/status hard assertions
+    4. Toggle enable/disable button + assert state change + restore
     """
 
     @pytest.mark.test_id("MCP-001")
     def test_mcp_list_toggle_and_cancel_delete(self, page: Page, request: pytest.FixtureRequest):
-        """验证 MCP 客户端列表展示和启用/禁用切换"""
+        """Verify MCP client list display and enable/disable toggle."""
         test_name = request.node.name
 
-        # ── 步骤1: 访问 MCP 页面 ──
-        log_test_step("1. 访问 MCP 页面")
+        # Step 1: Navigate to MCP page
+        log_test_step("1. Navigate to MCP page")
         navigate_to_mcp(page)
 
-        # ── 步骤2: 验证面包屑（兼容中英文）──
-        log_test_step("2. 验证面包屑")
+        # Step 2: Verify breadcrumb (supports both English and Chinese UI)
+        log_test_step("2. Verify breadcrumb")
         try:
             breadcrumb_cn = page.locator('span[class*="breadcrumbCurrent"]:has-text("MCP")').first
             breadcrumb_en = page.locator('span[class*="breadcrumbCurrent"]:has-text("MCP")').first
             if breadcrumb_cn.is_visible(timeout=3000):
-                logger.info("✅ 面包屑验证通过（中文）")
+                logger.info("Breadcrumb validation passed (Chinese)")
             elif breadcrumb_en.is_visible(timeout=3000):
-                logger.info("✅ 面包屑验证通过（英文）")
+                logger.info("Breadcrumb validation passed (English)")
             else:
-                logger.warning("⚠️ 面包屑未找到，跳过验证")
+                logger.warning("Breadcrumb not found, skipping validation")
         except Exception:
-            logger.warning("⚠️ 面包屑验证跳过")
+            logger.warning("Breadcrumb validation skipped")
 
-        # ── 步骤3: 验证创建按钮 ──
-        log_test_step("3. 验证创建按钮")
+        # Step 3: Verify create button
+        log_test_step("3. Verify create button")
         create_btn = page.locator(CREATE_BTN_SELECTOR).first
         expect(create_btn).to_be_visible(timeout=5000)
-        assert not create_btn.is_disabled(), "创建客户端按钮不应为 disabled"
-        logger.info("✅ 创建客户端按钮可见且可用")
+        assert not create_btn.is_disabled(), "Create client button should not be disabled"
+        logger.info("Create client button is visible and enabled")
 
-        # ── 步骤4: 验证客户端卡片 ──
-        log_test_step("4. 验证客户端卡片")
+        # Step 4: Verify client cards
+        log_test_step("4. Verify client cards")
         mcp_cards = page.locator(MCP_CARD_SELECTOR).all()
 
         if len(mcp_cards) == 0:
-            logger.info("MCP 客户端列表为空，跳过卡片和启用/禁用验证")
+            logger.info("MCP client list is empty, skipping card and toggle validation")
             log_test_result(test_name, True, 0)
             return
 
         card_count = len(mcp_cards)
-        assert card_count >= 1, "至少应有 1 个 MCP 客户端"
-        logger.info(f"MCP 客户端数量：{card_count}")
+        assert card_count >= 1, "Should have at least 1 MCP client"
+        logger.info(f"MCP client count: {card_count}")
 
-        # 验证第一个卡片的信息
+        # Verify info on the first card
         first_card = mcp_cards[0]
         title_el = first_card.locator('h3[class*="mcpTitle"]').first
         expect(title_el).to_be_visible(timeout=5000)
         title_text = title_el.inner_text()
-        assert len(title_text) > 0, "MCP 客户端标题为空"
-        logger.info(f"客户端标题：{title_text}")
+        assert len(title_text) > 0, "MCP client title is empty"
+        logger.info(f"Client title: {title_text}")
 
         type_badge = first_card.locator('span[class*="typeBadge"]').first
         expect(type_badge).to_be_visible(timeout=3000)
         type_text = type_badge.inner_text()
-        assert type_text in ["Local", "Remote", "local", "remote"], f"类型标识异常：{type_text}"
-        logger.info(f"类型：{type_text}")
+        assert type_text in ["Local", "Remote", "local", "remote"], f"Unexpected type label: {type_text}"
+        logger.info(f"Type: {type_text}")
 
         status_el = first_card.locator('span[class*="statusText"]').first
         expect(status_el).to_be_visible(timeout=3000)
         status_text = status_el.inner_text()
-        assert status_text in ["已启用", "已禁用", "Enabled", "Disabled"], f"状态标识异常：{status_text}"
-        logger.info(f"状态：{status_text}")
+        assert status_text in ["已启用", "已禁用", "Enabled", "Disabled"], f"Unexpected status label: {status_text}"
+        logger.info(f"Status: {status_text}")
 
-        # ── 步骤5: 测试启用/禁用切换 ──
-        log_test_step("5. 测试启用/禁用切换")
+        # Step 5: Test enable/disable toggle
+        log_test_step("5. Test enable/disable toggle")
         toggle_btn = first_card.locator(TOGGLE_BTN_SELECTOR).first
         expect(toggle_btn).to_be_visible(timeout=5000)
 
         initial_text = toggle_btn.inner_text().strip()
         initial_status = status_el.inner_text()
-        logger.info(f"初始按钮文本：{initial_text}，状态：{initial_status}")
+        logger.info(f"Initial button text: {initial_text}, status: {initial_status}")
 
-        # 点击切换
+        # Click to toggle
         toggle_btn.click()
         page.wait_for_timeout(2000)
 
         new_text = toggle_btn.inner_text().strip()
         new_status = status_el.inner_text()
         assert new_text != initial_text, (
-            f"启用/禁用按钮文本未变化：{initial_text} → {new_text}"
+            f"Toggle button text did not change: {initial_text} -> {new_text}"
         )
         assert new_status != initial_status, (
-            f"状态标识未变化：{initial_status} → {new_status}"
+            f"Status label did not change: {initial_status} -> {new_status}"
         )
-        logger.info(f"✅ 切换成功：{initial_text} → {new_text}，{initial_status} → {new_status}")
+        logger.info(f"Toggle succeeded: {initial_text} -> {new_text}, {initial_status} -> {new_status}")
 
-        # ── 步骤6: 恢复原始状态 ──
-        log_test_step("6. 恢复原始状态")
+        # Step 6: Restore original state
+        log_test_step("6. Restore original state")
         toggle_btn.click()
         page.wait_for_timeout(2000)
 
         restored_text = toggle_btn.inner_text().strip()
         restored_status = status_el.inner_text()
         assert restored_text == initial_text, (
-            f"按钮文本未恢复：期望 {initial_text}，实际 {restored_text}"
+            f"Button text did not restore: expected {initial_text}, actual {restored_text}"
         )
         assert restored_status == initial_status, (
-            f"状态未恢复：期望 {initial_status}，实际 {restored_status}"
+            f"Status did not restore: expected {initial_status}, actual {restored_status}"
         )
-        logger.info("✅ 状态已恢复")
+        logger.info("State restored")
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - MCP 列表展示和启用/禁用切换正常")
+        logger.info(f"Test {test_name} passed - MCP list display and enable/disable toggle work")
 
 
 # ============================================================================
-# MCP-002: 创建对话框 + JSON 填写 + 取消关闭
+# MCP-002: Create dialog + JSON fill + cancel close
 # ============================================================================
 
 @pytest.mark.integration
@@ -165,57 +165,57 @@ class TestMCPListAndOperations:
 @pytest.mark.mcp
 class TestCreateMCPClient:
     """
-    MCP-002: 创建对话框打开 + 标题/格式说明验证 + JSON 填写 + 取消关闭
+    MCP-002: Create dialog open + title/format hint validation + JSON fill + cancel close
 
-    覆盖功能点：
-    1. 点击创建按钮 → 对话框打开硬断言
-    2. 对话框标题硬断言
-    3. 格式说明区域硬断言
-    4. JSON 输入框填写 stdio 配置 → 验证内容
-    5. 切换为 HTTP 配置 → 验证内容
-    6. 取消按钮关闭 → 验证对话框消失
+    Functional coverage:
+    1. Click create button -> dialog opens hard assertion
+    2. Dialog title hard assertion
+    3. Format hint area hard assertion
+    4. JSON input filled with stdio config -> verify content
+    5. Switch to HTTP config -> verify content
+    6. Cancel button closes dialog -> verify dialog gone
     """
 
     @pytest.mark.test_id("MCP-002")
     def test_create_mcp_client_stdio_and_http(self, page: Page, request: pytest.FixtureRequest):
-        """验证创建对话框打开、JSON 填写和取消关闭"""
+        """Verify create dialog open, JSON fill, and cancel close."""
         test_name = request.node.name
 
-        # ── 步骤1: 访问 MCP 页面 ──
-        log_test_step("1. 访问 MCP 页面")
+        # Step 1: Navigate to MCP page
+        log_test_step("1. Navigate to MCP page")
         navigate_to_mcp(page)
 
-        # ── 步骤2: 点击创建按钮 ──
-        log_test_step("2. 点击创建按钮")
+        # Step 2: Click create button
+        log_test_step("2. Click create button")
         create_btn = page.locator(CREATE_BTN_SELECTOR).first
         expect(create_btn).to_be_visible(timeout=5000)
         create_btn.click()
         page.wait_for_timeout(1000)
 
-        # ── 步骤3: 验证对话框打开 ──
-        log_test_step("3. 验证对话框打开")
+        # Step 3: Verify dialog opens
+        log_test_step("3. Verify dialog opens")
         modal = page.locator('.qwenpaw-modal-content').first
         expect(modal).to_be_visible(timeout=5000)
-        logger.info("✅ 创建对话框已打开")
+        logger.info("Create dialog opened")
 
-        # ── 步骤4: 验证对话框标题 ──
-        log_test_step("4. 验证对话框标题")
+        # Step 4: Verify dialog title
+        log_test_step("4. Verify dialog title")
         modal_title = modal.locator('.qwenpaw-spark-modal-title').first
         expect(modal_title).to_be_visible(timeout=3000)
         title_text = modal_title.inner_text()
-        assert "创建客户端" in title_text or "Create" in title_text, f"对话框标题不正确：{title_text}"
-        logger.info(f"✅ 对话框标题：{title_text}")
+        assert "创建客户端" in title_text or "Create" in title_text, f"Unexpected dialog title: {title_text}"
+        logger.info(f"Dialog title: {title_text}")
 
-        # ── 步骤5: 验证格式说明 ──
-        log_test_step("5. 验证格式说明")
+        # Step 5: Verify format hint
+        log_test_step("5. Verify format hint")
         import_hint = modal.locator('[class*="importHint"]').first
         expect(import_hint).to_be_visible(timeout=3000)
         hint_text = import_hint.inner_text()
-        assert "支持的格式" in hint_text or "Supported format" in hint_text, f"格式说明内容异常：{hint_text[:50]}"
-        logger.info("✅ 格式说明验证通过")
+        assert "支持的格式" in hint_text or "Supported format" in hint_text, f"Unexpected format hint: {hint_text[:50]}"
+        logger.info("Format hint validation passed")
 
-        # ── 步骤6: 填写 stdio 类型 JSON 配置 ──
-        log_test_step("6. 填写 stdio 类型配置")
+        # Step 6: Fill stdio-type JSON config
+        log_test_step("6. Fill stdio-type config")
         json_textarea = modal.locator('textarea[class*="jsonTextArea"]').first
         if not json_textarea.is_visible():
             json_textarea = modal.locator('textarea').first
@@ -233,12 +233,12 @@ class TestCreateMCPClient:
         page.wait_for_timeout(500)
 
         filled_value = json_textarea.input_value()
-        assert "test_stdio" in filled_value, "stdio 配置未正确填入"
-        assert "npx" in filled_value, "stdio 配置中缺少 command"
-        logger.info("✅ stdio 配置填写并验证成功")
+        assert "test_stdio" in filled_value, "stdio config was not filled correctly"
+        assert "npx" in filled_value, "stdio config missing command"
+        logger.info("stdio config filled and verified")
 
-        # ── 步骤7: 切换为 HTTP 类型配置 ──
-        log_test_step("7. 切换为 HTTP 类型配置")
+        # Step 7: Switch to HTTP-type config
+        log_test_step("7. Switch to HTTP-type config")
         http_config = json.dumps({
             "mcpServers": {
                 "test_http": {
@@ -251,12 +251,12 @@ class TestCreateMCPClient:
         page.wait_for_timeout(500)
 
         filled_http = json_textarea.input_value()
-        assert "test_http" in filled_http, "HTTP 配置未正确填入"
-        assert "streamable_http" in filled_http, "HTTP 配置中缺少 transport"
-        logger.info("✅ HTTP 配置填写并验证成功")
+        assert "test_http" in filled_http, "HTTP config was not filled correctly"
+        assert "streamable_http" in filled_http, "HTTP config missing transport"
+        logger.info("HTTP config filled and verified")
 
-        # ── 步骤8: 取消创建并验证对话框关闭 ──
-        log_test_step("8. 取消创建并验证对话框关闭")
+        # Step 8: Cancel creation and verify dialog closes
+        log_test_step("8. Cancel creation and verify dialog closes")
         cancel_btn = modal.locator('button:has-text("取 消"), button:has-text("取消"), button:has-text("Cancel")').first
         expect(cancel_btn).to_be_visible(timeout=3000)
 
@@ -264,13 +264,13 @@ class TestCreateMCPClient:
         page.wait_for_timeout(1000)
 
         expect(modal).not_to_be_visible(timeout=5000)
-        logger.info("✅ 对话框已关闭")
+        logger.info("Dialog closed")
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - 创建对话框打开、JSON 填写和取消关闭正常")
+        logger.info(f"Test {test_name} passed - create dialog open, JSON fill, and cancel close work")
 
 # ============================================================================
-# MCP-003: 创建并删除 MCP 客户端
+# MCP-003: Create and delete MCP client
 # ============================================================================
 
 @pytest.mark.integration
@@ -278,56 +278,56 @@ class TestCreateMCPClient:
 @pytest.mark.mcp
 class TestMCPClientCreateAndDelete:
     """
-    MCP-003: 创建并删除 MCP 客户端
+    MCP-003: Create and delete MCP client
 
-    覆盖功能点：
-    1. 访问 MCP 页面并记录初始客户端数量
-    2. 点击创建按钮打开对话框
-    3. 填写 stdio 类型的 JSON 配置（使用 test_e2e_client 作为名称）
-    4. 点击确认/创建按钮
-    5. 验证新客户端出现在列表中
-    6. 找到新创建的客户端卡片
-    7. 找到删除按钮并点击
-    8. 确认删除
-    9. 验证客户端已从列表中移除
+    Functional coverage:
+    1. Navigate to MCP page and record initial client count
+    2. Click create button to open dialog
+    3. Fill stdio-type JSON config (using test_e2e_client as name)
+    4. Click confirm/create button
+    5. Verify new client appears in the list
+    6. Find the new client card
+    7. Find delete button and click
+    8. Confirm deletion
+    9. Verify client removed from the list
     """
 
     @pytest.mark.test_id("MCP-003")
     def test_create_and_delete_mcp_client(self, page: Page, request: pytest.FixtureRequest):
-        """验证 MCP 客户端的创建和删除流程"""
+        """Verify MCP client creation and deletion flow."""
         test_name = request.node.name
         client_name = None
         client_created = False
 
         try:
-            # ── 步骤1: 访问 MCP 页面 ──
-            log_test_step("1. 访问 MCP 页面")
+            # Step 1: Navigate to MCP page
+            log_test_step("1. Navigate to MCP page")
             navigate_to_mcp(page)
 
-            # ── 步骤2: 记录初始客户端数量 ──
-            log_test_step("2. 记录初始客户端数量")
+            # Step 2: Record initial client count
+            log_test_step("2. Record initial client count")
             initial_cards = page.locator(MCP_CARD_SELECTOR).all()
             initial_count = len(initial_cards)
-            logger.info(f"初始 MCP 客户端数量：{initial_count}")
+            logger.info(f"Initial MCP client count: {initial_count}")
 
-            # ── 步骤3: 点击创建按钮 ──
-            log_test_step("3. 点击创建按钮")
+            # Step 3: Click create button
+            log_test_step("3. Click create button")
             create_btn = page.locator(CREATE_BTN_SELECTOR).first
             expect(create_btn).to_be_visible(timeout=5000)
             create_btn.click()
             page.wait_for_timeout(1500)
 
-            # ── 步骤4: 验证对话框打开 ──
-            log_test_step("4. 验证对话框打开")
+            # Step 4: Verify dialog opens
+            log_test_step("4. Verify dialog opens")
             modal = page.locator('.qwenpaw-modal-content').first
             expect(modal).to_be_visible(timeout=5000)
-            logger.info("✅ 创建对话框已打开")
+            logger.info("Create dialog opened")
 
-            # ── 步骤5: 填写 stdio 类型的 JSON 配置 ──
-            log_test_step("5. 填写 stdio 类型配置")
+            # Step 5: Fill stdio-type JSON config
+            log_test_step("5. Fill stdio-type config")
             timestamp = int(page.evaluate("Date.now()"))
             client_name = f"test_e2e_client_{timestamp}"
-            
+
             stdio_config = json.dumps({
                 "mcpServers": {
                     client_name: {
@@ -341,16 +341,16 @@ class TestMCPClientCreateAndDelete:
             if not json_textarea.is_visible():
                 json_textarea = modal.locator('textarea').first
             expect(json_textarea).to_be_visible(timeout=5000)
-            
+
             json_textarea.fill(stdio_config)
             page.wait_for_timeout(500)
-            
-            filled_value = json_textarea.input_value()
-            assert client_name in filled_value, f"客户端名称未正确填入：{client_name}"
-            logger.info(f"✅ JSON 配置已填写，客户端名称：{client_name}")
 
-            # ── 步骤6: 点击确认/创建按钮 ──
-            log_test_step("6. 点击确认/创建按钮")
+            filled_value = json_textarea.input_value()
+            assert client_name in filled_value, f"Client name was not filled correctly: {client_name}"
+            logger.info(f"JSON config filled, client name: {client_name}")
+
+            # Step 6: Click confirm/create button
+            log_test_step("6. Click confirm/create button")
             confirm_btn = modal.locator('button.qwenpaw-btn-primary:has-text("确 定"), button:has-text("确定"), button:has-text("创建")').first
             if not confirm_btn.is_visible():
                 confirm_btn = modal.locator('button.qwenpaw-btn-primary').last
@@ -358,23 +358,23 @@ class TestMCPClientCreateAndDelete:
             confirm_btn.click()
             page.wait_for_timeout(2000)
 
-            # 验证对话框关闭
+            # Verify dialog closes
             expect(modal).not_to_be_visible(timeout=5000)
             client_created = True
-            logger.info("✅ 客户端已创建，对话框已关闭")
+            logger.info("Client created, dialog closed")
 
-            # ── 步骤7: 验证新客户端出现在列表中 ──
-            log_test_step("7. 验证新客户端出现在列表中")
+            # Step 7: Verify new client appears in the list
+            log_test_step("7. Verify new client appears in the list")
             page.wait_for_timeout(1000)
             updated_cards = page.locator(MCP_CARD_SELECTOR).all()
             updated_count = len(updated_cards)
             assert updated_count == initial_count + 1, (
-                f"创建后客户端数量不正确：期望 {initial_count + 1}，实际 {updated_count}"
+                f"Client count after creation is incorrect: expected {initial_count + 1}, actual {updated_count}"
             )
-            logger.info(f"✅ 创建成功，当前客户端数量：{updated_count}")
+            logger.info(f"Creation succeeded, current client count: {updated_count}")
 
-            # ── 步骤8: 找到新创建的客户端卡片 ──
-            log_test_step("8. 找到新创建的客户端卡片")
+            # Step 8: Find the new client card
+            log_test_step("8. Find the new client card")
             new_client_card = None
             for card in updated_cards:
                 title_el = card.locator('h3[class*="mcpTitle"]').first
@@ -383,18 +383,18 @@ class TestMCPClientCreateAndDelete:
                     if client_name in title_text:
                         new_client_card = card
                         break
-            
-            assert new_client_card is not None, f"未找到新创建的客户端：{client_name}"
-            logger.info(f"✅ 找到新创建的客户端卡片")
 
-            # ── 步骤9-10: 验证删除功能在 finally 中执行 ──
+            assert new_client_card is not None, f"New client not found: {client_name}"
+            logger.info("New client card found")
+
+            # Step 9-10: Delete verification runs in finally
             log_test_result(test_name, True, 0)
-            logger.info(f"✅ Test {test_name} passed - MCP 客户端创建验证通过")
+            logger.info(f"Test {test_name} passed - MCP client creation validation passed")
         finally:
-            # 清理：删除测试创建的客户端（重新导航确保页面状态正确）
+            # Cleanup: delete the client created by the test (re-navigate to ensure correct page state)
             if client_created and client_name:
                 try:
-                    log_test_step("清理：删除测试客户端")
+                    log_test_step("Cleanup: delete test client")
                     page.goto(f"{config.base_url}/mcp")
                     page.wait_for_timeout(2000)
                     cleanup_cards = page.locator(MCP_CARD_SELECTOR).all()
@@ -415,13 +415,13 @@ class TestMCPClientCreateAndDelete:
                                     if confirm_delete_btn.is_visible():
                                         confirm_delete_btn.click()
                                         page.wait_for_timeout(2000)
-                                    logger.info(f"✅ 清理：已删除测试客户端 '{client_name}'")
+                                    logger.info(f"Cleanup: deleted test client '{client_name}'")
                                 break
                 except Exception:
-                    logger.warning(f"清理失败：无法删除测试客户端 '{client_name}'")
+                    logger.warning(f"Cleanup failed: could not delete test client '{client_name}'")
 
 # ============================================================================
-# MCP-004: MCP 客户端编辑 API
+# MCP-004: MCP client edit API
 # ============================================================================
 
 
@@ -430,89 +430,89 @@ class TestMCPClientCreateAndDelete:
 @pytest.mark.mcp
 class TestMcpClientEdit:
     """
-    MCP-P1-004: MCP 客户端编辑配置
+    MCP-P1-004: MCP client edit configuration
 
-    覆盖功能点：
-    1. 点击 MCP 卡片打开配置 Modal
-    2. 验证 Modal 中有 Edit 按钮
-    3. 点击 Edit 进入编辑模式
-    4. 验证 JSON 编辑区域存在
+    Functional coverage:
+    1. Click MCP card to open config Modal
+    2. Verify Modal has Edit button
+    3. Click Edit to enter edit mode
+    4. Verify JSON edit area exists
     """
 
     @pytest.mark.test_id("MCP-P1-004")
     def test_mcp_client_edit(self, page: Page, request: pytest.FixtureRequest):
-        """测试 MCP 客户端编辑配置"""
+        """Test MCP client edit configuration."""
         test_name = request.node.name
 
-        log_test_step("导航到 MCP 管理页面")
+        log_test_step("Navigate to MCP management page")
         page.goto(f"{config.base_url}/mcp")
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
-        log_test_step("查找 MCP 客户端卡片")
+        log_test_step("Find MCP client cards")
         mcp_cards = page.locator(MCP_CARD_SELECTOR).all()
         if len(mcp_cards) == 0:
-            logger.info("没有 MCP 客户端卡片，跳过编辑测试")
+            logger.info("No MCP client cards, skipping edit test")
             log_test_result(test_name, True, 0)
             return
-        logger.info(f"找到 {len(mcp_cards)} 个 MCP 客户端卡片")
+        logger.info(f"Found {len(mcp_cards)} MCP client cards")
 
-        log_test_step("点击第一个 MCP 卡片")
+        log_test_step("Click the first MCP card")
         mcp_cards[0].click()
         page.wait_for_timeout(2000)
 
-        log_test_step("验证配置 Modal 已打开")
+        log_test_step("Verify config Modal opened")
         modal = page.locator('.qwenpaw-modal').last
         expect(modal).to_be_visible(timeout=5000)
-        logger.info("✅ 配置 Modal 已打开")
+        logger.info("Config Modal opened")
 
-        log_test_step("查找 Edit 按钮")
+        log_test_step("Find Edit button")
         edit_btn = modal.locator(
             'button:has-text("Edit"), button:has-text("编辑")'
         ).first
 
         if edit_btn.count() > 0:
             expect(edit_btn).to_be_visible(timeout=5000)
-            logger.info("✅ Edit 按钮存在")
+            logger.info("Edit button exists")
 
-            log_test_step("点击 Edit 进入编辑模式")
+            log_test_step("Click Edit to enter edit mode")
             edit_btn.click()
             page.wait_for_timeout(1500)
 
-            log_test_step("验证 JSON 编辑区域存在并测试编辑")
+            log_test_step("Verify JSON edit area exists and test editing")
             json_editor = modal.locator('textarea, .qwenpaw-input-textarea, [class*="editor"]').first
             if json_editor.count() > 0:
                 expect(json_editor).to_be_visible(timeout=5000)
                 tag_name = json_editor.evaluate('el => el.tagName')
                 original_content = json_editor.input_value() if tag_name == 'TEXTAREA' else json_editor.inner_text()
-                assert len(original_content) > 2, "JSON 编辑区域内容为空"
-                logger.info(f"✅ JSON 编辑区域存在，内容长度：{len(original_content)}")
+                assert len(original_content) > 2, "JSON edit area content is empty"
+                logger.info(f"JSON edit area exists, content length: {len(original_content)}")
 
-                # 验证编辑器可编辑：添加测试内容再恢复
+                # Verify editor is editable: add test content then restore
                 if tag_name == 'TEXTAREA':
                     test_content = original_content.rstrip() + '\n'
                     json_editor.fill(test_content)
                     page.wait_for_timeout(500)
                     edited_value = json_editor.input_value()
-                    assert len(edited_value) > 0, "编辑器应可编辑"
-                    logger.info("✅ JSON 编辑器可正常编辑")
-                    # 恢复原始内容
+                    assert len(edited_value) > 0, "Editor should be editable"
+                    logger.info("JSON editor is editable")
+                    # Restore original content
                     json_editor.fill(original_content)
                     page.wait_for_timeout(300)
             else:
                 code_editor = modal.locator('[class*="CodeMirror"], [class*="monaco"], pre code').first
                 if code_editor.count() > 0:
-                    assert code_editor.is_visible(), "代码编辑器应可见"
-                    logger.info("✅ 找到代码编辑器组件")
+                    assert code_editor.is_visible(), "Code editor should be visible"
+                    logger.info("Found code editor component")
                 else:
-                    logger.info("ℹ️ 未找到编辑器组件")
+                    logger.info("No editor component found")
         else:
-            logger.info("未找到 Edit 按钮，验证 Modal 中有配置内容")
+            logger.info("No Edit button found, verify Modal has config content")
             modal_content = modal.inner_text()
-            assert len(modal_content) > 20, "Modal 内容过少"
-            logger.info(f"✅ Modal 内容长度：{len(modal_content)}")
+            assert len(modal_content) > 20, "Modal content too short"
+            logger.info(f"Modal content length: {len(modal_content)}")
 
-        log_test_step("关闭 Modal")
+        log_test_step("Close Modal")
         close_btn = modal.locator('.qwenpaw-modal-close, button:has-text("Cancel"), button:has-text("取消"), button:has-text("Close"), button:has-text("关闭")').first
         if close_btn.count() > 0:
             close_btn.click()
@@ -523,7 +523,7 @@ class TestMcpClientEdit:
         log_test_result(test_name, True, 0)
 
 # ============================================================================
-# MCP-P1-005: 多协议创建（stdio/sse/streamable-http）
+# MCP-P1-005: Multi-protocol creation (stdio/sse/streamable-http)
 # ============================================================================
 
 @pytest.mark.integration
@@ -531,42 +531,42 @@ class TestMcpClientEdit:
 @pytest.mark.mcp
 class TestMcpMultiProtocol:
     """
-    MCP-P1-005: 多协议创建
+    MCP-P1-005: Multi-protocol creation
 
-    覆盖功能点：
-    1. 打开创建 MCP 客户端弹窗
-    2. 验证 JSON 输入区域存在
-    3. 输入 stdio 协议的 JSON 配置
-    4. 验证 JSON 格式正确
+    Functional coverage:
+    1. Open create MCP client dialog
+    2. Verify JSON input area exists
+    3. Enter stdio protocol JSON config
+    4. Verify JSON format is correct
     """
 
     @pytest.mark.test_id("MCP-P1-005")
     def test_mcp_multi_protocol(self, page: Page, request: pytest.FixtureRequest):
-        """测试 MCP 多协议创建"""
+        """Test MCP multi-protocol creation."""
         test_name = request.node.name
 
-        log_test_step("导航到 MCP 管理页面")
+        log_test_step("Navigate to MCP management page")
         page.goto(f"{config.base_url}/mcp")
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
-        log_test_step("查找创建按钮")
+        log_test_step("Find create button")
         create_btn = page.locator(
             'button:has-text("Add"), button:has-text("添加"), '
             'button:has-text("Create"), button:has-text("创建"), '
             'button:has-text("New"), button:has-text("新建")'
         ).first
-        assert create_btn.count() > 0, "未找到创建 MCP 客户端按钮"
+        assert create_btn.count() > 0, "Create MCP client button not found"
         expect(create_btn).to_be_visible(timeout=5000)
-        logger.info("✅ 创建按钮存在")
+        logger.info("Create button exists")
 
-        log_test_step("点击创建按钮")
+        log_test_step("Click create button")
         create_btn.click()
         page.wait_for_timeout(1500)
 
-        log_test_step("验证创建弹窗/区域")
-        # 创建时使用 JSON TextArea 输入，排除隐藏的 textarea
-        # 先在弹窗/抽屉上下文中查找
+        log_test_step("Verify create dialog/area")
+        # Create uses JSON TextArea input; exclude hidden textareas
+        # First search within the dialog/drawer context
         modal_or_drawer = page.locator('.qwenpaw-modal, .ant-modal, .qwenpaw-drawer, .ant-drawer').last
         if modal_or_drawer.count() > 0:
             json_input = modal_or_drawer.locator(
@@ -581,28 +581,28 @@ class TestMcpMultiProtocol:
 
         if json_input.count() > 0:
             expect(json_input).to_be_visible(timeout=5000)
-            logger.info("✅ JSON 输入区域存在")
+            logger.info("JSON input area exists")
 
-            log_test_step("输入 stdio 协议配置")
+            log_test_step("Enter stdio protocol config")
             stdio_config = '{"name": "test-stdio", "transport": "stdio", "command": "echo", "args": ["hello"]}'
             json_input.fill(stdio_config)
             page.wait_for_timeout(500)
 
             filled_value = json_input.input_value()
-            assert "stdio" in filled_value, "JSON 输入未包含 stdio 配置"
-            logger.info("✅ stdio 协议配置已输入")
+            assert "stdio" in filled_value, "JSON input does not contain stdio config"
+            logger.info("stdio protocol config entered")
 
-            # 清空输入，不实际创建
+            # Clear input without actually creating
             json_input.clear()
             page.wait_for_timeout(500)
         else:
-            logger.info("未找到 JSON 输入区域，可能使用了其他创建方式")
+            logger.info("No JSON input area found, may be using a different creation method")
             modal = page.locator('.qwenpaw-modal, .ant-modal').last
             if modal.count() > 0:
                 modal_content = modal.inner_text()
-                logger.info(f"弹窗内容长度：{len(modal_content)}")
+                logger.info(f"Dialog content length: {len(modal_content)}")
 
-        log_test_step("关闭创建弹窗")
+        log_test_step("Close create dialog")
         page.keyboard.press("Escape")
         page.wait_for_timeout(1000)
 

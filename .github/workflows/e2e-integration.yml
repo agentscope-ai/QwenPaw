@@ -1,7 +1,7 @@
 name: E2E Integration Tests
 
 on:
-  # TODO: 暂时禁用 schedule，等待 backend 启动脚本配置完成
+  # TODO: Temporarily disable schedule; waiting for backend startup script configuration
   # schedule:
   #   # Nightly at 2:30 AM UTC
   #   - cron: '30 2 * * *'

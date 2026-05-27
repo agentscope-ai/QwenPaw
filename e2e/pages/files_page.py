@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw Files 页面对象
+QwenPaw Files page object.
 
-封装 Files 页面的所有交互操作，提供业务级别的方法。
+Wraps all interactions on the Files page and exposes business-level methods.
 """
 from __future__ import annotations
 
@@ -18,86 +18,86 @@ logger = logging.getLogger(__name__)
 
 class FilesPage(BasePage):
     """
-    Files 页面对象
-    
-    封装 Files 页面的所有用户操作：
-    - 打开文件页面
-    - 获取文件列表
-    - 获取文件名和元信息
-    - 点击文件打开编辑器
-    - 切换文件开关
-    - 检查文件启用状态
+    Files page object.
+
+    Wraps all user interactions on the Files page:
+    - Open the files page
+    - Get the file list
+    - Get file names and metadata
+    - Click a file to open the editor
+    - Toggle the file switch
+    - Check whether a file is enabled
     """
-    
+
     PAGE_TITLE = "QwenPaw Console"
     WORKSPACE_URL = f"{config.base_url}/workspace"
     PAGE_URL = WORKSPACE_URL
-    
-    # ========== 选择器定义 ==========
-    
-    # 页面加载标志
+
+    # ========== Selector definitions ==========
+
+    # Page load indicator
     PAGE_LOAD_INDICATOR = 'div[class*="fileItem"]'
-    
-    # 文件项相关选择器
+
+    # File item selectors
     FILE_ITEM_SELECTOR = 'div[class*="fileItem"]'
     FILE_NAME_SELECTOR = 'div[class*="fileItemName"]'
     FILE_META_SELECTOR = 'div[class*="fileItemMeta"]'
     SWITCH_SELECTOR = 'button.qwenpaw-switch[role="switch"]'
     DRAG_HANDLE_SELECTOR = 'div[class*="dragHandle"]'
-    
-    # ========== 导航方法 ==========
-    
+
+    # ========== Navigation ==========
+
     def open(self) -> "FilesPage":
-        """打开 Files 页面"""
-        logger.info("打开 Files 页面")
+        """Open the Files page."""
+        logger.info("Opening Files page")
         self.goto()
         self.wait_for_page_loaded()
         return self
-    
+
     def wait_for_page_loaded(self, timeout: Optional[int] = None) -> "FilesPage":
-        """等待页面加载完成"""
+        """Wait for the page to finish loading."""
         timeout = timeout or self.timeout
         expect(self.page.locator(self.PAGE_LOAD_INDICATOR).first).to_be_visible(timeout=timeout)
         return self
-    
-    # ========== 文件列表操作方法 ==========
-    
+
+    # ========== File list operations ==========
+
     def get_file_items(self) -> List[Locator]:
-        """获取所有文件项"""
+        """Return all file items."""
         items = self.page.locator(self.FILE_ITEM_SELECTOR).all()
-        logger.info(f"找到 {len(items)} 个文件项")
+        logger.info(f"Found {len(items)} file items")
         return items
-    
+
     def get_file_name(self, item: Locator) -> str:
-        """获取文件名"""
+        """Return the file name."""
         name_element = item.locator(self.FILE_NAME_SELECTOR).first
         if name_element.count() > 0:
             return name_element.inner_text()
         return ""
-    
+
     def get_file_meta(self, item: Locator) -> str:
-        """获取文件元信息"""
+        """Return the file metadata."""
         meta_element = item.locator(self.FILE_META_SELECTOR).first
         if meta_element.count() > 0:
             return meta_element.inner_text()
         return ""
-    
+
     def click_file(self, item: Locator) -> "FilesPage":
-        """点击文件打开编辑器"""
+        """Click a file to open the editor."""
         item.click()
-        logger.info("点击文件打开编辑器")
+        logger.info("Clicked file to open editor")
         return self
-    
+
     def toggle_file_switch(self, item: Locator) -> "FilesPage":
-        """切换文件开关"""
+        """Toggle the file switch."""
         switch = item.locator(self.SWITCH_SELECTOR).first
         if switch.count() > 0:
             switch.click()
-            logger.info("切换文件开关")
+            logger.info("Toggled file switch")
         return self
-    
+
     def is_file_enabled(self, item: Locator) -> bool:
-        """检查文件是否启用"""
+        """Return whether the file is enabled."""
         switch = item.locator(self.SWITCH_SELECTOR).first
         if switch.count() > 0:
             return switch.evaluate(
@@ -105,18 +105,18 @@ class FilesPage(BasePage):
                 "el.getAttribute('aria-checked') === 'true'"
             )
         return False
-    
-    # ========== 断言方法 ==========
-    
+
+    # ========== Assertion methods ==========
+
     def assert_file_count(self, expected_count: int, timeout: Optional[int] = None) -> "FilesPage":
-        """断言文件数量"""
+        """Assert the file count."""
         expect(self.page.locator(self.FILE_ITEM_SELECTOR)).to_have_count(
             expected_count, timeout=timeout or self.timeout
         )
         return self
-    
+
     def assert_file_exists(self, file_name: str, timeout: Optional[int] = None) -> "FilesPage":
-        """断言文件存在"""
+        """Assert that the file exists."""
         file_item = self.page.locator(self.FILE_ITEM_SELECTOR).filter(
             has=self.page.locator(self.FILE_NAME_SELECTOR).filter(has_text=file_name)
         ).first

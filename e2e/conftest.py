@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw E2E 测试框架 - Pytest 配置
+QwenPaw E2E Test Framework - Pytest Configuration
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import time
 import logging
 from pathlib import Path
 
-# 添加项目根目录到 Python 路径
+# Add the project root to the Python path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
@@ -18,15 +18,15 @@ import pytest
 from pages.chat_page import ChatPage
 from config.settings import config as app_config
 
-# 禁用 pytest-playwright 插件的自动 fixture 注入，使用我们自定义的 fixture
-# 这样可以确保 QWENPAW_HEADLESS 环境变量能正确控制浏览器显示模式
+# Disable pytest-playwright's auto-injected fixtures and use our custom ones.
+# This ensures QWENPAW_HEADLESS correctly controls the browser display mode.
 pytest_plugins = []
 
-# 模块级 logger（必须在任何使用 _logger 的函数之前定义）
+# Module-level logger (must be defined before any function uses _logger)
 _logger = logging.getLogger(__name__)
 
-# 从 fixtures 模块导入所有自定义 fixture
-# 包括 browser, page, browser_context 等，完全由我们控制
+# Import all custom fixtures from the fixtures module.
+# Includes browser, page, browser_context, etc. — fully under our control.
 from fixtures import (  # noqa: F401,E402
     playwright_context,
     browser,
@@ -48,12 +48,13 @@ from fixtures import (  # noqa: F401,E402
 
 
 # ========== Page Object Fixtures ==========
-# 注：通用 fixture（chat_page / clean_chat_page / api_context / page 等）
-# 已在 fixtures/__init__.py 中定义。此处仅补充其他模块的 Page Object fixture，
-# 按需延迟导入，避免启动期加载所有 Page 类。
+# Note: shared fixtures (chat_page / clean_chat_page / api_context / page, etc.)
+# are defined in fixtures/__init__.py. Here we only add Page Object fixtures
+# for other modules, lazily importing them to avoid loading every Page class
+# at startup.
 
 def _make_page_fixture(import_path: str, class_name: str):
-    """工厂：根据 Page 类生成 fixture（延迟导入）。"""
+    """Factory: build a fixture from a Page class (lazy import)."""
     def _fixture(page):
         module = __import__(import_path, fromlist=[class_name])
         return getattr(module, class_name)(page)
@@ -84,20 +85,20 @@ acp_page = pytest.fixture(scope="function", name="acp_page")(
 )
 
 
-# ========== 业务/数据 Fixtures ==========
+# ========== Business / Data Fixtures ==========
 @pytest.fixture(scope="function")
 def dingtalk_config():
     """
-    提供钉钉配置
-    
-    从环境变量读取配置，支持 CI/CD：
-    - DINGTALK_WEBHOOK: 钉钉机器人 Webhook URL
-    - DINGTALK_SECRET: 加签密钥
-    - DINGTALK_CLIENT_ID: 钉钉应用 Client ID
-    - DINGTALK_CLIENT_SECRET: 钉钉应用 Client Secret
-    
+    Provide DingTalk configuration.
+
+    Reads configuration from environment variables; CI/CD friendly:
+    - DINGTALK_WEBHOOK: DingTalk bot webhook URL
+    - DINGTALK_SECRET: Signing secret
+    - DINGTALK_CLIENT_ID: DingTalk app Client ID
+    - DINGTALK_CLIENT_SECRET: DingTalk app Client Secret
+
     Returns:
-        配置字典
+        Configuration dict
     """
     return {
         'webhook': os.getenv('DINGTALK_WEBHOOK', ''),
@@ -109,17 +110,18 @@ def dingtalk_config():
 @pytest.fixture(scope="function")
 def dingtalk_test_message():
     """
-    提供钉钉测试消息
-    
+    Provide a DingTalk test message.
+
     Returns:
-        测试消息字符串
+        Test message string
     """
     import time
     timestamp = time.strftime('%Y%m%d_%H%M%S')
-    return f"自动化测试消息 - {timestamp}"
+    return f"Automation test message - {timestamp}"
 
-# 注：clean_chat_page / test_file / large_test_file 已由 fixtures/__init__.py 统一提供，
-# 此处不再重复定义，避免 fixture 冲突导致 pytest 收集/执行异常（尤其是有头模式下）。
+# Note: clean_chat_page / test_file / large_test_file are provided by
+# fixtures/__init__.py. Don't redefine them here, to avoid fixture conflicts
+# that would break pytest collection/execution (especially in headed mode).
 
 
 # ========== UI Smoke Mock Fixture ==========
@@ -141,21 +143,23 @@ def mock_api(page):
 @pytest.fixture(scope="session", autouse=True)
 def warmup_server():
     """
-    Session 级别的服务预热
+    Session-scoped service warmup.
 
-    说明：这里特意不依赖 pytest-playwright 提供的 `playwright` fixture。
-    原因：pytest-playwright 内部是基于 asyncio + Playwright Async API 实现的，
-    一旦它的 fixture 被触发，就会在主线程创建 asyncio event loop，
-    导致后续我们自定义的 `playwright_context`（Sync API）报错：
+    Note: this intentionally does not depend on the `playwright` fixture
+    provided by pytest-playwright. The reason is that pytest-playwright is
+    implemented on top of asyncio + Playwright Async API; once its fixture
+    fires, it creates an asyncio event loop on the main thread, causing our
+    custom `playwright_context` (Sync API) to raise:
         "It looks like you are using Playwright Sync API inside the asyncio loop."
-    所以这里统一用 Sync API 自行起一个临时 Playwright 实例做预热。
+    So we use the Sync API to start a temporary Playwright instance for warmup.
 
-    步骤：
-    1. 通过 API 健康检查确认后端可用（最多重试 ~30s）
-    2. 访问首页等 DOM/networkidle/关键元素出现
-    3. 额外缓冲，让懒加载组件就位
+    Steps:
+    1. Confirm backend availability via an API health check (retry up to ~30s).
+    2. Visit the homepage and wait for DOM/networkidle/key elements to appear.
+    3. Buffer a bit more to let lazy-loaded components settle.
 
-    任何步骤失败都不会阻塞测试（只打 warning），避免预热把整批用例卡住。
+    Failures in any step do not block tests (warning only) to avoid letting
+    warmup stall the entire run.
     """
     from playwright.sync_api import sync_playwright
 
@@ -163,31 +167,31 @@ def warmup_server():
     logger = logging.getLogger(__name__)
 
     with sync_playwright() as pw:
-        # ---------- 1. API 健康检查 ----------
+        # ---------- 1. API health check ----------
         api_ready = False
         api_request = None
         try:
             api_request = pw.request.new_context(base_url=base_url)
-            # 候选健康检查路径，逐个尝试，命中即视为后端 ready
+            # Candidate health check paths; first hit means the backend is ready.
             health_paths = ["/api/health", "/healthz", "/api/heartbeat", "/"]
-            deadline = time.time() + 30  # 最多等 30s
+            deadline = time.time() + 30  # Wait up to 30s
             while time.time() < deadline and not api_ready:
                 for path in health_paths:
                     try:
                         resp = api_request.get(path, timeout=5000)
-                        # 2xx/3xx 都视为后端在线
+                        # Treat 2xx/3xx as backend online
                         if resp.status < 400:
                             api_ready = True
-                            logger.info(f"✅ 后端 API 就绪: {path} -> {resp.status}")
+                            logger.info(f"Backend API ready: {path} -> {resp.status}")
                             break
                     except Exception:
                         continue
                 if not api_ready:
                     time.sleep(1)
             if not api_ready:
-                logger.warning("⚠️  后端 API 健康检查 30s 内未通过，继续尝试预热前端")
+                logger.warning("Backend API health check did not pass within 30s; continuing to warm up the frontend")
         except Exception as e:
-            logger.warning(f"⚠️  API 健康检查异常（忽略）: {e}")
+            logger.warning(f"API health check error (ignored): {e}")
         finally:
             if api_request is not None:
                 try:
@@ -195,20 +199,20 @@ def warmup_server():
                 except Exception:
                     pass
 
-        # ---------- 2. 前端页面预热 ----------
+        # ---------- 2. Frontend warmup ----------
         try:
             browser = pw.chromium.launch(headless=True)
             context = browser.new_context()
             page = context.new_page()
 
-            # 2.1 先访问首页等待 DOM 加载完成
+            # 2.1 Visit the homepage and wait for DOM to finish loading
             page.goto(base_url, wait_until="domcontentloaded", timeout=30000)
-            # 2.2 再等网络空闲，确保 SPA 异步资源加载完成
+            # 2.2 Wait for network idle to ensure SPA async resources are loaded
             try:
                 page.wait_for_load_state("networkidle", timeout=15000)
             except Exception:
                 pass
-            # 2.3 主动等待面包屑或主要导航出现，作为"前端 ready"的信号
+            # 2.3 Actively wait for breadcrumb or main navigation as a "frontend ready" signal
             try:
                 page.wait_for_selector(
                     'span[class*=breadcrumbCurrent], button:has-text("Create Agent"), nav, [class*=sider]',
@@ -216,59 +220,59 @@ def warmup_server():
                 )
             except Exception:
                 pass
-            # 2.4 额外缓冲，让懒加载组件就位
+            # 2.4 Extra buffer to let lazy-loaded components settle
             page.wait_for_timeout(2000)
 
-            logger.info(f"✅ 服务预热完成: {base_url}")
+            logger.info(f"Service warmup complete: {base_url}")
 
             context.close()
             browser.close()
         except Exception as e:
-            logger.warning(f"⚠️  服务预热失败（不阻塞测试）: {e}")
+            logger.warning(f"Service warmup failed (does not block tests): {e}")
 
     yield
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """测试结束时的终端摘要 + 自动生成 Markdown 报告"""
+    """Terminal summary on test completion + auto-generate the Markdown report"""
     passed = len(terminalreporter.getreports('passed'))
     failed = len(terminalreporter.getreports('failed'))
     skipped = len(terminalreporter.getreports('skipped'))
     total = passed + failed + skipped
 
     terminalreporter.write_sep("=" * 60)
-    terminalreporter.write_line("测试摘要:")
-    terminalreporter.write_line(f"  总计：{total}")
-    terminalreporter.write_line(f"  通过：{passed}")
-    terminalreporter.write_line(f"  失败：{failed}")
-    terminalreporter.write_line(f"  跳过：{skipped}")
+    terminalreporter.write_line("Test Summary:")
+    terminalreporter.write_line(f"  Total: {total}")
+    terminalreporter.write_line(f"  Passed: {passed}")
+    terminalreporter.write_line(f"  Failed: {failed}")
+    terminalreporter.write_line(f"  Skipped: {skipped}")
 
     if total > 0:
         pass_rate = passed / total * 100
-        terminalreporter.write_line(f"  通过率：{pass_rate:.1f}%")
+        terminalreporter.write_line(f"  Pass rate: {pass_rate:.1f}%")
     terminalreporter.write_sep("=" * 60)
 
-    # 自动生成 Markdown 测试报告（已抽离到 utils/report_generator.py）
+    # Auto-generate the Markdown test report (extracted to utils/report_generator.py)
     try:
         from utils.report_generator import generate_markdown_report
         reports_dir = Path(__file__).parent / "reports"
         report_path = generate_markdown_report(terminalreporter, reports_dir)
-        terminalreporter.write_line(f"📄 Markdown 报告已生成: {report_path}")
+        terminalreporter.write_line(f"Markdown report generated: {report_path}")
         terminalreporter.write_line(
-            f"📄 最新报告快捷入口: {reports_dir / 'test-report-latest.md'}"
+            f"Latest report shortcut: {reports_dir / 'test-report-latest.md'}"
         )
     except Exception as e:
-        terminalreporter.write_line(f"⚠️  Markdown 报告生成失败: {e}")
+        terminalreporter.write_line(f"Markdown report generation failed: {e}")
 
 
-# ========== pytest-html 中文报告 Hook ==========
+# ========== pytest-html report hooks ==========
 
 def pytest_configure(config):
-    """配置报告元数据和自定义标记"""
+    """Configure report metadata and custom markers"""
     # UI smoke / integration tier markers
     config.addinivalue_line("markers", "ui_smoke: UI smoke test (mocked API, no backend needed)")
     config.addinivalue_line("markers", "integration: Integration test (requires running backend + API keys)")
-    # pytest-html 4.x: 通过 pytest-metadata 的 stash 设置元数据
+    # pytest-html 4.x: set metadata via pytest-metadata's stash
     if hasattr(config, 'stash'):
         try:
             from pytest_metadata.plugin import metadata_key
@@ -280,35 +284,36 @@ def pytest_configure(config):
     else:
         metadata = {}
 
-    # 移除无关的默认元数据
+    # Remove irrelevant default metadata
     for key in list(metadata.keys()):
         if key in ['Java', 'Packages', 'Plugins', 'JAVA_HOME']:
             metadata.pop(key, None)
 
-    metadata['项目名称'] = 'QwenPaw E2E 自动化测试'
-    metadata['测试环境'] = app_config.server.base_url
-    metadata['浏览器'] = 'Chromium (Playwright)'
-    metadata['测试框架'] = 'Pytest + Playwright'
+    metadata['Project'] = 'QwenPaw E2E Automation'
+    metadata['Test Environment'] = app_config.server.base_url
+    metadata['Browser'] = 'Chromium (Playwright)'
+    metadata['Framework'] = 'Pytest + Playwright'
 
-    # 每次测试开始前清理上一次的截图和旧报告
+    # Clean up the previous run's screenshots and old reports before each test session
     reports_dir = Path(__file__).parent / "reports"
     if reports_dir.exists():
-        # 清空截图目录（递归清理，包括 steps 子目录），只保留当前运行的截图
+        # Clear the screenshots directory (recursive, including steps subdir);
+        # only keep screenshots from the current run.
         screenshots_dir = reports_dir / "screenshots"
         if screenshots_dir.exists():
             import shutil
-            # 先删除 steps 子目录（步骤截图）
+            # First delete the steps subdir (step screenshots)
             steps_dir = screenshots_dir / "steps"
             if steps_dir.exists():
                 shutil.rmtree(steps_dir, ignore_errors=True)
-            # 再清理根目录下的最终截图
+            # Then clean up the final screenshots in the root
             for old_screenshot in screenshots_dir.glob("*.png"):
                 try:
                     old_screenshot.unlink()
                 except OSError:
                     pass
 
-        # 清理旧的 Markdown 报告，只保留 test-report-latest.md
+        # Clean up old Markdown reports, keeping only test-report-latest.md
         keep_files = {"test-report-latest.md"}
         for md_file in reports_dir.glob("test-report-*.md"):
             if md_file.name not in keep_files:
@@ -319,35 +324,35 @@ def pytest_configure(config):
 
 
 def pytest_html_report_title(report):
-    """设置 HTML 报告标题为中文（pytest-html 4.x hook）"""
+    """Set the HTML report title (pytest-html 4.x hook)"""
     try:
-        report.title = "QwenPaw E2E 自动化测试报告"
+        report.title = "QwenPaw E2E Automation Test Report"
     except Exception:
         pass
 
 
 @pytest.hookimpl(optionalhook=True)
 def pytest_html_results_summary(prefix, summary, postfix):
-    """在报告摘要区域添加中文项目说明"""
+    """Add a project description in the report summary section"""
     prefix.extend([
-        "<p>📊 本报告由 QwenPaw E2E 自动化测试框架自动生成。</p>",
-        "<p>✅ 通过 | ❌ 失败 | ⏭️ 跳过 | 🔄 重试</p>",
+        "<p>This report is auto-generated by the QwenPaw E2E automation framework.</p>",
+        "<p>Passed | Failed | Skipped | Reruns</p>",
     ])
 
 
 @pytest.hookimpl(optionalhook=True)
 def pytest_html_results_table_header(cells):
-    """在报告表格表头中插入描述列"""
+    """Insert a description column in the report table header"""
     try:
         from py.xml import html
-        cells.insert(2, html.th("描述", class_="sortable"))
+        cells.insert(2, html.th("Description", class_="sortable"))
     except ImportError:
         pass
 
 
 @pytest.hookimpl(optionalhook=True)
 def pytest_html_results_table_row(report, cells):
-    """在报告表格每行中插入描述信息"""
+    """Insert description info into each report table row"""
     try:
         from py.xml import html
         doc = getattr(report, 'description', '') or ''
@@ -356,14 +361,14 @@ def pytest_html_results_table_row(report, cells):
         pass
 
 
-# ========== 清理 ==========
+# ========== Cleanup ==========
 
-# 报告文件保留天数
+# Number of days to retain report files
 REPORT_RETENTION_DAYS = 7
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """测试会话结束后清理过期的报告和日志文件"""
+    """Clean up expired report and log files after the test session ends"""
     reports_dir = Path(__file__).parent / "reports"
     if not reports_dir.exists():
         return
@@ -381,7 +386,7 @@ def pytest_sessionfinish(session, exitstatus):
             except OSError:
                 pass
 
-    # 清理 screenshots 子目录中的过期截图
+    # Clean up expired screenshots under the screenshots subdir
     screenshots_dir = reports_dir / "screenshots"
     if screenshots_dir.exists():
         for file_path in screenshots_dir.glob("*.png"):
@@ -392,7 +397,7 @@ def pytest_sessionfinish(session, exitstatus):
             except OSError:
                 pass
 
-    # 清理过期的 Markdown 报告（保留 test-report-latest.md）
+    # Clean up expired Markdown reports (keep test-report-latest.md)
     for md_file in reports_dir.glob("test-report-*.md"):
         try:
             if md_file.name != "test-report-latest.md" and md_file.stat().st_mtime < cutoff_time:

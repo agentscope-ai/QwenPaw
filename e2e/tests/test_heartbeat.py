@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw Heartbeat 模块 P0 级端到端测试用例
+QwenPaw Heartbeat module P0 end-to-end tests
 
-P0 级别定义：
-- 核心用户操作流程
-- 多个功能点组合覆盖
-- 真实用户场景模拟
-- 高优先级功能验证
+P0 definition:
+- Core user operation flows
+- Combined coverage of multiple features
+- Real user scenario simulation
+- High-priority functionality validation
 
-测试框架：pytest + Playwright + Page Object Pattern
-执行命令：pytest tests/test_heartbeat_p0.py -v
+Test framework: pytest + Playwright + Page Object Pattern
+Run command: pytest tests/test_heartbeat_p0.py -v
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from utils.helpers import (
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# HEART-001: 页面展示 + 启用/禁用
+# HEART-001: Page display + enable/disable
 # ============================================================================
 
 @pytest.mark.integration
@@ -37,69 +37,69 @@ logger = logging.getLogger(__name__)
 @pytest.mark.heartbeat_core
 class TestHeartbeatDisplayAndToggle:
     """
-    HEART-001: 页面展示 + 启用/禁用
+    HEART-001: Page display + enable/disable
 
-    组合覆盖功能点：
-    1. Heartbeat 页面访问与加载
-    2. 页面标题验证
-    3. 配置卡片和表单元素展示（开关、间隔、时间、保存按钮）
-    4. 切换启用/禁用状态
-    5. 保存并验证状态变更
-    6. 恢复原始状态
+    Combined coverage:
+    1. Heartbeat page access and load
+    2. Page title validation
+    3. Config card and form elements display (switch, interval, time, save button)
+    4. Toggle enable/disable state
+    5. Save and verify state change
+    6. Restore original state
 
-    业务场景：
-    管理员进入心跳配置页面，确认所有配置项正常展示，
-    然后切换启用/禁用状态并验证变更生效。
+    Business scenario:
+    Admin opens the heartbeat config page, confirms all config items render
+    correctly, then toggles enable/disable and verifies the change took effect.
     """
 
     @pytest.mark.test_id("HEART-001")
     def test_heartbeat_display_and_toggle(self, heartbeat_page: HeartbeatPage, request: pytest.FixtureRequest):
         """
-        验证页面展示和启用/禁用切换
+        Verify page display and enable/disable toggle.
 
-        测试步骤：
-        1. 访问 Heartbeat 页面，验证标题
-        2. 验证配置卡片和表单元素（开关、间隔、时间、保存按钮）
-        3. 记录当前启用状态
-        4. 切换状态并保存
-        5. 验证状态变更
-        6. 恢复原始状态
+        Steps:
+        1. Open Heartbeat page, verify title
+        2. Verify config card and form elements (switch, interval, time, save button)
+        3. Record current enabled state
+        4. Toggle state and save
+        5. Verify state change
+        6. Restore original state
         """
         test_name = request.node.name
 
-        log_test_step("1. 访问 Heartbeat 页面，验证标题")
+        log_test_step("1. Open Heartbeat page, verify title")
         heartbeat_page.open()
 
-        log_test_step("2. 验证配置卡片和表单元素")
+        log_test_step("2. Verify config card and form elements")
         expect(heartbeat_page.page.locator(heartbeat_page.ENABLED_SWITCH).first).to_be_visible()
         expect(heartbeat_page.page.locator(heartbeat_page.INTERVAL_INPUT).first).to_be_visible()
         expect(heartbeat_page.page.locator(heartbeat_page.SAVE_BTN).first).to_be_visible()
-        logger.info("✅ 所有配置元素展示正常")
+        logger.info("All config elements displayed correctly")
 
-        log_test_step("3. 记录当前启用状态")
+        log_test_step("3. Record current enabled state")
         original_state = heartbeat_page.is_heartbeat_enabled()
-        logger.info(f"原始状态：{'启用' if original_state else '禁用'}")
+        logger.info(f"Original state: {'enabled' if original_state else 'disabled'}")
 
-        log_test_step("4. 切换状态并保存")
+        log_test_step("4. Toggle state and save")
         heartbeat_page.toggle_heartbeat()
         heartbeat_page.save_config()
 
-        log_test_step("5. 验证状态变更")
+        log_test_step("5. Verify state change")
         new_state = heartbeat_page.is_heartbeat_enabled()
         assert new_state != original_state, \
-            f"状态应该从 {'启用' if original_state else '禁用'} 变为 {'禁用' if original_state else '启用'}"
-        logger.info(f"✅ 状态已变更为 {'启用' if new_state else '禁用'}")
+            f"State should change from {'enabled' if original_state else 'disabled'} to {'disabled' if original_state else 'enabled'}"
+        logger.info(f"State changed to {'enabled' if new_state else 'disabled'}")
 
-        log_test_step("6. 恢复原始状态")
+        log_test_step("6. Restore original state")
         if heartbeat_page.is_heartbeat_enabled() != original_state:
             heartbeat_page.toggle_heartbeat()
             heartbeat_page.save_config()
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - 页面展示和启用/禁用切换正常")
+        logger.info(f"Test {test_name} passed - page display and enable/disable toggle work")
 
 # ============================================================================
-# HEART-002: 完整配置流程（间隔 + 时间 + 技能 + 保存验证）
+# HEART-002: Full config flow (interval + time + skill + save verification)
 # ============================================================================
 
 @pytest.mark.integration
@@ -107,66 +107,66 @@ class TestHeartbeatDisplayAndToggle:
 @pytest.mark.heartbeat_config
 class TestHeartbeatFullConfig:
     """
-    HEART-002: 完整配置流程
+    HEART-002: Full config flow
 
-    组合覆盖功能点：
-    1. 记录原始配置
-    2. 设置心跳间隔（数值 + 单位）
-    3. 设置定时时间
-    4. 选择技能
-    5. 启用心跳
-    6. 保存并验证所有配置生效
-    7. 恢复原始配置
+    Combined coverage:
+    1. Record original config
+    2. Set heartbeat interval (value + unit)
+    3. Set scheduled time
+    4. Choose skill
+    5. Enable heartbeat
+    6. Save and verify all config took effect
+    7. Restore original config
 
-    业务场景：
-    管理员一次性完成心跳的完整配置：
-    设置间隔为 30 分钟、定时时间为 09:00、选择技能、启用心跳，
-    保存后验证所有配置项均已生效。
+    Business scenario:
+    Admin completes full heartbeat config in one go: set interval to 30 minutes,
+    scheduled time to 09:00, choose a skill, enable heartbeat, then save and
+    verify all config items took effect.
     """
 
     @pytest.mark.test_id("HEART-002")
     def test_full_heartbeat_configuration(self, heartbeat_page: HeartbeatPage, request: pytest.FixtureRequest):
         """
-        验证完整心跳配置流程
+        Verify full heartbeat config flow.
 
-        测试步骤：
-        1. 访问 Heartbeat 页面
-        2. 记录原始配置（启用状态、间隔、时间）
-        3. 设置间隔为 15 分钟
-        4. 设置定时时间为 09:00
-        5. 选择技能（如有可用选项）
-        6. 启用心跳，保存配置
-        7. 验证所有配置生效
-        8. 恢复原始配置
+        Steps:
+        1. Open Heartbeat page
+        2. Record original config (enabled state, interval, time)
+        3. Set interval to 15 minutes
+        4. Set scheduled time to 09:00
+        5. Choose a skill (if any available)
+        6. Enable heartbeat, save config
+        7. Verify all config took effect
+        8. Restore original config
         """
         test_name = request.node.name
         test_time = "09:00"
 
-        log_test_step("1. 访问 Heartbeat 页面")
+        log_test_step("1. Open Heartbeat page")
         heartbeat_page.open()
 
-        log_test_step("2. 记录原始配置")
+        log_test_step("2. Record original config")
         original_enabled = heartbeat_page.is_heartbeat_enabled()
         original_interval = heartbeat_page.get_interval()
         original_time = heartbeat_page.get_scheduled_time()
-        logger.info(f"原始配置：启用={original_enabled}, 间隔={original_interval}, 时间={original_time}")
+        logger.info(f"Original config: enabled={original_enabled}, interval={original_interval}, time={original_time}")
 
-        log_test_step("3. 设置间隔为 15 分钟")
+        log_test_step("3. Set interval to 15 minutes")
         heartbeat_page.set_interval(15, "分钟")
 
-        log_test_step("4. 设置定时时间为 09:00")
+        log_test_step("4. Set scheduled time to 09:00")
         heartbeat_page.set_scheduled_time(test_time)
 
-        log_test_step("5. 选择技能（如有可用选项）")
+        log_test_step("5. Choose a skill (if any available)")
         skill_select = heartbeat_page.page.locator(heartbeat_page.SKILL_SELECT)
         if skill_select.count() > 0:
             skill_select.click()
             options = heartbeat_page.page.locator('.ant-select-option')
             if options.count() > 0:
                 options.first.click()
-                logger.info("✅ 已选择技能")
+                logger.info("Skill selected")
 
-        log_test_step("6. 启用心跳，保存配置")
+        log_test_step("6. Enable heartbeat, save config")
         heartbeat_page.configure_heartbeat(
             enabled=True,
             interval=15,
@@ -174,13 +174,13 @@ class TestHeartbeatFullConfig:
             scheduled_time=test_time,
         )
 
-        log_test_step("7. 验证配置生效")
+        log_test_step("7. Verify config took effect")
         heartbeat_page.assert_heartbeat_enabled()
         heartbeat_page.assert_interval(15, "分钟")
         heartbeat_page.assert_config_saved()
-        logger.info("✅ 所有配置已生效")
+        logger.info("All config took effect")
 
-        log_test_step("8. 恢复原始配置")
+        log_test_step("8. Restore original config")
         heartbeat_page.configure_heartbeat(
             enabled=original_enabled,
             interval=int(original_interval.get("value", 30)),
@@ -189,10 +189,10 @@ class TestHeartbeatFullConfig:
         )
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - 完整心跳配置流程正常，已恢复原始配置")
+        logger.info(f"Test {test_name} passed - full heartbeat config flow works, original config restored")
 
 # ============================================================================
-# HEART-003: 目标会话选择与活跃时间段配置
+# HEART-003: Target session selection and active hours config
 # ============================================================================
 
 @pytest.mark.integration
@@ -200,65 +200,65 @@ class TestHeartbeatFullConfig:
 @pytest.mark.heartbeat_config
 class TestHeartbeatTargetAndActiveHours:
     """
-    HEART-003: 目标会话选择与活跃时间段配置
+    HEART-003: Target session selection and active hours config
 
-    组合覆盖功能点：
-    1. 访问 Heartbeat 页面
-    2. 记录原始配置
-    3. 找到目标会话选择器（main/last）
-    4. 验证选择器存在并记录当前值
-    5. 切换目标会话选项
-    6. 找到活跃时间段开关
-    7. 启用活跃时间段
-    8. 设置开始时间
-    9. 设置结束时间
-    10. 保存配置
-    11. 验证配置已保存
-    12. 恢复原始配置
+    Combined coverage:
+    1. Open Heartbeat page
+    2. Record original config
+    3. Find target session selector (main/last)
+    4. Verify selector exists and record current value
+    5. Switch target session option
+    6. Find active hours toggle
+    7. Enable active hours
+    8. Set start time
+    9. Set end time
+    10. Save config
+    11. Verify config saved
+    12. Restore original config
 
-    业务场景：
-    管理员配置心跳的目标会话和活跃时间段，
-    验证不同目标会话选项和活跃时间段的配置是否正确保存。
+    Business scenario:
+    Admin configures heartbeat target session and active hours, verifies that
+    different target session options and active hours config are saved correctly.
     """
 
     @pytest.mark.test_id("HEART-003")
     def test_target_session_and_active_hours(self, heartbeat_page: HeartbeatPage, request: pytest.FixtureRequest):
         """
-        验证目标会话选择与活跃时间段配置
+        Verify target session selection and active hours config.
 
-        测试步骤：
-        1. 访问 Heartbeat 页面
-        2. 记录原始配置
-        3. 找到目标会话选择器（main/last）
-        4. 验证选择器存在并记录当前值
-        5. 切换目标会话选项
-        6. 找到活跃时间段开关
-        7. 启用活跃时间段
-        8. 设置开始时间
-        9. 设置结束时间
-        10. 保存配置
-        11. 验证配置已保存
-        12. 恢复原始配置
+        Steps:
+        1. Open Heartbeat page
+        2. Record original config
+        3. Find target session selector (main/last)
+        4. Verify selector exists and record current value
+        5. Switch target session option
+        6. Find active hours toggle
+        7. Enable active hours
+        8. Set start time
+        9. Set end time
+        10. Save config
+        11. Verify config saved
+        12. Restore original config
         """
         test_name = request.node.name
 
-        log_test_step("1. 访问 Heartbeat 页面")
+        log_test_step("1. Open Heartbeat page")
         heartbeat_page.open()
 
-        log_test_step("2. 记录原始配置")
+        log_test_step("2. Record original config")
         original_enabled = heartbeat_page.is_heartbeat_enabled()
         original_interval = heartbeat_page.get_interval()
         original_time = heartbeat_page.get_scheduled_time()
-        logger.info(f"原始配置：启用={original_enabled}, 间隔={original_interval}, 时间={original_time}")
+        logger.info(f"Original config: enabled={original_enabled}, interval={original_interval}, time={original_time}")
 
-        log_test_step("3. 找到目标会话选择器（main/last）")
+        log_test_step("3. Find target session selector (main/last)")
         target_session_selector = heartbeat_page.page.locator(
             '.qwenpaw-radio-group, .qwenpaw-select, [class*="targetSession"], [class*="target"]'
         ).first
         expect(target_session_selector).to_be_visible(timeout=3000)
-        logger.info("✅ 目标会话选择器存在")
+        logger.info("Target session selector exists")
 
-        log_test_step("4. 验证选择器存在并记录当前值")
+        log_test_step("4. Verify selector exists and record current value")
         current_target = ""
         main_option = heartbeat_page.page.locator(
             '.qwenpaw-radio-label:has-text("main"), .qwenpaw-radio-label:has-text("主会话"), '
@@ -268,136 +268,136 @@ class TestHeartbeatTargetAndActiveHours:
             '.qwenpaw-radio-label:has-text("last"), .qwenpaw-radio-label:has-text("最近"), '
             '[class*="radio"]:has-text("last"), [class*="radio"]:has-text("最近")'
         ).first
-        
+
         if main_option.is_visible():
             current_target = "main" if main_option.get_attribute('aria-checked') == 'true' else "last"
         elif last_option.is_visible():
             current_target = "last" if last_option.get_attribute('aria-checked') == 'true' else "main"
-        logger.info(f"当前目标会话：{current_target}")
+        logger.info(f"Current target session: {current_target}")
 
-        log_test_step("5. 切换目标会话选项")
+        log_test_step("5. Switch target session option")
         if current_target == "main" and last_option.is_visible():
             last_option.click()
             heartbeat_page.page.wait_for_timeout(1000)
-            logger.info("✅ 已切换到 last 会话")
+            logger.info("Switched to last session")
         elif current_target == "last" and main_option.is_visible():
             main_option.click()
             heartbeat_page.page.wait_for_timeout(1000)
-            logger.info("✅ 已切换到 main 会话")
+            logger.info("Switched to main session")
 
-        log_test_step("6. 找到活跃时间段开关")
+        log_test_step("6. Find active hours toggle")
         active_hours_switch = heartbeat_page.page.locator(
             '.qwenpaw-switch, [class*="activeHours"], [class*="active"]'
         ).first
         expect(active_hours_switch).to_be_visible(timeout=3000)
-        logger.info("✅ 活跃时间段开关存在")
+        logger.info("Active hours toggle exists")
 
-        log_test_step("7. 启用活跃时间段")
+        log_test_step("7. Enable active hours")
         active_hours_checked = active_hours_switch.get_attribute('aria-checked')
         if active_hours_checked != 'true':
             active_hours_switch.click()
             heartbeat_page.page.wait_for_timeout(1000)
-            logger.info("✅ 已启用活跃时间段")
+            logger.info("Active hours enabled")
 
-        log_test_step("8. 设置开始时间")
+        log_test_step("8. Set start time")
         start_time_picker = heartbeat_page.page.locator(
             '.qwenpaw-picker, .qwenpaw-time-picker, [class*="startTime"], [class*="start"]'
         ).first
         if start_time_picker.is_visible():
             start_time_picker.click()
             heartbeat_page.page.wait_for_timeout(500)
-            # 选择 09:00
+            # Select 09:00
             time_option = heartbeat_page.page.locator('.qwenpaw-picker-panel li, .ant-picker-panel li').filter(has_text="09").first
             if time_option.is_visible():
                 time_option.click()
                 heartbeat_page.page.wait_for_timeout(500)
-            logger.info("✅ 已设置开始时间")
+            logger.info("Start time set")
 
-        log_test_step("9. 设置结束时间")
+        log_test_step("9. Set end time")
         end_time_picker = heartbeat_page.page.locator(
             '.qwenpaw-picker, .qwenpaw-time-picker, [class*="endTime"], [class*="end"]'
         ).first
         if end_time_picker.is_visible():
             end_time_picker.click()
             heartbeat_page.page.wait_for_timeout(500)
-            # 选择 18:00
+            # Select 18:00
             time_option = heartbeat_page.page.locator('.qwenpaw-picker-panel li, .ant-picker-panel li').filter(has_text="18").first
             if time_option.is_visible():
                 time_option.click()
                 heartbeat_page.page.wait_for_timeout(500)
-            logger.info("✅ 已设置结束时间")
+            logger.info("End time set")
 
-        log_test_step("10. 保存配置")
+        log_test_step("10. Save config")
         save_btn = heartbeat_page.page.locator(heartbeat_page.SAVE_BTN).first
         if save_btn.is_visible():
             save_btn.click()
             heartbeat_page.page.wait_for_timeout(2000)
-            logger.info("✅ 已点击保存按钮")
+            logger.info("Save button clicked")
 
-        log_test_step("11. 验证配置已保存")
+        log_test_step("11. Verify config saved")
         heartbeat_page.assert_config_saved()
-        logger.info("✅ 配置已保存")
+        logger.info("Config saved")
 
-        log_test_step("12. 恢复原始配置")
+        log_test_step("12. Restore original config")
         heartbeat_page.configure_heartbeat(
             enabled=original_enabled,
             interval=int(original_interval.get("value", 30)),
             unit=original_interval.get("unit", "分钟") or "分钟",
             scheduled_time=original_time,
         )
-        logger.info("✅ 已恢复原始配置")
+        logger.info("Original config restored")
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - 目标会话选择与活跃时间段配置正常")
+        logger.info(f"Test {test_name} passed - target session selection and active hours config work")
 
 # ============================================================================
-# HB-P2-001: 间隔单位切换（分钟/小时组合）
+# HB-P2-001: Interval unit switch (minute/hour combinations)
 # ============================================================================
 
 @pytest.mark.integration
 @pytest.mark.p2
 @pytest.mark.heartbeat
 class TestHeartbeatIntervalUnit:
-    """HB-P2-001: 间隔单位切换"""
+    """HB-P2-001: Interval unit switch"""
 
     @pytest.mark.test_id("HB-P2-001")
     def test_heartbeat_interval_unit(self, page: Page, heartbeat_page: "HeartbeatPage", request: pytest.FixtureRequest):
-        """测试心跳间隔单位切换"""
+        """Test heartbeat interval unit switching."""
         test_name = request.node.name
 
-        log_test_step("导航到心跳配置页面")
+        log_test_step("Navigate to heartbeat config page")
         heartbeat_page.open()
 
-        log_test_step("查找间隔单位选择器")
-        # 页面上单位选择器的 input id 为 everyUnit，class 包含 everyUnit
-        # 需要定位到包含该 input 的 .qwenpaw-select 容器
+        log_test_step("Find interval unit selector")
+        # The unit selector on the page has input id=everyUnit and class containing everyUnit
+        # Need to locate the .qwenpaw-select container that wraps this input
         unit_select = page.locator('.qwenpaw-select:has(#everyUnit)').first
 
         if unit_select.count() > 0:
-            # 获取当前选中的单位文本（使用 selection-item 避免重复文本）
+            # Get currently selected unit text (use selection-item to avoid duplicate text)
             selection_item = unit_select.locator('.qwenpaw-select-selection-item')
             if selection_item.count() > 0:
                 current_unit = selection_item.get_attribute('title') or selection_item.inner_text().strip()
             else:
                 current_unit = unit_select.inner_text().strip().split('\n')[0]
-            logger.info(f"当前间隔单位：{current_unit}")
+            logger.info(f"Current interval unit: {current_unit}")
 
-            log_test_step("点击单位选择器展开选项")
+            log_test_step("Click unit selector to expand options")
             unit_select.click()
             page.wait_for_timeout(500)
 
             options = page.locator('.qwenpaw-select-item-option').all()
-            assert len(options) > 0, "单位下拉选项不应为空"
-            logger.info(f"✅ 找到 {len(options)} 个单位选项")
+            assert len(options) > 0, "Unit dropdown options should not be empty"
+            logger.info(f"Found {len(options)} unit options")
 
             option_texts = []
             for opt in options:
                 opt_title = opt.get_attribute('title') or opt.inner_text().strip()
                 option_texts.append(opt_title)
-                logger.info(f"  单位选项：{opt_title}")
+                logger.info(f"  Unit option: {opt_title}")
 
-            log_test_step("切换到另一个单位")
-            # 选择一个不同于当前的单位
+            log_test_step("Switch to another unit")
+            # Pick a unit different from the current one
             target_option = None
             target_text = None
             for opt in options:
@@ -411,30 +411,30 @@ class TestHeartbeatIntervalUnit:
                 target_option.click()
                 page.wait_for_timeout(500)
 
-                # 重新获取选中值
+                # Re-read selected value
                 if selection_item.count() > 0:
                     new_unit = selection_item.get_attribute('title') or selection_item.inner_text().strip()
                 else:
                     new_unit = unit_select.inner_text().strip().split('\n')[0]
-                logger.info(f"切换后单位：{new_unit}")
-                assert new_unit == target_text, f"单位应切换为 {target_text}，实际为 {new_unit}"
-                logger.info(f"✅ 单位已从 '{current_unit}' 切换为 '{new_unit}'")
+                logger.info(f"Unit after switch: {new_unit}")
+                assert new_unit == target_text, f"Unit should switch to {target_text}, actual: {new_unit}"
+                logger.info(f"Unit switched from '{current_unit}' to '{new_unit}'")
 
-                log_test_step("恢复原始单位")
+                log_test_step("Restore original unit")
                 unit_select.click()
                 page.wait_for_timeout(500)
                 restore_option = page.locator(f'.qwenpaw-select-item-option:has-text("{current_unit}")').first
                 if restore_option.count() > 0:
                     restore_option.click()
                     page.wait_for_timeout(500)
-                    logger.info(f"✅ 已恢复为原始单位：{current_unit}")
+                    logger.info(f"Restored to original unit: {current_unit}")
                 else:
                     page.keyboard.press("Escape")
             else:
-                logger.info("ℹ️ 只有一个单位选项，无法切换")
+                logger.info("Only one unit option available, cannot switch")
                 page.keyboard.press("Escape")
         else:
-            pytest.skip("未找到间隔单位选择器，跳过测试")
+            pytest.skip("Interval unit selector not found, skipping test")
 
         log_test_result(test_name, True, 0)
 
@@ -444,5 +444,5 @@ class TestHeartbeatIntervalUnit:
 
 @pytest.fixture(scope="function")
 def heartbeat_page(page: Page) -> HeartbeatPage:
-    """创建 HeartbeatPage 实例"""
+    """Create a HeartbeatPage instance."""
     return HeartbeatPage(page)

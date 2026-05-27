@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw Token Usage 页面对象
+QwenPaw Token Usage page object.
 
-封装 Token 用量统计页面的所有交互操作，提供业务级别的方法。
+Wraps all interactions on the token usage statistics page and exposes
+business-level methods.
 """
 from __future__ import annotations
 
@@ -18,50 +19,50 @@ logger = logging.getLogger(__name__)
 
 class TokenUsagePage(BasePage):
     """
-    Token Usage 页面对象
-    
-    封装 Token 用量统计页面的所有用户操作：
-    - 页面导航
-    - 获取用量数据
-    - 查看图表
+    Token Usage page object.
+
+    Wraps all user interactions on the token usage statistics page:
+    - Page navigation
+    - Fetching usage data
+    - Viewing charts
     """
-    
+
     PAGE_TITLE = "Token Usage"
     PAGE_URL = f"{config.base_url}/token-usage"
-    
-    # ========== 选择器定义 ==========
-    
-    # 表格相关
+
+    # ========== Selector definitions ==========
+
+    # Table-related selectors
     USAGE_TABLE = ".qwenpaw-table"
     USAGE_ROW = ".qwenpaw-table-tbody tr"
-    
-    # 日期选择器
+
+    # Date picker
     DATE_PICKER = ".qwenpaw-picker"
-    
-    # 图表容器
+
+    # Chart container
     CHART_CONTAINER = 'div[class*="chart"], canvas'
-    
-    # ========== 初始化 ==========
-    
+
+    # ========== Initialization ==========
+
     def __init__(self, page: Page):
         super().__init__(page)
         logger.info("TokenUsagePage initialized")
-    
-    # ========== 页面导航 ==========
-    
+
+    # ========== Page navigation ==========
+
     def open(self) -> "TokenUsagePage":
-        """打开 Token Usage 页面"""
+        """Open the Token Usage page."""
         logger.info("Opening Token Usage page")
         self.goto()
         self.wait_for_loading()
         return self
-    
+
     def wait_for_page_loaded(self) -> bool:
         """
-        等待页面加载完成
-        
+        Wait for the page to finish loading.
+
         Returns:
-            是否加载成功
+            True if the page loaded successfully.
         """
         try:
             self.wait_for_element(self.USAGE_TABLE, timeout=10000)
@@ -69,25 +70,25 @@ class TokenUsagePage(BasePage):
         except Exception as e:
             logger.error(f"Page load failed: {e}")
             return False
-    
-    # ========== 数据获取 ==========
-    
+
+    # ========== Data retrieval ==========
+
     def get_usage_rows(self) -> List[Locator]:
         """
-        获取所有用量行
-        
+        Return all usage rows.
+
         Returns:
-            Locator 列表
+            List of Locator objects.
         """
         logger.info("Getting usage rows")
         return self.find_all(self.USAGE_ROW)
-    
+
     def get_chart(self) -> Optional[Locator]:
         """
-        获取图表元素
-        
+        Return the chart element.
+
         Returns:
-            图表 Locator 或 None
+            Chart Locator, or None if not found.
         """
         logger.info("Getting chart element")
         try:
@@ -98,13 +99,13 @@ class TokenUsagePage(BasePage):
         except Exception as e:
             logger.warning(f"Chart not found: {e}")
             return None
-    
+
     def has_usage_data(self) -> bool:
         """
-        检查是否有用量数据
-        
+        Check whether usage data is present.
+
         Returns:
-            是否有数据
+            True if usage data exists.
         """
         logger.info("Checking if usage data exists")
         try:

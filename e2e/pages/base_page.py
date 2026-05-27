@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw E2E 测试框架 - Page Object 基类
+QwenPaw E2E test framework - Page Object base class.
 
-提供通用的页面操作方法，所有页面对象都应继承此类。
+Provides common page operations; every page object should inherit from this class.
 """
 from __future__ import annotations
 
@@ -18,38 +18,38 @@ logger = logging.getLogger(__name__)
 
 class BasePage:
     """
-    Page Object 基类
-    
-    提供通用的页面操作方法，包括：
-    - 导航
-    - 元素查找
-    - 等待机制
-    - 截图
-    - 断言辅助
+    Page Object base class.
+
+    Provides common page operations including:
+    - Navigation
+    - Element lookup
+    - Wait helpers
+    - Screenshots
+    - Assertion helpers
     """
-    
-    # 子类应重写这些属性
+
+    # Subclasses should override these attributes
     PAGE_TITLE: str = ""
     PAGE_URL: str = ""
-    
-    # 通用选择器（子类可覆盖）
+
+    # Generic selectors (subclasses may override)
     SUCCESS_MESSAGE = '.ant-message-success, .qwenpaw-message-success, .qwenpaw-notification-success'
     ERROR_MESSAGE = '.ant-message-error, .qwenpaw-message-error, .qwenpaw-notification-error'
     LOADING_SPINNER = '.ant-spin, .qwenpaw-spin, [class*=loading]'
-    
+
     def __init__(self, page: Page):
         self.page = page
         self.timeout = config.browser.timeout
-    
-    # ========== 导航方法 ==========
-    
+
+    # ========== Navigation methods ==========
+
     def goto(self, url: Optional[str] = None) -> "BasePage":
         """
-        导航到指定 URL
-        
+        Navigate to the given URL.
+
         Args:
-            url: 目标 URL，留空则使用 PAGE_URL
-            
+            url: Target URL; falls back to PAGE_URL when omitted.
+
         Returns:
             self
         """
@@ -57,132 +57,132 @@ class BasePage:
         logger.info(f"Navigating to: {target_url}")
         self.page.goto(target_url, wait_until="commit", timeout=self.timeout)
         return self
-    
+
     def refresh(self) -> "BasePage":
-        """刷新页面"""
+        """Reload the page."""
         logger.info("Refreshing page")
         self.page.reload(wait_until="commit", timeout=self.timeout)
         return self
-    
-    # ========== 元素查找方法 ==========
-    
+
+    # ========== Element lookup methods ==========
+
     def find(self, selector: str, timeout: Optional[int] = None) -> Locator:
         """
-        查找单个元素
+        Find a single element.
 
         Args:
-            selector: CSS 选择器
-            timeout: 超时时间（毫秒），仅在显式传入时生效
+            selector: CSS selector.
+            timeout: Timeout in milliseconds; only applied when explicitly passed.
 
         Returns:
-            Locator 对象
+            Locator object.
         """
         locator = self.page.locator(selector).first
         if timeout is not None:
             locator.wait_for(state="attached", timeout=timeout)
         return locator
-    
+
     def find_all(self, selector: str) -> List[Locator]:
         """
-        查找多个元素
-        
+        Find multiple elements.
+
         Args:
-            selector: CSS 选择器
-            
+            selector: CSS selector.
+
         Returns:
-            Locator 列表
+            List of Locator objects.
         """
         return self.page.locator(selector).all()
-    
+
     def find_by_text(self, text: str, exact: bool = False) -> Locator:
         """
-        按文本查找元素
-        
+        Find an element by text.
+
         Args:
-            text: 文本内容
-            exact: 是否精确匹配
-            
+            text: Text content.
+            exact: Whether to require an exact match.
+
         Returns:
-            Locator 对象
+            Locator object.
         """
         return self.page.get_by_text(text, exact=exact).first
-    
+
     def find_by_role(self, role: str, name: Optional[str] = None) -> Locator:
         """
-        按 ARIA role 查找元素
-        
+        Find an element by ARIA role.
+
         Args:
-            role: ARIA role
-            name: 可选的 name 属性
-            
+            role: ARIA role.
+            name: Optional name attribute.
+
         Returns:
-            Locator 对象
+            Locator object.
         """
         if name:
             return self.page.get_by_role(role, name=name).first
         return self.page.get_by_role(role).first
-    
+
     def find_by_placeholder(self, placeholder: str) -> Locator:
         """
-        按 placeholder 查找输入框
-        
+        Find an input by placeholder text.
+
         Args:
-            placeholder: placeholder 文本
-            
+            placeholder: Placeholder text.
+
         Returns:
-            Locator 对象
+            Locator object.
         """
         return self.page.get_by_placeholder(placeholder).first
-    
+
     def find_by_label(self, label: str) -> Locator:
         """
-        按 label 查找元素
-        
+        Find an element by label.
+
         Args:
-            label: label 文本
-            
+            label: Label text.
+
         Returns:
-            Locator 对象
+            Locator object.
         """
         return self.page.get_by_label(label).first
-    
+
     def find_by_testid(self, testid: str) -> Locator:
         """
-        按 data-testid 查找元素
-        
+        Find an element by data-testid.
+
         Args:
-            testid: testid 值
-            
+            testid: Test ID value.
+
         Returns:
-            Locator 对象
+            Locator object.
         """
         return self.page.get_by_test_id(testid).first
-    
-    # ========== 等待方法 ==========
-    
+
+    # ========== Wait methods ==========
+
     def wait_for_element(self, selector: str, timeout: Optional[int] = None, state: str = "visible") -> Locator:
         """
-        等待元素出现
-        
+        Wait for an element to reach the given state.
+
         Args:
-            selector: CSS 选择器
-            timeout: 超时时间
-            state: 等待状态 (visible, hidden, detached, attached)
-            
+            selector: CSS selector.
+            timeout: Timeout in milliseconds.
+            state: Target state (visible, hidden, detached, attached).
+
         Returns:
-            Locator 对象
+            Locator object.
         """
         locator = self.page.locator(selector).first
         locator.wait_for(state=state, timeout=timeout or self.timeout)
         return locator
-    
+
     def wait_for_text(self, text: str, timeout: Optional[int] = None) -> None:
         """
-        等待文本出现
-        
+        Wait for the given text to appear in the page.
+
         Args:
-            text: 期望的文本
-            timeout: 超时时间
+            text: Expected text.
+            timeout: Timeout in milliseconds.
         """
         import json
         safe_text = json.dumps(text)
@@ -190,40 +190,40 @@ class BasePage:
             f"document.body.innerText.includes({safe_text})",
             timeout=timeout or self.timeout
         )
-    
+
     def wait_for_url(self, url_pattern: str, timeout: Optional[int] = None) -> None:
         """
-        等待 URL 匹配
-        
+        Wait for the URL to match a pattern.
+
         Args:
-            url_pattern: URL 模式
-            timeout: 超时时间
+            url_pattern: URL pattern.
+            timeout: Timeout in milliseconds.
         """
         self.page.wait_for_url(url_pattern, timeout=timeout or self.timeout)
-    
+
     def wait_for_loading(self, timeout: Optional[int] = None) -> None:
-        """等待页面加载完成"""
+        """Wait for the page to finish loading."""
         self.page.wait_for_load_state("networkidle", timeout=timeout or self.timeout)
-    
+
     def wait(self, milliseconds: int) -> None:
         """
-        强制等待（仅在必要时使用）
-        
+        Hard wait (use only when necessary).
+
         Args:
-            milliseconds: 等待毫秒数
+            milliseconds: Milliseconds to wait.
         """
         self.page.wait_for_timeout(milliseconds)
-    
-    # ========== 操作方法 ==========
-    
+
+    # ========== Action methods ==========
+
     def click(self, selector: str, timeout: Optional[int] = None) -> "BasePage":
         """
-        点击元素
-        
+        Click an element.
+
         Args:
-            selector: CSS 选择器
-            timeout: 超时时间
-            
+            selector: CSS selector.
+            timeout: Timeout in milliseconds.
+
         Returns:
             self
         """
@@ -231,15 +231,15 @@ class BasePage:
         locator.click(timeout=timeout or self.timeout)
         logger.debug(f"Clicked: {selector}")
         return self
-    
+
     def fill(self, selector: str, value: str) -> "BasePage":
         """
-        填充输入框
-        
+        Fill an input.
+
         Args:
-            selector: CSS 选择器
-            value: 要填充的值
-            
+            selector: CSS selector.
+            value: Value to fill.
+
         Returns:
             self
         """
@@ -247,16 +247,16 @@ class BasePage:
         locator.fill(value)
         logger.debug(f"Filled {selector} with: {value[:50]}...")
         return self
-    
+
     def type_slowly(self, selector: str, value: str, delay: int = 50) -> "BasePage":
         """
-        慢速输入（用于测试输入事件）
-        
+        Type slowly (useful for testing input events).
+
         Args:
-            selector: CSS 选择器
-            value: 要输入的值
-            delay: 每个字符间的延迟（毫秒）
-            
+            selector: CSS selector.
+            value: Value to type.
+            delay: Delay between characters in milliseconds.
+
         Returns:
             self
         """
@@ -264,15 +264,15 @@ class BasePage:
         locator.type(value, delay=delay)
         logger.debug(f"Typed slowly: {value[:50]}...")
         return self
-    
+
     def press(self, selector: str, key: str) -> "BasePage":
         """
-        按键操作
-        
+        Press a key.
+
         Args:
-            selector: CSS 选择器
-            key: 键名 (Enter, Tab, Escape 等)
-            
+            selector: CSS selector.
+            key: Key name (Enter, Tab, Escape, etc.).
+
         Returns:
             self
         """
@@ -280,14 +280,14 @@ class BasePage:
         locator.press(key)
         logger.debug(f"Pressed {key} on {selector}")
         return self
-    
+
     def hover(self, selector: str) -> "BasePage":
         """
-        悬停元素
-        
+        Hover over an element.
+
         Args:
-            selector: CSS 选择器
-            
+            selector: CSS selector.
+
         Returns:
             self
         """
@@ -295,15 +295,15 @@ class BasePage:
         locator.hover()
         logger.debug(f"Hovered: {selector}")
         return self
-    
+
     def upload_file(self, selector: str, file_path: str) -> "BasePage":
         """
-        上传文件
-        
+        Upload a file.
+
         Args:
-            selector: 文件输入框选择器
-            file_path: 文件路径
-            
+            selector: File input selector.
+            file_path: File path to upload.
+
         Returns:
             self
         """
@@ -311,15 +311,15 @@ class BasePage:
         locator.set_input_files(file_path)
         logger.info(f"Uploaded file: {file_path}")
         return self
-    
+
     def select_option(self, selector: str, value: str) -> "BasePage":
         """
-        选择下拉选项
-        
+        Select a dropdown option.
+
         Args:
-            selector: 选择器
-            value: 选项值
-            
+            selector: Selector.
+            value: Option value.
+
         Returns:
             self
         """
@@ -327,127 +327,128 @@ class BasePage:
         locator.select_option(value)
         logger.debug(f"Selected option: {value}")
         return self
-    
-    # ========== 断言辅助方法 ==========
-    
+
+    # ========== Assertion helpers ==========
+
     def assert_visible(self, selector: str, timeout: Optional[int] = None) -> bool:
         """
-        断言元素可见
-        
+        Assert that an element is visible.
+
         Args:
-            selector: CSS 选择器
-            timeout: 超时时间
-            
+            selector: CSS selector.
+            timeout: Timeout in milliseconds.
+
         Returns:
-            是否可见
+            Whether the element is visible.
         """
         try:
             expect(self.find(selector)).to_be_visible(timeout=timeout or self.timeout)
             return True
         except (TimeoutError, AssertionError, Exception):
             return False
-    
+
     def assert_text(self, selector: str, expected_text: str, timeout: Optional[int] = None) -> bool:
         """
-        断言元素文本
-        
+        Assert element text content.
+
         Args:
-            selector: CSS 选择器
-            expected_text: 期望文本
-            timeout: 超时时间
-            
+            selector: CSS selector.
+            expected_text: Expected text.
+            timeout: Timeout in milliseconds.
+
         Returns:
-            是否匹配
+            Whether the text matches.
         """
         try:
             expect(self.find(selector)).to_contain_text(expected_text, timeout=timeout or self.timeout)
             return True
         except TimeoutError:
             return False
-    
+
     def assert_count(self, selector: str, expected_count: int, timeout: Optional[int] = None) -> bool:
         """
-        断言元素数量
-        
+        Assert the number of matching elements.
+
         Args:
-            selector: CSS 选择器
-            expected_count: 期望数量
-            timeout: 超时时间
-            
+            selector: CSS selector.
+            expected_count: Expected count.
+            timeout: Timeout in milliseconds.
+
         Returns:
-            是否匹配
+            Whether the count matches.
         """
         try:
             expect(self.page.locator(selector)).to_have_count(expected_count, timeout=timeout or self.timeout)
             return True
         except TimeoutError:
             return False
-    
+
     def assert_url(self, expected_url: str, timeout: Optional[int] = None) -> bool:
         """
-        断言当前 URL
-        
+        Assert the current URL.
+
         Args:
-            expected_url: 期望 URL
-            timeout: 超时时间
-            
+            expected_url: Expected URL.
+            timeout: Timeout in milliseconds.
+
         Returns:
-            是否匹配
+            Whether the URL matches.
         """
         try:
             expect(self.page).to_have_url(expected_url, timeout=timeout or self.timeout)
             return True
         except TimeoutError:
             return False
-    
-    # ========== 截图和调试 ==========
+
+    # ========== Screenshots and debugging ==========
 
     def screenshot(self, name: str, full_page: bool = True) -> str:
         """
-        截取屏幕截图
+        Capture a screenshot.
 
         Args:
-            name: 截图名称
-            full_page: 是否截取完整页面
+            name: Screenshot name.
+            full_page: Whether to capture the full page.
 
         Returns:
-            截图文件路径
+            Screenshot file path.
         """
         path = config.paths.screenshots_dir / f"{name}.png"
         self.page.screenshot(path=str(path), full_page=full_page)
         logger.info(f"Screenshot saved: {path}")
         return str(path)
 
-    # ---- 步骤截图（用例级目录 + 自增序号 + 安全文件名）----
+    # ---- Step screenshot (per-case directory + auto-incremented index + safe filename) ----
     def step_shot(self, action: str, full_page: bool = False) -> str:
         """
-        在测试关键步骤打截图，并按用例自动归档到独立子目录。
+        Capture a screenshot at a key test step and archive it per test case.
 
-        - 用例名通过 page._qwenpaw_test_name 属性传入（由 conftest 注入）
-        - 文件名：<序号>_<安全化的 action>_<时分秒毫秒>.png
-        - 默认只截可视区域（full_page=False），避免 Thinking 转圈下大长页拖慢测试
-        - 截图失败不抛异常（仅 warning），避免污染主用例
+        - The test case name is passed through page._qwenpaw_test_name (injected by conftest).
+        - File name: <seq>_<safe action>_<HHMMSS_ms>.png
+        - Defaults to viewport only (full_page=False) to avoid slow long-page captures
+          while a "Thinking" spinner is on screen.
+        - Screenshot failures only emit a warning so they do not pollute the test run.
 
         Args:
-            action: 步骤短名（如 "open_page" / "send_message_before"）
-            full_page: 是否整页截图，默认 False
+            action: Short step name (e.g. "open_page" / "send_message_before").
+            full_page: Whether to capture the full page (defaults to False).
 
         Returns:
-            截图文件路径；失败返回空字符串
+            Screenshot file path; empty string on failure.
         """
         try:
             from datetime import datetime as _dt
             test_name = getattr(self.page, "_qwenpaw_test_name", None) or "unknown_test"
-            # 安全化：只保留字母数字下划线
+            # Sanitise: keep only alphanumerics, dash, and underscore
             import re as _re
             safe_test = _re.sub(r"[^A-Za-z0-9_\-]", "_", test_name)[:80]
             safe_action = _re.sub(r"[^A-Za-z0-9_\-]", "_", action)[:60]
 
-            # 用例级独立子目录
+            # Per-case subdirectory
             case_dir = config.paths.screenshots_dir / "steps" / safe_test
             case_dir.mkdir(parents=True, exist_ok=True)
 
-            # 自增序号（挂在 page 上，每个用例独立计数）
+            # Auto-increment sequence (stored on page, counted per test case)
             seq = getattr(self.page, "_qwenpaw_step_seq", 0) + 1
             try:
                 self.page._qwenpaw_step_seq = seq
@@ -463,27 +464,27 @@ class BasePage:
         except Exception as e:
             logger.warning(f"[step_shot] failed for action={action}: {e}")
             return ""
-    
+
     def get_page_title(self) -> str:
-        """获取页面标题"""
+        """Return the page title."""
         return self.page.title()
-    
+
     def get_page_url(self) -> str:
-        """获取当前 URL"""
+        """Return the current URL."""
         return self.page.url
-    
+
     def get_text(self, selector: str) -> str:
-        """获取元素文本"""
+        """Return the inner text of an element."""
         return self.find(selector).inner_text()
-    
+
     def get_attribute(self, selector: str, attribute: str) -> Optional[str]:
-        """获取元素属性"""
+        """Return an attribute value of an element."""
         return self.find(selector).get_attribute(attribute)
-    
+
     def is_enabled(self, selector: str) -> bool:
-        """检查元素是否启用"""
+        """Check whether an element is enabled."""
         return self.find(selector).is_enabled()
-    
+
     def is_disabled(self, selector: str) -> bool:
-        """检查元素是否禁用"""
+        """Check whether an element is disabled."""
         return self.find(selector).is_disabled()

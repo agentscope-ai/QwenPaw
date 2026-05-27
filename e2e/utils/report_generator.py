@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw E2E 测试报告生成器
+QwenPaw E2E Test Report Generator
 
-根据 pytest 测试结果自动生成 Markdown 格式的测试报告。
+Automatically generates a Markdown test report from pytest results.
 
-从 conftest.py 中抽离出来，便于单独维护和复用。
+Split out from conftest.py for easier maintenance and reuse.
 """
 from __future__ import annotations
 
@@ -19,33 +19,33 @@ from config.settings import config as app_config
 logger = logging.getLogger(__name__)
 
 
-# 模块名称到中文显示名的映射
+# Mapping from module file name to display name
 MODULE_NAME_MAP = {
-    "tests/test_agents.py": "Agents 智能体管理",
-    "tests/test_channels.py": "Channels 频道管理",
-    "tests/test_chat.py": "Chat 对话",
-    "tests/test_cronjobs.py": "CronJobs 定时任务",
-    "tests/test_cross_module.py": "Cross Module 跨模块",
-    "tests/test_debug.py": "Debug 调试日志",
-    "tests/test_environments.py": "Environments 环境变量",
-    "tests/test_files.py": "Files 文件管理",
-    "tests/test_heartbeat.py": "Heartbeat 心跳检测",
-    "tests/test_login.py": "Login 登录",
-    "tests/test_mcp.py": "MCP 客户端",
-    "tests/test_models.py": "Models 模型管理",
-    "tests/test_runtime_config.py": "Runtime Config 运行配置",
-    "tests/test_security.py": "Security 安全防护",
-    "tests/test_sessions.py": "Sessions 会话管理",
-    "tests/test_skill_pool.py": "Skill Pool 技能池",
-    "tests/test_skills.py": "Skills 技能管理",
-    "tests/test_token_usage.py": "Token Usage 消耗统计",
-    "tests/test_tools.py": "Tools 工具管理",
-    "tests/test_voice.py": "Voice 语音配置",
+    "tests/test_agents.py": "Agents",
+    "tests/test_channels.py": "Channels",
+    "tests/test_chat.py": "Chat",
+    "tests/test_cronjobs.py": "CronJobs",
+    "tests/test_cross_module.py": "Cross Module",
+    "tests/test_debug.py": "Debug Logs",
+    "tests/test_environments.py": "Environments",
+    "tests/test_files.py": "Files",
+    "tests/test_heartbeat.py": "Heartbeat",
+    "tests/test_login.py": "Login",
+    "tests/test_mcp.py": "MCP Clients",
+    "tests/test_models.py": "Models",
+    "tests/test_runtime_config.py": "Runtime Config",
+    "tests/test_security.py": "Security",
+    "tests/test_sessions.py": "Sessions",
+    "tests/test_skill_pool.py": "Skill Pool",
+    "tests/test_skills.py": "Skills",
+    "tests/test_token_usage.py": "Token Usage",
+    "tests/test_tools.py": "Tools",
+    "tests/test_voice.py": "Voice",
 }
 
 
 def _aggregate_module_stats(passed_reports, failed_reports, skipped_reports):
-    """按测试文件统计各模块的通过/失败/跳过数。"""
+    """Aggregate passed/failed/skipped counts per test file."""
     module_stats = defaultdict(
         lambda: {"passed": 0, "failed": 0, "skipped": 0, "cases": []}
     )
@@ -67,7 +67,7 @@ def _aggregate_module_stats(passed_reports, failed_reports, skipped_reports):
 
 
 def _calc_total_duration(*report_groups) -> float:
-    """计算所有报告的总执行耗时（秒）。"""
+    """Compute the total execution duration across all reports (seconds)."""
     try:
         total = 0.0
         for group in report_groups:
@@ -78,45 +78,45 @@ def _calc_total_duration(*report_groups) -> float:
 
 
 def _build_header(total, passed, failed, skipped, rerun, pass_rate, duration_seconds):
-    """生成报告头部和总览。"""
+    """Build the report header and overview."""
     duration_minutes = int(duration_seconds // 60)
     duration_secs = int(duration_seconds % 60)
 
     lines = [
-        "# QwenPaw E2E 自动化测试报告\n",
-        f"**测试环境**: {app_config.server.base_url}  ",
-        f"**执行时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  ",
-        f"**总耗时**: {duration_minutes} 分 {duration_secs} 秒  ",
-        f"**浏览器**: Chromium (Playwright, headless)  ",
-        f"**框架**: Pytest + Playwright  ",
+        "# QwenPaw E2E Automation Test Report\n",
+        f"**Test Environment**: {app_config.server.base_url}  ",
+        f"**Execution Time**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  ",
+        f"**Total Duration**: {duration_minutes}m {duration_secs}s  ",
+        f"**Browser**: Chromium (Playwright, headless)  ",
+        f"**Framework**: Pytest + Playwright  ",
         "",
         "---\n",
-        "## 📊 测试结果总览\n",
-        "| 指标 | 数值 |",
-        "|------|------|",
-        f"| 总用例数 | {total} |",
-        f"| ✅ 通过 | {passed} |",
-        f"| ❌ 失败 | {failed} |",
-        f"| ⏭️ 跳过 | {skipped} |",
-        f"| 🔄 重试 | {rerun} |",
-        f"| **通过率** | **{pass_rate:.1f}%** |",
+        "## Test Results Overview\n",
+        "| Metric | Value |",
+        "|--------|-------|",
+        f"| Total | {total} |",
+        f"| Passed | {passed} |",
+        f"| Failed | {failed} |",
+        f"| Skipped | {skipped} |",
+        f"| Reruns | {rerun} |",
+        f"| **Pass Rate** | **{pass_rate:.1f}%** |",
         "",
     ]
     return lines
 
 
 def _build_module_table(module_stats):
-    """生成各模块统计表。"""
+    """Build the per-module statistics table."""
     lines = [
         "---\n",
-        "## ✅ 各模块测试结果\n",
-        "| 模块 | 测试文件 | 通过 | 失败 | 跳过 | 状态 |",
-        "|------|---------|------|------|------|------|",
+        "## Per-Module Test Results\n",
+        "| Module | Test File | Passed | Failed | Skipped | Status |",
+        "|--------|-----------|--------|--------|---------|--------|",
     ]
     for module_file in sorted(module_stats.keys()):
         stats = module_stats[module_file]
         module_display = MODULE_NAME_MAP.get(module_file, module_file)
-        status = "✅" if stats["failed"] == 0 else "❌"
+        status = "OK" if stats["failed"] == 0 else "FAIL"
         lines.append(
             f"| {module_display} | `{module_file}` | "
             f"{stats['passed']} | {stats['failed']} | {stats['skipped']} | {status} |"
@@ -126,11 +126,11 @@ def _build_module_table(module_stats):
 
 
 def _build_failed_section(failed_reports, reports_dir: Path):
-    """生成失败用例详情。"""
+    """Build the failed-test details section."""
     if not failed_reports:
         return []
 
-    lines = ["---\n", f"## ❌ 失败用例详情（{len(failed_reports)} 个）\n"]
+    lines = ["---\n", f"## Failed Tests ({len(failed_reports)})\n"]
 
     for idx, report in enumerate(failed_reports, 1):
         nodeid = report.nodeid
@@ -145,19 +145,19 @@ def _build_failed_section(failed_reports, reports_dir: Path):
             test_name = ""
 
         lines.append(f"### {idx}. {test_name}\n")
-        lines.append(f"- **文件**: `{test_file}`")
+        lines.append(f"- **File**: `{test_file}`")
         if test_class and test_class != test_name:
-            lines.append(f"- **类**: `{test_class}`")
-        lines.append(f"- **用例ID**: `{nodeid}`")
+            lines.append(f"- **Class**: `{test_class}`")
+        lines.append(f"- **Test ID**: `{nodeid}`")
 
-        # 错误信息
+        # Error message
         if hasattr(report, "longreprtext") and report.longreprtext:
             error_lines = report.longreprtext.strip().split("\n")
-            short_error = error_lines[-1] if error_lines else "未知错误"
-            lines.append(f"- **错误信息**: `{short_error}`")
+            short_error = error_lines[-1] if error_lines else "Unknown error"
+            lines.append(f"- **Error**: `{short_error}`")
             lines.append("")
             lines.append("<details>")
-            lines.append("<summary>详细堆栈</summary>")
+            lines.append("<summary>Full stack trace</summary>")
             lines.append("")
             lines.append("```")
             for error_line in error_lines[-15:]:
@@ -166,17 +166,17 @@ def _build_failed_section(failed_reports, reports_dir: Path):
             lines.append("")
             lines.append("</details>")
 
-        # 失败截图
+        # Failure screenshot
         screenshot_path = getattr(report, "screenshot_path", None)
         if screenshot_path and Path(screenshot_path).exists():
             try:
                 relative = Path(screenshot_path).relative_to(reports_dir)
                 lines.append("")
-                lines.append("**📸 失败截图：**")
+                lines.append("**Failure screenshot:**")
                 lines.append("")
-                lines.append(f"![失败截图]({relative})")
+                lines.append(f"![failure screenshot]({relative})")
             except ValueError:
-                # 截图不在 reports_dir 下，跳过
+                # Screenshot is not under reports_dir; skip.
                 pass
         lines.append("")
 
@@ -184,15 +184,15 @@ def _build_failed_section(failed_reports, reports_dir: Path):
 
 
 def _build_skipped_section(skipped_reports):
-    """生成跳过用例列表。"""
+    """Build the skipped-tests list."""
     if not skipped_reports:
         return []
 
     lines = [
         "---\n",
-        f"## ⏭️ 跳过用例（{len(skipped_reports)} 个）\n",
-        "| 用例 | 原因 |",
-        "|------|------|",
+        f"## Skipped Tests ({len(skipped_reports)})\n",
+        "| Test | Reason |",
+        "|------|--------|",
     ]
     for report in skipped_reports:
         reason = ""
@@ -206,7 +206,7 @@ def _build_skipped_section(skipped_reports):
 
 
 def _build_screenshot_section(passed_reports, failed_reports, reports_dir: Path):
-    """生成所有用例的截图集锦。"""
+    """Build a screenshot gallery for all tests."""
     all_with_screenshots = [
         r
         for r in (list(passed_reports) + list(failed_reports))
@@ -218,7 +218,7 @@ def _build_screenshot_section(passed_reports, failed_reports, reports_dir: Path)
 
     lines = [
         "---\n",
-        f"## 📸 用例执行截图（{len(all_with_screenshots)} 张）\n",
+        f"## Test Execution Screenshots ({len(all_with_screenshots)})\n",
     ]
 
     screenshot_by_module: "OrderedDict[str, list]" = OrderedDict()
@@ -232,7 +232,7 @@ def _build_screenshot_section(passed_reports, failed_reports, reports_dir: Path)
         for report in reports:
             parts = report.nodeid.split("::")
             test_name = parts[-1].split("[")[0] if parts else report.nodeid
-            status_icon = "✅" if report.passed else "❌"
+            status_icon = "OK" if report.passed else "FAIL"
             try:
                 relative = Path(report.screenshot_path).relative_to(reports_dir)
             except ValueError:
@@ -246,14 +246,14 @@ def _build_screenshot_section(passed_reports, failed_reports, reports_dir: Path)
 
 def generate_markdown_report(terminalreporter, reports_dir: Path) -> Path:
     """
-    根据 pytest terminalreporter 生成 Markdown 测试报告。
+    Generate a Markdown test report from a pytest terminalreporter.
 
     Args:
-        terminalreporter: pytest terminalreporter 对象
-        reports_dir: 报告输出目录
+        terminalreporter: pytest terminalreporter object
+        reports_dir: Output directory for the report
 
     Returns:
-        本次报告的路径（带时间戳）
+        Path to the generated report (with timestamp)
     """
     reports_dir.mkdir(parents=True, exist_ok=True)
 
@@ -290,11 +290,11 @@ def generate_markdown_report(terminalreporter, reports_dir: Path) -> Path:
     lines += _build_skipped_section(skipped_reports)
     lines += _build_screenshot_section(passed_reports, failed_reports, reports_dir)
 
-    # 尾部
+    # Footer
     lines += [
         "---\n",
-        f"> 报告自动生成于 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  ",
-        "> HTML 报告: `reports/pytest-report.html`",
+        f"> Report auto-generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  ",
+        "> HTML report: `reports/pytest-report.html`",
     ]
 
     report_content = "\n".join(lines)
@@ -303,7 +303,7 @@ def generate_markdown_report(terminalreporter, reports_dir: Path) -> Path:
     report_path = reports_dir / f"test-report-{timestamp}.md"
     report_path.write_text(report_content, encoding="utf-8")
 
-    # 同时写一份固定名称的报告（方便快速查看最新结果）
+    # Also write a fixed-name report for quick access to the latest result.
     latest_path = reports_dir / "test-report-latest.md"
     latest_path.write_text(report_content, encoding="utf-8")
 

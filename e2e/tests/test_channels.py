@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw Channels 模块端到端测试用例
+QwenPaw Channels module end-to-end test cases.
 
-测试框架：pytest + Playwright + Page Object Pattern
-执行命令：pytest tests/test_channels.py -v
+Framework: pytest + Playwright + Page Object Pattern.
+Run: pytest tests/test_channels.py -v
 """
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# CHAN-001: 全频道列表展示 + All/Built-in/Custom 过滤 + Built-in 标签验证
-# 覆盖频道：Console, DingTalk, Feishu, Discord, Telegram, QQ, XiaoYi, Mattermost, MQTT, WeCom, WeChat, OneBot 等全部频道
+# CHAN-001: Full channel list display + All/Built-in/Custom filter + Built-in tag verification
+# Channels covered: Console, DingTalk, Feishu, Discord, Telegram, QQ, XiaoYi, Mattermost, MQTT, WeCom, WeChat, OneBot, etc.
 # ============================================================================
 
 @pytest.mark.integration
@@ -33,90 +33,90 @@ logger = logging.getLogger(__name__)
 @pytest.mark.channels_core
 class TestChannelListAndFilter:
     """
-    CHAN-001: 全频道列表展示 + 过滤功能 + 频道类型识别
+    CHAN-001: Full channel list display + filter + channel-type recognition.
 
-    覆盖频道：Console, DingTalk, Feishu, Discord, Telegram, QQ, XiaoYi, Mattermost, MQTT, WeCom, WeChat, OneBot 等全部频道
+    Channels covered: Console, DingTalk, Feishu, Discord, Telegram, QQ, XiaoYi, Mattermost, MQTT, WeCom, WeChat, OneBot, etc.
 
-    组合覆盖功能点：
-    1. Channels 页面访问与加载
-    2. 频道列表展示（15+ 个内置频道卡片）
-    3. 过滤按钮显示与切换（All / Built-in / Custom）
-    4. Built-in / Custom 过滤结果正确性
-    5. 内置频道 Built-in 标签识别
+    Combined coverage:
+    1. Channels page access and load
+    2. Channel list display (15+ built-in channel cards)
+    3. Filter button visibility and switching (All / Built-in / Custom)
+    4. Correctness of Built-in / Custom filter results
+    5. Built-in tag recognition on built-in channels
 
-    业务场景：
-    用户进入 Channels 页面，浏览所有频道列表，
-    使用过滤功能快速定位内置或自定义频道，
-    并确认频道类型标签正确显示。
+    Business scenario:
+    The user opens the Channels page, browses the channel list, uses the
+    filters to quickly locate built-in or custom channels, and confirms
+    that the channel-type tag is displayed correctly.
     """
 
     @pytest.mark.test_id("CHAN-001")
     def test_channel_list_filter_and_type(self, channels_page: ChannelsPage, request: pytest.FixtureRequest):
         """
-        验证频道列表展示、过滤切换及频道类型标签
+        Verify channel list display, filter switching, and channel-type tag.
 
-        测试步骤：
-        1. 访问 Channels 页面，验证页面标题
-        2. 验证 All / Built-in / Custom 过滤按钮可见
-        3. 默认 All 视图下频道卡片 >= 15
-        4. 验证多个内置频道显示 Built-in 标签
-        5. 点击 Built-in 过滤，验证结果全部为内置频道
-        6. 点击 Custom 过滤，验证结果全部为自定义频道（可能为空）
-        7. 点击 All 过滤，验证恢复全部频道
+        Steps:
+        1. Open the Channels page and verify the page title
+        2. Verify the All / Built-in / Custom filter buttons are visible
+        3. Under the default All view there are >= 15 channel cards
+        4. Verify several built-in channels show the Built-in tag
+        5. Click the Built-in filter and verify results are all built-in channels
+        6. Click the Custom filter and verify results are all custom channels (may be empty)
+        7. Click the All filter and verify all channels are restored
         """
         test_name = request.node.name
 
-        log_test_step("1. 访问 Channels 页面，验证页面标题")
+        log_test_step("1. Open the Channels page and verify the page title")
         channels_page.open()
         page_title = channels_page.page.title()
-        assert "QwenPaw" in page_title or "Channels" in page_title, f"页面标题不正确：{page_title}"
+        assert "QwenPaw" in page_title or "Channels" in page_title, f"Unexpected page title: {page_title}"
 
-        log_test_step("2. 验证过滤按钮可见")
-        assert channels_page.page.locator(channels_page.FILTER_ALL_BTN).first.is_visible(), "All 过滤按钮未显示"
-        assert channels_page.page.locator(channels_page.FILTER_BUILTIN_BTN).first.is_visible(), "Built-in 过滤按钮未显示"
-        assert channels_page.page.locator(channels_page.FILTER_CUSTOM_BTN).first.is_visible(), "Custom 过滤按钮未显示"
+        log_test_step("2. Verify the filter buttons are visible")
+        assert channels_page.page.locator(channels_page.FILTER_ALL_BTN).first.is_visible(), "All filter button not shown"
+        assert channels_page.page.locator(channels_page.FILTER_BUILTIN_BTN).first.is_visible(), "Built-in filter button not shown"
+        assert channels_page.page.locator(channels_page.FILTER_CUSTOM_BTN).first.is_visible(), "Custom filter button not shown"
 
-        log_test_step("3. 默认 All 视图下频道卡片 >= 15")
+        log_test_step("3. Default All view shows >= 15 channel cards")
         all_count = channels_page.get_channel_card_count()
-        assert all_count >= 15, f"频道卡片数量不足：{all_count} < 15"
-        logger.info(f"All 视图频道数量：{all_count}")
+        assert all_count >= 15, f"Not enough channel cards: {all_count} < 15"
+        logger.info(f"All view channel count: {all_count}")
 
-        log_test_step("4. 验证多个内置频道 Built-in 标签")
+        log_test_step("4. Verify Built-in tags on several built-in channels")
         builtin_channels = ["Console", "DingTalk", "Discord", "Telegram", "Feishu", "QQ", "WeCom", "WeChat"]
         for channel_name in builtin_channels:
             card = channels_page.find_channel_card(channel_name)
             if card:
                 assert channels_page.is_builtin_channel(channel_name), \
-                    f"{channel_name} 应标记为内置频道"
-                logger.info(f"✅ {channel_name} 正确标记为 Built-in")
+                    f"{channel_name} should be tagged as built-in"
+                logger.info(f"{channel_name} correctly tagged as Built-in")
 
-        log_test_step("5. 点击 Built-in 过滤，验证结果")
+        log_test_step("5. Click the Built-in filter and verify results")
         channels_page.click_filter_builtin()
         builtin_count = channels_page.get_channel_card_count()
-        assert builtin_count > 0, "Built-in 过滤后无频道显示"
-        assert channels_page.verify_filter_result('builtin'), "Built-in 过滤结果包含非内置频道"
-        logger.info(f"Built-in 过滤显示 {builtin_count} 个频道")
+        assert builtin_count > 0, "No channels shown after Built-in filter"
+        assert channels_page.verify_filter_result('builtin'), "Built-in filter results include non-built-in channels"
+        logger.info(f"Built-in filter shows {builtin_count} channel(s)")
 
-        log_test_step("6. 点击 Custom 过滤，验证结果")
+        log_test_step("6. Click the Custom filter and verify results")
         channels_page.click_filter_custom()
         custom_count = channels_page.get_channel_card_count()
         if custom_count > 0:
-            assert channels_page.verify_filter_result('custom'), "Custom 过滤结果包含非自定义频道"
-        logger.info(f"Custom 过滤显示 {custom_count} 个频道")
+            assert channels_page.verify_filter_result('custom'), "Custom filter results include non-custom channels"
+        logger.info(f"Custom filter shows {custom_count} channel(s)")
 
-        log_test_step("7. 点击 All 过滤，验证恢复全部频道")
+        log_test_step("7. Click the All filter and verify all channels are restored")
         channels_page.click_filter_all()
         restored_count = channels_page.get_channel_card_count()
         assert restored_count == all_count, \
-            f"All 过滤恢复后数量不一致：期望 {all_count}，实际 {restored_count}"
+            f"Count mismatch after All filter restore: expected {all_count}, actual {restored_count}"
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - 频道列表展示、过滤、类型标签全部正常")
+        logger.info(f"Test {test_name} passed - channel list, filter, and type tags are all correct")
 
 
 # ============================================================================
-# CHAN-002: Console 编辑 Bot Prefix 保存+取消
-# 覆盖频道：Console（唯一 Enabled 的频道，无必填字段）
+# CHAN-002: Console edit Bot Prefix save+cancel
+# Channels covered: Console (the only Enabled channel with no required fields)
 # ============================================================================
 
 @pytest.mark.integration
@@ -124,79 +124,80 @@ class TestChannelListAndFilter:
 @pytest.mark.channels_edit
 class TestConsoleEditConfig:
     """
-    CHAN-002: Console 编辑 Bot Prefix 保存+取消
+    CHAN-002: Console edit Bot Prefix save+cancel.
 
-    覆盖频道：Console（唯一 Enabled 的频道，保存不需要额外必填字段）
+    Channels covered: Console (the only Enabled channel; save requires no extra required fields).
 
-    组合覆盖功能点：
-    1. 点击 Console 卡片打开编辑抽屉
-    2. 验证抽屉标题与表单字段
-    3. 修改 Bot Prefix 并保存，验证配置更新
-    4. 再次修改 Bot Prefix 后取消，验证配置未变化
-    5. 刷新页面验证配置持久化
+    Combined coverage:
+    1. Click the Console card to open the edit drawer
+    2. Verify the drawer title and form fields
+    3. Modify Bot Prefix and save, verify the config is updated
+    4. Modify Bot Prefix again then cancel, verify the config is unchanged
+    5. Refresh the page to verify config persistence
 
-    业务场景：
-    Console 是唯一 Enabled 且无必填字段的频道，用户可以直接保存配置。
-    验证保存后配置持久化，以及取消操作不会改变已保存的配置。
+    Business scenario:
+    Console is the only Enabled channel with no required fields, so the
+    user can save the config directly. Verify that saved config persists
+    and that a cancel operation does not modify the saved config.
     """
 
     @pytest.mark.test_id("CHAN-002")
     def test_console_edit_save_cancel(self, channels_page: ChannelsPage, request: pytest.FixtureRequest):
         """
-        验证 Console 频道编辑抽屉打开、表单填写、保存和取消功能
+        Verify Console channel edit drawer opening, form filling, save and cancel.
 
-        测试步骤：
-        1. 访问 Channels 页面
-        2. 点击 Console 卡片，验证抽屉打开及标题
-        3. 验证表单字段（启用开关 + Bot Prefix 输入框）
-        4. 记录原始 Bot Prefix，修改并保存
-        5. 刷新页面后重新打开抽屉，验证保存生效
-        6. 再次打开抽屉，修改后取消，验证配置未变化
-        7. 恢复原始值
+        Steps:
+        1. Open the Channels page
+        2. Click the Console card and verify the drawer opens and title
+        3. Verify form fields (Enable switch + Bot Prefix input)
+        4. Record the original Bot Prefix, modify and save
+        5. Reload the page and reopen the drawer, verify the save took effect
+        6. Reopen the drawer, modify and cancel, verify config is unchanged
+        7. Restore the original value
         """
         test_name = request.node.name
         channel_name = "Console"
 
-        log_test_step("1. 访问 Channels 页面")
+        log_test_step("1. Open the Channels page")
         channels_page.open()
 
-        log_test_step("2. 点击 Console 卡片，验证抽屉打开及标题")
+        log_test_step("2. Click the Console card and verify the drawer opens and title")
         channels_page.click_channel_card(channel_name)
-        assert channels_page.wait_for_drawer_open(), "编辑抽屉未打开"
+        assert channels_page.wait_for_drawer_open(), "Edit drawer did not open"
         drawer_title = channels_page.get_drawer_title()
-        # 支持中英文标题匹配（前端已本地化为中文）
+        # Support CN/EN title matching (frontend has been localized to CN)
         channel_name_cn = {"Console": "控制台", "DingTalk": "钉钉", "Feishu": "飞书",
                            "WeCom": "企业微信", "WeChat": "微信"}.get(channel_name, channel_name)
         title_first_line = drawer_title.split('\n')[0].strip()
         assert channel_name in title_first_line or channel_name_cn in title_first_line, \
-            f"抽屉标题不正确：{drawer_title}，期望包含 {channel_name} 或 {channel_name_cn}"
-        logger.info(f"✅ 抽屉标题：{drawer_title}")
+            f"Unexpected drawer title: {drawer_title}, expected to contain {channel_name} or {channel_name_cn}"
+        logger.info(f"Drawer title: {drawer_title}")
 
-        log_test_step("3. 验证表单字段")
+        log_test_step("3. Verify form fields")
         bot_input = channels_page.page.locator('#bot_prefix')
-        assert bot_input.count() > 0 and bot_input.is_visible(), "Bot Prefix 输入框不可见"
+        assert bot_input.count() > 0 and bot_input.is_visible(), "Bot Prefix input not visible"
         switch = channels_page.page.locator('.qwenpaw-switch, .ant-switch')
-        assert switch.count() > 0, "启用开关不存在"
-        logger.info("✅ 表单字段验证通过（启用开关 + Bot Prefix）")
+        assert switch.count() > 0, "Enable switch does not exist"
+        logger.info("Form fields verified (Enable switch + Bot Prefix)")
 
-        log_test_step("4. 记录原始值，修改 Bot Prefix 并保存")
+        log_test_step("4. Record the original value, modify Bot Prefix and save")
         original_prefix = bot_input.input_value()
-        logger.info(f"原始 Bot Prefix: '{original_prefix}'")
+        logger.info(f"Original Bot Prefix: '{original_prefix}'")
         test_prefix = "test_console_prefix"
 
         try:
             channels_page.fill_bot_prefix(test_prefix)
             channels_page.save_channel_config()
 
-            # Console 无必填字段，应该可以成功保存
+            # Console has no required fields, so save should succeed
             if channels_page.has_form_validation_errors():
-                pytest.fail(f"Console 频道不应有表单校验错误，但检测到错误")
+                pytest.fail(f"Console channel should have no form validation errors, but errors were detected")
 
             channels_page.close_drawer()
             channels_page.page.wait_for_timeout(1500)
-            logger.info("✅ 已保存配置")
+            logger.info("Config saved")
 
-            log_test_step("5. 刷新页面后重新打开抽屉，验证保存生效")
+            log_test_step("5. Reload the page and reopen the drawer, verify the save took effect")
             channels_page.page.reload(wait_until="domcontentloaded")
             channels_page.page.wait_for_timeout(2000)
             channels_page.click_channel_card(channel_name)
@@ -204,33 +205,33 @@ class TestConsoleEditConfig:
             channels_page.page.wait_for_timeout(1000)
             saved_prefix = channels_page.page.locator('#bot_prefix').input_value()
             assert saved_prefix == test_prefix, \
-                f"保存后 Bot Prefix 应为 '{test_prefix}'，实际为 '{saved_prefix}'"
-            logger.info(f"✅ 保存验证通过：Bot Prefix = '{saved_prefix}'")
+                f"After save, Bot Prefix should be '{test_prefix}', actual: '{saved_prefix}'"
+            logger.info(f"Save verified: Bot Prefix = '{saved_prefix}'")
             channels_page.close_drawer()
             channels_page.page.wait_for_timeout(1000)
 
-            log_test_step("6. 再次打开抽屉，修改后取消")
+            log_test_step("6. Reopen the drawer, modify and cancel")
             channels_page.click_channel_card(channel_name)
             channels_page.wait_for_drawer_open()
             channels_page.page.wait_for_timeout(500)
             channels_page.fill_bot_prefix("should_not_save")
             channels_page.cancel_channel_config()
             channels_page.page.wait_for_timeout(1000)
-            logger.info("✅ 取消操作完成")
+            logger.info("Cancel completed")
 
-            log_test_step("7. 再次打开抽屉，验证取消未生效")
+            log_test_step("7. Reopen the drawer and verify cancel did not take effect")
             channels_page.click_channel_card(channel_name)
             channels_page.wait_for_drawer_open()
             channels_page.page.wait_for_timeout(1000)
             after_cancel_prefix = channels_page.page.locator('#bot_prefix').input_value()
             assert after_cancel_prefix == test_prefix, \
-                f"取消后 Bot Prefix 应仍为 '{test_prefix}'，实际为 '{after_cancel_prefix}'"
-            logger.info(f"✅ 取消验证通过：Bot Prefix 仍为 '{test_prefix}'")
+                f"After cancel, Bot Prefix should still be '{test_prefix}', actual: '{after_cancel_prefix}'"
+            logger.info(f"Cancel verified: Bot Prefix still '{test_prefix}'")
 
             log_test_result(test_name, True, 0)
-            logger.info(f"✅ Test {test_name} passed - Console 编辑保存和取消功能正常")
+            logger.info(f"Test {test_name} passed - Console edit save and cancel work correctly")
         finally:
-            # 无论测试是否通过，都恢复原始 Bot Prefix
+            # Whether the test passes or not, restore the original Bot Prefix
             try:
                 channels_page.open()
                 channels_page.click_channel_card(channel_name)
@@ -240,15 +241,15 @@ class TestConsoleEditConfig:
                 if current_prefix != original_prefix:
                     channels_page.fill_bot_prefix(original_prefix)
                     channels_page.save_channel_config()
-                    logger.info(f"🧹 已恢复原始 Bot Prefix: '{original_prefix}'")
+                    logger.info(f"Restored original Bot Prefix: '{original_prefix}'")
                 channels_page.close_drawer()
             except Exception as cleanup_err:
-                logger.warning(f"⚠️ 恢复 Bot Prefix 失败: {cleanup_err}")
+                logger.warning(f"Failed to restore Bot Prefix: {cleanup_err}")
 
 
 # ============================================================================
-# CHAN-003: Discord 启用/禁用开关 UI 切换验证
-# 覆盖频道：Discord（有必填字段，保存会失败，验证未持久化）
+# CHAN-003: Discord enable/disable switch UI toggle verification
+# Channels covered: Discord (has required fields; save will fail, verifying non-persistence)
 # ============================================================================
 
 @pytest.mark.integration
@@ -256,73 +257,74 @@ class TestConsoleEditConfig:
 @pytest.mark.channels_enable
 class TestDiscordEnableDisable:
     """
-    CHAN-003: Discord 启用/禁用开关 UI 切换验证
+    CHAN-003: Discord enable/disable switch UI toggle verification.
 
-    覆盖频道：Discord（有必填字段 Client ID/Client Secret，保存会失败）
+    Channels covered: Discord (required fields Client ID/Client Secret; save will fail).
 
-    组合覆盖功能点：
-    1. 打开 Discord 抽屉
-    2. 切换 Enabled 开关
-    3. 验证 aria-checked 属性变化
-    4. 因 Discord 有必填字段所以保存会失败，验证未持久化
+    Combined coverage:
+    1. Open the Discord drawer
+    2. Toggle the Enabled switch
+    3. Verify aria-checked attribute change
+    4. Since Discord has required fields the save will fail; verify non-persistence
 
-    业务场景：
-    用户尝试启用/禁用 Discord 频道，但由于缺少必填字段（Client ID/Secret），
-    保存操作会失败。验证开关 UI 可以切换，但配置未持久化。
+    Business scenario:
+    The user tries to enable/disable the Discord channel, but missing
+    required fields (Client ID/Secret) cause save to fail. Verify that
+    the switch UI toggles but the config is not persisted.
     """
 
     @pytest.mark.test_id("CHAN-003")
     def test_discord_enable_disable_ui(self, channels_page: ChannelsPage, request: pytest.FixtureRequest):
         """
-        验证 Discord 频道启用/禁用开关 UI 切换
+        Verify Discord channel enable/disable switch UI toggling.
 
-        测试步骤：
-        1. 访问 Channels 页面
-        2. 点击 Discord 卡片，验证抽屉打开
-        3. 获取当前开关状态
-        4. 切换开关，验证 aria-checked 变化
-        5. 尝试保存（预期失败，因为有必填字段未填）
-        6. 关闭抽屉后重新打开，验证开关状态未持久化
+        Steps:
+        1. Open the Channels page
+        2. Click the Discord card and verify the drawer opens
+        3. Read the current switch state
+        4. Toggle the switch and verify aria-checked change
+        5. Try to save (expected to fail because required fields are empty)
+        6. Close the drawer, reopen it, and verify the switch state was not persisted
         """
         test_name = request.node.name
         channel_name = "Discord"
 
-        log_test_step("1. 访问 Channels 页面")
+        log_test_step("1. Open the Channels page")
         channels_page.open()
 
-        log_test_step("2. 点击 Discord 卡片，验证抽屉打开")
+        log_test_step("2. Click the Discord card and verify the drawer opens")
         channels_page.click_channel_card(channel_name)
-        assert channels_page.wait_for_drawer_open(), "编辑抽屉未打开"
+        assert channels_page.wait_for_drawer_open(), "Edit drawer did not open"
         drawer_title = channels_page.get_drawer_title()
-        assert channel_name in drawer_title, f"抽屉标题不正确：{drawer_title}，期望包含 {channel_name}"
-        logger.info(f"✅ 抽屉标题：{drawer_title}")
+        assert channel_name in drawer_title, f"Unexpected drawer title: {drawer_title}, expected to contain {channel_name}"
+        logger.info(f"Drawer title: {drawer_title}")
 
-        log_test_step("3. 获取当前开关状态")
+        log_test_step("3. Read the current switch state")
         switch = channels_page.page.locator('.qwenpaw-switch, .ant-switch').first
         initial_checked = switch.get_attribute('aria-checked')
-        logger.info(f"初始开关状态 aria-checked: {initial_checked}")
+        logger.info(f"Initial switch aria-checked: {initial_checked}")
 
-        log_test_step("4. 切换开关，验证 aria-checked 变化")
+        log_test_step("4. Toggle the switch and verify aria-checked change")
         channels_page.toggle_enable(initial_checked != 'true')
         channels_page.page.wait_for_timeout(500)
         new_checked = switch.get_attribute('aria-checked')
         expected_checked = 'true' if initial_checked != 'true' else 'false'
         assert new_checked == expected_checked, \
-            f"开关状态未变化：期望 {expected_checked}，实际 {new_checked}"
-        logger.info(f"✅ 开关状态已切换：{initial_checked} -> {new_checked}")
+            f"Switch state did not change: expected {expected_checked}, actual {new_checked}"
+        logger.info(f"Switch toggled: {initial_checked} -> {new_checked}")
 
-        log_test_step("5. 尝试保存（预期失败，因为有必填字段未填）")
+        log_test_step("5. Try to save (expected to fail because required fields are empty)")
         channels_page.save_channel_config()
         channels_page.page.wait_for_timeout(1000)
 
-        # Discord 有必填字段，保存应该失败
+        # Discord has required fields, so save should fail
         has_errors = channels_page.has_form_validation_errors()
         if has_errors:
-            logger.info("✅ 保存失败，检测到表单校验错误（预期行为）")
+            logger.info("Save failed; form validation errors detected (expected)")
         else:
-            logger.warning("⚠️ 保存未检测到校验错误，可能 Discord 已有默认值")
+            logger.warning("Save did not produce validation errors; Discord may already have defaults")
 
-        log_test_step("6. 关闭抽屉后重新打开，验证开关状态未持久化")
+        log_test_step("6. Close the drawer, reopen it, and verify the switch state was not persisted")
         channels_page.close_drawer()
         channels_page.page.wait_for_timeout(1000)
 
@@ -331,20 +333,20 @@ class TestDiscordEnableDisable:
         channels_page.page.wait_for_timeout(1000)
 
         after_reopen_checked = switch.get_attribute('aria-checked')
-        # 由于保存失败，开关状态应该恢复到初始值
+        # Since save failed, the switch state should revert to the initial value
         assert after_reopen_checked == initial_checked, \
-            f"开关状态未恢复：期望 {initial_checked}，实际 {after_reopen_checked}"
-        logger.info(f"✅ 开关状态已恢复：{after_reopen_checked}（未持久化）")
+            f"Switch state did not revert: expected {initial_checked}, actual {after_reopen_checked}"
+        logger.info(f"Switch state reverted: {after_reopen_checked} (not persisted)")
 
         channels_page.close_drawer()
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - Discord 开关 UI 切换正常，未持久化")
+        logger.info(f"Test {test_name} passed - Discord switch UI toggle works, not persisted")
 
 
 # ============================================================================
-# CHAN-004: DingTalk + Feishu + Telegram + QQ 四个频道的配置表单差异验证
-# 覆盖频道：DingTalk, Feishu, Telegram, QQ
+# CHAN-004: DingTalk + Feishu + Telegram + QQ four-channel config form differentiation
+# Channels covered: DingTalk, Feishu, Telegram, QQ
 # ============================================================================
 
 @pytest.mark.integration
@@ -352,34 +354,35 @@ class TestDiscordEnableDisable:
 @pytest.mark.channels_form
 class TestMultipleChannelFormFields:
     """
-    CHAN-004: DingTalk + Feishu + Telegram + QQ 四个频道的配置表单差异验证
+    CHAN-004: DingTalk + Feishu + Telegram + QQ four-channel config form differentiation.
 
-    覆盖频道：DingTalk, Feishu, Telegram, QQ
+    Channels covered: DingTalk, Feishu, Telegram, QQ.
 
-    组合覆盖功能点：
-    1. 分别打开四个频道的抽屉
-    2. 验证各自有独特的表单字段
+    Combined coverage:
+    1. Open each of the four channel drawers
+    2. Verify each has its own distinctive form fields
 
-    业务场景：
-    不同频道有不同的配置表单字段，验证每个频道的表单字段存在且独特。
+    Business scenario:
+    Different channels have different config form fields. Verify each
+    channel's form fields exist and are distinctive.
     """
 
     @pytest.mark.test_id("CHAN-004")
     def test_four_channels_form_fields(self, channels_page: ChannelsPage, request: pytest.FixtureRequest):
         """
-        验证 DingTalk, Feishu, Telegram, QQ 四个频道的配置表单字段差异
+        Verify the config form-field differences across DingTalk, Feishu, Telegram, QQ.
 
-        测试步骤：
-        1. 访问 Channels 页面
-        2. 依次打开四个频道的抽屉，验证各自有独特的表单字段
-        3. 关闭每个抽屉后继续下一个
+        Steps:
+        1. Open the Channels page
+        2. Open the four channel drawers in turn and verify each has its own distinctive form fields
+        3. Close each drawer before moving on to the next
         """
         test_name = request.node.name
 
-        log_test_step("1. 访问 Channels 页面")
+        log_test_step("1. Open the Channels page")
         channels_page.open()
 
-        # 定义四个频道及其预期的独特字段关键词
+        # Define the four channels and their expected distinctive field keywords
         channels_to_check = [
             ("DingTalk", ["Client ID", "Client Secret", "App Key"]),
             ("Feishu", ["App ID", "App Secret"]),
@@ -388,20 +391,20 @@ class TestMultipleChannelFormFields:
         ]
 
         for channel_name, expected_field_keywords in channels_to_check:
-            log_test_step(f"2. 打开 {channel_name} 抽屉，验证表单字段")
+            log_test_step(f"2. Open the {channel_name} drawer and verify form fields")
             channels_page.click_channel_card(channel_name)
-            assert channels_page.wait_for_drawer_open(), f"{channel_name} 编辑抽屉未打开"
+            assert channels_page.wait_for_drawer_open(), f"{channel_name} edit drawer did not open"
 
             drawer_title = channels_page.get_drawer_title()
-            # 支持中英文标题匹配
+            # Support CN/EN title matching
             channel_name_cn = {"Console": "控制台", "DingTalk": "钉钉", "Feishu": "飞书",
                                "WeCom": "企业微信", "WeChat": "微信", "QQ": "QQ",
                                "Telegram": "Telegram"}.get(channel_name, channel_name)
             title_first_line = drawer_title.split('\n')[0].strip()
             assert channel_name in title_first_line or channel_name_cn in title_first_line, \
-                f"{channel_name} 抽屉标题不正确：{drawer_title}"
+                f"{channel_name} unexpected drawer title: {drawer_title}"
 
-            # 获取抽屉内的所有文本内容，验证包含预期字段关键词
+            # Read all text inside the drawer and verify the expected field keywords are present
             drawer_content = channels_page.page.locator('.qwenpaw-drawer-body, .ant-drawer-body').inner_text()
             found_keywords = []
             for keyword in expected_field_keywords:
@@ -409,19 +412,19 @@ class TestMultipleChannelFormFields:
                     found_keywords.append(keyword)
 
             assert len(found_keywords) > 0, \
-                f"{channel_name} 抽屉中未找到预期字段关键词 {expected_field_keywords}，实际内容：{drawer_content[:200]}"
-            logger.info(f"✅ {channel_name} 找到字段关键词：{found_keywords}")
+                f"{channel_name} drawer did not contain the expected field keywords {expected_field_keywords}, actual content: {drawer_content[:200]}"
+            logger.info(f"{channel_name} found field keywords: {found_keywords}")
 
             channels_page.close_drawer()
             channels_page.page.wait_for_timeout(500)
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - 四个频道表单字段验证通过")
+        logger.info(f"Test {test_name} passed - four-channel form-field verification OK")
 
 
 # ============================================================================
-# CHAN-005: Mattermost 频道过滤+编辑+切换组合操作
-# 覆盖频道：Mattermost
+# CHAN-005: Mattermost channel filter+edit+toggle combination
+# Channels covered: Mattermost
 # ============================================================================
 
 @pytest.mark.integration
@@ -429,86 +432,87 @@ class TestMultipleChannelFormFields:
 @pytest.mark.channels_combo
 class TestMattermostComboOperations:
     """
-    CHAN-005: Mattermost 频道过滤+编辑+切换组合操作
+    CHAN-005: Mattermost channel filter+edit+toggle combination.
 
-    覆盖频道：Mattermost
+    Channels covered: Mattermost.
 
-    组合覆盖功能点：
-    1. Built-in 过滤
-    2. 找到 Mattermost
-    3. 打开抽屉
-    4. 编辑 Bot Prefix
-    5. 取消
-    6. 验证未变
+    Combined coverage:
+    1. Built-in filter
+    2. Find Mattermost
+    3. Open the drawer
+    4. Edit Bot Prefix
+    5. Cancel
+    6. Verify unchanged
 
-    业务场景：
-    用户在 Built-in 过滤下找到 Mattermost 频道，打开编辑抽屉修改 Bot Prefix 后取消，
-    验证取消操作不会改变配置。
+    Business scenario:
+    Under the Built-in filter the user finds the Mattermost channel,
+    opens the edit drawer, modifies Bot Prefix and cancels, and verifies
+    that the cancel did not modify the config.
     """
 
     @pytest.mark.test_id("CHAN-005")
     def test_mattermost_filter_edit_cancel(self, channels_page: ChannelsPage, request: pytest.FixtureRequest):
         """
-        验证 Mattermost 频道在 Built-in 过滤下的编辑+取消组合操作
+        Verify the Mattermost edit+cancel combination under the Built-in filter.
 
-        测试步骤：
-        1. 访问 Channels 页面
-        2. 点击 Built-in 过滤
-        3. 找到 Mattermost 卡片并点击
-        4. 验证抽屉打开
-        5. 记录原始 Bot Prefix
-        6. 修改 Bot Prefix 后取消
-        7. 重新打开抽屉，验证 Bot Prefix 未变化
+        Steps:
+        1. Open the Channels page
+        2. Click the Built-in filter
+        3. Find the Mattermost card and click it
+        4. Verify the drawer opens
+        5. Record the original Bot Prefix
+        6. Modify Bot Prefix and cancel
+        7. Reopen the drawer and verify Bot Prefix is unchanged
         """
         test_name = request.node.name
         channel_name = "Mattermost"
 
-        log_test_step("1. 访问 Channels 页面")
+        log_test_step("1. Open the Channels page")
         channels_page.open()
 
-        log_test_step("2. 点击 Built-in 过滤")
+        log_test_step("2. Click the Built-in filter")
         channels_page.click_filter_builtin()
         channels_page.page.wait_for_timeout(500)
 
-        log_test_step(f"3. 找到 {channel_name} 卡片并点击")
+        log_test_step(f"3. Find the {channel_name} card and click it")
         card = channels_page.find_channel_card(channel_name)
-        assert card is not None, f"在 Built-in 过滤下未找到 {channel_name} 频道"
+        assert card is not None, f"{channel_name} channel not found under the Built-in filter"
         channels_page.click_channel_card(channel_name)
 
-        log_test_step("4. 验证抽屉打开")
-        assert channels_page.wait_for_drawer_open(), f"{channel_name} 编辑抽屉未打开"
+        log_test_step("4. Verify the drawer opens")
+        assert channels_page.wait_for_drawer_open(), f"{channel_name} edit drawer did not open"
         drawer_title = channels_page.get_drawer_title()
-        assert channel_name in drawer_title, f"{channel_name} 抽屉标题不正确：{drawer_title}"
+        assert channel_name in drawer_title, f"{channel_name} unexpected drawer title: {drawer_title}"
 
-        log_test_step("5. 记录原始 Bot Prefix")
+        log_test_step("5. Record the original Bot Prefix")
         bot_input = channels_page.page.locator('#bot_prefix')
         original_prefix = bot_input.input_value()
-        logger.info(f"原始 Bot Prefix: '{original_prefix}'")
+        logger.info(f"Original Bot Prefix: '{original_prefix}'")
 
-        log_test_step("6. 修改 Bot Prefix 后取消")
+        log_test_step("6. Modify Bot Prefix and cancel")
         channels_page.fill_bot_prefix("temp_prefix_for_cancel")
         channels_page.cancel_channel_config()
         channels_page.page.wait_for_timeout(1000)
-        logger.info("✅ 取消操作完成")
+        logger.info("Cancel completed")
 
-        log_test_step("7. 重新打开抽屉，验证 Bot Prefix 未变化")
+        log_test_step("7. Reopen the drawer and verify Bot Prefix is unchanged")
         channels_page.click_channel_card(channel_name)
         channels_page.wait_for_drawer_open()
         channels_page.page.wait_for_timeout(1000)
         after_cancel_prefix = channels_page.page.locator('#bot_prefix').input_value()
         assert after_cancel_prefix == original_prefix, \
-            f"取消后 Bot Prefix 应恢复为 '{original_prefix}'，实际为 '{after_cancel_prefix}'"
-        logger.info(f"✅ 取消验证通过：Bot Prefix 仍为 '{original_prefix}'")
+            f"After cancel, Bot Prefix should revert to '{original_prefix}', actual: '{after_cancel_prefix}'"
+        logger.info(f"Cancel verified: Bot Prefix still '{original_prefix}'")
 
         channels_page.close_drawer()
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - Mattermost 过滤+编辑+取消组合操作正常")
+        logger.info(f"Test {test_name} passed - Mattermost filter+edit+cancel combination works")
 
 
 # ============================================================================
-# CHAN-006: 遍历所有频道找到有 'Show Tool Messages'/'Show Thinking' 开关的频道，验证开关 UI 可切换
-# 覆盖频道：遍历所有频道，找到有消息过滤开关的频道
+# CHAN-006: Iterate all channels to find ones with 'Show Tool Messages'/'Show Thinking' switches and verify the switch UI can be toggled
+# Channels covered: iterate all channels, find ones with message-filter switches
 # ============================================================================
 
 @pytest.mark.integration
@@ -516,55 +520,55 @@ class TestMattermostComboOperations:
 @pytest.mark.channels_toggle
 class TestMessageFilterSwitches:
     """
-    CHAN-006: 遍历所有频道找到有 'Show Tool Messages'/'Show Thinking' 开关的频道，验证开关 UI 可切换
+    CHAN-006: Iterate all channels to find ones with 'Show Tool Messages'/'Show Thinking' switches and verify the switch UI can be toggled.
 
-    覆盖频道：遍历所有频道，找到有消息过滤开关的频道
+    Channels covered: iterate all channels, find ones with message-filter switches.
 
-    组合覆盖功能点：
-    1. 遍历所有频道
-    2. 找到有 'Show Tool Messages' 或 'Show Thinking' 开关的频道
-    3. 验证开关 UI 可切换
+    Combined coverage:
+    1. Iterate all channels
+    2. Find channels with 'Show Tool Messages' or 'Show Thinking' switches
+    3. Verify the switch UI can be toggled
 
-    业务场景：
-    某些频道有消息过滤开关（Show Tool Messages / Show Thinking），
-    验证这些开关可以在 UI 上切换。
+    Business scenario:
+    Some channels have message-filter switches (Show Tool Messages /
+    Show Thinking). Verify these switches can be toggled in the UI.
     """
 
     @pytest.mark.test_id("CHAN-006")
     def test_message_filter_switches(self, channels_page: ChannelsPage, request: pytest.FixtureRequest):
         """
-        遍历所有频道，找到有消息过滤开关的频道并验证开关可切换
+        Iterate all channels, find ones with message-filter switches and verify they can be toggled.
 
-        测试步骤：
-        1. 访问 Channels 页面
-        2. 获取所有频道卡片
-        3. 遍历每个频道，打开抽屉检查是否有 'Show Tool Messages' 或 'Show Thinking' 开关
-        4. 如果找到，验证开关可以切换
-        5. 至少找到一个有开关的频道
+        Steps:
+        1. Open the Channels page
+        2. Get all channel cards
+        3. For each channel, open the drawer and check for 'Show Tool Messages' or 'Show Thinking' switches
+        4. If found, verify the switch can be toggled
+        5. At least one channel with such a switch must be found
         """
         test_name = request.node.name
-        # 用已知频道名列表逐个尝试，避免依赖卡片 DOM 选择器提取名字
+        # Iterate through a known list of channel names rather than relying on a card-DOM selector to extract names
         candidate_channels = [
             "Console", "DingTalk", "Feishu", "Discord", "Telegram",
             "QQ", "XiaoYi", "Mattermost", "MQTT", "WeCom", "WeChat", "OneBot",
         ]
 
-        log_test_step("1. 访问 Channels 页面")
+        log_test_step("1. Open the Channels page")
         channels_page.open()
 
-        log_test_step("2. 遍历频道，查找带 Show Tool Messages / Show Thinking 开关的频道")
+        log_test_step("2. Iterate channels, looking for ones with Show Tool Messages / Show Thinking switches")
         found_switch_channels = []
 
         for channel_name in candidate_channels:
             card = channels_page.find_channel_card(channel_name)
             if card is None:
-                logger.info(f"频道 {channel_name} 卡片未找到，跳过")
+                logger.info(f"Channel {channel_name} card not found, skipping")
                 continue
 
-            log_test_step(f"3. 检查频道 {channel_name} 是否有消息过滤开关")
+            log_test_step(f"3. Check whether channel {channel_name} has a message-filter switch")
             channels_page.click_channel_card(channel_name)
             if not channels_page.wait_for_drawer_open():
-                logger.warning(f"无法打开 {channel_name} 抽屉，跳过")
+                logger.warning(f"Could not open {channel_name} drawer, skipping")
                 continue
 
             channels_page.page.wait_for_timeout(500)
@@ -580,19 +584,19 @@ class TestMessageFilterSwitches:
             ])
 
             if not (has_tool_messages or has_thinking):
-                logger.info(f"频道 {channel_name} 无消息过滤开关，关闭抽屉继续")
+                logger.info(f"Channel {channel_name} has no message-filter switch, closing drawer and continuing")
                 channels_page.close_drawer()
                 channels_page.page.wait_for_timeout(500)
                 continue
 
-            logger.info(f"✅ 频道 {channel_name} 有消息过滤开关")
+            logger.info(f"Channel {channel_name} has a message-filter switch")
             found_switch_channels.append(channel_name)
 
-            # 找到 Show Tool Messages / Show Thinking 对应的开关并切换
-            # 开关在文本标签附近，这里用所有 switch 元素按顺序匹配
+            # Find the switch corresponding to Show Tool Messages / Show Thinking and toggle it.
+            # The switch is near its text label; here we match by position among all switch elements.
             switches = drawer_body.locator('.qwenpaw-switch, .ant-switch').all()
-            # 启用开关是第一个；Show Tool Messages 通常在后面
-            # 跳过第一个(Enabled 开关)，取第二个（Show Tool Messages）
+            # The Enable switch is the first one; Show Tool Messages usually comes after.
+            # Skip the first (Enabled switch) and take the second (Show Tool Messages).
             target_switch = None
             switch_label = ""
             if len(switches) >= 2 and has_tool_messages:
@@ -603,45 +607,45 @@ class TestMessageFilterSwitches:
                 switch_label = "Show Thinking"
             elif len(switches) >= 2:
                 target_switch = switches[1]
-                switch_label = "消息过滤开关"
+                switch_label = "message filter switch"
 
             if target_switch is not None:
                 initial_state = target_switch.get_attribute('aria-checked')
-                logger.info(f"初始 {switch_label} 状态: {initial_state}")
+                logger.info(f"Initial {switch_label} state: {initial_state}")
 
                 try:
                     target_switch.click()
                     channels_page.page.wait_for_timeout(500)
                     new_state = target_switch.get_attribute('aria-checked')
-                    logger.info(f"切换后 {switch_label} 状态: {new_state}")
+                    logger.info(f"After toggle {switch_label} state: {new_state}")
 
-                    assert initial_state != new_state, f"{switch_label} 开关状态未变化：{initial_state}"
-                    logger.info(f"✅ {switch_label} 已成功切换")
+                    assert initial_state != new_state, f"{switch_label} switch state did not change: {initial_state}"
+                    logger.info(f"{switch_label} toggled successfully")
                 finally:
-                    # 无论断言是否通过，都恢复原始状态
+                    # Whether the assertion passed or not, restore the original state
                     try:
                         current_state = target_switch.get_attribute('aria-checked')
                         if current_state != initial_state:
                             target_switch.click()
                             channels_page.page.wait_for_timeout(300)
-                            logger.info(f"🧹 已恢复 {switch_label} 到初始状态: {initial_state}")
+                            logger.info(f"Restored {switch_label} to initial state: {initial_state}")
                     except Exception as restore_err:
-                        logger.warning(f"⚠️ 恢复开关状态失败: {restore_err}")
+                        logger.warning(f"Failed to restore switch state: {restore_err}")
 
             channels_page.close_drawer()
             channels_page.page.wait_for_timeout(500)
-            break  # 只验证第一个找到的
+            break  # Only validate the first one found
 
-        assert len(found_switch_channels) > 0, "未找到任何有消息过滤开关的频道"
-        logger.info(f"✅ 找到有消息过滤开关的频道：{found_switch_channels}")
+        assert len(found_switch_channels) > 0, "No channel with a message-filter switch was found"
+        logger.info(f"Channels with message-filter switches: {found_switch_channels}")
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - 消息过滤开关验证通过")
+        logger.info(f"Test {test_name} passed - message-filter switches verified")
 
 
 # ============================================================================
-# CHAN-P1-001: WeCom 频道的抽屉配置表单字段验证
-# 覆盖频道：WeCom
+# CHAN-P1-001: WeCom channel drawer config form fields verification
+# Channels covered: WeCom
 # ============================================================================
 
 @pytest.mark.integration
@@ -649,51 +653,51 @@ class TestMessageFilterSwitches:
 @pytest.mark.channels_wecom
 class TestWeComFormFields:
     """
-    CHAN-P1-001: WeCom 频道的抽屉配置表单字段验证
+    CHAN-P1-001: WeCom channel drawer config form fields verification.
 
-    覆盖频道：WeCom
+    Channels covered: WeCom.
 
-    组合覆盖功能点：
-    1. 打开 WeCom 抽屉
-    2. 验证抽屉标题
-    3. 验证表单字段存在
+    Combined coverage:
+    1. Open the WeCom drawer
+    2. Verify the drawer title
+    3. Verify the form fields exist
 
-    业务场景：
-    验证 WeCom 频道的配置表单字段是否正确显示。
+    Business scenario:
+    Verify that the WeCom channel's config form fields are displayed correctly.
     """
 
     @pytest.mark.test_id("CHAN-P1-001")
     def test_wecom_form_fields(self, channels_page: ChannelsPage, request: pytest.FixtureRequest):
         """
-        验证 WeCom 频道的抽屉配置表单字段
+        Verify the WeCom channel's drawer config form fields.
 
-        测试步骤：
-        1. 访问 Channels 页面
-        2. 点击 WeCom 卡片，验证抽屉打开
-        3. 验证抽屉标题包含 WeCom
-        4. 验证表单字段存在
+        Steps:
+        1. Open the Channels page
+        2. Click the WeCom card and verify the drawer opens
+        3. Verify the drawer title contains WeCom
+        4. Verify the form fields exist
         """
         test_name = request.node.name
         channel_name = "WeCom"
 
-        log_test_step("1. 访问 Channels 页面")
+        log_test_step("1. Open the Channels page")
         channels_page.open()
 
-        log_test_step("2. 点击 WeCom 卡片，验证抽屉打开")
+        log_test_step("2. Click the WeCom card and verify the drawer opens")
         channels_page.click_channel_card(channel_name)
-        assert channels_page.wait_for_drawer_open(), "编辑抽屉未打开"
+        assert channels_page.wait_for_drawer_open(), "Edit drawer did not open"
 
-        log_test_step("3. 验证抽屉标题")
+        log_test_step("3. Verify the drawer title")
         drawer_title = channels_page.get_drawer_title()
         channel_name_cn = {"WeCom": "企业微信"}.get(channel_name, channel_name)
         title_first_line = drawer_title.split('\n')[0].strip()
         assert channel_name in title_first_line or channel_name_cn in title_first_line, \
-            f"抽屉标题不正确：{drawer_title}，期望包含 {channel_name} 或 {channel_name_cn}"
-        logger.info(f"✅ 抽屉标题：{drawer_title}")
+            f"Unexpected drawer title: {drawer_title}, expected to contain {channel_name} or {channel_name_cn}"
+        logger.info(f"Drawer title: {drawer_title}")
 
-        log_test_step("4. 验证 WeCom 独有的表单字段存在")
+        log_test_step("4. Verify the unique WeCom form fields exist")
         drawer_content = channels_page.page.locator('.qwenpaw-drawer-body, .ant-drawer-body').inner_text()
-        # WeCom 独有字段（中英文均可匹配）
+        # WeCom-unique fields (CN/EN both supported)
         expected_keywords = [
             "Bot ID", "Secret", "DM Policy", "Group Policy", "Require @Mention",
             "私聊策略", "群聊策略", "需要 @提及", "扫码授权", "白名单",
@@ -701,19 +705,19 @@ class TestWeComFormFields:
         found_keywords = [kw for kw in expected_keywords if kw.lower() in drawer_content.lower()]
 
         assert len(found_keywords) >= 2, \
-            f"WeCom 抽屉中未找到足够的独有字段（至少 2 个），预期 {expected_keywords}，" \
-            f"找到 {found_keywords}，实际内容：{drawer_content[:300]}"
-        logger.info(f"✅ WeCom 找到独有字段关键词：{found_keywords}")
+            f"WeCom drawer did not contain enough unique fields (at least 2 required); expected {expected_keywords}, " \
+            f"found {found_keywords}, actual content: {drawer_content[:300]}"
+        logger.info(f"WeCom found unique field keywords: {found_keywords}")
 
         channels_page.close_drawer()
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - WeCom 表单字段验证通过")
+        logger.info(f"Test {test_name} passed - WeCom form fields verified")
 
 
 # ============================================================================
-# CHAN-P1-004: WeChat 频道的抽屉配置表单字段验证
-# 覆盖频道：WeChat
+# CHAN-P1-004: WeChat channel drawer config form fields verification
+# Channels covered: WeChat
 # ============================================================================
 
 @pytest.mark.integration
@@ -721,51 +725,51 @@ class TestWeComFormFields:
 @pytest.mark.channels_wechat
 class TestWeChatFormFields:
     """
-    CHAN-P1-004: WeChat 频道的抽屉配置表单字段验证
+    CHAN-P1-004: WeChat channel drawer config form fields verification.
 
-    覆盖频道：WeChat
+    Channels covered: WeChat.
 
-    组合覆盖功能点：
-    1. 打开 WeChat 抽屉
-    2. 验证抽屉标题
-    3. 验证表单字段存在
+    Combined coverage:
+    1. Open the WeChat drawer
+    2. Verify the drawer title
+    3. Verify the form fields exist
 
-    业务场景：
-    验证 WeChat 频道的配置表单字段是否正确显示。
+    Business scenario:
+    Verify that the WeChat channel's config form fields are displayed correctly.
     """
 
     @pytest.mark.test_id("CHAN-P1-004")
     def test_wechat_form_fields(self, channels_page: ChannelsPage, request: pytest.FixtureRequest):
         """
-        验证 WeChat 频道的抽屉配置表单字段
+        Verify the WeChat channel's drawer config form fields.
 
-        测试步骤：
-        1. 访问 Channels 页面
-        2. 点击 WeChat 卡片，验证抽屉打开
-        3. 验证抽屉标题包含 WeChat
-        4. 验证表单字段存在
+        Steps:
+        1. Open the Channels page
+        2. Click the WeChat card and verify the drawer opens
+        3. Verify the drawer title contains WeChat
+        4. Verify the form fields exist
         """
         test_name = request.node.name
         channel_name = "WeChat"
 
-        log_test_step("1. 访问 Channels 页面")
+        log_test_step("1. Open the Channels page")
         channels_page.open()
 
-        log_test_step("2. 点击 WeChat 卡片，验证抽屉打开")
+        log_test_step("2. Click the WeChat card and verify the drawer opens")
         channels_page.click_channel_card(channel_name)
-        assert channels_page.wait_for_drawer_open(), "编辑抽屉未打开"
+        assert channels_page.wait_for_drawer_open(), "Edit drawer did not open"
 
-        log_test_step("3. 验证抽屉标题")
+        log_test_step("3. Verify the drawer title")
         drawer_title = channels_page.get_drawer_title()
         channel_name_cn = {"WeChat": "微信"}.get(channel_name, channel_name)
         title_first_line = drawer_title.split('\n')[0].strip()
         assert channel_name in title_first_line or channel_name_cn in title_first_line, \
-            f"抽屉标题不正确：{drawer_title}，期望包含 {channel_name} 或 {channel_name_cn}"
-        logger.info(f"✅ 抽屉标题：{drawer_title}")
+            f"Unexpected drawer title: {drawer_title}, expected to contain {channel_name} or {channel_name_cn}"
+        logger.info(f"Drawer title: {drawer_title}")
 
-        log_test_step("4. 验证 WeChat 独有的描述和字段")
+        log_test_step("4. Verify WeChat-unique description and fields")
         drawer_content = channels_page.page.locator('.qwenpaw-drawer-body, .ant-drawer-body').inner_text()
-        # WeChat 独有特征（中英文均可匹配）
+        # WeChat-unique markers (CN/EN both supported)
         wechat_unique_keywords = [
             "iLink", "QR code", "Bot Token", "Bot ID", "Secret",
             "扫码授权", "二维码", "私聊策略", "群聊策略", "需要 @提及", "白名单",
@@ -773,19 +777,19 @@ class TestWeChatFormFields:
         found_unique = [kw for kw in wechat_unique_keywords if kw.lower() in drawer_content.lower()]
 
         assert len(found_unique) >= 2, \
-            f"WeChat 抽屉中未找到足够的独有特征（至少 2 个），预期 {wechat_unique_keywords}，" \
-            f"找到 {found_unique}，实际内容：{drawer_content[:300]}"
-        logger.info(f"✅ WeChat 找到独有特征关键词：{found_unique}")
+            f"WeChat drawer did not contain enough unique markers (at least 2 required); expected {wechat_unique_keywords}, " \
+            f"found {found_unique}, actual content: {drawer_content[:300]}"
+        logger.info(f"WeChat found unique marker keywords: {found_unique}")
 
         channels_page.close_drawer()
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - WeChat 表单字段验证通过")
+        logger.info(f"Test {test_name} passed - WeChat form fields verified")
 
 
 # ============================================================================
-# CHAN-P1-005: OneBot 频道的抽屉配置表单字段验证
-# 覆盖频道：OneBot
+# CHAN-P1-005: OneBot channel drawer config form fields verification
+# Channels covered: OneBot
 # ============================================================================
 
 @pytest.mark.integration
@@ -793,48 +797,48 @@ class TestWeChatFormFields:
 @pytest.mark.channels_onebot
 class TestOneBotFormFields:
     """
-    CHAN-P1-005: OneBot 频道的抽屉配置表单字段验证
+    CHAN-P1-005: OneBot channel drawer config form fields verification.
 
-    覆盖频道：OneBot
+    Channels covered: OneBot.
 
-    组合覆盖功能点：
-    1. 打开 OneBot 抽屉
-    2. 验证抽屉标题
-    3. 验证表单字段存在
+    Combined coverage:
+    1. Open the OneBot drawer
+    2. Verify the drawer title
+    3. Verify the form fields exist
 
-    业务场景：
-    验证 OneBot 频道的配置表单字段是否正确显示。
+    Business scenario:
+    Verify that the OneBot channel's config form fields are displayed correctly.
     """
 
     @pytest.mark.test_id("CHAN-P1-005")
     def test_onebot_form_fields(self, channels_page: ChannelsPage, request: pytest.FixtureRequest):
         """
-        验证 OneBot 频道的抽屉配置表单字段
+        Verify the OneBot channel's drawer config form fields.
 
-        测试步骤：
-        1. 访问 Channels 页面
-        2. 点击 OneBot 卡片，验证抽屉打开
-        3. 验证抽屉标题包含 OneBot
-        4. 验证表单字段存在
+        Steps:
+        1. Open the Channels page
+        2. Click the OneBot card and verify the drawer opens
+        3. Verify the drawer title contains OneBot
+        4. Verify the form fields exist
         """
         test_name = request.node.name
         channel_name = "OneBot"
 
-        log_test_step("1. 访问 Channels 页面")
+        log_test_step("1. Open the Channels page")
         channels_page.open()
 
-        log_test_step("2. 点击 OneBot 卡片，验证抽屉打开")
+        log_test_step("2. Click the OneBot card and verify the drawer opens")
         channels_page.click_channel_card(channel_name)
-        assert channels_page.wait_for_drawer_open(), "编辑抽屉未打开"
+        assert channels_page.wait_for_drawer_open(), "Edit drawer did not open"
 
-        log_test_step("3. 验证抽屉标题")
+        log_test_step("3. Verify the drawer title")
         drawer_title = channels_page.get_drawer_title()
-        assert channel_name in drawer_title, f"抽屉标题不正确：{drawer_title}，期望包含 {channel_name}"
-        logger.info(f"✅ 抽屉标题：{drawer_title}")
+        assert channel_name in drawer_title, f"Unexpected drawer title: {drawer_title}, expected to contain {channel_name}"
+        logger.info(f"Drawer title: {drawer_title}")
 
-        log_test_step("4. 验证表单字段存在")
+        log_test_step("4. Verify the form fields exist")
         drawer_content = channels_page.page.locator('.qwenpaw-drawer-body, .ant-drawer-body').inner_text()
-        # OneBot 应该有 URL, Access Token 等字段
+        # OneBot should have URL, Access Token, etc.
         expected_keywords = ["URL", "Access Token", "Token"]
         found_keywords = []
         for keyword in expected_keywords:
@@ -842,18 +846,18 @@ class TestOneBotFormFields:
                 found_keywords.append(keyword)
 
         assert len(found_keywords) > 0, \
-            f"OneBot 抽屉中未找到预期字段关键词 {expected_keywords}，实际内容：{drawer_content[:200]}"
-        logger.info(f"✅ OneBot 找到字段关键词：{found_keywords}")
+            f"OneBot drawer did not contain the expected field keywords {expected_keywords}, actual content: {drawer_content[:200]}"
+        logger.info(f"OneBot found field keywords: {found_keywords}")
 
         channels_page.close_drawer()
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - OneBot 表单字段验证通过")
+        logger.info(f"Test {test_name} passed - OneBot form fields verified")
 
 
 # ============================================================================
-# CHAN-P2-001: MQTT 频道的 Bot Prefix 配置验证
-# 覆盖频道：MQTT
+# CHAN-P2-001: MQTT channel Bot Prefix configuration verification
+# Channels covered: MQTT
 # ============================================================================
 
 @pytest.mark.integration
@@ -861,68 +865,68 @@ class TestOneBotFormFields:
 @pytest.mark.channels_mqtt
 class TestMQTTBotPrefix:
     """
-    CHAN-P2-001: MQTT 频道的 Bot Prefix 配置验证
+    CHAN-P2-001: MQTT channel Bot Prefix configuration verification.
 
-    覆盖频道：MQTT
+    Channels covered: MQTT.
 
-    组合覆盖功能点：
-    1. 打开 MQTT 抽屉
-    2. 验证抽屉标题
-    3. 验证 Bot Prefix 字段存在
-    4. 修改 Bot Prefix 后取消，验证未持久化
+    Combined coverage:
+    1. Open the MQTT drawer
+    2. Verify the drawer title
+    3. Verify the Bot Prefix field exists
+    4. Modify Bot Prefix and cancel, verify non-persistence
 
-    业务场景：
-    验证 MQTT 频道的 Bot Prefix 配置功能。
+    Business scenario:
+    Verify the Bot Prefix configuration for the MQTT channel.
     """
 
     @pytest.mark.test_id("CHAN-P2-001")
     def test_mqtt_bot_prefix(self, channels_page: ChannelsPage, request: pytest.FixtureRequest):
         """
-        验证 MQTT 频道的 Bot Prefix 配置
+        Verify the MQTT channel's Bot Prefix configuration.
 
-        测试步骤：
-        1. 访问 Channels 页面
-        2. 点击 MQTT 卡片，验证抽屉打开
-        3. 验证抽屉标题包含 MQTT
-        4. 验证 Bot Prefix 字段存在
-        5. 修改 Bot Prefix 后取消，验证未持久化
+        Steps:
+        1. Open the Channels page
+        2. Click the MQTT card and verify the drawer opens
+        3. Verify the drawer title contains MQTT
+        4. Verify the Bot Prefix field exists
+        5. Modify Bot Prefix and cancel, verify non-persistence
         """
         test_name = request.node.name
         channel_name = "MQTT"
 
-        log_test_step("1. 访问 Channels 页面")
+        log_test_step("1. Open the Channels page")
         channels_page.open()
 
-        log_test_step("2. 点击 MQTT 卡片，验证抽屉打开")
+        log_test_step("2. Click the MQTT card and verify the drawer opens")
         channels_page.click_channel_card(channel_name)
-        assert channels_page.wait_for_drawer_open(), "编辑抽屉未打开"
+        assert channels_page.wait_for_drawer_open(), "Edit drawer did not open"
 
-        log_test_step("3. 验证抽屉标题")
+        log_test_step("3. Verify the drawer title")
         drawer_title = channels_page.get_drawer_title()
-        assert channel_name in drawer_title, f"抽屉标题不正确：{drawer_title}，期望包含 {channel_name}"
-        logger.info(f"✅ 抽屉标题：{drawer_title}")
+        assert channel_name in drawer_title, f"Unexpected drawer title: {drawer_title}, expected to contain {channel_name}"
+        logger.info(f"Drawer title: {drawer_title}")
 
-        log_test_step("4. 验证 Bot Prefix 字段存在")
+        log_test_step("4. Verify the Bot Prefix field exists")
         bot_input = channels_page.page.locator('#bot_prefix')
-        assert bot_input.count() > 0 and bot_input.is_visible(), "Bot Prefix 输入框不可见"
+        assert bot_input.count() > 0 and bot_input.is_visible(), "Bot Prefix input not visible"
         original_prefix = bot_input.input_value()
-        logger.info(f"原始 Bot Prefix: '{original_prefix}'")
+        logger.info(f"Original Bot Prefix: '{original_prefix}'")
 
-        log_test_step("5. 修改 Bot Prefix 后取消，验证未持久化")
+        log_test_step("5. Modify Bot Prefix and cancel, verify non-persistence")
         channels_page.fill_bot_prefix("temp_mqtt_prefix")
         channels_page.cancel_channel_config()
         channels_page.page.wait_for_timeout(1000)
 
-        # 重新打开验证未持久化
+        # Reopen and verify non-persistence
         channels_page.click_channel_card(channel_name)
         channels_page.wait_for_drawer_open()
         channels_page.page.wait_for_timeout(1000)
         after_cancel_prefix = channels_page.page.locator('#bot_prefix').input_value()
         assert after_cancel_prefix == original_prefix, \
-            f"取消后 Bot Prefix 应恢复为 '{original_prefix}'，实际为 '{after_cancel_prefix}'"
-        logger.info(f"✅ 取消验证通过：Bot Prefix 仍为 '{original_prefix}'")
+            f"After cancel, Bot Prefix should revert to '{original_prefix}', actual: '{after_cancel_prefix}'"
+        logger.info(f"Cancel verified: Bot Prefix still '{original_prefix}'")
 
         channels_page.close_drawer()
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - MQTT Bot Prefix 配置验证通过")
+        logger.info(f"Test {test_name} passed - MQTT Bot Prefix configuration verified")

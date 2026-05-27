@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw Skills 页面对象
+QwenPaw Skills page object.
 
-封装 Skills 页面的所有交互操作，提供业务级别的方法。
+Wraps all interactions on the Skills page and exposes business-level methods.
 """
 from __future__ import annotations
 
@@ -18,77 +18,77 @@ logger = logging.getLogger(__name__)
 
 class SkillsPage(BasePage):
     """
-    Skills 页面对象
-    
-    封装 Skills 页面的所有用户操作：
-    - 打开技能页面
-    - 获取技能卡片列表
-    - 获取技能名称
-    - 切换技能开关
-    - 检查技能启用状态
-    - 搜索技能
+    Skills page object.
+
+    Wraps all user actions on the Skills page:
+    - Open the Skills page
+    - Get the list of skill cards
+    - Read a skill's name
+    - Toggle the skill switch
+    - Check whether a skill is enabled
+    - Search skills
     """
-    
+
     PAGE_TITLE = "QwenPaw Console"
     SKILLS_URL = f"{config.base_url}/skills"
     PAGE_URL = SKILLS_URL
-    
-    # ========== 选择器定义 ==========
-    
-    # 页面加载标志
+
+    # ========== Selector definitions ==========
+
+    # Page load indicator
     SKILL_PAGE_CONTAINER = "div[class*=skillsPage]"
     PAGE_LOAD_INDICATOR = SKILL_PAGE_CONTAINER
-    
-    # 技能卡片相关选择器
+
+    # Skill card selectors
     SKILL_CARD_SELECTOR = ".qwenpaw-card"
     SWITCH_SELECTOR = '.qwenpaw-switch'
-    
-    # 搜索框
+
+    # Search input
     SEARCH_INPUT = 'input[placeholder*="搜索"], input[placeholder*="Search"], .ant-input-search input, .qwenpaw-input-search input'
-    
-    # ========== 导航方法 ==========
-    
+
+    # ========== Navigation methods ==========
+
     def open(self) -> "SkillsPage":
-        """打开 Skills 页面"""
-        logger.info("打开 Skills 页面")
+        """Open the Skills page."""
+        logger.info("Open the Skills page")
         self.goto()
         self.wait_for_page_loaded()
         return self
-    
+
     def wait_for_page_loaded(self, timeout: Optional[int] = None) -> "SkillsPage":
-        """等待页面加载完成"""
+        """Wait for the page to finish loading."""
         timeout = timeout or self.timeout
         expect(self.page.locator(self.PAGE_LOAD_INDICATOR).first).to_be_visible(timeout=timeout)
         return self
-    
-    # ========== 技能列表操作方法 ==========
-    
+
+    # ========== Skill list methods ==========
+
     def get_skill_cards(self) -> List[Locator]:
-        """获取所有技能卡片"""
+        """Return all skill cards."""
         cards = self.page.locator(self.SKILL_CARD_SELECTOR).all()
-        logger.info(f"找到 {len(cards)} 个技能卡片")
+        logger.info(f"Found {len(cards)} skill card(s)")
         return cards
-    
+
     def get_skill_name(self, card: Locator) -> str:
-        """获取技能名称"""
-        # 尝试从卡片标题中获取技能名称
+        """Return the skill name for a card."""
+        # Try to read the title from the card
         title_element = card.locator('.ant-card-meta-title, .qwenpaw-card-meta-title, h3, h4, [class*="title"]').first
         if title_element.count() > 0:
             return title_element.inner_text()
-        
-        # 如果找不到标题，返回卡片的文本内容
+
+        # If no title, fall back to the card's text content
         return card.inner_text().strip()[:50]
-    
+
     def toggle_skill(self, card: Locator) -> "SkillsPage":
-        """切换技能开关"""
+        """Toggle the skill switch on a card."""
         switch = card.locator(self.SWITCH_SELECTOR).first
         if switch.count() > 0:
             switch.click()
-            logger.info("切换技能开关")
+            logger.info("Toggled skill switch")
         return self
-    
+
     def is_skill_enabled(self, card: Locator) -> bool:
-        """检查技能是否启用"""
+        """Return whether the skill is enabled."""
         switch = card.locator(self.SWITCH_SELECTOR).first
         if switch.count() > 0:
             return switch.evaluate(
@@ -97,28 +97,28 @@ class SkillsPage(BasePage):
                 "el.getAttribute('aria-checked') === 'true'"
             )
         return False
-    
+
     def search_skills(self, keyword: str) -> "SkillsPage":
-        """搜索技能"""
+        """Search for skills."""
         search_input = self.page.locator(self.SEARCH_INPUT).first
         if search_input.count() > 0:
             search_input.fill(keyword)
-            logger.info(f"搜索技能: {keyword}")
-            # 等待搜索结果加载
+            logger.info(f"Searching skills: {keyword}")
+            # Wait for search results to load
             self.page.wait_for_timeout(500)
         return self
-    
-    # ========== 断言方法 ==========
-    
+
+    # ========== Assertion methods ==========
+
     def assert_skill_count(self, expected_count: int, timeout: Optional[int] = None) -> "SkillsPage":
-        """断言技能卡片数量"""
+        """Assert the number of skill cards."""
         expect(self.page.locator(self.SKILL_CARD_SELECTOR)).to_have_count(
             expected_count, timeout=timeout or self.timeout
         )
         return self
-    
+
     def assert_skill_exists(self, skill_name: str, timeout: Optional[int] = None) -> "SkillsPage":
-        """断言技能存在"""
+        """Assert that a skill exists."""
         skill_card = self.page.locator(self.SKILL_CARD_SELECTOR).filter(
             has_text=skill_name
         ).first

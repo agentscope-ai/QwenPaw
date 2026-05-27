@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw 运行配置（Agent Config）模块 P0 级端到端测试用例
+QwenPaw Runtime Config (Agent Config) module P0 end-to-end test cases.
 
-组合用例设计：
-- AGCFG-001: ReAct 智能体 Tab 展示 + 语言下拉切换 + 时区验证
-- AGCFG-002: Tab 切换（LLM重试/并发限流/上下文压缩）+ 各 Tab 内容验证
-- AGCFG-003: 配置修改保存与重置
+Combined test cases:
+- AGCFG-001: ReAct agent tab display + language dropdown + timezone verification
+- AGCFG-002: Tab switching (LLM retry / rate limiter / context compaction) + per-tab content verification
+- AGCFG-003: Config modification, save and reset
 
-执行命令：pytest tests/test_runtime_config_p0.py -v
+Run with: pytest tests/test_runtime_config_p0.py -v
 """
 from __future__ import annotations
 
@@ -24,14 +24,14 @@ AGENT_CONFIG_URL = f"{config.base_url}/agent-config"
 
 
 def navigate_to_agent_config(page: Page):
-    """导航到运行配置页面并等待加载"""
+    """Navigate to the runtime config page and wait for it to load."""
     page.goto(AGENT_CONFIG_URL)
     page.wait_for_load_state("domcontentloaded")
     page.wait_for_timeout(3000)
 
 
 # ============================================================================
-# AGCFG-001: ReAct 智能体 Tab 展示 + 语言下拉切换 + 时区验证
+# AGCFG-001: ReAct agent tab display + language dropdown + timezone verification
 # ============================================================================
 
 @pytest.mark.integration
@@ -39,78 +39,75 @@ def navigate_to_agent_config(page: Page):
 @pytest.mark.config
 class TestReActAgentConfig:
     """
-    AGCFG-001: ReAct 智能体 Tab 展示 + 语言下拉切换 + 时区验证
+    AGCFG-001: ReAct agent tab display + language dropdown + timezone verification.
 
-    覆盖功能点：
-    1. 运行配置页面访问与加载
-    2. ReAct 智能体 Tab 默认激活
-    3. 智能体语言下拉框展示与切换
-    4. 用户时区下拉框展示
-    5. 表单卡片标题验证
+    Coverage:
+    1. Runtime config page navigation and load
+    2. ReAct agent tab active by default
+    3. Agent language dropdown display and switching
+    4. User timezone dropdown display
+    5. Form card title verification
     """
 
     @pytest.mark.test_id("AGCFG-001")
     def test_react_agent_language_and_timezone(self, page: Page, request: pytest.FixtureRequest):
-        """验证 ReAct 智能体语言切换和时区配置"""
+        """Verify ReAct agent language switching and timezone configuration."""
         test_name = request.node.name
 
-        # 步骤1: 访问运行配置页面
-        log_test_step("1. 访问运行配置页面")
+        # Step 1: Visit the runtime config page
+        log_test_step("1. Visit the runtime config page")
         navigate_to_agent_config(page)
 
-        # 步骤2: 验证面包屑
-        log_test_step("2. 验证面包屑")
+        # Step 2: Verify breadcrumb
+        log_test_step("2. Verify breadcrumb")
         try:
             breadcrumb = page.locator(
-                'span[class*="breadcrumbCurrent"]:has-text("运行配置"), '
                 'span[class*="breadcrumbCurrent"]:has-text("Runtime"), '
                 'span[class*="breadcrumbCurrent"]:has-text("Config")'
             ).first
             if not breadcrumb.is_visible():
-                breadcrumb = page.locator('text=运行配置').first
-            if not breadcrumb.is_visible():
                 breadcrumb = page.locator('text=Runtime').first
             expect(breadcrumb).to_be_visible(timeout=5000)
-            logger.info("✅ 面包屑验证通过")
+            logger.info("Breadcrumb verified")
         except Exception:
-            logger.warning("⚠️ 面包屑验证跳过（中英文不匹配）")
+            logger.warning("Breadcrumb verification skipped (locale mismatch)")
 
-        # 步骤3: 验证 Tabs 存在
-        log_test_step("3. 验证 Tabs 存在")
+        # Step 3: Verify tabs exist
+        log_test_step("3. Verify tabs exist")
         react_tab = page.locator('[data-node-key="reactAgent"] .qwenpaw-tabs-tab-btn').first
         expect(react_tab).to_be_visible(timeout=5000)
-        logger.info("✅ ReAct 智能体 Tab 可见")
+        logger.info("ReAct agent tab visible")
 
-        # 步骤4: 验证 ReAct 智能体 Tab 默认激活
-        log_test_step("4. 验证 ReAct 智能体 Tab 默认激活")
+        # Step 4: Verify the ReAct agent tab is active by default
+        log_test_step("4. Verify the ReAct agent tab is active by default")
         active_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
         expect(active_panel).to_be_visible(timeout=5000)
 
-        # 验证卡片标题
+        # Verify the card title
         card_title = active_panel.locator('.qwenpaw-spark-title').first
         expect(card_title).to_be_visible(timeout=5000)
         title_text = card_title.inner_text()
-        assert "ReAct" in title_text, f"卡片标题不包含 ReAct：{title_text}"
-        logger.info(f"✅ 卡片标题：{title_text}")
+        assert "ReAct" in title_text, f"Card title does not contain ReAct: {title_text}"
+        logger.info(f"Card title: {title_text}")
 
-        # 步骤5: 验证智能体语言下拉框
-        log_test_step("5. 验证智能体语言下拉框")
-        language_label = active_panel.locator('label:has-text("智能体语言"), label:has-text("Agent Language"), label:has-text("Language")').first
+        # Step 5: Verify the agent language dropdown
+        log_test_step("5. Verify the agent language dropdown")
+        language_label = active_panel.locator('label:has-text("Agent Language"), label:has-text("Language")').first
         try:
             expect(language_label).to_be_visible(timeout=5000)
-            logger.info("✅ 智能体语言标签可见")
+            logger.info("Agent language label visible")
         except Exception:
-            logger.warning("⚠️ 智能体语言标签未找到，跳过验证")
+            logger.warning("Agent language label not found, skipping verification")
 
-        # 找到语言下拉框（第一个 select）
+        # Find the language dropdown (first select)
         language_select = active_panel.locator('.qwenpaw-select').first
         expect(language_select).to_be_visible(timeout=5000)
 
-        # 获取当前选中值
+        # Read the currently selected value
         current_value = language_select.locator('.qwenpaw-select-selection-item').first.inner_text()
-        logger.info(f"当前智能体语言：{current_value}")
+        logger.info(f"Current agent language: {current_value}")
 
-        # 点击展开下拉
+        # Click to expand the dropdown
         language_select.click()
         page.wait_for_timeout(1000)
 
@@ -118,41 +115,41 @@ class TestReActAgentConfig:
         if dropdown.is_visible():
             options = dropdown.locator('.qwenpaw-select-item-option').all()
             option_texts = [opt.inner_text() for opt in options]
-            logger.info(f"语言选项：{option_texts}")
-            assert len(options) >= 2, f"语言选项不足：{len(options)}"
-            assert "English" in option_texts, f"缺少 English 选项：{option_texts}"
-            logger.info("✅ 语言下拉框展开正常，选项验证通过")
+            logger.info(f"Language options: {option_texts}")
+            assert len(options) >= 2, f"Insufficient language options: {len(options)}"
+            assert "English" in option_texts, f"Missing English option: {option_texts}"
+            logger.info("Language dropdown opens correctly and options verified")
 
-            # 关闭下拉（不实际切换，避免修改用户配置）
+            # Close the dropdown without selecting, to avoid altering user config
             page.keyboard.press("Escape")
             page.wait_for_timeout(500)
         else:
             page.keyboard.press("Escape")
-            logger.warning("⚠️ 语言下拉选项未展开，跳过验证")
+            logger.warning("Language dropdown options did not open, skipping verification")
 
-        # 步骤6: 验证用户时区下拉框
-        log_test_step("6. 验证用户时区下拉框")
-        timezone_label = active_panel.locator('label:has-text("用户时区"), label:has-text("User Timezone"), label:has-text("Timezone")').first
+        # Step 6: Verify the user timezone dropdown
+        log_test_step("6. Verify the user timezone dropdown")
+        timezone_label = active_panel.locator('label:has-text("User Timezone"), label:has-text("Timezone")').first
         try:
             expect(timezone_label).to_be_visible(timeout=5000)
-            logger.info("✅ 用户时区标签可见")
+            logger.info("User timezone label visible")
         except Exception:
-            logger.warning("⚠️ 用户时区标签未找到，跳过验证")
+            logger.warning("User timezone label not found, skipping verification")
 
-        # 时区下拉框是第二个 select
+        # The timezone dropdown is the second select
         selects = active_panel.locator('.qwenpaw-select').all()
-        assert len(selects) >= 2, f"下拉框数量不足（期望 ≥ 2）：{len(selects)}"
+        assert len(selects) >= 2, f"Insufficient dropdowns (expected >= 2): {len(selects)}"
         timezone_select = selects[1]
         timezone_value = timezone_select.locator('.qwenpaw-select-selection-item').first.inner_text()
-        assert len(timezone_value) > 0, "时区值为空"
-        logger.info(f"✅ 当前时区：{timezone_value}")
+        assert len(timezone_value) > 0, "Timezone value is empty"
+        logger.info(f"Current timezone: {timezone_value}")
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - ReAct 智能体语言切换和时区配置正常")
+        logger.info(f"Test {test_name} passed - ReAct agent language and timezone config OK")
 
 
 # ============================================================================
-# AGCFG-002: Tab 切换验证（LLM重试/并发限流/上下文压缩）
+# AGCFG-002: Tab switching (LLM retry / rate limiter / context compaction)
 # ============================================================================
 
 @pytest.mark.integration
@@ -160,36 +157,36 @@ class TestReActAgentConfig:
 @pytest.mark.config
 class TestAgentConfigTabSwitch:
     """
-    AGCFG-002: Tab 切换验证
+    AGCFG-002: Tab switching verification.
 
-    覆盖功能点：
-    1. 切换到 LLM 自动重试 Tab 并验证内容
-    2. 切换到 LLM 并发限流 Tab 并验证内容
-    3. 切换到上下文压缩 Tab 并验证内容
-    4. 各 Tab 的开关/配置项验证
+    Coverage:
+    1. Switch to LLM auto-retry tab and verify content
+    2. Switch to LLM rate limiter tab and verify content
+    3. Switch to context compaction tab and verify content
+    4. Verify switches/inputs in each tab
     """
 
     @pytest.mark.test_id("AGCFG-002")
     def test_agent_config_tab_switch(self, page: Page, request: pytest.FixtureRequest):
-        """验证运行配置各 Tab 切换和内容展示"""
+        """Verify tab switching and content display on the runtime config page."""
         test_name = request.node.name
 
-        # 步骤1: 访问运行配置页面
-        log_test_step("1. 访问运行配置页面")
+        # Step 1: Visit the runtime config page
+        log_test_step("1. Visit the runtime config page")
         navigate_to_agent_config(page)
 
-        # 步骤2: 验证所有 Tab 可见
-        log_test_step("2. 验证所有 Tab 可见")
+        # Step 2: Verify all tabs are visible
+        log_test_step("2. Verify all tabs are visible")
         tab_keys = ["reactAgent", "llmRetry", "llmRateLimiter", "lightContext"]
 
         for key in tab_keys:
             tab_btn = page.locator(f'[data-node-key="{key}"] .qwenpaw-tabs-tab-btn').first
             expect(tab_btn).to_be_visible(timeout=5000)
 
-        logger.info(f"✅ 所有 {len(tab_keys)} 个 Tab 均可见")
+        logger.info(f"All {len(tab_keys)} tabs are visible")
 
-        # 步骤3: 切换到 LLM 自动重试 Tab
-        log_test_step("3. 切换到 LLM 自动重试 Tab")
+        # Step 3: Switch to the LLM auto-retry tab
+        log_test_step("3. Switch to the LLM auto-retry tab")
         llm_retry_tab = page.locator('[data-node-key="llmRetry"] .qwenpaw-tabs-tab-btn').first
         llm_retry_tab.click()
         page.wait_for_timeout(1500)
@@ -199,11 +196,11 @@ class TestAgentConfigTabSwitch:
 
         retry_switches = retry_panel.locator('button.qwenpaw-switch[role="switch"]').all()
         retry_inputs = retry_panel.locator('.qwenpaw-input, .qwenpaw-input-number, .qwenpaw-select').all()
-        assert len(retry_switches) + len(retry_inputs) >= 1, "LLM 自动重试 Tab 内无配置项"
-        logger.info(f"✅ LLM 自动重试 Tab - 开关数：{len(retry_switches)}, 输入项数：{len(retry_inputs)}")
+        assert len(retry_switches) + len(retry_inputs) >= 1, "No config items in LLM auto-retry tab"
+        logger.info(f"LLM auto-retry tab - switches: {len(retry_switches)}, inputs: {len(retry_inputs)}")
 
-        # 步骤4: 切换到 LLM 并发限流 Tab
-        log_test_step("4. 切换到 LLM 并发限流 Tab")
+        # Step 4: Switch to the LLM rate limiter tab
+        log_test_step("4. Switch to the LLM rate limiter tab")
         rate_limiter_tab = page.locator('[data-node-key="llmRateLimiter"] .qwenpaw-tabs-tab-btn').first
         rate_limiter_tab.click()
         page.wait_for_timeout(1500)
@@ -213,11 +210,11 @@ class TestAgentConfigTabSwitch:
 
         rate_switches = rate_panel.locator('button.qwenpaw-switch[role="switch"]').all()
         rate_inputs = rate_panel.locator('.qwenpaw-input, .qwenpaw-input-number, .qwenpaw-select').all()
-        assert len(rate_switches) + len(rate_inputs) >= 1, "LLM 并发限流 Tab 内无配置项"
-        logger.info(f"✅ LLM 并发限流 Tab - 开关数：{len(rate_switches)}, 输入项数：{len(rate_inputs)}")
+        assert len(rate_switches) + len(rate_inputs) >= 1, "No config items in LLM rate limiter tab"
+        logger.info(f"LLM rate limiter tab - switches: {len(rate_switches)}, inputs: {len(rate_inputs)}")
 
-        # 步骤5: 切换到上下文管理 Tab
-        log_test_step("5. 切换到上下文管理 Tab")
+        # Step 5: Switch to the context management tab
+        log_test_step("5. Switch to the context management tab")
         context_tab = page.locator('[data-node-key="lightContext"] .qwenpaw-tabs-tab-btn').first
         context_tab.click()
         page.wait_for_timeout(1500)
@@ -226,25 +223,25 @@ class TestAgentConfigTabSwitch:
         expect(context_panel).to_be_visible(timeout=5000)
 
         context_inputs = context_panel.locator('.qwenpaw-input, .qwenpaw-input-number, .qwenpaw-select').all()
-        assert len(context_inputs) >= 1, "上下文管理 Tab 内无配置项"
-        logger.info(f"✅ 上下文管理 Tab - 输入项数：{len(context_inputs)}")
+        assert len(context_inputs) >= 1, "No config items in context management tab"
+        logger.info(f"Context management tab - inputs: {len(context_inputs)}")
 
-        # 步骤6: 切换回 ReAct 智能体 Tab 确认可正常回切
-        log_test_step("6. 切换回 ReAct 智能体 Tab")
+        # Step 6: Switch back to the ReAct agent tab to confirm round-trip
+        log_test_step("6. Switch back to the ReAct agent tab")
         react_tab = page.locator('[data-node-key="reactAgent"] .qwenpaw-tabs-tab-btn').first
         react_tab.click()
         page.wait_for_timeout(1000)
 
         react_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
         expect(react_panel).to_be_visible(timeout=5000)
-        logger.info("✅ 已切换回 ReAct 智能体 Tab")
+        logger.info("Switched back to ReAct agent tab")
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - 运行配置各 Tab 切换和内容展示正常")
+        logger.info(f"Test {test_name} passed - tab switching and content display OK")
 
 
 # ============================================================================
-# AGCFG-003: 配置修改保存与重置
+# AGCFG-003: Config modification, save and reset
 # ============================================================================
 
 @pytest.mark.integration
@@ -252,32 +249,32 @@ class TestAgentConfigTabSwitch:
 @pytest.mark.config
 class TestAgentConfigSaveAndReset:
     """
-    AGCFG-003: 配置修改保存与重置
+    AGCFG-003: Config modification, save and reset.
 
-    覆盖功能点：
-    1. 访问运行配置页面
-    2. 切换到上下文压缩 Tab
-    3. 找到启用开关并记录当前状态
-    4. 切换开关状态
-    5. 找到保存按钮并点击
-    6. 验证保存成功提示
-    7. 刷新页面
-    8. 切换到上下文压缩 Tab
-    9. 验证开关状态已持久化
-    10. 恢复原始状态并保存
+    Coverage:
+    1. Visit the runtime config page
+    2. Switch to the context compaction tab
+    3. Locate the enable switch and record its current state
+    4. Toggle the switch
+    5. Locate the save button and click it
+    6. Verify the save success notification
+    7. Reload the page
+    8. Switch back to the context compaction tab
+    9. Verify the switch state was persisted
+    10. Restore the original state and save
     """
 
     @pytest.mark.test_id("AGCFG-003")
     def test_config_save_and_reset(self, page: Page, request: pytest.FixtureRequest):
-        """验证配置修改、保存和持久化功能"""
+        """Verify config modification, saving and persistence."""
         test_name = request.node.name
 
-        # ── 步骤1: 访问运行配置页面 ──
-        log_test_step("1. 访问运行配置页面")
+        # Step 1: Visit the runtime config page
+        log_test_step("1. Visit the runtime config page")
         navigate_to_agent_config(page)
 
-        # ── 步骤2: 切换到长期记忆 Tab（原上下文压缩已合并，长期记忆 Tab 有开关可切换）──
-        log_test_step("2. 切换到长期记忆 Tab")
+        # Step 2: Switch to the long-term memory tab (context compaction was merged in; this tab has a toggle switch)
+        log_test_step("2. Switch to the long-term memory tab")
         context_tab = page.locator('[data-node-key="remeLightMemory"] .qwenpaw-tabs-tab-btn').first
         expect(context_tab).to_be_visible(timeout=5000)
         context_tab.click()
@@ -285,53 +282,53 @@ class TestAgentConfigSaveAndReset:
 
         context_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
         expect(context_panel).to_be_visible(timeout=5000)
-        logger.info("✅ 已切换到长期记忆 Tab")
+        logger.info("Switched to long-term memory tab")
 
-        # ── 步骤3: 找到启用开关并记录当前状态 ──
-        log_test_step("3. 记录开关初始状态")
+        # Step 3: Locate the enable switch and record its initial state
+        log_test_step("3. Record the initial switch state")
         enable_switch = context_panel.locator('.qwenpaw-switch').first
         expect(enable_switch).to_be_visible(timeout=5000)
-        
-        initial_checked = enable_switch.get_attribute('aria-checked')
-        assert initial_checked in ['true', 'false'], f"开关初始状态异常：{initial_checked}"
-        logger.info(f"开关初始状态：aria-checked={initial_checked}")
 
-        # ── 步骤4: 切换开关状态 ──
-        log_test_step("4. 切换开关状态")
+        initial_checked = enable_switch.get_attribute('aria-checked')
+        assert initial_checked in ['true', 'false'], f"Unexpected initial switch state: {initial_checked}"
+        logger.info(f"Initial switch state: aria-checked={initial_checked}")
+
+        # Step 4: Toggle the switch
+        log_test_step("4. Toggle the switch")
         enable_switch.click()
         page.wait_for_timeout(1000)
-        
-        new_checked = enable_switch.get_attribute('aria-checked')
-        assert new_checked != initial_checked, f"开关切换后状态未翻转：{initial_checked} → {new_checked}"
-        logger.info(f"✅ 开关已切换：{initial_checked} → {new_checked}")
 
-        # ── 步骤5: 找到保存按钮并点击 ──
-        log_test_step("5. 点击保存按钮")
-        save_btn = page.locator('button.qwenpaw-btn-primary:has-text("保存"), button:has-text("保 存")').first
+        new_checked = enable_switch.get_attribute('aria-checked')
+        assert new_checked != initial_checked, f"Switch did not flip: {initial_checked} -> {new_checked}"
+        logger.info(f"Switch toggled: {initial_checked} -> {new_checked}")
+
+        # Step 5: Locate the save button and click it
+        log_test_step("5. Click the save button")
+        save_btn = page.locator('button.qwenpaw-btn-primary:has-text("Save")').first
         if not save_btn.is_visible():
-            # 尝试在页面底部查找
+            # Fall back to the footer area
             save_btn = page.locator('div[class*="footer"] button.qwenpaw-btn-primary').first
         expect(save_btn).to_be_visible(timeout=5000)
         save_btn.click()
         page.wait_for_timeout(2000)
 
-        # ── 步骤6: 验证保存成功提示 ──
-        log_test_step("6. 验证保存成功提示")
-        success_msg = page.locator('.qwenpaw-message-success, .qwenpaw-message-notice-content:has-text("保存")').first
+        # Step 6: Verify the save success notification
+        log_test_step("6. Verify the save success notification")
+        success_msg = page.locator('.qwenpaw-message-success, .qwenpaw-message-notice-content:has-text("Save")').first
         try:
             expect(success_msg).to_be_visible(timeout=3000)
-            logger.info("✅ 保存成功提示可见")
+            logger.info("Save success notification visible")
         except Exception:
-            logger.info("未检测到明显的成功提示，继续执行")
+            logger.info("No obvious success notification detected, continuing")
 
-        # ── 步骤7: 刷新页面 ──
-        log_test_step("7. 刷新页面")
+        # Step 7: Reload the page
+        log_test_step("7. Reload the page")
         page.reload()
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
-        # ── 步骤8: 切换到长期记忆 Tab ──
-        log_test_step("8. 切换到长期记忆 Tab")
+        # Step 8: Switch to the long-term memory tab
+        log_test_step("8. Switch to the long-term memory tab")
         context_tab_refreshed = page.locator('[data-node-key="remeLightMemory"] .qwenpaw-tabs-tab-btn').first
         expect(context_tab_refreshed).to_be_visible(timeout=5000)
         context_tab_refreshed.click()
@@ -340,43 +337,43 @@ class TestAgentConfigSaveAndReset:
         context_panel_refreshed = page.locator('.qwenpaw-tabs-tabpane-active').first
         expect(context_panel_refreshed).to_be_visible(timeout=5000)
 
-        # ── 步骤9: 验证开关状态已持久化 ──
-        log_test_step("9. 验证开关状态已持久化")
+        # Step 9: Verify the switch state was persisted
+        log_test_step("9. Verify the switch state was persisted")
         enable_switch_refreshed = context_panel_refreshed.locator('.qwenpaw-switch').first
         expect(enable_switch_refreshed).to_be_visible(timeout=5000)
-        
+
         persisted_checked = enable_switch_refreshed.get_attribute('aria-checked')
         assert persisted_checked == new_checked, (
-            f"开关状态未持久化：期望 {new_checked}，实际 {persisted_checked}"
+            f"Switch state was not persisted: expected {new_checked}, got {persisted_checked}"
         )
-        logger.info(f"✅ 开关状态已持久化：{persisted_checked}")
+        logger.info(f"Switch state persisted: {persisted_checked}")
 
-        # ── 步骤10: 恢复原始状态并保存 ──
-        log_test_step("10. 恢复原始状态并保存")
+        # Step 10: Restore the original state and save
+        log_test_step("10. Restore the original state and save")
         enable_switch_refreshed.click()
         page.wait_for_timeout(1000)
-        
+
         restored_checked = enable_switch_refreshed.get_attribute('aria-checked')
         assert restored_checked == initial_checked, (
-            f"开关未恢复到初始状态：期望 {initial_checked}，实际 {restored_checked}"
+            f"Switch was not restored: expected {initial_checked}, got {restored_checked}"
         )
-        logger.info(f"✅ 开关已恢复到初始状态：{restored_checked}")
+        logger.info(f"Switch restored to initial state: {restored_checked}")
 
-        # 再次保存
-        save_btn_refreshed = page.locator('button.qwenpaw-btn-primary:has-text("保存"), button:has-text("保 存")').first
+        # Save again
+        save_btn_refreshed = page.locator('button.qwenpaw-btn-primary:has-text("Save")').first
         if not save_btn_refreshed.is_visible():
             save_btn_refreshed = page.locator('div[class*="footer"] button.qwenpaw-btn-primary').first
         if save_btn_refreshed.is_visible():
             save_btn_refreshed.click()
             page.wait_for_timeout(2000)
-            logger.info("✅ 已保存恢复后的状态")
+            logger.info("Saved restored state")
 
         log_test_result(test_name, True, 0)
-        logger.info(f"✅ Test {test_name} passed - 配置修改、保存和持久化验证通过")
+        logger.info(f"Test {test_name} passed - config modification, save and persistence OK")
 
 
 # ============================================================================
-# P1 级测试用例：LLM 重试机制、限流器、工具结果压缩、Embedding 配置
+# P1 test cases: LLM retry, rate limiter, tool result compaction, embedding
 # ============================================================================
 
 @pytest.mark.integration
@@ -384,42 +381,42 @@ class TestAgentConfigSaveAndReset:
 @pytest.mark.config
 class TestLlmRetryConfig:
     """
-    test_llm_retry_config: LLM 重试机制配置
+    test_llm_retry_config: LLM retry configuration.
 
-    覆盖功能点：
-    1. LLM 自动重试 Tab 切换
-    2. 重试开关展示与切换
-    3. 最大重试次数、退避基数、退避上限的展示与修改
-    4. 配置保存验证
+    Coverage:
+    1. Switch to LLM auto-retry tab
+    2. Retry switch display and toggle
+    3. Display and edit max retries, backoff base, backoff cap
+    4. Verify config save
     """
 
     def test_llm_retry_config(self, page: Page):
-        """LLM 重试机制配置测试"""
-        log_test_step("导航到 Agent Config 页面")
+        """LLM retry configuration test."""
+        log_test_step("Navigate to the Agent Config page")
         navigate_to_agent_config(page)
 
         from pages.runtime_config_page import RuntimeConfigPage
         runtime_config_page = RuntimeConfigPage(page)
 
-        log_test_step("切换到 LLM 自动重试 Tab")
+        log_test_step("Switch to the LLM auto-retry tab")
         runtime_config_page.switch_to_llm_retry_tab()
 
-        # 验证卡片标题
+        # Verify the card title
         active_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
         card_title = active_panel.locator('.qwenpaw-spark-title').first
         expect(card_title).to_be_visible()
         title_text = card_title.inner_text()
-        assert "LLM" in title_text or "Retry" in title_text or "重试" in title_text, \
-            f"卡片标题不包含预期关键词：{title_text}"
-        logger.info("LLM 重试配置卡片标题验证通过")
+        assert "LLM" in title_text or "Retry" in title_text, \
+            f"Card title does not contain expected keywords: {title_text}"
+        logger.info("LLM retry config card title verified")
 
-        # 验证重试开关存在
+        # Verify the retry switch exists
         switch_selector = '.qwenpaw-switch'
         retry_switch = active_panel.locator(switch_selector).first
         expect(retry_switch).to_be_visible()
-        logger.info("LLM 重试开关展示验证通过")
+        logger.info("LLM retry switch verified")
 
-        # 验证输入框存在
+        # Verify the input fields exist
         input_selectors = [
             '#llm_max_retries',
             '#llm_backoff_base',
@@ -428,43 +425,43 @@ class TestLlmRetryConfig:
         for selector in input_selectors:
             input_el = active_panel.locator(selector).first
             expect(input_el).to_be_visible()
-        logger.info("LLM 重试配置输入框展示验证通过")
+        logger.info("LLM retry config inputs verified")
 
-        # 记录原始值
-        log_test_step("记录原始配置值")
+        # Record the original values
+        log_test_step("Record original config values")
         max_retries_input = active_panel.locator('#llm_max_retries').first
         original_max_retries = max_retries_input.input_value()
         backoff_base_input = active_panel.locator('#llm_backoff_base').first
         original_backoff_base = backoff_base_input.input_value()
         backoff_cap_input = active_panel.locator('#llm_backoff_cap').first
         original_backoff_cap = backoff_cap_input.input_value()
-        logger.info(f"原始值: max_retries={original_max_retries}, base={original_backoff_base}, cap={original_backoff_cap}")
+        logger.info(f"Original values: max_retries={original_max_retries}, base={original_backoff_base}, cap={original_backoff_cap}")
 
         try:
-            # 修改配置值
-            log_test_step("修改 LLM 重试配置")
+            # Modify the config values
+            log_test_step("Modify LLM retry config")
             max_retries_input.fill('5')
             backoff_base_input.fill('2.0')
             backoff_cap_input.fill('30.0')
-            logger.info("LLM 重试配置值修改完成")
+            logger.info("LLM retry config values updated")
 
-            # 保存配置
-            log_test_step("保存 LLM 重试配置")
+            # Save the config
+            log_test_step("Save LLM retry config")
             runtime_config_page.click_save()
             runtime_config_page.assert_config_saved()
-            logger.info("LLM 重试配置保存成功")
+            logger.info("LLM retry config saved")
 
-            # 刷新页面验证持久化
-            log_test_step("刷新页面验证持久化")
+            # Reload and verify persistence
+            log_test_step("Reload and verify persistence")
             page.reload(wait_until="domcontentloaded")
             page.wait_for_timeout(3000)
             runtime_config_page.switch_to_llm_retry_tab()
             active_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
             persisted_value = active_panel.locator('#llm_max_retries').first.input_value()
-            assert persisted_value == '5', f"刷新后 max_retries 应为 '5'，实际为 '{persisted_value}'"
-            logger.info("✅ LLM 重试配置持久化验证通过")
+            assert persisted_value == '5', f"After reload, max_retries should be '5', got '{persisted_value}'"
+            logger.info("LLM retry config persistence verified")
         finally:
-            # 恢复原始配置
+            # Restore the original config
             try:
                 navigate_to_agent_config(page)
                 runtime_config_page.switch_to_llm_retry_tab()
@@ -474,9 +471,9 @@ class TestLlmRetryConfig:
                 active_panel.locator('#llm_backoff_cap').first.fill(original_backoff_cap)
                 runtime_config_page.click_save()
                 runtime_config_page.assert_config_saved()
-                logger.info('✅ 已恢复原始配置')
+                logger.info('Original config restored')
             except Exception as cleanup_error:
-                logger.warning(f'恢复配置失败：{cleanup_error}')
+                logger.warning(f'Failed to restore config: {cleanup_error}')
 
 
 @pytest.mark.integration
@@ -484,35 +481,35 @@ class TestLlmRetryConfig:
 @pytest.mark.config
 class TestLlmRateLimiterConfig:
     """
-    test_llm_rate_limiter_config: LLM 限流器配置
+    test_llm_rate_limiter_config: LLM rate limiter configuration.
 
-    覆盖功能点：
-    1. LLM 并发限流 Tab 切换
-    2. 最大并发数、QPM、暂停时间、抖动、获取超时等字段展示
-    3. 配置修改与保存验证
+    Coverage:
+    1. Switch to LLM rate limiter tab
+    2. Display of max concurrency, QPM, pause, jitter, acquire timeout fields
+    3. Verify config modification and save
     """
 
     def test_llm_rate_limiter_config(self, page: Page):
-        """LLM 限流器配置测试"""
-        log_test_step("导航到 Agent Config 页面")
+        """LLM rate limiter configuration test."""
+        log_test_step("Navigate to the Agent Config page")
         navigate_to_agent_config(page)
 
         from pages.runtime_config_page import RuntimeConfigPage
         runtime_config_page = RuntimeConfigPage(page)
 
-        log_test_step("切换到 LLM 并发限流 Tab")
+        log_test_step("Switch to the LLM rate limiter tab")
         runtime_config_page.switch_to_llm_rate_limiter_tab()
 
-        # 验证卡片标题
+        # Verify the card title
         active_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
         card_title = active_panel.locator('.qwenpaw-spark-title').first
         expect(card_title).to_be_visible()
         title_text = card_title.inner_text()
-        assert "LLM" in title_text or "Rate" in title_text or "限流" in title_text, \
-            f"卡片标题不包含预期关键词：{title_text}"
-        logger.info("LLM 限流配置卡片标题验证通过")
+        assert "LLM" in title_text or "Rate" in title_text, \
+            f"Card title does not contain expected keywords: {title_text}"
+        logger.info("LLM rate limiter config card title verified")
 
-        # 验证输入框存在
+        # Verify the input fields exist
         input_selectors = [
             '#llm_max_concurrent',
             '#llm_max_qpm',
@@ -523,21 +520,21 @@ class TestLlmRateLimiterConfig:
         for selector in input_selectors:
             input_el = active_panel.locator(selector).first
             expect(input_el).to_be_visible()
-        logger.info("LLM 限流配置输入框展示验证通过")
+        logger.info("LLM rate limiter config inputs verified")
 
-        # 记录原始值
-        log_test_step("记录原始配置值")
+        # Record the original values
+        log_test_step("Record original config values")
         max_concurrent_input = active_panel.locator('#llm_max_concurrent').first
         original_concurrent = max_concurrent_input.input_value()
         max_qpm_input = active_panel.locator('#llm_max_qpm').first
         original_qpm = max_qpm_input.input_value()
         pause_input = active_panel.locator('#llm_rate_limit_pause').first
         original_pause = pause_input.input_value()
-        logger.info(f"原始值: concurrent={original_concurrent}, qpm={original_qpm}, pause={original_pause}")
+        logger.info(f"Original values: concurrent={original_concurrent}, qpm={original_qpm}, pause={original_pause}")
 
         try:
-            # 修改配置值
-            log_test_step("修改 LLM 限流配置")
+            # Modify the config values
+            log_test_step("Modify LLM rate limiter config")
             max_concurrent_input.fill('10')
             max_qpm_input.fill('100')
             pause_input.fill('60.0')
@@ -548,25 +545,25 @@ class TestLlmRateLimiterConfig:
             acquire_timeout_input = active_panel.locator('#llm_acquire_timeout').first
             acquire_timeout_input.fill('120')
 
-            logger.info("LLM 限流配置值修改完成")
+            logger.info("LLM rate limiter config values updated")
 
-            # 保存配置
-            log_test_step("保存 LLM 限流配置")
+            # Save the config
+            log_test_step("Save LLM rate limiter config")
             runtime_config_page.click_save()
             runtime_config_page.assert_config_saved()
-            logger.info("LLM 限流配置保存成功")
+            logger.info("LLM rate limiter config saved")
 
-            # 刷新页面验证持久化
-            log_test_step("刷新页面验证持久化")
+            # Reload and verify persistence
+            log_test_step("Reload and verify persistence")
             page.reload(wait_until="domcontentloaded")
             page.wait_for_timeout(3000)
             runtime_config_page.switch_to_llm_rate_limiter_tab()
             active_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
             persisted_concurrent = active_panel.locator('#llm_max_concurrent').first.input_value()
-            assert persisted_concurrent == '10', f"刷新后 max_concurrent 应为 '10'，实际为 '{persisted_concurrent}'"
-            logger.info("✅ LLM 限流配置持久化验证通过")
+            assert persisted_concurrent == '10', f"After reload, max_concurrent should be '10', got '{persisted_concurrent}'"
+            logger.info("LLM rate limiter config persistence verified")
         finally:
-            # 恢复原始配置
+            # Restore the original config
             try:
                 navigate_to_agent_config(page)
                 runtime_config_page.switch_to_llm_rate_limiter_tab()
@@ -576,9 +573,9 @@ class TestLlmRateLimiterConfig:
                 active_panel.locator('#llm_rate_limit_pause').first.fill(original_pause)
                 runtime_config_page.click_save()
                 runtime_config_page.assert_config_saved()
-                logger.info('✅ 已恢复原始配置')
+                logger.info('Original config restored')
             except Exception as cleanup_error:
-                logger.warning(f'恢复配置失败：{cleanup_error}')
+                logger.warning(f'Failed to restore config: {cleanup_error}')
 
 
 @pytest.mark.integration
@@ -586,39 +583,39 @@ class TestLlmRateLimiterConfig:
 @pytest.mark.config
 class TestToolResultCompactConfig:
     """
-    test_tool_result_compact_config: 上下文管理配置（原工具结果压缩已合并到上下文管理 Tab）
+    test_tool_result_compact_config: Context management config (tool-result compaction was merged into the context management tab).
 
-    覆盖功能点：
-    1. 上下文管理 Tab 切换
-    2. 面板内容展示验证（上下文压缩、工具结果压缩等子项）
-    3. 配置项展示验证
+    Coverage:
+    1. Switch to the context management tab
+    2. Verify panel content (context compaction, tool result compaction, etc.)
+    3. Verify config items are displayed
     """
 
     def test_tool_result_compact_config(self, page: Page):
-        """上下文管理配置测试（原工具结果压缩已合并到此 Tab）"""
-        log_test_step("导航到 Agent Config 页面")
+        """Context management config test (tool-result compaction was merged here)."""
+        log_test_step("Navigate to the Agent Config page")
         navigate_to_agent_config(page)
 
         from pages.runtime_config_page import RuntimeConfigPage
         runtime_config_page = RuntimeConfigPage(page)
 
-        log_test_step("切换到上下文管理 Tab（原工具结果压缩已合并于此）")
+        log_test_step("Switch to the context management tab (tool-result compaction was merged here)")
         runtime_config_page.switch_to_context_compact_tab()
 
-        # 验证面板可见
+        # Verify the panel is visible
         active_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
         expect(active_panel).to_be_visible(timeout=5000)
 
-        # 验证面板包含上下文管理相关内容
+        # Verify the panel contains context-management related content
         panel_text = active_panel.inner_text()
-        assert any(kw in panel_text for kw in ["上下文", "Context", "压缩", "工具结果"]), \
-            f"面板内容不包含上下文管理相关关键词：{panel_text[:200]}"
-        logger.info("✅ 上下文管理面板内容验证通过")
+        assert any(kw in panel_text for kw in ["Context", "Compact"]), \
+            f"Panel content does not contain context management keywords: {panel_text[:200]}"
+        logger.info("Context management panel content verified")
 
-        # 验证有配置项（输入框或选择器）
+        # Verify there are config items (inputs or selects)
         inputs = active_panel.locator('.qwenpaw-input, .qwenpaw-input-number, .qwenpaw-select').all()
-        assert len(inputs) >= 1, f"上下文管理面板内无配置项，找到 {len(inputs)} 个"
-        logger.info(f"✅ 上下文管理面板找到 {len(inputs)} 个配置项")
+        assert len(inputs) >= 1, f"No config items found on context management panel; found {len(inputs)}"
+        logger.info(f"Found {len(inputs)} config items on context management panel")
 
 
 @pytest.mark.integration
@@ -626,43 +623,43 @@ class TestToolResultCompactConfig:
 @pytest.mark.config
 class TestEmbeddingConfig:
     """
-    test_embedding_config: 长期记忆配置（原向量模型配置已合并到长期记忆 Tab）
+    test_embedding_config: Long-term memory configuration (embedding config was merged into the long-term memory tab).
 
-    覆盖功能点：
-    1. 长期记忆 Tab 切换
-    2. 面板内容展示验证（向量模型配置、记忆开关等子项）
-    3. 开关和配置项展示验证
+    Coverage:
+    1. Switch to the long-term memory tab
+    2. Verify panel content (vector model config, memory toggle, etc.)
+    3. Verify toggles and config items are displayed
     """
 
     def test_embedding_config(self, page: Page):
-        """长期记忆配置测试（原 Embedding 配置已合并到此 Tab）"""
-        log_test_step("导航到 Agent Config 页面")
+        """Long-term memory config test (embedding config was merged here)."""
+        log_test_step("Navigate to the Agent Config page")
         navigate_to_agent_config(page)
 
         from pages.runtime_config_page import RuntimeConfigPage
         runtime_config_page = RuntimeConfigPage(page)
 
-        log_test_step("切换到长期记忆 Tab（原 Embedding 配置已合并于此）")
+        log_test_step("Switch to the long-term memory tab (embedding config was merged here)")
         runtime_config_page.switch_to_memory_summary_tab()
 
-        # 验证面板可见
+        # Verify the panel is visible
         active_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
         expect(active_panel).to_be_visible(timeout=5000)
 
-        # 验证面板包含长期记忆相关内容
+        # Verify the panel contains long-term memory related content
         panel_text = active_panel.inner_text()
-        assert any(kw in panel_text for kw in ["长期记忆", "Memory", "向量", "Embedding", "记忆"]), \
-            f"面板内容不包含长期记忆相关关键词：{panel_text[:200]}"
-        logger.info("✅ 长期记忆面板内容验证通过")
+        assert any(kw in panel_text for kw in ["Memory", "Embedding"]), \
+            f"Panel content does not contain long-term memory keywords: {panel_text[:200]}"
+        logger.info("Long-term memory panel content verified")
 
-        # 验证有开关
+        # Verify there are switches
         switches = active_panel.locator('.qwenpaw-switch').all()
-        assert len(switches) >= 1, f"长期记忆面板未找到开关，找到 {len(switches)} 个"
-        logger.info(f"✅ 长期记忆面板找到 {len(switches)} 个开关")
+        assert len(switches) >= 1, f"No switches found on long-term memory panel; found {len(switches)}"
+        logger.info(f"Found {len(switches)} switches on long-term memory panel")
 
 
 # ============================================================================
-# AGCFG-P1-001: 上下文压缩配置
+# AGCFG-P1-001: Context compaction config
 # ============================================================================
 
 @pytest.mark.integration
@@ -670,113 +667,112 @@ class TestEmbeddingConfig:
 @pytest.mark.runtime_config
 class TestContextCompactConfig:
     """
-    AGCFG-P1-001: 上下文压缩配置
+    AGCFG-P1-001: Context compaction config.
 
-    覆盖功能点：
-    1. 切换到 Context Compact Tab
-    2. 验证表单字段存在（开关、滑块等）
-    3. 修改配置并保存
+    Coverage:
+    1. Switch to the Context Compact tab
+    2. Verify form fields exist (switches, sliders, etc.)
+    3. Modify config and save
     """
 
     @pytest.mark.test_id("AGCFG-P1-001")
     def test_context_compact_config(self, page: Page, request: pytest.FixtureRequest):
-        """测试上下文压缩配置的展示和修改"""
+        """Test the display and editing of context compaction config."""
         test_name = request.node.name
 
-        log_test_step("导航到运行配置页面")
+        log_test_step("Navigate to the runtime config page")
         navigate_to_agent_config(page)
 
-        log_test_step("切换到上下文管理 Tab")
+        log_test_step("Switch to the context management tab")
         context_tab = page.locator(
             '[data-node-key="lightContext"] .qwenpaw-tabs-tab-btn, '
-            '.qwenpaw-tabs-tab-btn:has-text("Context"), '
-            '.qwenpaw-tabs-tab-btn:has-text("上下文")'
+            '.qwenpaw-tabs-tab-btn:has-text("Context")'
         ).first
         expect(context_tab).to_be_visible(timeout=5000)
         context_tab.click()
         page.wait_for_timeout(1500)
-        logger.info("✅ 已切换到 Context Compact Tab")
+        logger.info("Switched to Context Compact tab")
 
-        log_test_step("验证活动面板内容")
+        log_test_step("Verify active panel content")
         active_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
         expect(active_panel).to_be_visible(timeout=5000)
 
-        # 验证卡片标题
+        # Verify the card title
         card_title = active_panel.locator('.qwenpaw-spark-title').first
         expect(card_title).to_be_visible()
         title_text = card_title.inner_text()
-        assert "Context" in title_text or "上下文" in title_text or "Compact" in title_text, \
-            f"卡片标题不包含预期关键词：{title_text}"
-        logger.info(f"✅ 卡片标题验证通过：{title_text}")
+        assert "Context" in title_text or "Compact" in title_text, \
+            f"Card title does not contain expected keywords: {title_text}"
+        logger.info(f"Card title verified: {title_text}")
 
-        log_test_step("验证上下文管理配置项存在")
-        # 上下文管理 Tab 可能有开关、滑块、输入框或选择器
+        log_test_step("Verify context management config items exist")
+        # The context management tab may have switches, sliders, inputs or selects
         switches = active_panel.locator('.qwenpaw-switch').all()
         sliders = active_panel.locator('.qwenpaw-slider').all()
         inputs = active_panel.locator('.qwenpaw-input, .qwenpaw-input-number, .qwenpaw-select').all()
         total_controls = len(switches) + len(sliders) + len(inputs)
         assert total_controls >= 1, \
-            f"上下文管理面板无配置项：开关={len(switches)}, 滑块={len(sliders)}, 输入框={len(inputs)}"
-        logger.info(f"✅ 找到配置项：开关={len(switches)}, 滑块={len(sliders)}, 输入框={len(inputs)}")
+            f"No config items on context management panel: switches={len(switches)}, sliders={len(sliders)}, inputs={len(inputs)}"
+        logger.info(f"Found config items: switches={len(switches)}, sliders={len(sliders)}, inputs={len(inputs)}")
 
-        # 如果有开关，测试切换
+        # If there are switches, test toggling
         if len(switches) >= 1:
-            log_test_step("切换上下文管理开关")
+            log_test_step("Toggle the context management switch")
             first_switch = switches[0]
             original_state = first_switch.get_attribute("aria-checked")
             first_switch.click()
             page.wait_for_timeout(1000)
             new_state = first_switch.get_attribute("aria-checked")
             assert original_state != new_state, \
-                f"开关切换未生效：切换前 {original_state}，切换后 {new_state}"
-            logger.info(f"✅ 开关切换成功：{original_state} → {new_state}")
-            # 恢复原始状态
+                f"Switch toggle had no effect: before={original_state}, after={new_state}"
+            logger.info(f"Switch toggled: {original_state} -> {new_state}")
+            # Restore the original state
             first_switch.click()
             page.wait_for_timeout(500)
         else:
-            logger.info("ℹ️ 上下文管理 Tab 无开关控件，跳过开关切换测试")
+            logger.info("Context management tab has no switch controls; skipping toggle test")
 
         log_test_result(test_name, True, 0)
 
 
 # ============================================================================
-# AGCFG-P2-001: 配置项动态联动验证
+# AGCFG-P2-001: Dynamic linkage between config items
 # ============================================================================
 
 @pytest.mark.integration
 @pytest.mark.p2
 @pytest.mark.runtime_config
 class TestConfigDynamicLinkage:
-    """AGCFG-P2-001: 配置项动态联动验证"""
+    """AGCFG-P2-001: Dynamic linkage between config items."""
 
     @pytest.mark.test_id("AGCFG-P2-001")
     def test_config_dynamic_linkage(self, page: Page, request: pytest.FixtureRequest):
-        """测试配置项动态联动"""
+        """Test dynamic linkage between config items."""
         test_name = request.node.name
 
-        log_test_step("导航到运行配置页面")
+        log_test_step("Navigate to the runtime config page")
         navigate_to_agent_config(page)
 
-        log_test_step("验证 Tab 切换联动")
+        log_test_step("Verify tab switching linkage")
         tabs = page.locator('.qwenpaw-tabs-tab').all()
-        assert len(tabs) >= 3, f"Tab 数量不足：{len(tabs)}"
-        logger.info(f"✅ 找到 {len(tabs)} 个配置 Tab")
+        assert len(tabs) >= 3, f"Insufficient tabs: {len(tabs)}"
+        logger.info(f"Found {len(tabs)} config tabs")
 
-        log_test_step("切换 Tab 验证面板内容变化")
+        log_test_step("Switch tabs and verify panel content changes")
         for i in range(min(3, len(tabs))):
             tabs[i].click()
             page.wait_for_timeout(1000)
             active_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
             panel_content = active_panel.inner_text()
-            logger.info(f"Tab {i+1} 面板内容长度：{len(panel_content)}")
-            assert len(panel_content) > 10, f"Tab {i+1} 面板内容为空"
+            logger.info(f"Tab {i+1} panel content length: {len(panel_content)}")
+            assert len(panel_content) > 10, f"Tab {i+1} panel content is empty"
 
-        logger.info("✅ 配置项动态联动验证通过")
+        logger.info("Dynamic linkage between config items verified")
         log_test_result(test_name, True, 0)
 
 
 # ============================================================================
-# AGCFG-P1-002: 记忆摘要配置
+# AGCFG-P1-002: Memory summary config
 # ============================================================================
 
 @pytest.mark.integration
@@ -784,73 +780,72 @@ class TestConfigDynamicLinkage:
 @pytest.mark.runtime_config
 class TestMemorySummaryConfig:
     """
-    AGCFG-P1-002: 记忆摘要配置
+    AGCFG-P1-002: Memory summary config.
 
-    覆盖功能点：
-    1. 切换到 Memory Summary Tab
-    2. 验证表单字段存在（开关、输入框、滑块等）
-    3. 修改配置并验证
+    Coverage:
+    1. Switch to the Memory Summary tab
+    2. Verify form fields exist (switches, inputs, sliders, etc.)
+    3. Modify config and verify
     """
 
     @pytest.mark.test_id("AGCFG-P1-002")
     def test_memory_summary_config(self, page: Page, request: pytest.FixtureRequest):
-        """测试记忆摘要配置的展示和修改"""
+        """Test the display and editing of memory summary config."""
         test_name = request.node.name
 
-        log_test_step("导航到运行配置页面")
+        log_test_step("Navigate to the runtime config page")
         navigate_to_agent_config(page)
 
-        log_test_step("切换到 Memory Summary Tab")
+        log_test_step("Switch to the Memory Summary tab")
         memory_tab = page.locator(
             '[data-node-key="memorySummary"] .qwenpaw-tabs-tab-btn, '
-            '.qwenpaw-tabs-tab-btn:has-text("Memory"), '
-            '.qwenpaw-tabs-tab-btn:has-text("记忆")'
+            '.qwenpaw-tabs-tab-btn:has-text("Memory")'
         ).first
         expect(memory_tab).to_be_visible(timeout=5000)
         memory_tab.click()
         page.wait_for_timeout(1500)
-        logger.info("✅ 已切换到 Memory Summary Tab")
+        logger.info("Switched to Memory Summary tab")
 
-        log_test_step("验证活动面板内容")
+        log_test_step("Verify active panel content")
         active_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
         expect(active_panel).to_be_visible(timeout=5000)
 
-        # 验证卡片标题
+        # Verify the card title
         card_title = active_panel.locator('.qwenpaw-spark-title').first
         expect(card_title).to_be_visible()
         title_text = card_title.inner_text()
-        assert "Memory" in title_text or "记忆" in title_text or "Summary" in title_text, \
-            f"卡片标题不包含预期关键词：{title_text}"
-        logger.info(f"✅ 卡片标题验证通过：{title_text}")
+        assert "Memory" in title_text or "Summary" in title_text, \
+            f"Card title does not contain expected keywords: {title_text}"
+        logger.info(f"Card title verified: {title_text}")
 
-        log_test_step("验证记忆摘要开关存在")
+        log_test_step("Verify the memory summary switch exists")
         switches = active_panel.locator('.qwenpaw-switch').all()
-        assert len(switches) >= 1, f"未找到记忆摘要开关，找到 {len(switches)} 个开关"
-        logger.info(f"✅ 找到 {len(switches)} 个开关")
+        assert len(switches) >= 1, f"Memory summary switch not found; found {len(switches)} switches"
+        logger.info(f"Found {len(switches)} switches")
 
-        log_test_step("验证 Cron 表达式输入框存在")
+        log_test_step("Verify the Cron expression input exists")
         cron_input = active_panel.locator('#memory_summary_dream_cron, input[id*="dream_cron"]').first
         if cron_input.count() == 0:
             cron_input = active_panel.locator('input').nth(0)
-        assert cron_input.count() > 0, "未找到 Cron 表达式输入框"
-        logger.info("✅ Cron 表达式输入框存在")
+        assert cron_input.count() > 0, "Cron expression input not found"
+        logger.info("Cron expression input present")
 
-        log_test_step("验证数值输入框存在")
+        log_test_step("Verify number inputs exist")
         number_inputs = active_panel.locator('.qwenpaw-input-number').all()
-        assert len(number_inputs) >= 1, f"未找到数值输入框，找到 {len(number_inputs)} 个"
-        logger.info(f"✅ 找到 {len(number_inputs)} 个数值输入框")
+        assert len(number_inputs) >= 1, f"No number inputs found; got {len(number_inputs)}"
+        logger.info(f"Found {len(number_inputs)} number inputs")
 
-        log_test_step("切换记忆摘要开关")
+        log_test_step("Toggle the memory summary switch")
         first_switch = switches[0]
         original_state = first_switch.get_attribute("aria-checked")
         first_switch.click()
         page.wait_for_timeout(1000)
         new_state = first_switch.get_attribute("aria-checked")
         assert original_state != new_state, \
-            f"开关切换未生效：切换前 {original_state}，切换后 {new_state}"
-        logger.info(f"✅ 开关切换成功：{original_state} → {new_state}")
+            f"Switch toggle had no effect: before={original_state}, after={new_state}"
+        logger.info(f"Switch toggled: {original_state} -> {new_state}")
 
-        # 恢复原始状态
+        # Restore the original state
         first_switch.click()
         page.wait_for_timeout(500)
 

@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw Environments 页面对象
+QwenPaw Environments page object.
 
-封装环境变量配置页面的所有交互操作，提供业务级别的方法。
+Wraps all interactions on the environment variables configuration page and
+exposes business-level methods.
 """
 from __future__ import annotations
 
@@ -18,97 +19,97 @@ logger = logging.getLogger(__name__)
 
 class EnvironmentsPage(BasePage):
     """
-    Environments 页面对象
-    
-    封装环境变量配置页面的所有用户操作：
-    - 打开环境变量页面
-    - 获取环境变量行列表
-    - 获取环境变量键名和值
-    - 点击添加按钮
-    - 点击保存按钮
+    Environments page object.
+
+    Wraps all user interactions on the environment variables configuration page:
+    - Open the environment variables page
+    - Get the list of environment variable rows
+    - Get environment variable keys and values
+    - Click the add button
+    - Click the save button
     """
-    
+
     PAGE_TITLE = "QwenPaw Console"
     PAGE_URL = f"{config.base_url}/environments"
-    
-    # ========== 选择器定义 ==========
-    
-    # 页面加载标志
+
+    # ========== Selector definitions ==========
+
+    # Page load indicator
     ENV_PAGE_CONTAINER = "div[class*=environmentsPage]"
     PAGE_LOAD_INDICATOR = ENV_PAGE_CONTAINER
-    
-    # 表格相关选择器
+
+    # Table-related selectors
     ENV_TABLE = ".qwenpaw-table"
     ENV_ROW = ".qwenpaw-table-tbody tr"
     ADD_BTN = 'button:has-text("添加"), button:has-text("Add")'
     SAVE_BTN = 'button.qwenpaw-btn-primary:has-text("保存"), button:has-text("Save")'
-    
-    # ========== 导航方法 ==========
-    
+
+    # ========== Navigation ==========
+
     def open(self) -> "EnvironmentsPage":
-        """打开 Environments 页面"""
-        logger.info("打开 Environments 页面")
+        """Open the Environments page."""
+        logger.info("Opening Environments page")
         self.goto()
         self.wait_for_page_loaded()
         return self
-    
+
     def wait_for_page_loaded(self, timeout: Optional[int] = None) -> "EnvironmentsPage":
-        """等待页面加载完成"""
+        """Wait for the page to finish loading."""
         timeout = timeout or self.timeout
         expect(self.page.locator(self.PAGE_LOAD_INDICATOR).first).to_be_visible(timeout=timeout)
         return self
-    
-    # ========== 环境变量操作方法 ==========
-    
+
+    # ========== Environment variable operations ==========
+
     def get_env_rows(self) -> List[Locator]:
-        """获取所有环境变量行"""
+        """Return all environment variable rows."""
         rows = self.page.locator(self.ENV_ROW).all()
-        logger.info(f"找到 {len(rows)} 个环境变量行")
+        logger.info(f"Found {len(rows)} environment variable rows")
         return rows
-    
+
     def get_env_key(self, row: Locator) -> str:
-        """获取环境变量的键名"""
-        # 尝试从第一列获取键名
+        """Return the environment variable key."""
+        # Try to get the key from the first column
         key_cell = row.locator("td").first
         if key_cell.count() > 0:
             return key_cell.inner_text().strip()
         return ""
-    
+
     def get_env_value(self, row: Locator) -> str:
-        """获取环境变量的值"""
-        # 尝试从第二列获取值
+        """Return the environment variable value."""
+        # Try to get the value from the second column
         value_cells = row.locator("td").all()
         if len(value_cells) > 1:
             return value_cells[1].inner_text().strip()
         return ""
-    
+
     def click_add(self) -> "EnvironmentsPage":
-        """点击添加按钮"""
+        """Click the add button."""
         add_btn = self.page.locator(self.ADD_BTN).first
         if add_btn.count() > 0:
             add_btn.click()
-            logger.info("点击添加按钮")
+            logger.info("Clicked add button")
         return self
-    
+
     def click_save(self) -> "EnvironmentsPage":
-        """点击保存按钮"""
+        """Click the save button."""
         save_btn = self.page.locator(self.SAVE_BTN).first
         if save_btn.count() > 0:
             save_btn.click()
-            logger.info("点击保存按钮")
+            logger.info("Clicked save button")
         return self
-    
-    # ========== 断言方法 ==========
-    
+
+    # ========== Assertion methods ==========
+
     def assert_env_row_count(self, expected_count: int, timeout: Optional[int] = None) -> "EnvironmentsPage":
-        """断言环境变量行数量"""
+        """Assert the environment variable row count."""
         expect(self.page.locator(self.ENV_ROW)).to_have_count(
             expected_count, timeout=timeout or self.timeout
         )
         return self
-    
+
     def assert_env_exists(self, env_key: str, timeout: Optional[int] = None) -> "EnvironmentsPage":
-        """断言环境变量存在"""
+        """Assert that the environment variable exists."""
         env_row = self.page.locator(self.ENV_ROW).filter(
             has_text=env_key
         ).first

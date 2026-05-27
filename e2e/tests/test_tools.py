@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw 内置工具管理模块 P0 级端到端测试用例
+QwenPaw built-in tools management module P0 end-to-end test cases.
 
-工具模块测试：
-- TOOL-001: 页面展示 + 全局开关切换 + 工具卡片验证
-- TOOL-002: 单个工具启用/禁用 + 异步执行切换
-- TOOL-003: 全局开关状态一致性验证
+Tool module tests:
+- TOOL-001: Page display + global toggle + tool card verification
+- TOOL-002: Per-tool enable/disable + async-execute toggle
+- TOOL-003: Global toggle state consistency
 
-测试框架：pytest + Playwright
-执行命令：pytest tests/test_tools_p0.py -v
+Stack: pytest + Playwright
+Run with: pytest tests/test_tools_p0.py -v
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from utils.helpers import log_test_step, log_test_result
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# TOOL-001: 页面展示 + 全局开关切换 + 工具卡片验证
+# TOOL-001: Page display + global toggle + tool card verification
 # ============================================================================
 
 @pytest.mark.integration
@@ -30,168 +30,168 @@ logger = logging.getLogger(__name__)
 @pytest.mark.tools
 class TestToolsPageDisplayAndGlobalToggle:
     """
-    TOOL-001: 内置工具页面展示与全局开关切换
-    
-    覆盖功能点：
-    1. /tools 页面访问与加载
-    2. 面包屑验证（工作区 / 内置工具）
-    3. 全局启用/禁用开关显示与切换
-    4. 工具卡片网格展示验证
-    5. 恢复原始状态
+    TOOL-001: Built-in tools page display and global toggle switching.
+
+    Coverage:
+    1. Navigate to and load /tools page
+    2. Breadcrumb verification (Workspace / Built-in Tools)
+    3. Global enable/disable switch display and toggling
+    4. Tool card grid display
+    5. Restore original state
     """
-    
+
     @pytest.mark.test_id("TOOL-001")
     def test_tools_page_display_and_global_toggle(self, page: Page, request: pytest.FixtureRequest):
-        """验证内置工具页面展示与全局开关切换功能"""
+        """Verify built-in tools page display and global toggle."""
         test_name = request.node.name
-        
+
         initial_enabled = None
         global_switch = None
-        
+
         try:
-            # 1. 访问内置工具页面
-            log_test_step("1. 访问内置工具页面")
+            # 1. Visit the built-in tools page
+            log_test_step("1. Visit the built-in tools page")
             page.goto(f"{config.base_url}/tools")
-            
-            # 等待页面容器可见
+
+            # Wait for the page container to be visible
             tools_page = page.locator('div[class*="toolsPage"]')
             expect(tools_page).to_be_visible(timeout=10000)
-            logger.info("内置工具页面已加载")
-            
-            # 2. 验证面包屑
-            log_test_step("2. 验证面包屑")
+            logger.info("Built-in tools page loaded")
+
+            # 2. Verify breadcrumb
+            log_test_step("2. Verify breadcrumb")
             breadcrumb = page.locator('[class*="breadcrumb"], [class*="Breadcrumb"]').first
             if breadcrumb.is_visible():
                 breadcrumb_text = breadcrumb.inner_text().strip()
-                logger.info(f"面包屑内容：{breadcrumb_text}")
-                assert "工作区" in breadcrumb_text or "Workspace" in breadcrumb_text, "面包屑应包含工作区"
-                assert "内置工具" in breadcrumb_text or "Built-in Tools" in breadcrumb_text or "Tools" in breadcrumb_text, "面包屑应包含内置工具"
-                logger.info("面包屑验证通过")
+                logger.info(f"Breadcrumb text: {breadcrumb_text}")
+                assert "Workspace" in breadcrumb_text, "Breadcrumb should contain Workspace"
+                assert "Built-in Tools" in breadcrumb_text or "Tools" in breadcrumb_text, "Breadcrumb should contain Built-in Tools"
+                logger.info("Breadcrumb verified")
             else:
-                logger.warning("未找到面包屑元素，跳过验证")
-            
-            # 3. 验证全局启用/禁用开关
-            log_test_step("3. 验证全局启用/禁用开关")
-            # 全局开关区域可能是两个独立按钮（Enable All / Disable All）或一个 toggle switch
+                logger.warning("Breadcrumb element not found, skipping verification")
+
+            # 3. Verify the global enable/disable switch
+            log_test_step("3. Verify the global enable/disable switch")
+            # The global toggle area may be two separate buttons (Enable All / Disable All) or a single toggle switch
             global_switch = page.locator('button.qwenpaw-switch[role="switch"]')
-            enable_all_btn = page.locator('button:has-text("Enable All"), button:has-text("全部启用")').first
-            disable_all_btn = page.locator('button:has-text("Disable All"), button:has-text("全部禁用")').first
-            
-            # 判断是 toggle switch 还是独立按钮
+            enable_all_btn = page.locator('button:has-text("Enable All")').first
+            disable_all_btn = page.locator('button:has-text("Disable All")').first
+
+            # Determine whether it's a toggle switch or separate buttons
             is_toggle_switch = global_switch.count() > 0 and global_switch.first.is_visible()
             has_separate_buttons = enable_all_btn.is_visible() or disable_all_btn.is_visible()
-            
+
             if is_toggle_switch and not has_separate_buttons:
-                # Ant Design Switch 模式
+                # Ant Design Switch mode
                 initial_aria_checked = global_switch.first.get_attribute('aria-checked')
                 initial_enabled = initial_aria_checked == 'true'
                 switch_text = global_switch.first.inner_text().strip()
             else:
-                # 独立按钮模式：通过检查第一个工具卡片状态来判断当前全局状态
+                # Separate-buttons mode: determine current global state from the first tool card's status
                 first_status = page.locator('span[class*="statusText"]').first
                 if first_status.is_visible():
                     status_val = first_status.inner_text().strip()
-                    initial_enabled = status_val in ["已启用", "Enabled"]
+                    initial_enabled = status_val == "Enabled"
                 else:
                     initial_enabled = True
                 switch_text = "Enable All / Disable All"
-            
-            logger.info(f"全局开关初始状态：{'启用' if initial_enabled else '禁用'}，文本：{switch_text}")
-            logger.info(f"开关模式：{'toggle' if is_toggle_switch and not has_separate_buttons else 'separate buttons'}")
-            
-            # 4. 验证工具卡片网格
-            log_test_step("4. 验证工具卡片网格")
+
+            logger.info(f"Global toggle initial state: {'enabled' if initial_enabled else 'disabled'}, text: {switch_text}")
+            logger.info(f"Toggle mode: {'toggle' if is_toggle_switch and not has_separate_buttons else 'separate buttons'}")
+
+            # 4. Verify the tool card grid
+            log_test_step("4. Verify the tool card grid")
             tools_grid = page.locator('div[class*="toolsGrid"]')
             expect(tools_grid).to_be_visible(timeout=5000)
-            
+
             tool_cards = tools_grid.locator('div[class*="toolCard"]')
             card_count = tool_cards.count()
-            logger.info(f"检测到的工具卡片数量：{card_count}")
-            assert card_count > 0, "应至少有一个工具卡片"
-            
-            # 验证第一个工具卡片的结构
+            logger.info(f"Tool card count: {card_count}")
+            assert card_count > 0, "There should be at least one tool card"
+
+            # Verify the first tool card structure
             first_card = tool_cards.first
             expect(first_card).to_be_visible()
-            
-            # 验证工具名称
+
+            # Verify the tool name
             tool_name = first_card.locator('h3[class*="toolName"]')
             expect(tool_name).to_be_visible()
             name_text = tool_name.inner_text().strip()
-            logger.info(f"第一个工具名称：{name_text}")
-            
-            # 验证状态文本（兼容中英文）
+            logger.info(f"First tool name: {name_text}")
+
+            # Verify the status text
             status_text = first_card.locator('span[class*="statusText"]')
             expect(status_text).to_be_visible()
             status = status_text.inner_text().strip()
-            logger.info(f"第一个工具状态：{status}")
-            assert status in ["已启用", "已禁用", "Enabled", "Disabled"], f"状态应为'已启用'/'已禁用'或'Enabled'/'Disabled'，实际：{status}"
-            
-            # 验证描述
+            logger.info(f"First tool status: {status}")
+            assert status in ["Enabled", "Disabled"], f"Status should be 'Enabled' or 'Disabled', got: {status}"
+
+            # Verify the description
             description = first_card.locator('p[class*="toolDescription"]')
             expect(description).to_be_visible()
             desc_text = description.inner_text().strip()
-            logger.info(f"第一个工具描述：{desc_text[:50]}...")
-            
-            # 验证卡片底部按钮区域
+            logger.info(f"First tool description: {desc_text[:50]}...")
+
+            # Verify the card footer button area
             card_footer = first_card.locator('div[class*="cardFooter"]')
             expect(card_footer).to_be_visible()
-            
-            # 5. 切换全局开关状态
-            log_test_step("5. 切换全局开关状态")
+
+            # 5. Toggle the global switch state
+            log_test_step("5. Toggle the global switch state")
             if is_toggle_switch and not has_separate_buttons:
                 global_switch.first.click()
                 page.wait_for_timeout(1000)
                 new_aria_checked = global_switch.first.get_attribute('aria-checked')
                 new_enabled = new_aria_checked == 'true'
-                assert new_enabled != initial_enabled, "开关状态应该已切换"
+                assert new_enabled != initial_enabled, "Switch state should have changed"
             else:
-                # 独立按钮模式：如果当前启用，点 Disable All；否则点 Enable All
+                # Separate-buttons mode: if currently enabled, click Disable All; otherwise click Enable All
                 if initial_enabled:
                     target_btn = disable_all_btn
-                    logger.info("点击 Disable All 按钮")
+                    logger.info("Clicking Disable All button")
                 else:
                     target_btn = enable_all_btn
-                    logger.info("点击 Enable All 按钮")
+                    logger.info("Clicking Enable All button")
                 target_btn.click()
                 page.wait_for_timeout(3000)
-                # 验证状态变化：检查第一个工具卡片的状态
+                # Verify the state change: inspect the first tool card's status
                 new_status_el = page.locator('span[class*="statusText"]').first
                 if new_status_el.is_visible(timeout=5000):
                     new_status_val = new_status_el.inner_text().strip()
-                    new_enabled = new_status_val in ["已启用", "Enabled"]
-                    logger.info(f"切换后第一个工具状态：{new_status_val}")
+                    new_enabled = new_status_val == "Enabled"
+                    logger.info(f"First tool status after toggle: {new_status_val}")
                     if new_enabled == initial_enabled:
                         page.wait_for_timeout(2000)
                         new_status_val = new_status_el.inner_text().strip()
-                        new_enabled = new_status_val in ["已启用", "Enabled"]
-                    assert new_enabled != initial_enabled, f"全局切换后状态应变化，初始={initial_enabled}, 新={new_enabled}"
+                        new_enabled = new_status_val == "Enabled"
+                    assert new_enabled != initial_enabled, f"State should change after global toggle, initial={initial_enabled}, new={new_enabled}"
                 else:
                     new_enabled = not initial_enabled
-                    logger.warning("无法检测状态变化，假设切换成功")
-            
-            logger.info(f"全局开关新状态：{'启用' if new_enabled else '禁用'}")
-            
+                    logger.warning("Could not detect status change, assuming toggle succeeded")
+
+            logger.info(f"Global toggle new state: {'enabled' if new_enabled else 'disabled'}")
+
             log_test_result(test_name, True, 0)
-            logger.info(f"✅ Test {test_name} passed - 内置工具页面展示与全局开关切换功能正常")
-            
+            logger.info(f"Test {test_name} passed - built-in tools page display and global toggle OK")
+
         except Exception as e:
             logger.error(f"Test {test_name} failed: {str(e)}")
             log_test_result(test_name, False, 1)
             raise
         finally:
-            # 6. 恢复原始状态
+            # 6. Restore the original state
             try:
                 if initial_enabled is not None:
-                    log_test_step("6. 恢复原始状态")
+                    log_test_step("6. Restore original state")
                     if is_toggle_switch and not has_separate_buttons:
                         current_aria_checked = global_switch.first.get_attribute('aria-checked')
                         current_enabled = current_aria_checked == 'true'
                         if current_enabled != initial_enabled:
                             global_switch.first.click()
                             page.wait_for_timeout(1000)
-                            logger.info("全局开关已恢复（toggle模式）")
+                            logger.info("Global toggle restored (toggle mode)")
                     else:
-                        # 独立按钮模式：点击对应按钮恢复
+                        # Separate-buttons mode: click the corresponding button to restore
                         if initial_enabled:
                             restore_btn = enable_all_btn
                         else:
@@ -199,12 +199,12 @@ class TestToolsPageDisplayAndGlobalToggle:
                         if restore_btn.is_visible():
                             restore_btn.click()
                             page.wait_for_timeout(1000)
-                            logger.info(f"全局开关已恢复（点击 {'Enable All' if initial_enabled else 'Disable All'}）")
+                            logger.info(f"Global toggle restored (clicked {'Enable All' if initial_enabled else 'Disable All'})")
             except Exception as restore_error:
-                logger.warning(f"恢复原始状态时出错（不影响测试结果）：{str(restore_error)}")
+                logger.warning(f"Error restoring original state (does not affect test result): {str(restore_error)}")
 
 # ============================================================================
-# TOOL-002: 单个工具启用/禁用 + 异步执行切换
+# TOOL-002: Per-tool enable/disable + async-execute toggle
 # ============================================================================
 
 @pytest.mark.integration
@@ -212,176 +212,176 @@ class TestToolsPageDisplayAndGlobalToggle:
 @pytest.mark.tools
 class TestToolEnableDisableAndAsyncToggle:
     """
-    TOOL-002: 单个工具启用/禁用与异步执行切换
-    
-    覆盖功能点：
-    1. 单个工具的启用/禁用按钮操作
-    2. 异步执行开关切换
-    3. 状态变化验证
-    4. 恢复原始状态
+    TOOL-002: Per-tool enable/disable and async-execute toggle.
+
+    Coverage:
+    1. Per-tool enable/disable button
+    2. Async-execute switch toggle
+    3. State change verification
+    4. Restore original state
     """
-    
+
     @pytest.mark.test_id("TOOL-002")
     def test_tool_enable_disable_and_async_toggle(self, page: Page, request: pytest.FixtureRequest):
-        """验证单个工具启用/禁用与异步执行切换功能"""
+        """Verify per-tool enable/disable and async-execute toggle."""
         test_name = request.node.name
-        
+
         initial_status = None
         enable_disable_button = None
         status_text = None
-        
+
         try:
-            # 1. 访问内置工具页面（增加超时和重试）
-            log_test_step("1. 访问内置工具页面")
+            # 1. Visit the built-in tools page (with timeout and retry)
+            log_test_step("1. Visit the built-in tools page")
             try:
                 page.goto(f"{config.base_url}/tools", timeout=60000)
             except Exception:
-                logger.warning("Tools 页面首次加载超时，重试中...")
+                logger.warning("Tools page first load timed out, retrying...")
                 page.wait_for_timeout(3000)
                 page.goto(f"{config.base_url}/tools", wait_until="domcontentloaded", timeout=60000)
-            
-            # 等待页面容器可见
+
+            # Wait for the page container to be visible
             tools_page = page.locator('div[class*="toolsPage"]')
             expect(tools_page).to_be_visible(timeout=15000)
-            logger.info("内置工具页面已加载")
-            
-            # 2. 获取第一个工具卡片
-            log_test_step("2. 获取第一个工具卡片")
+            logger.info("Built-in tools page loaded")
+
+            # 2. Get the first tool card
+            log_test_step("2. Get the first tool card")
             tools_grid = page.locator('div[class*="toolsGrid"]')
             expect(tools_grid).to_be_visible(timeout=5000)
-            
+
             tool_cards = tools_grid.locator('div[class*="toolCard"]')
             expect(tool_cards.first).to_be_visible()
-            
+
             first_card = tool_cards.first
-            
-            # 获取工具名称用于日志
+
+            # Get the tool name for logging
             tool_name_elem = first_card.locator('h3[class*="toolName"]')
             tool_name = tool_name_elem.inner_text().strip()
-            logger.info(f"测试工具：{tool_name}")
-            
-            # 3. 验证初始状态
-            log_test_step("3. 验证初始状态")
-            
-            # 获取状态文本（兼容中英文）
+            logger.info(f"Test tool: {tool_name}")
+
+            # 3. Verify the initial status
+            log_test_step("3. Verify initial status")
+
+            # Get the status text
             status_text = first_card.locator('span[class*="statusText"]')
             initial_status = status_text.inner_text().strip()
-            logger.info(f"初始状态：{initial_status}")
-            assert initial_status in ["已启用", "已禁用", "Enabled", "Disabled"], f"状态应为'已启用'/'已禁用'或'Enabled'/'Disabled'，实际：{initial_status}"
-            
-            # 获取卡片底部按钮
+            logger.info(f"Initial status: {initial_status}")
+            assert initial_status in ["Enabled", "Disabled"], f"Status should be 'Enabled' or 'Disabled', got: {initial_status}"
+
+            # Get the card footer buttons
             card_footer = first_card.locator('div[class*="cardFooter"]')
             toggle_buttons = card_footer.locator('button[class*="toggleButton"]')
             button_count = toggle_buttons.count()
-            logger.info(f"检测到的按钮数量：{button_count}")
-            assert button_count >= 1, "应至少有一个切换按钮"
-            
-            # 4. 测试异步执行开关（如果存在）
-            # 源码：异步执行按钮仅在 execute_shell_command 工具上存在，
-            # 且 disabled={!tool.enabled}，即工具必须启用后才能操作异步执行开关
-            log_test_step("4. 测试异步执行开关")
-            async_button = toggle_buttons.filter(has_text="异步执行").first
-            
+            logger.info(f"Detected button count: {button_count}")
+            assert button_count >= 1, "There should be at least one toggle button"
+
+            # 4. Test the async-execute toggle (if present)
+            # Source: the async-execute button exists only on the execute_shell_command tool,
+            # and is disabled={!tool.enabled}, i.e. the tool must be enabled to interact.
+            log_test_step("4. Test async-execute toggle")
+            async_button = toggle_buttons.filter(has_text="Async").first
+
             if async_button.is_visible():
-                # 异步执行按钮在工具禁用时是 disabled 的，需要先确保工具启用
+                # Async-execute button is disabled when the tool is disabled; ensure the tool is enabled first
                 need_restore_disable = False
-                if initial_status in ["已禁用", "Disabled"]:
-                    logger.info("工具当前为禁用状态，先启用以测试异步执行功能")
+                if initial_status == "Disabled":
+                    logger.info("Tool is currently disabled; enabling it to test async-execute")
                     enable_disable_button = toggle_buttons.last
                     enable_disable_button.click()
                     page.wait_for_timeout(1500)
                     new_status = status_text.inner_text().strip()
-                    logger.info(f"启用后状态：{new_status}")
-                    assert new_status in ["已启用", "Enabled"], f"工具应已启用，实际：{new_status}"
+                    logger.info(f"Status after enabling: {new_status}")
+                    assert new_status == "Enabled", f"Tool should be enabled, got: {new_status}"
                     need_restore_disable = True
 
                 async_text = async_button.inner_text().strip()
-                logger.info(f"异步执行按钮文本：{async_text}")
-                
-                # 判断当前异步执行状态（兼容中英文）
-                is_async_enabled = "已启用" in async_text or "Enabled" in async_text
-                
-                # 切换异步执行状态
+                logger.info(f"Async-execute button text: {async_text}")
+
+                # Determine current async-execute state
+                is_async_enabled = "Enabled" in async_text
+
+                # Toggle the async-execute state
                 async_button.click()
                 page.wait_for_timeout(1000)
-                
-                # 验证状态已切换
+
+                # Verify the state changed
                 new_async_text = async_button.inner_text().strip()
-                logger.info(f"异步执行新状态：{new_async_text}")
-                new_is_async_enabled = "已启用" in new_async_text or "Enabled" in new_async_text
-                assert new_is_async_enabled != is_async_enabled, "异步执行状态应该已切换"
-                
-                # 恢复异步执行状态
+                logger.info(f"Async-execute new state: {new_async_text}")
+                new_is_async_enabled = "Enabled" in new_async_text
+                assert new_is_async_enabled != is_async_enabled, "Async-execute state should have toggled"
+
+                # Restore async-execute state
                 async_button.click()
                 page.wait_for_timeout(1000)
                 restored_async_text = async_button.inner_text().strip()
-                logger.info(f"异步执行恢复状态：{restored_async_text}")
-                restored_is_async_enabled = "已启用" in restored_async_text or "Enabled" in restored_async_text
-                assert restored_is_async_enabled == is_async_enabled, "异步执行状态应恢复到初始值"
-                
-                # 如果之前为了测试异步执行而启用了工具，恢复为禁用
+                logger.info(f"Async-execute restored state: {restored_async_text}")
+                restored_is_async_enabled = "Enabled" in restored_async_text
+                assert restored_is_async_enabled == is_async_enabled, "Async-execute state should be restored"
+
+                # If we enabled the tool earlier to test async-execute, restore it to disabled
                 if need_restore_disable:
                     enable_disable_button = toggle_buttons.last
                     enable_disable_button.click()
                     page.wait_for_timeout(1000)
-                    logger.info("已恢复工具为禁用状态")
-                
-                logger.info("异步执行开关测试通过")
+                    logger.info("Tool restored to disabled state")
+
+                logger.info("Async-execute toggle test passed")
             else:
-                logger.warning("未找到异步执行按钮，跳过异步执行测试")
-            
-            # 5. 测试启用/禁用按钮（最后一个按钮，纯"禁用"或"启用"文本）
-            log_test_step("5. 测试启用/禁用按钮")
+                logger.warning("Async-execute button not found, skipping async-execute test")
+
+            # 5. Test the enable/disable button (last button, plain "Enable"/"Disable" text)
+            log_test_step("5. Test enable/disable button")
             enable_disable_button = toggle_buttons.last
-            
+
             if enable_disable_button.is_visible():
                 btn_text = enable_disable_button.inner_text().strip()
-                logger.info(f"启用/禁用按钮文本：{btn_text}")
-                
-                # 判断当前是启用还是禁用状态（兼容中英文）
-                is_currently_enabled = initial_status in ["已启用", "Enabled"]
-                
-                # 点击按钮切换状态
+                logger.info(f"Enable/disable button text: {btn_text}")
+
+                # Determine current state
+                is_currently_enabled = initial_status == "Enabled"
+
+                # Click to toggle state
                 enable_disable_button.click()
                 page.wait_for_timeout(1500)
-                
-                # 验证状态文本已更新
+
+                # Verify the status text was updated
                 new_status = status_text.inner_text().strip()
-                logger.info(f"新状态：{new_status}")
-                assert new_status != initial_status, f"状态应该已从'{initial_status}'变为其他值"
-                assert new_status in ["已启用", "已禁用", "Enabled", "Disabled"], f"新状态应为'已启用'/'已禁用'或'Enabled'/'Disabled'，实际：{new_status}"
-                
-                # 验证按钮文本也已更新
+                logger.info(f"New status: {new_status}")
+                assert new_status != initial_status, f"Status should have changed from '{initial_status}'"
+                assert new_status in ["Enabled", "Disabled"], f"New status should be 'Enabled' or 'Disabled', got: {new_status}"
+
+                # Verify the button text was also updated
                 new_btn_text = enable_disable_button.inner_text().strip()
-                logger.info(f"按钮新文本：{new_btn_text}")
-                
-                logger.info("启用/禁用按钮测试通过")
+                logger.info(f"New button text: {new_btn_text}")
+
+                logger.info("Enable/disable button test passed")
             else:
-                logger.warning("未找到启用/禁用按钮，跳过启用/禁用测试")
-            
+                logger.warning("Enable/disable button not found, skipping enable/disable test")
+
             log_test_result(test_name, True, 0)
-            logger.info(f"✅ Test {test_name} passed - 单个工具启用/禁用与异步执行切换功能正常")
-            
+            logger.info(f"Test {test_name} passed - per-tool enable/disable and async-execute toggle OK")
+
         except Exception as e:
             logger.error(f"Test {test_name} failed: {str(e)}")
             log_test_result(test_name, False, 1)
             raise
         finally:
-            # 6. 恢复原始状态
+            # 6. Restore the original state
             try:
                 if enable_disable_button is not None and initial_status is not None and status_text is not None:
-                    log_test_step("6. 恢复原始状态")
+                    log_test_step("6. Restore original state")
                     current_status = status_text.inner_text().strip()
                     if current_status != initial_status:
                         enable_disable_button.click()
                         page.wait_for_timeout(1500)
                         restored_status = status_text.inner_text().strip()
-                        logger.info(f"恢复状态：{restored_status}")
+                        logger.info(f"Restored status: {restored_status}")
             except Exception as restore_error:
-                logger.warning(f"恢复原始状态时出错（不影响测试结果）：{str(restore_error)}")
+                logger.warning(f"Error restoring original state (does not affect test result): {str(restore_error)}")
 
 # ============================================================================
-# TOOL-003: 全局开关状态一致性验证
+# TOOL-003: Global toggle state consistency verification
 # ============================================================================
 
 @pytest.mark.integration
@@ -389,24 +389,24 @@ class TestToolEnableDisableAndAsyncToggle:
 @pytest.mark.tools
 class TestToolsGlobalToggleConsistency:
     """
-    TOOL-003: 全局开关状态一致性验证
+    TOOL-003: Global toggle state consistency verification.
 
-    覆盖功能点：
-    1. 访问内置工具页面
-    2. 记录所有工具卡片的初始状态
-    3. 如果全局开关是启用状态，先禁用
-    4. 点击全局禁用开关
-    5. 等待状态更新
-    6. 遍历所有工具卡片，验证状态都变为"已禁用"
-    7. 点击全局启用开关
-    8. 等待状态更新
-    9. 遍历所有工具卡片，验证状态都变为"已启用"
-    10. 恢复原始状态
+    Coverage:
+    1. Visit the built-in tools page
+    2. Record the initial state of all tool cards
+    3. If the global toggle is enabled, disable it first
+    4. Click the global disable toggle
+    5. Wait for state update
+    6. Iterate over all tool cards and verify they become "Disabled"
+    7. Click the global enable toggle
+    8. Wait for state update
+    9. Iterate over all tool cards and verify they become "Enabled"
+    10. Restore original state
     """
 
     @pytest.mark.test_id("TOOL-003")
     def test_global_toggle_consistency(self, page: Page, request: pytest.FixtureRequest):
-        """验证全局开关与所有工具卡片状态的一致性"""
+        """Verify the consistency between the global toggle and all tool card states."""
         test_name = request.node.name
 
         initial_enabled = None
@@ -414,69 +414,69 @@ class TestToolsGlobalToggleConsistency:
         global_switch = None
 
         try:
-            # ── 步骤1: 访问内置工具页面 ──
-            log_test_step("1. 访问内置工具页面")
+            # Step 1: Visit the built-in tools page
+            log_test_step("1. Visit the built-in tools page")
             page.goto(f"{config.base_url}/tools")
-            
+
             tools_page = page.locator('div[class*="toolsPage"]')
             expect(tools_page).to_be_visible(timeout=10000)
-            logger.info("内置工具页面已加载")
+            logger.info("Built-in tools page loaded")
 
-            # ── 步骤2: 记录所有工具卡片的初始状态 ──
-            log_test_step("2. 记录所有工具卡片的初始状态")
+            # Step 2: Record initial state of all tool cards
+            log_test_step("2. Record initial state of all tool cards")
             tools_grid = page.locator('div[class*="toolsGrid"]')
             expect(tools_grid).to_be_visible(timeout=5000)
-            
+
             tool_cards = tools_grid.locator('div[class*="toolCard"]').all()
             card_count = len(tool_cards)
-            assert card_count > 0, "应至少有一个工具卡片"
-            logger.info(f"检测到的工具卡片数量：{card_count}")
+            assert card_count > 0, "There should be at least one tool card"
+            logger.info(f"Detected tool card count: {card_count}")
 
-            # 获取全局开关初始状态
+            # Get the global toggle's initial state
             global_switch = page.locator('button.qwenpaw-switch[role="switch"]').first
             expect(global_switch).to_be_visible(timeout=5000)
             initial_aria_checked = global_switch.get_attribute('aria-checked')
             initial_enabled = initial_aria_checked == 'true'
-            logger.info(f"全局开关初始状态：{'启用' if initial_enabled else '禁用'}")
+            logger.info(f"Global toggle initial state: {'enabled' if initial_enabled else 'disabled'}")
 
-            # 记录每个工具的初始状态
+            # Record each tool's initial status
             initial_statuses = []
             for i, card in enumerate(tool_cards):
                 status_text = card.locator('span[class*="statusText"]').first
                 if status_text.is_visible():
                     status = status_text.inner_text().strip()
                     initial_statuses.append(status)
-                    logger.info(f"工具 {i+1} 初始状态：{status}")
+                    logger.info(f"Tool {i+1} initial status: {status}")
 
-            # ── 步骤3: 如果全局开关是启用状态，先禁用 ──
-            log_test_step("3. 确保全局开关处于已知状态")
+            # Step 3: If the global toggle is enabled, disable it first
+            log_test_step("3. Ensure the global toggle is in a known state")
             if initial_enabled:
-                logger.info("全局开关当前为启用状态，先禁用以进行测试")
+                logger.info("Global toggle is currently enabled; disabling first to start the test")
                 global_switch.click()
                 page.wait_for_timeout(1500)
-                
-                new_aria = global_switch.get_attribute('aria-checked')
-                assert new_aria == 'false', "全局开关未成功禁用"
-                logger.info("✅ 全局开关已禁用")
 
-            # ── 步骤4: 点击全局禁用开关（确保处于禁用状态） ──
-            log_test_step("4. 确认全局开关为禁用状态")
+                new_aria = global_switch.get_attribute('aria-checked')
+                assert new_aria == 'false', "Global toggle did not disable"
+                logger.info("Global toggle disabled")
+
+            # Step 4: Click the global disable toggle (ensure disabled state)
+            log_test_step("4. Confirm the global toggle is disabled")
             current_aria = global_switch.get_attribute('aria-checked')
             if current_aria == 'true':
                 global_switch.click()
                 page.wait_for_timeout(1500)
-                logger.info("✅ 全局开关已切换为禁用")
+                logger.info("Global toggle switched to disabled")
 
-            # ── 步骤5: 等待状态更新 ──
-            log_test_step("5. 等待状态更新")
+            # Step 5: Wait for state update
+            log_test_step("5. Wait for state update")
             page.wait_for_timeout(3000)
 
-            # ── 步骤6: 验证全局开关状态已变更 ──
-            log_test_step("6. 验证全局开关状态")
+            # Step 6: Verify the global toggle state changed
+            log_test_step("6. Verify the global toggle state")
             current_global = global_switch.get_attribute('aria-checked')
-            logger.info(f"全局开关当前状态：aria-checked={current_global}")
+            logger.info(f"Global toggle current state: aria-checked={current_global}")
 
-            # 遍历工具卡片记录状态
+            # Iterate over tool cards and record their state
             updated_cards = tools_grid.locator('div[class*="toolCard"]').all()
             disabled_count = 0
             enabled_count = 0
@@ -486,130 +486,130 @@ class TestToolsGlobalToggleConsistency:
                 if status_text.is_visible():
                     total_visible += 1
                     status = status_text.inner_text().strip()
-                    if status in ["已禁用", "Disabled"]:
+                    if status == "Disabled":
                         disabled_count += 1
-                    elif status in ["已启用", "Enabled"]:
+                    elif status == "Enabled":
                         enabled_count += 1
-                    logger.info(f"工具 {i+1} 状态：{status}")
+                    logger.info(f"Tool {i+1} status: {status}")
 
-            logger.info(f"工具状态统计：已禁用={disabled_count}, 已启用={enabled_count}, 总计={total_visible}")
-            # 全局开关的行为可能是控制新工具的默认状态，而非批量切换所有工具
-            # 验证全局开关确实已切换即可
-            logger.info("✅ 全局开关状态验证通过")
+            logger.info(f"Tool status summary: disabled={disabled_count}, enabled={enabled_count}, total={total_visible}")
+            # The global toggle may control the default state of new tools rather than batch-toggle all tools;
+            # verifying the global toggle itself flipped is enough
+            logger.info("Global toggle state verified")
 
-            # ── 步骤7: 点击全局启用开关 ──
-            log_test_step("7. 点击全局启用开关")
+            # Step 7: Click the global enable toggle
+            log_test_step("7. Click the global enable toggle")
             global_switch.click()
             page.wait_for_timeout(1500)
-            
-            enabled_aria = global_switch.get_attribute('aria-checked')
-            assert enabled_aria == 'true', "全局开关未成功启用"
-            logger.info("✅ 全局开关已启用")
 
-            # ── 步骤8: 等待状态更新 ──
-            log_test_step("8. 等待状态更新")
+            enabled_aria = global_switch.get_attribute('aria-checked')
+            assert enabled_aria == 'true', "Global toggle did not enable"
+            logger.info("Global toggle enabled")
+
+            # Step 8: Wait for state update
+            log_test_step("8. Wait for state update")
             page.wait_for_timeout(1000)
 
-            # ── 步骤9: 遍历所有工具卡片，验证状态都变为"已启用" ──
-            log_test_step("9. 验证所有工具卡片状态为已启用")
+            # Step 9: Iterate over all tool cards and verify they become "Enabled"
+            log_test_step("9. Verify all tool cards are Enabled")
             enabled_cards = tools_grid.locator('div[class*="toolCard"]').all()
             all_enabled = True
             for i, card in enumerate(enabled_cards):
                 status_text = card.locator('span[class*="statusText"]').first
                 if status_text.is_visible():
                     status = status_text.inner_text().strip()
-                    if status not in ["已启用", "Enabled"]:
+                    if status != "Enabled":
                         all_enabled = False
-                        logger.warning(f"工具 {i+1} 状态不是'已启用'/'Enabled'：{status}")
+                        logger.warning(f"Tool {i+1} status is not 'Enabled': {status}")
                     else:
-                        logger.info(f"工具 {i+1} 状态：{status} ✅")
-            
-            assert all_enabled, "并非所有工具卡片都处于'已启用'/'Enabled'状态"
-            logger.info("✅ 所有工具卡片状态均为'已启用'/'Enabled'")
+                        logger.info(f"Tool {i+1} status: {status}")
+
+            assert all_enabled, "Not all tool cards are 'Enabled'"
+            logger.info("All tool cards are 'Enabled'")
 
             log_test_result(test_name, True, 0)
-            logger.info(f"✅ Test {test_name} passed - 全局开关状态一致性验证通过")
+            logger.info(f"Test {test_name} passed - global toggle state consistency verified")
 
         except Exception as e:
             logger.error(f"Test {test_name} failed: {str(e)}")
             log_test_result(test_name, False, 1)
             raise
         finally:
-            # ── 步骤10: 恢复原始状态 ──
+            # Step 10: Restore original state
             try:
                 if global_switch is not None and initial_enabled is not None and initial_aria_checked is not None:
-                    log_test_step("10. 恢复原始状态")
+                    log_test_step("10. Restore original state")
                     if not initial_enabled:
-                        # 如果初始状态是禁用，则再次点击回到禁用
+                        # If initial state was disabled, click again to return to disabled
                         current_aria = global_switch.get_attribute('aria-checked')
                         if current_aria == 'true':
                             global_switch.click()
                             page.wait_for_timeout(1500)
                             restored_aria = global_switch.get_attribute('aria-checked')
-                            logger.info(f"✅ 全局开关已恢复到初始状态：{'启用' if initial_enabled else '禁用'}")
+                            logger.info(f"Global toggle restored to initial state: {'enabled' if initial_enabled else 'disabled'}")
                     else:
-                        logger.info("✅ 全局开关已处于初始启用状态")
+                        logger.info("Global toggle already at initial enabled state")
             except Exception as restore_error:
-                logger.warning(f"恢复原始状态时出错（不影响测试结果）：{str(restore_error)}")
+                logger.warning(f"Error restoring original state (does not affect test result): {str(restore_error)}")
 
 
 # ============================================================================
-# TOOL-P2-001: 异步执行开关验证
+# TOOL-P2-001: Async-execute toggle verification
 # ============================================================================
 
 @pytest.mark.integration
 @pytest.mark.p2
 @pytest.mark.tools
 class TestToolAsyncSwitch:
-    """TOOL-P2-001: 异步执行开关验证"""
+    """TOOL-P2-001: Async-execute toggle verification."""
 
     @pytest.mark.test_id("TOOL-P2-001")
     def test_tool_async_switch(self, page: Page, request: pytest.FixtureRequest):
-        """测试工具异步执行开关"""
+        """Test the tool async-execute toggle."""
         test_name = request.node.name
 
-        log_test_step("导航到工具管理页面")
+        log_test_step("Navigate to the tools management page")
         try:
             page.goto(f"{config.base_url}/tools", wait_until="domcontentloaded", timeout=60000)
         except Exception as nav_error:
-            logger.warning(f"Tools 页面导航超时，尝试 commit 级别: {nav_error}")
+            logger.warning(f"Tools page navigation timed out, trying commit level: {nav_error}")
             page.goto(f"{config.base_url}/tools", wait_until="commit", timeout=30000)
         page.wait_for_timeout(3000)
 
-        log_test_step("查找工具卡片")
+        log_test_step("Find tool cards")
         tool_cards = page.locator('.qwenpaw-card, [class*="toolCard"]').all()
         if len(tool_cards) == 0:
-            pytest.skip("未找到工具卡片，跳过测试")
-        logger.info(f"✅ 找到 {len(tool_cards)} 个工具卡片")
+            pytest.skip("No tool cards found, skipping test")
+        logger.info(f"Found {len(tool_cards)} tool cards")
 
-        log_test_step("查找异步执行开关")
+        log_test_step("Find the async-execute toggle")
         async_switches = page.locator(
             '.qwenpaw-switch, [class*="asyncSwitch"]'
         ).all()
-        assert len(async_switches) > 0, "工具页面应有开关控件"
-        logger.info(f"✅ 找到 {len(async_switches)} 个开关")
+        assert len(async_switches) > 0, "Tools page should have toggle controls"
+        logger.info(f"Found {len(async_switches)} toggles")
 
         first_switch = async_switches[0]
         original_state = first_switch.get_attribute("aria-checked")
-        assert original_state is not None, "开关应有 aria-checked 属性"
-        logger.info(f"开关初始状态：aria-checked={original_state}")
+        assert original_state is not None, "Toggle should have an aria-checked attribute"
+        logger.info(f"Toggle initial state: aria-checked={original_state}")
 
-        log_test_step("点击切换异步执行开关")
+        log_test_step("Click to toggle the async-execute switch")
         first_switch.click()
         page.wait_for_timeout(1500)
 
         new_state = first_switch.get_attribute("aria-checked")
-        logger.info(f"切换后状态：aria-checked={new_state}")
+        logger.info(f"State after toggle: aria-checked={new_state}")
         assert new_state != original_state, \
-            f"异步开关切换未生效：切换前 {original_state}，切换后 {new_state}"
-        logger.info("✅ 异步开关状态切换成功")
+            f"Async toggle had no effect: before={original_state}, after={new_state}"
+        logger.info("Async toggle state changed successfully")
 
-        log_test_step("恢复原始状态")
+        log_test_step("Restore original state")
         first_switch.click()
         page.wait_for_timeout(1000)
         restored_state = first_switch.get_attribute("aria-checked")
         assert restored_state == original_state, \
-            f"异步开关恢复失败：期望 {original_state}，实际 {restored_state}"
-        logger.info("✅ 异步开关已恢复原始状态")
+            f"Async toggle restore failed: expected {original_state}, got {restored_state}"
+        logger.info("Async toggle restored to original state")
 
         log_test_result(test_name, True, 0)

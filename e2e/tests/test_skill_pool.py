@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-QwenPaw E2E 测试 - Skill Pool P0 用例
+QwenPaw E2E tests - Skill Pool P0 cases
 
-覆盖功能：
-1. 技能池页面加载
-2. 技能池列表展示
-3. 内置技能源列表
+Functional coverage:
+1. Skill pool page load
+2. Skill pool list display
+3. Builtin skill source list
 """
 from __future__ import annotations
 
@@ -21,45 +21,45 @@ logger = logging.getLogger(__name__)
 BASE_URL = config.server.base_url
 
 def navigate_to_skill_pool(page: Page):
-    """导航到技能池页面"""
+    """Navigate to the skill pool page."""
     page.goto(f"{BASE_URL}/skill-pool", wait_until="domcontentloaded", timeout=60000)
-    # 显式等待技能卡片渲染完成，而非仅靠固定超时
+    # Explicitly wait for skill cards to render rather than only relying on a fixed timeout
     try:
         page.wait_for_selector('.qwenpaw-card', timeout=15000)
     except Exception:
-        logger.warning("等待技能卡片超时，页面可能无数据或加载缓慢")
+        logger.warning("Timed out waiting for skill cards; page may have no data or be slow")
     page.wait_for_timeout(1000)
 
 # ============================================================================
-# POOL-001: 技能池页面加载
+# POOL-001: Skill pool page load
 # ============================================================================
 
 @pytest.mark.integration
 @pytest.mark.p0
 class TestSkillPoolPageLoad:
-    """POOL-001: 技能池页面加载"""
-    
+    """POOL-001: Skill pool page load"""
+
     @pytest.mark.test_id("POOL-001")
     def test_skill_pool_page_load(self, page: Page, request: pytest.FixtureRequest):
-        """验证技能池页面正常加载"""
+        """Verify skill pool page loads normally."""
         test_name = request.node.name
-        
+
         try:
-            log_test_step("1. 访问技能池页面")
+            log_test_step("1. Navigate to skill pool page")
             navigate_to_skill_pool(page)
-            
-            log_test_step("2. 验证页面加载")
+
+            log_test_step("2. Verify page loaded")
             body = page.locator("body").first
-            assert body.is_visible(timeout=5000), "页面应正常加载"
-            logger.info(f"✅ 技能池页面加载成功")
-            
-            log_test_result(test_name, "PASS", "技能池页面加载验证通过")
+            assert body.is_visible(timeout=5000), "Page should load"
+            logger.info("Skill pool page loaded")
+
+            log_test_result(test_name, "PASS", "Skill pool page load validation passed")
         except Exception as e:
             log_test_result(test_name, "FAIL", str(e))
             raise
 
 # ============================================================================
-# POOL-P1-001: 技能池搜索/筛选
+# POOL-P1-001: Skill pool search/filter
 # ============================================================================
 
 @pytest.mark.integration
@@ -67,23 +67,23 @@ class TestSkillPoolPageLoad:
 @pytest.mark.skill_pool
 class TestSkillPoolSearch:
     """
-    POOL-P1-001: 技能池搜索/筛选
+    POOL-P1-001: Skill pool search/filter
 
-    覆盖功能点：
-    1. 验证搜索框存在
-    2. 输入关键词过滤技能列表
-    3. 清空搜索恢复完整列表
+    Functional coverage:
+    1. Verify search input exists
+    2. Enter keyword to filter skill list
+    3. Clear search to restore full list
     """
 
     @pytest.mark.test_id("POOL-P1-001")
     def test_skill_pool_search(self, page: Page, request: pytest.FixtureRequest):
-        """测试技能池搜索/筛选功能"""
+        """Test skill pool search/filter functionality."""
         test_name = request.node.name
 
-        log_test_step("导航到技能池页面")
+        log_test_step("Navigate to skill pool page")
         navigate_to_skill_pool(page)
 
-        log_test_step("验证搜索框存在")
+        log_test_step("Verify search input exists")
         search_input = page.locator(
             'input[placeholder*="筛选"], input[placeholder*="搜索"], '
             'input[placeholder*="search"], input[placeholder*="Search"], '
@@ -92,25 +92,25 @@ class TestSkillPoolSearch:
             '.qwenpaw-input-search input'
         ).first
         expect(search_input).to_be_visible(timeout=5000)
-        logger.info("✅ 搜索框存在")
+        logger.info("Search input exists")
 
-        log_test_step("记录搜索前的技能数量")
-        # 等待卡片加载完成后再计数，避免异步数据未到导致 count=0
+        log_test_step("Record skill count before search")
+        # Wait for cards to finish loading before counting, to avoid async data not yet arriving
         try:
             page.wait_for_selector('.qwenpaw-card', timeout=10000)
             page.wait_for_timeout(500)
         except Exception:
-            logger.warning("未等到技能卡片，可能页面无数据")
+            logger.warning("Did not see skill cards, page may have no data")
         skill_cards = page.locator('.qwenpaw-card').all()
         initial_count = len(skill_cards)
-        logger.info(f"搜索前技能数量：{initial_count}")
+        logger.info(f"Skill count before search: {initial_count}")
         if initial_count == 0:
-            logger.info("ℹ️ 技能池无数据，跳过搜索过滤断言")
+            logger.info("Skill pool has no data, skipping search filter assertion")
             log_test_result(test_name, True, 0)
             return
 
-        log_test_step("输入搜索关键词")
-        # 搜索框是 qwenpaw-select 组件（readonly input），需要点击父容器触发下拉
+        log_test_step("Enter search keyword")
+        # Search input is a qwenpaw-select component (readonly input); click parent container to trigger dropdown
         is_readonly = search_input.get_attribute("readonly") is not None
         if is_readonly:
             select_container = page.locator('.qwenpaw-select').first
@@ -126,12 +126,12 @@ class TestSkillPoolSearch:
 
         filtered_cards = page.locator('.qwenpaw-card').all()
         filtered_count = len(filtered_cards)
-        logger.info(f"搜索后技能数量：{filtered_count}")
+        logger.info(f"Skill count after search: {filtered_count}")
         assert filtered_count <= initial_count, \
-            f"过滤后数量({filtered_count})不应大于初始数量({initial_count})"
-        logger.info("✅ 搜索过滤生效")
+            f"Filtered count ({filtered_count}) should not exceed initial count ({initial_count})"
+        logger.info("Search filter is effective")
 
-        log_test_step("清空搜索恢复列表")
+        log_test_step("Clear search to restore list")
         if is_readonly:
             clear_btn = page.locator('.qwenpaw-select-clear').first
             if clear_btn.count() > 0:
@@ -149,13 +149,13 @@ class TestSkillPoolSearch:
 
         restored_cards = page.locator('.qwenpaw-card').all()
         restored_count = len(restored_cards)
-        logger.info(f"清空搜索后技能数量：{restored_count}")
-        logger.info("✅ 搜索清空后列表恢复")
+        logger.info(f"Skill count after clearing search: {restored_count}")
+        logger.info("List restored after clearing search")
 
         log_test_result(test_name, True, 0)
 
 # ============================================================================
-# POOL-P1-002: 技能安装到智能体（通过广播）
+# POOL-P1-002: Install skill to agent (via broadcast)
 # ============================================================================
 
 @pytest.mark.integration
@@ -163,81 +163,81 @@ class TestSkillPoolSearch:
 @pytest.mark.skill_pool
 class TestSkillPoolInstall:
     """
-    POOL-P1-002: 技能安装到智能体
+    POOL-P1-002: Install skill to agent
 
-    覆盖功能点：
-    1. 查找广播按钮
-    2. 打开广播 Modal
-    3. 验证 Modal 中有技能和工作区选择
+    Functional coverage:
+    1. Find broadcast button
+    2. Open broadcast Modal
+    3. Verify Modal has skill and workspace selections
     """
 
     @pytest.mark.test_id("POOL-P1-002")
     def test_skill_pool_install(self, page: Page, request: pytest.FixtureRequest):
-        """测试技能安装到智能体功能"""
+        """Test installing a skill to an agent."""
         test_name = request.node.name
 
-        log_test_step("导航到技能池页面")
+        log_test_step("Navigate to skill pool page")
         navigate_to_skill_pool(page)
 
-        log_test_step("查找广播按钮")
+        log_test_step("Find broadcast button")
         broadcast_btn = page.locator(
             'button:has-text("广播"), button:has-text("Broadcast"), '
             'button:has(.anticon-send)'
         ).first
 
         if broadcast_btn.count() == 0:
-            logger.info("未找到广播按钮，跳过测试")
+            logger.info("Broadcast button not found, skipping test")
             log_test_result(test_name, True, 0)
             return
 
         expect(broadcast_btn).to_be_visible(timeout=5000)
-        logger.info("✅ 广播按钮存在")
+        logger.info("Broadcast button exists")
 
-        log_test_step("点击广播按钮")
+        log_test_step("Click broadcast button")
         broadcast_btn.click()
         page.wait_for_timeout(1500)
 
-        log_test_step("验证广播 Modal 打开")
+        log_test_step("Verify broadcast Modal opens")
         page.wait_for_timeout(500)
         visible_modals = page.locator('.qwenpaw-modal:visible, .ant-modal:visible, [role="dialog"]:visible')
         modal = visible_modals.last if visible_modals.count() > 0 else page.locator('.qwenpaw-modal, .ant-modal').last
         expect(modal).to_be_visible(timeout=8000)
         modal_content = modal.inner_text()
-        assert len(modal_content) > 10, "广播 Modal 内容为空"
-        logger.info(f"✅ 广播 Modal 已打开，内容长度：{len(modal_content)}")
+        assert len(modal_content) > 10, "Broadcast Modal content is empty"
+        logger.info(f"Broadcast Modal opened, content length: {len(modal_content)}")
 
-        log_test_step("验证 Modal 中有选择区域并操作")
-        # 实际 UI 使用自定义 pickerCard 组件而非标准 checkbox/select
+        log_test_step("Verify Modal has selection area and interact")
+        # Actual UI uses custom pickerCard component instead of standard checkbox/select
         picker_cards = modal.locator('[class*=pickerCard]').all()
         checkboxes = modal.locator('.qwenpaw-checkbox, .ant-checkbox, .qwenpaw-checkbox-wrapper').all()
         selects = modal.locator('.qwenpaw-select, .ant-select').all()
         lists = modal.locator('.qwenpaw-list-item, .ant-list-item, tr').all()
         total_interactive = len(picker_cards) + len(checkboxes) + len(selects) + len(lists)
-        assert total_interactive > 0, "广播 Modal 中应有可选择的元素（pickerCard/复选框/选择器/列表项）"
-        logger.info(f"✅ Modal 中找到 {len(picker_cards)} 个 pickerCard, {len(checkboxes)} 个复选框, {len(selects)} 个选择器, {len(lists)} 个列表项")
+        assert total_interactive > 0, "Broadcast Modal should have selectable elements (pickerCard/checkbox/select/list item)"
+        logger.info(f"Modal contains {len(picker_cards)} pickerCards, {len(checkboxes)} checkboxes, {len(selects)} selects, {len(lists)} list items")
 
-        # 如果有 pickerCard，点击第一个验证可交互
+        # If pickerCards exist, click the first to verify interactivity
         if len(picker_cards) > 0:
             first_card = picker_cards[0]
             first_card.click()
             page.wait_for_timeout(500)
-            logger.info("✅ 已点击第一个 pickerCard")
+            logger.info("Clicked the first pickerCard")
         elif len(checkboxes) > 0:
             first_checkbox = checkboxes[0]
             first_checkbox.click()
             page.wait_for_timeout(500)
-            logger.info("✅ 已勾选第一个复选框")
+            logger.info("Checked the first checkbox")
 
-        # 验证确认按钮存在
+        # Verify confirm button exists
         confirm_btn = modal.locator(
             'button:has-text("OK"), button:has-text("确定"), '
             'button:has-text("Broadcast"), button:has-text("广播"), '
             'button.qwenpaw-btn-primary'
         ).first
-        assert confirm_btn.count() > 0, "广播 Modal 中应有确认按钮"
-        logger.info("✅ 确认按钮存在")
+        assert confirm_btn.count() > 0, "Confirm button should exist in broadcast Modal"
+        logger.info("Confirm button exists")
 
-        log_test_step("关闭 Modal")
+        log_test_step("Close Modal")
         close_btn = modal.locator('.qwenpaw-modal-close, button:has-text("Cancel"), button:has-text("取消")').first
         if close_btn.count() > 0:
             close_btn.click()
@@ -248,7 +248,7 @@ class TestSkillPoolInstall:
         log_test_result(test_name, True, 0)
 
 # ============================================================================
-# POOL-P1-003: 技能广播到多个智能体
+# POOL-P1-003: Broadcast skill to multiple agents
 # ============================================================================
 
 @pytest.mark.integration
@@ -256,86 +256,86 @@ class TestSkillPoolInstall:
 @pytest.mark.skill_pool
 class TestSkillPoolBroadcast:
     """
-    POOL-P1-003: 技能广播到多个智能体
+    POOL-P1-003: Broadcast skill to multiple agents
 
-    覆盖功能点：
-    1. 打开广播 Modal
-    2. 验证可以选择多个工作区
-    3. 验证确认按钮存在
+    Functional coverage:
+    1. Open broadcast Modal
+    2. Verify multiple workspaces can be selected
+    3. Verify confirm button exists
     """
 
     @pytest.mark.test_id("POOL-P1-003")
     def test_skill_pool_broadcast(self, page: Page, request: pytest.FixtureRequest):
-        """测试技能广播到多个智能体"""
+        """Test broadcasting skill to multiple agents."""
         test_name = request.node.name
 
-        log_test_step("导航到技能池页面")
+        log_test_step("Navigate to skill pool page")
         navigate_to_skill_pool(page)
 
-        log_test_step("查找并点击广播按钮")
+        log_test_step("Find and click broadcast button")
         broadcast_btn = page.locator(
             'button:has-text("广播"), button:has-text("Broadcast"), '
             'button:has(.anticon-send)'
         ).first
 
         if broadcast_btn.count() == 0:
-            logger.info("未找到广播按钮，跳过测试")
+            logger.info("Broadcast button not found, skipping test")
             log_test_result(test_name, True, 0)
             return
 
         broadcast_btn.click()
         page.wait_for_timeout(3000)
 
-        # 等待 Modal 出现并获取引用
+        # Wait for Modal to appear and grab the reference
         modal_locator = page.locator('.qwenpaw-modal:visible, .ant-modal:visible, [role="dialog"]:visible')
         expect(modal_locator.first).to_be_visible(timeout=8000)
         modal = modal_locator.last
 
-        log_test_step("验证工作区选择区域并勾选")
-        # 实际 UI 使用自定义 pickerCard 组件，Modal 包含两个 pickerSection：
-        # section 0: "选择技能池项目"，section 1: "广播到工作区"
-        # 直接从 Modal 中获取所有 pickerCard
+        log_test_step("Verify workspace selection area and tick items")
+        # Actual UI uses custom pickerCard components; Modal contains two pickerSections:
+        # section 0: "select skill pool items", section 1: "broadcast to workspaces"
+        # Grab all pickerCards directly from Modal
         workspace_items = modal.locator('[class*=pickerCard]').all()
         if len(workspace_items) == 0:
-            # 兜底：尝试标准组件选择器
+            # Fallback: try standard component selectors
             workspace_items = modal.locator(
                 '.qwenpaw-checkbox-wrapper, .ant-checkbox-wrapper, '
                 '.qwenpaw-list-item, .ant-list-item'
             ).all()
-        assert len(workspace_items) > 0, "广播 Modal 应有工作区/选择项"
-        logger.info(f"✅ 找到 {len(workspace_items)} 个工作区/选择项")
+        assert len(workspace_items) > 0, "Broadcast Modal should have workspace/selection items"
+        logger.info(f"Found {len(workspace_items)} workspace/selection items")
 
-        # 点击第一个工作区选择项
+        # Click the first workspace item
         first_item = workspace_items[0]
         first_item.click()
         page.wait_for_timeout(500)
-        logger.info("✅ 已选择第一个工作区")
+        logger.info("Selected the first workspace")
 
-        # 如果有多个，点击第二个验证多选
+        # If multiple items, click the second to verify multi-select
         if len(workspace_items) > 1:
             second_item = workspace_items[1]
             second_item.click()
             page.wait_for_timeout(500)
-            logger.info("✅ 已选择第二个工作区（验证多选）")
+            logger.info("Selected the second workspace (multi-select verified)")
 
-        log_test_step("验证确认按钮可用")
+        log_test_step("Verify confirm button is enabled")
         confirm_btn = modal.locator(
             'button:has-text("OK"), button:has-text("确定"), '
             'button:has-text("Broadcast"), button:has-text("广播"), '
             'button.qwenpaw-btn-primary'
         ).first
-        assert confirm_btn.count() > 0, "广播 Modal 中未找到确认按钮"
-        assert confirm_btn.is_enabled(), "勾选工作区后确认按钮应可用"
-        logger.info("✅ 确认按钮存在且可用")
+        assert confirm_btn.count() > 0, "Confirm button not found in broadcast Modal"
+        assert confirm_btn.is_enabled(), "Confirm button should be enabled after selecting workspaces"
+        logger.info("Confirm button exists and is enabled")
 
-        log_test_step("关闭 Modal（不执行广播）")
+        log_test_step("Close Modal (do not broadcast)")
         page.keyboard.press("Escape")
         page.wait_for_timeout(1000)
 
         log_test_result(test_name, True, 0)
 
 # ============================================================================
-# POOL-P1-004: 批量删除技能
+# POOL-P1-004: Batch delete skills
 # ============================================================================
 
 @pytest.mark.integration
@@ -343,72 +343,72 @@ class TestSkillPoolBroadcast:
 @pytest.mark.skill_pool
 class TestSkillPoolBatchDelete:
     """
-    POOL-P1-004: 批量删除技能
+    POOL-P1-004: Batch delete skills
 
-    覆盖功能点：
-    1. 查找批量操作按钮
-    2. 进入批量模式
-    3. 验证复选框出现
-    4. 退出批量模式
+    Functional coverage:
+    1. Find batch operation button
+    2. Enter batch mode
+    3. Verify checkboxes appear
+    4. Exit batch mode
     """
 
     @pytest.mark.test_id("POOL-P1-004")
     def test_skill_pool_batch_delete(self, page: Page, request: pytest.FixtureRequest):
-        """测试技能池批量删除功能"""
+        """Test skill pool batch delete functionality."""
         test_name = request.node.name
 
-        log_test_step("导航到技能池页面")
+        log_test_step("Navigate to skill pool page")
         navigate_to_skill_pool(page)
 
-        log_test_step("查找批量操作按钮")
+        log_test_step("Find batch operation button")
         batch_btn = page.locator(
             'button:has-text("批量"), button:has-text("Batch"), '
             'button:has-text("Select"), button:has-text("选择")'
         ).first
 
         if batch_btn.count() == 0:
-            logger.info("未找到批量操作按钮，跳过测试")
+            logger.info("Batch operation button not found, skipping test")
             log_test_result(test_name, True, 0)
             return
 
         expect(batch_btn).to_be_visible(timeout=5000)
-        logger.info("✅ 批量操作按钮存在")
+        logger.info("Batch operation button exists")
 
-        log_test_step("进入批量模式")
+        log_test_step("Enter batch mode")
         batch_btn.click()
         page.wait_for_timeout(1500)
 
-        log_test_step("验证复选框出现并勾选")
+        log_test_step("Verify checkboxes appear and select one")
         checkboxes = page.locator('.qwenpaw-checkbox, .ant-checkbox, .qwenpaw-checkbox-wrapper').all()
-        assert len(checkboxes) > 0, "批量模式下应出现复选框"
-        logger.info(f"✅ 批量模式下找到 {len(checkboxes)} 个复选框")
+        assert len(checkboxes) > 0, "Checkboxes should appear in batch mode"
+        logger.info(f"Found {len(checkboxes)} checkboxes in batch mode")
 
-        # 勾选第一个复选框
+        # Check the first checkbox
         checkboxes[0].click()
         page.wait_for_timeout(500)
-        logger.info("✅ 已勾选第一个技能")
+        logger.info("Checked the first skill")
 
-        # 验证删除按钮出现且可用
+        # Verify delete button appears and is enabled
         delete_btn = page.locator(
             'button:has-text("删除"), button:has-text("Delete"), '
             'button.qwenpaw-btn-dangerous'
         ).first
         if delete_btn.count() > 0 and delete_btn.is_visible(timeout=3000):
-            assert delete_btn.is_enabled(), "勾选技能后删除按钮应可用"
-            logger.info("✅ 删除按钮可见且可用")
+            assert delete_btn.is_enabled(), "Delete button should be enabled after selecting a skill"
+            logger.info("Delete button is visible and enabled")
         else:
-            # 验证有全选按钮
+            # Verify select-all button exists
             select_all = page.locator(
                 'button:has-text("全选"), button:has-text("Select All"), '
                 '.qwenpaw-checkbox-wrapper:has-text("全选")'
             ).first
             if select_all.count() > 0:
-                logger.info("✅ 全选按钮存在")
+                logger.info("Select-all button exists")
             else:
-                logger.info("ℹ️ 未找到删除/全选按钮")
+                logger.info("No delete/select-all button found")
 
-        log_test_step("退出批量模式（不执行删除）")
-        # 再次点击批量按钮或点击取消
+        log_test_step("Exit batch mode (do not delete)")
+        # Click batch button again or click cancel
         cancel_btn = page.locator(
             'button:has-text("取消"), button:has-text("Cancel"), '
             'button:has-text("退出"), button:has-text("Exit")'
@@ -418,12 +418,12 @@ class TestSkillPoolBatchDelete:
         else:
             batch_btn.click()
         page.wait_for_timeout(1000)
-        logger.info("✅ 已退出批量模式")
+        logger.info("Exited batch mode")
 
         log_test_result(test_name, True, 0)
 
 # ============================================================================
-# POOL-P1-005: ZIP 导入技能
+# POOL-P1-005: ZIP import skill
 # ============================================================================
 
 @pytest.mark.integration
@@ -431,19 +431,19 @@ class TestSkillPoolBatchDelete:
 @pytest.mark.skill_pool
 class TestSkillPoolZipImport:
     """
-    POOL-P1-005: ZIP 导入技能
+    POOL-P1-005: ZIP import skill
 
-    覆盖功能点：
-    1. 查找 ZIP 上传按钮
-    2. 验证隐藏的文件输入框存在且 accept 属性为 .zip
-    3. 创建临时 zip 文件并通过隐藏 input 上传
-    4. 验证上传成功（技能出现在列表中或出现成功提示）
-    5. 清理：删除上传的技能 + 删除临时文件
+    Functional coverage:
+    1. Find ZIP upload button
+    2. Verify hidden file input exists with accept attribute .zip
+    3. Create a temp zip file and upload via hidden input
+    4. Verify upload succeeded (skill appears in list or success message shown)
+    5. Cleanup: delete uploaded skill + delete temp file
     """
 
     @pytest.mark.test_id("POOL-P1-005")
     def test_skill_pool_zip_import(self, page: Page, request: pytest.FixtureRequest):
-        """测试技能池 ZIP 导入功能（含实际上传）"""
+        """Test skill pool ZIP import (with actual upload)."""
         import zipfile
         import tempfile
         import os
@@ -455,10 +455,10 @@ class TestSkillPoolZipImport:
         skill_uploaded = False
 
         try:
-            log_test_step("1. 导航到技能池页面")
+            log_test_step("1. Navigate to skill pool page")
             navigate_to_skill_pool(page)
 
-            log_test_step("2. 查找 ZIP 上传按钮")
+            log_test_step("2. Find ZIP upload button")
             upload_btn = page.locator(
                 'button:has-text("zip"), button:has-text("ZIP"), '
                 'button:has-text("上传"), button:has-text("Upload"), '
@@ -466,28 +466,28 @@ class TestSkillPoolZipImport:
             ).first
 
             if upload_btn.count() == 0:
-                pytest.skip("未找到 ZIP 上传按钮，跳过测试")
+                pytest.skip("ZIP upload button not found, skipping test")
 
             expect(upload_btn).to_be_visible(timeout=5000)
-            logger.info("✅ ZIP 上传按钮存在")
+            logger.info("ZIP upload button exists")
 
-            log_test_step("3. 验证隐藏的文件输入框")
+            log_test_step("3. Verify hidden file input")
             file_input = page.locator(
                 'input[type="file"][accept=".zip"], '
                 'input[type="file"][accept*="zip"]'
             ).first
-            assert file_input.count() > 0, "未找到隐藏的 ZIP 文件输入框"
+            assert file_input.count() > 0, "Hidden ZIP file input not found"
 
             accept_attr = file_input.get_attribute("accept")
-            assert ".zip" in accept_attr, f"文件输入框 accept 属性不包含 .zip：{accept_attr}"
-            logger.info(f"✅ 文件输入框 accept={accept_attr}")
+            assert ".zip" in accept_attr, f"File input accept attribute does not include .zip: {accept_attr}"
+            logger.info(f"File input accept={accept_attr}")
 
-            log_test_step("4. 记录初始技能数量")
+            log_test_step("4. Record initial skill count")
             initial_cards = page.locator('.qwenpaw-card').all()
             initial_count = len(initial_cards)
-            logger.info(f"初始技能数量：{initial_count}")
+            logger.info(f"Initial skill count: {initial_count}")
 
-            log_test_step("5. 创建临时 zip 文件")
+            log_test_step("5. Create temporary zip file")
             skill_content = f"""---
 name: {skill_name}
 description: E2E test skill uploaded via zip to skill pool
@@ -507,56 +507,56 @@ This is a test skill uploaded via zip for E2E testing.
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.write(md_path, f"{skill_name}.md")
 
-            logger.info(f"✅ 临时 zip 文件已创建：{zip_path}")
+            logger.info(f"Temporary zip file created: {zip_path}")
 
-            log_test_step("6. 通过隐藏 input 上传 zip 文件")
+            log_test_step("6. Upload zip file via hidden input")
             file_input.set_input_files(zip_path)
-            logger.info("✅ 已通过 set_input_files 上传 zip 文件")
+            logger.info("Uploaded zip file via set_input_files")
 
-            # 等待上传处理完成
+            # Wait for upload to finish processing
             page.wait_for_timeout(5000)
 
-            log_test_step("7. 验证上传结果")
-            # 检查是否有成功提示
+            log_test_step("7. Verify upload result")
+            # Check for success message
             success_message = page.locator(
                 '.qwenpaw-message-success, '
                 '.qwenpaw-message-notice:has-text("成功"), '
                 '.qwenpaw-message-notice:has-text("success")'
             ).first
             if success_message.is_visible():
-                logger.info("✅ 检测到上传成功提示消息")
+                logger.info("Detected upload success message")
 
-            # 刷新页面确保列表更新
+            # Refresh page to ensure list updates
             page.reload()
             page.wait_for_load_state("domcontentloaded")
             page.wait_for_timeout(3000)
 
-            # 验证新技能出现在列表中
+            # Verify the new skill appears in the list
             new_skill_locator = page.locator(f'text="{skill_name}"').first
             try:
                 expect(new_skill_locator).to_be_visible(timeout=8000)
                 skill_uploaded = True
-                logger.info(f"✅ 上传的技能已出现在技能池列表中：{skill_name}")
+                logger.info(f"Uploaded skill appeared in the skill pool list: {skill_name}")
             except Exception:
                 updated_cards = page.locator('.qwenpaw-card').all()
                 updated_count = len(updated_cards)
-                logger.info(f"上传后技能数量：{updated_count}（初始：{initial_count}）")
+                logger.info(f"Skill count after upload: {updated_count} (initial: {initial_count})")
                 if updated_count > initial_count:
                     skill_uploaded = True
-                    logger.info("✅ 技能数量已增加，上传可能成功")
+                    logger.info("Skill count increased, upload likely succeeded")
                 else:
-                    logger.warning("⚠️ 未检测到新技能，上传可能未成功或技能名称不匹配")
+                    logger.warning("No new skill detected; upload may have failed or name mismatch")
 
             log_test_result(test_name, True, 0)
-            logger.info(f"✅ Test {test_name} passed - 技能池 ZIP 导入验证通过")
+            logger.info(f"Test {test_name} passed - skill pool ZIP import validation passed")
 
         finally:
-            # 清理：删除上传的测试技能
+            # Cleanup: delete the uploaded test skill
             if skill_uploaded:
                 try:
                     target_card = page.locator(f'.qwenpaw-card:has-text("{skill_name}")').first
                     if target_card.is_visible():
-                        # 尝试找到卡片上的删除按钮
+                        # Try to find delete button on the card
                         target_card.hover()
                         page.wait_for_timeout(500)
                         delete_btn = target_card.locator(
@@ -576,40 +576,40 @@ This is a test skill uploaded via zip for E2E testing.
                             if confirm_btn.is_visible():
                                 confirm_btn.click()
                                 page.wait_for_timeout(2000)
-                            logger.info(f"✅ 清理：已删除测试技能 '{skill_name}'")
+                            logger.info(f"Cleanup: deleted test skill '{skill_name}'")
                 except Exception:
-                    logger.warning(f"清理失败：无法删除测试技能 '{skill_name}'")
+                    logger.warning(f"Cleanup failed: could not delete test skill '{skill_name}'")
 
-            # 清理：删除临时文件
+            # Cleanup: delete temp file
             if zip_path:
                 try:
                     import shutil
                     temp_dir_to_clean = os.path.dirname(zip_path)
                     shutil.rmtree(temp_dir_to_clean, ignore_errors=True)
-                    logger.info("✅ 清理：已删除临时 zip 文件")
+                    logger.info("Cleanup: deleted temporary zip file")
                 except Exception:
-                    logger.warning("清理失败：无法删除临时文件")
+                    logger.warning("Cleanup failed: could not delete temp file")
 
 
 # ============================================================================
-# POOL-P2-001: 导入内置技能包
+# POOL-P2-001: Import builtin skill pack
 # ============================================================================
 
 @pytest.mark.integration
 @pytest.mark.p2
 @pytest.mark.skill_pool
 class TestSkillPoolBuiltinImport:
-    """POOL-P2-001: 导入内置技能包"""
+    """POOL-P2-001: Import builtin skill pack"""
 
     @pytest.mark.test_id("POOL-P2-001")
     def test_skill_pool_builtin_import(self, page: Page, request: pytest.FixtureRequest):
-        """测试导入内置技能包"""
+        """Test importing the builtin skill pack."""
         test_name = request.node.name
 
-        log_test_step("导航到技能池页面")
+        log_test_step("Navigate to skill pool page")
         navigate_to_skill_pool(page)
 
-        log_test_step("查找内置技能导入按钮")
+        log_test_step("Find builtin skill import button")
         builtin_btn = page.locator(
             'button:has-text("内置"), button:has-text("Built"), '
             'button:has-text("Builtin"), button:has-text("Update"), '
@@ -617,30 +617,30 @@ class TestSkillPoolBuiltinImport:
         ).first
 
         if builtin_btn.count() == 0:
-            pytest.skip("未找到内置技能导入按钮，跳过测试")
+            pytest.skip("Builtin skill import button not found, skipping test")
 
         expect(builtin_btn).to_be_visible(timeout=5000)
-        logger.info("✅ 内置技能导入按钮存在")
+        logger.info("Builtin skill import button exists")
 
         builtin_btn.click()
         page.wait_for_timeout(2000)
 
-        # 检查是否打开了弹窗/抽屉，或者直接执行了导入操作
+        # Check if a dialog/drawer opened, or import ran directly
         modal_or_drawer = page.locator('.qwenpaw-modal, .ant-modal, .qwenpaw-drawer, .ant-drawer, [role="dialog"]').last
         if modal_or_drawer.count() > 0:
             try:
                 expect(modal_or_drawer).to_be_visible(timeout=5000)
-                logger.info("✅ 内置技能导入弹窗已打开")
+                logger.info("Builtin skill import dialog opened")
                 page.keyboard.press("Escape")
                 page.wait_for_timeout(500)
             except Exception:
-                logger.info("ℹ️ 弹窗存在但不可见，可能已自动关闭")
+                logger.info("Dialog exists but not visible, may have auto-closed")
         else:
-            # 可能点击后直接执行了导入操作（无弹窗确认）
+            # Possibly the click triggered import directly (no dialog)
             success_msg = page.locator('.qwenpaw-message-success, .ant-message-success').first
             if success_msg.count() > 0:
-                logger.info("✅ 内置技能导入操作已执行（无弹窗确认）")
+                logger.info("Builtin skill import executed (no dialog confirmation)")
             else:
-                logger.info("ℹ️ 点击后未出现弹窗，可能正在后台处理")
+                logger.info("No dialog appeared after click, may be running in background")
 
         log_test_result(test_name, True, 0)
