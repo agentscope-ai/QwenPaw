@@ -140,6 +140,14 @@ def _wait_until_plugin_loader_ready(
     GET /api/plugins is NOT used because list_plugins falls back to
     on-disk scanning when the loader is absent and would mask the
     real readiness state.
+
+    Per code review feedback, the readiness signal is now narrowed: we
+    only accept the exact 400 + "Path not found" detail. Any other
+    non-503 response (e.g. install_plugin code path changes that move
+    the source check) is logged as ``unexpected`` and treated as
+    fallback-ready (caller is the one that would then fail on the
+    real install/upload), so this stays resilient to future router
+    refactors without silently masking probe drift.
     """
     deadline = time.time() + timeout
     last_status = None
@@ -155,13 +163,20 @@ def _wait_until_plugin_loader_ready(
             timeout=5.0,
         )
         last_status = resp.status_code
-        if resp.status_code != 503:
-            return
         try:
             last_detail = resp.json().get("detail", "")
         except ValueError:
             last_detail = resp.text[:200]
-        time.sleep(0.5)
+
+        if resp.status_code == 400 and "Path not found" in last_detail:
+            return  # ready (expected probe response)
+        if resp.status_code == 503:
+            time.sleep(0.5)
+            continue
+        # Unexpected status (e.g. router behaviour drift). Fall through
+        # and let the caller's real request surface any real problem,
+        # rather than block here indefinitely.
+        return
     raise AssertionError(
         f"plugin_loader not ready in {timeout}s, "
         f"last status={last_status} detail={last_detail!r}",

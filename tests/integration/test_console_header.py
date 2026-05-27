@@ -115,6 +115,46 @@ def test_console_debug_backend_logs_header_returns_contract(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p2
+def test_console_upload_header_accepts_file_at_max_size_limit(
+    app_server,
+) -> None:
+    """Test purpose:
+    - Verify a payload of EXACTLY ``MAX_UPLOAD_BYTES`` succeeds (200 +
+      normal upload contract). Paired with the ``+1 byte → 400`` case
+      below this locks in the boundary; an off-by-one in either
+      direction would surface here.
+
+    Test flow:
+    1. POST multipart upload with payload size == MAX_UPLOAD_BYTES.
+    2. Assert 200 + response is a dict with url/file_name/size fields,
+       and size matches what we sent.
+
+    API endpoints:
+    - POST /api/console/upload
+    """
+    at_limit = b"\x00" * _MAX_UPLOAD_BYTES
+    resp = app_server.api_request(
+        "POST",
+        "/api/console/upload",
+        files={
+            "file": (
+                "at_limit.bin",
+                at_limit,
+                "application/octet-stream",
+            ),
+        },
+        timeout=_CONSOLE_HTTP_TIMEOUT,
+    )
+    assert resp.status_code == 200, app_server.logs_tail()
+    payload = resp.json()
+    assert isinstance(payload, dict)
+    assert payload.get("file_name") == "at_limit.bin"
+    assert payload.get("size") == _MAX_UPLOAD_BYTES
+    assert isinstance(payload.get("url"), str) and payload["url"]
+
+
+@pytest.mark.integration
+@pytest.mark.p2
 def test_console_upload_header_rejects_oversized_file(app_server) -> None:
     """Test purpose:
     - Verify POST /api/console/upload rejects files larger than the

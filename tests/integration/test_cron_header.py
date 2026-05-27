@@ -312,6 +312,21 @@ def test_cron_header_jobs_lifecycle_via_default_agent(app_server) -> None:
             timeout=_CRON_HTTP_TIMEOUT,
         )
         assert pause_resp.status_code == 200, app_server.logs_tail()
+        # GET state right after pause: CronJobState currently does not
+        # expose a ``paused`` boolean (pause_job only touches the
+        # internal APScheduler state, not the persisted spec), so we
+        # can only assert the endpoint contract holds and that
+        # ``next_run_at`` is reachable. Strict pause-state assertion
+        # is gated on the server exposing a state.paused field.
+        state_after_pause = app_server.api_request(
+            "GET",
+            f"/api/cron/jobs/{job_id}/state",
+            timeout=_CRON_HTTP_TIMEOUT,
+        )
+        assert state_after_pause.status_code == 200, app_server.logs_tail()
+        paused_state = state_after_pause.json()
+        assert isinstance(paused_state, dict)
+        assert "next_run_at" in paused_state
 
         resume_resp = app_server.api_request(
             "POST",
@@ -319,13 +334,18 @@ def test_cron_header_jobs_lifecycle_via_default_agent(app_server) -> None:
             timeout=_CRON_HTTP_TIMEOUT,
         )
         assert resume_resp.status_code == 200, app_server.logs_tail()
-
-        state_resp = app_server.api_request(
+        # GET state right after resume: same API-limitation caveat as
+        # above. Assert the contract still holds (so the resume call
+        # didn't corrupt state) and the state object is still well-formed.
+        state_after_resume = app_server.api_request(
             "GET",
             f"/api/cron/jobs/{job_id}/state",
             timeout=_CRON_HTTP_TIMEOUT,
         )
-        assert state_resp.status_code == 200, app_server.logs_tail()
+        assert state_after_resume.status_code == 200, app_server.logs_tail()
+        resumed_state = state_after_resume.json()
+        assert isinstance(resumed_state, dict)
+        assert "next_run_at" in resumed_state
 
         run_resp = app_server.api_request(
             "POST",

@@ -447,6 +447,79 @@ def test_inbox_delete_event_cleans_orphan_trace(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+def test_inbox_delete_event_preserves_shared_trace(app_server) -> None:
+    """Test purpose:
+    - Verify DELETE event does NOT cascade-delete the trace when another
+      event still references the same ``run_id``. This guards the
+      "trace_deleted only when last reference goes" branch in
+      inbox_store.delete_event; without this case we only test the
+      orphan-cleanup direction and a bug that always cascades would
+      slip through.
+
+    Test flow:
+    1. Seed two events both with ``payload.run_id="run-shared-01"``.
+    2. Seed a single trace file at inbox_traces/run-shared-01.json.
+    3. DELETE the first event. Assert ``deleted=True``,
+       ``trace_deleted=False`` (one event still references the run),
+       and ``run_id == "run-shared-01"``.
+    4. GET /api/console/inbox/traces/run-shared-01 — assert 200 (trace
+       was preserved).
+    5. Confirm via GET /events the second event is still present.
+
+    API endpoints:
+    - DELETE /api/console/inbox/events/{event_id}
+    - GET /api/console/inbox/traces/{run_id}
+    - GET /api/console/inbox/events
+    """
+    run_id = "run-shared-01"
+    keeper_id = "evt-shared-keeper"
+    seeded_events = [
+        _make_event(
+            event_id="evt-shared-deleted",
+            payload={"run_id": run_id},
+        ),
+        _make_event(
+            event_id=keeper_id,
+            payload={"run_id": run_id},
+        ),
+    ]
+    _seed_inbox_events(app_server.working_dir, seeded_events)
+    _seed_inbox_trace(
+        app_server.working_dir,
+        run_id,
+        {"run_id": run_id, "events": []},
+    )
+
+    delete_resp = app_server.api_request(
+        "DELETE",
+        "/api/console/inbox/events/evt-shared-deleted",
+        timeout=_INBOX_HTTP_TIMEOUT,
+    )
+    assert delete_resp.status_code == 200, app_server.logs_tail()
+    payload = delete_resp.json()
+    assert payload.get("deleted") is True
+    assert payload.get("trace_deleted") is False
+    assert payload.get("run_id") == run_id
+
+    trace_resp = app_server.api_request(
+        "GET",
+        f"/api/console/inbox/traces/{run_id}",
+        timeout=_INBOX_HTTP_TIMEOUT,
+    )
+    assert trace_resp.status_code == 200, app_server.logs_tail()
+
+    list_resp = app_server.api_request(
+        "GET",
+        "/api/console/inbox/events",
+        timeout=_INBOX_HTTP_TIMEOUT,
+    )
+    assert list_resp.status_code == 200, app_server.logs_tail()
+    remaining_ids = {event["id"] for event in list_resp.json()["events"]}
+    assert remaining_ids == {keeper_id}
+
+
+@pytest.mark.integration
+@pytest.mark.p1
 def test_inbox_delete_event_returns_404_for_missing(app_server) -> None:
     """Test purpose:
     - Verify DELETE on a non-existent event id returns 404 with the
