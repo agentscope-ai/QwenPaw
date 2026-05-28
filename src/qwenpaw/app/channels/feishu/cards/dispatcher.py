@@ -197,5 +197,4 @@ class FeishuCardHandler:
             return P2CardActionTriggerResponse({})
 
 
-
 __all__ = ["FeishuCardHandler", "CardKind"]

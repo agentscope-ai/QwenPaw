@@ -63,7 +63,7 @@ def build_session_ctx(
     session_id = ""
     handle = (to_handle or "").strip()
     if handle.startswith("feishu:sw:"):
-        session_id = handle[len("feishu:sw:"):]
+        session_id = handle[len("feishu:sw:") :]
     return {
         "session_id": session_id,
         "sender_id": str(send_meta.get("feishu_sender_id") or ""),

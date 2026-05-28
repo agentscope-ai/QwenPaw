@@ -163,7 +163,7 @@ def build_compact_card(
     request_id: str,
     tool_name: str,
     severity: str,
-    body_text: str,
+    body_text: str,  # pylint: disable=unused-argument
     session_ctx: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Build a compact card with only header and buttons.
@@ -358,7 +358,10 @@ async def render(
     receive_id_type, receive_id = recv
     body_text = context.extract_body_text(getattr(event, "content", None))
     session_ctx = context.build_session_ctx(
-        to_handle, send_meta, receive_id, receive_id_type,
+        to_handle,
+        send_meta,
+        receive_id,
+        receive_id_type,
     )
 
     builder = build_compact_card if compact else build_approval_card
