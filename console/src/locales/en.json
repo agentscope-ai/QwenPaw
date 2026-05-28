@@ -2234,6 +2234,7 @@
     "approved": "Tool call approved",
     "denied": "Tool call denied",
     "approvedAll": "All pending tools approved",
+    "noApprovalsPending": "No pending approvals",
     "approveFailed": "Failed to approve",
     "approveAllFailed": "Failed to approve all tools",
     "cancelTask": "Cancel Task",

@@ -2086,7 +2086,8 @@
     "cancelTask": "Отменить задачу",
     "denyFailed": "Не удалось отклонить",
     "approvedAll": "Вызов инструмента подтвержден (all)",
-    "approveAllFailed": "Failed to approve all tools"
+    "approveAllFailed": "Failed to approve all tools",
+    "noApprovalsPending": "Нет ожидающих подтверждений"
   },
   "pluginManager": {
     "title": "Менеджер плагинов",

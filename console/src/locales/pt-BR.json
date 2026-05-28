@@ -2106,7 +2106,8 @@
     "cancelTask": "Cancelar Task",
     "denyFailed": "Falhou to deny",
     "approvedAll": "Tool call approved (all)",
-    "approveAllFailed": "Failed to approve all tools"
+    "approveAllFailed": "Failed to approve all tools",
+    "noApprovalsPending": "Nenhuma aprovação pendente"
   },
   "pluginManager": {
     "title": "Gerenciador de Plugins",

@@ -2071,7 +2071,8 @@
     "cancelTask": "タスクをキャンセル",
     "denyFailed": "拒否に失敗しました",
     "approvedAll": "ツール呼び出しが承認されました (all)",
-    "approveAllFailed": "Failed to approve all tools"
+    "approveAllFailed": "Failed to approve all tools",
+    "noApprovalsPending": "ペンディング中の承認はありません"
   },
   "pluginManager": {
     "title": "プラグインマネージャー",

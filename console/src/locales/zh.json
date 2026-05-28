@@ -2242,6 +2242,7 @@
     "approved": "已批准工具调用",
     "denied": "已拒绝工具调用",
     "approvedAll": "已批准所有待处理工具",
+    "noApprovalsPending": "当前没有待审批项",
     "approveFailed": "批准失败",
     "approveAllFailed": "批准全部失败",
     "cancelTask": "取消任务",

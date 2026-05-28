@@ -783,11 +783,17 @@ export default function ChatPage() {
   const handleApproveAll = useCallback(async () => {
     const rootSessionId = window.currentSessionId || chatId || "";
     try {
-      await commandsApi.approveAll(rootSessionId);
-      // Clear all pending approvals from UI at once
-      setApprovals([]);
-      setApprovalRequests(new Map());
-      message.success(t("approval.approvedAll", "All pending tools approved"));
+      const result = await commandsApi.approveAll(rootSessionId);
+      if (result.approved_count > 0) {
+        // Clear all pending approvals from UI at once
+        setApprovals([]);
+        setApprovalRequests(new Map());
+        message.success(
+          t("approval.approvedAll", "All pending tools approved"),
+        );
+      } else {
+        message.info(t("approval.noApprovalsPending", "No pending approvals"));
+      }
     } catch (error) {
       message.error(
         t("approval.approveAllFailed", "Failed to approve all tools"),

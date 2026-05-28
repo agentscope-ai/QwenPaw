@@ -808,6 +808,7 @@
   },
   "approval": {
     "approvedAll": "Approved (all)",
-    "approveAllFailed": "Failed to approve all tools"
+    "approveAllFailed": "Failed to approve all tools",
+    "noApprovalsPending": "Tidak ada persetujuan yang tertunda"
   }
 }

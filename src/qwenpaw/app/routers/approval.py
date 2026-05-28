@@ -227,6 +227,13 @@ async def post_approval_approve_all(
         approved_count,
     )
 
+    if approved_count == 0:
+        return ApprovalAllResponse(
+            success=False,
+            message="No pending approvals found for this session",
+            approved_count=0,
+        )
+
     return ApprovalAllResponse(
         success=True,
         message=f"Approved {approved_count} pending tool execution(s)",

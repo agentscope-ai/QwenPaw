@@ -358,22 +358,23 @@ class ApprovalService:
         Returns:
             Number of approvals approved
         """
-        now = time.time()
-        approved = 0
         async with self._lock:
-            to_approve = [
+            ids_to_approve = [
                 k
                 for k, p in self._pending.items()
                 if p.root_session_id == root_session_id
                 and p.status == "pending"
             ]
-            for k in to_approve:
-                pending = self._pending.pop(k)
-                pending.status = ApprovalDecision.APPROVED.value
-                pending.resolved_at = now
-                if not pending.future.done():
-                    pending.future.set_result(ApprovalDecision.APPROVED)
+
+        approved = 0
+        for request_id in ids_to_approve:
+            result = await self.resolve_request(
+                request_id,
+                ApprovalDecision.APPROVED,
+            )
+            if result is not None:
                 approved += 1
+
         if approved:
             logger.info(
                 "Approval: bulk-approved %d pending approval(s) "
