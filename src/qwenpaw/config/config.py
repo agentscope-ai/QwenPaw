@@ -731,6 +731,16 @@ class ToolResultPruningConfig(BaseModel):
         ),
     )
 
+    pruning_absolute_max_bytes: int = Field(
+        default=100000,
+        ge=10000,
+        description=(
+            "Hard ceiling for any single tool result, regardless of "
+            "recent/old classification. Prevents a single oversized "
+            "tool output from pushing context beyond max_input_length."
+        ),
+    )
+
     offload_retention_days: int = Field(
         default=5,
         ge=1,

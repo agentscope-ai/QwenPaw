@@ -232,6 +232,7 @@ class LightContextManager(BaseContextManager):
         recent_n: int = 1,
         old_max_bytes: int = 3000,
         recent_max_bytes: int = DEFAULT_MAX_BYTES,
+        absolute_max_bytes: int = 100000,
         **_kwargs,
     ) -> list[Msg]:
         """Process all messages, truncating large tool results.
@@ -241,6 +242,8 @@ class LightContextManager(BaseContextManager):
             recent_n: Number of recent messages to treat with recent_max_bytes.
             old_max_bytes: Maximum bytes for older tool results.
             recent_max_bytes: Maximum bytes for recent tool results.
+            absolute_max_bytes: Hard ceiling for any single tool result,
+                regardless of recent/old classification.
             retention_days: Days to retain offloaded files
                 (unused here, set in init).
 
@@ -310,6 +313,8 @@ class LightContextManager(BaseContextManager):
                 continue
             is_recent = idx >= split_index
             max_bytes = recent_max_bytes if is_recent else old_max_bytes
+            # Enforce absolute ceiling regardless of recent/old status
+            max_bytes = min(max_bytes, absolute_max_bytes)
 
             for block in msg.content:
                 if (
@@ -321,9 +326,10 @@ class LightContextManager(BaseContextManager):
                     if not output:
                         continue
 
-                    # Use recent_max_bytes for exempt tool results
+                    # Use recent_max_bytes for exempt tool results,
+                    # but still enforce absolute ceiling
                     effective_max_bytes = (
-                        recent_max_bytes
+                        min(recent_max_bytes, absolute_max_bytes)
                         if tool_id in exempt_tool_ids
                         else max_bytes
                     )
@@ -959,6 +965,7 @@ class LightContextManager(BaseContextManager):
                 recent_n=trc.pruning_recent_n,
                 old_max_bytes=trc.pruning_old_msg_max_bytes,
                 recent_max_bytes=trc.pruning_recent_msg_max_bytes,
+                absolute_max_bytes=trc.pruning_absolute_max_bytes,
                 retention_days=trc.offload_retention_days,
             )
         except Exception as e:

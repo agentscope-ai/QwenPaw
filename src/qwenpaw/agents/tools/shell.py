@@ -17,12 +17,50 @@ from typing import Optional
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
-from ...constant import WORKING_DIR
+from ...constant import WORKING_DIR, TRUNCATION_NOTICE_MARKER
 from ...config.context import (
     get_current_shell_command_executable,
     get_current_shell_command_timeout,
     get_current_workspace_dir,
 )
+
+# Hard cap on shell command output before it enters message history.
+# Prevents a single oversized output from blowing up the context window.
+_SHELL_OUTPUT_MAX_BYTES = 100000
+
+
+def _truncate_shell_output(
+    text: str,
+    max_bytes: int = _SHELL_OUTPUT_MAX_BYTES,
+) -> str:
+    """Truncate oversized shell output before it enters message history.
+
+    Keeps the first 80% and last 20% of the byte budget so the agent can
+    see both the beginning and end of the output, with a notice in between.
+    """
+    if not text:
+        return text
+
+    text_bytes = text.encode("utf-8")
+    if len(text_bytes) <= max_bytes:
+        return text
+
+    head_budget = int(max_bytes * 0.8)
+    tail_budget = max_bytes - head_budget
+
+    head = text_bytes[:head_budget].decode("utf-8", errors="ignore")
+    tail = text_bytes[-tail_budget:].decode("utf-8", errors="ignore")
+
+    original_size = len(text_bytes)
+    notice = (
+        f"\n{TRUNCATION_NOTICE_MARKER}\n"
+        f"Shell output truncated: {original_size} bytes exceeded the "
+        f"{max_bytes}-byte limit. Showing first ~{head_budget} bytes "
+        f"and last ~{tail_budget} bytes.\n"
+        f"{TRUNCATION_NOTICE_MARKER}\n"
+    )
+
+    return head + notice + tail
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -519,6 +557,9 @@ async def execute_shell_command(
             if stderr_str:
                 response_parts.append(f"\n[stderr]\n{stderr_str}")
             response_text = "".join(response_parts)
+
+        # Pre-commit truncation: cap output before it enters message history
+        response_text = _truncate_shell_output(response_text)
 
         return ToolResponse(
             content=[
