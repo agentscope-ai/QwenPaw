@@ -100,7 +100,6 @@ AGENTS.md
 openspec
 CLAUDE.md
 *.tmp
-datapaw-docs/
 
 # Build cache
 .cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround
