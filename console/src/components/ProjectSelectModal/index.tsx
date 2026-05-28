@@ -447,21 +447,27 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const navSeq = useRef(0);
 
   const navigate = (path: string) => {
+    const seq = ++navSeq.current;
     setBrowsePath(path);
     setLoading(true);
     setError(null);
     codingProjectApi
       .browseDirs(path)
       .then((res) => {
+        if (seq !== navSeq.current) return;
         setData(res);
         listRef.current?.scrollTo(0, 0);
       })
       .catch((err: unknown) => {
+        if (seq !== navSeq.current) return;
         setError(err instanceof Error ? err.message : String(err));
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (seq === navSeq.current) setLoading(false);
+      });
   };
 
   useEffect(() => {
@@ -508,7 +514,12 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
             onClick={() => navigate("/")}
             role="button"
             tabIndex={0}
-            onKeyDown={(e) => e.key === "Enter" && navigate("/")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                navigate("/");
+              }
+            }}
           >
             /
           </span>
@@ -525,9 +536,12 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
                   onClick={() => !isLast && navigate(segPath)}
                   role={isLast ? undefined : "button"}
                   tabIndex={isLast ? undefined : 0}
-                  onKeyDown={(e) =>
-                    !isLast && e.key === "Enter" && navigate(segPath)
-                  }
+                  onKeyDown={(e) => {
+                    if (!isLast && (e.key === "Enter" || e.key === " ")) {
+                      e.preventDefault();
+                      navigate(segPath);
+                    }
+                  }}
                 >
                   {seg}
                 </span>
@@ -560,7 +574,12 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
                 onClick={() => navigate(data.parent!)}
                 role="button"
                 tabIndex={0}
-                onKeyDown={(e) => e.key === "Enter" && navigate(data.parent!)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    navigate(data.parent!);
+                  }
+                }}
               >
                 <Folder size={15} className={styles.browseItemIcon} />
                 <span className={styles.browseItemName}>..</span>
@@ -578,7 +597,12 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
                 onClick={() => navigate(dir.path)}
                 role="button"
                 tabIndex={0}
-                onKeyDown={(e) => e.key === "Enter" && navigate(dir.path)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    navigate(dir.path);
+                  }
+                }}
               >
                 <Folder size={15} className={styles.browseItemIcon} />
                 <span className={styles.browseItemName}>{dir.name}</span>

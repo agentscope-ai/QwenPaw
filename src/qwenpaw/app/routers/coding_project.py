@@ -472,6 +472,16 @@ async def browse_dirs(
                 status_code=403,
                 detail=f"Permission denied: {target}",
             ) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Path does not exist: {target}",
+            ) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to list directory: {target}",
+            ) from exc
         parent = target.parent
         return {
             "current": str(target),
