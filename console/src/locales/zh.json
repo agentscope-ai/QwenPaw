@@ -732,7 +732,7 @@
     "cronExample": "常用示例：'0 9 * * *' = 每天9点 | '*/30 * * * *' = 每30分钟 | '0 */2 * * *' = 每2小时 | '0 0 * * 0' = 每周日0点",
     "cronHelper": "不熟悉 Cron 表达式？",
     "cronHelperLink": "使用在线工具生成",
-    "timezoneTooltip": "Cron 计划使用的时区。默认：UTC",
+    "timezoneTooltip": "Cron 计划使用的时区。默认：您的系统时区",
     "taskTypeTooltip": "选择 'text' 用于简单消息任务，选择 'agent' 用于复杂的智能体工作流。",
     "textTooltip": "简单消息任务：此处为实际的消息正文，任务类型为'text'时必填。",
     "requestInputTooltip": "JSON 格式的消息内容。这是智能体将接收和处理的内容，任务类型为'agent'时必填。",
