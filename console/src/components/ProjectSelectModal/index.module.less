@@ -6,7 +6,7 @@
 
 .desc {
   font-size: 13px;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  color: var(--ant-color-text-secondary);
   margin: 0 0 12px;
 }
 
@@ -30,7 +30,7 @@
 
 .fieldLabel {
   font-size: 12px;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  color: var(--ant-color-text-secondary);
   font-weight: 500;
 }
 
@@ -40,7 +40,7 @@
 
 .hint {
   font-size: 11.5px;
-  color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+  color: var(--ant-color-text-tertiary);
   margin: 0;
 }
 
@@ -60,16 +60,16 @@
 
 .currentLabel {
   font-size: 12px;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  color: var(--ant-color-text-secondary);
 }
 
 .currentPath {
   font-size: 12px;
-  background: var(--code-bg, rgba(0, 0, 0, 0.04));
+  background: var(--ant-color-fill-quaternary);
   padding: 3px 6px;
   border-radius: 4px;
   word-break: break-all;
-  color: var(--primary-color, #1677ff);
+  color: var(--ant-color-primary);
 }
 
 .actionBtn {
@@ -174,11 +174,121 @@
   white-space: nowrap;
 }
 
+// ---- Open Directory: server-side file browser -----------------------------
+
+.browseShortcuts {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.browseBreadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1px;
+  padding: 6px 10px;
+  background: var(--ant-color-fill-quaternary);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  min-height: 32px;
+}
+
+.breadcrumbItem {
+  display: inline-flex;
+  align-items: center;
+}
+
+.breadcrumbSep {
+  color: var(--ant-color-text-quaternary);
+  flex-shrink: 0;
+}
+
+.breadcrumbSeg {
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: 3px;
+  color: var(--ant-color-primary);
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--ant-color-primary-bg);
+  }
+}
+
+.breadcrumbCurrent {
+  color: var(--ant-color-text);
+  font-weight: 600;
+  cursor: default;
+
+  &:hover {
+    background: none;
+  }
+}
+
+.browseList {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--ant-color-border);
+  border-radius: 8px;
+}
+
+.browseItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.12s;
+  border-bottom: 1px solid
+    var(--ant-color-border-secondary, rgba(0, 0, 0, 0.04));
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:hover {
+    background: var(--ant-color-primary-bg);
+
+    .browseItemChevron {
+      opacity: 1;
+    }
+  }
+}
+
+.browseItemIcon {
+  color: var(--ant-color-primary);
+  flex-shrink: 0;
+}
+
+.browseItemName {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browseItemChevron {
+  color: var(--ant-color-text-quaternary);
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.browseEmpty {
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ant-color-text-secondary);
+}
+
 // ---- Recent projects list -------------------------------------------------
 
 .recentWrap {
   margin-top: 16px;
-  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  border-top: 1px solid var(--ant-color-border);
   padding-top: 12px;
 }
 
@@ -187,7 +297,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--text-tertiary, rgba(0, 0, 0, 0.4));
+  color: var(--ant-color-text-tertiary);
   margin-bottom: 6px;
 }
 
@@ -202,32 +312,33 @@
   border-bottom: none !important;
 
   &:hover {
-    background: var(--item-hover-bg, rgba(0, 0, 0, 0.04));
+    background: var(--ant-color-fill-tertiary);
   }
 }
 
 .recentItemActive {
-  background: var(--primary-bg, rgba(22, 119, 255, 0.06)) !important;
+  background: var(--ant-color-primary-bg) !important;
 
   .recentName {
-    color: var(--primary-color, #1677ff);
+    color: var(--ant-color-primary);
   }
 }
 
 .recentIcon {
-  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  color: var(--ant-color-text-secondary);
   flex-shrink: 0;
 }
 
 .recentName {
   font-size: 13px;
   font-weight: 500;
+  color: var(--ant-color-text);
   min-width: 80px;
 }
 
 .recentPath {
   font-size: 11px;
-  color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+  color: var(--ant-color-text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -11,10 +11,22 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Modal, Tabs, Input, Button, Alert, Progress, List } from "antd";
-import { FolderOpen, GitBranch, HardDrive, PlusCircle, X } from "lucide-react";
+import {
+  ChevronRight,
+  Folder,
+  FolderOpen,
+  FolderSymlink,
+  GitBranch,
+  HardDrive,
+  Home,
+  PlusCircle,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   codingProjectApi,
+  type BrowseDirsResponse,
   type ProjectListItem,
 } from "../../api/modules/codingProject";
 import { useProjectDir } from "../../stores/codingModeStore";
@@ -344,6 +356,12 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
 
   return (
     <div className={styles.tabContent}>
+      <Alert
+        type="info"
+        showIcon
+        message={t("codingMode.importCopyDesc")}
+        className={styles.alert}
+      />
       <input
         ref={dirInputRef}
         type="file"
@@ -413,6 +431,173 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
             {t("codingMode.dropSecondary")}
           </span>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tab: Open Existing Directory (server-side file browser, no copy)
+// ---------------------------------------------------------------------------
+
+function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
+  const { t } = useTranslation();
+  const [browsePath, setBrowsePath] = useState<string>("~");
+  const [data, setData] = useState<BrowseDirsResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const navigate = (path: string) => {
+    setBrowsePath(path);
+    setLoading(true);
+    setError(null);
+    codingProjectApi
+      .browseDirs(path)
+      .then((res) => {
+        setData(res);
+        listRef.current?.scrollTo(0, 0);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    navigate("~");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const breadcrumbParts = data?.current.split("/").filter(Boolean) ?? [];
+
+  return (
+    <div className={styles.tabContent}>
+      <Alert
+        type="info"
+        showIcon
+        message={t("codingMode.openDirDesc")}
+        className={styles.alert}
+      />
+
+      {/* Quick-access shortcuts */}
+      <div className={styles.browseShortcuts}>
+        <Button
+          size="small"
+          type="text"
+          icon={<Home size={13} />}
+          onClick={() => navigate("~")}
+        >
+          {t("codingMode.openDirHome")}
+        </Button>
+        <Button
+          size="small"
+          type="text"
+          icon={<RotateCcw size={13} />}
+          onClick={() => navigate(browsePath)}
+        >
+          {t("codingMode.openDirRefresh")}
+        </Button>
+      </div>
+
+      {/* Breadcrumb */}
+      {data && (
+        <div className={styles.browseBreadcrumb}>
+          <span
+            className={styles.breadcrumbSeg}
+            onClick={() => navigate("/")}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === "Enter" && navigate("/")}
+          >
+            /
+          </span>
+          {breadcrumbParts.map((seg, i) => {
+            const segPath = "/" + breadcrumbParts.slice(0, i + 1).join("/");
+            const isLast = i === breadcrumbParts.length - 1;
+            return (
+              <span key={segPath} className={styles.breadcrumbItem}>
+                <ChevronRight size={11} className={styles.breadcrumbSep} />
+                <span
+                  className={`${styles.breadcrumbSeg} ${
+                    isLast ? styles.breadcrumbCurrent : ""
+                  }`}
+                  onClick={() => !isLast && navigate(segPath)}
+                  role={isLast ? undefined : "button"}
+                  tabIndex={isLast ? undefined : 0}
+                  onKeyDown={(e) =>
+                    !isLast && e.key === "Enter" && navigate(segPath)
+                  }
+                >
+                  {seg}
+                </span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Directory listing */}
+      <div className={styles.browseList} ref={listRef}>
+        {loading && (
+          <div className={styles.browseEmpty}>
+            {t("codingMode.openDirLoading")}
+          </div>
+        )}
+        {error && (
+          <Alert
+            type="error"
+            message={error}
+            showIcon
+            className={styles.alert}
+          />
+        )}
+        {!loading && !error && data && (
+          <>
+            {data.parent && (
+              <div
+                className={styles.browseItem}
+                onClick={() => navigate(data.parent!)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Enter" && navigate(data.parent!)}
+              >
+                <Folder size={15} className={styles.browseItemIcon} />
+                <span className={styles.browseItemName}>..</span>
+              </div>
+            )}
+            {data.dirs.length === 0 && !data.parent && (
+              <div className={styles.browseEmpty}>
+                {t("codingMode.openDirEmpty")}
+              </div>
+            )}
+            {data.dirs.map((dir) => (
+              <div
+                key={dir.path}
+                className={styles.browseItem}
+                onClick={() => navigate(dir.path)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Enter" && navigate(dir.path)}
+              >
+                <Folder size={15} className={styles.browseItemIcon} />
+                <span className={styles.browseItemName}>{dir.name}</span>
+                <ChevronRight size={13} className={styles.browseItemChevron} />
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      {/* Confirm button */}
+      {data && !loading && (
+        <Button
+          type="primary"
+          onClick={() => onSelect(data.current)}
+          className={styles.actionBtn}
+        >
+          {t("codingMode.openDirBtn")}
+        </Button>
       )}
     </div>
   );
@@ -600,6 +785,16 @@ export default function ProjectSelectModal({
         </span>
       ),
       children: <CloneTab onDone={(p) => void handleCloneDone(p)} />,
+    },
+    {
+      key: "opendir",
+      label: (
+        <span className={styles.tabLabel}>
+          <FolderSymlink size={13} />
+          {t("codingMode.tabOpenDir")}
+        </span>
+      ),
+      children: <OpenDirTab onSelect={(p) => void handlePathSelected(p)} />,
     },
     {
       key: "local",
