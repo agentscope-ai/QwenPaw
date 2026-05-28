@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=too-many-statements
 """Coding Project management endpoints.
 
 Allows users to set, clear, clone, create, and list coding projects
@@ -231,13 +232,13 @@ async def clone_project(
                 stderr=asyncio.subprocess.STDOUT,
             )
 
-            # Stream output – git uses \r for progress updates,
-            # so we split on both \n and \r to get individual
-            # progress lines instead of one huge concatenated block.
             assert proc.stdout is not None
-            buf = ""
-            async for chunk in proc.stdout:
-                buf += chunk.decode("utf-8", errors="replace")
+            buf = ""  # raw read: \r progress arrives real-time
+            while True:
+                raw = await proc.stdout.read(4096)
+                if not raw:
+                    break
+                buf += raw.decode("utf-8", errors="replace")
                 # Split on \r or \n (or \r\n)
                 while True:
                     idx = -1
