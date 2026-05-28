@@ -163,7 +163,7 @@ def build_compact_card(
     request_id: str,
     tool_name: str,
     severity: str,
-    body_text: str,  # pylint: disable=unused-argument
+    body_text: str,
     session_ctx: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Build a compact card with only header and buttons.
@@ -174,6 +174,7 @@ def build_compact_card(
     display the original tool_guard details (they were sent separately
     in the stream).
     """
+    del body_text  # intentionally unused; kept for signature parity
     ctx_snapshot = dict(session_ctx or {})
     approve_value = {
         "type": ACTION_TYPE,
