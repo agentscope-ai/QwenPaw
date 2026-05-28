@@ -351,6 +351,12 @@ class TelegramChannel(BaseChannel):
         self._pending_reconnect_delay_s = _RECONNECT_INITIAL_S
         self._polling_network_error_count = 0
         self._polling_conflict_count = 0
+
+        # Interactive card handler (tool-guard approval cards).
+        from .cards.dispatcher import TelegramCardHandler
+
+        self._card_handler = TelegramCardHandler(self)
+
         if self.enabled and self._bot_token:
             try:
                 self._application = self._build_application()
@@ -372,6 +378,7 @@ class TelegramChannel(BaseChannel):
         from telegram import Update
         from telegram.ext import (
             Application,
+            CallbackQueryHandler,
             ContextTypes,
             MessageHandler,
             filters,
@@ -449,6 +456,19 @@ class TelegramChannel(BaseChannel):
                 logger.warning("telegram: _enqueue not set, message dropped")
 
         app.add_handler(MessageHandler(filters.ALL, handle_message))
+
+        # Inline keyboard callback handler (tool-guard approval buttons).
+        async def handle_callback_query(
+            update: Update,
+            context: ContextTypes.DEFAULT_TYPE,  # noqa: ARG001
+        ) -> None:
+            del context  # required by PTB handler signature
+            query = update.callback_query
+            if query is None:
+                return
+            await self._card_handler.handle_callback_query(query)
+
+        app.add_handler(CallbackQueryHandler(handle_callback_query))
         return app
 
     def _apply_no_text_debounce(
@@ -1079,10 +1099,8 @@ class TelegramChannel(BaseChannel):
         # normal send so the reply is not silently lost.
         if not msg_id:
             await self.send(to_handle, final_text, send_meta)
-            return
-
-        # If text fits in a single message, edit in place
-        if len(final_text) <= TELEGRAM_SEND_CHUNK_SIZE:
+        elif len(final_text) <= TELEGRAM_SEND_CHUNK_SIZE:
+            # Text fits in a single message — edit in place.
             html_text = markdown_to_telegram_html(final_text)
             success = await self._edit_stream_message(
                 chat_id,
@@ -1097,12 +1115,23 @@ class TelegramChannel(BaseChannel):
                     final_text,
                     use_html=False,
                 )
-            return
+        else:
+            # Text too long for a single edit — delete placeholder and
+            # use the normal chunked send path (same as non-streaming).
+            await self._delete_message(chat_id, msg_id)
+            await self.send(to_handle, final_text, send_meta)
 
-        # Text too long for a single edit — delete placeholder and use
-        # the normal chunked send path (same as non-streaming).
-        await self._delete_message(chat_id, msg_id)
-        await self.send(to_handle, final_text, send_meta)
+        # Card events (e.g. tool_guard) consumed by streaming need a
+        # compact interactive card sent after the streaming card.
+        if stream_type == "message" and self._card_handler.is_card_event(
+            event,
+        ):
+            await self._card_handler.try_send_card_for_event(
+                to_handle,
+                event,
+                send_meta,
+                compact=True,
+            )
 
     # ------------------------------------------------------------------
     # Event hooks
@@ -1115,7 +1144,16 @@ class TelegramChannel(BaseChannel):
         event,
         send_meta: dict,
     ) -> None:
-        """Message completed — send content but keep typing active."""
+        """Render card-flagged events via the card handler; else default."""
+        if await self._card_handler.try_send_card_for_event(
+            to_handle,
+            event,
+            send_meta,
+        ):
+            # Re-start typing after sending, in case more tool calls follow.
+            if self._is_processing.get(to_handle, False):
+                self._start_typing(to_handle)
+            return
         await super().on_event_message_completed(
             request,
             to_handle,
