@@ -8,10 +8,11 @@
  *   • csv    – parsed table
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { workspaceApi } from "../../api/modules/workspace";
+import { buildAuthHeaders } from "../../api/authHeaders";
 import styles from "./FilePreview.module.less";
 
 // ---------------------------------------------------------------------------
@@ -76,23 +77,64 @@ function parseCsv(raw: string): string[][] {
 }
 
 // ---------------------------------------------------------------------------
+// Authenticated blob loader — browser-native <img>/<embed> won't send
+// X-Agent-Id, so we fetch with headers and create an object URL.
+// ---------------------------------------------------------------------------
+
+function useAuthBlobUrl(filePath: string): string | null {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let revoked = false;
+    const url = workspaceApi.getBinaryFileUrl(filePath);
+    fetch(url, { headers: buildAuthHeaders() })
+      .then((res) => {
+        if (!res.ok) throw new Error(`${res.status}`);
+        return res.blob();
+      })
+      .then((blob) => {
+        if (revoked) return;
+        setBlobUrl(URL.createObjectURL(blob));
+      })
+      .catch(() => {
+        if (!revoked) setBlobUrl(null);
+      });
+    return () => {
+      revoked = true;
+      setBlobUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+    };
+  }, [filePath]);
+
+  return blobUrl;
+}
+
+// ---------------------------------------------------------------------------
 // Sub-renderers
 // ---------------------------------------------------------------------------
 
 function ImagePreview({ filePath }: { filePath: string }) {
-  const url = workspaceApi.getBinaryFileUrl(filePath);
+  const blobUrl = useAuthBlobUrl(filePath);
+  if (!blobUrl) return null;
   return (
     <div className={styles.imageWrap}>
-      <img src={url} alt={filePath.split("/").pop()} className={styles.image} />
+      <img
+        src={blobUrl}
+        alt={filePath.split("/").pop()}
+        className={styles.image}
+      />
     </div>
   );
 }
 
 function PdfPreview({ filePath }: { filePath: string }) {
-  const url = workspaceApi.getBinaryFileUrl(filePath);
+  const blobUrl = useAuthBlobUrl(filePath);
+  if (!blobUrl) return null;
   return (
     <embed
-      src={url}
+      src={blobUrl}
       type="application/pdf"
       className={styles.pdfEmbed}
       title={filePath.split("/").pop()}
