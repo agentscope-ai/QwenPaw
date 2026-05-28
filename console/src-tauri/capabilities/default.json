@@ -6,5 +6,10 @@
   "remote": {
     "urls": ["http://127.0.0.1:*"]
   },
-  "permissions": ["core:default", "dialog:allow-save", "fs:allow-write-file"]
+  "permissions": [
+    "core:default",
+    "dialog:allow-save",
+    "fs:allow-write-file",
+    "open-external-link"
+  ]
 }

@@ -5,15 +5,22 @@ const SUPPORTED_EXTERNAL_PREFIXES: [&str; 4] = ["http://", "https://", "mailto:"
 
 #[tauri::command]
 pub(crate) fn open_external_link(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    validate_external_url(&url)?;
+    let url_for_log = external_url_for_log(&url);
+    log::info!("[external-link] command requested url={url_for_log}");
+    if let Err(err) = validate_external_url(&url) {
+        log::warn!("[external-link] command rejected url={url_for_log}: {err}");
+        return Err(err);
+    }
 
     #[allow(deprecated)]
     let open_result = app.shell().open(url.clone(), None);
 
     match open_result {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            log::info!("[external-link] command succeeded url={url_for_log}");
+            Ok(())
+        }
         Err(err) => {
-            let url_for_log = external_url_for_log(&url);
             log::warn!("[external-link] open failed url={url_for_log}: {err}");
             Err(err.to_string())
         }

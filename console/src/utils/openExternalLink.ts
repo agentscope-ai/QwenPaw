@@ -1,4 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { buildAuthHeaders } from "../api/authHeaders";
+import { getApiUrl } from "../api/config";
 
 const URL_WITH_SCHEME_RE = /^[a-z][a-z\d+\-.]*:/i;
 const HTTP_PROTOCOLS = new Set(["http:", "https:"]);
@@ -11,6 +13,17 @@ const SUPPORTED_EXTERNAL_PROTOCOLS = new Set([
 ]);
 const TAURI_OPEN_EXTERNAL_LINK_COMMAND = "open_external_link";
 type ExternalLinkRuntime = "pywebview" | "tauri" | "browser";
+type ExternalLinkDebugPayload = {
+  phase: string;
+  url?: string;
+  runtime?: string;
+  tauri_api?: boolean;
+  global_is_tauri?: boolean;
+  has_tauri_internals?: boolean;
+  has_pywebview_open?: boolean;
+  location?: string;
+  error?: string;
+};
 
 export function resolveExternalUrl(url: string): string | null {
   const trimmedUrl = url.trim();
@@ -96,6 +109,52 @@ function externalUrlForLog(url: string): string {
   }
 }
 
+function shouldSendExternalLinkDiagnostics(): boolean {
+  if (typeof window === "undefined") return false;
+
+  return !(
+    window as { __QWENPAW_DISABLE_EXTERNAL_LINK_DIAGNOSTICS__?: boolean }
+  ).__QWENPAW_DISABLE_EXTERNAL_LINK_DIAGNOSTICS__;
+}
+
+function getExternalLinkDiagnosticState(): Omit<
+  ExternalLinkDebugPayload,
+  "phase" | "runtime" | "url" | "error"
+> {
+  let tauriApi = false;
+  try {
+    tauriApi = isTauri();
+  } catch {
+    tauriApi = false;
+  }
+
+  const globalScope = globalThis as { isTauri?: unknown };
+  return {
+    tauri_api: tauriApi,
+    global_is_tauri: Boolean(globalScope.isTauri),
+    has_tauri_internals: hasTauriInternals(),
+    has_pywebview_open:
+      typeof window.pywebview?.api?.open_external_link === "function",
+    location: `${window.location.protocol}//${window.location.host}${window.location.pathname}`,
+  };
+}
+
+function postExternalLinkDiagnostic(payload: ExternalLinkDebugPayload): void {
+  if (!shouldSendExternalLinkDiagnostics()) return;
+
+  void fetch(getApiUrl("/console/debug/external-link"), {
+    method: "POST",
+    headers: {
+      ...buildAuthHeaders(),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ...getExternalLinkDiagnosticState(),
+      ...payload,
+    }),
+  }).catch(() => {});
+}
+
 // Runtime priority is intentional: the legacy pywebview bridge has its own
 // opener, while packaged Tauri should use the native command exposed to the
 // WebView, including backend-hosted remote origins allowed by capabilities.
@@ -125,25 +184,62 @@ export function openExternalLink(
   if (!url) return;
 
   const fullUrl = resolveSupportedExternalUrl(url);
-  if (!fullUrl) return;
+  if (!fullUrl) {
+    postExternalLinkDiagnostic({ phase: "ignored-unsupported-url" });
+    return;
+  }
 
-  switch (detectExternalLinkRuntime(fullUrl)) {
+  const runtime = detectExternalLinkRuntime(fullUrl);
+  postExternalLinkDiagnostic({
+    phase: "called",
+    runtime,
+    url: externalUrlForLog(fullUrl),
+  });
+
+  switch (runtime) {
     case "pywebview": {
+      postExternalLinkDiagnostic({
+        phase: "pywebview-open",
+        runtime,
+        url: externalUrlForLog(fullUrl),
+      });
       getPyWebViewApi()?.open_external_link(fullUrl);
       return;
     }
     case "tauri": {
-      void invoke(TAURI_OPEN_EXTERNAL_LINK_COMMAND, { url: fullUrl }).catch(
-        (error) => {
+      postExternalLinkDiagnostic({
+        phase: "tauri-dispatch",
+        runtime,
+        url: externalUrlForLog(fullUrl),
+      });
+      void invoke(TAURI_OPEN_EXTERNAL_LINK_COMMAND, { url: fullUrl })
+        .then(() => {
+          postExternalLinkDiagnostic({
+            phase: "tauri-success",
+            runtime,
+            url: externalUrlForLog(fullUrl),
+          });
+        })
+        .catch((error) => {
+          postExternalLinkDiagnostic({
+            phase: "tauri-error",
+            runtime,
+            url: externalUrlForLog(fullUrl),
+            error: error instanceof Error ? error.message : String(error),
+          });
           console.warn("[external-link] Tauri open command failed", {
             error,
             url: externalUrlForLog(fullUrl),
           });
-        },
-      );
+        });
       return;
     }
     case "browser":
+      postExternalLinkDiagnostic({
+        phase: "browser-window-open",
+        runtime,
+        url: externalUrlForLog(fullUrl),
+      });
       window.open(fullUrl, target, features);
   }
 }
