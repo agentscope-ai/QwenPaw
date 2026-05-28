@@ -893,7 +893,7 @@
     "cronExample": "Common examples: '0 9 * * *' = 9 AM daily | '*/30 * * * *' = every 30 min | '0 */2 * * *' = every 2 hours | '0 0 * * 0' = Sunday midnight",
     "cronHelper": "New to Cron expressions?",
     "cronHelperLink": "Use online generator",
-    "timezoneTooltip": "Timezone for the cron schedule. Default: UTC",
+    "timezoneTooltip": "Timezone for the cron schedule. Defaults to your system timezone.",
     "taskTypeTooltip": "Choose 'text' for simple message tasks, or 'agent' for complex agent workflows.",
     "textTooltip": "Simple message task: this is the actual message body. Required when task type is 'text'.",
     "requestInputTooltip": "Message content in JSON format. This is what the agent will receive and process. Required when task type is 'agent'.",
