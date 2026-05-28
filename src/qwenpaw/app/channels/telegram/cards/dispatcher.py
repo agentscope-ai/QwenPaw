@@ -4,8 +4,8 @@
 
 Two lookup tables drive the dispatch:
 
-* ``_by_message_type``        — outbound: ``metadata.message_type`` → ``render``.
-* ``_by_callback_data_prefix`` — inbound: ``callback_data`` prefix  → ``handle``.
+* ``_by_message_type``  — outbound: message_type → render.
+* ``_by_callback_data_prefix`` — inbound: prefix → handle.
 
 Public entry-points (called by :class:`~..channel.TelegramChannel`):
 :meth:`try_send_card_for_event` and :meth:`handle_callback_query`.
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------
 
 RenderFn = Callable[
-    ["TelegramChannel", str, Any, Dict[str, Any], Dict[str, Any]],
+    ...,
     Awaitable[bool],
 ]
 

@@ -163,24 +163,26 @@ def build_resolved_text(
     to avoid MarkdownV2 parse errors from special characters in the
     raw body.  When empty (streaming compact card), uses MarkdownV2.
     """
-    if body_text:
-        # Plain text mode — no markdown formatting.
+    use_md = not body_text
+    if use_md:
+        by_text = f" by *{operator_display}*" if operator_display else ""
+    else:
         by_text = f" by {operator_display}" if operator_display else ""
-        if action == "approve":
-            status_line = f"✅ Approved{by_text}  |  Tool: {tool_name}"
-        elif action == "deny":
-            status_line = f"🚫 Denied{by_text}  |  Tool: {tool_name}"
-        else:
-            status_line = f"⌛ Expired  |  Tool: {tool_name}"
-        return f"{body_text}\n\n{status_line}"
 
-    # Compact (streaming) — no body, safe to use MarkdownV2.
-    by_text = f" by *{operator_display}*" if operator_display else ""
-    if action == "approve":
-        return f"✅ *Approved*{by_text}  |  Tool: `{tool_name}`"
-    if action == "deny":
-        return f"🚫 *Denied*{by_text}  |  Tool: `{tool_name}`"
-    return f"⌛ *Expired*  |  Tool: `{tool_name}`"
+    status_map = {
+        "approve": ("✅", "Approved"),
+        "deny": ("🚫", "Denied"),
+    }
+    icon, word = status_map.get(action, ("⌛", "Expired"))
+
+    if use_md:
+        status_line = f"{icon} *{word}*{by_text}  |  Tool: `{tool_name}`"
+    else:
+        status_line = f"{icon} {word}{by_text}  |  Tool: {tool_name}"
+
+    if body_text:
+        return f"{body_text}\n\n{status_line}"
+    return status_line
 
 
 # =====================================================================
@@ -203,10 +205,7 @@ async def render(
     Streaming (compact=True): compact text (tool name only) + buttons.
     """
     request_id = str(meta.get("approval_request_id") or "")
-    if not request_id:
-        return False
-
-    if not channel.enabled or not channel._application:
+    if not request_id or not channel.enabled or not channel._application:
         return False
 
     bot = channel._application.bot
@@ -389,12 +388,12 @@ def _parse_callback_data(
     if callback_data.startswith(APPROVE_PREFIX):
         return {
             "action": "approve",
-            "request_id": callback_data[len(APPROVE_PREFIX):],
+            "request_id": callback_data[len(APPROVE_PREFIX) :],
         }
     if callback_data.startswith(DENY_PREFIX):
         return {
             "action": "deny",
-            "request_id": callback_data[len(DENY_PREFIX):],
+            "request_id": callback_data[len(DENY_PREFIX) :],
         }
     return None
 
@@ -487,7 +486,9 @@ def _enqueue_approval_command(
 
     message_thread_id = session_ctx.get("message_thread_id")
     if message_thread_id is not None:
-        payload["meta"]["message_thread_id"] = message_thread_id
+        meta_dict = payload["meta"]
+        assert isinstance(meta_dict, dict)
+        meta_dict["message_thread_id"] = message_thread_id
 
     try:
         enqueue(payload)
