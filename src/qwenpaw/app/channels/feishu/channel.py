@@ -70,7 +70,7 @@ from .utils import (
     sender_display_string,
     short_session_id_from_full_id,
 )
-from .card_handler import FeishuCardHandler
+from .cards import FeishuCardHandler
 
 
 # Compatibility for setuptools>=82 where pkg_resources may be absent.
@@ -2150,7 +2150,9 @@ class FeishuChannel(BaseChannel):
 
     def _is_card_event(self, event: Any) -> bool:
         """Check if the event matches a registered interactive card kind."""
-        meta = self._card_handler._extract_meta(event)
+        from .cards.context import extract_meta
+
+        meta = extract_meta(event)
         if meta is None:
             return False
         message_type = str(meta.get("message_type") or "")
