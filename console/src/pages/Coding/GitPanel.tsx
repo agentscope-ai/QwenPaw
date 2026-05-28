@@ -189,7 +189,8 @@ export default function GitPanel() {
 
   const handleShowDiff = useCallback(async (file: GitChangedFile) => {
     try {
-      const res = await gitApi.diff(file.path, file.staged);
+      const isUntracked = file.status === "?";
+      const res = await gitApi.diff(file.path, file.staged, isUntracked);
       setDiffFile({
         path: file.path,
         staged: file.staged,

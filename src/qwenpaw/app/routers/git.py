@@ -402,10 +402,27 @@ async def get_diff(
     request: Request,
     path: str | None = None,
     staged: bool = False,
+    untracked: bool = False,
 ) -> dict:
     """Return unified diff text."""
     workspace = await get_agent_for_request(request)
     cwd = get_coding_dir(workspace)
+
+    if path and untracked:
+        safe_join(cwd, path)
+        rc, out, _ = await _git(
+            cwd,
+            "diff",
+            "--no-index",
+            "--",
+            "/dev/null",
+            path,
+        )
+        # --no-index returns exit code 1 when there is a diff
+        if rc not in (0, 1):
+            return {"diff": ""}
+        return {"diff": out}
+
     args = ["diff"]
     if staged:
         args.append("--staged")
@@ -475,11 +492,14 @@ async def discard_changes(body: DiscardRequest, request: Request) -> dict:
     workspace = await get_agent_for_request(request)
     cwd = get_coding_dir(workspace)
     targets = body.paths if body.paths else ["."]
-    rc, _, err = await _git(cwd, "restore", "--", *targets)
-    # Also try to remove untracked files; errors here are non-fatal
-    await _git(cwd, "clean", "-fd", "--", *targets)
-    if rc != 0 and err.strip():
-        raise HTTPException(status_code=400, detail=err.strip())
+    # restore may fail for untracked files — that is expected
+    rc_r, _, err_r = await _git(cwd, "restore", "--", *targets)
+    rc_c, _, err_c = await _git(cwd, "clean", "-fd", "--", *targets)
+    # Only raise if both failed
+    if rc_r != 0 and rc_c != 0:
+        detail = err_r.strip() or err_c.strip()
+        if detail:
+            raise HTTPException(status_code=400, detail=detail)
     return {"discarded": targets}
 
 
