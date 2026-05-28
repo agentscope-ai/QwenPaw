@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
 
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw._compat.runtime import (
     AppBaseException,
 )
 

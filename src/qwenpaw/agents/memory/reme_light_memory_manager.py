@@ -9,8 +9,12 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from agentscope.agent import ReActAgent
-from agentscope.message import Msg, TextBlock, ToolResultBlock, ToolUseBlock
+# NOTE(as2-migration): ReActAgent removed; alias to Agent for import-only.
+from agentscope.agent import Agent as ReActAgent
+from agentscope.message import Msg, TextBlock, ToolResultBlock
+
+# NOTE(as2-migration): ToolUseBlock renamed to ToolCallBlock in 2.0.
+from ..._compat.message import ToolUseBlock
 from agentscope.tool import Toolkit, ToolResponse
 
 from .base_memory_manager import BaseMemoryManager, memory_registry

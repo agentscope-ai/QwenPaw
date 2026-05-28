@@ -3,7 +3,7 @@
 
 from typing import Any, Dict, Optional
 
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw._compat.runtime import (
     AgentRuntimeErrorException,
     ModelExecutionException,
     ModelTimeoutException,

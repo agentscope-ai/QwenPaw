@@ -189,6 +189,10 @@ class Workspace:
                 reusable=True,
                 priority=20,
                 concurrent_init=True,
+                # NOTE(as2-migration): reme imports `agentscope.token` which
+                # was removed in agentscope 2.0; let the workspace boot
+                # without memory_manager until reme is replaced.
+                optional=True,
             ),
         )
 

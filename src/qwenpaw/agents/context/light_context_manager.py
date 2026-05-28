@@ -10,7 +10,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Set
 
-from agentscope.agent import ReActAgent
+# NOTE(as2-migration): ReActAgent removed; alias to Agent for import-only.
+from agentscope.agent import Agent as ReActAgent
 from agentscope.formatter import FormatterBase
 from agentscope.message import Msg, TextBlock
 from agentscope.model import ChatModelBase

@@ -28,7 +28,12 @@ from mcp.client.stdio import StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 
-from agentscope.mcp import StatefulClientBase
+# NOTE(as2-migration): agentscope 2.0 replaced StatefulClientBase with a
+# single unified `MCPClient` (see agentscope.mcp._mcp_client). The QwenPaw
+# clients below implement their own lifecycle in `_run_lifecycle` and never
+# called any StatefulClientBase methods, so we drop the inheritance entirely.
+# `toolkit.register_mcp_client` in 2.0 will be revisited when porting the
+# toolkit registration path; for now, this module just needs to import.
 
 logger = logging.getLogger(__name__)
 
@@ -456,7 +461,7 @@ class _MCPClientMixin:
             )
 
 
-class StdIOStatefulClient(_MCPClientMixin, StatefulClientBase):
+class StdIOStatefulClient(_MCPClientMixin):
     """StdIO MCP client with proper cross-task lifecycle management.
 
     Drop-in replacement for agentscope.mcp.StdIOStatefulClient that solves
@@ -551,7 +556,7 @@ class StdIOStatefulClient(_MCPClientMixin, StatefulClientBase):
         return context[0], context[1]
 
 
-class HttpStatefulClient(_MCPClientMixin, StatefulClientBase):
+class HttpStatefulClient(_MCPClientMixin):
     """HTTP/SSE MCP client with proper cross-task lifecycle management.
 
     Drop-in replacement for agentscope.mcp.HttpStatefulClient that solves

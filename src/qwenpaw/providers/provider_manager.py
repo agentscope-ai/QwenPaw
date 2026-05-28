@@ -12,7 +12,7 @@ import json
 from pydantic import BaseModel
 
 from agentscope.model import ChatModelBase
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw._compat.runtime import (
     ModelNotFoundException,
 )
 
@@ -20,6 +20,7 @@ from ..constant import SECRET_DIR
 from ..config.config import ModelSlotConfig
 from ..exceptions import ProviderError
 from .anthropic_provider import AnthropicProvider
+from .dashscope_provider import DashScopeProvider
 from .gemini_provider import GeminiProvider
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
@@ -726,7 +727,7 @@ PROVIDER_MODELSCOPE = OpenAIProvider(
     freeze_url=True,
 )
 
-PROVIDER_DASHSCOPE = OpenAIProvider(
+PROVIDER_DASHSCOPE = DashScopeProvider(
     id="dashscope",
     name="DashScope",
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -1649,6 +1650,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             return AnthropicProvider.model_validate(data)
         if provider_id == "gemini" or chat_model == "GeminiChatModel":
             return GeminiProvider.model_validate(data)
+        if provider_id == "dashscope" or chat_model == "DashScopeChatModel":
+            return DashScopeProvider.model_validate(data)
         if provider_id == "ollama":
             return OllamaProvider.model_validate(data)
         return OpenAIProvider.model_validate(data)

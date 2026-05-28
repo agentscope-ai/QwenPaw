@@ -9,8 +9,11 @@ from pathlib import Path
 
 import aiofiles
 import aiofiles.os
-from agentscope.agent._react_agent import _MemoryMark  # noqa
-from agentscope.memory import InMemoryMemory
+
+# NOTE(as2-migration): _MemoryMark + InMemoryMemory removed in 2.0;
+# both come from the compat shim until AgentContext is rewritten on
+# top of agentscope.state.AgentState.
+from qwenpaw._compat.memory import _MemoryMark, InMemoryMemory  # noqa
 from agentscope.message import Msg
 
 from .as_msg_handler import AsMsgHandler
@@ -187,16 +190,21 @@ class AgentContext(InMemoryMemory):
                 "required for InMemoryMemory.",
             )
 
+        # NOTE(as2-migration): ``Msg.from_dict`` was removed in
+        # agentscope 2.0; the compat helper translates legacy and
+        # current shapes into a 2.0 ``Msg`` instance.
+        from qwenpaw._compat.message import msg_from_dict
+
         self.content = []  # pylint: disable=attribute-defined-outside-init
         for item in state_dict.get("content", []):
             if isinstance(item, (tuple, list)) and len(item) == 2:
                 msg_dict, marks = item
-                msg = Msg.from_dict(msg_dict)
+                msg = msg_from_dict(msg_dict)
                 self.content.append((msg, marks))
 
             elif isinstance(item, dict):
                 # For compatibility with older versions
-                msg = Msg.from_dict(item)
+                msg = msg_from_dict(item)
                 self.content.append((msg, []))
 
             else:

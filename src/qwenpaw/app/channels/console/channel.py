@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw._compat.agent_schemas import (
     MessageType,
     Message,
     RunStatus,

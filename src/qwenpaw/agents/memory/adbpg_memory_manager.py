@@ -14,7 +14,10 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from agentscope.message import Msg, TextBlock, ToolResultBlock, ToolUseBlock
+from agentscope.message import Msg, TextBlock, ToolResultBlock
+
+# NOTE(as2-migration): ToolUseBlock renamed to ToolCallBlock in 2.0.
+from ..._compat.message import ToolUseBlock
 from agentscope.tool import ToolResponse
 
 from .adbpg_client import (

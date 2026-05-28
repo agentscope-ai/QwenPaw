@@ -262,7 +262,7 @@ class SIPChannel(BaseChannel):
         self,
         native_payload: Any,
     ) -> Any:
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw._compat.agent_schemas import (
             AgentRequest,
             ContentType,
             Message,
@@ -600,7 +600,9 @@ class SIPChannel(BaseChannel):
 
         try:
             # Import here to avoid top-level dependency
-            from agentscope_runtime.engine.schemas import (
+            # NOTE(as2-migration): redirected to the compat shim that
+            # mirrors the 1.x runtime schemas.
+            from qwenpaw._compat import (
                 agent_schemas as _as,
             )
 

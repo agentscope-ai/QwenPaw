@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Coroutine
 
 import frontmatter as fm
 from agentscope.message import Msg, TextBlock
-from agentscope_runtime.engine.runner import Runner
-from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw._compat.runtime_engine import Runner
+from qwenpaw._compat.agent_schemas import AgentRequest
+from qwenpaw._compat.runtime import (
     AgentException,
     AppBaseException,
 )

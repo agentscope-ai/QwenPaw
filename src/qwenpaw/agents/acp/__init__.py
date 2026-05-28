@@ -1,5 +1,16 @@
 # -*- coding: utf-8 -*-
-"""ACP client and server exports."""
+"""ACP client and server exports.
+
+NOTE(as2-migration): ``.server`` and ``.service`` still import from
+``agentscope_runtime.engine.schemas.agent_schemas`` and are not yet ported
+to agentscope 2.0.  Eagerly importing them here would break every consumer
+of ``qwenpaw.agents.acp`` — including ``qwenpaw.agents.tools.delegate_external_agent``
+which only needs ``tool_adapter``.  We expose ``QwenPawACPAgent`` /
+``run_qwenpaw_agent`` / ``ACPService`` / ``*_acp_service`` via ``__getattr__``
+so the heavy modules load only when actually requested.
+"""
+from importlib import import_module
+from typing import Any
 
 from .core import (
     ACPConfigurationError,
@@ -9,13 +20,26 @@ from .core import (
     ACPErrors,
     SuspendedPermission,
 )
-from .server import QwenPawACPAgent, run_qwenpaw_agent
-from .service import (
-    ACPService,
-    close_acp_service,
-    get_acp_service,
-    init_acp_service,
-)
+
+_LAZY_EXPORTS = {
+    "QwenPawACPAgent": ".server",
+    "run_qwenpaw_agent": ".server",
+    "ACPService": ".service",
+    "close_acp_service": ".service",
+    "get_acp_service": ".service",
+    "init_acp_service": ".service",
+}
+
+
+def __getattr__(name: str) -> Any:
+    module_name = _LAZY_EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = import_module(module_name, __name__)
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
+
 
 __all__ = [
     "ACPErrors",

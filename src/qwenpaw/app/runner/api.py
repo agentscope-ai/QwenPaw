@@ -4,7 +4,9 @@ from __future__ import annotations
 from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from agentscope.memory import InMemoryMemory
+
+# NOTE(as2-migration): InMemoryMemory removed in 2.0; shim mirrors 1.x API.
+from qwenpaw._compat.memory import InMemoryMemory
 
 from .session import SafeJSONSession
 from .manager import ChatManager

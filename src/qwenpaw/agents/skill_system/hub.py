@@ -22,7 +22,7 @@ import frontmatter
 import httpx
 import yaml
 
-from agentscope_runtime.engine.schemas.exception import ConfigurationException
+from qwenpaw._compat.runtime import ConfigurationException
 from ...exceptions import SkillsError
 from ...constant import EnvVarLoader
 from .models import SkillConflictError

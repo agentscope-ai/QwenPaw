@@ -7,13 +7,10 @@ import unicodedata
 from urllib.parse import quote
 
 from agentscope.tool import ToolResponse
-from agentscope.message import (
-    TextBlock,
-    ImageBlock,
-    AudioBlock,
-    VideoBlock,
-)
+from agentscope.message import TextBlock
 
+# NOTE(as2-migration): Image/Audio/VideoBlock collapsed into DataBlock in 2.0.
+from ..._compat.message import ImageBlock, AudioBlock, VideoBlock
 from ..schema import FileBlock
 from .file_io import _resolve_file_path
 

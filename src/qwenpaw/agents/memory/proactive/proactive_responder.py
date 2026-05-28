@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional, List, Dict
 
 import aiohttp
-from agentscope.agent import ReActAgent
+
+# NOTE(as2-migration): ReActAgent removed; alias to Agent for import-only.
+from agentscope.agent import Agent as ReActAgent
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
 

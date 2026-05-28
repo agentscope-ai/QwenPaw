@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """Estimated token counter implementation."""
 
-from agentscope.token import TokenCounterBase
 
-
-class EstimatedTokenCounter(TokenCounterBase):
+# NOTE(as2-migration): agentscope 2.0 removed the public TokenCounterBase
+# base class. Token counting in 2.0 is handled by the model itself
+# (`model.count_tokens(...)`).  Our EstimatedTokenCounter is consumed only
+# by qwenpaw's own context manager which calls ``await counter.count(text)``,
+# so we drop the inheritance — duck typing is enough for our call sites.
+class EstimatedTokenCounter:
     """Token counter that estimates tokens using character-based calculation.
 
     This is a lightweight approximation suitable for cases where exact token

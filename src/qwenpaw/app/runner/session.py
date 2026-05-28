@@ -3,8 +3,11 @@
 compatibility.
 
 Windows filenames cannot contain: \\ / : * ? " < > |
-This module wraps agentscope's SessionBase so that session_id and user_id
-are sanitized before being used as filenames.
+
+NOTE(as2-migration): agentscope 2.0 removed ``agentscope.session.SessionBase``;
+the package re-exports nothing.  ``SafeJSONSession`` implements the full
+save / load / update / get surface itself, so we just drop the inheritance —
+no consumers type against the base class.
 """
 import os
 import re
@@ -15,8 +18,7 @@ import shutil
 from typing import Union, Sequence
 
 import aiofiles
-from agentscope.session import SessionBase
-from agentscope_runtime.engine.schemas.exception import ConfigurationException
+from qwenpaw._compat.runtime import ConfigurationException
 from ...exceptions import AgentStateError
 
 logger = logging.getLogger(__name__)
@@ -193,11 +195,12 @@ def _rewrite_weixin_in_session_filename(name: str) -> str | None:
     return None
 
 
-class SafeJSONSession(SessionBase):
-    """SessionBase subclass with filename sanitization and async file I/O.
+class SafeJSONSession:
+    """Filename-safe JSON session store with async file I/O.
 
-    Overrides all file-reading/writing methods to use :mod:`aiofiles` so
-    that disk I/O does not block the event loop.
+    NOTE(as2-migration): previously subclassed ``agentscope.session.SessionBase``;
+    the base class was removed in 2.0 and this class always provided the
+    full surface itself, so the inheritance was dropped.
     """
 
     def __init__(

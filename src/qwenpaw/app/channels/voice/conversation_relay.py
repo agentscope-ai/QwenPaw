@@ -6,7 +6,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw._compat.agent_schemas import (
     ContentType,
     MessageType,
     RunStatus,
@@ -163,7 +163,7 @@ class ConversationRelayHandler:
 
     def _build_agent_request(self, text: str) -> Any:
         """Build an AgentRequest from user speech text."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw._compat.agent_schemas import (
             AgentRequest,
             Message,
             Role,

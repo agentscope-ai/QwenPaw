@@ -24,7 +24,7 @@ from telegram.error import (
     TimedOut,
 )
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw._compat.agent_schemas import (
     TextContent,
     ImageContent,
     VideoContent,

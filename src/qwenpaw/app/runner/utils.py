@@ -8,7 +8,7 @@ from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import Msg
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw._compat.agent_schemas import (
     Message,
     TextContent,
     ImageContent,
@@ -20,7 +20,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     FunctionCallOutput,
     MessageType,
 )
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw._compat.runtime import (
     AgentRuntimeErrorException,
 )
 
@@ -380,10 +380,15 @@ def agentscope_msg_to_message(
         current_type = None
 
         for block in msg.content:
-            if isinstance(block, dict):
-                btype = block.get("type", "text")
-            else:
+            # NOTE(as2-migration): agentscope 2.0 stores content as
+            # pydantic block models, not dicts.  Normalize to dict so
+            # the rest of this conversion (which uses .get) keeps
+            # working while we incrementally port call sites.
+            if hasattr(block, "model_dump"):
+                block = block.model_dump()
+            if not isinstance(block, dict):
                 continue
+            btype = block.get("type", "text")
 
             if btype == "text":
                 if current_type != MessageType.MESSAGE:

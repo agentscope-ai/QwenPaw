@@ -6,7 +6,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, List, Optional, Any
 
-from agentscope.agent import ReActAgent
+# NOTE(as2-migration): ReActAgent removed; alias to Agent for import-only.
+from agentscope.agent import Agent as ReActAgent
 from agentscope.message import Msg
 
 if TYPE_CHECKING:
@@ -121,7 +122,7 @@ async def _process_session_memory(
     channel: str = "",
 ) -> List[dict]:
     """Process a session's memory and return a list of messages."""
-    from agentscope.memory import InMemoryMemory
+    from qwenpaw._compat.memory import InMemoryMemory  # NOTE(as2-migration)
 
     try:
         state = await workspace.runner.session.get_session_state_dict(

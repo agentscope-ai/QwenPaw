@@ -14,10 +14,18 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, ORJSONResponse
-from agentscope_runtime.engine.app import AgentApp
-from agentscope_runtime.engine.schemas.exception import (
+
+# NOTE(as2-migration): agentscope_runtime.engine.app.AgentApp is gone in
+# 2.0; the equivalent is agentscope.app.create_app(storage, workspace_manager,
+# ...) which constructs a whole FastAPI app with built-in routers — a much
+# bigger refactor than the console path needs.  For now we stub AgentApp
+# with an empty-router shim so qwenpaw's own app boots; the /api/agent
+# surface (used by external runner clients, not the console) stays dark
+# until we port the multi-agent runner to the new schema.
+from qwenpaw._compat.runtime import (
     AppBaseException,
 )
+from qwenpaw._compat.agent_app import AgentApp
 
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path

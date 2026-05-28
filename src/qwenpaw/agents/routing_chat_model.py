@@ -10,7 +10,6 @@ from typing import Any, AsyncGenerator, Literal, Type
 from agentscope.formatter import FormatterBase
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
-from pydantic import BaseModel
 
 from ..config.config import AgentsLLMRoutingConfig
 
@@ -72,9 +71,16 @@ class RoutingChatModel(ChatModelBase):
         cloud_endpoint: RoutingEndpoint,
         routing_cfg: AgentsLLMRoutingConfig,
     ) -> None:
+        # agentscope 2.0 ChatModelBase requires credential/model/parameters;
+        # the router doesn't issue calls itself (it delegates to endpoints),
+        # so reuse the local endpoint's metadata for base-class attributes.
+        local_model = local_endpoint.model
         super().__init__(
-            model_name="routing",
-            stream=bool(getattr(local_endpoint.model, "stream", True)),
+            credential=getattr(local_model, "credential", None),
+            model="routing",
+            parameters=getattr(local_model, "parameters", None)
+            or ChatModelBase.Parameters(),
+            stream=bool(getattr(local_model, "stream", True)),
         )
         self.local_endpoint = local_endpoint
         self.cloud_endpoint = cloud_endpoint
@@ -86,9 +92,11 @@ class RoutingChatModel(ChatModelBase):
         messages: list[dict],
         tools: list[dict] | None = None,
         tool_choice: Literal["auto", "none", "required"] | str | None = None,
-        structured_model: Type[BaseModel] | None = None,
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
+        # agentscope 2.0 doesn't pass ``structured_model`` through ``__call__``
+        # (it goes via ``generate_structured_output``); drop any 1.x leftover.
+        kwargs.pop("structured_model", None)
         text = " ".join(
             message["content"]
             for message in messages
@@ -117,6 +125,5 @@ class RoutingChatModel(ChatModelBase):
             messages=messages,
             tools=tools,
             tool_choice=tool_choice,
-            structured_model=structured_model,
             **kwargs,
         )

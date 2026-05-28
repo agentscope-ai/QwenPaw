@@ -230,59 +230,42 @@ class AnthropicProvider(Provider):
             )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
+        from agentscope.credential import AnthropicCredential
         from agentscope.model import AnthropicChatModel
 
-        client_kwargs: Dict[str, Any] = {"base_url": self.base_url}
-
-        # Start with any user-defined custom headers
-        merged_headers: Dict[str, str] = self._build_default_headers()
-
-        if self.base_url in DASHSCOPE_BASE_URLS:
-            merged_headers["x-dashscope-agentapp"] = json.dumps(
-                {
-                    "agentType": "QwenPaw",
-                    "deployType": "UnKnown",
-                    "moduleCode": "model",
-                    "agentCode": "UnKnown",
-                },
-                ensure_ascii=False,
-            )
-        elif self.base_url in (CODING_DASHSCOPE_BASE_URL, TOKEN_PLAN_BASE_URL):
-            merged_headers["X-DashScope-Cdpl"] = json.dumps(
-                {
-                    "agentType": "QwenPaw",
-                    "deployType": "UnKnown",
-                    "moduleCode": "model",
-                    "agentCode": "UnKnown",
-                },
-                ensure_ascii=False,
-            )
-
-        if merged_headers:
-            client_kwargs["default_headers"] = merged_headers
-
-        if self.auth_mode == "auth_token":
-            client_kwargs["http_client"] = httpx.AsyncClient(
-                transport=_StripApiKeyTransport(),
-            )
-            client_kwargs["auth_token"] = self.api_key
-            api_key_arg = None
-        else:
-            api_key_arg = self.api_key
-
+        # TODO(as2-migration): the 2.0 AnthropicChatModel hard-codes
+        # ``anthropic.AsyncAnthropic(api_key=..., base_url=...)`` inside
+        # ``_call_api``; there is no hook for ``default_headers`` (so
+        # DashScope's ``x-dashscope-agentapp`` / ``X-DashScope-Cdpl`` tags
+        # are lost) or a custom ``http_client`` (so ``auth_mode=auth_token``
+        # via _StripApiKeyTransport stops working).  Restore both by
+        # subclassing AnthropicChatModel and overriding ``_call_api`` once
+        # the basic round-trip is green.
         effective_generate_kwargs = self.get_effective_generate_kwargs(
             model_id,
         )
         max_tokens = effective_generate_kwargs.pop("max_tokens", 16384)
 
+        # 2.0 Parameters only accepts max_tokens / thinking_enable /
+        # thinking_budget; siphon those out and drop the rest until per-call
+        # generate_kwargs are plumbed through QwenPawAgent → model.
+        params_kwargs: Dict[str, Any] = {"max_tokens": max_tokens}
+        for key in ("thinking_enable", "thinking_budget"):
+            if key in effective_generate_kwargs:
+                params_kwargs[key] = effective_generate_kwargs.pop(key)
+
+        credential = AnthropicCredential(
+            # AnthropicCredential requires a non-empty SecretStr; the
+            # SecretStr wrapping happens inside pydantic.
+            api_key=self.api_key or "",
+            base_url=self.base_url,
+        )
+
         return AnthropicChatModel(
-            model_name=model_id,
-            max_tokens=max_tokens,
+            credential=credential,
+            model=model_id,
+            parameters=AnthropicChatModel.Parameters(**params_kwargs),
             stream=True,
-            api_key=api_key_arg,
-            stream_tool_parsing=False,
-            client_kwargs=client_kwargs,
-            generate_kwargs=effective_generate_kwargs,
         )
 
     async def probe_model_multimodal(

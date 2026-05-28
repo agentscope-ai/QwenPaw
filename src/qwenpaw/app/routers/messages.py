@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw._compat.runtime import (
     AppBaseException,
 )
 from fastapi import APIRouter, Header, HTTPException, Request

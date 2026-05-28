@@ -857,28 +857,25 @@ def _create_file_block_support_formatter(
 
             return _strip_top_level_message_name(messages)
 
-        @staticmethod
         def convert_tool_result_to_string(
+            self,
             output: Union[str, List[dict]],
         ) -> tuple[str, Sequence[Tuple[str, dict]]]:
             """Extend parent class to support file blocks.
 
             Uses try-first strategy for compatibility with parent class.
-
-            Args:
-                output: Tool result output (string or list of blocks)
-
-            Returns:
-                Tuple of (text_representation, multimodal_data)
+            TODO(as2-migration): the 2.0 base method returns
+            ``tuple[str, list[TextBlock | DataBlock]]`` instead of the 1.x
+            ``[(path, dict), ...]`` shape, so the file-block branch below
+            still emits 1.x-shaped multimodal_data. Plain-text tool outputs
+            go through the parent and are unaffected.
             """
             if isinstance(output, str):
                 return output, []
 
             # Try parent class method first
             try:
-                return base_formatter_class.convert_tool_result_to_string(
-                    output,
-                )
+                return super().convert_tool_result_to_string(output)
             except ValueError as e:
                 if "Unsupported block type: file" not in str(e):
                     raise ModelFormatterError(
@@ -915,9 +912,7 @@ def _create_file_block_support_formatter(
                         (
                             text,
                             data,
-                        ) = base_formatter_class.convert_tool_result_to_string(
-                            [block],
-                        )
+                        ) = super().convert_tool_result_to_string([block])
                         textual_output.append(text)
                         multimodal_data.extend(data)
 
@@ -1031,6 +1026,15 @@ def create_model_and_formatter(
 
     # Create the formatter based on the real model class
     formatter = _create_formatter_instance(model.__class__)
+
+    # agentscope 2.0 ChatModelBase has its own retry loop
+    # (model/_base.py:162: ``for attempt in range(self.max_retries + 1)``)
+    # that catches all Exception, retries non-retryable 4xx, and has no
+    # back-off / Retry-After awareness. RetryChatModel (below) is strictly
+    # more capable, so collapse the inner loop to a single attempt to avoid
+    # 4x4 nested retries on transient errors.
+    if hasattr(model, "max_retries"):
+        model.max_retries = 0
 
     # Wrap with retry logic for transient LLM API errors
     wrapped_model = TokenRecordingModelWrapper(provider_id, model)

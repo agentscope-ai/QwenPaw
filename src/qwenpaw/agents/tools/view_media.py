@@ -9,8 +9,11 @@ import urllib.parse
 from pathlib import Path
 from typing import Optional
 
-from agentscope.message import ImageBlock, TextBlock, VideoBlock
+from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
+
+# NOTE(as2-migration): ImageBlock/VideoBlock collapsed into DataBlock in 2.0.
+from ..._compat.message import ImageBlock, VideoBlock
 
 logger = logging.getLogger(__name__)
 
