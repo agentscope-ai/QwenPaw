@@ -231,13 +231,37 @@ async def clone_project(
                 stderr=asyncio.subprocess.STDOUT,
             )
 
-            # Stream output line-by-line
+            # Stream output – git uses \r for progress updates,
+            # so we split on both \n and \r to get individual
+            # progress lines instead of one huge concatenated block.
             assert proc.stdout is not None
-            async for raw_line in proc.stdout:
-                line = raw_line.decode("utf-8", errors="replace").rstrip()
-                if line:
-                    payload = json.dumps({"type": "log", "line": line})
-                    yield f"data: {payload}\n\n"
+            buf = ""
+            async for chunk in proc.stdout:
+                buf += chunk.decode("utf-8", errors="replace")
+                # Split on \r or \n (or \r\n)
+                while True:
+                    idx = -1
+                    for sep in ("\r\n", "\r", "\n"):
+                        pos = buf.find(sep)
+                        if pos != -1 and (idx == -1 or pos < idx):
+                            idx = pos
+                            sep_len = len(sep)
+                    if idx == -1:
+                        break
+                    line = buf[:idx].strip()
+                    buf = buf[idx + sep_len :]
+                    if line:
+                        payload = json.dumps(
+                            {"type": "log", "line": line},
+                        )
+                        yield f"data: {payload}\n\n"
+            # Flush remaining buffer
+            remaining = buf.strip()
+            if remaining:
+                payload = json.dumps(
+                    {"type": "log", "line": remaining},
+                )
+                yield f"data: {payload}\n\n"
 
             rc = await proc.wait()
             if rc != 0:

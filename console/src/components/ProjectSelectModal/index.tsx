@@ -100,6 +100,7 @@ function CloneTab({ onDone }: { onDone: (path: string) => void }) {
   const [cloning, setCloning] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   const handleClone = async () => {
@@ -107,6 +108,7 @@ function CloneTab({ onDone }: { onDone: (path: string) => void }) {
     setCloning(true);
     setLogs([]);
     setError(null);
+    setProgress(0);
 
     try {
       const res = await codingProjectApi.cloneStream(
@@ -135,7 +137,10 @@ function CloneTab({ onDone }: { onDone: (path: string) => void }) {
                 setTimeout(() => logEndRef.current?.scrollIntoView(), 0);
                 return next;
               });
+              const m = evt.line.match(/(\d+)%/);
+              if (m) setProgress(Math.min(Number(m[1]), 99));
             } else if (evt.type === "done" && evt.path) {
+              setProgress(100);
               setCloning(false);
               onDone(evt.path);
               return;
@@ -189,7 +194,7 @@ function CloneTab({ onDone }: { onDone: (path: string) => void }) {
       )}
       {cloning && (
         <Progress
-          percent={99}
+          percent={progress}
           status="active"
           size="small"
           className={styles.progress}
