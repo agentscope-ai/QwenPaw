@@ -352,6 +352,75 @@ class TestPluginValidatorImports:
             finally:
                 sys.modules.pop(module_name, None)
 
+    def test_cli_validate_path_with_relative_import(self):
+        """Exercise the actual CLI validation code path.
+
+        Calls validate_plugin_module (the real implementation used by
+        both 'install' and 'validate' commands) to prove that relative
+        imports work end-to-end, including sys.modules registration
+        before exec_module, cleanup in finally, and sanitized module
+        name from plugin_id with hyphens.
+        """
+        from qwenpaw.plugins.validation import validate_plugin_module
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            plugin_dir = Path(tmpdir) / "my-datapaw"
+            plugin_dir.mkdir()
+
+            (plugin_dir / "helpers.py").write_text(
+                "HELPER_VALUE = 42\n",
+                encoding="utf-8",
+            )
+            (plugin_dir / "plugin.py").write_text(
+                "from .helpers import HELPER_VALUE\n"
+                "\n"
+                "class Plugin:\n"
+                "    pass\n"
+                "\n"
+                "plugin = Plugin()\n",
+                encoding="utf-8",
+            )
+
+            # Should succeed without raising
+            validate_plugin_module("my-datapaw", plugin_dir, "plugin.py")
+
+            # Verify sys.modules was cleaned up (no leaking)
+            leaked = [
+                k
+                for k in sys.modules
+                if k.startswith("_plugin_validation_my_datapaw")
+            ]
+            assert leaked == [], f"Leaked modules: {leaked}"
+
+    def test_cli_validate_cleans_sys_modules_on_error(self):
+        """sys.modules cleanup happens even when validation fails."""
+        from qwenpaw.plugins.validation import validate_plugin_module
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            plugin_dir = Path(tmpdir) / "bad-plugin"
+            plugin_dir.mkdir()
+
+            # Plugin that imports a non-existent module
+            (plugin_dir / "plugin.py").write_text(
+                "from .nonexistent import MISSING\n",
+                encoding="utf-8",
+            )
+
+            with pytest.raises(ImportError):
+                validate_plugin_module(
+                    "bad-plugin",
+                    plugin_dir,
+                    "plugin.py",
+                )
+
+            # Verify cleanup still happened
+            leaked = [
+                k
+                for k in sys.modules
+                if k.startswith("_plugin_validation_bad_plugin")
+            ]
+            assert leaked == [], f"Leaked modules: {leaked}"
+
 
 # ---------------------------------------------------------------------------
 # #16: register_skill_provider
