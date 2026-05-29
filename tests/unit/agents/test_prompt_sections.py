@@ -195,13 +195,11 @@ def test_qwenpaw_agent_build_sys_prompt_includes_plugin_sections(monkeypatch):
         lambda: "MULTIMODAL",
     )
 
+    # pylint: disable=protected-access
     prompt = react_agent.QwenPawAgent._build_sys_prompt(
         _PromptOnlyAgent(agent_id="datapaw", env_context="ENV_CONTEXT"),
     )
 
     assert prompt == (
-        "WORKSPACE\n\n"
-        "PLUGIN SECTION\n\n"
-        "MULTIMODAL\n\n"
-        "ENV_CONTEXT"
+        "WORKSPACE\n\n" "PLUGIN SECTION\n\n" "MULTIMODAL\n\n" "ENV_CONTEXT"
     )
