@@ -76,12 +76,16 @@ function sanitizeSaveFilename(filename: string): string {
   return sanitized || "download";
 }
 
-/** Convert fetch-style header objects to the Map shape expected by Tauri plugins. */
-function headersToMap(
+/** Keep headers as plain IPC objects; Tauri deserializes them into Rust HashMap. */
+function headersForTauri(
   headers?: Record<string, string>,
-): Map<string, string> | undefined {
+): Parameters<typeof tauriDownload>[3] {
   const entries = Object.entries(headers ?? {});
-  return entries.length > 0 ? new Map(entries) : undefined;
+  return entries.length > 0
+    ? (Object.fromEntries(entries) as unknown as Parameters<
+        typeof tauriDownload
+      >[3])
+    : undefined;
 }
 
 function errorMessageForLog(error: unknown): string {
@@ -152,7 +156,7 @@ async function downloadWithTauri(
       url,
       savePath,
       undefined,
-      headersToMap(options.headers),
+      headersForTauri(options.headers),
     );
   } catch (error) {
     await logTauriDownloadFailure(url, filename, error);

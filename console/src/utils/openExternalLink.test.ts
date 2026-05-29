@@ -235,7 +235,7 @@ describe("openExternalLink", () => {
       "http://localhost:3000/api/workspace/download",
       "C:\\Downloads\\server.zip",
       undefined,
-      new Map([["X-Agent-Id", "agent-a"]]),
+      { "X-Agent-Id": "agent-a" },
     );
     expect(dialogMocks.save.mock.invocationCallOrder[0]).toBeLessThan(
       uploadMocks.download.mock.invocationCallOrder[0],
