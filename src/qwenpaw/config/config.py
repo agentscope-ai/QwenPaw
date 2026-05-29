@@ -1522,6 +1522,14 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             description="Check the status of a background agent task",
             icon="⏳",
         ),
+        "spawn_subagent": BuiltinToolConfig(
+            name="spawn_subagent",
+            enabled=True,
+            description=(
+                "Spawn an ephemeral sub-task within the current " "workspace"
+            ),
+            icon="🔀",
+        ),
     }
 
     # Merge dynamically registered tools from plugins
