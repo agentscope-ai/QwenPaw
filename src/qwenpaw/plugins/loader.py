@@ -669,6 +669,28 @@ class PluginLoader:
                     f"for plugin '{plugin_id}': {exc}",
                 )
 
+        # Execute uninstall hooks (only run on explicit unload/remove)
+        uninstall_hooks = [
+            h
+            for h in self.registry.get_uninstall_hooks()
+            if h.plugin_id == plugin_id
+        ]
+        for hook in uninstall_hooks:
+            try:
+                result = hook.callback(
+                    plugin_id=plugin_id,
+                    delete_files=delete_files,
+                )
+                if inspect.iscoroutine(result) or inspect.isawaitable(
+                    result,
+                ):
+                    await result
+            except Exception as exc:
+                logger.error(
+                    f"Error in uninstall hook '{hook.hook_name}' "
+                    f"for plugin '{plugin_id}': {exc}",
+                )
+
         # Remove Python module and all sub-modules so the next import
         # gets a fresh copy (e.g. plugin_foo.utils must not be reused).
         module_name = f"plugin_{plugin_id.replace('-', '_')}"

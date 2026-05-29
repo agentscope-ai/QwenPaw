@@ -2,6 +2,7 @@
 """Plugin API for plugin developers."""
 
 import logging
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type
 
 logger = logging.getLogger(__name__)
@@ -185,6 +186,49 @@ class PluginApi:
             )
             logger.info(
                 f"Plugin '{self.plugin_id}' registered shutdown hook "
+                f"'{hook_name}' (priority={priority})",
+            )
+
+    def register_uninstall_hook(
+        self,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+    ):
+        """Register an uninstall hook.
+
+        Unlike shutdown hooks (which run on every app shutdown),
+        uninstall hooks run **only** when the plugin is explicitly
+        unloaded or removed via ``PluginLoader.unload_plugin()``.
+
+        Use these for one-time cleanup on uninstall — e.g. removing
+        workspace skills, clearing manifest entries, or undoing
+        monkey-patches applied during startup.
+
+        The callback receives keyword arguments:
+            - ``plugin_id`` (str): The plugin being uninstalled.
+            - ``delete_files`` (bool): Whether files are being deleted.
+
+        Args:
+            hook_name: Unique hook identifier
+            callback: Async or sync function to call on uninstall.
+            priority: Execution priority (lower = earlier, default=100)
+
+        Example:
+            >>> api.register_uninstall_hook(
+            ...     hook_name="cleanup_skills",
+            ...     callback=self.on_uninstall,
+            ... )
+        """
+        if self._registry:
+            self._registry.register_uninstall_hook(
+                plugin_id=self.plugin_id,
+                hook_name=hook_name,
+                callback=callback,
+                priority=priority,
+            )
+            logger.info(
+                f"Plugin '{self.plugin_id}' registered uninstall hook "
                 f"'{hook_name}' (priority={priority})",
             )
 
@@ -398,3 +442,231 @@ class PluginApi:
             f"Plugin '{self.plugin_id}' scheduled tool "
             f"'{tool_name}' for registration on startup",
         )
+
+    def register_skill_provider(
+        self,
+        skills_dir: Path,
+        *,
+        enabled_by_default: bool = True,
+        channels: Optional[List[str]] = None,
+    ) -> None:
+        """Register a plugin as a skill provider.
+
+        Copies the plugin's skills into the workspace skill directory,
+        reconciles the workspace manifest, and applies the plugin's
+        default enable/channel strategy.  On uninstall, skills sourced
+        from this plugin are automatically cleaned up.
+
+        The host handles:
+        - Copying or mounting the skill directory into the workspace.
+        - Reconciling the workspace skill manifest.
+        - Applying the default enabled/channels strategy.
+        - Cleaning up manifest entries on uninstall (by ``source``).
+
+        Args:
+            skills_dir: Path to the directory containing the plugin's
+                skill sub-directories (each with a ``SKILL.md``).
+            enabled_by_default: Whether the skills should be enabled
+                immediately after installation. Default: True.
+            channels: List of channel names the skills apply to, or
+                ``["all"]`` for all channels. Default: ``["all"]``.
+
+        Example:
+            >>> from pathlib import Path
+            >>> PLUGIN_DIR = Path(__file__).parent
+            >>> api.register_skill_provider(
+            ...     skills_dir=PLUGIN_DIR / "skills",
+            ...     enabled_by_default=True,
+            ...     channels=["all"],
+            ... )
+        """
+        skills_dir = Path(skills_dir)
+        resolved_channels = channels or ["all"]
+        source_tag = f"plugin:{self.plugin_id}"
+
+        def _install_skills():
+            self._do_install_skills(
+                skills_dir,
+                source_tag,
+                enabled_by_default,
+                resolved_channels,
+            )
+
+        def _uninstall_skills(plugin_id: str, delete_files: bool = False):
+            """Remove skills sourced from this plugin on uninstall."""
+            _ = delete_files  # unused but part of uninstall hook contract
+            self._do_uninstall_skills(plugin_id, source_tag)
+
+        # Register skill installation on startup
+        self.register_startup_hook(
+            hook_name=f"install_skills_{self.plugin_id}",
+            callback=_install_skills,
+            priority=80,
+        )
+
+        # Register cleanup on uninstall
+        self.register_uninstall_hook(
+            hook_name=f"uninstall_skills_{self.plugin_id}",
+            callback=_uninstall_skills,
+        )
+
+    def _do_install_skills(
+        self,
+        skills_dir: Path,
+        source_tag: str,
+        enabled_by_default: bool,
+        resolved_channels: List[str],
+    ) -> None:
+        """Copy plugin skills into workspaces and update manifests."""
+        try:
+            from ..agents.skill_system.store import (
+                copy_skill_dir,
+                get_workspace_skills_dir,
+                get_workspace_skill_manifest_path,
+                default_workspace_manifest,
+                mutate_json,
+            )
+            from ..agents.skill_system.registry import (
+                reconcile_workspace_manifest,
+                list_workspaces,
+            )
+
+            if not skills_dir.exists() or not skills_dir.is_dir():
+                logger.warning(
+                    f"Plugin '{self.plugin_id}' skills_dir "
+                    f"does not exist: {skills_dir}",
+                )
+                return
+
+            skill_names = [
+                d.name
+                for d in skills_dir.iterdir()
+                if d.is_dir() and (d / "SKILL.md").exists()
+            ]
+            if not skill_names:
+                logger.debug(
+                    f"Plugin '{self.plugin_id}' has no skills "
+                    f"in {skills_dir}",
+                )
+                return
+
+            workspaces = list_workspaces()
+            for workspace_info in workspaces:
+                workspace_dir = Path(workspace_info["workspace_dir"])
+                ws_skills_dir = get_workspace_skills_dir(workspace_dir)
+                ws_skills_dir.mkdir(parents=True, exist_ok=True)
+
+                for skill_name in skill_names:
+                    copy_skill_dir(
+                        skills_dir / skill_name,
+                        ws_skills_dir / skill_name,
+                    )
+
+                reconcile_workspace_manifest(workspace_dir)
+
+                manifest_path = get_workspace_skill_manifest_path(
+                    workspace_dir,
+                )
+
+                def _apply_defaults(
+                    payload,
+                    _names=skill_names,
+                    _src=source_tag,
+                    _enabled=enabled_by_default,
+                    _channels=resolved_channels,
+                ):
+                    skills = payload.setdefault("skills", {})
+                    for name in _names:
+                        entry = skills.get(name)
+                        if entry is None:
+                            continue
+                        entry["source"] = _src
+                        entry["enabled"] = _enabled
+                        entry["channels"] = _channels
+                    return payload
+
+                mutate_json(
+                    manifest_path,
+                    default_workspace_manifest(),
+                    _apply_defaults,
+                )
+
+            logger.info(
+                f"Plugin '{self.plugin_id}' installed "
+                f"{len(skill_names)} skill(s) into "
+                f"{len(workspaces)} workspace(s)",
+            )
+        except Exception as exc:
+            logger.error(
+                f"Failed to install skills for plugin "
+                f"'{self.plugin_id}': {exc}",
+                exc_info=True,
+            )
+
+    @staticmethod
+    def _do_uninstall_skills(plugin_id: str, source_tag: str) -> None:
+        """Remove skills sourced from a plugin across all workspaces."""
+        try:
+            import shutil
+
+            from ..agents.skill_system.store import (
+                get_workspace_skills_dir,
+                get_workspace_skill_manifest_path,
+                default_workspace_manifest,
+                mutate_json,
+            )
+            from ..agents.skill_system.registry import (
+                list_workspaces,
+            )
+
+            workspaces = list_workspaces()
+            for workspace_info in workspaces:
+                workspace_dir = Path(workspace_info["workspace_dir"])
+                ws_skills_dir = get_workspace_skills_dir(workspace_dir)
+                manifest_path = get_workspace_skill_manifest_path(
+                    workspace_dir,
+                )
+
+                def _remove_plugin_skills(
+                    payload,
+                    _ws_skills=ws_skills_dir,
+                    _tag=source_tag,
+                    _agent_id=workspace_info["agent_id"],
+                ):
+                    skills = payload.setdefault("skills", {})
+                    to_remove = [
+                        name
+                        for name, entry in skills.items()
+                        if entry.get("source") == _tag
+                    ]
+                    for name in to_remove:
+                        skills.pop(name, None)
+                        skill_dir = _ws_skills / name
+                        if skill_dir.exists():
+                            shutil.rmtree(skill_dir, ignore_errors=True)
+                    if to_remove:
+                        logger.info(
+                            "Removed skills %s from workspace '%s'",
+                            to_remove,
+                            _agent_id,
+                        )
+                    return payload
+
+                mutate_json(
+                    manifest_path,
+                    default_workspace_manifest(),
+                    _remove_plugin_skills,
+                )
+
+            logger.info(
+                "Plugin '%s' skills cleaned up from %d workspace(s)",
+                plugin_id,
+                len(workspaces),
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to uninstall skills for plugin '%s': %s",
+                plugin_id,
+                exc,
+                exc_info=True,
+            )

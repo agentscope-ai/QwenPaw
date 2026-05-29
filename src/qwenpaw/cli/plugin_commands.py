@@ -615,12 +615,22 @@ def install(source: str, force: bool):
 
             import importlib.util
 
+            module_name = f"_plugin_validation_{plugin_id}"
+            plugin_dir_str = str(source_path)
+
+            # submodule_search_locations enables relative imports
+            # within the plugin package during validation, matching
+            # the runtime loader semantics in PluginLoader.load_plugin
             spec = importlib.util.spec_from_file_location(
-                f"_plugin_validation_{plugin_id}",
+                module_name,
                 backend_path,
+                submodule_search_locations=[plugin_dir_str],
             )
             if spec and spec.loader:
                 module = importlib.util.module_from_spec(spec)
+                # Set __package__ and __path__ to enable relative imports
+                module.__package__ = module_name
+                module.__path__ = [plugin_dir_str]
                 spec.loader.exec_module(module)
 
                 has_plugin_class = hasattr(module, "Plugin")

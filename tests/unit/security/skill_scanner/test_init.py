@@ -577,15 +577,15 @@ class TestCacheHelpers:
             skill_directory=str(tmp_path),
         )
         _store_cached_result(tmp_path, result)
-        # Modify directory to change mtime
-        import time
+        # Modify directory and force a clearly different mtime so the
+        # cache is invalidated even on filesystems with coarse mtime
+        # granularity (e.g. NTFS can have up to 2-second resolution).
+        import os
 
         new_file = tmp_path / "new_file.txt"
         new_file.write_text("change")
-        import os
-
-        future = time.time() + 2
-        os.utime(str(new_file), (future, future))
+        future_mtime = tmp_path.stat().st_mtime + 10
+        os.utime(new_file, (future_mtime, future_mtime))
         cached = _get_cached_result(tmp_path)
         # After modification, cache should be invalidated
         # (mtime changed, so cached result is None)
