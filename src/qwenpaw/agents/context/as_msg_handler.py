@@ -53,6 +53,8 @@ class AsMsgHandler:
 
                 elif block_type in ["image", "audio", "video", "file"]:
                     source = block.get("source", {})
+                    if isinstance(source, str):
+                        source = {"url": source}
                     if source.get("type") == "base64":
                         data = source.get("data", "")
                         total_token_count += len(data) // 4 if data else 10
@@ -122,6 +124,8 @@ class AsMsgHandler:
 
             elif block_type in ("image", "audio", "video", "file"):
                 source = block.get("source", {})
+                if isinstance(source, str):
+                    source = {"url": source}
                 url = source.get("url", "")
                 if source.get("type") == "base64":
                     data = source.get("data", "")

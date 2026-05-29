@@ -467,3 +467,110 @@ class TestAsMsgHandlerToolAlignment:
         assert (
             tool_use_ids_in_keep == tool_result_ids_in_keep
         ), f"tool_use ids: {tool_use_ids_in_keep}, tool_result ids: {tool_result_ids_in_keep}"
+
+
+class TestAsMsgHandlerInlineSourceUrl:
+    """Test that media blocks with inline source URL strings are handled."""
+
+    @pytest.mark.asyncio
+    async def test_stat_message_with_inline_source_url(self):
+        """stat_message should handle source as a plain URL string."""
+        token_counter = MockTokenCounter()
+        handler = AsMsgHandler(token_counter)
+
+        message = Msg(
+            name="assistant",
+            role="assistant",
+            content=[
+                {"type": "text", "text": "Here is the image:"},
+                {"type": "image", "source": "https://example.com/img.png"},
+            ],
+            metadata={},
+        )
+
+        stat = await handler.stat_message(message)
+        assert len(stat.content) == 2
+        assert stat.content[1].block_type == "image"
+        assert stat.content[1].media_url == "https://example.com/img.png"
+
+    @pytest.mark.asyncio
+    async def test_stat_message_with_dict_source_url(self):
+        """stat_message should still handle source as a dict with url key."""
+        token_counter = MockTokenCounter()
+        handler = AsMsgHandler(token_counter)
+
+        message = Msg(
+            name="assistant",
+            role="assistant",
+            content=[
+                {
+                    "type": "image",
+                    "source": {"url": "https://example.com/img.png"},
+                },
+            ],
+            metadata={},
+        )
+
+        stat = await handler.stat_message(message)
+        assert len(stat.content) == 1
+        assert stat.content[0].block_type == "image"
+        assert stat.content[0].media_url == "https://example.com/img.png"
+
+    @pytest.mark.asyncio
+    async def test_tool_result_with_inline_source_url(self):
+        """tool_result containing media with inline source URL should be handled."""
+        token_counter = MockTokenCounter()
+        handler = AsMsgHandler(token_counter)
+
+        message = Msg(
+            name="system",
+            role="system",
+            content=[
+                {
+                    "type": "tool_result",
+                    "id": "tool-001",
+                    "name": "test_tool",
+                    "output": [
+                        {"type": "text", "text": "result:"},
+                        {
+                            "type": "image",
+                            "source": "https://example.com/img.png",
+                        },
+                    ],
+                },
+            ],
+            metadata={},
+        )
+
+        stat = await handler.stat_message(message)
+        assert len(stat.content) == 1
+        assert stat.content[0].block_type == "tool_result"
+        assert "result:" in stat.content[0].tool_output
+        assert "https://example.com/img.png" in stat.content[0].tool_output
+
+    @pytest.mark.asyncio
+    async def test_context_check_with_inline_source_url(self):
+        """context_check should not crash when messages contain inline source URLs."""
+        token_counter = MockTokenCounter()
+        handler = AsMsgHandler(token_counter)
+
+        messages = [
+            Msg(name="user", role="user", content="Hello", metadata={}),
+            Msg(
+                name="assistant",
+                role="assistant",
+                content=[
+                    {"type": "text", "text": "Here is the image:"},
+                    {"type": "image", "source": "https://example.com/img.png"},
+                ],
+                metadata={},
+            ),
+        ]
+
+        result = await handler.context_check(
+            messages=messages,
+            context_compact_threshold=100,
+            context_compact_reserve=100,
+        )
+        _, msgs_to_keep, _, _ = result
+        assert len(msgs_to_keep) == 2
