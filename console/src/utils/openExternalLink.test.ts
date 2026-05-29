@@ -53,7 +53,6 @@ describe("openExternalLink", () => {
     vi.spyOn(window, "open").mockImplementation(windowOpen);
     delete (window as any).pywebview;
     delete (window as any).__TAURI_INTERNALS__;
-    (window as any).__QWENPAW_DISABLE_EXTERNAL_LINK_DIAGNOSTICS__ = true;
     localStorage.clear();
     (globalThis as any).VITE_API_BASE_URL = "";
     (globalThis as any).TOKEN = "";
@@ -61,7 +60,6 @@ describe("openExternalLink", () => {
   });
 
   afterEach(() => {
-    delete (window as any).__QWENPAW_DISABLE_EXTERNAL_LINK_DIAGNOSTICS__;
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });

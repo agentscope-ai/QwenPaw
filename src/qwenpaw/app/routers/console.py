@@ -31,25 +31,7 @@ class MarkInboxReadRequest(BaseModel):
     all: bool = False
 
 
-class ExternalLinkDebugRequest(BaseModel):
-    phase: str
-    url: str | None = None
-    runtime: str | None = None
-    tauri_api: bool | None = None
-    global_is_tauri: bool | None = None
-    has_tauri_internals: bool | None = None
-    has_pywebview_open: bool | None = None
-    location: str | None = None
-    error: str | None = None
-
-
 MAX_DEBUG_LOG_LINES = 1000
-
-
-def _debug_log_value(value: str | None, max_length: int = 240) -> str | None:
-    if value is None:
-        return None
-    return value.replace("\r", "\\r").replace("\n", "\\n")[:max_length]
 
 
 def _safe_filename(name: str) -> str:
@@ -355,30 +337,6 @@ async def get_backend_debug_logs(
             "size": 0,
             "content": "",
         }
-
-
-@router.post(
-    "/debug/external-link",
-    response_model=dict,
-    summary="Record desktop external-link diagnostics",
-)
-async def post_external_link_debug(payload: ExternalLinkDebugRequest) -> dict:
-    """Write temporary diagnostics for packaged desktop link-opening issues."""
-    logger.info(
-        "[external-link] phase=%s runtime=%s url=%s location=%s "
-        "tauri_api=%s global_is_tauri=%s has_tauri_internals=%s "
-        "has_pywebview_open=%s error=%s",
-        _debug_log_value(payload.phase, 80),
-        _debug_log_value(payload.runtime, 40),
-        _debug_log_value(payload.url),
-        _debug_log_value(payload.location),
-        payload.tauri_api,
-        payload.global_is_tauri,
-        payload.has_tauri_internals,
-        payload.has_pywebview_open,
-        _debug_log_value(payload.error),
-    )
-    return {"ok": True}
 
 
 @router.get("/push-messages")

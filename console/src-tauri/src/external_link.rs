@@ -5,10 +5,8 @@ const SUPPORTED_EXTERNAL_PREFIXES: [&str; 4] = ["http://", "https://", "mailto:"
 
 #[tauri::command]
 pub(crate) fn open_external_link(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    let url_for_log = external_url_for_log(&url);
-    log::info!("[external-link] command requested url={url_for_log}");
     if let Err(err) = validate_external_url(&url) {
-        log::warn!("[external-link] command rejected url={url_for_log}: {err}");
+        log::warn!("[external-link] command rejected: {err}");
         return Err(err);
     }
 
@@ -16,12 +14,9 @@ pub(crate) fn open_external_link(app: tauri::AppHandle, url: String) -> Result<(
     let open_result = app.shell().open(url.clone(), None);
 
     match open_result {
-        Ok(()) => {
-            log::info!("[external-link] command succeeded url={url_for_log}");
-            Ok(())
-        }
+        Ok(()) => Ok(()),
         Err(err) => {
-            log::warn!("[external-link] open failed url={url_for_log}: {err}");
+            log::warn!("[external-link] open failed: {err}");
             Err(err.to_string())
         }
     }
@@ -48,19 +43,4 @@ fn validate_external_url(url: &str) -> Result<(), String> {
     }
 
     Err("external link protocol is not supported".into())
-}
-
-fn external_url_for_log(url: &str) -> String {
-    let Some((scheme, rest)) = url.split_once(':') else {
-        return "<missing-scheme>".into();
-    };
-
-    let redacted_rest = rest
-        .split(['?', '#'])
-        .next()
-        .unwrap_or_default()
-        .chars()
-        .take(240)
-        .collect::<String>();
-    format!("{scheme}:{redacted_rest}")
 }
