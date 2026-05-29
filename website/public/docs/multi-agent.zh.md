@@ -706,11 +706,11 @@ cp -r ~/.qwenpaw/workspaces ~/backups/workspaces-$(date +%Y%m%d)
 
 ### 三种协作模式对比
 
-| 模式 | 工作区 | 历史上下文 | 适用场景 |
-|---|---|---|---|
-| `chat_with_agent` | 目标 Agent 独立 workspace | 无（只传 text） | 调用专长 Agent（QA、代码审查等） |
-| `spawn_subagent(fork=False)` | 与当前 Agent 相同的项目 | 无（空白 session） | 干净独立子任务 |
-| `spawn_subagent(fork=True)` | 取决于环境（见下方） | 继承完整对话历史 | 需要背景的侧任务，且可能改文件 |
+| 模式                         | 工作区                    | 历史上下文         | 适用场景                         |
+| ---------------------------- | ------------------------- | ------------------ | -------------------------------- |
+| `chat_with_agent`            | 目标 Agent 独立 workspace | 无（只传 text）    | 调用专长 Agent（QA、代码审查等） |
+| `spawn_subagent(fork=False)` | 与当前 Agent 相同的项目   | 无（空白 session） | 干净独立子任务                   |
+| `spawn_subagent(fork=True)`  | 取决于环境（见下方）      | 继承完整对话历史   | 需要背景的侧任务，且可能改文件   |
 
 ### 核心特性
 
@@ -720,17 +720,18 @@ cp -r ~/.qwenpaw/workspaces ~/backups/workspaces-$(date +%Y%m%d)
 
 ### fork=True 在不同环境下的行为
 
-| 环境 | 行为 |
-|---|---|
-| 开启 Coding Mode + project_dir 是 git 仓库 | 在 `<project_dir>/.qwenpaw/worktrees/` 下创建 **git worktree**，子 Agent 在隔离的 worktree 中工作 |
+| 环境                                       | 行为                                                                                                |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| 开启 Coding Mode + project_dir 是 git 仓库 | 在 `<project_dir>/.qwenpaw/worktrees/` 下创建 **git worktree**，子 Agent 在隔离的 worktree 中工作   |
 | 未开启 Coding Mode + workspace 是 git 仓库 | 在 `<workspace_dir>/.qwenpaw/worktrees/` 下创建 **git worktree**，子 Agent 在隔离的 worktree 中工作 |
-| 没有可用的 git 仓库 | **原地 fork**：继承对话上下文，在与 parent 相同的目录中工作。无文件隔离 |
+| 没有可用的 git 仓库                        | **原地 fork**：继承对话上下文，在与 parent 相同的目录中工作。无文件隔离                             |
 
 `fork=True` 的核心保证是**对话上下文继承**。Git worktree 隔离是项目为 git 仓库时的自动附加能力。
 
 ### 何时使用 spawn_subagent？
 
 **使用 `spawn_subagent(fork=False)`（推荐，最常用）**：
+
 - 子任务需要读写**当前项目的文件**
 - 子任务相对独立，**不需要当前对话的背景**
 
@@ -741,6 +742,7 @@ cp -r ~/.qwenpaw/workspaces ~/backups/workspaces-$(date +%Y%m%d)
 ```
 
 **使用 `spawn_subagent(fork=True)`**：
+
 - 子任务**需要完整对话背景**（如基于刚才讨论的内容）
 - 子任务**会改动文件**，但不希望影响当前工作区（需要 git 仓库）
 - 子任务需要对话背景但**不改动文件**（任何环境都可用）
@@ -752,6 +754,7 @@ cp -r ~/.qwenpaw/workspaces ~/backups/workspaces-$(date +%Y%m%d)
 ```
 
 **使用 `chat_with_agent`（跨 Agent）**：
+
 - 需要调用有特定专长的其他 Agent（QA Agent、代码审查 Agent 等）
 
 ### 调用方式
@@ -829,12 +832,14 @@ QwenPaw 在创建 worktree 时会自动将这些文件复制过去，确保子�
 **Q：spawn_subagent 和 chat_with_agent 可以同时用吗？**
 
 可以。两者互不冲突：
+
 - `spawn_subagent` 在当前项目内执行文件操作类子任务（同 Agent，临时 session）
 - `chat_with_agent` 调用其他专长 Agent
 
 **Q：fork=True 需要开启 Coding Mode 吗？**
 
 不需要。`fork=True` 始终可用：
+
 - 有 git 仓库时（无论是 Coding Mode 的 project_dir 还是 workspace）：获得 worktree 隔离 + 上下文继承
 - 没有 git 仓库时：仅获得上下文继承（原地工作，无文件隔离）
 
@@ -847,6 +852,7 @@ QwenPaw 在创建 worktree 时会自动将这些文件复制过去，确保子�
 **Q：background=True 时的 worktree 怎么处理？**
 
 后台模式下不自动清理，需手动检查：
+
 ```bash
 git worktree list
 git worktree remove .qwenpaw/worktrees/<id>

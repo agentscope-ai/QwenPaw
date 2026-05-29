@@ -660,12 +660,14 @@ async def spawn_subagent(
 
     Args:
         task: Description of the sub-task to perform.
-        fork: If True, the subagent inherits parent session state
-            and runs in an isolated git worktree of the coding
-            project. Requires coding mode with an active git repo.
+        fork: If True, the subagent inherits parent session state.
+            If the project is a git repo, it also runs in an
+            isolated worktree. Works without coding mode (falls
+            back to workspace; no worktree if not a git repo).
             If False (default), starts with a fresh empty session.
         background: If True, submit as background task and return
-            immediately with a task_id for polling.
+            immediately with a task_id. Use check_agent_task(task_id)
+            to poll status and retrieve the result.
         timeout: Foreground wait timeout in seconds (default 600).
 
     Returns:

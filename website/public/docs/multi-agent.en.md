@@ -707,11 +707,11 @@ QwenPaw also supports spawning ephemeral sub-tasks **within the current project*
 
 ### Three Collaboration Modes Compared
 
-| Mode | Workspace | History | Best for |
-|---|---|---|---|
-| `chat_with_agent` | Target agent's own workspace | None (text only) | Calling a specialist agent (QA, code review, etc.) |
-| `spawn_subagent(fork=False)` | Same project as parent | None (blank session) | Clean, independent sub-tasks |
-| `spawn_subagent(fork=True)` | Depends on environment (see below) | Full parent history | Context-aware side tasks that may modify files |
+| Mode                         | Workspace                          | History              | Best for                                           |
+| ---------------------------- | ---------------------------------- | -------------------- | -------------------------------------------------- |
+| `chat_with_agent`            | Target agent's own workspace       | None (text only)     | Calling a specialist agent (QA, code review, etc.) |
+| `spawn_subagent(fork=False)` | Same project as parent             | None (blank session) | Clean, independent sub-tasks                       |
+| `spawn_subagent(fork=True)`  | Depends on environment (see below) | Full parent history  | Context-aware side tasks that may modify files     |
 
 ### Key Characteristics
 
@@ -721,17 +721,18 @@ QwenPaw also supports spawning ephemeral sub-tasks **within the current project*
 
 ### fork=True Behavior by Environment
 
-| Environment | Behavior |
-|---|---|
-| Coding Mode ON + project_dir is git repo | Creates a **git worktree** under `<project_dir>/.qwenpaw/worktrees/`. Subagent works in the isolated worktree. |
-| Coding Mode OFF + workspace is git repo | Creates a **git worktree** under `<workspace_dir>/.qwenpaw/worktrees/`. Subagent works in the isolated worktree. |
-| No git repo available | **In-place fork**: inherits conversation context, works in the same directory as the parent. No file isolation. |
+| Environment                              | Behavior                                                                                                         |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Coding Mode ON + project_dir is git repo | Creates a **git worktree** under `<project_dir>/.qwenpaw/worktrees/`. Subagent works in the isolated worktree.   |
+| Coding Mode OFF + workspace is git repo  | Creates a **git worktree** under `<workspace_dir>/.qwenpaw/worktrees/`. Subagent works in the isolated worktree. |
+| No git repo available                    | **In-place fork**: inherits conversation context, works in the same directory as the parent. No file isolation.  |
 
 The core guarantee of `fork=True` is **conversation context inheritance**. Git worktree isolation is an automatic bonus when the project is a git repository.
 
 ### When to Use spawn_subagent?
 
 **Use `spawn_subagent(fork=False)` (default, most common)**:
+
 - Sub-task needs to read/write **files in the current project**
 - Sub-task is self-contained and **doesn't need conversation context**
 
@@ -742,6 +743,7 @@ The core guarantee of `fork=True` is **conversation context inheritance**. Git w
 ```
 
 **Use `spawn_subagent(fork=True)`**:
+
 - Sub-task **needs the full conversation context** (e.g. based on what we just discussed)
 - Sub-task **modifies files** but shouldn't affect the current working tree (requires git repo)
 - Sub-task needs context but **doesn't modify files** (works anywhere)
@@ -753,6 +755,7 @@ The core guarantee of `fork=True` is **conversation context inheritance**. Git w
 ```
 
 **Use `chat_with_agent` (cross-agent)**:
+
 - You need a specialist agent with its own configuration and tools
 
 ### Usage Examples
@@ -831,12 +834,14 @@ subagent can run without missing configuration.
 **Q: Can I use both spawn_subagent and chat_with_agent together?**
 
 Yes. They are complementary:
+
 - `spawn_subagent` — in-project file tasks (same agent, ephemeral)
 - `chat_with_agent` — specialist agents in other workspaces
 
 **Q: Does fork=True require Coding Mode?**
 
 No. `fork=True` always works:
+
 - With a git repo (Coding Mode or workspace): you get worktree isolation + context inheritance.
 - Without a git repo: you get context inheritance only (in-place work, no file isolation).
 
