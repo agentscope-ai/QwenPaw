@@ -65,9 +65,8 @@ const DEFAULT_DEMO_VIDEOS: DemoVideoConfig[] = [
     titleKey: "docs.demoVideos.autoContinue",
     docsLinkUrl:
       "https://qwenpaw.agentscope.io/docs/console#%E8%BF%90%E8%A1%8C%E9%85%8D%E7%BD%AE",
-    docsLinkEnUrl:
-      "https://qwenpaw.agentscope.io/docs/console#Configuration",
-  }
+    docsLinkEnUrl: "https://qwenpaw.agentscope.io/docs/console#Configuration",
+  },
 ];
 
 export function FeatureDemoGallery({ videos }: FeatureDemoGalleryProps) {

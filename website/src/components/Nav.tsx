@@ -39,9 +39,13 @@ const navLinkOrangeClass = `${navLinkBaseClass} hover:!text-orange-400 focus-vis
 const navLinkBlueClass = `${navLinkBaseClass} hover:!text-[#0064FD] focus-visible:outline-[#0064FD]`;
 
 const navReleaseNotesClass = (isZh: boolean) =>
-  `${navLinkOrangeClass} w-[8rem] shrink-0 justify-center gap-1 ${isZh ? "" : "!px-0"}`;
+  `${navLinkOrangeClass} w-[8rem] shrink-0 justify-center gap-1 ${
+    isZh ? "" : "!px-0"
+  }`;
 const navDownloadBtnClass = (isZh: boolean) =>
-  `inline-flex w-[6.5rem] shrink-0 items-center justify-center gap-1 rounded-md ${isZh ? "px-3" : "px-1.5"} py-1.5 text-sm font-medium text-neutral-800 no-underline transition-colors cursor-pointer border border-[#F3F1F0] bg-(--color-card-fill) hover:bg-(--color-secondary)`;
+  `inline-flex w-[6.5rem] shrink-0 items-center justify-center gap-1 rounded-md ${
+    isZh ? "px-3" : "px-1.5"
+  } py-1.5 text-sm font-medium text-neutral-800 no-underline transition-colors cursor-pointer border border-[#F3F1F0] bg-(--color-card-fill) hover:bg-(--color-secondary)`;
 
 const navIconStroke = 1.5;
 
