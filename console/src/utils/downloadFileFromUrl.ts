@@ -12,6 +12,11 @@ export interface DownloadFileOptions {
   preferResponseFilename?: boolean;
 }
 
+interface DownloadBlobResult {
+  blob: Blob;
+  filename: string;
+}
+
 export class DownloadCancelledError extends Error {
   constructor() {
     super("Download cancelled");
@@ -26,6 +31,8 @@ interface PyWebViewDownloadApi {
     headers?: Record<string, string>,
   ) => Promise<boolean>;
 }
+
+type PyWebViewSaveFile = NonNullable<PyWebViewDownloadApi["save_file"]>;
 
 function getPyWebViewApi(): PyWebViewDownloadApi | undefined {
   return window.pywebview?.api;
@@ -76,7 +83,7 @@ function sanitizeSaveFilename(filename: string): string {
 async function fetchDownloadBlob(
   url: string,
   options: DownloadFileOptions,
-): Promise<{ blob: Blob; filename: string }> {
+): Promise<DownloadBlobResult> {
   const res = await fetch(url, { headers: options.headers });
   if (!res.ok) {
     const error = new Error(
@@ -90,6 +97,57 @@ async function fetchDownloadBlob(
     ? filenameFromContentDisposition(res.headers.get("Content-Disposition"))
     : "";
   return { blob: await res.blob(), filename };
+}
+
+async function downloadWithPyWebView(
+  saveFile: PyWebViewSaveFile,
+  url: string,
+  filename: string,
+  options: DownloadFileOptions,
+): Promise<void> {
+  const headers = options.headers ?? {};
+  const saved =
+    Object.keys(headers).length > 0
+      ? await saveFile(url, filename, headers)
+      : await saveFile(url, filename);
+  if (!saved) {
+    throw new DownloadCancelledError();
+  }
+}
+
+async function getTauriSavePath(filename: string): Promise<string> {
+  const savePath = await save({
+    defaultPath: filename,
+  });
+  // No path means the user cancelled the native save dialog; it is not an error.
+  if (!savePath) {
+    throw new DownloadCancelledError();
+  }
+  return savePath;
+}
+
+async function downloadWithTauri(
+  url: string,
+  filename: string,
+  options: DownloadFileOptions,
+): Promise<void> {
+  const savePath = await getTauriSavePath(filename);
+  const { blob } = await fetchDownloadBlob(url, options);
+  // The Tauri fs plugin write path currently buffers the whole response.
+  // Large exports should be revisited if a streaming write API is adopted.
+  await writeFile(savePath, new Uint8Array(await blob.arrayBuffer()));
+}
+
+async function downloadWithBrowser(
+  url: string,
+  filename: string,
+  options: DownloadFileOptions,
+): Promise<void> {
+  const { blob, filename: responseFilename } = await fetchDownloadBlob(
+    url,
+    options,
+  );
+  triggerBrowserDownload(blob, responseFilename || filename);
 }
 
 export async function downloadFileFromUrl(
@@ -107,38 +165,21 @@ export async function downloadFileFromUrl(
   }
 
   const safeFilename = sanitizeSaveFilename(filename);
-  const pywebviewApi = getPyWebViewApi();
-  if (pywebviewApi?.save_file && isHttpExternalUrl(requestUrl)) {
-    const headers = options.headers ?? {};
-    const saved =
-      Object.keys(headers).length > 0
-        ? await pywebviewApi.save_file(requestUrl, safeFilename, headers)
-        : await pywebviewApi.save_file(requestUrl, safeFilename);
-    if (!saved) {
-      throw new DownloadCancelledError();
-    }
+  const pywebviewSaveFile = getPyWebViewApi()?.save_file;
+  if (pywebviewSaveFile && isHttpExternalUrl(requestUrl)) {
+    await downloadWithPyWebView(
+      pywebviewSaveFile,
+      requestUrl,
+      safeFilename,
+      options,
+    );
     return;
   }
 
   if (isDesktopTauriRuntime()) {
-    const savePath = await save({
-      defaultPath: safeFilename,
-    });
-    // No path means the user cancelled the native save dialog; it is not an error.
-    if (!savePath) {
-      throw new DownloadCancelledError();
-    }
-
-    const { blob } = await fetchDownloadBlob(requestUrl, options);
-    // The Tauri fs plugin write path currently buffers the whole response.
-    // Large exports should be revisited if a streaming write API is adopted.
-    await writeFile(savePath, new Uint8Array(await blob.arrayBuffer()));
+    await downloadWithTauri(requestUrl, safeFilename, options);
     return;
   }
 
-  const { blob, filename: responseFilename } = await fetchDownloadBlob(
-    requestUrl,
-    options,
-  );
-  triggerBrowserDownload(blob, responseFilename || filename);
+  await downloadWithBrowser(requestUrl, filename, options);
 }
