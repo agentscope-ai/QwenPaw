@@ -143,11 +143,28 @@ def _write_fork_session(
     sessions_dir: Path,
     fork_session_id: str,
     state: dict,
+    user_id: str = "",
+    channel: str = "",
 ) -> None:
-    """Write pre-seeded state into a new fork session file."""
+    """Write pre-seeded state into a new fork session file.
+
+    Uses the same path convention as SafeJSONSession._get_save_path
+    so the runner can load it correctly.
+    """
     safe_sid = sanitize_filename(fork_session_id)
-    fork_file = sessions_dir / f"{safe_sid}.json"
-    sessions_dir.mkdir(parents=True, exist_ok=True)
+    safe_uid = sanitize_filename(user_id) if user_id else ""
+    filename = (
+        f"{safe_uid}_{safe_sid}.json" if safe_uid else f"{safe_sid}.json"
+    )
+
+    if channel:
+        safe_channel = sanitize_filename(channel)
+        target_dir = sessions_dir / safe_channel
+    else:
+        target_dir = sessions_dir
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    fork_file = target_dir / filename
     fork_file.write_text(
         json.dumps(state, ensure_ascii=False),
         encoding="utf-8",
@@ -262,7 +279,13 @@ async def fork_agent(
     fork_id = str(uuid4())[:8]
     fork_session_id = f"sub-{fork_id}"
 
-    _write_fork_session(sessions_dir, fork_session_id, state)
+    _write_fork_session(
+        sessions_dir,
+        fork_session_id,
+        state,
+        user_id=req.user_id or "",
+        channel=req.channel or "",
+    )
 
     worktree_path = ""
     worktree_branch = ""

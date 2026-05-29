@@ -855,8 +855,10 @@ async def _spawn_forked_subagent(
     if worktree_path:
         request_context["fork_project_dir"] = worktree_path
 
-    request_payload = {
+    request_payload: dict = {
         "session_id": fork_session_id,
+        "user_id": user_id,
+        "channel": channel,
         "input": [
             {
                 "role": "user",
