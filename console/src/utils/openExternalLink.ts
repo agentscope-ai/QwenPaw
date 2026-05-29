@@ -3,6 +3,7 @@
  * It validates supported protocols and delegates desktop shells to native openers.
  */
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { getPyWebViewApi } from "./pywebview";
 
 const URL_WITH_SCHEME_RE = /^[a-z][a-z\d+\-.]*:/i;
 const HTTP_PROTOCOLS = new Set(["http:", "https:"]);
@@ -64,23 +65,6 @@ function resolveSupportedExternalUrl(url: string): string | null {
   return resolvedUrl;
 }
 
-/** Validate href values before rendering them as externally openable links. */
-export function isSupportedExternalHref(href?: string): href is string {
-  const trimmedHref = href?.trim();
-  if (!trimmedHref || !URL_WITH_SCHEME_RE.test(trimmedHref)) {
-    return false;
-  }
-
-  return resolveSupportedExternalUrl(trimmedHref) !== null;
-}
-
-type PyWebViewApi = NonNullable<Window["pywebview"]>["api"];
-
-/** Return the legacy pywebview bridge when the old desktop shell injects it. */
-function getPyWebViewApi(): PyWebViewApi | undefined {
-  return window.pywebview?.api;
-}
-
 /** Detect Tauri even after the app has navigated to the backend-hosted console. */
 export function isDesktopTauriRuntime(): boolean {
   // When Tauri loads a remote-origin console, injected internals can still be
@@ -136,14 +120,15 @@ export function openExternalLink(
 
   switch (runtime) {
     case "pywebview": {
-      getPyWebViewApi()?.open_external_link(fullUrl);
+      getPyWebViewApi()?.open_external_link?.(fullUrl);
       return;
     }
     case "tauri": {
-      void invoke(TAURI_OPEN_EXTERNAL_LINK_COMMAND, { url: fullUrl })
-        .catch((error) => {
+      void invoke(TAURI_OPEN_EXTERNAL_LINK_COMMAND, { url: fullUrl }).catch(
+        (error) => {
           console.warn("[external-link] Tauri open command failed", error);
-        });
+        },
+      );
       return;
     }
     case "browser":

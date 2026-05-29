@@ -9,16 +9,16 @@ import {
   isHttpExternalUrl,
   resolveExternalUrl,
 } from "./openExternalLink";
+import { getPyWebViewApi, type PyWebViewSaveFile } from "./pywebview";
 
 export interface DownloadFileOptions {
   headers?: Record<string, string>;
   errorMessage?: string;
+  /**
+   * Prefer Content-Disposition filenames when the browser path fetches the file.
+   * Native desktop paths use the fallback filename shown in the save dialog.
+   */
   preferResponseFilename?: boolean;
-}
-
-interface DownloadBlobResult {
-  blob: Blob;
-  filename: string;
 }
 
 export class DownloadCancelledError extends Error {
@@ -26,21 +26,6 @@ export class DownloadCancelledError extends Error {
     super("Download cancelled");
     this.name = "DownloadCancelledError";
   }
-}
-
-interface PyWebViewDownloadApi {
-  save_file?: (
-    url: string,
-    filename: string,
-    headers?: Record<string, string>,
-  ) => Promise<boolean>;
-}
-
-type PyWebViewSaveFile = NonNullable<PyWebViewDownloadApi["save_file"]>;
-
-/** Return the legacy desktop save bridge when the app is running in pywebview. */
-function getPyWebViewApi(): PyWebViewDownloadApi | undefined {
-  return window.pywebview?.api;
 }
 
 /** Extract a suggested filename from the server's Content-Disposition header. */
@@ -98,26 +83,6 @@ function headersToMap(
   return entries.length > 0 ? new Map(entries) : undefined;
 }
 
-/** Fetch the file contents and optionally honor the server-provided filename. */
-async function fetchDownloadBlob(
-  url: string,
-  options: DownloadFileOptions,
-): Promise<DownloadBlobResult> {
-  const res = await fetch(url, { headers: options.headers });
-  if (!res.ok) {
-    const error = new Error(
-      options.errorMessage || `Download failed: ${res.status}`,
-    ) as Error & { status?: number };
-    error.status = res.status;
-    throw error;
-  }
-
-  const filename = options.preferResponseFilename
-    ? filenameFromContentDisposition(res.headers.get("Content-Disposition"))
-    : "";
-  return { blob: await res.blob(), filename };
-}
-
 /** Save through the legacy pywebview bridge used by the old desktop package. */
 async function downloadWithPyWebView(
   saveFile: PyWebViewSaveFile,
@@ -163,7 +128,11 @@ async function downloadWithTauri(
     );
   } catch (error) {
     if (options.errorMessage) {
-      throw new Error(options.errorMessage);
+      const wrappedError = new Error(options.errorMessage) as Error & {
+        cause?: unknown;
+      };
+      wrappedError.cause = error;
+      throw wrappedError;
     }
     throw error;
   }
@@ -175,13 +144,21 @@ async function downloadWithBrowser(
   filename: string,
   options: DownloadFileOptions,
 ): Promise<void> {
-  const { blob, filename: responseFilename } = await fetchDownloadBlob(
-    url,
-    options,
-  );
+  const res = await fetch(url, { headers: options.headers });
+  if (!res.ok) {
+    const error = new Error(
+      options.errorMessage || `Download failed: ${res.status}`,
+    ) as Error & { status?: number };
+    error.status = res.status;
+    throw error;
+  }
+
+  const responseFilename = options.preferResponseFilename
+    ? filenameFromContentDisposition(res.headers.get("Content-Disposition"))
+    : "";
   triggerBrowserDownload(
-    blob,
-    sanitizeSaveFilename(responseFilename || filename),
+    await res.blob(),
+    responseFilename ? sanitizeSaveFilename(responseFilename) : filename,
   );
 }
 
