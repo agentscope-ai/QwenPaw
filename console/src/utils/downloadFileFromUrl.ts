@@ -3,6 +3,7 @@
  * Callers provide the URL and fallback name; this module picks the save path.
  */
 import { save } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { download as tauriDownload } from "@tauri-apps/plugin-upload";
 import {
   isDesktopTauriRuntime,
@@ -83,6 +84,33 @@ function headersToMap(
   return entries.length > 0 ? new Map(entries) : undefined;
 }
 
+function errorMessageForLog(error: unknown): string {
+  if (error instanceof Error) {
+    const cause = (error as Error & { cause?: unknown }).cause;
+    return cause ? `${error.message}; cause=${String(cause)}` : error.message;
+  }
+  return String(error);
+}
+
+async function logTauriDownloadFailure(
+  url: string,
+  filename: string,
+  error: unknown,
+): Promise<void> {
+  try {
+    await invoke("log_download_failure", {
+      context: {
+        runtime: "tauri",
+        url,
+        filename,
+        error: errorMessageForLog(error),
+      },
+    });
+  } catch {
+    // Diagnostic logging must not mask the original download error.
+  }
+}
+
 /** Save through the legacy pywebview bridge used by the old desktop package. */
 async function downloadWithPyWebView(
   saveFile: PyWebViewSaveFile,
@@ -127,6 +155,7 @@ async function downloadWithTauri(
       headersToMap(options.headers),
     );
   } catch (error) {
+    await logTauriDownloadFailure(url, filename, error);
     if (options.errorMessage) {
       const wrappedError = new Error(options.errorMessage) as Error & {
         cause?: unknown;

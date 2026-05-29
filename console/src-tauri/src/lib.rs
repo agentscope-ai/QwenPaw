@@ -1,6 +1,7 @@
 //! Tauri desktop entry point and plugin/command registration.
 
 mod backend;
+mod diagnostics;
 mod external_link;
 
 use tauri::{Manager, RunEvent, WindowEvent};
@@ -16,6 +17,7 @@ pub fn run() {
             backend::backend_port,
             backend::backend_startup_error,
             backend::restart_backend,
+            diagnostics::log_download_failure,
             external_link::open_external_link,
         ])
         .manage(backend::BackendState::default())
