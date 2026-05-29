@@ -607,7 +607,7 @@ def test_plugins_upload_force_replaces_existing(app_server) -> None:
     - Verify the upload force-replace flow: re-uploading the same
       plugin_id without ``force=true`` is rejected with a conflict
       (409), but passing ``force=true`` unloads the existing record
-      and installs the new version. Console's "重新安装" button is
+      and installs the new version. Console's "reinstall" button is
       this exact flow.
 
     Test flow:
