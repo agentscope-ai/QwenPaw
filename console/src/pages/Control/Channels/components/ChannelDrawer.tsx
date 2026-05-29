@@ -1291,7 +1291,7 @@ export function ChannelDrawer({
       title={drawerTitle}
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
       footer={drawerFooter}
       key={activeKey} // Force remount when switching channels
     >

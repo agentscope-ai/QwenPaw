@@ -79,7 +79,7 @@ export const DetailDrawer = memo(function DetailDrawer({
       title={t("market.detail.title")}
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
       footer={
         item ? (
           <div className={styles.drawerFooter}>

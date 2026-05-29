@@ -281,7 +281,7 @@ export default function GitPanel() {
             value: b.name,
             label: b.name,
           }))}
-          dropdownRender={(menu) => (
+          popupRender={(menu) => (
             <>
               {menu}
               <div

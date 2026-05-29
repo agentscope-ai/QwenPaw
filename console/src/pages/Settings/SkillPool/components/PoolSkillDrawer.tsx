@@ -60,7 +60,7 @@ export function PoolSkillDrawer({
       }
       open={mode === "create" || mode === "edit"}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
       footer={
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <Button onClick={onClose}>{t("common.cancel")}</Button>
