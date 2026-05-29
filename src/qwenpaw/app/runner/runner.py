@@ -841,9 +841,12 @@ class AgentRunner(Runner):
 
             # Isolated cron: run without any prior context so each execution
             # is independent (saves tokens, avoids stale-context interference).
+            # Also applies to "cron:shared" mode (share_session=true) to
+            # prevent concurrent session state corruption.
             _extra = getattr(request, "model_extra", None) or {}
+            _session_source = _extra.get("session_source", "")
             if (
-                _extra.get("session_source") == "cron"
+                _session_source in ("cron", "cron:shared")
                 and agent.memory is not None
             ):
                 # Snapshot the full history before clearing

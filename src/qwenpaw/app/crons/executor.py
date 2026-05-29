@@ -22,6 +22,16 @@ class CronExecutor:
         self._runner = runner
         self._channel_manager = channel_manager
 
+    async def _is_session_busy(self) -> bool:
+        """Check if the target session has an active task in TaskTracker."""
+        task_tracker = getattr(self._runner, "_task_tracker", None)
+        if task_tracker is None:
+            return False
+        try:
+            return await task_tracker.has_active_tasks()
+        except Exception:  # pylint: disable=broad-except
+            return False
+
     # pylint: disable=too-many-statements
     async def execute(self, job: CronJobSpec) -> dict[str, Any]:
         """Execute one job once.
@@ -91,8 +101,25 @@ class CronExecutor:
 
         # Determine session_id based on share_session
         share_session = job.runtime.share_session
+        session_fell_back = False
+        if share_session:
+            # Auto-fallback: if the target session has an active task,
+            # sharing it would cause concurrent access / empty traces.
+            if await self._is_session_busy():
+                logger.warning(
+                    "cron share_session fallback: job_id=%s target session "
+                    "%s is busy, falling back to isolated session",
+                    job.id,
+                    target_session_id[:40] if target_session_id else "",
+                )
+                share_session = False
+                session_fell_back = True
+
         if share_session:
             req["session_id"] = target_session_id or f"cron:{job.id}"
+            # Even in shared mode, mark session_source so the runner can
+            # distinguish cron-originated queries from interactive ones.
+            req["session_source"] = "cron:shared"
         else:
             # Use job.id (not run_id) so all runs of this job accumulate in the
             # same dedicated session, giving users a complete history.
@@ -152,7 +179,7 @@ class CronExecutor:
                 _run(),
                 timeout=job.runtime.timeout_seconds,
             )
-            await append_trace_from_session_delta(
+            delta = await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=self._runner,
                 session_id=req["session_id"],
@@ -160,12 +187,29 @@ class CronExecutor:
                 channel=target_channel,
                 baseline_count=baseline_count,
             )
-            await finalize_trace(run_id, status="success")
+            if not delta:
+                logger.warning(
+                    "cron agent produced empty trace: job_id=%s "
+                    "session_id=%s share_session=%s fell_back=%s "
+                    "baseline_count=%d. The session may have been "
+                    "overwritten by a concurrent query.",
+                    job.id,
+                    req["session_id"][:40],
+                    job.runtime.share_session,
+                    session_fell_back,
+                    baseline_count,
+                )
+            await finalize_trace(
+                run_id,
+                status="success" if delta else "warning",
+            )
             return {
                 "task_type": "agent",
                 "run_id": run_id,
                 "delivery_status": "failed" if delivery_error else "success",
                 "delivery_error": delivery_error,
+                "trace_event_count": len(delta),
+                "session_fell_back": session_fell_back,
             }
         except asyncio.TimeoutError:
             logger.warning(

@@ -156,10 +156,12 @@ class JobRuntimeSpec(BaseModel):
     timeout_seconds: int = Field(default=120, ge=1)
     misfire_grace_seconds: int = Field(default=60, ge=0)
     share_session: bool = Field(
-        default=True,
+        default=False,
         description=(
             "Whether to share session with target user. "
-            "If False, creates isolated context with unique run ID."
+            "If False, creates isolated context with unique run ID. "
+            "Sharing is discouraged for agent tasks because concurrent "
+            "access can corrupt session state and produce empty traces."
         ),
     )
 
