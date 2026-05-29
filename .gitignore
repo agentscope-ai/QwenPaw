@@ -123,6 +123,7 @@ src/.hypothesis/
 
 # Worktrees
 .worktrees/
+.qwenpaw/worktrees/
 
 # Local File
 /localfile/

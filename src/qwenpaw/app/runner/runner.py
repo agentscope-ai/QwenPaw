@@ -385,6 +385,8 @@ class AgentRunner(Runner):
             set_current_agent_id,
             set_current_session_id,
             set_current_root_session_id,
+            set_current_user_id,
+            set_current_channel,
         )
 
         set_current_agent_id(self.agent_id)
@@ -400,6 +402,8 @@ class AgentRunner(Runner):
             session_id = request.session_id
             user_id = request.user_id
             channel = getattr(request, "channel", DEFAULT_CHANNEL)
+            set_current_user_id(user_id)
+            set_current_channel(channel)
 
             logger.info(
                 "Handle agent query:\n%s",
@@ -444,6 +448,28 @@ class AgentRunner(Runner):
                 and getattr(_cm, "project_dir", None)
                 else None
             )
+
+            # Fork subagent: override project_dir with worktree path.
+            _payload_ctx = getattr(request, "request_context", None)
+            _fork_project = (
+                _payload_ctx.get("fork_project_dir", "")
+                if isinstance(_payload_ctx, dict)
+                else ""
+            )
+            if _fork_project:
+                _resolved_fork = Path(_fork_project).resolve()
+                _marker = f".qwenpaw{os.sep}worktrees{os.sep}"
+                if _marker in str(_resolved_fork) and (
+                    _resolved_fork.is_dir()
+                ):
+                    _coding_project_dir = str(_resolved_fork)
+                else:
+                    logger.warning(
+                        "Rejected fork_project_dir outside "
+                        "allowed subtree: %s",
+                        _fork_project,
+                    )
+
             env_context = build_env_context(
                 session_id=session_id,
                 user_id=user_id,
