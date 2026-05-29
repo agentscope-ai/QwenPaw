@@ -3,6 +3,7 @@
 
 # pylint: disable=wrong-import-position,wrong-import-order
 
+import atexit
 import logging
 import sys
 from pathlib import Path
@@ -36,6 +37,17 @@ from router import build_router  # noqa: E402
 logger = logging.getLogger("qwenpaw.pet_desktop")
 
 
+def _atexit_stop_pet_desktop() -> None:
+    """Best-effort stop when the interpreter exits without lifespan hooks."""
+    try:
+        stop_desktop(force=True, aggressive=True, grace=5.0)
+    except Exception:
+        logger.debug(
+            "QwenPaw Pet: atexit stop skipped or failed",
+            exc_info=True,
+        )
+
+
 class QwenPawPetPlugin:
     """Emit QwenPaw backend lifecycle events to the desktop pet."""
 
@@ -63,6 +75,8 @@ class QwenPawPetPlugin:
             prefix="/qwenpaw-pet",
             tags=["qwenpaw-pet"],
         )
+
+        atexit.register(_atexit_stop_pet_desktop)
 
         logger.info("QwenPaw Pet plugin registered")
 
@@ -120,7 +134,7 @@ class QwenPawPetPlugin:
             )
 
         try:
-            result = stop_desktop()
+            result = stop_desktop(force=True, aggressive=True, grace=5.0)
             logger.info("QwenPaw Pet: stop_desktop result=%s", result)
         except Exception:
             logger.exception("QwenPaw Pet: failed to stop desktop process")

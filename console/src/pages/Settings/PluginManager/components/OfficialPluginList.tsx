@@ -1,90 +1,111 @@
-import { useCallback, useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Space, Spin, Typography, Alert, Tag } from "antd";
-import { Download, RefreshCw } from "lucide-react";
-import { useAppMessage } from "@/hooks/useAppMessage";
-import {
-  fetchPluginCatalog,
-  installPlugin,
-  type OfficialPluginCatalogEntry,
-} from "@/api/modules/plugin";
-import styles from "../index.module.less";
+import { Button, Input, Select, Spin, Typography, Alert, Tag } from "antd";
+import { Download, RefreshCw, Package } from "lucide-react";
+import type { OfficialPluginCatalogEntry } from "@/api/modules/plugin";
+import { useOfficialPlugins } from "../hooks/useOfficialPlugins";
+import styles from "./OfficialPluginList.module.less";
 
 const { Text } = Typography;
+
+/**
+ * Resolve the best-matching description from `description_i18n` based on
+ * the current i18n language. Falls back to the default `description` field.
+ *
+ * Matching strategy:
+ *   1. Exact match (e.g. "zh" → "zh", "zh-CN" → "zh-CN")
+ *   2. Prefix match (e.g. "zh" → "zh-CN", "en" → "en-US")
+ *   3. Fallback to `description`
+ */
+function pickLocalizedDescription(
+  entry: OfficialPluginCatalogEntry,
+  language: string,
+): string {
+  const i18nMap = entry.description_i18n;
+  if (!i18nMap || Object.keys(i18nMap).length === 0) {
+    return entry.description || "";
+  }
+
+  // Exact match
+  if (i18nMap[language]) {
+    return i18nMap[language];
+  }
+
+  // Prefix match: "zh" matches "zh-CN", "en" matches "en-US"
+  const prefix = language.split("-")[0].toLowerCase();
+  for (const key of Object.keys(i18nMap)) {
+    if (key.toLowerCase().startsWith(prefix)) {
+      return i18nMap[key];
+    }
+  }
+
+  return entry.description || "";
+}
 
 interface OfficialPluginListProps {
   onInstalled: () => void;
 }
 
 export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
-  const { t } = useTranslation();
-  const { message } = useAppMessage();
-  const [loading, setLoading] = useState(true);
-  const [catalogError, setCatalogError] = useState<string | null>(null);
-  const [plugins, setPlugins] = useState<OfficialPluginCatalogEntry[]>([]);
-  const [installingId, setInstallingId] = useState<string | null>(null);
+  const { t, i18n } = useTranslation();
+  const [nameFilter, setNameFilter] = useState("");
+  const [kindFilter, setKindFilter] = useState<string | undefined>(undefined);
 
-  const loadCatalog = useCallback(async () => {
-    setLoading(true);
-    setCatalogError(null);
-    try {
-      const data = await fetchPluginCatalog();
-      if (data.error) {
-        setCatalogError(data.error);
-        setPlugins([]);
-      } else {
-        setPlugins(data.plugins ?? []);
-      }
-    } catch (err) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : t("pluginManager.catalogLoadFailed");
-      setCatalogError(msg);
-      setPlugins([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
+  const {
+    loading,
+    catalogError,
+    plugins,
+    installingId,
+    loadCatalog,
+    handleInstall,
+  } = useOfficialPlugins({ onInstalled });
 
-  useEffect(() => {
-    void loadCatalog();
-  }, [loadCatalog]);
+  const filteredPlugins = useMemo(() => {
+    return plugins.filter((entry) => {
+      const matchesName =
+        !nameFilter ||
+        entry.name.toLowerCase().includes(nameFilter.toLowerCase());
+      const matchesKind =
+        !kindFilter || entry.kind?.toLowerCase() === kindFilter;
+      return matchesName && matchesKind;
+    });
+  }, [plugins, nameFilter, kindFilter]);
 
-  const handleInstall = useCallback(
-    async (entry: OfficialPluginCatalogEntry) => {
-      setInstallingId(entry.id);
-      try {
-        const result = await installPlugin(entry.install_url, {
-          force: entry.installed || entry.upgrade_available,
-        });
-        message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
-        onInstalled();
-        await loadCatalog();
-      } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : t("pluginManager.installFailed");
-        message.error(msg);
-      } finally {
-        setInstallingId(null);
-      }
-    },
-    [loadCatalog, message, onInstalled, t],
-  );
+  const kindOptions = useMemo(() => {
+    const kinds = [...new Set(plugins.map((p) => p.kind).filter(Boolean))];
+    return kinds.map((kind) => ({
+      value: kind!.toLowerCase(),
+      label: t(
+        `pluginManager.kind${kind!.charAt(0).toUpperCase()}${kind!
+          .slice(1)
+          .toLowerCase()}`,
+        { defaultValue: kind },
+      ),
+    }));
+  }, [plugins, t]);
 
   return (
     <div className={styles.catalogSection}>
-      <div className={styles.catalogHeader}>
-        <div>
-          <Text strong>{t("pluginManager.officialTitle")}</Text>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {t("pluginManager.officialDesc")}
-            </Text>
-          </div>
+      <div className={styles.catalogToolbar}>
+        <div className={styles.catalogFilters}>
+          <Input
+            placeholder={t("pluginManager.filterByName")}
+            allowClear
+            value={nameFilter}
+            onChange={(e) => setNameFilter(e.target.value)}
+            style={{ width: 220 }}
+          />
+          <Select
+            placeholder={t("pluginManager.filterByKind")}
+            allowClear
+            value={kindFilter}
+            onChange={(val) => setKindFilter(val)}
+            options={kindOptions}
+            style={{ width: 150 }}
+          />
         </div>
         <Button
-          type="text"
+          type="default"
           size="small"
           icon={<RefreshCw size={14} />}
           onClick={() => void loadCatalog()}
@@ -104,76 +125,77 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
       )}
 
       <Spin spinning={loading}>
-        {!loading && plugins.length === 0 && !catalogError && (
+        {!loading && filteredPlugins.length === 0 && !catalogError && (
           <Text type="secondary">{t("pluginManager.catalogEmpty")}</Text>
         )}
         <div className={styles.catalogList}>
-          {plugins.map((entry) => (
+          {filteredPlugins.map((entry) => (
             <div className={styles.catalogRow} key={entry.id}>
+              <div className={styles.catalogIcon}>
+                <Package size={18} />
+              </div>
               <div className={styles.catalogInfo}>
-                <Space size={8} wrap>
+                <div className={styles.catalogNameRow}>
                   <Text strong>{entry.name}</Text>
                   {entry.kind && (
-                    <Tag style={{ margin: 0, textTransform: "uppercase" }}>
-                      {entry.kind}
+                    <Tag
+                      color={
+                        entry.kind.toLowerCase() === "bundle"
+                          ? "purple"
+                          : "blue"
+                      }
+                      style={{ margin: 0, fontSize: 11 }}
+                    >
+                      {t(
+                        `pluginManager.kind${entry.kind
+                          .charAt(0)
+                          .toUpperCase()}${entry.kind.slice(1).toLowerCase()}`,
+                        { defaultValue: entry.kind },
+                      )}
                     </Tag>
                   )}
                   {entry.installed && !entry.upgrade_available && (
-                    <Tag color="success" style={{ margin: 0 }}>
+                    <Tag color="success" style={{ margin: 0, fontSize: 11 }}>
                       {t("pluginManager.catalogInstalled")}
                     </Tag>
                   )}
                   {entry.upgrade_available && (
-                    <Tag color="processing" style={{ margin: 0 }}>
+                    <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>
                       {t("pluginManager.catalogUpgrade")}
                     </Tag>
                   )}
-                </Space>
-                {entry.description && (
-                  <Text
-                    type="secondary"
-                    style={{ fontSize: 12, display: "block" }}
-                  >
-                    {entry.description}
-                  </Text>
+                </div>
+                {(entry.description || entry.description_i18n) && (
+                  <div className={styles.catalogDescription}>
+                    {pickLocalizedDescription(entry, i18n.language)}
+                  </div>
                 )}
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <div className={styles.catalogMeta}>
                   v{entry.version}
                   {entry.size ? ` · ${entry.size}` : ""}
                   {entry.author ? ` · ${entry.author}` : ""}
-                </Text>
-                {entry.sha256 && (
-                  <div className={styles.catalogSha256}>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {t("pluginManager.catalogSha256")}
-                    </Text>
-                    <Typography.Text
-                      copyable
-                      className={styles.catalogSha256Value}
-                    >
-                      {entry.sha256}
-                    </Typography.Text>
-                  </div>
-                )}
+                </div>
               </div>
-              <Button
-                type={
-                  entry.installed && !entry.upgrade_available
-                    ? "default"
-                    : "primary"
-                }
-                size="small"
-                icon={<Download size={14} />}
-                loading={installingId === entry.id}
-                disabled={installingId !== null && installingId !== entry.id}
-                onClick={() => void handleInstall(entry)}
-              >
-                {entry.upgrade_available
-                  ? t("pluginManager.catalogUpgradeBtn")
-                  : entry.installed
-                  ? t("pluginManager.catalogReinstall")
-                  : t("pluginManager.catalogInstall")}
-              </Button>
+              <div className={styles.catalogActions}>
+                <Button
+                  type={
+                    entry.installed && !entry.upgrade_available
+                      ? "default"
+                      : "primary"
+                  }
+                  size="small"
+                  icon={<Download size={14} />}
+                  loading={installingId === entry.id}
+                  disabled={installingId !== null && installingId !== entry.id}
+                  onClick={() => void handleInstall(entry)}
+                >
+                  {entry.upgrade_available
+                    ? t("pluginManager.catalogUpgradeBtn")
+                    : entry.installed
+                    ? t("pluginManager.catalogReinstall")
+                    : t("pluginManager.catalogInstall")}
+                </Button>
+              </div>
             </div>
           ))}
         </div>

@@ -60,33 +60,31 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-- [2026-05-19] We've released **v1.1.8**! See the full [v1.1.8 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+- [2026-05-27] **v1.1.9 — Coding Mode** | Your agent just became a dev.
 
-  - **[v1.1.8] Added**: Official plugin resources (website download + one-click install from console); QwenPaw Pet desktop companion; CloudPaw Alibaba Cloud deployment plugin; `/make-skill` command; custom HTTP headers & auth mode; per-model context configuration; Inbox batch operations; pinned chat history drawer.
-  - **[v1.1.8] Security**: Backup trust controls; Skill & AgentMd path traversal prevention; plugin API auth.
-  - **[v1.1.8] Fixed**: WeCom/WeChat/QQ channel stability; per-model rate limiter; SSE connection leak.
-  - **[v1.1.8] New Contributors**: @Morxi.
+  > **Coding Mode** brings a full IDE layout — file tree, tabbed editor with inline diff review, and a Git panel — directly into QwenPaw. [Read the docs →](https://qwenpaw.agentscope.io/docs/coding-mode)
 
-- [2026-05-14] We've released **v1.1.7**! See the full [v1.1.7 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+  <p align="center">
+    <a href="https://qwenpaw.agentscope.io/docs/coding-mode">
+      <img src="https://img.alicdn.com/imgextra/i4/O1CN014tF5921HlXCevvsBH_!!6000000000798-2-tps-3340-1678.png" width="720" alt="Coding Mode — three-panel IDE layout" />
+    </a>
+  </p>
 
-- [2026-05-09] We've released **v1.1.6**! See the full [v1.1.6 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+  | Highlight | What's new |
+  |-----------|------------|
+  | **Coding Mode** | Three-panel Web IDE with LSP jump-to-definition, AST search, and inline diff review. [Docs →](https://qwenpaw.agentscope.io/docs/coding-mode) |
+  | **Tauri Desktop App** | Native macOS & Windows app — no Python setup needed. [Download →](https://github.com/agentscope-ai/QwenPaw/releases) |
+  | **Unified Access Control** | Per-channel whitelist / blacklist / pending-approval with console UI. [Docs →](https://qwenpaw.agentscope.io/docs/channels) |
 
-- [2026-04-29] We've released **v1.1.5**! See the full [v1.1.5 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+  Also: background task timeout, isolated cron sessions, plugin manager redesign. [v1.1.9 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 
-- [2026-04-12] **CoPaw is Officially Rebranding to QwenPaw**: This rebranding marks an important step forward into our next phase of open-source development.
+- [2026-05-19] **v1.1.8** — Official plugin distribution, QwenPaw Pet, streaming cards for DingTalk / Feishu / Telegram. [v1.1.8 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.8)
 
-The new name better reflects the open ecosystem we are building and the broader direction we are continuing to pursue:
+- [2026-05-14] **v1.1.7** — Browser batch actions, OAuth 2.1 MCP, Cron calendar view, multiple file attachments. [v1.1.7 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.7)
 
-*Qwen* — represents a deeper integration with the Qwen open-source ecosystem and a sharper focus on the model layer, including local models for agents and smart collaboration between small and large models.
+- [2026-05-09] **v1.1.6** — Whisper voice input, GPT Image 2 plugin, Volcano Engine provider, Mermaid diagrams. [v1.1.6 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.6)
 
-*Paw* — carries forward our original mission to accompany users and become a personal assistant users can truly trust.
-
-This rebranding does not change our vision and goals in the open-source community:
-- To build a more practical, secure, and personalized AI assistant;
-- To stay committed to open-source collaboration and move forward together with the community.
-
-Thank you all for your support along the way.
-From today on, QwenPaw will stay and grow with you!
+- [2026-04-12] **CoPaw rebrands to QwenPaw** — deeper Qwen ecosystem integration, same open-source mission. [v1.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.0.0)
 
 ---
 

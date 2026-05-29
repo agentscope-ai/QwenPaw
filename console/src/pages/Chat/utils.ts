@@ -108,6 +108,36 @@ export async function copyText(text: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Timestamp formatting utilities
+// ---------------------------------------------------------------------------
+
+/** Format a unix timestamp (seconds or milliseconds) to a short time string (HH:mm:ss). */
+export function formatMessageTime(ts: number): string {
+  if (!ts) return "";
+  // Normalize to milliseconds
+  const ms = ts < 1e12 ? ts * 1000 : ts;
+  const date = new Date(ms);
+  const now = new Date();
+  const hours = date.getHours().toString().padStart(2, "0");
+  const minutes = date.getMinutes().toString().padStart(2, "0");
+  const seconds = date.getSeconds().toString().padStart(2, "0");
+  const time = `${hours}:${minutes}:${seconds}`;
+
+  const isToday =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  if (isToday) return time;
+
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  const day = date.getDate().toString().padStart(2, "0");
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${month}-${day} ${time}`;
+  }
+  return `${date.getFullYear()}-${month}-${day} ${time}`;
+}
+
+// ---------------------------------------------------------------------------
 // Error response utilities
 // ---------------------------------------------------------------------------
 

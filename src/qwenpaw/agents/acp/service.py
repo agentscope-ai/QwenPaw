@@ -9,6 +9,8 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
+import psutil
+
 from acp import PROTOCOL_VERSION, spawn_agent_process, text_block
 from acp.schema import ClientCapabilities, Implementation
 
@@ -20,6 +22,24 @@ from .core import (
 )
 
 MessageHandler = Callable[[dict[str, Any], bool], Awaitable[None]]
+
+
+def _kill_process_tree(pid: int) -> None:
+    """Recursively kill a process and all its descendants (cross-platform)."""
+    try:
+        parent = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return
+    children = parent.children(recursive=True)
+    for child in children:
+        try:
+            child.kill()
+        except psutil.NoSuchProcess:
+            pass
+    try:
+        parent.kill()
+    except psutil.NoSuchProcess:
+        pass
 
 
 @dataclass
@@ -380,7 +400,22 @@ class ACPService:
                     await conversation.prompt_task
                 except Exception:
                     pass
+            # Fix #4615: Handle orphan processes for ACP started via node
+            # wrapper script.
+            try:
+                await asyncio.wait_for(
+                    conversation.conn.close_session(
+                        session_id=conversation.acp_session_id,
+                    ),
+                    timeout=5.0,
+                )
+            except Exception:
+                pass
         finally:
+            # Fix #4615: Handle orphan processes for ACP executed directly
+            # by binary.
+            # Force kill the entire process tree to prevent resource leaks.
+            _kill_process_tree(conversation.process.pid)
             await conversation.exit_stack.aclose()
 
     @staticmethod

@@ -13,7 +13,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, ORJSONResponse
 from agentscope_runtime.engine.app import AgentApp
 from agentscope_runtime.engine.schemas.exception import (
     AppBaseException,
@@ -40,6 +40,7 @@ from .auth import AuthMiddleware, auto_register_from_env
 from .routers import router as api_router, create_agent_scoped_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
+from .routers.coding_mode import router as coding_mode_router
 from .routers.voice import voice_router
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
@@ -63,6 +64,7 @@ mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("application/javascript", ".mjs")
 mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("application/wasm", ".wasm")
+mimetypes.add_type("image/svg+xml", ".svg")
 
 # Load persisted env vars into os.environ at module import time
 # so they are available before the lifespan starts.
@@ -541,6 +543,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         except Exception as e:
             logger.error(f"Error stopping browsers during shutdown: {e}")
 
+        # Close the shared httpx client owned by the skills hub module.
+        from ..agents.skill_system.hub import aclose_hub_client
+
+        try:
+            await aclose_hub_client()
+        except Exception as e:
+            logger.error(f"Error closing skills hub HTTP client: {e}")
+
         logger.info("Application shutdown complete")
 
 
@@ -549,6 +559,7 @@ app = FastAPI(
     docs_url="/docs" if DOCS_ENABLED else None,
     redoc_url="/redoc" if DOCS_ENABLED else None,
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
+    default_response_class=ORJSONResponse,
 )
 
 # Add agent context middleware for agent-scoped routes
@@ -647,6 +658,9 @@ app.include_router(api_router, prefix="/api")
 
 # Approval router: /api/approval/approve, /api/approval/deny, etc.
 app.include_router(approval_router, prefix="/api")
+
+# Coding Mode router: /api/coding-mode
+app.include_router(coding_mode_router, prefix="/api")
 
 # Agent-scoped router: /api/agents/{agentId}/chats, etc.
 agent_scoped_router = create_agent_scoped_router()

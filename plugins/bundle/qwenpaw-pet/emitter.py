@@ -7,10 +7,10 @@ import asyncio
 import functools
 import logging
 import os
-import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -34,6 +34,15 @@ _DESKTOP_OWNED = False
 # chose when spawning after a port collision).
 _active_desktop_base: str | None = None
 
+# After a failed health probe or POST, skip further probes until this
+# monotonic deadline to avoid hammering localhost on every chat token.
+_DESKTOP_UNREACHABLE_UNTIL = 0.0
+_HEALTH_RETRY_SEC = 3.0
+_EVENT_SERIAL = 0
+
+# Serialize manual/autostart spawns so rapid UI clicks cannot launch copies.
+_SPAWN_LOCK = threading.RLock()
+
 
 def _mark_desktop_owned() -> None:
     """Mark the desktop as managed by this QwenPaw process."""
@@ -46,29 +55,36 @@ def _clear_desktop_base_url_cache() -> None:
     _active_desktop_base = None
 
 
+def _reset_desktop_reachability_probe() -> None:
+    global _DESKTOP_UNREACHABLE_UNTIL
+    _DESKTOP_UNREACHABLE_UNTIL = 0.0
+
+
+def _mark_desktop_unreachable() -> None:
+    global _DESKTOP_UNREACHABLE_UNTIL
+    _clear_desktop_base_url_cache()
+    _DESKTOP_UNREACHABLE_UNTIL = time.monotonic() + _HEALTH_RETRY_SEC
+
+
+def _desktop_is_reachable() -> bool:
+    """Return whether the pet desktop HTTP bridge is currently up."""
+    if _active_desktop_base:
+        return True
+    if time.monotonic() < _DESKTOP_UNREACHABLE_UNTIL:
+        return False
+    if desktop_health() is not None:
+        _reset_desktop_reachability_probe()
+        return True
+    _mark_desktop_unreachable()
+    return False
+
+
 TOKEN_PATH = Path(
     os.environ.get(
         "QWENPAW_PET_TOKEN_PATH",
         str(Path.home() / ".qwenpaw-pet/runtime/update-token"),
     ),
 )
-
-EVENT_TO_STATE = {
-    "qwenpaw.startup": "waving",
-    "qwenpaw.shutdown": "idle",
-    "query.received": "jumping",
-    "query.running": "running",
-    "query.first_token": "review",
-    "query.done": "review",
-    "tool.detected": "running",
-    "tool.result": "review",
-    "query.cancelled": "waiting",
-    "query.error": "failed",
-    "approval.pending": "waiting",
-    "approval.resolved": "idle",
-    "approval.bulk_cancel": "idle",
-    "idle": "idle",
-}
 
 
 def _read_token() -> str | None:
@@ -218,11 +234,86 @@ def desktop_health() -> dict[str, Any] | None:
             data = response.json()
             if isinstance(data, dict):
                 _active_desktop_base = base.rstrip("/")
+                _clear_desktop_spawn_markers()
                 return data
         except Exception:
             continue
     _active_desktop_base = None
     return None
+
+
+def _living_desktop_present(host: str, port: int) -> bool:
+    """True when a pet desktop is up or still starting on the bridge port."""
+    health = desktop_health()
+    if health and health.get("ok"):
+        return True
+    try:
+        from qwenpaw_pet_desktop import runtime as pet_rt
+
+        if pet_rt.spawn_claim_active():
+            return True
+        pid = pet_rt.read_pid()
+        if pid and pet_rt.is_pid_running(pid):
+            return True
+    except ImportError:
+        pass
+    # Uvicorn may have bound the port before /health responds.
+    if not _tcp_bind_test(host, port):
+        return True
+    return False
+
+
+def _clear_desktop_spawn_markers() -> None:
+    try:
+        from qwenpaw_pet_desktop import runtime as pet_rt
+
+        pet_rt.clear_spawn_claim()
+    except ImportError:
+        pass
+
+
+def desktop_status_summary() -> dict[str, Any]:
+    """Plugin-side desktop status (works before /health is ready)."""
+    health = desktop_health()
+    if health and health.get("ok"):
+        return {**health, "ready": True, "starting": False}
+    try:
+        from qwenpaw_pet_desktop import runtime as pet_rt
+
+        pid = pet_rt.read_pid()
+        running = bool(pid and pet_rt.is_pid_running(pid))
+        starting = pet_rt.spawn_claim_active() or running
+        return {
+            "ok": False,
+            "ready": False,
+            "starting": starting,
+            "running": running,
+            "pid": pid if running else None,
+        }
+    except ImportError:
+        return {
+            "ok": False,
+            "ready": False,
+            "starting": False,
+            "running": False,
+        }
+
+
+def _desktop_start_response(
+    *,
+    already_running: bool,
+    launch_attempted: bool,
+    message: str,
+    hint: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "alreadyRunning": already_running,
+        "launchAttempted": launch_attempted,
+        "desktop": desktop_health(),
+        "message": message,
+        **({"hint": hint} if hint else {}),
+    }
 
 
 _MISSING_DEPS_HINT = (
@@ -247,10 +338,19 @@ def _spawn_desktop_background() -> tuple[bool, str | None]:
         ``(True, None)`` if a process was spawned, else
         ``(False, user-facing reason)``.
     """
+    with _SPAWN_LOCK:
+        return _spawn_desktop_background_impl()
+
+
+def _spawn_desktop_background_impl() -> tuple[bool, str | None]:
     try:
         from qwenpaw_pet_desktop import runtime as pet_rt
     except ImportError as exc:
         return False, f"{_MISSING_DEPS_HINT} ({exc})"
+
+    host, preferred_port = _spawn_host_port_from_env()
+    if _living_desktop_present(host, preferred_port):
+        return False, "Desktop pet is already running or starting."
 
     try:
         pet_rt.ensure_runtime()
@@ -265,8 +365,10 @@ def _spawn_desktop_background() -> tuple[bool, str | None]:
                 "Could not pre-create pet bridge token",
                 exc_info=True,
             )
-        host, preferred_port = _spawn_host_port_from_env()
-        port = _pick_listen_port(host, preferred_port)
+        if not _tcp_bind_test(host, preferred_port):
+            return False, "Desktop pet is already running or starting."
+        port = preferred_port
+        pet_rt.write_spawn_claim(host, port)
         display_host = (
             "127.0.0.1" if host in ("0.0.0.0", "::", "[::]") else host
         )
@@ -306,84 +408,55 @@ def _spawn_desktop_background() -> tuple[bool, str | None]:
         # returns. Using ``with`` here both fixes the FD leak and lets
         # the detached child keep writing to the same file.
         with pet_rt.log_path().open("ab") as log_file:
-            proc = subprocess.Popen(  # pylint: disable=consider-using-with
+            proc = pet_rt.detached_popen(
                 cmd,
                 stdout=log_file,
                 stderr=log_file,
                 stdin=subprocess.DEVNULL,
-                start_new_session=True,
                 env=env,
             )
         pet_rt.write_pid(proc.pid)
         global _active_desktop_base
         _active_desktop_base = listen_url
         _mark_desktop_owned()
+        _reset_desktop_reachability_probe()
         return True, None
     except OSError as exc:
         return False, f"failed to start desktop: {exc}"
 
 
-def _stop_pid(  # pylint: disable=too-many-branches
+def _stop_pid(
     pid: int,
     *,
     grace: float = 2.0,
+    aggressive: bool = False,
 ) -> bool:
-    """Best-effort terminate ``pid`` and its session.
-
-    Sends ``SIGTERM`` first (to the whole session group when possible —
-    the desktop spawns with ``start_new_session=True``), waits up to
-    ``grace`` seconds for graceful exit, then escalates to ``SIGKILL``.
-    Returns ``True`` if the process is no longer running by the end.
-
-    The branch count is deliberately high: every signal call has to
-    independently distinguish "process already gone" (success) from
-    "permission denied / EPERM" (failure to log) on both the per-PID
-    and per-session-group code paths. Squashing those branches behind
-    a helper would lose either the granular error logging or the
-    process-group fallback, so we silence pylint here instead.
-    """
-    sent_term = False
+    """Best-effort terminate ``pid`` (delegates to runtime helpers)."""
     try:
-        pgid = os.getpgid(pid)
-    except OSError:
-        pgid = None
-
-    try:
-        if pgid is not None and pgid != os.getpgid(os.getpid()):
-            os.killpg(pgid, signal.SIGTERM)
-        else:
-            os.kill(pid, signal.SIGTERM)
-        sent_term = True
-    except ProcessLookupError:
-        return True
-    except OSError as exc:
-        logger.warning("SIGTERM to pet desktop pid=%s failed: %s", pid, exc)
-
-    if sent_term:
-        deadline = time.time() + grace
-        while time.time() < deadline:
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                return True
-            except OSError:
-                return True
-            time.sleep(0.1)
-
-    try:
-        if pgid is not None and pgid != os.getpgid(os.getpid()):
-            os.killpg(pgid, signal.SIGKILL)
-        else:
-            os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return True
-    except OSError as exc:
-        logger.warning("SIGKILL to pet desktop pid=%s failed: %s", pid, exc)
+        from qwenpaw_pet_desktop import runtime as pet_rt
+    except ImportError:
         return False
-    return True
+    return pet_rt.terminate_process_tree(
+        pid,
+        grace=grace,
+        aggressive=aggressive,
+    )
 
 
-def stop_desktop(*, force: bool = False) -> dict[str, Any]:
+def _stop_desktop_skip_reason(*, force: bool) -> str | None:
+    if os.environ.get("QWENPAW_PET_STOP_ON_SHUTDOWN", "1") == "0":
+        return "opted out"
+    if not _DESKTOP_OWNED and not force:
+        return "not autostarted"
+    return None
+
+
+def stop_desktop(
+    *,
+    force: bool = False,
+    aggressive: bool = False,
+    grace: float = 2.0,
+) -> dict[str, Any]:
     """Stop the pet desktop process that this QwenPaw process manages.
 
     Called from ``_shutdown`` so the floating pet exits together with
@@ -397,11 +470,13 @@ def stop_desktop(*, force: bool = False) -> dict[str, Any]:
     responding at startup / explicit ``desktop/start`` time. Pass
     ``force=True`` to stop a desktop that QwenPaw never observed (e.g.
     started just now by another tool while QwenPaw was already up).
+
+    ``aggressive=True`` skips gentle shutdown (important on Windows
+    where Qt may ignore ``taskkill`` without ``/F``).
     """
-    if os.environ.get("QWENPAW_PET_STOP_ON_SHUTDOWN", "1") == "0":
-        return {"ok": True, "stopped": False, "reason": "opted out"}
-    if not _DESKTOP_OWNED and not force:
-        return {"ok": True, "stopped": False, "reason": "not autostarted"}
+    skip = _stop_desktop_skip_reason(force=force)
+    if skip is not None:
+        return {"ok": True, "stopped": False, "reason": skip}
 
     try:
         from qwenpaw_pet_desktop import runtime as pet_rt
@@ -413,14 +488,33 @@ def stop_desktop(*, force: bool = False) -> dict[str, Any]:
         }
 
     pid = pet_rt.read_pid()
+    if not pid and force:
+        health = desktop_health()
+        if isinstance(health, dict):
+            health_pid = health.get("pid")
+            if isinstance(health_pid, int) and health_pid > 0:
+                pid = health_pid
     if not pid:
         _clear_desktop_base_url_cache()
         return {"ok": True, "stopped": False, "reason": "no pid file"}
-    if not pet_rt.is_pid_running(pid):
+    if pid == os.getpid():
+        logger.warning(
+            "QwenPaw Pet: refusing to stop desktop pid=%s (matches QwenPaw)",
+            pid,
+        )
+        _clear_desktop_base_url_cache()
+        return {"ok": True, "stopped": False, "reason": "pid is qwenpaw"}
+    running = pet_rt.is_pid_running(pid)
+    if not running and not force:
         _clear_desktop_base_url_cache()
         return {"ok": True, "stopped": False, "reason": "not running"}
 
-    stopped = _stop_pid(pid)
+    stopped = _stop_pid(
+        pid,
+        grace=grace,
+        aggressive=aggressive or not running,
+    )
+    _clear_desktop_spawn_markers()
     _clear_desktop_base_url_cache()
     return {"ok": True, "stopped": stopped, "pid": pid}
 
@@ -462,8 +556,9 @@ def ensure_desktop_available() -> None:
     """
     if desktop_health():
         _mark_desktop_owned()
+        _reset_desktop_reachability_probe()
         return
-    if os.environ.get("QWENPAW_PET_AUTOSTART", "1") == "0":
+    if os.environ.get("QWENPAW_PET_AUTOSTART", "0") == "0":
         return
     ok, hint = _spawn_desktop_background()
     if not ok:
@@ -473,11 +568,14 @@ def ensure_desktop_available() -> None:
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        _wait_for_desktop_ready(2.0)
+        wait_sec = 5.0 if sys.platform == "win32" else 2.0
+        _wait_for_desktop_ready(wait_sec)
         return
 
     async def _poll() -> None:
-        await asyncio.to_thread(_wait_for_desktop_ready, 2.0)
+        # Windows desktop cold start (PySide6 + uvicorn) can exceed 2s.
+        wait_sec = 5.0 if sys.platform == "win32" else 2.0
+        await asyncio.to_thread(_wait_for_desktop_ready, wait_sec)
 
     task = loop.create_task(_poll())
 
@@ -501,58 +599,66 @@ def start_desktop_interactive() -> dict[str, Any]:
     Always tries to spawn (ignores ``QWENPAW_PET_AUTOSTART``). Returns
     a JSON-friendly dict so the console can show *why* start failed.
     """
-    health = desktop_health()
-    if health and health.get("ok"):
-        # User explicitly asked us to start it (via ``POST
-        # /desktop/start`` from the console UI) — even though it was
-        # already up, treat it as adopted so the shutdown hook will
-        # stop it together with QwenPaw.
-        _mark_desktop_owned()
-        return {
-            "ok": True,
-            "alreadyRunning": True,
-            "launchAttempted": False,
-            "desktop": health,
-            "message": "Desktop pet is already running.",
-        }
+    with _SPAWN_LOCK:
+        health = desktop_health()
+        if health and health.get("ok"):
+            _mark_desktop_owned()
+            _reset_desktop_reachability_probe()
+            return _desktop_start_response(
+                already_running=True,
+                launch_attempted=False,
+                message="Desktop pet is already running.",
+            )
 
-    ok, hint = _spawn_desktop_background()
-    if not ok:
-        return {
-            "ok": True,
-            "alreadyRunning": False,
-            "launchAttempted": False,
-            "desktop": desktop_health(),
-            "message": hint or "Could not start the desktop pet process.",
-            "hint": _MISSING_DEPS_HINT,
-        }
+        host, preferred_port = _spawn_host_port_from_env()
+        wait_sec = 5.0 if sys.platform == "win32" else 3.0
+        if _living_desktop_present(host, preferred_port):
+            _mark_desktop_owned()
+            _reset_desktop_reachability_probe()
+            _wait_for_desktop_ready(wait_sec, interval=0.12)
+            if desktop_health():
+                return _desktop_start_response(
+                    already_running=True,
+                    launch_attempted=False,
+                    message="Desktop pet is already running.",
+                )
+            return _desktop_start_response(
+                already_running=False,
+                launch_attempted=False,
+                message="Desktop pet is already starting.",
+            )
 
-    # ``start_desktop_interactive`` is wired to ``POST /desktop/start`` as
-    # a sync FastAPI route, so FastAPI dispatches it in a worker thread —
-    # blocking ``time.sleep`` here is fine and does not stall the loop.
-    if _wait_for_desktop_ready(3.0, interval=0.12):
-        return {
-            "ok": True,
-            "alreadyRunning": False,
-            "launchAttempted": True,
-            "desktop": desktop_health(),
-            "message": "Desktop pet started.",
-        }
+        ok, hint = _spawn_desktop_background_impl()
+        if not ok:
+            return _desktop_start_response(
+                already_running=False,
+                launch_attempted=False,
+                message=hint or "Could not start the desktop pet process.",
+                hint=_MISSING_DEPS_HINT,
+            )
 
-    return {
-        "ok": True,
-        "alreadyRunning": False,
-        "launchAttempted": True,
-        "desktop": desktop_health(),
-        "message": (
-            "A desktop process was spawned but /health is not ready yet "
-            "(it may still be starting, or it exited immediately)."
-        ),
-        "hint": (
-            "See log file under QwenPaw pet runtime "
-            "(often ~/.qwenpaw-pet/runtime/pet-desktop.log)."
-        ),
-    }
+        # ``start_desktop_interactive`` is wired to ``POST /desktop/start`` as
+        # a sync FastAPI route, so FastAPI dispatches it in a worker thread —
+        # blocking ``time.sleep`` here is fine and does not stall the loop.
+        if _wait_for_desktop_ready(wait_sec, interval=0.12):
+            return _desktop_start_response(
+                already_running=False,
+                launch_attempted=True,
+                message="Desktop pet started.",
+            )
+
+        return _desktop_start_response(
+            already_running=False,
+            launch_attempted=True,
+            message=(
+                "A desktop process was spawned but /health is not ready yet "
+                "(it may still be starting, or it exited immediately)."
+            ),
+            hint=(
+                "See log file under QwenPaw pet runtime "
+                "(often ~/.qwenpaw-pet/runtime/pet-desktop.log)."
+            ),
+        )
 
 
 def schedule_emit_pet_event(event: str, **payload: Any) -> None:
@@ -591,19 +697,33 @@ def schedule_emit_pet_event(event: str, **payload: Any) -> None:
 def emit_pet_event(event: str, **payload: Any) -> None:
     """Send a lifecycle event to QwenPaw Pet Desktop.
 
-    This function is intentionally fire-and-forget: short timeout, no
-    exception escapes into QwenPaw's main request path.
+    No-op when the desktop pet is not running. Otherwise fire-and-forget:
+    short timeout, no exception escapes into QwenPaw's main request path.
     """
-    state = payload.pop("state", None) or EVENT_TO_STATE.get(event, "idle")
+    if not _desktop_is_reachable():
+        logger.debug(
+            "QwenPaw Pet Desktop not running; skip event=%s",
+            event,
+        )
+        return
+
+    global _EVENT_SERIAL
+    _EVENT_SERIAL += 1
+    # Do not pre-resolve ``state`` here — the desktop pet maps ``event`` via
+    # its own ``EVENT_TO_STATE`` so animation tweaks in ``sprites.py`` take
+    # effect after restarting the pet desktop only.
     body = {
         "event": event,
-        "state": state,
         "source": "qwenpaw",
+        "serial": _EVENT_SERIAL,
         **payload,
     }
+    base = _active_desktop_base
+    if not base:
+        return
     try:
         response = httpx.post(
-            f"{_resolved_desktop_base_url()}/event",
+            f"{base.rstrip('/')}/event",
             json=body,
             headers=_headers(),
             **_httpx_client_kwargs(),
@@ -616,8 +736,16 @@ def emit_pet_event(event: str, **payload: Any) -> None:
                 event,
                 (response.text or "")[:200],
             )
+        else:
+            _mark_desktop_owned()
     except Exception:
-        logger.warning("QwenPaw Pet Desktop POST /event failed", exc_info=True)
+        _mark_desktop_unreachable()
+        logger.warning(
+            "QwenPaw Pet Desktop POST /event failed (url=%s event=%s)",
+            base,
+            event,
+            exc_info=True,
+        )
 
 
 def switch_pet_desktop(

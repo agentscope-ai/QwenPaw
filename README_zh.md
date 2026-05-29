@@ -60,32 +60,31 @@
 
 ## 新闻
 
-- [2026-05-19] 我们发布了 **v1.1.8**！完整更新说明见 [v1.1.8 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+- [2026-05-27] **v1.1.9 — Coding 模式** | Agent 变身开发者。
 
-  - **[v1.1.8] 新增**：官方插件资源（网站下载 + 控制台一键安装）；QwenPaw Pet 桌面宠物；CloudPaw 阿里云部署插件；`/make-skill` 命令；自定义 HTTP Headers 与鉴权模式；支持模型独立配置上下文；收件箱批量操作；聊天历史抽屉固定。
-  - **[v1.1.8] 安全**：备份信任控制；Skill 与 AgentMd 路径穿越防护；插件 API 认证。
-  - **[v1.1.8] 修复**：企业微信/微信/QQ 频道稳定性；按模型限速；SSE 连接泄漏。
-  - **[v1.1.8] 感谢新贡献者**：@Morxi。
+  > **Coding 模式**将完整 IDE 布局（文件树 + 标签编辑器 + 内联 Diff + Git 面板）直接嵌入 QwenPaw。[查看文档 →](https://qwenpaw.agentscope.io/docs/coding-mode)
 
-- [2026-05-14] 我们发布了 **v1.1.7**！完整更新说明见 [v1.1.7 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+  <p align="center">
+    <a href="https://qwenpaw.agentscope.io/docs/coding-mode">
+      <img src="https://img.alicdn.com/imgextra/i4/O1CN014tF5921HlXCevvsBH_!!6000000000798-2-tps-3340-1678.png" width="720" alt="Coding 模式 — 三面板 IDE 布局" />
+    </a>
+  </p>
 
-- [2026-05-09] 我们发布了 **v1.1.6**！完整更新说明见 [v1.1.6 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+  | 亮点 | 更新内容 |
+  |------|----------|
+  | **Coding 模式** | 三面板 Web IDE，支持 LSP 跳转定义、AST 结构搜索、内联 Diff 审查。[文档 →](https://qwenpaw.agentscope.io/docs/coding-mode) |
+  | **Tauri 桌面应用** | 原生 macOS & Windows 应用，无需配置 Python。[下载 →](https://github.com/agentscope-ai/QwenPaw/releases) |
+  | **统一访问控制** | 按渠道配置白名单/黑名单/待审批，Console 可视化管理。[文档 →](https://qwenpaw.agentscope.io/docs/channels) |
 
-- [2026-04-29] 我们发布了 **v1.1.5**！完整更新说明见 [v1.1.5 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+  另有：后台任务超时、定时任务隔离执行、插件管理器改版。[v1.1.9 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 
-- [2026-04-12] **CoPaw 正式更名为 QwenPaw**：这是一次品牌名称焕新，也是我们迈向下一阶段开源的重要一步。
+- [2026-05-19] **v1.1.8** — 官方插件分发、QwenPaw Pet 桌面宠物、钉钉/飞书/Telegram 流式卡片。[v1.1.8 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.8)
 
-新的名字，更好地体现了我们正在构建的开源生态，以及我们持续推进的整体开源方向：
+- [2026-05-14] **v1.1.7** — 浏览器批量操作、OAuth 2.1 MCP、定时任务日历视图、多文件附件。[v1.1.7 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.7)
 
-*Qwen* — 代表和 Qwen 开源生态的融合，以及对模型侧的对焦，包括本地化模型、大小模型协同。
+- [2026-05-09] **v1.1.6** — Whisper 语音输入、GPT Image 2 插件、火山引擎 Provider、Mermaid 图表。[v1.1.6 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.6)
 
-*Paw* — 是我们初心的延续，目标是陪伴用户、成为用户可以信任的个人助手。
-
-名称焕新，但在开源社区的愿景和目标始终不变：
-- 继续打造更实用、更安全、更个性化的个人 AI 体验；
-- 继续坚持开源共建、和社区一同前行！
-
-感谢大家一直以来的支持。从今天起，请大家叫我们 QwenPaw。
+- [2026-04-12] **CoPaw 正式更名 QwenPaw** — 融入 Qwen 开源生态，初心不变。[v1.0.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.0.0)
 
 ---
 

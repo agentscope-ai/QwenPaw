@@ -44,6 +44,12 @@ logger = logging.getLogger(__name__)
 
 _MAX_DIRECT_URL_DOWNLOAD_BYTES = 10 * 1024 * 1024
 _CDP_CONNECT_TIMEOUT_SECONDS = 30.0
+_HEADLESS_VERIFICATION_WARNING = (
+    "Headless browser launches are more likely to trigger verification. "
+    "If verification appears, call browser_use with action='stop' to stop "
+    "the current browser, then call browser_use with action='start' and "
+    "headed=true to open a visible browser and continue there."
+)
 
 
 # Keywords used to validate executable_path — the binary filename must
@@ -1049,12 +1055,14 @@ async def _action_start(
             except Exception:
                 pass
         else:
+            result: dict[str, Any] = {
+                "ok": True,
+                "message": "Browser already running",
+            }
+            if current_headless:
+                result["headless_warning"] = _HEADLESS_VERIFICATION_WARNING
             return _tool_response(
-                json.dumps(
-                    {"ok": True, "message": "Browser already running"},
-                    ensure_ascii=False,
-                    indent=2,
-                ),
+                json.dumps(result, ensure_ascii=False, indent=2),
             )
     # Default: headless (background). Only headed=True (e.g. browser_visible skill) shows window.
     state["headless"] = not headed
@@ -1189,7 +1197,7 @@ async def _action_start(
             if not state["headless"]
             else "Browser started"
         )
-        result: dict[str, Any] = {
+        result = {
             "ok": True,
             "message": msg,
             "tip": "Enable browser-related skills in the agent config for a better experience.",
@@ -1197,6 +1205,8 @@ async def _action_start(
             "owned_browser_process": state.get("owned_browser_process", False),
             "private_mode": bool(private_mode),
         }
+        if state["headless"]:
+            result["headless_warning"] = _HEADLESS_VERIFICATION_WARNING
         if state.get("browser_pid"):
             result["browser_pid"] = state["browser_pid"]
         cdp_url = state.get("cdp_url") or (

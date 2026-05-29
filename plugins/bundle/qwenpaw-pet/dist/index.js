@@ -1,74 +1,212 @@
-const z = window.QwenPaw.host, t = z.React, Z = z.antd, A = z.getApiUrl, q = z.getApiToken, { Button: R, Card: ee, Space: N, Table: te, Typography: ne, message: f, Modal: ae, Checkbox: re } = Z, { Title: se, Text: w, Paragraph: oe } = ne;
-function ie() {
-  var i, o, l;
+const U = "language", _ = "qwenpaw-pet-language-change";
+function M() {
   try {
-    const c = ((i = window.sessionStorage) == null ? void 0 : i.getItem("qwenpaw-agent-storage")) ?? ((o = window.localStorage) == null ? void 0 : o.getItem("qwenpaw-agent-storage"));
-    if (!c) return null;
-    const r = JSON.parse(c), h = (l = r == null ? void 0 : r.state) == null ? void 0 : l.selectedAgent;
-    return typeof h == "string" && h ? h : null;
+    return localStorage.getItem(U) || "";
+  } catch {
+    return "";
+  }
+}
+function pe() {
+  const t = "__qwenpawPetLanguageHook", r = Storage.prototype;
+  if (r[t]) return;
+  const c = r.setItem;
+  r.setItem = function(l, s) {
+    c.call(this, l, s), l === U && window.dispatchEvent(new CustomEvent(_, { detail: s }));
+  }, r[t] = !0;
+}
+function de(t) {
+  pe();
+  let r = M();
+  const c = (d) => {
+    d !== r && (r = d, t(d));
+  }, l = (d) => {
+    c(String(d.detail ?? ""));
+  }, s = (d) => {
+    d.key === U && c(d.newValue ?? "");
+  };
+  window.addEventListener(_, l), window.addEventListener("storage", s);
+  const a = window.setInterval(() => {
+    c(M());
+  }, 500);
+  return () => {
+    window.removeEventListener(_, l), window.removeEventListener("storage", s), window.clearInterval(a);
+  };
+}
+const Z = {
+  en: {
+    routeLabel: "Pet",
+    title: "QwenPaw Pet",
+    intro: "Installed pets live under your QwenPaw working directory. Start the desktop bridge, then switch the floating pet without restarting QwenPaw.",
+    startDesktop: "Start desktop pet",
+    importPet: "Import pet",
+    refresh: "Refresh",
+    petsDirectory: "Pets directory:",
+    desktopHealth: "Desktop health:",
+    desktopUnknown: "unknown (refresh)",
+    colPreview: "Preview",
+    colName: "Name",
+    colFolder: "Folder",
+    colManifestId: "pet.json id",
+    colAction: "Action",
+    switch: "Switch",
+    tableEmpty: "No pets found. Run: qwenpaw-pet install-pet …",
+    desktopAlreadyRunning: "Desktop pet is already running.",
+    desktopStartFailed: "Could not start the desktop pet.",
+    desktopReady: "Desktop pet is ready.",
+    desktopStarting: "Desktop may still be starting; check pet-desktop.log if needed.",
+    dropFolderOrZip: "Drop a folder or a .zip file.",
+    importChooseFirst: "Drop a folder or choose a .zip file first.",
+    importSuccess: 'Imported "{name}" → {path}',
+    switchSuccess: 'Switched to "{name}" ({petId})',
+    switchFailed: "switch failed",
+    modalImportTitle: "Import pet",
+    modalImportOk: "Import",
+    dropzoneTitle: "Drop a folder or .zip file here",
+    dropzoneHint: "or click to choose a .zip",
+    importFormatHint: "Folder or unzipped archive must contain pet.json and spritesheet.webp (1536×1872).",
+    selectedOne: "Selected: {path}",
+    selectedMany: "Selected: {count} files (root: {root})",
+    importReplace: "Replace if a pet with the same id already exists"
+  },
+  zh: {
+    routeLabel: "宠物",
+    title: "QwenPaw 桌面宠物",
+    intro: "已安装的宠物位于 QwenPaw 工作目录下。启动桌面桥接后，可在不重启 QwenPaw 的情况下切换悬浮宠物。",
+    startDesktop: "启动桌面宠物",
+    importPet: "导入宠物",
+    refresh: "刷新",
+    petsDirectory: "宠物目录：",
+    desktopHealth: "桌面服务状态：",
+    desktopUnknown: "未知（请刷新）",
+    colPreview: "预览",
+    colName: "名称",
+    colFolder: "文件夹",
+    colManifestId: "pet.json id",
+    colAction: "操作",
+    switch: "切换",
+    tableEmpty: "未找到宠物。请运行：qwenpaw-pet install-pet …",
+    desktopAlreadyRunning: "桌面宠物已在运行。",
+    desktopStartFailed: "无法启动桌面宠物。",
+    desktopReady: "桌面宠物已就绪。",
+    desktopStarting: "桌面可能仍在启动中；如有问题请查看 pet-desktop.log。",
+    dropFolderOrZip: "请拖入文件夹或 .zip 文件。",
+    importChooseFirst: "请先拖入文件夹或选择 .zip 文件。",
+    importSuccess: "已导入「{name}」→ {path}",
+    switchSuccess: "已切换至「{name}」（{petId}）",
+    switchFailed: "切换失败",
+    modalImportTitle: "导入宠物",
+    modalImportOk: "导入",
+    dropzoneTitle: "将文件夹或 .zip 拖放到此处",
+    dropzoneHint: "或点击选择 .zip 文件",
+    importFormatHint: "文件夹或解压后的目录需包含 pet.json 与 spritesheet.webp（1536×1872）。",
+    selectedOne: "已选择：{path}",
+    selectedMany: "已选择：{count} 个文件（根目录：{root}）",
+    importReplace: "若已存在相同 id 的宠物则覆盖"
+  }
+};
+function ue(t) {
+  return String(t || "").trim().split("-")[0].toLowerCase() === "zh" ? "zh" : "en";
+}
+function Q(t) {
+  return ue(t ?? M());
+}
+function ee(t, r, c) {
+  let l = Z[t][r] ?? Z.en[r];
+  if (c)
+    for (const [s, a] of Object.entries(c))
+      l = l.split(`{${s}}`).join(String(a));
+  return l;
+}
+function fe(t) {
+  const [r, c] = t.useState(
+    () => Q()
+  );
+  t.useEffect(() => {
+    const s = (a) => {
+      c((d) => {
+        const b = Q(a);
+        return d === b ? d : b;
+      });
+    };
+    return de((a) => s(a));
+  }, []);
+  const l = t.useCallback(
+    (s, a) => ee(r, s, a),
+    [r]
+  );
+  return { locale: r, tr: l };
+}
+const R = window.QwenPaw.host, n = R.React, me = R.antd, A = R.getApiUrl, B = R.getApiToken, { Button: L, Card: we, Space: j, Table: he, Typography: ge, message: u, Modal: ye, Checkbox: ke } = me, { Title: Ee, Text: h, Paragraph: Se } = ge;
+function be() {
+  var t, r, c;
+  try {
+    const l = ((t = window.sessionStorage) == null ? void 0 : t.getItem("qwenpaw-agent-storage")) ?? ((r = window.localStorage) == null ? void 0 : r.getItem("qwenpaw-agent-storage"));
+    if (!l) return null;
+    const s = JSON.parse(l), a = (c = s == null ? void 0 : s.state) == null ? void 0 : c.selectedAgent;
+    return typeof a == "string" && a ? a : null;
   } catch {
     return null;
   }
 }
 function O() {
-  const i = {}, o = q == null ? void 0 : q();
-  o && (i.Authorization = `Bearer ${o}`);
-  const l = ie();
-  return l && (i["X-Agent-Id"] = l), i;
+  const t = {}, r = B == null ? void 0 : B();
+  r && (t.Authorization = `Bearer ${r}`);
+  const c = be();
+  return c && (t["X-Agent-Id"] = c), t;
 }
-async function _(i) {
-  const o = await fetch(A(i), { headers: O() });
-  if (!o.ok)
-    throw new Error(`${o.status} ${await o.text()}`);
-  return o.json();
+async function X(t) {
+  const r = await fetch(A(t), { headers: O() });
+  if (!r.ok)
+    throw new Error(`${r.status} ${await r.text()}`);
+  return r.json();
 }
-async function J(i, o) {
-  const l = await fetch(A(i), {
+async function Y(t, r) {
+  const c = await fetch(A(t), {
     method: "POST",
     headers: { "Content-Type": "application/json", ...O() },
-    body: JSON.stringify(o)
-  }), c = await l.text();
-  let r = null;
+    body: JSON.stringify(r)
+  }), l = await c.text();
+  let s = null;
   try {
-    r = c ? JSON.parse(c) : null;
+    s = l ? JSON.parse(l) : null;
   } catch {
-    r = { raw: c };
+    s = { raw: l };
   }
-  if (!l.ok)
-    throw new Error(typeof (r == null ? void 0 : r.detail) == "string" ? r.detail : c);
-  return r;
+  if (!c.ok)
+    throw new Error(typeof (s == null ? void 0 : s.detail) == "string" ? s.detail : l);
+  return s;
 }
-const le = 192, ce = 208;
-function pe({ folder: i }) {
-  const o = t.useRef(null), [l, c] = t.useState(!1);
-  return t.useEffect(() => {
-    let r = !1;
-    c(!1);
-    const h = o.current;
-    if (!h) return;
-    const E = h.getContext("2d");
-    if (E)
+const ve = 192, Ie = 208;
+function Pe({ folder: t }) {
+  const r = n.useRef(null), [c, l] = n.useState(!1);
+  return n.useEffect(() => {
+    let s = !1;
+    l(!1);
+    const a = r.current;
+    if (!a) return;
+    const d = a.getContext("2d");
+    if (d)
       return (async () => {
         try {
-          const D = A(
-            `/qwenpaw-pet/pets/${encodeURIComponent(i)}/spritesheet`
-          ), P = await fetch(D, { headers: O() });
-          if (!P.ok || r) throw new Error(String(P.status));
-          const x = await P.blob(), b = await createImageBitmap(x);
-          if (r) {
-            b.close();
+          const b = A(
+            `/qwenpaw-pet/pets/${encodeURIComponent(t)}/spritesheet`
+          ), I = await fetch(b, { headers: O() });
+          if (!I.ok || s) throw new Error(String(I.status));
+          const T = await I.blob(), v = await createImageBitmap(T);
+          if (s) {
+            v.close();
             return;
           }
-          const S = 96, p = 104;
-          h.width = S, h.height = p, E.imageSmoothingEnabled = !1, E.clearRect(0, 0, S, p), E.drawImage(b, 0, 0, le, ce, 0, 0, S, p), b.close();
+          const P = 96, D = 104;
+          a.width = P, a.height = D, d.imageSmoothingEnabled = !1, d.clearRect(0, 0, P, D), d.drawImage(v, 0, 0, ve, Ie, 0, 0, P, D), v.close();
         } catch {
-          r || c(!0);
+          s || l(!0);
         }
       })(), () => {
-        r = !0;
+        s = !0;
       };
-  }, [i]), l ? t.createElement(w, { type: "secondary" }, "—") : t.createElement("canvas", {
-    ref: o,
+  }, [t]), c ? n.createElement(h, { type: "secondary" }, "—") : n.createElement("canvas", {
+    ref: r,
     width: 96,
     height: 104,
     style: {
@@ -80,274 +218,311 @@ function pe({ folder: i }) {
     }
   });
 }
-function de() {
-  const [i, o] = t.useState([]), [l, c] = t.useState(""), [r, h] = t.useState(null), [E, D] = t.useState(!1), [P, x] = t.useState(!1), [b, S] = t.useState(!0), [p, B] = t.useState(!1), [g, I] = t.useState([]), [T, C] = t.useState(!1), F = t.useRef(null), v = t.useCallback(async () => {
-    D(!0);
+function De() {
+  const { tr: t } = fe(n), [r, c] = n.useState([]), [l, s] = n.useState(""), [a, d] = n.useState(null), [b, I] = n.useState(!1), [T, v] = n.useState(!1), [P, D] = n.useState(!0), [g, $] = n.useState(!1), [y, x] = n.useState([]), [N, F] = n.useState(!1), [G, q] = n.useState(!1), J = n.useRef(null), k = n.useCallback(async () => {
+    I(!0);
     try {
-      const [e, n] = await Promise.all([
-        _("/qwenpaw-pet/pets"),
-        _("/qwenpaw-pet/status")
+      const [e, o] = await Promise.all([
+        X("/qwenpaw-pet/pets"),
+        X("/qwenpaw-pet/status")
       ]);
-      o(e.pets || []), c(e.petsDir || ""), h(n.desktop ?? null);
+      c(e.pets || []), s(e.petsDir || ""), d(o.desktop ?? null);
     } catch (e) {
-      f.error((e == null ? void 0 : e.message) || String(e));
+      u.error((e == null ? void 0 : e.message) || String(e));
     } finally {
-      D(!1);
+      I(!1);
     }
   }, []);
-  t.useEffect(() => {
-    v();
-  }, [v]);
-  const W = async () => {
-    try {
-      const e = await J("/qwenpaw-pet/desktop/start", {}), n = e == null ? void 0 : e.desktop, a = [e == null ? void 0 : e.message, e == null ? void 0 : e.hint].filter(Boolean).join(" ");
-      e != null && e.alreadyRunning && (n != null && n.ok) ? f.success(a || "Desktop pet is already running.") : (e == null ? void 0 : e.launchAttempted) === !1 && !(n != null && n.ok) ? f.error(a || "Could not start the desktop pet.") : n != null && n.ok ? f.success(a || "Desktop pet is ready.") : f.warning(
-        a || "Desktop may still be starting; check pet-desktop.log if needed."
-      ), await v();
-    } catch (e) {
-      f.error((e == null ? void 0 : e.message) || String(e));
+  n.useEffect(() => {
+    k();
+  }, [k]);
+  const C = (a == null ? void 0 : a.ok) === !0, z = G || (a == null ? void 0 : a.starting) === !0 || (a == null ? void 0 : a.running) === !0 && !C;
+  n.useEffect(() => {
+    if (!z || C) return;
+    const e = window.setInterval(() => {
+      k();
+    }, 1500);
+    return () => window.clearInterval(e);
+  }, [z, C, k]), n.useEffect(() => {
+    C && q(!1);
+  }, [C]);
+  const te = async () => {
+    if (!z) {
+      q(!0);
+      try {
+        const e = await Y("/qwenpaw-pet/desktop/start", {}), o = e == null ? void 0 : e.desktop, i = [e == null ? void 0 : e.message, e == null ? void 0 : e.hint].filter(Boolean).join(" ");
+        e != null && e.alreadyRunning && (o != null && o.ok) ? u.success(i || t("desktopAlreadyRunning")) : (e == null ? void 0 : e.launchAttempted) === !1 && !(o != null && o.ok) ? typeof (e == null ? void 0 : e.message) == "string" && e.message.toLowerCase().includes("starting") ? u.warning(i || t("desktopStarting")) : u.error(i || t("desktopStartFailed")) : o != null && o.ok ? u.success(i || t("desktopReady")) : u.warning(i || t("desktopStarting")), await k();
+      } catch (e) {
+        u.error((e == null ? void 0 : e.message) || String(e));
+      } finally {
+        q(!1);
+      }
     }
-  }, U = () => {
-    I([]), S(!0), C(!1), x(!0);
-  }, L = async (e, n, a) => {
-    const s = n ? `${n}/${e.name}` : e.name;
+  }, ne = () => {
+    x([]), D(!0), F(!1), v(!0);
+  }, W = async (e, o, i) => {
+    const p = o ? `${o}/${e.name}` : e.name;
     if (e.isFile) {
-      const d = await new Promise(
-        (y, u) => e.file(y, u)
+      const f = await new Promise(
+        (E, m) => e.file(E, m)
       );
-      a.push({ file: d, path: s });
+      i.push({ file: f, path: p });
       return;
     }
     if (!e.isDirectory) return;
-    const m = e.createReader();
+    const w = e.createReader();
     for (; ; ) {
-      const d = await new Promise(
-        (y, u) => m.readEntries(y, u)
+      const f = await new Promise(
+        (E, m) => w.readEntries(E, m)
       );
-      if (d.length === 0) break;
-      for (const y of d)
-        await L(y, s, a);
+      if (f.length === 0) break;
+      for (const E of f)
+        await W(E, p, i);
     }
-  }, G = async (e) => {
-    var m, d, y;
-    if (e.preventDefault(), C(!1), p) return;
-    const n = (m = e.dataTransfer) == null ? void 0 : m.items, a = (d = e.dataTransfer) == null ? void 0 : d.files, s = [];
-    if (n && n.length > 0)
-      for (let u = 0; u < n.length; u++) {
-        const k = n[u];
-        if (k.kind !== "file") continue;
-        const Q = (y = k.webkitGetAsEntry) == null ? void 0 : y.call(k);
-        if (Q)
-          await L(Q, "", s);
+  }, oe = async (e) => {
+    var w, f, E;
+    if (e.preventDefault(), F(!1), g) return;
+    const o = (w = e.dataTransfer) == null ? void 0 : w.items, i = (f = e.dataTransfer) == null ? void 0 : f.files, p = [];
+    if (o && o.length > 0)
+      for (let m = 0; m < o.length; m++) {
+        const S = o[m];
+        if (S.kind !== "file") continue;
+        const V = (E = S.webkitGetAsEntry) == null ? void 0 : E.call(S);
+        if (V)
+          await W(V, "", p);
         else {
-          const $ = k.getAsFile();
-          $ && s.push({ file: $, path: $.name });
+          const H = S.getAsFile();
+          H && p.push({ file: H, path: H.name });
         }
       }
-    else if (a)
-      for (let u = 0; u < a.length; u++) {
-        const k = a[u];
-        s.push({ file: k, path: k.name });
+    else if (i)
+      for (let m = 0; m < i.length; m++) {
+        const S = i[m];
+        p.push({ file: S, path: S.name });
       }
-    if (s.length === 0) {
-      f.warning("Drop a folder or a .zip file.");
+    if (p.length === 0) {
+      u.warning(t("dropFolderOrZip"));
       return;
     }
-    I(s);
-  }, H = (e) => {
-    e.preventDefault(), p || C(!0);
-  }, K = (e) => {
-    e.preventDefault(), C(!1);
-  }, j = () => {
+    x(p);
+  }, re = (e) => {
+    e.preventDefault(), g || F(!0);
+  }, ae = (e) => {
+    e.preventDefault(), F(!1);
+  }, K = () => {
     var e;
-    p || (e = F.current) == null || e.click();
-  }, M = (e) => {
-    var s;
-    const n = (s = e.target) == null ? void 0 : s.files;
-    if (!n || n.length === 0) return;
-    const a = [];
-    for (let m = 0; m < n.length; m++) {
-      const d = n[m];
-      a.push({ file: d, path: d.name });
+    g || (e = J.current) == null || e.click();
+  }, se = (e) => {
+    var p;
+    const o = (p = e.target) == null ? void 0 : p.files;
+    if (!o || o.length === 0) return;
+    const i = [];
+    for (let w = 0; w < o.length; w++) {
+      const f = o[w];
+      i.push({ file: f, path: f.name });
     }
-    I(a), e.target.value = "";
-  }, V = async () => {
-    if (g.length === 0) {
-      f.warning("Drop a folder or choose a .zip file first.");
+    x(i), e.target.value = "";
+  }, ie = async () => {
+    if (y.length === 0) {
+      u.warning(t("importChooseFirst"));
       return;
     }
-    B(!0);
+    $(!0);
     try {
       const e = new FormData();
-      for (const { file: m, path: d } of g)
-        e.append("files", m, d);
-      e.append("replace", b ? "true" : "false");
-      const n = await fetch(A("/qwenpaw-pet/import-pet-upload"), {
+      for (const { file: w, path: f } of y)
+        e.append("files", w, f);
+      e.append("replace", P ? "true" : "false");
+      const o = await fetch(A("/qwenpaw-pet/import-pet-upload"), {
         method: "POST",
         headers: O(),
         body: e
-      }), a = await n.text();
-      let s = null;
+      }), i = await o.text();
+      let p = null;
       try {
-        s = a ? JSON.parse(a) : null;
+        p = i ? JSON.parse(i) : null;
       } catch {
-        s = { raw: a };
+        p = { raw: i };
       }
-      if (!n.ok)
-        throw new Error(typeof (s == null ? void 0 : s.detail) == "string" ? s.detail : a);
-      f.success(
-        `Imported "${s.displayName || s.petId}" → ${s.path}`
-      ), x(!1), I([]), await v();
+      if (!o.ok)
+        throw new Error(typeof (p == null ? void 0 : p.detail) == "string" ? p.detail : i);
+      u.success(
+        t("importSuccess", {
+          name: p.displayName || p.petId,
+          path: p.path
+        })
+      ), v(!1), x([]), await k();
     } catch (e) {
-      f.error((e == null ? void 0 : e.message) || String(e));
+      u.error((e == null ? void 0 : e.message) || String(e));
     } finally {
-      B(!1);
+      $(!1);
     }
-  }, X = async (e) => {
-    const n = e.folder;
+  }, le = async (e) => {
+    const o = e.folder;
     try {
-      const a = await J("/qwenpaw-pet/switch-pet", { pet_id: n });
-      if (a && a.ok === !1)
-        throw new Error(a.error || a.detail || "switch failed");
-      f.success(`Switched to "${e.displayName}" (${n})`), await v();
-    } catch (a) {
-      f.error((a == null ? void 0 : a.message) || String(a));
+      const i = await Y("/qwenpaw-pet/switch-pet", { pet_id: o });
+      if (i && i.ok === !1)
+        throw new Error(i.error || i.detail || t("switchFailed"));
+      u.success(
+        t("switchSuccess", { name: e.displayName, petId: o })
+      ), await k();
+    } catch (i) {
+      u.error((i == null ? void 0 : i.message) || String(i));
     }
-  }, Y = [
-    {
-      title: "Preview",
-      key: "preview",
-      width: 112,
-      render: (e, n) => t.createElement(pe, { key: n.folder, folder: n.folder })
-    },
-    { title: "Name", dataIndex: "displayName", key: "displayName" },
-    { title: "Folder", dataIndex: "folder", key: "folder" },
-    {
-      title: "pet.json id",
-      key: "manifestId",
-      render: (e, n) => n.manifestId ? String(n.manifestId) : t.createElement(w, { type: "secondary" }, "—")
-    },
-    {
-      title: "Action",
-      key: "act",
-      render: (e, n) => t.createElement(
-        R,
-        { type: "primary", size: "small", onClick: () => void X(n) },
-        "Switch"
-      )
-    }
-  ];
-  return t.createElement(
-    ee,
+  }, ce = n.useMemo(
+    () => [
+      {
+        title: t("colPreview"),
+        key: "preview",
+        width: 112,
+        render: (e, o) => n.createElement(Pe, {
+          key: o.folder,
+          folder: o.folder
+        })
+      },
+      { title: t("colName"), dataIndex: "displayName", key: "displayName" },
+      { title: t("colFolder"), dataIndex: "folder", key: "folder" },
+      {
+        title: t("colManifestId"),
+        key: "manifestId",
+        render: (e, o) => o.manifestId ? String(o.manifestId) : n.createElement(h, { type: "secondary" }, "—")
+      },
+      {
+        title: t("colAction"),
+        key: "act",
+        render: (e, o) => n.createElement(
+          L,
+          {
+            type: "primary",
+            size: "small",
+            onClick: () => void le(o)
+          },
+          t("switch")
+        )
+      }
+    ],
+    [t]
+  );
+  return n.createElement(
+    we,
     { style: { maxWidth: 880, margin: "24px auto" } },
-    t.createElement(
-      N,
+    n.createElement(
+      j,
       { direction: "vertical", size: "large", style: { width: "100%" } },
       [
-        t.createElement(
+        n.createElement(
           "div",
           { key: "h" },
-          t.createElement(
-            se,
+          n.createElement(
+            Ee,
             { level: 3, style: { marginBottom: 4 } },
-            "QwenPaw Pet"
+            t("title")
           ),
-          t.createElement(
-            oe,
+          n.createElement(
+            Se,
             { type: "secondary", style: { marginBottom: 0 } },
-            "Installed pets live under your QwenPaw working directory. Start the desktop bridge, then switch the floating pet without restarting QwenPaw."
+            t("intro")
           )
         ),
-        t.createElement(
-          N,
+        n.createElement(
+          j,
           { key: "actions", wrap: !0 },
-          t.createElement(
-            R,
-            { type: "primary", onClick: W },
-            "Start desktop pet"
+          n.createElement(
+            L,
+            {
+              type: "primary",
+              onClick: te,
+              loading: G,
+              disabled: z
+            },
+            t("startDesktop")
           ),
-          t.createElement(R, { onClick: U }, "Import pet"),
-          t.createElement(
-            R,
-            { onClick: () => void v(), loading: E },
-            "Refresh"
+          n.createElement(L, { onClick: ne }, t("importPet")),
+          n.createElement(
+            L,
+            { onClick: () => void k(), loading: b },
+            t("refresh")
           )
         ),
-        t.createElement(
+        n.createElement(
           "div",
           { key: "meta" },
-          t.createElement(
-            w,
+          n.createElement(
+            h,
             { type: "secondary" },
-            "Pets directory: "
+            t("petsDirectory") + " "
           ),
-          t.createElement(w, { code: !0 }, l || "—")
+          n.createElement(h, { code: !0 }, l || "—")
         ),
-        t.createElement(
+        n.createElement(
           "div",
           { key: "dh" },
-          t.createElement(w, { strong: !0 }, "Desktop health: "),
-          t.createElement(
-            w,
-            { type: r != null && r.ok ? "success" : "warning" },
-            r ? JSON.stringify(r) : "unknown (refresh)"
+          n.createElement(
+            h,
+            { strong: !0 },
+            t("desktopHealth") + " "
+          ),
+          n.createElement(
+            h,
+            { type: a != null && a.ok ? "success" : "warning" },
+            a ? JSON.stringify(a) : t("desktopUnknown")
           )
         ),
-        t.createElement(te, {
+        n.createElement(he, {
           key: "tbl",
           rowKey: "folder",
-          loading: E,
-          dataSource: i,
-          columns: Y,
+          loading: b,
+          dataSource: r,
+          columns: ce,
           pagination: !1,
           locale: {
-            emptyText: "No pets found. Run: qwenpaw-pet install-pet …"
+            emptyText: t("tableEmpty")
           }
         }),
-        t.createElement(
-          ae,
+        n.createElement(
+          ye,
           {
             key: "import-modal",
-            title: "Import pet",
-            open: P,
-            onOk: () => void V(),
-            okText: "Import",
-            okButtonProps: { loading: p },
-            cancelButtonProps: { disabled: p },
+            title: t("modalImportTitle"),
+            open: T,
+            onOk: () => void ie(),
+            okText: t("modalImportOk"),
+            okButtonProps: { loading: g },
+            cancelButtonProps: { disabled: g },
             onCancel: () => {
-              p || x(!1);
+              g || v(!1);
             },
             destroyOnClose: !0
           },
-          t.createElement(
-            N,
+          n.createElement(
+            j,
             { direction: "vertical", style: { width: "100%" } },
-            t.createElement(
+            n.createElement(
               "div",
               {
                 role: "button",
                 tabIndex: 0,
-                onClick: j,
-                onDrop: G,
-                onDragOver: H,
-                onDragLeave: K,
+                onClick: K,
+                onDrop: oe,
+                onDragOver: re,
+                onDragLeave: ae,
                 onKeyDown: (e) => {
-                  (e.key === "Enter" || e.key === " ") && (e.preventDefault(), j());
+                  (e.key === "Enter" || e.key === " ") && (e.preventDefault(), K());
                 },
                 style: {
-                  border: `2px dashed ${T ? "#1677ff" : "#d9d9d9"}`,
+                  border: `2px dashed ${N ? "#1677ff" : "#d9d9d9"}`,
                   borderRadius: 8,
                   padding: "32px 16px",
                   textAlign: "center",
-                  cursor: p ? "not-allowed" : "pointer",
-                  background: T ? "rgba(22, 119, 255, 0.06)" : "#fafafa",
+                  cursor: g ? "not-allowed" : "pointer",
+                  background: N ? "rgba(22, 119, 255, 0.06)" : "#fafafa",
                   transition: "border-color .15s ease, background .15s ease",
                   userSelect: "none",
-                  color: T ? "#1677ff" : void 0
+                  color: N ? "#1677ff" : void 0
                 }
               },
               // Line-art cube icon (matches the dropzone reference)
-              t.createElement(
+              n.createElement(
                 "svg",
                 {
                   width: 48,
@@ -364,20 +539,20 @@ function de() {
                     opacity: 0.7
                   }
                 },
-                t.createElement("path", {
+                n.createElement("path", {
                   d: "M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
                 }),
-                t.createElement("polyline", {
+                n.createElement("polyline", {
                   points: "3.27 6.96 12 12.01 20.73 6.96"
                 }),
-                t.createElement("line", {
+                n.createElement("line", {
                   x1: "12",
                   y1: "22.08",
                   x2: "12",
                   y2: "12"
                 })
               ),
-              t.createElement(
+              n.createElement(
                 "div",
                 {
                   style: {
@@ -386,38 +561,41 @@ function de() {
                     marginBottom: 4
                   }
                 },
-                "Drop a folder or .zip file here"
+                t("dropzoneTitle")
               ),
-              t.createElement(
-                w,
+              n.createElement(
+                h,
                 { type: "secondary" },
-                "or click to choose a .zip"
+                t("dropzoneHint")
               )
             ),
-            t.createElement("input", {
-              ref: F,
+            n.createElement("input", {
+              ref: J,
               type: "file",
               accept: ".zip,application/zip",
               style: { display: "none" },
-              onChange: M
+              onChange: se
             }),
-            g.length === 0 ? t.createElement(
-              w,
+            y.length === 0 ? n.createElement(
+              h,
               { type: "secondary", style: { fontSize: 12 } },
-              "Folder or unzipped archive must contain pet.json and spritesheet.webp (1536×1872)."
-            ) : t.createElement(
-              w,
+              t("importFormatHint")
+            ) : n.createElement(
+              h,
               null,
-              g.length === 1 ? `Selected: ${g[0].path}` : `Selected: ${g.length} files (root: ${g[0].path.split("/")[0] || g[0].path})`
+              y.length === 1 ? t("selectedOne", { path: y[0].path }) : t("selectedMany", {
+                count: y.length,
+                root: y[0].path.split("/")[0] || y[0].path
+              })
             ),
-            t.createElement(
-              re,
+            n.createElement(
+              ke,
               {
-                checked: b,
-                onChange: (e) => S(!!e.target.checked),
-                disabled: p
+                checked: P,
+                onChange: (e) => D(!!e.target.checked),
+                disabled: g
               },
-              "Replace if a pet with the same id already exists"
+              t("importReplace")
             )
           )
         )
@@ -425,21 +603,22 @@ function de() {
     )
   );
 }
-class fe {
+class Ce {
   constructor() {
     this.id = "qwenpaw-pet";
   }
   setup() {
-    var o, l;
-    (l = (o = window.QwenPaw).registerRoutes) == null || l.call(o, this.id, [
+    var c, l;
+    const r = Q();
+    (l = (c = window.QwenPaw).registerRoutes) == null || l.call(c, this.id, [
       {
         path: "/plugin/qwenpaw-pet/pets",
-        component: de,
-        label: "Pet",
+        component: De,
+        label: ee(r, "routeLabel"),
         icon: "🐾",
         priority: 42
       }
     ]);
   }
 }
-new fe().setup();
+new Ce().setup();

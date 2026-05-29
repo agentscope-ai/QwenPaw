@@ -46,7 +46,6 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
         bot_prefix: str,
         download_url_fetcher,
         try_accept_message: Optional[Callable[[str], bool]] = None,
-        check_allowlist: Optional[Callable[[str, bool], tuple]] = None,
         require_mention: bool = False,
     ):
         super().__init__()
@@ -55,7 +54,6 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
         self._bot_prefix = bot_prefix
         self._download_url_fetcher = download_url_fetcher
         self._try_accept_message = try_accept_message
-        self._check_allowlist = check_allowlist
         self._require_mention = require_mention
 
     def _emit_native_threadsafe(self, native: dict) -> None:
@@ -471,23 +469,6 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             )
             is_group = conversation_type == "group"
 
-            if self._check_allowlist:
-                allowed, error_msg = self._check_allowlist(
-                    sender,
-                    is_group,
-                )
-                if not allowed:
-                    logger.info(
-                        "dingtalk allowlist blocked: sender=%s is_group=%s",
-                        sender,
-                        is_group,
-                    )
-                    self.reply_text(
-                        self._bot_prefix + (error_msg or ""),
-                        incoming_message,
-                    )
-                    return dingtalk_stream.AckMessage.STATUS_OK, "ok"
-
             is_bot_mentioned = bool(raw_data.get("isInAtList"))
 
             meta: Dict[str, Any] = {
@@ -584,6 +565,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             native = {
                 "channel_id": "dingtalk",
                 "sender_id": sender,
+                "acl_sender_id": meta.get("sender_dingtalk_id") or sender,
                 "content_parts": parts_to_send,
                 "meta": meta,
             }

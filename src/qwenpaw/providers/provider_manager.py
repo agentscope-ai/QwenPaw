@@ -301,20 +301,60 @@ OPENAI_MODELS: List[ModelInfo] = [
 
 OPENCODE_MODELS: List[ModelInfo] = [
     ModelInfo(
-        id="big-pickle",
-        name="Big Pickle",
+        id="glm-5.1",
+        name="GLM-5.1",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
-        is_free=True,
     ),
     ModelInfo(
-        id="nemotron-3-super-free",
-        name="Nemotron 3 Super Free",
+        id="glm-5",
+        name="GLM-5",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
-        is_free=True,
+    ),
+    ModelInfo(
+        id="kimi-k2.5",
+        name="Kimi K2.5",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="kimi-k2.6",
+        name="Kimi K2.6",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="minimax-m2.5",
+        name="MiniMax-M2.5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="minimax-m2.7",
+        name="MiniMax-M2.7",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3.6-plus",
+        name="Qwen3.6 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3.5-plus",
+        name="Qwen3.5 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
     ),
 ]
 
@@ -807,8 +847,13 @@ PROVIDER_OPENCODE = OpenAIProvider(
     base_url="https://opencode.ai/zen/v1",
     api_key_prefix="",
     models=OPENCODE_MODELS,
-    freeze_url=True,
-    require_api_key=False,
+    meta={
+        "base_url_options": [
+            {"label": "OpenCode", "value": "https://opencode.ai/zen/v1"},
+            {"label": "OpenCode Go", "value": "https://opencode.ai/zen/go/v1"},
+        ],
+    },
+    freeze_url=False,
 )
 
 PROVIDER_AZURE_OPENAI = OpenAIProvider(

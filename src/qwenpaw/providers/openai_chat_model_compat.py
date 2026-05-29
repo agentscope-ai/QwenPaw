@@ -188,22 +188,67 @@ class _SanitizedStream:
                     self.extra_contents[tc_id] = extra
 
 
+# JSON Schema keywords whose value is itself a schema.
+_SINGLE_SCHEMA_KEYWORDS = frozenset(
+    {
+        "items",
+        "additionalProperties",
+        "additionalItems",
+        "unevaluatedProperties",
+        "unevaluatedItems",
+        "contains",
+        "propertyNames",
+        "not",
+        "if",
+        "then",
+        "else",
+        "contentSchema",
+    },
+)
+# Keywords whose value is an array of schemas.
+_ARRAY_SCHEMA_KEYWORDS = frozenset(
+    {"allOf", "anyOf", "oneOf", "prefixItems"},
+)
+# Keywords whose value is an object whose values are schemas.
+_MAP_SCHEMA_KEYWORDS = frozenset(
+    {
+        "properties",
+        "patternProperties",
+        "$defs",
+        "definitions",
+        "dependentSchemas",
+    },
+)
+
+
+# pylint: disable=too-many-branches
 def _sanitize_boolean_schemas(schema: Any) -> Any:
-    """Recursively replace boolean JSON Schema values with proper objects.
+    """Position-aware sanitizer for boolean JSON Schema values.
 
-    Some MCP servers emit boolean schemas such as ``true`` (any value) or
-    ``false`` (no valid value), which is legal per JSON Schema spec but
-    rejected by strict LLM providers like DeepSeek V4.  This function
-    converts them to their object equivalents:
+    JSON Schema uses booleans in two distinct ways:
 
-        true  → {}           (empty schema = accept anything)
-        false → {"not": {}}  (impossible schema = reject everything)
+    1. **Boolean schemas** — at a position where a schema is expected,
+       ``true`` means "accept anything" and ``false`` means "reject
+       everything".  Legal per spec but rejected by strict LLM providers
+       (DeepSeek V4, OpenAI) that require an object schema.  We convert::
 
-    It also strips problematic but common non-standard usages:
-    - ``additionalProperties: true``  → removed (it's the default)
-    - ``required: true`` inside a property definition → removed
-      (non-standard; real JSON Schema uses ``required: ["field"]`` on the
-       parent object, not a boolean inside the property itself)
+           true  → {}
+           false → {"not": {}}
+
+    2. **Boolean-valued keywords** — annotations like ``nullable``,
+       ``deprecated``, ``readOnly``, ``writeOnly``, ``uniqueItems``,
+       draft-04 ``exclusiveMinimum`` / ``exclusiveMaximum``.  These MUST
+       remain booleans; providers validate them as ``type: boolean``.
+
+    This walker recurses only into known schema-positions, so boolean
+    annotations on ordinary keywords pass through unchanged.
+
+    Special-cases retained:
+    - ``additionalProperties: true``  → removed (JSON Schema default;
+      explicit form rejected by some strict validators).
+    - ``required: <bool>`` inside a property definition → removed
+      (malformed; real JSON Schema uses ``required: ["field"]`` on the
+      parent object).
     """
     if schema is True:
         return {}
@@ -214,28 +259,42 @@ def _sanitize_boolean_schemas(schema: Any) -> Any:
 
     result: dict[str, Any] = {}
     for key, value in schema.items():
-        # Strip `additionalProperties: true` — it is the default and
-        # some strict validators reject the explicit boolean form.
+        # Strip special-cases intercepted before the keyword dispatch:
+        # `additionalProperties: False` / `: <object>` still fall through
+        # to the `_SINGLE_SCHEMA_KEYWORDS` branch below.
         if key == "additionalProperties" and value is True:
             continue
-        # Strip `required: <bool>` inside property schemas.
-        # Some MCP servers (e.g. reetp14/openalex-mcp) mistakenly write
-        # `"required": true` inside a property definition instead of
-        # listing the field in the parent object's `required` array.
-        # DeepSeek V4 reports: "true is not of type 'array'"
         if key == "required" and isinstance(value, bool):
             continue
-        if isinstance(value, bool):
-            result[key] = {} if value else {"not": {}}
-        elif isinstance(value, dict):
-            result[key] = _sanitize_boolean_schemas(value)
-        elif isinstance(value, list):
-            result[key] = [
-                _sanitize_boolean_schemas(item)
-                if isinstance(item, (dict, bool))
-                else item
-                for item in value
-            ]
+
+        if key in _SINGLE_SCHEMA_KEYWORDS:
+            if key == "items" and isinstance(value, list):
+                # draft-07 tuple form
+                result[key] = [_sanitize_boolean_schemas(v) for v in value]
+            else:
+                result[key] = _sanitize_boolean_schemas(value)
+        elif key in _ARRAY_SCHEMA_KEYWORDS:
+            if isinstance(value, list):
+                result[key] = [_sanitize_boolean_schemas(v) for v in value]
+            else:
+                result[key] = value
+        elif key in _MAP_SCHEMA_KEYWORDS:
+            if isinstance(value, dict):
+                result[key] = {
+                    k: _sanitize_boolean_schemas(v) for k, v in value.items()
+                }
+            else:
+                result[key] = value
+        elif key == "dependencies" and isinstance(value, dict):
+            # draft-07: value per key may be a schema or a string array.
+            result[key] = {
+                k: (
+                    _sanitize_boolean_schemas(v)
+                    if isinstance(v, (dict, bool))
+                    else v
+                )
+                for k, v in value.items()
+            }
         else:
             result[key] = value
     return result

@@ -7,7 +7,7 @@ import asyncio
 import logging
 from typing import Any
 
-from emitter import schedule_emit_pet_event
+from emitter import emit_pet_event, schedule_emit_pet_event
 
 logger = logging.getLogger("qwenpaw.pet_desktop")
 
@@ -43,7 +43,19 @@ def _iter_blocks(msg: Any):
         yield {"type": "text", "text": content}
 
 
+def _is_tool_guard_approval_msg(msg: Any) -> bool:
+    metadata = getattr(msg, "metadata", None)
+    if isinstance(msg, dict):
+        metadata = msg.get("metadata", metadata)
+    return (
+        isinstance(metadata, dict)
+        and metadata.get("message_type") == "tool_guard_approval"
+    )
+
+
 def _classify_msg(msg: Any) -> tuple[str | None, str | None]:
+    if _is_tool_guard_approval_msg(msg):
+        return None, None
     for block in _iter_blocks(msg):
         block_type = _block_get(block, "type")
         if block_type == "tool_use":
@@ -85,7 +97,6 @@ def patch_agent_runner() -> None:
         schedule_emit_pet_event(
             "query.received",
             text="New message",
-            duration_ms=800,
             **meta,
         )
         schedule_emit_pet_event("query.running", text="Thinking", **meta)
@@ -125,13 +136,12 @@ def patch_agent_runner() -> None:
                 if is_last:
                     last_event = None
 
-            schedule_emit_pet_event(
+            await asyncio.to_thread(
+                emit_pet_event,
                 "query.done",
                 text="Done",
-                duration_ms=1200,
                 **meta,
             )
-            schedule_emit_pet_event("idle", text="", delay_ms=1200, **meta)
 
         except asyncio.CancelledError:
             schedule_emit_pet_event(

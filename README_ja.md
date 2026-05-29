@@ -58,33 +58,31 @@
 
 ## ニュース
 
-- [2026-05-19] **v1.1.8** をリリースしました！詳細は [v1.1.8 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
+- [2026-05-27] **v1.1.9 — Coding モード** | エージェントが開発者に。
 
-  - **[v1.1.8] 新機能**：公式プラグインリソース（Web サイトからダウンロード + コンソールからワンクリックインストール）；QwenPaw Pet デスクトップペット；CloudPaw アリババクラウドデプロイプラグイン；`/make-skill` コマンド；カスタム HTTP ヘッダーと認証モード；モデル別コンテキスト設定；受信トレイ一括操作；チャット履歴ドロワー固定。
-  - **[v1.1.8] セキュリティ**：バックアップ信頼性制御；Skill・AgentMd パストラバーサル防止；プラグイン API 認証。
-  - **[v1.1.8] 修正**：WeCom/WeChat/QQ チャネルの安定性；モデル別レートリミッター；SSE 接続リーク。
-  - **[v1.1.8] 新規コントリビューター**：@Morxi さん、ありがとうございます。
+  > **Coding モード**はフル IDE レイアウト（ファイルツリー + タブ付きエディタ + インライン Diff + Git パネル）を QwenPaw に直接搭載します。[ドキュメント →](https://qwenpaw.agentscope.io/docs/coding-mode)
 
-- [2026-05-14] **v1.1.7** をリリースしました！詳細は [v1.1.7 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
+  <p align="center">
+    <a href="https://qwenpaw.agentscope.io/docs/coding-mode">
+      <img src="https://img.alicdn.com/imgextra/i4/O1CN014tF5921HlXCevvsBH_!!6000000000798-2-tps-3340-1678.png" width="720" alt="Coding モード — 3 パネル IDE レイアウト" />
+    </a>
+  </p>
 
-- [2026-05-09] **v1.1.6** をリリースしました！詳細は [v1.1.6 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
+  | ハイライト | 内容 |
+  |-----------|------|
+  | **Coding モード** | 3 パネル Web IDE。LSP ジャンプ、AST 検索、インライン Diff レビュー対応。[Docs →](https://qwenpaw.agentscope.io/docs/coding-mode) |
+  | **Tauri デスクトップアプリ** | ネイティブ macOS & Windows アプリ。Python 不要。[Download →](https://github.com/agentscope-ai/QwenPaw/releases) |
+  | **統合アクセス制御** | チャネルごとのホワイトリスト/ブラックリスト/承認待ち管理。[Docs →](https://qwenpaw.agentscope.io/docs/channels) |
 
-- [2026-04-29] **v1.1.5** をリリースしました！詳細は [v1.1.5 リリースノート](https://qwenpaw.agentscope.io/release-notes) をご覧ください。
+  その他：バックグラウンドタスクのタイムアウト、cron ジョブの分離実行、プラグインマネージャー刷新。[v1.1.9 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 
-- [2026-04-12] **CoPaw は正式に QwenPaw へリブランディングしました**。オープンソース開発の次のフェーズへ進むうえでの、重要な一歩です。
+- [2026-05-19] **v1.1.8** — 公式プラグイン配布、QwenPaw Pet、DingTalk / Feishu / Telegram ストリーミングカード。[v1.1.8 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.8)
 
-新しい名前は、私たちが築いているオープンなエコシステムと、これからも追求していく大きな方向性を、より的確に表しています。
+- [2026-05-14] **v1.1.7** — ブラウザバッチアクション、OAuth 2.1 MCP、Cron カレンダー表示、マルチファイル添付。[v1.1.7 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.7)
 
-**Qwen** — Qwen オープンソース・エコシステムとの一体連携を深め、モデル層への注力を一層明確にするものです。エージェント向けのローカルモデルや、小型モデルと大規模モデルの知的な協働も含みます。
+- [2026-05-09] **v1.1.6** — Whisper 音声入力、GPT Image 2 プラグイン、Volcano Engine プロバイダ、Mermaid ダイアグラム。[v1.1.6 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.6)
 
-**Paw** — ユーザーのそばに伴走し、真に信頼できるパーソナル・アシスタントであるという、当初からの使命を引き継いでいます。
-
-オープンソース・コミュニティにおける私たちのビジョンや目標は、リブランディングによって変わるものではありません。
-- より実用的で安全かつパーソナライズされた AI アシスタントを育てること；
-- オープンソースでの協働を続け、コミュニティとともに前進すること。
-
-これまでのご支援に心より感謝します。
-今日からも QwenPaw は、あなたとともに歩み、成長していきます。
+- [2026-04-12] **CoPaw を QwenPaw にリブランド** — Qwen エコシステムとの統合強化、オープンソースの使命は不変。[v1.0.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.0.0)
 
 ---
 

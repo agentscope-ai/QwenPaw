@@ -6,8 +6,9 @@ import {
   LoadingOutlined,
   SearchOutlined,
   CloseCircleFilled,
+  DownOutlined,
+  UpOutlined,
 } from "@ant-design/icons";
-import { SparkDownLine } from "@agentscope-ai/icons";
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { providerApi } from "../../../api/modules/provider";
@@ -301,7 +302,7 @@ export default function ModelSelector() {
     <Dropdown
       open={open}
       onOpenChange={handleOpenChange}
-      dropdownRender={() => dropdownContent}
+      popupRender={() => dropdownContent}
       trigger={["click"]}
       placement="bottomLeft"
     >
@@ -318,12 +319,7 @@ export default function ModelSelector() {
             <ProviderIcon providerId={activeProviderId} size={16} />
           )}
           <span className={styles.triggerName}>{activeModelName}</span>
-          <SparkDownLine
-            className={[
-              styles.triggerArrow,
-              open ? styles.triggerArrowOpen : "",
-            ].join(" ")}
-          />
+          {open ? <UpOutlined /> : <DownOutlined />}
         </div>
       </Tooltip>
     </Dropdown>

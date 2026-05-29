@@ -30,6 +30,9 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "wechat",
   "imessage",
   "onebot",
+  "qq",
+  "mqtt",
+  "xiaoyi",
 ];
 
 // Doc EN URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
@@ -138,31 +141,31 @@ export function ChannelDrawer({
   const renderAccessControlFields = () => (
     <>
       <Form.Item
-        name="dm_policy"
-        label={t("channels.dmPolicy")}
-        tooltip={t("channels.dmPolicyTooltip")}
-        initialValue="open"
+        name="access_control_dm"
+        label={t("channels.accessControlDm")}
+        valuePropName="checked"
+        tooltip={t("channels.accessControlDmTooltip")}
       >
-        <Select
-          options={[
-            { value: "open", label: t("channels.policyOpen") },
-            { value: "allowlist", label: t("channels.policyAllowlist") },
-          ]}
-        />
+        <Switch />
       </Form.Item>
       <Form.Item
-        name="group_policy"
-        label={t("channels.groupPolicy")}
-        tooltip={t("channels.groupPolicyTooltip")}
-        initialValue="open"
+        name="access_control_group"
+        label={t("channels.accessControlGroup")}
+        valuePropName="checked"
+        tooltip={t("channels.accessControlGroupTooltip")}
       >
-        <Select
-          options={[
-            { value: "open", label: t("channels.policyOpen") },
-            { value: "allowlist", label: t("channels.policyAllowlist") },
-          ]}
-        />
+        <Switch />
       </Form.Item>
+      {activeKey === "feishu" && (
+        <Form.Item
+          name="share_session_in_group"
+          label={t("channels.feishuShareSessionInGroup")}
+          valuePropName="checked"
+          tooltip={t("channels.feishuShareSessionInGroupTooltip")}
+        >
+          <Switch />
+        </Form.Item>
+      )}
       <Form.Item
         name="require_mention"
         label={t("channels.requireMention")}
@@ -170,18 +173,6 @@ export function ChannelDrawer({
         tooltip={t("channels.requireMentionTooltip")}
       >
         <Switch />
-      </Form.Item>
-      <Form.Item
-        name="allow_from"
-        label={t("channels.allowFrom")}
-        tooltip={t("channels.allowFromTooltip")}
-        initialValue={[]}
-      >
-        <Select
-          mode="tags"
-          placeholder={t("channels.allowFromPlaceholder")}
-          tokenSeparators={[","]}
-        />
       </Form.Item>
     </>
   );
@@ -261,6 +252,22 @@ export function ChannelDrawer({
               tooltip="A stable device identity for the Matrix client. Defaults to 'qwenpaw-worker' if left empty."
             >
               <Input placeholder="qwenpaw-worker" />
+            </Form.Item>
+            <Form.Item
+              name="dm_disabled"
+              label={t("channels.dmDisabled")}
+              valuePropName="checked"
+              tooltip={t("channels.dmDisabledTooltip")}
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              name="group_disabled"
+              label={t("channels.groupDisabled")}
+              valuePropName="checked"
+              tooltip={t("channels.groupDisabledTooltip")}
+            >
+              <Switch />
             </Form.Item>
           </>
         );
@@ -1294,7 +1301,7 @@ export function ChannelDrawer({
       title={drawerTitle}
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
       footer={drawerFooter}
       key={activeKey} // Force remount when switching channels
     >

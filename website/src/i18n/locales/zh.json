@@ -16,7 +16,7 @@
     "slogan": "懂你所需，伴你左右",
     "sub": "v1.1.5 四大方面能力升级：",
     "sub1": "为 QwenPaw 量身定制的小模型、安全机制、多智能体协同、以及记忆管理",
-    "releaseNote": "QwenPaw v1.1.5版本全新发布",
+    "releaseNote": "QwenPaw {{version}}版本全新发布",
     "cta": "查看文档",
     "quickStart": "快速开始"
   },
@@ -266,6 +266,7 @@
     "acpServer": "ACP 集成",
     "memory": "记忆",
     "memoryEvolvingAndProactive": "记忆进化与主动交互",
+    "codingMode": "Coding 模式",
     "context": "上下文",
     "commands": "魔法命令",
     "plan": "计划模式",
@@ -458,6 +459,7 @@
     "emptyTitle": "暂无可下载内容",
     "emptyDesc": "桌面应用正在构建中，请稍后再来查看。",
     "emptyCta": "查看其他安装方式",
+    "tabNavLabel": "下载分类",
     "desktopTitle": "桌面应用",
     "desktopDesc": "独立打包的桌面应用，内置完整 Python 环境和所有依赖。双击即用，无需命令行。",
     "recommended": "推荐",
@@ -485,8 +487,6 @@
     "helpSuffix": "了解详细的安装步骤和配置说明。",
     "pluginsTitle": "插件",
     "pluginsDesc": "QwenPaw 仓库中已发布的 Bundle 与 Tool 插件。下载 zip 包后可在本地安装。",
-    "kindBundle": "Bundle",
-    "kindTool": "Tool",
     "downloadZip": "下载 zip"
   },
   "releaseNotes": {

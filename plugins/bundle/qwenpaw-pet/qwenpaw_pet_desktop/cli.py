@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import urllib.error
@@ -70,12 +71,12 @@ def command_start(args: argparse.Namespace) -> int:
         cmd.extend(["--pet-dir", args.pet_dir])
     # Fire-and-forget detached daemon: a ``with`` block would wait on
     # exit, which is the opposite of what we want here.
-    process = subprocess.Popen(  # pylint: disable=consider-using-with
+    process = runtime.detached_popen(
         cmd,
         stdout=log_file,
         stderr=log_file,
         stdin=subprocess.DEVNULL,
-        start_new_session=True,
+        env=os.environ.copy(),
     )
     runtime.write_pid(process.pid)
     print(f"Started QwenPaw Pet Desktop (pid {process.pid})")

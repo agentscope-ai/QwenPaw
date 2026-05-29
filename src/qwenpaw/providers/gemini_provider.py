@@ -138,6 +138,23 @@ class GeminiProvider(Provider):
                 f"Unknown exception when connecting to model '{model_id}'",
             )
 
+    @staticmethod
+    def _adapt_generate_kwargs_for_gemini(
+        kwargs: dict,
+    ) -> dict:
+        """Translate OpenAI-style keys to Gemini's GenerateContentConfig
+        schema.
+
+        google-genai's GenerateContentConfig forbids extra fields, so
+        ``max_tokens`` must be renamed to ``max_output_tokens``.  If both are
+        present, the explicit ``max_output_tokens`` wins.
+        """
+        adapted = dict(kwargs)
+        max_tokens = adapted.pop("max_tokens", None)
+        if max_tokens is not None and "max_output_tokens" not in adapted:
+            adapted["max_output_tokens"] = max_tokens
+        return adapted
+
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.model import GeminiChatModel
 
@@ -147,12 +164,15 @@ class GeminiProvider(Provider):
             client_kwargs["http_options"] = genai_types.HttpOptions(
                 headers=headers,
             )
+        generate_kwargs = self._adapt_generate_kwargs_for_gemini(
+            self.get_effective_generate_kwargs(model_id),
+        )
         return GeminiChatModel(
             model_name=model_id,
             stream=True,
             api_key=self.api_key,
             client_kwargs=client_kwargs or None,
-            generate_kwargs=self.get_effective_generate_kwargs(model_id),
+            generate_kwargs=generate_kwargs,
         )
 
     async def probe_model_multimodal(

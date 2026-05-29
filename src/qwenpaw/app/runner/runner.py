@@ -385,6 +385,8 @@ class AgentRunner(Runner):
             set_current_agent_id,
             set_current_session_id,
             set_current_root_session_id,
+            set_current_user_id,
+            set_current_channel,
         )
 
         set_current_agent_id(self.agent_id)
@@ -395,10 +397,13 @@ class AgentRunner(Runner):
         agent = None
         chat = None
         session_state_loaded = False
+        _cron_memory_snapshot = None
         try:
             session_id = request.session_id
             user_id = request.user_id
             channel = getattr(request, "channel", DEFAULT_CHANNEL)
+            set_current_user_id(user_id)
+            set_current_channel(channel)
 
             logger.info(
                 "Handle agent query:\n%s",
@@ -432,6 +437,54 @@ class AgentRunner(Runner):
                 or os.environ.get("SHELL")
                 or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
             )
+            # In Coding Mode with a concrete project_dir, surface the
+            # project as the env_context's primary location so the LLM
+            # stops treating the agent workspace as "home".
+            _cm = getattr(agent_config, "coding_mode", None)
+            _coding_project_dir = (
+                _cm.project_dir
+                if _cm
+                and getattr(_cm, "enabled", False)
+                and getattr(_cm, "project_dir", None)
+                else None
+            )
+
+            # Fork subagent: override project_dir with worktree path.
+            _payload_ctx = getattr(request, "request_context", None)
+            _fork_project = (
+                _payload_ctx.get("fork_project_dir", "")
+                if isinstance(_payload_ctx, dict)
+                else ""
+            )
+            if _fork_project:
+                _resolved_fork = Path(_fork_project).expanduser().resolve()
+                _project_base = (
+                    Path(
+                        _coding_project_dir
+                        or (
+                            str(self.workspace_dir)
+                            if self.workspace_dir
+                            else str(WORKING_DIR)
+                        ),
+                    )
+                    .expanduser()
+                    .resolve()
+                )
+                _allowed_base = _project_base / ".qwenpaw" / "worktrees"
+                try:
+                    _resolved_fork.relative_to(_allowed_base)
+                    _is_allowed = _resolved_fork.is_dir()
+                except ValueError:
+                    _is_allowed = False
+                if _is_allowed:
+                    _coding_project_dir = str(_resolved_fork)
+                else:
+                    logger.warning(
+                        "Rejected fork_project_dir outside "
+                        "allowed subtree: %s",
+                        _fork_project,
+                    )
+
             env_context = build_env_context(
                 session_id=session_id,
                 user_id=user_id,
@@ -443,6 +496,7 @@ class AgentRunner(Runner):
                     else str(WORKING_DIR)
                 ),
                 default_shell=_default_shell,
+                project_dir=_coding_project_dir,
             )
 
             # Get MCP clients from manager (hot-reloadable)
@@ -682,16 +736,20 @@ class AgentRunner(Runner):
             )
 
             if self._chat_manager is not None:
+                _req_extra = getattr(request, "model_extra", None) or {}
+                _session_source = _req_extra.get("session_source", "chat")
                 logger.debug(
                     f"Runner: Calling get_or_create_chat for "
                     f"session_id={session_id}, user_id={user_id}, "
-                    f"channel={channel}, name={name}",
+                    f"channel={channel}, name={name}, "
+                    f"source={_session_source}",
                 )
                 chat = await self._chat_manager.get_or_create_chat(
                     session_id,
                     user_id,
                     channel,
                     name=name,
+                    source=_session_source,
                 )
                 logger.debug(f"Runner: Got chat: {chat.id}")
             else:
@@ -780,6 +838,23 @@ class AgentRunner(Runner):
                 from ...plan.hints import clear_plan_awaiting_user_confirm
 
                 clear_plan_awaiting_user_confirm(plan_notebook)
+
+            # Isolated cron: run without any prior context so each execution
+            # is independent (saves tokens, avoids stale-context interference).
+            _extra = getattr(request, "model_extra", None) or {}
+            if (
+                _extra.get("session_source") == "cron"
+                and agent.memory is not None
+            ):
+                # Snapshot the full history before clearing
+                _cron_memory_snapshot = agent.memory.state_dict()
+                await agent.memory.clear()
+                logger.debug(
+                    "Isolated cron execution: snapshotted and cleared agent "
+                    "memory (%d items) for session_id=%s",
+                    len(_cron_memory_snapshot.get("memory", [])),
+                    session_id,
+                )
 
             # Rebuild system prompt so it always reflects the latest
             # AGENTS.md / SOUL.md / PROFILE.md, not the stale one saved
@@ -891,6 +966,24 @@ class AgentRunner(Runner):
             raise converted from e
         finally:
             if agent is not None and session_state_loaded:
+                # For isolated cron: restore the full history (snapshot) plus
+                # the new messages produced by this execution
+                if (
+                    _cron_memory_snapshot is not None
+                    and agent.memory is not None
+                ):
+                    new_messages = await agent.memory.get_memory()
+                    agent.memory.load_state_dict(_cron_memory_snapshot)
+                    if new_messages:
+                        await agent.memory.add(new_messages)
+                    logger.debug(
+                        "Isolated cron: restored %d historical + %d new "
+                        "messages for session_id=%s",
+                        len(_cron_memory_snapshot.get("memory", [])),
+                        len(new_messages) if new_messages else 0,
+                        session_id,
+                    )
+
                 await self.session.save_session_state(
                     session_id=session_id,
                     user_id=user_id,

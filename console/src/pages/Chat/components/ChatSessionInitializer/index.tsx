@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
+import sessionApi from "../../sessionApi";
 
 /**
  * URL chatId → context currentSessionId (one direction of bidirectional sync).
@@ -33,6 +34,22 @@ const ChatSessionInitializer: React.FC = () => {
 
   useEffect(() => {
     if (!chatId || !sessions.length) return;
+
+    // Issue #4557: Do NOT trigger setCurrentSessionId while a user-initiated
+    // session switch is in progress. This breaks the infinite loop where
+    // onSessionSelected → navigate → this effect → setCurrentSessionId →
+    // library getSession → onSessionSelected → …
+    if (sessionApi.isSessionSwitching) return;
+
+    // If onSessionSelected already navigated to this chatId, skip.
+    // This prevents the displayId→realId URL change from triggering
+    // an unnecessary setCurrentSessionId(realId) that would cause
+    // a redundant getSession call (issue #4557).
+    if (sessionApi.lastNavigatedChatId === chatId) {
+      lastAppliedChatIdRef.current = chatId;
+      sessionApi.lastNavigatedChatId = null;
+      return;
+    }
 
     // If we already applied this exact chatId and the context is in sync, skip.
     // This prevents the polling-triggered sessions refresh (pinned drawer)

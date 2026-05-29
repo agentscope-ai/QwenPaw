@@ -39,10 +39,13 @@ def patch_approval_service() -> None:
     async def create_pending_wrapped(self, **kwargs: Any):
         pending = await _ORIG_CREATE_PENDING(self, **kwargs)
         try:
+            tool_label = str(pending.tool_name or "tool")[:36]
             schedule_emit_pet_event(
                 "approval.pending",
-                state="waiting",
-                text="Approval required",
+                # Second line keeps the tool name visible; a single long
+                # "Approval required: <tool>" line is clipped by the narrow
+                # pet bubble (~95px wide at default scale).
+                text=f"Approval required\n{tool_label}",
                 session_id=pending.session_id,
                 agent_id=pending.agent_id,
                 channel=pending.channel,
@@ -66,19 +69,21 @@ def patch_approval_service() -> None:
         try:
             if decision == ApprovalDecision.APPROVED:
                 schedule_emit_pet_event(
-                    "approval.resolved",
-                    state="running",
-                    text=f"Approved: {str(resolved.tool_name)[:36]}",
-                    duration_ms=1200,
+                    "approval.approved",
+                    text=(
+                        "Approved\n"
+                        f"{str(resolved.tool_name or 'tool')[:36]}"
+                    ),
                     session_id=resolved.session_id,
                     agent_id=resolved.agent_id,
                     decision=decision.value,
                 )
             elif decision == ApprovalDecision.DENIED:
                 schedule_emit_pet_event(
-                    "approval.resolved",
-                    state="idle",
-                    text=f"Denied: {str(resolved.tool_name)[:36]}",
+                    "approval.denied",
+                    text=(
+                        "Denied\n" f"{str(resolved.tool_name or 'tool')[:36]}"
+                    ),
                     duration_ms=1200,
                     session_id=resolved.session_id,
                     agent_id=resolved.agent_id,
@@ -86,8 +91,7 @@ def patch_approval_service() -> None:
                 )
             else:
                 schedule_emit_pet_event(
-                    "approval.resolved",
-                    state="waiting",
+                    "approval.timed_out",
                     text="Approval timed out",
                     duration_ms=1500,
                     session_id=resolved.session_id,
@@ -95,7 +99,7 @@ def patch_approval_service() -> None:
                     decision=decision.value,
                 )
             logger.info(
-                "QwenPaw Pet: scheduled approval.resolved decision=%s tool=%s",
+                "QwenPaw Pet: scheduled approval decision=%s tool=%s",
                 getattr(decision, "value", decision),
                 resolved.tool_name,
             )
@@ -112,7 +116,6 @@ def patch_approval_service() -> None:
             try:
                 schedule_emit_pet_event(
                     "approval.bulk_cancel",
-                    state="idle",
                     text="Approvals cancelled",
                     duration_ms=900,
                     session_id=root_session_id,

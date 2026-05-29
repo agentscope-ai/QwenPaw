@@ -62,7 +62,7 @@ from ...agents.skill_system.store import (
     suggest_conflict_name,
 )
 from ...security.skill_scanner import SkillScanError
-from ..utils import schedule_agent_reload
+from ..utils import check_upload_size, schedule_agent_reload
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +121,7 @@ class SkillSpec(SkillInfo):
     tags: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
+    installed_from: str = ""
 
 
 class PoolSkillSpec(SkillInfo):
@@ -133,6 +134,7 @@ class PoolSkillSpec(SkillInfo):
     tags: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
+    installed_from: str = ""
 
 
 class WorkspaceSkillSummary(BaseModel):
@@ -148,6 +150,8 @@ class HubSkillSpec(BaseModel):
     description: str = ""
     version: str = ""
     source_url: str = ""
+    author: str = ""
+    icon_url: str = ""
 
 
 class BuiltinImportSpec(BaseModel):
@@ -282,7 +286,6 @@ _ALLOWED_ZIP_TYPES = {
     "application/x-zip-compressed",
     "application/octet-stream",
 }
-_MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
 def _workspace_dir_for_agent(agent_id: str) -> Path:
@@ -398,14 +401,7 @@ async def _read_validated_zip_upload(file: UploadFile) -> bytes:
         )
 
     data = await file.read()
-    if len(data) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"File too large ({len(data) // (1024 * 1024)} MB). "
-                f"Maximum is {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB."
-            ),
-        )
+    check_upload_size(data)
     return data
 
 
@@ -434,17 +430,13 @@ async def _run_hub_install_task(
     await _hub_task_set_status(task_id, HubInstallTaskStatus.IMPORTING)
     imported_skill_name: str | None = None
     try:
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
-            None,
-            lambda: install_skill_from_hub(
-                workspace_dir=workspace_dir,
-                bundle_url=body.bundle_url,
-                version=body.version,
-                enable=body.enable,
-                target_name=body.target_name,
-                cancel_checker=cancel_event.is_set,
-            ),
+        result = await install_skill_from_hub(
+            workspace_dir=workspace_dir,
+            bundle_url=body.bundle_url,
+            version=body.version,
+            enable=body.enable,
+            target_name=body.target_name,
+            cancel_checker=cancel_event.is_set,
         )
         imported_skill_name = result.name
         if cancel_event.is_set():
@@ -457,6 +449,7 @@ async def _run_hub_install_task(
                     "name": result.name,
                     "enabled": False,
                     "source_url": result.source_url,
+                    "installed_from": result.installed_from,
                 },
             )
             return
@@ -468,6 +461,7 @@ async def _run_hub_install_task(
                 "name": result.name,
                 "enabled": result.enabled,
                 "source_url": result.source_url,
+                "installed_from": result.installed_from,
             },
         )
     except SkillImportCancelled:
@@ -537,6 +531,9 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
                     channels=entry.get("channels") or ["all"],
                     config=entry.get("config") or {},
                     last_updated=get_skill_mtime(skill_dir),
+                    installed_from=str(
+                        entry.get("installed_from", "") or "",
+                    ),
                 ),
             )
         except Exception:
@@ -594,6 +591,9 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                     ],
                     config=entry.get("config") or {},
                     last_updated=get_skill_mtime(skill_dir),
+                    installed_from=str(
+                        entry.get("installed_from", "") or "",
+                    ),
                 ),
             )
         except Exception:
@@ -624,7 +624,7 @@ async def search_hub(
     q: str = "",
     limit: int = 20,
 ) -> list[HubSkillSpec]:
-    results = search_hub_skills(q, limit=limit)
+    results = await search_hub_skills(q, limit=limit)
     return [
         HubSkillSpec(
             slug=item.slug,
@@ -632,6 +632,8 @@ async def search_hub(
             description=item.description,
             version=item.version,
             source_url=item.source_url,
+            author=item.author,
+            icon_url=item.icon_url,
         )
         for item in results
     ]
@@ -933,7 +935,7 @@ async def import_skill_pool_from_hub(
     body: HubInstallRequest,
 ) -> dict[str, Any]:
     try:
-        result = import_pool_skill_from_hub(
+        result = await import_pool_skill_from_hub(
             bundle_url=body.bundle_url,
             version=body.version,
             target_name=body.target_name,
@@ -951,6 +953,7 @@ async def import_skill_pool_from_hub(
         "name": result.name,
         "enabled": False,
         "source_url": result.source_url,
+        "installed_from": result.installed_from,
     }
 
 

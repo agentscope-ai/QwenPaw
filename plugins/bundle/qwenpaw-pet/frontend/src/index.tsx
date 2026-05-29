@@ -14,6 +14,9 @@
 // instead of every access silently degrading to ``any``.
 import type * as ReactNS from "react";
 
+import { resolvePetLocale, t } from "./locale";
+import { usePetLocale } from "./usePetLocale";
+
 const host = window.QwenPaw.host;
 const React: typeof ReactNS = host.React;
 const antd = host.antd;
@@ -162,6 +165,7 @@ function PetThumb({ folder }: { folder: string }) {
 }
 
 function PetControlPage() {
+  const { tr } = usePetLocale(React);
   const [pets, setPets] = React.useState<PetRow[]>([]);
   const [petsDir, setPetsDir] = React.useState<string>("");
   const [desktop, setDesktop] = React.useState<any>(null);
@@ -174,7 +178,22 @@ function PetControlPage() {
     { file: File; path: string }[]
   >([]);
   const [dragOver, setDragOver] = React.useState(false);
+  const [startingDesktop, setStartingDesktop] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const [isDark, setIsDark] = React.useState(() =>
+    document.documentElement.classList.contains("dark-mode"),
+  );
+  React.useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains("dark-mode"));
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
+  }, []);
 
   const refresh = React.useCallback(async () => {
     setLoading(true);
@@ -197,26 +216,52 @@ function PetControlPage() {
     void refresh();
   }, [refresh]);
 
+  const desktopReady = desktop?.ok === true;
+  const desktopBusy =
+    startingDesktop ||
+    desktop?.starting === true ||
+    (desktop?.running === true && !desktopReady);
+
+  React.useEffect(() => {
+    if (!desktopBusy || desktopReady) return;
+    const timer = window.setInterval(() => {
+      void refresh();
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [desktopBusy, desktopReady, refresh]);
+
+  React.useEffect(() => {
+    if (desktopReady) setStartingDesktop(false);
+  }, [desktopReady]);
+
   const startDesktop = async () => {
+    if (desktopBusy) return;
+    setStartingDesktop(true);
     try {
       const r = await apiPost("/qwenpaw-pet/desktop/start", {});
       const h = r?.desktop;
       const detail = [r?.message, r?.hint].filter(Boolean).join(" ");
       if (r?.alreadyRunning && h?.ok) {
-        message.success(detail || "Desktop pet is already running.");
+        message.success(detail || tr("desktopAlreadyRunning"));
       } else if (r?.launchAttempted === false && !h?.ok) {
-        message.error(detail || "Could not start the desktop pet.");
+        if (
+          typeof r?.message === "string" &&
+          r.message.toLowerCase().includes("starting")
+        ) {
+          message.warning(detail || tr("desktopStarting"));
+        } else {
+          message.error(detail || tr("desktopStartFailed"));
+        }
       } else if (h?.ok) {
-        message.success(detail || "Desktop pet is ready.");
+        message.success(detail || tr("desktopReady"));
       } else {
-        message.warning(
-          detail ||
-            "Desktop may still be starting; check pet-desktop.log if needed.",
-        );
+        message.warning(detail || tr("desktopStarting"));
       }
       await refresh();
     } catch (e: any) {
       message.error(e?.message || String(e));
+    } finally {
+      setStartingDesktop(false);
     }
   };
 
@@ -283,7 +328,7 @@ function PetControlPage() {
       }
     }
     if (collected.length === 0) {
-      message.warning("Drop a folder or a .zip file.");
+      message.warning(tr("dropFolderOrZip"));
       return;
     }
     setSelectedFiles(collected);
@@ -317,7 +362,7 @@ function PetControlPage() {
 
   const submitImport = async () => {
     if (selectedFiles.length === 0) {
-      message.warning("Drop a folder or choose a .zip file first.");
+      message.warning(tr("importChooseFirst"));
       return;
     }
     setImporting(true);
@@ -343,7 +388,10 @@ function PetControlPage() {
         throw new Error(typeof data?.detail === "string" ? data.detail : text);
       }
       message.success(
-        `Imported "${data.displayName || data.petId}" \u2192 ${data.path}`,
+        tr("importSuccess", {
+          name: data.displayName || data.petId,
+          path: data.path,
+        }),
       );
       setImportOpen(false);
       setSelectedFiles([]);
@@ -361,44 +409,56 @@ function PetControlPage() {
     try {
       const r = await apiPost("/qwenpaw-pet/switch-pet", { pet_id });
       if (r && r.ok === false) {
-        throw new Error(r.error || r.detail || "switch failed");
+        throw new Error(r.error || r.detail || tr("switchFailed"));
       }
-      message.success(`Switched to "${row.displayName}" (${pet_id})`);
+      message.success(
+        tr("switchSuccess", { name: row.displayName, petId: pet_id }),
+      );
       await refresh();
     } catch (e: any) {
       message.error(e?.message || String(e));
     }
   };
 
-  const columns = [
-    {
-      title: "Preview",
-      key: "preview",
-      width: 112,
-      render: (_: unknown, row: PetRow) =>
-        React.createElement(PetThumb, { key: row.folder, folder: row.folder }),
-    },
-    { title: "Name", dataIndex: "displayName", key: "displayName" },
-    { title: "Folder", dataIndex: "folder", key: "folder" },
-    {
-      title: "pet.json id",
-      key: "manifestId",
-      render: (_: unknown, row: PetRow) =>
-        row.manifestId
-          ? String(row.manifestId)
-          : React.createElement(AntText, { type: "secondary" }, "—"),
-    },
-    {
-      title: "Action",
-      key: "act",
-      render: (_: unknown, row: PetRow) =>
-        React.createElement(
-          Button,
-          { type: "primary", size: "small", onClick: () => void switchTo(row) },
-          "Switch",
-        ),
-    },
-  ];
+  const columns = React.useMemo(
+    () => [
+      {
+        title: tr("colPreview"),
+        key: "preview",
+        width: 112,
+        render: (_: unknown, row: PetRow) =>
+          React.createElement(PetThumb, {
+            key: row.folder,
+            folder: row.folder,
+          }),
+      },
+      { title: tr("colName"), dataIndex: "displayName", key: "displayName" },
+      { title: tr("colFolder"), dataIndex: "folder", key: "folder" },
+      {
+        title: tr("colManifestId"),
+        key: "manifestId",
+        render: (_: unknown, row: PetRow) =>
+          row.manifestId
+            ? String(row.manifestId)
+            : React.createElement(AntText, { type: "secondary" }, "—"),
+      },
+      {
+        title: tr("colAction"),
+        key: "act",
+        render: (_: unknown, row: PetRow) =>
+          React.createElement(
+            Button,
+            {
+              type: "primary",
+              size: "small",
+              onClick: () => void switchTo(row),
+            },
+            tr("switch"),
+          ),
+      },
+    ],
+    [tr],
+  );
 
   return React.createElement(
     Card,
@@ -413,12 +473,12 @@ function PetControlPage() {
           React.createElement(
             Title,
             { level: 3, style: { marginBottom: 4 } },
-            "QwenPaw Pet",
+            tr("title"),
           ),
           React.createElement(
             Paragraph,
             { type: "secondary", style: { marginBottom: 0 } },
-            "Installed pets live under your QwenPaw working directory. Start the desktop bridge, then switch the floating pet without restarting QwenPaw.",
+            tr("intro"),
           ),
         ),
         React.createElement(
@@ -426,14 +486,19 @@ function PetControlPage() {
           { key: "actions", wrap: true },
           React.createElement(
             Button,
-            { type: "primary", onClick: startDesktop },
-            "Start desktop pet",
+            {
+              type: "primary",
+              onClick: startDesktop,
+              loading: startingDesktop,
+              disabled: desktopBusy,
+            },
+            tr("startDesktop"),
           ),
-          React.createElement(Button, { onClick: openImport }, "Import pet"),
+          React.createElement(Button, { onClick: openImport }, tr("importPet")),
           React.createElement(
             Button,
             { onClick: () => void refresh(), loading },
-            "Refresh",
+            tr("refresh"),
           ),
         ),
         React.createElement(
@@ -442,18 +507,22 @@ function PetControlPage() {
           React.createElement(
             AntText,
             { type: "secondary" },
-            "Pets directory: ",
+            tr("petsDirectory") + " ",
           ),
           React.createElement(AntText, { code: true }, petsDir || "—"),
         ),
         React.createElement(
           "div",
           { key: "dh" },
-          React.createElement(AntText, { strong: true }, "Desktop health: "),
+          React.createElement(
+            AntText,
+            { strong: true },
+            tr("desktopHealth") + " ",
+          ),
           React.createElement(
             AntText,
             { type: desktop?.ok ? "success" : "warning" },
-            desktop ? JSON.stringify(desktop) : "unknown (refresh)",
+            desktop ? JSON.stringify(desktop) : tr("desktopUnknown"),
           ),
         ),
         React.createElement(Table, {
@@ -464,23 +533,23 @@ function PetControlPage() {
           columns,
           pagination: false,
           locale: {
-            emptyText: "No pets found. Run: qwenpaw-pet install-pet …",
+            emptyText: tr("tableEmpty"),
           },
         }),
         React.createElement(
           Modal,
           {
             key: "import-modal",
-            title: "Import pet",
+            title: tr("modalImportTitle"),
             open: importOpen,
             onOk: () => void submitImport(),
-            okText: "Import",
+            okText: tr("modalImportOk"),
             okButtonProps: { loading: importing },
             cancelButtonProps: { disabled: importing },
             onCancel: () => {
               if (!importing) setImportOpen(false);
             },
-            destroyOnClose: true,
+            destroyOnHidden: true,
           },
           React.createElement(
             Space,
@@ -501,15 +570,29 @@ function PetControlPage() {
                   }
                 },
                 style: {
-                  border: `2px dashed ${dragOver ? "#1677ff" : "#d9d9d9"}`,
+                  border: `2px dashed ${
+                    dragOver
+                      ? "#1677ff"
+                      : isDark
+                      ? "rgba(255,255,255,0.15)"
+                      : "#d9d9d9"
+                  }`,
                   borderRadius: 8,
                   padding: "32px 16px",
                   textAlign: "center" as const,
                   cursor: importing ? "not-allowed" : "pointer",
-                  background: dragOver ? "rgba(22, 119, 255, 0.06)" : "#fafafa",
+                  background: dragOver
+                    ? "rgba(22, 119, 255, 0.06)"
+                    : isDark
+                    ? "rgba(255,255,255,0.04)"
+                    : "#fafafa",
                   transition: "border-color .15s ease, background .15s ease",
                   userSelect: "none" as const,
-                  color: dragOver ? "#1677ff" : undefined,
+                  color: dragOver
+                    ? "#1677ff"
+                    : isDark
+                    ? "rgba(255,255,255,0.85)"
+                    : undefined,
                 },
               },
               // Line-art cube icon (matches the dropzone reference)
@@ -555,12 +638,12 @@ function PetControlPage() {
                     marginBottom: 4,
                   },
                 },
-                "Drop a folder or .zip file here",
+                tr("dropzoneTitle"),
               ),
               React.createElement(
                 AntText,
                 { type: "secondary" },
-                "or click to choose a .zip",
+                tr("dropzoneHint"),
               ),
             ),
             React.createElement("input", {
@@ -574,19 +657,19 @@ function PetControlPage() {
               ? React.createElement(
                   AntText,
                   { type: "secondary", style: { fontSize: 12 } },
-                  "Folder or unzipped archive must contain pet.json and " +
-                    "spritesheet.webp (1536\u00d71872).",
+                  tr("importFormatHint"),
                 )
               : React.createElement(
                   AntText,
                   null,
                   selectedFiles.length === 1
-                    ? `Selected: ${selectedFiles[0].path}`
-                    : `Selected: ${selectedFiles.length} files (root: ` +
-                        `${
+                    ? tr("selectedOne", { path: selectedFiles[0].path })
+                    : tr("selectedMany", {
+                        count: selectedFiles.length,
+                        root:
                           selectedFiles[0].path.split("/")[0] ||
-                          selectedFiles[0].path
-                        })`,
+                          selectedFiles[0].path,
+                      }),
                 ),
             React.createElement(
               Checkbox,
@@ -595,7 +678,7 @@ function PetControlPage() {
                 onChange: (e: any) => setImportReplace(!!e.target.checked),
                 disabled: importing,
               },
-              "Replace if a pet with the same id already exists",
+              tr("importReplace"),
             ),
           ),
         ),
@@ -608,11 +691,12 @@ class QwenPawPetPlugin {
   readonly id = "qwenpaw-pet";
 
   setup(): void {
+    const locale = resolvePetLocale();
     window.QwenPaw.registerRoutes?.(this.id, [
       {
         path: "/plugin/qwenpaw-pet/pets",
         component: PetControlPage,
-        label: "Pet",
+        label: t(locale, "routeLabel"),
         icon: "🐾",
         priority: 42,
       },

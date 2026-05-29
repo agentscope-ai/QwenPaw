@@ -155,12 +155,19 @@ def build_plugin_catalog() -> dict[str, Any]:
         plugin_id = _plugin_id_from_file_entry(entry)
         catalog_version = str(entry.get("version") or "")
         installed_version = installed.get(plugin_id)
+        # Build description_i18n dict from the raw entry
+        raw_desc = entry.get("description")
+        description_i18n: dict[str, str] = {}
+        if isinstance(raw_desc, dict):
+            description_i18n = {k: str(v) for k, v in raw_desc.items() if v}
+
         plugins.append(
             {
                 "id": str(entry.get("id") or _file_id),
                 "plugin_id": plugin_id,
                 "name": _pick_en(entry.get("name")),
                 "description": _pick_en(entry.get("description")),
+                "description_i18n": description_i18n,
                 "version": catalog_version,
                 "author": str(entry.get("author") or ""),
                 "kind": str(entry.get("platform") or ""),

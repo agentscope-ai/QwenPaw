@@ -27,6 +27,8 @@ interface ChatSessionItemProps {
   generating?: boolean;
   /** Whether this is the currently selected session */
   active?: boolean;
+  /** Whether clicks are disabled (e.g. during session switch) */
+  disabled?: boolean;
   /** Whether the item is in inline-edit mode */
   editing?: boolean;
   /** Current value of the edit input */
@@ -65,8 +67,9 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
     : t("chat.statusIdle");
 
   const handleClick = useCallback(() => {
+    if (props.disabled) return;
     props.onClick?.(props.sessionId);
-  }, [props.onClick, props.sessionId]);
+  }, [props.onClick, props.sessionId, props.disabled]);
 
   const handleEdit = useCallback(
     (event: React.MouseEvent) => {
@@ -102,6 +105,7 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
   const className = [
     styles.chatSessionItem,
     props.active ? styles.active : "",
+    props.disabled ? styles.disabled : "",
     props.editing ? styles.editing : "",
     props.pinned ? styles.pinned : "",
     props.className || "",

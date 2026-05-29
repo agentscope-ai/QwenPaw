@@ -5,6 +5,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { useNavigate } from "react-router-dom";
 import { Drawer, Spin, Tooltip } from "antd";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import { IconButton } from "@agentscope-ai/design";
@@ -38,6 +39,8 @@ const ITEM_HEIGHT = 77;
 interface SessionRowData {
   sortedSessions: ExtendedChatSession[];
   currentSessionId: string | undefined;
+  /** When non-null, a session switch is in progress and other items are disabled */
+  switchingSessionId: string | null;
   editingSessionId: string | null;
   editValue: string;
   t: ReturnType<typeof useTranslation>["t"];
@@ -64,6 +67,9 @@ const SessionRow = React.memo(function SessionRow({
     : undefined;
   const isEditing = data.editingSessionId === session.id;
 
+  const isDisabled =
+    !!data.switchingSessionId && session.id !== data.switchingSessionId;
+
   return (
     <div style={style}>
       <ChatSessionItem
@@ -76,6 +82,7 @@ const SessionRow = React.memo(function SessionRow({
         generating={session.generating}
         pinned={session.pinned}
         active={session.id === data.currentSessionId}
+        disabled={isDisabled}
         editing={isEditing}
         editValue={isEditing ? data.editValue : undefined}
         onClick={data.handleSessionClick}
@@ -138,6 +145,7 @@ const getBackendId = (session: ExtendedChatSession): string | null => {
 
 const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { sessions, currentSessionId, setCurrentSessionId, setSessions } =
     useChatAnywhereSessionsState();
 
@@ -156,7 +164,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Current value of the rename input */
   const [editValue, setEditValue] = useState("");
 
-  /** Whether the session list is being fetched (default true because destroyOnClose re-mounts) */
+  /** Whether the session list is being fetched (default true because destroyOnHidden re-mounts) */
   const [listLoading, setListLoading] = useState(true);
 
   /** Height of the virtual list container, measured via ResizeObserver */
@@ -263,11 +271,54 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     };
   }, [props.open, setSessions]);
 
+  /** Whether a session switch is in progress (issue #4557) */
+  const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(
+    null,
+  );
+
   const handleSessionClick = useCallback(
     (sessionId: string) => {
-      setCurrentSessionId(sessionId);
+      // Block clicks while a switch is in progress.
+      if (sessionApi.isSessionSwitching) return;
+      if (sessionId === currentSessionId) return;
+
+      // Lock immediately (synchronous) before any async work.
+      sessionApi.isSessionSwitching = true;
+      setSwitchingSessionId(sessionId);
+
+      // 1) Pre-load session data (network request happens here).
+      // 2) Navigate to the correct URL (using realId if available).
+      // 3) Only THEN set currentSessionId so the library's useAsyncEffect
+      //    hits the result cache instead of making another request.
+      // 4) Keep lock held until the next React render cycle completes.
+      sessionApi
+        .preloadSession(sessionId)
+        .then(({ realId }) => {
+          const targetUrl = `/chat/${realId || sessionId}`;
+          sessionApi.lastNavigatedChatId = realId || sessionId;
+          navigate(targetUrl, { replace: true });
+          // Now set currentSessionId — the library's getSession will hit cache.
+          setCurrentSessionId(sessionId);
+        })
+        .catch(() => {
+          // On error, still try to switch normally.
+          setCurrentSessionId(sessionId);
+        })
+        .then(() => {
+          // Wait two animation frames so React commits + runs effects,
+          // ensuring ChatSessionInitializer's effect has been skipped.
+          return new Promise<void>((resolve) => {
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => resolve());
+            });
+          });
+        })
+        .finally(() => {
+          sessionApi.finishSessionSwitch();
+          setSwitchingSessionId(null);
+        });
     },
-    [setCurrentSessionId],
+    [currentSessionId, setCurrentSessionId, navigate],
   );
 
   /** Delete a session: call deleteChat API then refresh the list */
@@ -413,6 +464,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     () => ({
       sortedSessions: sortedSessions as ExtendedChatSession[],
       currentSessionId,
+      switchingSessionId,
       editingSessionId,
       editValue,
       t,
@@ -428,6 +480,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     [
       sortedSessions,
       currentSessionId,
+      switchingSessionId,
       editingSessionId,
       editValue,
       t,
@@ -446,7 +499,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     <Drawer
       open={props.open}
       onClose={props.pinned ? undefined : props.onClose}
-      destroyOnClose={!props.pinned}
+      destroyOnHidden={!props.pinned}
       placement="right"
       width={360}
       closable={false}
@@ -504,7 +557,11 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       </div>
 
       {/* Session list */}
-      <div className={styles.listWrapper} ref={listWrapperRef}>
+      <div
+        className={styles.listWrapper}
+        ref={listWrapperRef}
+        style={switchingSessionId ? { pointerEvents: "none" } : undefined}
+      >
         <div className={styles.topGradient} />
         {listLoading ? (
           <div

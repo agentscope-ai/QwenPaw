@@ -6,13 +6,15 @@ readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "agentscope==1.0.20",
-    "agentscope-runtime==1.1.4",
+    "agentscope-runtime==1.1.6",
     "httpx>=0.27.0",
     "packaging>=24.0",
     "discord-py>=2.3",
     "dingtalk-stream>=0.24.3",
     "alibabacloud-dingtalk>=2.2.42",
     "alibabacloud-tea-openapi>=0.4.4",
+    "alibabacloud-credentials>=0.3.0",
+    "alibabacloud-tea-util>=0.3.0",
     "uvicorn>=0.40.0",
     "apscheduler>=3.11.2,<4",
     "playwright>=1.49.0",
@@ -43,9 +45,19 @@ dependencies = [
     "huggingface_hub>=0.20.0",
     "pillow>=10.0.0",
     "agent-client-protocol>=0.9.0",
+    "psutil>=6.0.0",
     "openai>=2.0.0,<=2.33.0",
     # anyio 4.13.0: _deliver_cancellation busy-loop / getpid storm (QwenPaw#2632)
     "anyio>=4.0.0,<4.13.0",
+    "watchfiles>=0.22",
+    "orjson>=3.9",
+    # Coding Mode — Python LSP server bundled as a zero-config fallback
+    # so the `lsp` tool always works for .py files (see PROPOSAL §3.4).
+    "python-lsp-server[all]>=1.10",
+    # Coding Mode — multi-language AST pattern matcher used by ast_search.
+    # Pure-Python wrapper around a prebuilt Rust binary; PyPI distributes
+    # wheels for all three OSes.
+    "ast-grep-cli>=0.20",
 ]
 
 [tool.setuptools.dynamic]
@@ -118,6 +130,9 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "p0: critical user flows (messaging, CRUD, global config, security); PR smoke gate",
+    "p1: supported features (settings, scoped overrides, helpers); nightly regression",
+    "p2: error paths, 404 handling, validation, contracts, metadata",
     "unit: marks tests as unit tests",
     "contract: marks tests as contract tests",
     "integration: marks tests as integration tests",

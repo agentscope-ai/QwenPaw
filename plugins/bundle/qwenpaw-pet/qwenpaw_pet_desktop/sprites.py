@@ -27,13 +27,16 @@ EVENT_TO_STATE = {
     "qwenpaw.shutdown": "idle",
     "query.received": "jumping",
     "query.running": "running",
-    "query.first_token": "review",
-    "query.done": "review",
+    "query.first_token": "running-right",
+    "query.done": "waving",
     "tool.detected": "running",
     "tool.result": "review",
     "query.cancelled": "waiting",
     "query.error": "failed",
-    "approval.pending": "waiting",
+    "approval.pending": "review",
+    "approval.approved": "running",
+    "approval.denied": "idle",
+    "approval.timed_out": "failed",
     "approval.resolved": "idle",
     "approval.bulk_cancel": "idle",
     "idle": "idle",
@@ -45,8 +48,8 @@ def state_for_event(
     requested_state: str | None = None,
 ) -> str:
     """Return the display state for a QwenPaw event payload."""
-    if requested_state in VALID_STATES:
-        return requested_state
     if event and event in EVENT_TO_STATE:
         return EVENT_TO_STATE[event]
+    if requested_state in VALID_STATES:
+        return requested_state
     return "idle"

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { motion } from "motion/react";
 import { DottedlinedownArrowIcon, PathIcon } from "@/components/Icon";
 import ShinyText from "@/components/ShinyText";
+import { LATEST_RELEASE_VERSION } from "@/pages/releaseNotesData";
 
 const container = {
   hidden: { opacity: 0, y: 14 },
@@ -81,7 +82,9 @@ export function Hero() {
           <div className="mx-auto mb-5 inline-flex box-border items-center gap-2 rounded-full border border-(--border) bg-(--surface) px-4 py-1.5 text-sm text-(--color-text-secondary) sm:mb-6">
             <PathIcon size={16} />
             <ShinyText
-              text={t("hero.releaseNote")}
+              text={t("hero.releaseNote", {
+                version: LATEST_RELEASE_VERSION,
+              })}
               speed={1.8}
               delay={0}
               color="#9c9b9a"
