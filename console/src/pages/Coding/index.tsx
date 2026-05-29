@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { Navigate } from "react-router-dom";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { Badge, Tooltip } from "antd";
 import {
@@ -38,7 +39,7 @@ import styles from "./index.module.less";
 type LeftPane = "files" | "git";
 
 export default function CodingPage() {
-  const { codingMode } = useCodingMode();
+  const { codingMode, initialized } = useCodingMode();
 
   // ---- Panel visibility --------------------------------------------------
   const [leftOpen, setLeftOpen] = useState(true);
@@ -132,12 +133,8 @@ export default function CodingPage() {
     [selectedAgent, setTabContent],
   );
 
-  if (!codingMode) {
-    return (
-      <div className={styles.disabled}>
-        <p>Enable Coding Mode from the header to access the IDE layout.</p>
-      </div>
-    );
+  if (initialized && !codingMode) {
+    return <Navigate to="/chat" replace />;
   }
 
   const dirtyCount = tabs.filter((t) => t.dirty).length;
