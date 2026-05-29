@@ -455,15 +455,28 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         )
         logger.debug("System prompt:\n%s...", sys_prompt[:100])
 
+        host_sections: dict[str, str] = {"workspace": sys_prompt}
+
         # Inject multimodal capability awareness
         multimodal_hint = build_multimodal_hint()
-        if multimodal_hint:
-            sys_prompt = sys_prompt + "\n\n" + multimodal_hint
+        host_sections["multimodal"] = multimodal_hint or ""
 
-        if self._env_context is not None:
-            sys_prompt = sys_prompt + "\n\n" + self._env_context
+        host_sections["env_context"] = self._env_context or ""
 
-        return sys_prompt
+        try:
+            from ..plugins.registry import PluginRegistry
+
+            sections = PluginRegistry().build_prompt_sections(
+                self,
+                host_sections,
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.exception("Failed to build plugin prompt sections")
+            return "\n\n".join(
+                content for content in host_sections.values() if content
+            )
+
+        return "\n\n".join(section.content for section in sections)
 
     def _register_hooks(self) -> None:
         """Register pre-reasoning and pre-acting hooks."""

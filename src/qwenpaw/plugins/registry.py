@@ -13,6 +13,12 @@ logger = logging.getLogger(__name__)
 # Registered on the console SPA catch-all in ``_app.py`` so plugin HTTP
 # routes can be inserted *before* it (routes appended later would lose).
 _CONSOLE_SPA_CATCHALL_ROUTE_NAME = "qwenpaw_console_spa_catchall"
+_HOST_PROMPT_ANCHORS = {"workspace", "multimodal", "env_context"}
+_PROMPT_ANCHOR_ALIASES = {
+    "agents": "workspace",
+    "soul": "workspace",
+    "profile": "workspace",
+}
 
 
 def _find_console_spa_route_index(app: Any) -> Optional[int]:
@@ -92,6 +98,25 @@ class HttpRouterRegistration:
     routes: List[Any]
 
 
+@dataclass
+class PromptSectionRegistration:
+    """System-prompt section contributed by a plugin."""
+
+    plugin_id: str
+    name: str
+    after: str
+    agent_id: Optional[str]
+    provider: Callable[[Any], str]
+
+
+@dataclass
+class ResolvedPromptSection:
+    """Rendered prompt section ready for final prompt assembly."""
+
+    name: str
+    content: str
+
+
 class PluginRegistry:  # pylint:disable=too-many-public-methods
     """Central plugin registry (Singleton).
 
@@ -124,8 +149,14 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._plugin_http_app: Optional[Any] = None
         self._http_router_registrations: List[HttpRouterRegistration] = []
         self._http_prefix_to_plugin: Dict[str, str] = {}
+        self._prompt_sections: List[PromptSectionRegistration] = []
 
         self._initialized = True
+
+    @staticmethod
+    def _normalize_prompt_anchor(name: str) -> str:
+        """Map historical/core prompt section names to host anchors."""
+        return _PROMPT_ANCHOR_ALIASES.get(name, name)
 
     def set_plugin_http_app(self, app: Any) -> None:
         """Attach the FastAPI application used to mount plugin HTTP routes.
@@ -396,6 +427,117 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._shutdown_hooks.copy()
 
+    def register_prompt_section(
+        self,
+        plugin_id: str,
+        name: str,
+        after: str,
+        agent_id: Optional[str],
+        provider: Callable[[Any], str],
+    ) -> None:
+        """Register a plugin-contributed system prompt section.
+
+        Args:
+            plugin_id: Owning plugin identifier.
+            name: Unique section name.
+            after: Host anchor this section follows.
+            agent_id: Optional agent id filter; ``None`` applies globally.
+            provider: Callable receiving the agent and returning section text.
+
+        Raises:
+            ValueError: If *name* has already been registered or *after*
+                does not reference a host prompt anchor.
+        """
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise ValueError("Prompt section name must not be empty")
+
+        for section in self._prompt_sections:
+            if section.name == normalized_name:
+                raise ValueError(
+                    f"Prompt section '{normalized_name}' is already "
+                    f"registered by plugin '{section.plugin_id}'",
+                )
+
+        normalized_after = after.strip() or "workspace"
+        anchor = self._normalize_prompt_anchor(normalized_after)
+        if anchor not in _HOST_PROMPT_ANCHORS:
+            raise ValueError(
+                f"Prompt section after='{after}' must reference a host anchor",
+            )
+
+        registration = PromptSectionRegistration(
+            plugin_id=plugin_id,
+            name=normalized_name,
+            after=normalized_after,
+            agent_id=agent_id,
+            provider=provider,
+        )
+        self._prompt_sections.append(registration)
+        logger.info(
+            "Registered prompt section '%s' from plugin '%s' after '%s'",
+            registration.name,
+            plugin_id,
+            registration.after,
+        )
+
+    def get_prompt_sections(self) -> List[PromptSectionRegistration]:
+        """Return a copy of registered prompt sections."""
+        return list(self._prompt_sections)
+
+    def build_prompt_sections(
+        self,
+        agent: Any,
+        host_sections: Dict[str, str],
+    ) -> List[ResolvedPromptSection]:
+        """Render host and plugin prompt sections in declared order."""
+        agent_id = None
+        request_context = getattr(agent, "_request_context", None)
+        if isinstance(request_context, dict):
+            agent_id = request_context.get("agent_id")
+        if not agent_id:
+            agent_config = getattr(agent, "_agent_config", None)
+            agent_id = getattr(agent_config, "id", None)
+
+        host_order = list(host_sections.keys())
+        plugin_sections = [
+            section
+            for section in self._prompt_sections
+            if section.agent_id is None or section.agent_id == agent_id
+        ]
+
+        sections_by_anchor: Dict[str, List[PromptSectionRegistration]] = {
+            name: [] for name in host_order
+        }
+        for section in plugin_sections:
+            anchor = self._normalize_prompt_anchor(section.after)
+            sections_by_anchor[anchor].append(section)
+
+        resolved: List[ResolvedPromptSection] = []
+
+        def _append(name: str, content: Any) -> None:
+            if content:
+                resolved.append(
+                    ResolvedPromptSection(name=name, content=str(content)),
+                )
+
+        def _render(section: PromptSectionRegistration) -> str:
+            try:
+                return section.provider(agent)
+            except Exception:  # pylint: disable=broad-except
+                logger.exception(
+                    "Prompt section provider '%s' failed",
+                    section.name,
+                )
+                return ""
+
+        for host_name in host_order:
+            _append(host_name, host_sections.get(host_name, ""))
+            for section in sections_by_anchor.get(host_name, []):
+                _append(section.name, _render(section))
+
+        return resolved
+
     def register_control_command(
         self,
         plugin_id: str,
@@ -497,6 +639,9 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         ]
         self._control_commands = [
             c for c in self._control_commands if c.plugin_id != plugin_id
+        ]
+        self._prompt_sections = [
+            s for s in self._prompt_sections if s.plugin_id != plugin_id
         ]
         logger.info(
             f"Unregistered all entries for plugin '{plugin_id}'",
