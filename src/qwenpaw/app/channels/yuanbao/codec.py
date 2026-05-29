@@ -7,6 +7,7 @@ to encode/decode the binary wire protocol without .proto compilation.
 
 import json
 import logging
+import random
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -24,7 +25,7 @@ _PROTO_DIR = Path(__file__).parent / "proto"
 _MSG_CLASSES: Dict[str, Any] = {}
 
 
-def _field_type_map(proto3: bool) -> Dict[str, int]:
+def _field_type_map() -> Dict[str, int]:
     """Map JSON descriptor type strings to protobuf field type numbers."""
     ft = FieldDescriptor
     return {
@@ -49,11 +50,10 @@ def _field_type_map(proto3: bool) -> Dict[str, int]:
 def _resolve_field_type(
     type_name: str,
     package: str,
-    known_messages: set,
     known_enums: set,
 ) -> Tuple[int, Optional[str]]:
     """Resolve a field type string to (type_num, type_name_or_none)."""
-    scalar_map = _field_type_map(True)
+    scalar_map = _field_type_map()
     if type_name in scalar_map:
         return scalar_map[type_name], None
 
@@ -83,7 +83,7 @@ def _build_file_descriptor(
     json_path: Path,
 ) -> descriptor_pb2.FileDescriptorProto:
     """Convert a protobufjs JSON descriptor into a FileDescriptorProto."""
-    with open(json_path) as fh:
+    with open(json_path, encoding="utf-8") as fh:
         root = json.load(fh)
 
     syntax = root.get("options", {}).get("syntax", "proto3")
@@ -142,7 +142,6 @@ def _build_file_descriptor(
             type_num, type_name = _resolve_field_type(
                 field_spec["type"],
                 package,
-                known_messages,
                 known_enums,
             )
             fdesc.type = type_num
@@ -270,7 +269,10 @@ def _generate_msg_id() -> str:
 
 
 def encode_pb(type_name: str, data: dict) -> Optional[bytes]:
-    """Encode a dict into protobuf binary. Returns b'' for empty messages (valid)."""
+    """Encode a dict into protobuf binary.
+
+    Returns b'' for empty messages (valid).
+    """
     try:
         cls = _get_message_class(type_name)
         msg = cls()
@@ -592,8 +594,6 @@ def decode_push_msg(data: bytes) -> Optional[dict]:
 
 
 # ── Internal helpers ─────────────────────────────────────────────────
-
-import random  # noqa: E402
 
 
 def _random_int() -> int:

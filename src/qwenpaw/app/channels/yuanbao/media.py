@@ -78,9 +78,15 @@ def _guess_mime(filename: str) -> str:
         ".bmp": "image/bmp",
         ".pdf": "application/pdf",
         ".doc": "application/msword",
-        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".docx": (
+            "application/vnd.openxmlformats-"
+            "officedocument.wordprocessingml.document"
+        ),
         ".xls": "application/vnd.ms-excel",
-        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".xlsx": (
+            "application/vnd.openxmlformats-"
+            "officedocument.spreadsheetml.sheet"
+        ),
         ".txt": "text/plain",
         ".zip": "application/zip",
         ".mp3": "audio/mpeg",
@@ -91,7 +97,10 @@ def _guess_mime(filename: str) -> str:
 
 
 def _parse_image_size(data: bytes) -> Tuple[int, int]:
-    """Parse image dimensions from raw bytes (PNG/JPEG). Returns (width, height)."""
+    """Parse image dimensions from raw bytes (PNG/JPEG).
+
+    Returns (width, height).
+    """
     if len(data) >= 24 and data[:4] == b"\x89PNG":
         width = int.from_bytes(data[16:20], "big")
         height = int.from_bytes(data[20:24], "big")
@@ -105,11 +114,14 @@ def _parse_image_size(data: bytes) -> Tuple[int, int]:
                 continue
             marker = data[i + 1]
             if marker in (0xC0, 0xC2):
-                height = int.from_bytes(data[i + 5 : i + 7], "big")
-                width = int.from_bytes(data[i + 7 : i + 9], "big")
+                h_start = i + 5
+                w_start = i + 7
+                height = int.from_bytes(data[h_start : h_start + 2], "big")
+                width = int.from_bytes(data[w_start : w_start + 2], "big")
                 return width, height
             if i + 3 < len(data):
-                i += 2 + int.from_bytes(data[i + 2 : i + 4], "big")
+                seg_start = i + 2
+                i += 2 + int.from_bytes(data[seg_start : seg_start + 2], "big")
             else:
                 break
 
@@ -132,7 +144,7 @@ def _sign_cos_request(
     sorted_header_keys = sorted(k.lower() for k in headers)
     header_list = ";".join(sorted_header_keys)
     http_headers = "&".join(
-        f"{k}={quote(headers[next(h for h in headers if h.lower() == k)], safe='')}"
+        f"{k}={quote(headers[next(h for h in headers if h.lower() == k)], safe='')}"  # noqa: E501
         for k in sorted_header_keys
     )
 
@@ -207,10 +219,12 @@ async def upload_to_cos(
     session: aiohttp.ClientSession,
     config: CosUploadConfig,
     data: bytes,
-    filename: str,
     mime_type: str,
 ) -> str:
-    """Upload a buffer to COS using PUT Object REST API. Returns resourceUrl."""
+    """Upload a buffer to COS via PUT Object REST API.
+
+    Returns resourceUrl.
+    """
     pathname = (
         config.location
         if config.location.startswith("/")
@@ -311,7 +325,9 @@ async def download_and_upload_media(
     max_bytes = MAX_UPLOAD_MB * 1024 * 1024
     if len(file_data) > max_bytes:
         raise RuntimeError(
-            f"File too large: {len(file_data) / 1024 / 1024:.1f} MB > {MAX_UPLOAD_MB} MB",
+            f"File too large: "
+            f"{len(file_data) / 1024 / 1024:.1f} MB "
+            f"> {MAX_UPLOAD_MB} MB",
         )
 
     mime_type = _guess_mime(filename)
@@ -333,7 +349,6 @@ async def download_and_upload_media(
         session,
         cos_config,
         file_data,
-        filename,
         mime_type,
     )
 

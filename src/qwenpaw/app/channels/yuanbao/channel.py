@@ -12,7 +12,6 @@ import asyncio
 import base64
 import json
 import logging
-import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -258,7 +257,7 @@ class YuanbaoChannel(BaseChannel):
             return f"yuanbao:group:{group_code}"
         if sender_id:
             return f"yuanbao:{sender_id}"
-        return f"yuanbao:unknown"
+        return "yuanbao:unknown"
 
     def get_to_handle_from_request(self, request: Any) -> str:
         """Return session_id as send target (like wecom)."""
@@ -464,7 +463,7 @@ class YuanbaoChannel(BaseChannel):
             rsp = {}
 
         code = rsp.get("code", status_code)
-        if code == 0 or code == AUTH_ALREADY_CODE:
+        if code in (0, AUTH_ALREADY_CODE):
             connect_id = rsp.get("connectId", "")
             logger.info(
                 "yuanbao: auth success connectId=%s",
@@ -503,7 +502,8 @@ class YuanbaoChannel(BaseChannel):
                         >= HEARTBEAT_TIMEOUT_THRESHOLD
                     ):
                         logger.error(
-                            "yuanbao: heartbeat threshold reached, reconnecting",
+                            "yuanbao: heartbeat threshold "
+                            "reached, reconnecting",
                         )
                         await self._force_close_ws()
                         break
@@ -597,7 +597,7 @@ class YuanbaoChannel(BaseChannel):
         if cmd_type == CMD_TYPE_RESPONSE:
             await self._handle_response(head, data)
         elif cmd_type == CMD_TYPE_PUSH:
-            await self._handle_push(head, data, raw)
+            await self._handle_push(head, data)
         else:
             logger.info("yuanbao: unhandled cmdType=%s", cmd_type)
 
@@ -641,16 +641,15 @@ class YuanbaoChannel(BaseChannel):
             if not future.done():
                 future.set_result(rsp)
 
-    async def _handle_push(
+    async def _handle_push(  # pylint: disable=too-many-branches
         self,
         head: dict,
         data: bytes,
-        raw_frame: bytes,
     ) -> None:
         """Handle a push frame (inbound message).
 
         Push structure: ConnMsg.data may contain:
-        1. PushMsg wrapper (cmd, module, msgId, data) → inner data is InboundMessagePush
+        1. PushMsg wrapper → inner data is InboundMessagePush
         2. Direct InboundMessagePush (try as fallback)
         """
         # Send push ACK if required
@@ -894,7 +893,7 @@ class YuanbaoChannel(BaseChannel):
             logger.warning("yuanbao: resolve media URL failed: %s", exc)
             return url
 
-    async def _parse_msg_body(
+    async def _parse_msg_body(  # pylint: disable=too-many-branches,too-many-statements  # noqa: E501
         self,
         msg_body: List[dict],
     ) -> List[Any]:
@@ -1145,7 +1144,7 @@ class YuanbaoChannel(BaseChannel):
             logger.error("yuanbao: failed to encode send message")
             return
 
-        raw, msg_id = result
+        raw, _msg_id = result
         try:
             await self._ws.send_bytes(raw)
         except Exception as exc:
@@ -1332,7 +1331,7 @@ class YuanbaoChannel(BaseChannel):
             logger.error("yuanbao: failed to encode media message")
             return
 
-        raw, msg_id = result
+        raw, _msg_id = result
         try:
             await self._ws.send_bytes(raw)
         except Exception as exc:

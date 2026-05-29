@@ -11,14 +11,9 @@ Run:
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 from __future__ import annotations
 
-import asyncio
-import hashlib
-import json
 import struct
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-import aiohttp
 import pytest
 
 
@@ -282,7 +277,7 @@ class TestMediaHelpers:
     def test_parse_image_size_png(self):
         from qwenpaw.app.channels.yuanbao.media import _parse_image_size
 
-        # Minimal PNG header: 89 50 4E 47 ... width=100, height=200 at bytes 16-23
+        # Minimal PNG header: width=100, height=200
         header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8
         header += struct.pack(">II", 100, 200)
         width, height = _parse_image_size(header)
@@ -388,15 +383,15 @@ class TestCosSignature:
     def test_sign_cos_request_deterministic(self):
         from qwenpaw.app.channels.yuanbao.media import _sign_cos_request
 
-        args = dict(
-            secret_id="id",
-            secret_key="key",
-            method="PUT",
-            pathname="/path",
-            headers={"host": "h"},
-            start_time=100,
-            expired_time=200,
-        )
+        args = {
+            "secret_id": "id",
+            "secret_key": "key",
+            "method": "PUT",
+            "pathname": "/path",
+            "headers": {"host": "h"},
+            "start_time": 100,
+            "expired_time": 200,
+        }
         assert _sign_cos_request(**args) == _sign_cos_request(**args)
 
 

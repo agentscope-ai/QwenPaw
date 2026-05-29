@@ -15,7 +15,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 import aiohttp
 
@@ -128,9 +128,9 @@ class TokenManager:
         domain = self.api_domain
         # Strip scheme if user accidentally included it
         if domain.startswith("https://"):
-            domain = domain[len("https://") :]
+            domain = domain.removeprefix("https://")
         elif domain.startswith("http://"):
-            domain = domain[len("http://") :]
+            domain = domain.removeprefix("http://")
         # Strip trailing slash
         domain = domain.rstrip("/")
         url = f"https://{domain}{SIGN_TOKEN_PATH}"
