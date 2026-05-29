@@ -580,8 +580,12 @@ class TestCacheHelpers:
         # Modify directory to change mtime
         import time
 
-        (tmp_path / "new_file.txt").write_text("change")
-        time.sleep(0.1)  # Ensure mtime difference
+        new_file = tmp_path / "new_file.txt"
+        new_file.write_text("change")
+        import os
+
+        future = time.time() + 2
+        os.utime(str(new_file), (future, future))
         cached = _get_cached_result(tmp_path)
         # After modification, cache should be invalidated
         # (mtime changed, so cached result is None)
