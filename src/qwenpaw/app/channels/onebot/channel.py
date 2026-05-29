@@ -296,9 +296,9 @@ class OneBotChannel(BaseChannel):
             await asyncio.sleep(self._watchdog_interval)
             if self._stopping:
                 break
-            if self._site is None:
+            if not await self._is_server_healthy():
                 logger.warning(
-                    "onebot: watchdog detected server not running, "
+                    "onebot: watchdog detected server not healthy, "
                     "restarting...",
                 )
                 try:
@@ -311,6 +311,44 @@ class OneBotChannel(BaseChannel):
                         "will retry in %ss",
                         self._watchdog_interval,
                     )
+
+    def _get_listen_port(self) -> int:
+        """Return the actual port the server is listening on.
+
+        When ``ws_port=0`` the OS assigns a random port; we read it
+        from the site's underlying sockets.
+        """
+        if self._site is None:
+            return self._ws_port
+        server = getattr(self._site, "_server", None)
+        if server is not None:
+            for sock in server.sockets or []:
+                return sock.getsockname()[1]
+        return self._ws_port
+
+    async def _is_server_healthy(self) -> bool:
+        """Check if the WS server is actually accepting connections.
+
+        Returns True if the TCP port is reachable, False otherwise.
+        This catches cases where ``_site`` is not None but the
+        underlying socket has stopped accepting connections.
+        """
+        if self._site is None:
+            return False
+        probe_host = (
+            "127.0.0.1" if self._ws_host == "0.0.0.0" else self._ws_host
+        )
+        probe_port = self._get_listen_port()
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(probe_host, probe_port),
+                timeout=3.0,
+            )
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except (OSError, asyncio.TimeoutError):
+            return False
 
     # ------------------------------------------------------------------
     # WebSocket connection handling
