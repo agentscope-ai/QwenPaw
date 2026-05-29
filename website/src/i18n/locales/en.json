@@ -297,7 +297,8 @@
     "demoVideos": {
       "skill": "/skills: On-demand agent skill invocation",
       "doctor": "QwenPaw Doctor: One-click comprehensive system diagnostics",
-      "missionMode": "QwenPaw Mission Mode: Autonomous execution for complex tasks"
+      "missionMode": "QwenPaw Mission Mode: Autonomous execution for complex tasks",
+      "autoContinue": "Auto-Continue for Text-Only Steps"
     },
     "textVersion": "View text documentation",
     "backToTop": "Back to top",
