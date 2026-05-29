@@ -409,6 +409,19 @@ class XiaoYiConfig(BaseChannelConfig):
     task_timeout_ms: int = 3600000  # 1 hour task timeout
 
 
+class YuanbaoConfig(BaseChannelConfig):
+    """Tencent Yuanbao (元宝) channel config.
+
+    Connects to Yuanbao bot platform via protobuf WebSocket with
+    sign-token authentication. Supports C2C and group messaging.
+    """
+
+    app_key: str = ""
+    app_secret: str = ""
+    api_domain: str = "bot.yuanbao.tencent.com"
+    media_dir: Optional[str] = None
+
+
 class WeChatConfig(BaseChannelConfig):
     """WeChat (iLink Bot) personal account channel config.
 
@@ -455,6 +468,7 @@ class ChannelConfig(BaseModel):
     sip: SIPChannelConfig = SIPChannelConfig()
     wecom: WecomConfig = WecomConfig()
     xiaoyi: XiaoYiConfig = XiaoYiConfig()
+    yuanbao: YuanbaoConfig = YuanbaoConfig()
     wechat: WeChatConfig = WeChatConfig()
     onebot: OneBotConfig = OneBotConfig()
 
