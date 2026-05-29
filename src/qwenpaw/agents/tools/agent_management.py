@@ -764,7 +764,10 @@ async def _call_fork_api(
         "channel": channel,
     }
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(
+            timeout=30.0,
+            trust_env=trust_env_for_url(url),
+        ) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
             return resp.json()
@@ -794,7 +797,7 @@ async def _maybe_cleanup_worktree(
             )
             if result.returncode != 0 or result.stdout.strip():
                 return False
-            _subprocess.run(
+            remove_result = _subprocess.run(
                 [
                     "git",
                     "worktree",
@@ -807,7 +810,7 @@ async def _maybe_cleanup_worktree(
                 timeout=30,
                 check=False,
             )
-            return True
+            return remove_result.returncode == 0
         except Exception:  # noqa: BLE001
             return False
 

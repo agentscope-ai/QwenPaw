@@ -206,7 +206,7 @@ def _create_worktree(
     if result.returncode != 0:
         raise HTTPException(
             status_code=500,
-            detail=(f"git worktree add failed: " f"{result.stderr.strip()}"),
+            detail=f"git worktree add failed: {result.stderr.strip()}",
         )
 
     logger.info(
@@ -226,15 +226,34 @@ def _copy_worktreeinclude_files(src: Path, dst: Path) -> None:
 
     import shutil
 
+    src_resolved = src.resolve()
+    dst_resolved = dst.resolve()
+
     for line in include_file.read_text(
         encoding="utf-8",
     ).splitlines():
         name = line.strip()
         if not name or name.startswith("#"):
             continue
-        src_file = src / name
-        dst_file = dst / name
-        if src_file.exists():
+        rel = Path(name)
+        if rel.is_absolute() or ".." in rel.parts:
+            logger.warning(
+                "Skipping unsafe .worktreeinclude path: %s",
+                name,
+            )
+            continue
+        src_file = (src / rel).resolve()
+        dst_file = (dst / rel).resolve()
+        try:
+            src_file.relative_to(src_resolved)
+            dst_file.relative_to(dst_resolved)
+        except ValueError:
+            logger.warning(
+                "Skipping worktreeinclude outside project: %s",
+                name,
+            )
+            continue
+        if src_file.is_file():
             try:
                 dst_file.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(str(src_file), str(dst_file))

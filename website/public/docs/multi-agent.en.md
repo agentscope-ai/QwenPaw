@@ -696,8 +696,6 @@ cp -r ~/.qwenpaw/workspaces ~/backups/workspaces-$(date +%Y%m%d)
 
 ---
 
----
-
 ## Part 3: In-Workspace Subagents (spawn_subagent)
 
 > Introduced in **v1.1.10**.
