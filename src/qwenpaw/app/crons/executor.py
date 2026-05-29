@@ -34,6 +34,10 @@ class CronExecutor:
         target_session_id = job.dispatch.target.session_id
         target_channel = job.dispatch.channel
         dispatch_meta: Dict[str, Any] = dict(job.dispatch.meta or {})
+        if job.task_type == "agent":
+            # Agent cron replies still print to the console channel, but
+            # should not raise frontend push bubbles (Inbox remains opt-in).
+            dispatch_meta["suppress_console_push"] = True
         logger.info(
             "cron execute: job_id=%s channel=%s task_type=%s "
             "target_user_id=%s target_session_id=%s",
