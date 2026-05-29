@@ -3,7 +3,7 @@
  * Callers provide the URL and fallback name; this module picks the save path.
  */
 import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
+import { download as tauriDownload } from "@tauri-apps/plugin-upload";
 import {
   isDesktopTauriRuntime,
   isHttpExternalUrl,
@@ -73,8 +73,10 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
   a.download = filename;
   document.body.appendChild(a);
   a.click();
-  setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-  document.body.removeChild(a);
+  setTimeout(() => {
+    URL.revokeObjectURL(objectUrl);
+    a.remove();
+  }, 0);
 }
 
 /** Normalize suggested filenames for native save dialogs across platforms. */
@@ -86,6 +88,14 @@ function sanitizeSaveFilename(filename: string): string {
     .trim()
     .replace(/[. ]+$/g, "");
   return sanitized || "download";
+}
+
+/** Convert fetch-style header objects to the Map shape expected by Tauri plugins. */
+function headersToMap(
+  headers?: Record<string, string>,
+): Map<string, string> | undefined {
+  const entries = Object.entries(headers ?? {});
+  return entries.length > 0 ? new Map(entries) : undefined;
 }
 
 /** Fetch the file contents and optionally honor the server-provided filename. */
@@ -137,17 +147,26 @@ async function getTauriSavePath(filename: string): Promise<string> {
   return savePath;
 }
 
-/** Save in Tauri using the native dialog and filesystem plugins. */
+/** Save in Tauri with a native dialog and Rust-side streaming download. */
 async function downloadWithTauri(
   url: string,
   filename: string,
   options: DownloadFileOptions,
 ): Promise<void> {
   const savePath = await getTauriSavePath(filename);
-  const { blob } = await fetchDownloadBlob(url, options);
-  // The Tauri fs plugin write path currently buffers the whole response.
-  // Large exports should be revisited if a streaming write API is adopted.
-  await writeFile(savePath, new Uint8Array(await blob.arrayBuffer()));
+  try {
+    await tauriDownload(
+      url,
+      savePath,
+      undefined,
+      headersToMap(options.headers),
+    );
+  } catch (error) {
+    if (options.errorMessage) {
+      throw new Error(options.errorMessage);
+    }
+    throw error;
+  }
 }
 
 /** Save in a regular browser by fetching a blob and clicking a download link. */
@@ -160,7 +179,10 @@ async function downloadWithBrowser(
     url,
     options,
   );
-  triggerBrowserDownload(blob, responseFilename || filename);
+  triggerBrowserDownload(
+    blob,
+    sanitizeSaveFilename(responseFilename || filename),
+  );
 }
 
 /** Download a URL using the best available runtime path: pywebview, Tauri, or browser. */
@@ -195,5 +217,5 @@ export async function downloadFileFromUrl(
     return;
   }
 
-  await downloadWithBrowser(requestUrl, filename, options);
+  await downloadWithBrowser(requestUrl, safeFilename, options);
 }

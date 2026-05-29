@@ -11,7 +11,7 @@ pub fn run() {
     let build_result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_upload::init())
         .invoke_handler(tauri::generate_handler![
             backend::backend_port,
             backend::backend_startup_error,

@@ -10,7 +10,7 @@
     "backend",
     "core:default",
     "dialog:allow-save",
-    "fs:allow-write-file",
+    "upload:allow-download",
     "open-external-link"
   ]
 }

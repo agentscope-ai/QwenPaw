@@ -7,8 +7,8 @@ const tauriMocks = vi.hoisted(() => ({
 const dialogMocks = vi.hoisted(() => ({
   save: vi.fn(),
 }));
-const fsMocks = vi.hoisted(() => ({
-  writeFile: vi.fn(),
+const uploadMocks = vi.hoisted(() => ({
+  download: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -18,8 +18,8 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   save: dialogMocks.save,
 }));
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  writeFile: fsMocks.writeFile,
+vi.mock("@tauri-apps/plugin-upload", () => ({
+  download: uploadMocks.download,
 }));
 
 import {
@@ -37,8 +37,8 @@ describe("openExternalLink", () => {
     tauriMocks.isTauri.mockReturnValue(false);
     tauriMocks.invoke.mockResolvedValue(undefined);
     dialogMocks.save.mockReset();
-    fsMocks.writeFile.mockReset();
-    fsMocks.writeFile.mockResolvedValue(undefined);
+    uploadMocks.download.mockReset();
+    uploadMocks.download.mockResolvedValue(undefined);
     fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
     Object.defineProperty(URL, "createObjectURL", {
@@ -216,17 +216,10 @@ describe("openExternalLink", () => {
     });
   });
 
-  it("downloads Tauri files with fetch headers and native file writing", async () => {
+  it("downloads Tauri files with headers through the native upload plugin", async () => {
     tauriMocks.isTauri.mockReturnValue(true);
     dialogMocks.save.mockResolvedValue("C:\\Downloads\\server.zip");
     localStorage.setItem("qwenpaw_auth_token", "tok");
-    fetchMock.mockResolvedValue(
-      new Response("zip", {
-        headers: {
-          "Content-Disposition": 'attachment; filename="server.zip"',
-        },
-      }),
-    );
 
     await expect(
       downloadFileFromUrl("/api/workspace/download", "workspace.zip", {
@@ -238,17 +231,16 @@ describe("openExternalLink", () => {
     expect(dialogMocks.save).toHaveBeenCalledWith({
       defaultPath: "workspace.zip",
     });
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(uploadMocks.download).toHaveBeenCalledWith(
       "http://localhost:3000/api/workspace/download",
-      { headers: { "X-Agent-Id": "agent-a" } },
+      "C:\\Downloads\\server.zip",
+      undefined,
+      new Map([["X-Agent-Id", "agent-a"]]),
     );
     expect(dialogMocks.save.mock.invocationCallOrder[0]).toBeLessThan(
-      fetchMock.mock.invocationCallOrder[0],
+      uploadMocks.download.mock.invocationCallOrder[0],
     );
-    expect(fsMocks.writeFile).toHaveBeenCalledWith(
-      "C:\\Downloads\\server.zip",
-      expect.any(Uint8Array),
-    );
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(tauriMocks.invoke).not.toHaveBeenCalled();
   });
 
@@ -301,7 +293,6 @@ describe("openExternalLink", () => {
   it("sanitizes Tauri save dialog filenames for Windows", async () => {
     tauriMocks.isTauri.mockReturnValue(true);
     dialogMocks.save.mockResolvedValue("C:\\Downloads\\backup.zip");
-    fetchMock.mockResolvedValue(new Response("zip"));
 
     await expect(
       downloadFileFromUrl(
@@ -313,11 +304,11 @@ describe("openExternalLink", () => {
     expect(dialogMocks.save).toHaveBeenCalledWith({
       defaultPath: "Backup 2026-05-22 14_13.zip",
     });
-    expect(fetchMock).toHaveBeenCalled();
-    expect(fsMocks.writeFile).toHaveBeenCalled();
+    expect(uploadMocks.download).toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("reports Tauri download cancellation without writing a file", async () => {
+  it("reports Tauri download cancellation before starting the native download", async () => {
     tauriMocks.isTauri.mockReturnValue(true);
     dialogMocks.save.mockResolvedValue(null);
     fetchMock.mockResolvedValue(new Response("zip"));
@@ -329,13 +320,13 @@ describe("openExternalLink", () => {
     ).rejects.toBeInstanceOf(DownloadCancelledError);
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(fsMocks.writeFile).not.toHaveBeenCalled();
+    expect(uploadMocks.download).not.toHaveBeenCalled();
   });
 
-  it("does not write a Tauri download when fetch fails", async () => {
+  it("surfaces Tauri native download failures with the caller's message", async () => {
     tauriMocks.isTauri.mockReturnValue(true);
     dialogMocks.save.mockResolvedValue("C:\\Downloads\\server.zip");
-    fetchMock.mockResolvedValue(new Response("nope", { status: 500 }));
+    uploadMocks.download.mockRejectedValue(new Error("HTTP 500"));
 
     await expect(
       downloadFileFromUrl("/api/workspace/download", "workspace.zip", {
@@ -343,7 +334,7 @@ describe("openExternalLink", () => {
       }),
     ).rejects.toThrow("Export failed");
 
-    expect(fsMocks.writeFile).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("does not add auth query parameters to external API-shaped downloads", async () => {
