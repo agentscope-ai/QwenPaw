@@ -1,3 +1,7 @@
+/**
+ * Cross-runtime external link opener for browser, legacy pywebview, and Tauri.
+ * It validates supported protocols and delegates desktop shells to native openers.
+ */
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 const URL_WITH_SCHEME_RE = /^[a-z][a-z\d+\-.]*:/i;
@@ -12,6 +16,7 @@ const SUPPORTED_EXTERNAL_PROTOCOLS = new Set([
 const TAURI_OPEN_EXTERNAL_LINK_COMMAND = "open_external_link";
 type ExternalLinkRuntime = "pywebview" | "tauri" | "browser";
 
+/** Resolve absolute and app-relative URLs while ignoring empty or hash-only links. */
 export function resolveExternalUrl(url: string): string | null {
   const trimmedUrl = url.trim();
   if (!trimmedUrl || trimmedUrl.startsWith("#")) {
@@ -32,6 +37,7 @@ function protocolOf(url: string): string {
   return new URL(url).protocol;
 }
 
+/** Return true when a resolved URL is HTTP(S), the legacy desktop bridge's scope. */
 export function isHttpExternalUrl(url: string): boolean {
   try {
     return HTTP_PROTOCOLS.has(protocolOf(url));
@@ -48,6 +54,7 @@ function isSupportedExternalUrl(url: string): boolean {
   }
 }
 
+/** Resolve an input URL only if its protocol is safe to hand to external openers. */
 function resolveSupportedExternalUrl(url: string): string | null {
   const resolvedUrl = resolveExternalUrl(url);
   if (!resolvedUrl || !isSupportedExternalUrl(resolvedUrl)) {
@@ -57,6 +64,7 @@ function resolveSupportedExternalUrl(url: string): string | null {
   return resolvedUrl;
 }
 
+/** Validate href values before rendering them as externally openable links. */
 export function isSupportedExternalHref(href?: string): href is string {
   const trimmedHref = href?.trim();
   if (!trimmedHref || !URL_WITH_SCHEME_RE.test(trimmedHref)) {
@@ -68,16 +76,19 @@ export function isSupportedExternalHref(href?: string): href is string {
 
 type PyWebViewApi = NonNullable<Window["pywebview"]>["api"];
 
+/** Return the legacy pywebview bridge when the old desktop shell injects it. */
 function getPyWebViewApi(): PyWebViewApi | undefined {
   return window.pywebview?.api;
 }
 
+/** Detect Tauri even after the app has navigated to the backend-hosted console. */
 export function isDesktopTauriRuntime(): boolean {
   // When Tauri loads a remote-origin console, injected internals can still be
   // available even when the SDK helper does not report the runtime.
   return isTauri() || hasTauriInternals();
 }
 
+/** Check for Tauri's injected invoke hook when the SDK helper is unavailable. */
 function hasTauriInternals(): boolean {
   if (typeof window === "undefined") return false;
 
@@ -90,6 +101,7 @@ function hasTauriInternals(): boolean {
 // Runtime priority is intentional: the legacy pywebview bridge has its own
 // opener, while packaged Tauri should use the native command exposed to the
 // WebView, including backend-hosted remote origins allowed by capabilities.
+/** Choose which runtime should handle a validated external URL. */
 function detectExternalLinkRuntime(fullUrl: string): ExternalLinkRuntime {
   const pywebviewApi = getPyWebViewApi();
   if (pywebviewApi?.open_external_link && isHttpExternalUrl(fullUrl)) {
@@ -104,9 +116,9 @@ function detectExternalLinkRuntime(fullUrl: string): ExternalLinkRuntime {
 }
 
 /**
- * Open an external URL in the user's system browser when running under a
- * desktop shell, and fall back to window.open in the web console. This is
- * fire-and-forget: desktop bridge failures are logged asynchronously.
+ * Open a supported external URL in the OS/browser-appropriate target.
+ * Desktop bridge failures are logged asynchronously because clicks are
+ * fire-and-forget from the UI's perspective.
  */
 export function openExternalLink(
   url: string,

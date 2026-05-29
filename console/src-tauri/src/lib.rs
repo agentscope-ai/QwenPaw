@@ -1,9 +1,12 @@
+//! Tauri desktop entry point and plugin/command registration.
+
 mod backend;
 mod external_link;
 
 use tauri::{Manager, RunEvent, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Build the desktop app, wire native plugins/commands, and stop the backend on exit.
 pub fn run() {
     let build_result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())

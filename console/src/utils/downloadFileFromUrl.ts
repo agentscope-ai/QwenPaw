@@ -1,3 +1,7 @@
+/**
+ * Cross-runtime file download helper for browser, legacy pywebview, and Tauri.
+ * Callers provide the URL and fallback name; this module picks the save path.
+ */
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import {
@@ -34,10 +38,12 @@ interface PyWebViewDownloadApi {
 
 type PyWebViewSaveFile = NonNullable<PyWebViewDownloadApi["save_file"]>;
 
+/** Return the legacy desktop save bridge when the app is running in pywebview. */
 function getPyWebViewApi(): PyWebViewDownloadApi | undefined {
   return window.pywebview?.api;
 }
 
+/** Extract a suggested filename from the server's Content-Disposition header. */
 function filenameFromContentDisposition(value: string | null): string {
   if (!value) return "";
 
@@ -59,6 +65,7 @@ function filenameFromContentDisposition(value: string | null): string {
   return bareMatch?.[1]?.trim() ?? "";
 }
 
+/** Trigger a normal browser download by clicking a temporary blob-backed link. */
 function triggerBrowserDownload(blob: Blob, filename: string): void {
   const a = document.createElement("a");
   const objectUrl = URL.createObjectURL(blob);
@@ -70,6 +77,7 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
   document.body.removeChild(a);
 }
 
+/** Normalize suggested filenames for native save dialogs across platforms. */
 function sanitizeSaveFilename(filename: string): string {
   // Use Windows-safe names for native dialogs so suggested filenames work
   // across both packaged desktop shells and all supported OS file systems.
@@ -80,6 +88,7 @@ function sanitizeSaveFilename(filename: string): string {
   return sanitized || "download";
 }
 
+/** Fetch the file contents and optionally honor the server-provided filename. */
 async function fetchDownloadBlob(
   url: string,
   options: DownloadFileOptions,
@@ -99,6 +108,7 @@ async function fetchDownloadBlob(
   return { blob: await res.blob(), filename };
 }
 
+/** Save through the legacy pywebview bridge used by the old desktop package. */
 async function downloadWithPyWebView(
   saveFile: PyWebViewSaveFile,
   url: string,
@@ -115,6 +125,7 @@ async function downloadWithPyWebView(
   }
 }
 
+/** Ask Tauri's native dialog plugin for the destination path. */
 async function getTauriSavePath(filename: string): Promise<string> {
   const savePath = await save({
     defaultPath: filename,
@@ -126,6 +137,7 @@ async function getTauriSavePath(filename: string): Promise<string> {
   return savePath;
 }
 
+/** Save in Tauri using the native dialog and filesystem plugins. */
 async function downloadWithTauri(
   url: string,
   filename: string,
@@ -138,6 +150,7 @@ async function downloadWithTauri(
   await writeFile(savePath, new Uint8Array(await blob.arrayBuffer()));
 }
 
+/** Save in a regular browser by fetching a blob and clicking a download link. */
 async function downloadWithBrowser(
   url: string,
   filename: string,
@@ -150,6 +163,7 @@ async function downloadWithBrowser(
   triggerBrowserDownload(blob, responseFilename || filename);
 }
 
+/** Download a URL using the best available runtime path: pywebview, Tauri, or browser. */
 export async function downloadFileFromUrl(
   url: string,
   filename: string,

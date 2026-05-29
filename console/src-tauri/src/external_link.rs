@@ -1,8 +1,11 @@
+//! Tauri command for opening vetted external URLs in the system browser.
+
 use tauri_plugin_shell::ShellExt;
 
 // Keep in sync with console/src/utils/openExternalLink.ts.
 const SUPPORTED_EXTERNAL_PREFIXES: [&str; 4] = ["http://", "https://", "mailto:", "tel:"];
 
+/// Validate and open an external URL through the OS shell.
 #[tauri::command]
 pub(crate) fn open_external_link(app: tauri::AppHandle, url: String) -> Result<(), String> {
     if let Err(err) = validate_external_url(&url) {
@@ -22,6 +25,7 @@ pub(crate) fn open_external_link(app: tauri::AppHandle, url: String) -> Result<(
     }
 }
 
+/// Reject empty, ambiguous, or unsupported URL inputs before calling shell.open.
 fn validate_external_url(url: &str) -> Result<(), String> {
     let trimmed_url = url.trim();
     if trimmed_url.is_empty() {
