@@ -269,6 +269,12 @@ def _sanitize_tool_schemas(
     return sanitized
 
 
+# Parameters accepted by OpenAI SDK's chat.completions.create().
+# Non-standard params (e.g. enable_search) are moved to extra_body.
+# API: https://developers.openai.com/api/reference/resources
+#      /chat/subresources/completions/methods/create
+# SDK: https://github.com/openai/openai-python
+#      ?tab=readme-ov-file#undocumented-request-params
 _OPENAI_CREATE_PARAMS = frozenset(
     {
         "messages",
