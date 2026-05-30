@@ -2142,6 +2142,14 @@ def get_model_max_input_length(
     from ..providers import ProviderManager
 
     model_slot = agent_config.active_model
+    # Fallback: if agent.json doesn't have active_model, try ProviderManager
+    if not model_slot or not model_slot.provider_id:
+        try:
+            manager = ProviderManager.get_instance()
+            model_slot = manager.get_active_model()
+        except Exception:
+            pass
+
     if model_slot and model_slot.provider_id and model_slot.model:
         try:
             manager = ProviderManager.get_instance()
