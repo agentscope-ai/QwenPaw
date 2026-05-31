@@ -6,6 +6,7 @@ import mimetypes
 import os
 import unicodedata
 import urllib.parse
+from urllib.parse import unquote
 from pathlib import Path
 from typing import Optional
 
@@ -84,6 +85,7 @@ def _validate_media_path(
     Returns ``(resolved_path, None)`` on success or
     ``(_, error_response)`` on failure.
     """
+    file_path = unquote(file_path)
     file_path = unicodedata.normalize(
         "NFC",
         os.path.expanduser(file_path),
@@ -364,7 +366,7 @@ async def view_image(image_path: str) -> ToolResponse:
         content=[
             ImageBlock(
                 type="image",
-                source={"type": "url", "url": resolved.as_uri()},
+                source={"type": "url", "url": "file://" + str(resolved)},
             ),
             TextBlock(type="text", text=text_msg),
         ],
@@ -434,7 +436,7 @@ async def view_video(video_path: str) -> ToolResponse:
         content=[
             VideoBlock(
                 type="video",
-                source={"type": "url", "url": resolved.as_uri()},
+                source={"type": "url", "url": "file://" + str(resolved)},
             ),
             TextBlock(type="text", text=text_msg),
         ],

@@ -67,7 +67,7 @@ def make_tool(
 
     adapted = adapt_tool(func)
     if agent_id is not None:
-        from .._compat.runtime_engine import GuardedFunctionTool
+        from ..runtime_engine import GuardedFunctionTool
 
         return GuardedFunctionTool(
             adapted,

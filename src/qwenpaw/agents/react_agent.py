@@ -258,74 +258,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 context_manager=self.context_manager,
             )
         else:
-            self.command_handler = None  # type: ignore[assignment]
-
-    # TODO(as2-migration): agentscope 2.0 Agent no longer prints to console
-    # itself (the print middleware was replaced by event subscribers), so
-    # ``set_console_output_enabled`` has no effect — the flag is kept so
-    # call sites (runner, light_context_manager, reme_light_memory_manager)
-    # don't blow up. Remove once those call sites are updated.
-    def set_console_output_enabled(self, enabled: bool = True) -> None:
-        self._disable_console_output = not enabled
-
-    def disable_console_output(self) -> None:
-        self._disable_console_output = True
-
-    # TODO(as2-migration): agentscope 2.0 ``Agent`` is not callable and
-    # dropped ``set_msg_queue_enabled`` / ``interrupt``.  The runner still
-    # uses the 1.x pattern (``coroutine_task=agent(msgs)`` + a streaming
-    # queue installed via ``set_msg_queue_enabled`` + cancellation via
-    # ``agent.interrupt()``) in ``_stream_printing_messages_interruptible``
-    # (app/runner/runner.py:69).  Shim those three here so the round-trip
-    # works without rewriting the runner's streaming loop.
-    #
-    # The 1.x contract pushed ``(deepcopy(msg), last, speech)`` tuples onto
-    # the queue.  We only have ``Msg`` objects from ``_reply`` (no audio),
-    # so ``speech`` is always ``None``.  ``last`` is ``True`` only for the
-    # final ``Msg`` yielded by ``_reply``; we use a one-element lookahead.
-    def set_msg_queue_enabled(
-        self,
-        enabled: bool,
-        queue: Any = None,
-    ) -> None:
-        """1.x ``set_msg_queue_enabled`` shim — streaming queue."""
-        if enabled:
-            self._msg_queue = queue
-        else:
-            self._msg_queue = None
-        self._disable_msg_queue = not enabled
-
-    async def interrupt(self, msg: Any = None) -> None:
-        """1.x ``Agent.interrupt`` shim — no-op.
-
-        2.0 cancellation works through the surrounding ``asyncio.Task``;
-        the runner already cancels that task via
-        ``_cancel_streaming_agent_task``.  Nothing extra to do here.
-        """
-        del msg
-
-    async def __call__(self, msgs: Any) -> Any:
-        """1.x ReActAgent-style callable entry point.
-
-        Runs the 2.0 ``_reply`` generator, mirrors each ``Msg`` it yields
-        into the queue installed by ``set_msg_queue_enabled`` (so the
-        runner's streaming loop can pick them up), and returns the final
-        ``Msg`` for the awaiting coroutine task.
-        """
-        queue = getattr(self, "_msg_queue", None)
-        disabled = getattr(self, "_disable_msg_queue", True)
-
-        final_msg: Any = None
-        prev_msg: Any = None
-        async for item in self._reply(inputs=msgs):
-            if isinstance(item, Msg):
-                if prev_msg is not None and queue is not None and not disabled:
-                    await queue.put((prev_msg, False, None))
-                prev_msg = item
-                final_msg = item
-        if prev_msg is not None and queue is not None and not disabled:
-            await queue.put((prev_msg, True, None))
-        return final_msg
+            self.command_handler = None
 
     # TODO(as2-migration): agentscope 2.0 dropped the StateModule API; the
     # equivalent is the ``AgentState`` pydantic model on ``self.state``.  The

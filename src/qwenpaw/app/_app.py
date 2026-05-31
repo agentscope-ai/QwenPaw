@@ -170,30 +170,6 @@ class DynamicMultiAgentRunner:
             if workspace is not None and run_key is not None:
                 await workspace.task_tracker.unregister_external_task(run_key)
 
-    async def query_handler(self, request, *args, **kwargs):
-        """Dynamically route to the correct workspace runner.
-
-        Registers the task with the workspace's TaskTracker so that
-        graceful shutdown during agent reload can detect in-flight
-        requests (fixes #3275).
-        """
-        workspace = None
-        run_key = None
-        try:
-            workspace = await self._get_workspace(request)
-            runner = workspace.runner
-
-            run_key = f"ext-{uuid.uuid4().hex}"
-            await workspace.task_tracker.register_external_task(run_key)
-
-            async for item in runner.query_handler(request, *args, **kwargs):
-                yield item
-        finally:
-            # Always unregister the task when done (success, error,
-            # or cancellation).
-            if workspace is not None and run_key is not None:
-                await workspace.task_tracker.unregister_external_task(run_key)
-
     # Async context manager support for lifecycle management
     async def __aenter__(self):
         """

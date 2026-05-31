@@ -4,7 +4,7 @@
 import os
 import mimetypes
 import unicodedata
-from urllib.parse import quote
+from urllib.parse import unquote
 
 from agentscope.tool import ToolResponse
 from agentscope.message import TextBlock, DataBlock, URLSource
@@ -13,36 +13,22 @@ from .file_io import _resolve_file_path
 
 
 def _path_to_file_url(path: str) -> str:
-    """Convert a local file path to a proper file:// URL (RFC 8089).
+    """Convert a local file path to a ``file://`` URL.
 
-    On Windows, converts:
-      C:\\path\\file.txt      →  file:///C:/path/file.txt
-      \\\\server\\share\\f.txt  →  file://server/share/f.txt
-
-    Non-ASCII characters and ``%`` are percent-encoded so the URL is
-    always valid ASCII and round-trips correctly through url2pathname.
+    Does NOT percent-encode non-ASCII characters because agentscope's
+    DashScope formatter extracts the local path from the URL without
+    ``unquote()``, causing ``FileNotFoundError`` for files with
+    non-ASCII names (e.g. Chinese characters).
     """
-    # Normalize to absolute path
     abs_path = os.path.abspath(path)
-
-    # Convert backslashes to forward slashes (Windows)
     if os.name == "nt":
         abs_path = abs_path.replace("\\", "/")
 
-    # Percent-encode non-ASCII and special characters.
-    # ``%`` must NOT be in *safe* — otherwise a literal ``%25`` in a
-    # filename would survive un-encoded and be mis-decoded later.
-    encoded_path = quote(abs_path, safe="/:@")
-
-    # RFC 8089: file:///  (authority is empty → three slashes)
     if os.name == "nt":
-        # UNC path: //server/share/… → file://server/share/…
-        if encoded_path.startswith("//"):
-            return f"file:{encoded_path}"
-        # Local drive: C:/… → file:///C:/…
-        return f"file:///{encoded_path}"
-    # POSIX: abs_path already starts with "/" → file:///…
-    return f"file://{encoded_path}"
+        if abs_path.startswith("//"):
+            return f"file:{abs_path}"
+        return f"file:///{abs_path}"
+    return f"file://{abs_path}"
 
 
 async def send_file_to_user(
@@ -59,9 +45,9 @@ async def send_file_to_user(
             The tool response containing the file or an error message.
     """
 
-    # Normalize the path: expand ~ and fix Unicode normalization differences
-    # (e.g. macOS stores filenames as NFD but paths from the LLM arrive as NFC,
-    # causing os.path.exists to return False for files that do exist).
+    # Decode percent-encoded chars (model may pass URL-encoded paths from context)
+    # then normalize Unicode (macOS NFD vs NFC).
+    file_path = unquote(file_path)
     file_path = os.path.expanduser(unicodedata.normalize("NFC", file_path))
 
     # Resolve relative paths to absolute paths based on workspace directory

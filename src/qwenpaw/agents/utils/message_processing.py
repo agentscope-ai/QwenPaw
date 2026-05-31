@@ -185,6 +185,11 @@ def _convert_audio_to_wav(src_path: str) -> Optional[str]:
         return None
 
 
+def _local_file_url(path: str) -> str:
+    """Build a ``file://`` URL without percent-encoding non-ASCII chars."""
+    return "file://" + str(Path(path).resolve())
+
+
 def _update_block_with_local_path(
     block: dict,
     block_type: str,
@@ -199,13 +204,13 @@ def _update_block_with_local_path(
         if block_type == "audio":
             block["source"] = {
                 "type": "url",
-                "url": Path(local_path).as_uri(),
+                "url": _local_file_url(local_path),
                 "media_type": _media_type_from_path(local_path),
             }
         else:
             block["source"] = {
                 "type": "url",
-                "url": Path(local_path).as_uri(),
+                "url": _local_file_url(local_path),
             }
     return block
 
@@ -274,7 +279,7 @@ async def _process_audio_block(
             return True
         block["source"] = {
             "type": "url",
-            "url": Path(audio_path).as_uri(),
+            "url": _local_file_url(audio_path),
             "media_type": _media_type_from_path(audio_path),
         }
         return True
@@ -327,7 +332,7 @@ async def _process_single_block(
         if isinstance(data, str) and os.path.isfile(data):
             block["source"] = {
                 "type": "url",
-                "url": Path(data).as_uri(),
+                "url": _local_file_url(data),
                 "media_type": _media_type_from_path(data),
             }
             source = block["source"]

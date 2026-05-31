@@ -699,6 +699,7 @@ def _fix_image_mime_types(messages: list[dict]) -> None:
 _MEDIA_BLOCK_TYPES = ("image", "audio", "video")
 
 
+# pylint: disable=too-many-branches
 def _fixup_media_list(items: list) -> None:
     """Normalize media blocks in a list in-place.
 
@@ -747,7 +748,10 @@ def _fixup_media_list(items: list) -> None:
                     ),
                 )
         elif btype == "data":
-            # 2.0 DataBlock — check if local file still exists
+            # 2.0 DataBlock — decode percent-encoded file:// URLs and
+            # check if local file still exists.  Pydantic's AnyUrl
+            # re-encodes non-ASCII chars; we must undo that before
+            # the DashScope formatter tries to open() the path.
             source = getattr(block, "source", None)
             url_str = str(getattr(source, "url", "")) if source else ""
             if url_str.startswith("file://"):
@@ -769,6 +773,8 @@ def _fixup_media_list(items: list) -> None:
                             f" — file deleted from disk]"
                         ),
                     )
+                elif unquote(url_str) != url_str:
+                    source.url = "file://" + local_path
         elif btype == "tool_result":
             output = (
                 block.get("output")
