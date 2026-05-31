@@ -549,8 +549,8 @@ export function ChannelDrawer({
               successStatus="success"
               successCredentialKey="app_id"
               pollInterval={2000}
-              pollTimeout={300000}      // 5 分钟总超时
-              maxPollCount={180}        // 保险丝：最多 180 次轮询
+              pollTimeout={300000} // 5 分钟总超时
+              maxPollCount={180} // 保险丝：最多 180 次轮询
               onSuccess={(credentials) => {
                 form.setFieldsValue({
                   app_id: credentials.app_id,
@@ -1442,8 +1442,8 @@ export function ChannelDrawer({
                 activeKey === "dingtalk"
                   ? t("channels.streamingEnabledDingtalkHint")
                   : activeKey === "feishu"
-                  ? t("channels.streamingEnabledFeishuHint")
-                  : undefined
+                    ? t("channels.streamingEnabledFeishuHint")
+                    : undefined
               }
             >
               <Switch />
