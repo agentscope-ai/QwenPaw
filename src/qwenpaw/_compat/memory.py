@@ -1,20 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Shims for the agentscope 1.x memory layer.
+"""1.x InMemoryMemory shim for legacy session deserialization.
 
-In agentscope 2.0 the memory abstraction was folded into
-:class:`agentscope.state.AgentState` (the agent's ``state.context``).  The
-old standalone :class:`agentscope.memory.InMemoryMemory` class — a list of
-``(Msg, marks)`` tuples with ``add`` / ``state_dict`` / ``load_state_dict``
-methods — is gone, as is the private ``_MemoryMark`` enum used to tag
-hint / compressed messages.
-
-qwenpaw's :class:`~qwenpaw.agents.context.agent_context.AgentContext`
-subclasses the old ``InMemoryMemory`` and relies on the tuple-list
-``self.content`` plus mark filtering.  Until ``AgentContext`` is rewritten
-on top of ``AgentState``, this module provides a faithful stand-in.
-
-TODO(as2-migration): delete once ``AgentContext`` no longer inherits from
-``InMemoryMemory`` and the ``marks=`` API is dropped from call sites.
+Used by ``load_state_dict`` (react_agent.py), ``api.py``, and
+proactive memory to deserialize 1.x session files that store
+messages as ``(Msg, marks)`` tuples.  Delete once all users have
+upgraded their session files to the 2.0 AgentState format.
 """
 from __future__ import annotations
 

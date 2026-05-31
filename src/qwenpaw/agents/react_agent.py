@@ -186,21 +186,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
             f"Agent '{agent_config.id}' initialized with model: "
             f"{model_info} (class: {model.__class__.__name__})",
         )
-        # TODO(as2-migration): agentscope 2.0 Agent.__init__ folded
-        # ``memory`` / ``formatter`` / ``max_iters`` / ``plan_notebook`` into
-        # different surfaces:
-        #   - memory: replaced by AgentState.context (set lazily on first
-        #   reply)
-        #   - formatter: lives on the model itself (set in the model's
-        #   __init__)
-        #   - max_iters: now ``ReActConfig.max_iters``
-        #   - plan_notebook: removed; planning is a middleware now
-        # The kwargs below are the new minimal init surface; the dropped knobs
-        # will be re-introduced once the corresponding 2.0 mechanisms are
-        # wired up in QwenPawAgent.
-        # The factory still returns ``formatter`` for downstream introspection
-        # (e.g. file-block support); attach it to the underlying model so the
-        # default 2.0 formatter on the model is overridden.
+        # Attach the custom formatter to the innermost model so it
+        # overrides agentscope's default formatter.
         if formatter is not None:
             innermost = model
             while hasattr(innermost, "_inner"):
@@ -260,13 +247,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         else:
             self.command_handler = None
 
-    # TODO(as2-migration): agentscope 2.0 dropped the StateModule API; the
-    # equivalent is the ``AgentState`` pydantic model on ``self.state``.  The
-    # runner's session persistence (save/load_session_state
-    # in app/runner/session.py) still calls ``state_dict``/``load_state_dict``
-    # directly on the agent, so shim them by round-tripping ``self.state``.
-    # Replace the call sites with ``self.state.model_dump_json()`` /
-    # ``AgentState.model_validate_json(...)`` when the runner is migrated.
+    # Session persistence calls state_dict/load_state_dict on the agent;
+    # these round-trip through self.state (AgentState pydantic model).
     def state_dict(self) -> dict:
         """Serialize the agent's 2.0 ``AgentState`` to a JSON-safe dict.
 
@@ -798,19 +780,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         except (ValueError, TypeError):
                             pass
 
-    # TODO(as2-migration): agentscope 2.0 changed ``_acting`` from
-    # ``async def -> dict | None`` to
-    # ``async def -> AsyncGenerator[ToolChunk | ToolResponse]``.  The 1.x
-    # version of this override also did a plan-tool-gate denial path that
-    # *returned None* after writing a synthetic ``ToolResultBlock`` into
-    # memory; in 2.0 the equivalent is yielding a denying ``ToolResponse``.
-    # Porting that requires building the right ToolResponse shape, so for
-    # the round-trip mainline we keep only the pre-call mutations
-    # (json-arg fix + pre-lock + ``_plan_text_only_after_mutation``) and
-    # forward super()._acting verbatim.  The gate denial branch is dropped
-    # for now — it only fires for ``create_plan`` / ``revise_current_plan``
-    # while a plan is awaiting confirmation, which the mainline test path
-    # never hits.
+    # Pre-call mutations (json-arg fix, plan hooks) then forward to
+    # super()._acting.  Plan gate denial is disabled (Plan feature
+    # is temporarily disabled in 2.0).
     async def _acting(self, tool_call):
         """Forward 2.0 ``_acting`` events with plan-mutation pre/post hooks.
 

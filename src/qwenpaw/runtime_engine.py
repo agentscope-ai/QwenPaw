@@ -21,8 +21,8 @@ The complex bits previously in ``AgentRunner.query_handler`` (plan notebook,
 mission mode) are handled separately; the core agent lifecycle (tool
 guard, mcp, hooks, skills) runs through ``QwenPawAgent`` middlewares.
 
-TODO(as2-migration): once channels consume agentscope 2.0 event types
-directly, simplify this module to a thin ``reply_stream`` wrapper.
+NOTE: channels consume qwenpaw's own envelope schema (``qwenpaw.schemas``),
+not agentscope event types directly.  This module translates between them.
 """
 from __future__ import annotations
 

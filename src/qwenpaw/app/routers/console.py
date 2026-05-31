@@ -94,10 +94,8 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
             if hasattr(content_part, "content"):
                 content_parts.extend(list(content_part.content or []))
             elif isinstance(content_part, dict) and "content" in content_part:
-                # Coerce raw dict content items to typed Content models so
-                # downstream getattr-based checks (e.g. _content_has_text)
-                # see real .type / .text attributes instead of None.
-                # TODO(as2-migration): drop once channels read dicts directly.
+                # Coerce raw dicts to typed Content models so downstream
+                # getattr checks (e.g. _content_has_text) see real attrs.
                 content_parts.extend(
                     _coerce_content_item(c)
                     for c in (content_part["content"] or [])

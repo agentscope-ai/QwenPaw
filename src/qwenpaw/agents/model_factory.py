@@ -932,15 +932,7 @@ def _create_file_block_support_formatter(
             self,
             output: Union[str, List[dict]],
         ) -> tuple[str, Sequence[Tuple[str, dict]]]:
-            """Extend parent class to support file blocks.
-
-            Uses try-first strategy for compatibility with parent class.
-            TODO(as2-migration): the 2.0 base method returns
-            ``tuple[str, list[TextBlock | DataBlock]]`` instead of the 1.x
-            ``[(path, dict), ...]`` shape, so the file-block branch below
-            still emits 1.x-shaped multimodal_data. Plain-text tool outputs
-            go through the parent and are unaffected.
-            """
+            """Extend parent class to support file blocks."""
             if isinstance(output, str):
                 return output, []
 

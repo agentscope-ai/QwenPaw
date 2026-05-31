@@ -1,18 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Temporary compatibility shims for the agentscope 1.x → 2.x migration.
+"""Compatibility shims for agentscope 1.x APIs.
 
-These modules exist only to let the qwenpaw codebase import and run while
-we incrementally rewrite call sites against the agentscope 2.0 API.
-
-Each shim is documented with the equivalent 2.0 API it should eventually be
-replaced by; once all call sites are migrated, the shim file is deleted.
-
-Side-effect on import: legacy ``Msg.to_dict`` / ``Msg.from_dict`` helpers
-are reattached to :class:`agentscope.message.Msg`.  agentscope 2.0 only
-exposes the pydantic ``model_dump`` / ``model_validate`` API; many qwenpaw
-call sites (and saved session files) still depend on the 1.x shape.
-TODO(as2-migration): drop this monkey-patch once every consumer has been
-ported to the new API.
+Remaining contents:
+- ``Msg.to_dict`` / ``Msg.from_dict`` / ``Msg.timestamp`` monkey-patches
+  (session files and some call sites still use the 1.x shape)
+- ``memory.py``: InMemoryMemory for legacy session deserialization
+- ``message.py``: ImageBlock/VideoBlock/ToolUseBlock factory aliases
 """
 from __future__ import annotations
 

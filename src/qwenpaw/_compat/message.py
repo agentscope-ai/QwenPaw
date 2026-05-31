@@ -12,12 +12,9 @@ to ``ToolCallBlock`` with a tighter contract:
     * the ``raw_input`` field is gone (the encoded ``input`` is
       authoritative).
 
-This module exposes thin wrappers so legacy call sites in qwenpaw keep
-working unchanged while we incrementally rewrite them to construct
-``DataBlock`` / ``ToolCallBlock`` directly.
-
-TODO(as2-migration): delete this module once every caller has been
-ported to ``agentscope.message`` 2.0 block constructors.
+This module exposes thin wrappers so remaining call sites
+(view_media.py, adbpg/reme_light memory managers) keep working.
+Delete once those callers are ported to ``DataBlock`` directly.
 """
 from __future__ import annotations
 
