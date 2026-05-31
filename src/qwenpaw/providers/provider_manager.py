@@ -12,7 +12,7 @@ import json
 from pydantic import BaseModel
 
 from agentscope.model import ChatModelBase
-from qwenpaw._compat.runtime import (
+from qwenpaw.exceptions import (
     ModelNotFoundException,
 )
 

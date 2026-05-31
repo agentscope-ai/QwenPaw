@@ -2,7 +2,7 @@
 import logging
 import os
 import time
-
+from . import _compat as _compat_bootstrap
 from .utils.logging import setup_logger
 
 # Fallback before we can safely read canonical constant definitions.
@@ -24,7 +24,6 @@ setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
 
 # NOTE(as2-migration): import for side effects — installs the
 # Msg.to_dict / Msg.from_dict polyfills on agentscope 2.0.
-from . import _compat as _compat_bootstrap  # noqa: E402,F401
 
 if _bootstrap_err is not None:
     logging.getLogger(__name__).warning(

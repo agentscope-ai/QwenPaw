@@ -156,23 +156,32 @@ class GeminiProvider(Provider):
         return adapted
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
+        from agentscope.credential import GeminiCredential
         from agentscope.model import GeminiChatModel
 
-        client_kwargs: dict = {}
-        headers = self._build_default_headers()
-        if headers:
-            client_kwargs["http_options"] = genai_types.HttpOptions(
-                headers=headers,
-            )
-        generate_kwargs = self._adapt_generate_kwargs_for_gemini(
+        credential = GeminiCredential(
+            id=f"qwenpaw-{self.id}",
+            api_key=self.api_key,
+        )
+
+        gen_kwargs = self._adapt_generate_kwargs_for_gemini(
             self.get_effective_generate_kwargs(model_id),
         )
-        return GeminiChatModel(
-            model_name=model_id,
+        parameters = GeminiChatModel.Parameters(
+            max_tokens=gen_kwargs.pop("max_output_tokens", None),
+            temperature=gen_kwargs.pop("temperature", None),
+            top_p=gen_kwargs.pop("top_p", None),
+        )
+
+        headers = self._build_default_headers()
+
+        return _GeminiChatModelCompat(
+            credential=credential,
+            model=model_id,
+            parameters=parameters,
             stream=True,
-            api_key=self.api_key,
-            client_kwargs=client_kwargs or None,
-            generate_kwargs=generate_kwargs,
+            default_headers=headers or None,
+            extra_config_kwargs=gen_kwargs or None,
         )
 
     async def probe_model_multimodal(
@@ -350,3 +359,96 @@ class GeminiProvider(Provider):
                 elapsed,
             )
             return False, f"Probe failed: {e}"
+
+
+class _GeminiChatModelCompat:
+    """Factory that creates a ``GeminiChatModel`` subclass with custom headers
+    and extra config kwargs injected into every API call."""
+
+    def __new__(cls, **kwargs: Any) -> Any:
+        from agentscope.model import GeminiChatModel
+
+        default_headers = kwargs.pop("default_headers", None)
+        extra_config_kwargs = kwargs.pop("extra_config_kwargs", None) or {}
+
+        class _Compat(GeminiChatModel):
+            _qp_default_headers = default_headers
+            _qp_extra_config_kwargs = extra_config_kwargs
+
+            async def _call_api(
+                self,
+                model_name,
+                messages,
+                tools=None,
+                tool_choice=None,
+                **config_kwargs,
+            ):
+                merged = {**self._qp_extra_config_kwargs, **config_kwargs}
+                if self._qp_default_headers:
+                    from datetime import datetime
+
+                    client = genai.Client(
+                        api_key=self.credential.api_key.get_secret_value(),
+                        http_options=genai_types.HttpOptions(
+                            headers=self._qp_default_headers,
+                        ),
+                    )
+
+                    formatted = await self.formatter.format(messages)
+                    config: dict[str, Any] = {**merged}
+                    if self.parameters.max_tokens is not None:
+                        config[
+                            "max_output_tokens"
+                        ] = self.parameters.max_tokens
+                    if self.parameters.temperature is not None:
+                        config["temperature"] = self.parameters.temperature
+                    if self.parameters.top_p is not None:
+                        config["top_p"] = self.parameters.top_p
+                    if self.parameters.thinking_enable:
+                        config["thinking_config"] = {
+                            "include_thoughts": True,
+                            "thinking_budget": (
+                                self.parameters.thinking_budget or 1024
+                            ),
+                        }
+
+                    fmt_tools, fmt_tc = self._format_tools(
+                        tools,
+                        tool_choice,
+                    )
+                    if fmt_tools is not None:
+                        config["tools"] = fmt_tools
+                    if fmt_tc is not None:
+                        config["tool_config"] = fmt_tc
+
+                    call_kwargs = {
+                        "model": model_name,
+                        "contents": formatted,
+                        "config": config,
+                    }
+                    start = datetime.now()
+                    if self.stream:
+                        response = (
+                            await client.aio.models.generate_content_stream(
+                                **call_kwargs,
+                            )
+                        )
+                        return self._parse_stream_response(
+                            start,
+                            response,
+                            client,
+                        )
+                    response = await client.aio.models.generate_content(
+                        **call_kwargs,
+                    )
+                    return self._parse_completion_response(start, response)
+
+                return await super()._call_api(
+                    model_name,
+                    messages,
+                    tools,
+                    tool_choice,
+                    **merged,
+                )
+
+        return _Compat(**kwargs)

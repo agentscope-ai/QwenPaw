@@ -9,7 +9,7 @@ import logging
 import time
 from typing import Dict, Set
 
-from qwenpaw._compat.runtime import (
+from qwenpaw.exceptions import (
     ConfigurationException,
 )
 

@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
 from __future__ import annotations
+import logging
 from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-# NOTE(as2-migration): InMemoryMemory removed in 2.0; shim mirrors 1.x API.
+from agentscope.message import Msg
+from agentscope.state import AgentState
+
 from qwenpaw._compat.memory import InMemoryMemory
 
 from .session import SafeJSONSession
@@ -16,6 +19,8 @@ from .models import (
     ChatHistory,
 )
 from .utils import agentscope_msg_to_message
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
@@ -169,11 +174,30 @@ async def get_chat(
     status = await workspace.task_tracker.get_status(chat_id)
     if not state:
         return ChatHistory(messages=[], status=status)
-    memory_state = state.get("agent", {}).get("memory", {})
-    memory = InMemoryMemory()
-    memory.load_state_dict(memory_state, strict=False)
 
-    memories = await memory.get_memory(prepend_summary=True)
+    agent_raw = state.get("agent", {})
+    memories: list[Msg] = []
+
+    # Phase 2a format: ``agent.state`` contains AgentState pydantic dump.
+    state_raw = agent_raw.get("state")
+    if isinstance(state_raw, dict):
+        try:
+            agent_state = AgentState.model_validate(state_raw)
+            memories = list(agent_state.context)
+        except Exception:
+            logger.debug(
+                "Failed to parse agent.state, falling back to legacy",
+                exc_info=True,
+            )
+
+    # Legacy fallback: 1.x ``agent.memory`` format.
+    if not memories:
+        memory_raw = agent_raw.get("memory", {})
+        if memory_raw:
+            memory = InMemoryMemory()
+            memory.load_state_dict(memory_raw, strict=False)
+            memories = await memory.get_memory(prepend_summary=True)
+
     messages = agentscope_msg_to_message(memories)
     return ChatHistory(messages=messages, status=status)
 

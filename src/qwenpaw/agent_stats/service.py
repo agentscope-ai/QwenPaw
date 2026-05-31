@@ -161,10 +161,12 @@ def _process_session_file(
 
             if isinstance(content, list):
                 for block in content:
-                    if (
-                        isinstance(block, dict)
-                        and block.get("type") == "tool_use"
-                    ):
+                    btype = (
+                        block.get("type")
+                        if isinstance(block, dict)
+                        else getattr(block, "type", None)
+                    )
+                    if btype in ("tool_use", "tool_call"):
                         ds["tool_calls"] += 1
                         tool_call_count += 1
 

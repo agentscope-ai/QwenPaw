@@ -11,37 +11,37 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
+from typing import Any, List, Literal, Optional, TYPE_CHECKING
 
-from agentscope.agent import Agent, ContextConfig, ReActConfig
-from agentscope.message import Msg, TextBlock, ToolResultBlock
+from agentscope.agent import Agent, ReActConfig
+from agentscope.message import Msg, TextBlock
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
-# NOTE(as2-migration): _MemoryMark removed in agentscope 2.0; use the
-# shared compat shim instead of an ad-hoc placeholder so AgentContext and
-# react_agent agree on the enum values.
-from .._compat.memory import InMemoryMemory, _MemoryMark  # noqa
 from anyio import ClosedResourceError
-from pydantic import BaseModel
 
 from ..app.mcp import HttpStatefulClient, StdIOStatefulClient
 from .command_handler import CommandHandler
 from .hooks import BootstrapHook
+from .middlewares import (
+    BootstrapMiddleware,
+    ContextManagerMiddleware,
+    RequestSetupMiddleware,
+)
 from .model_factory import create_model_and_formatter
-from .prompt import (
+from .tool_compat import make_tool
+from .prompt import (  # pylint: disable=unused-import
     build_multimodal_hint,
     build_system_prompt_from_working_dir,
     get_active_model_supports_multimodal,
 )
-from .skill_system import (
+from .skill_system import (  # pylint: disable=unused-import
     apply_skill_config_env_overrides,
     ensure_skills_initialized,
     get_workspace_skills_dir,
     resolve_effective_skills,
 )
 from .coding_mode_mixin import CodingModeMixin
-from .tool_guard_mixin import ToolGuardMixin
 from .tools import (
     browser_use,
     delegate_external_agent,
@@ -64,7 +64,6 @@ from .tools import (
     view_video,
     write_file,
 )
-from .utils import process_file_and_media_blocks_in_message
 from ..constant import (
     MEDIA_UNSUPPORTED_PLACEHOLDER,
     WORKING_DIR,
@@ -75,7 +74,6 @@ if TYPE_CHECKING:
     from ..agents.memory import BaseMemoryManager
     from ..agents.context import BaseContextManager
     from ..config.config import AgentProfileConfig
-    from .context import AgentContext
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +81,7 @@ logger = logging.getLogger(__name__)
 NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
 
 
-class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
+class QwenPawAgent(CodingModeMixin, Agent):
     """QwenPaw Agent with integrated tools, skills, and memory management.
 
     This agent extends agentscope 2.0 ``Agent`` with:
@@ -92,14 +90,8 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
     - Memory management with auto-compaction
     - Bootstrap guidance for first-time setup
     - System command handling (/compact, /new, etc.)
-    - Tool-guard security interception (via ToolGuardMixin)
+    - Tool-guard security (via ``GuardedFunctionTool.check_permissions``)
     - Coding Mode features: Inline Diff (via CodingModeMixin)
-
-    MRO note
-    ~~~~~~~~
-    MRO: QwenPawAgent → CodingModeMixin → ToolGuardMixin → ReActAgent.
-    Each ``_acting`` override **must** call ``super()._acting(...)`` so
-    the full chain stays active.
     """
 
     def __init__(
@@ -168,7 +160,6 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
 
         # Initialize toolkit with built-in tools
         toolkit = self._create_toolkit(
-            namesake_strategy=namesake_strategy,
             effective_skills=effective_skills,
         )
 
@@ -198,8 +189,10 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
         # TODO(as2-migration): agentscope 2.0 Agent.__init__ folded
         # ``memory`` / ``formatter`` / ``max_iters`` / ``plan_notebook`` into
         # different surfaces:
-        #   - memory: replaced by AgentState.context (set lazily on first reply)
-        #   - formatter: lives on the model itself (set in the model's __init__)
+        #   - memory: replaced by AgentState.context (set lazily on first
+        #   reply)
+        #   - formatter: lives on the model itself (set in the model's
+        #   __init__)
         #   - max_iters: now ``ReActConfig.max_iters``
         #   - plan_notebook: removed; planning is a middleware now
         # The kwargs below are the new minimal init surface; the dropped knobs
@@ -216,56 +209,56 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
                 innermost = innermost._model
             if hasattr(innermost, "formatter"):
                 innermost.formatter = formatter
+        middlewares = self._build_middlewares()
         init_kwargs: dict[str, Any] = {
             "name": agent_config.name or "QwenPaw",
             "model": model,
             "system_prompt": sys_prompt,
             "toolkit": toolkit,
             "react_config": ReActConfig(max_iters=running_config.max_iters),
+            "middlewares": middlewares,
         }
         super().__init__(**init_kwargs)
 
         # Register memory tools provided by the memory manager
         if self.memory_manager is not None:
             memory_tools = self.memory_manager.list_memory_tools()
+            basic_group = self.toolkit.tool_groups[0]
             for tool_fn in memory_tools:
-                self.toolkit.register_tool_function(
-                    tool_fn,
-                    namesake_strategy=self._namesake_strategy,
+                basic_group.tools.append(
+                    make_tool(
+                        tool_fn,
+                        agent_id=self._agent_config.id,
+                    ),
                 )
             logger.debug(
                 "Registered memory tools: %s",
                 [fn.__name__ for fn in memory_tools],
             )
 
-        # Configure context manager memory if available.  When
-        # ``context_manager`` is None (e.g. Phase 1 runtime_engine path that
-        # hasn't ported the memory layer yet), pin ``self.memory = None``
-        # so downstream attribute reads don't ``AttributeError``.  The 2.0
-        # ``Agent`` base does not set ``self.memory`` itself.
-        if self.context_manager is not None:
-            self.memory: "AgentContext" = (
-                self.context_manager.get_agent_context()
-            )
-            logger.debug("Context manager configured")
-        else:
-            self.memory = None  # type: ignore[assignment]
+        # Phase 2a: short-term memory lives on ``self.state.context``
+        # (``list[Msg]``) and ``self.state.summary`` (``str``) natively, owned
+        # by the 2.0 ``Agent`` base.  The qwenpaw ``AgentContext`` wrapper has
+        # been deleted — direct self.state access is the new API.  We keep
+        # ``self.memory = None`` only as a tombstone so any straggling
+        # ``getattr(agent, "memory", None)`` checks elsewhere see a falsy
+        # value instead of ``AttributeError`` until those callers migrate.
+        self.memory = None  # type: ignore[assignment]
 
-        # Setup command handler — needs a memory backend for /compact, /new,
-        # etc.  Skip when no memory backend is wired and let ``reply`` treat
-        # all input as model queries (slash commands silently bypass).
-        if self.memory is not None:
+        # CommandHandler needs the agent reference now (to read
+        # ``self.state.context`` for /history, /new, etc.) instead of a
+        # separate memory wrapper.  ``context_manager`` is still required —
+        # it owns the dialog-path resolution + the post_acting tool-result
+        # pruning hook.
+        if self.context_manager is not None:
             self.command_handler = CommandHandler(
                 agent_name=self.name,
-                memory=self.memory,
+                agent=self,
                 memory_manager=self.memory_manager,
                 context_manager=self.context_manager,
             )
         else:
             self.command_handler = None  # type: ignore[assignment]
-
-        # Register hooks
-        self._register_hooks()
 
     # TODO(as2-migration): agentscope 2.0 Agent no longer prints to console
     # itself (the print middleware was replaced by event subscribers), so
@@ -295,7 +288,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
         enabled: bool,
         queue: Any = None,
     ) -> None:
-        """1.x ``Agent.set_msg_queue_enabled`` shim — install streaming queue."""
+        """1.x ``set_msg_queue_enabled`` shim — streaming queue."""
         if enabled:
             self._msg_queue = queue
         else:
@@ -319,9 +312,6 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
         runner's streaming loop can pick them up), and returns the final
         ``Msg`` for the awaiting coroutine task.
         """
-
-        from agentscope.message import Msg
-
         queue = getattr(self, "_msg_queue", None)
         disabled = getattr(self, "_disable_msg_queue", True)
 
@@ -339,65 +329,110 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
 
     # TODO(as2-migration): agentscope 2.0 dropped the StateModule API; the
     # equivalent is the ``AgentState`` pydantic model on ``self.state``.  The
-    # runner's session persistence (``save_session_state``/``load_session_state``
+    # runner's session persistence (save/load_session_state
     # in app/runner/session.py) still calls ``state_dict``/``load_state_dict``
     # directly on the agent, so shim them by round-tripping ``self.state``.
     # Replace the call sites with ``self.state.model_dump_json()`` /
     # ``AgentState.model_validate_json(...)`` when the runner is migrated.
     def state_dict(self) -> dict:
-        """Serialize the agent's 2.0 ``AgentState`` to a JSON-safe dict."""
+        """Serialize the agent's 2.0 ``AgentState`` to a JSON-safe dict.
+
+        Includes ``plan_notebook`` state when present so a single
+        ``save_session_state(agent=agent)`` round-trip preserves everything.
+        """
         state = getattr(self, "state", None)
         if state is None:
             return {}
-        return {"state": state.model_dump(mode="json")}
+        d: dict = {"state": state.model_dump(mode="json")}
+        nb = getattr(self, "plan_notebook", None)
+        if nb is not None and hasattr(nb, "state_dict"):
+            d["plan_notebook"] = nb.state_dict()
+        return d
 
     def load_state_dict(self, state_dict: dict, strict: bool = True) -> None:
         """Restore ``self.state`` from a dict produced by :meth:`state_dict`.
 
-        Old 1.x snapshots had a different nested-module shape (``memory``,
-        ``toolkit``, ``model`` subdicts).  Those will fail pydantic validation
-        and raise ``KeyError`` here — the runner's outer ``try/except KeyError``
-        in ``runner.py`` catches that and falls back to fresh state.
+        Handles two formats:
+        - **2.0**: ``{"state": {AgentState dump}}``
+        - **1.x legacy**: ``{"memory": {"content": [[msg, marks], ...],
+          "_compressed_summary": "..."}}`` — converted on-the-fly so
+          existing sessions survive the upgrade.
         """
-        from agentscope.state import AgentState
-
-        raw = state_dict.get("state") if isinstance(state_dict, dict) else None
-        if raw is None:
+        if not isinstance(state_dict, dict):
             if strict:
-                raise KeyError(
-                    "'state' key not found in state_dict (legacy 1.x shape?)",
-                )
+                raise KeyError("state_dict is not a dict")
             return
-        try:
-            self.state = AgentState.model_validate(raw)
-        except Exception as exc:  # pydantic ValidationError, etc.
-            raise KeyError(
-                f"Could not load AgentState from snapshot: {exc}",
-            ) from exc
 
-    def _create_toolkit(  # pylint: disable=too-many-branches
+        # --- 2.0 format (preferred) ---
+        raw = state_dict.get("state")
+        if raw is not None:
+            try:
+                self.state = AgentState.model_validate(raw)
+            except Exception as exc:
+                raise KeyError(
+                    f"Could not load AgentState from snapshot: {exc}",
+                ) from exc
+            self._restore_plan_notebook(state_dict)
+            return
+
+        # --- 1.x legacy format: migrate ``memory`` → ``state`` ---
+        memory_raw = state_dict.get("memory")
+        if isinstance(memory_raw, dict):
+            from qwenpaw._compat.memory import InMemoryMemory
+
+            shim = InMemoryMemory()
+            shim.load_state_dict(memory_raw, strict=False)
+            msgs = [msg for msg, _ in shim.content]
+            self.state = AgentState()
+            self.state.context.extend(msgs)
+            # pylint: disable=protected-access
+            self.state.summary = shim._compressed_summary or ""
+            logger.info(
+                "Migrated 1.x session: %d messages + summary(%d chars)",
+                len(msgs),
+                len(self.state.summary),
+            )
+            self._restore_plan_notebook(state_dict)
+            return
+
+        if strict:
+            raise KeyError(
+                "state_dict has neither 'state' nor 'memory' key",
+            )
+
+    def _restore_plan_notebook(self, state_dict: dict) -> None:
+        """Restore plan_notebook state if present in the snapshot."""
+        nb_raw = state_dict.get("plan_notebook")
+        nb = getattr(self, "plan_notebook", None)
+        if (
+            nb_raw is not None
+            and nb is not None
+            and hasattr(nb, "load_state_dict")
+        ):
+            try:
+                nb.load_state_dict(nb_raw)
+                logger.debug("Restored plan_notebook from session state")
+            except Exception:
+                logger.warning(
+                    "Failed to restore plan_notebook state",
+                    exc_info=True,
+                )
+
+    def _create_toolkit(
         self,
-        namesake_strategy: NamesakeStrategy = "skip",
         effective_skills: list[str] | None = None,
     ) -> Toolkit:
         """Create and populate toolkit with built-in tools.
 
-        Args:
-            namesake_strategy: Strategy to handle namesake tool functions.
-                Options: "override", "skip", "raise", "rename"
-                (default: "skip")
-            effective_skills: Skills enabled for this workspace + channel,
-                used to gate skill-specific tools.
-
-        Returns:
-            Configured toolkit instance
+        Collects all enabled tool functions, wraps them in ``FunctionTool``
+        (or ``GuardedFunctionTool`` when ``agent_id`` is set), and passes
+        the list to ``Toolkit(tools=[...])`` at construction time.
         """
         effective_skills = effective_skills or []
-        toolkit = Toolkit()
+        agent_id = self._agent_config.id
 
         # Check which tools are enabled from agent config
-        enabled_tools = {}
-        async_execution_tools = {}
+        enabled_tools: dict[str, bool] = {}
         try:
             if hasattr(self._agent_config, "tools") and hasattr(
                 self._agent_config.tools,
@@ -407,17 +442,6 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
                 enabled_tools = {
                     name: tool.enabled for name, tool in builtin_tools.items()
                 }
-                # Only selected long-running tools support async_execution.
-                async_capable_tool_names = {
-                    "execute_shell_command",
-                    "delegate_external_agent",
-                }
-                async_execution_tools = {
-                    name: builtin_tools.get(name).async_execution
-                    if name in builtin_tools
-                    else False
-                    for name in async_capable_tool_names
-                }
         except Exception as e:
             logger.warning(
                 f"Failed to load agent tools config: {e}, "
@@ -425,7 +449,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
             )
 
         # Map of tool functions (hardcoded builtin tools)
-        tool_functions = {
+        tool_functions: dict[str, Any] = {
             "execute_shell_command": execute_shell_command,
             "read_file": read_file,
             "write_file": write_file,
@@ -445,7 +469,6 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
             "chat_with_agent": chat_with_agent,
             "submit_to_agent": submit_to_agent,
             "check_agent_task": check_agent_task,
-            # Register only when the `make-skill` skill is enabled.
             **(
                 {"materialize_skill": materialize_skill}
                 if "make-skill" in effective_skills
@@ -453,7 +476,6 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
             ),
         }
 
-        # Track hardcoded built-in tools for backward compatibility
         hardcoded_builtin_tools = set(tool_functions.keys())
 
         # Dynamically load plugin-registered tools
@@ -471,10 +493,9 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
                         tool_name,
                     )
 
-        # Register tools with appropriate defaults
+        # Build FunctionTool / GuardedFunctionTool instances
+        tool_instances = []
         for tool_name, tool_func in tool_functions.items():
-            # For plugin tools: skip if not in config (security)
-            # For hardcoded tools: default to enabled (backward compatibility)
             if tool_name in plugin_tools:
                 if tool_name not in enabled_tools:
                     logger.debug(
@@ -482,11 +503,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
                         tool_name,
                     )
                     continue
-            else:
-                # Hardcoded built-in tool: use default-to-enabled
-                pass
 
-            # Check if tool is enabled
             if not enabled_tools.get(
                 tool_name,
                 tool_name in hardcoded_builtin_tools,
@@ -494,63 +511,17 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
                 logger.debug("Skipped disabled tool: %s", tool_name)
                 continue
 
-            # Get async_execution setting (default to False for backward
-            # compatibility)
-            async_exec = async_execution_tools.get(tool_name, False)
+            tool_instances.append(make_tool(tool_func, agent_id=agent_id))
+            logger.debug("Registered tool: %s", tool_name)
 
-            toolkit.register_tool_function(
-                tool_func,
-                namesake_strategy=namesake_strategy,
-                async_execution=async_exec,
-            )
-            logger.debug(
-                "Registered tool: %s (async_execution=%s)",
-                tool_name,
-                async_exec,
-            )
-
-        # Auto-register background task management tools if any *enabled*
-        # tool has async_execution set
-        has_async_tools = any(
-            async_execution_tools.get(name, False)
-            for name in tool_functions
-            if enabled_tools.get(name, True)
-        )
-        if has_async_tools:
-            try:
-                toolkit.register_tool_function(
-                    toolkit.view_task,
-                    namesake_strategy=namesake_strategy,
-                )
-                toolkit.register_tool_function(
-                    toolkit.wait_task,
-                    namesake_strategy=namesake_strategy,
-                )
-                toolkit.register_tool_function(
-                    toolkit.cancel_task,
-                    namesake_strategy=namesake_strategy,
-                )
-                logger.debug(
-                    "Registered background task management tools "
-                    "(view_task, wait_task, cancel_task)",
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to register task management tools: {e}",
-                )
-
-        # Coding Mode tools (lsp, ast_search) — only registered when
-        # coding_mode.enabled is True and the underlying CLI / language
-        # server is reachable.  See CodingModeMixin.
+        # Coding Mode tools (lsp, ast_search)
         try:
-            self._register_coding_mode_tools(
-                toolkit,
-                namesake_strategy=namesake_strategy,
-            )
+            coding_tools = self._collect_coding_mode_tools(agent_id=agent_id)
+            tool_instances.extend(coding_tools)
         except Exception as e:  # pylint: disable=broad-except
             logger.warning(f"Failed to register Coding Mode tools: {e}")
 
-        return toolkit
+        return Toolkit(tools=tool_instances)
 
     def _register_skills(
         self,
@@ -559,11 +530,11 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
     ) -> None:
         """Load and register skills from workspace directory.
 
-        Args:
-            toolkit: Toolkit to register skills to
-            effective_skills: Resolved skill names for the current
-                workspace + channel.
+        Skills are stored in ``toolkit._qp_skills`` (a dict) for downstream
+        consumption (e.g. ``/skill_name`` slash commands in the runner).
         """
+        if not hasattr(toolkit, "_qp_skills"):
+            toolkit._qp_skills = {}  # pylint: disable=protected-access
         workspace_dir = self._workspace_dir or WORKING_DIR
         working_skills_dir = get_workspace_skills_dir(Path(workspace_dir))
 
@@ -571,7 +542,10 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
             skill_dir = working_skills_dir / skill_name
             if skill_dir.exists():
                 try:
-                    toolkit.register_agent_skill(str(skill_dir))
+                    # pylint: disable=protected-access
+                    toolkit._qp_skills[skill_name] = {
+                        "dir": str(skill_dir),
+                    }
                     logger.debug("Registered skill: %s", skill_name)
                 except Exception as e:
                     logger.error(
@@ -620,10 +594,8 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
 
         return sys_prompt
 
-    def _register_hooks(self) -> None:
-        """Register pre-reasoning and pre-acting hooks."""
-        # Bootstrap hook - checks BOOTSTRAP.md on first interaction
-        # Use workspace_dir if available, else fallback to WORKING_DIR
+    def _build_middlewares(self) -> list:
+        """Build the middleware list for the agent constructor."""
         working_dir = (
             self._workspace_dir if self._workspace_dir else WORKING_DIR
         )
@@ -631,37 +603,24 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
             working_dir=working_dir,
             language=self._language,
         )
-        self.register_instance_hook(
-            hook_type="pre_reasoning",
-            hook_name="bootstrap_hook",
-            hook=bootstrap_hook.__call__,
-        )
-        logger.debug("Registered bootstrap hook")
-
-        # Context manager hooks - delegate compaction / tool-result pruning
-        # to the context manager's lifecycle methods
+        mws: list = [
+            # First: per-reply ContextVars + file/media block download +
+            # skill env wrap.  Replaces ``QwenPawAgent.reply()`` pre-
+            # processing so both ``reply()`` and ``reply_stream()`` get
+            # the same setup (5 ContextVars + process_file_and_media_blocks +
+            # apply_skill_config_env_overrides).
+            RequestSetupMiddleware(
+                workspace_dir=self._workspace_dir,
+                agent_id=self._agent_config.id,
+                agent_config=self._agent_config,
+                request_context=self._request_context,
+            ),
+            BootstrapMiddleware(bootstrap_hook),
+        ]
         if self.context_manager is not None:
-            self.register_instance_hook(
-                hook_type="pre_reply",
-                hook_name="context_pre_reply",
-                hook=self.context_manager.pre_reply,
-            )
-            self.register_instance_hook(
-                hook_type="pre_reasoning",
-                hook_name="context_pre_reasoning",
-                hook=self.context_manager.pre_reasoning,
-            )
-            self.register_instance_hook(
-                hook_type="post_acting",
-                hook_name="context_post_acting",
-                hook=self.context_manager.post_acting,
-            )
-            self.register_instance_hook(
-                hook_type="post_reply",
-                hook_name="context_post_reply",
-                hook=self.context_manager.post_reply,
-            )
-            logger.debug("Registered context manager hooks")
+            mws.append(ContextManagerMiddleware(self.context_manager))
+        logger.debug("Built %d middleware(s)", len(mws))
+        return mws
 
     def rebuild_sys_prompt(self) -> None:
         """Rebuild and replace the system prompt.
@@ -669,42 +628,29 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
         Useful after load_session_state to ensure the prompt reflects
         the latest AGENTS.md / SOUL.md / PROFILE.md on disk.
 
-        Updates both self._sys_prompt and the first system-role
-        message stored in self.memory.content (if one exists).
+        Updates both self._system_prompt and the first system-role
+        message stored in ``self.state.context`` (if one exists).
         """
-        self._sys_prompt = self._build_sys_prompt()
+        self._system_prompt = self._build_sys_prompt()
 
-        if self.memory is None:
-            logger.warning(
-                "rebuild_sys_prompt: self.memory is None, "
-                "skipping in-memory system prompt update.",
-            )
-            return
-
-        for msg, _marks in self.memory.content:
+        # Phase 2a: short-term context lives on ``self.state.context``.
+        for msg in self.state.context:
             if msg.role == "system":
-                msg.content = self.sys_prompt
+                msg.content = self._system_prompt
             break
 
-    async def register_mcp_clients(
-        self,
-        namesake_strategy: NamesakeStrategy = "skip",
-    ) -> None:
+    async def register_mcp_clients(self) -> None:
         """Register MCP clients on this agent's toolkit after construction.
 
-        Args:
-            namesake_strategy: Strategy to handle namesake tool functions.
-                Options: "override", "skip", "raise", "rename"
-                (default: "skip")
+        Appends each MCP client directly to the toolkit's basic tool group.
         """
+        basic_group = self.toolkit.tool_groups[0]
         for i, client in enumerate(self._mcp_clients):
             client_name = getattr(client, "name", repr(client))
             try:
-                await self.toolkit.register_mcp_client(
-                    client,
-                    namesake_strategy=namesake_strategy,
-                    execution_timeout=client.read_timeout_seconds,
-                )
+                if client not in basic_group.mcps:
+                    basic_group.mcps.append(client)
+                    logger.debug("Registered MCP client '%s'", client_name)
             except (ClosedResourceError, asyncio.CancelledError) as error:
                 if self._should_propagate_cancelled_error(error):
                     raise
@@ -717,11 +663,8 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
                 if recovered_client is not None:
                     self._mcp_clients[i] = recovered_client
                     try:
-                        await self.toolkit.register_mcp_client(
-                            recovered_client,
-                            namesake_strategy=namesake_strategy,
-                            execution_timeout=client.read_timeout_seconds,
-                        )
+                        if recovered_client not in basic_group.mcps:
+                            basic_group.mcps.append(recovered_client)
                         continue
                     except asyncio.CancelledError as recover_error:
                         if self._should_propagate_cancelled_error(
@@ -876,6 +819,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
     # ------------------------------------------------------------------
 
     _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
+    _MEDIA_MIME_PREFIXES = ("image/", "audio/", "video/")
 
     # ------------------------------------------------------------------
     # Plan gate: block non-create_plan tools when /plan gate is active
@@ -1011,77 +955,8 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
             return text
         return text[-max_chars:].lstrip()
 
-    async def _auto_continue_if_text_only(
-        self,
-        msg: Msg,
-        tool_choice: Literal["auto", "none", "required"] | None,
-    ) -> Msg:
-        """Nudge the model when it returns text-only mid-task.
-
-        Injects a language-matched hint (with a trailing excerpt of the
-        assistant text for self-review) and runs up to
-        ``_AUTO_CONTINUE_MAX_EXTRA`` extra ``_reasoning`` passes until a
-        tool_use appears or the cap is
-        hit.  Uses the original ``tool_choice`` unchanged (no switching).
-        If an extra pass still returns text-only, keep the prior response to
-        avoid repeated duplicated answers.
-        """
-        from ..plan.hints import should_skip_auto_continue
-
-        nb = getattr(self, "plan_notebook", None)
-        if should_skip_auto_continue(nb):
-            return msg
-
-        running = self._agent_config.running
-        if not running.auto_continue_on_text_only:
-            return msg
-        if msg is None or msg.has_content_blocks("tool_use"):
-            return msg
-
-        extra = 0
-        while extra < self._AUTO_CONTINUE_MAX_EXTRA:
-            if msg.has_content_blocks("tool_use"):
-                break
-            extra += 1
-            tail = self._auto_continue_tail_context(
-                msg,
-                self._AUTO_CONTINUE_TAIL_CHARS,
-            )
-            hint_body = self._auto_continue_system_hint()
-            if tail:
-                hint_body += (
-                    "\n\n<previous-assistant-tail>\n"
-                    f"{tail}\n"
-                    "</previous-assistant-tail>"
-                )
-            logger.info(
-                "Auto-continue: text-only (%d/%d); hint + _reasoning "
-                "tool_choice=%r",
-                extra,
-                self._AUTO_CONTINUE_MAX_EXTRA,
-                tool_choice,
-            )
-            hint_msg = Msg("user", hint_body, "user")
-            await self.memory.add(hint_msg, marks=_MemoryMark.HINT)
-            try:
-                next_msg = await super()._reasoning(tool_choice=tool_choice)
-            except Exception:
-                logger.warning(
-                    "Auto-continue extra _reasoning failed; "
-                    "keeping prior response",
-                    exc_info=True,
-                )
-                break
-            if next_msg.has_content_blocks("tool_use"):
-                msg = next_msg
-                continue
-            logger.info(
-                "Auto-continue extra _reasoning still text-only; "
-                "keeping prior response",
-            )
-            break
-
-        return msg
+    # _auto_continue_if_text_only — replaced by inline logic in _reasoning()
+    # which leverages the 2.0 outer react loop instead of a manual while-loop.
 
     def _get_model_key(self) -> str | None:
         """Return the capability-cache key for the active model."""
@@ -1118,46 +993,41 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
     def _filter_plan_tools(msg: Msg, nb: Any) -> Msg:
         """Arm `_plan_awaiting_user_confirm` before any tool runs.
 
-        Race-prevention: when the assistant message carries `create_plan` /
-        `revise_current_plan` alongside other ``tool_use`` blocks, callers
-        of ``asyncio.gather`` may hit `_acting()`` on sibling tools before
-        the mutation tool executes. Setting the lock here (before tools run)
-        makes `check_plan_tool_gate` refuse non-plan-management tools while
+        Race-prevention: when the assistant message carries plan mutation
+        tools alongside other tool calls, callers of ``asyncio.gather``
+        may hit ``_acting()`` on sibling tools before the mutation tool
+        executes.  Setting the lock here (before tools run) makes
+        ``check_plan_tool_gate`` refuse non-plan-management tools while
         still returning a readable tool_result instead of stripping blocks.
         """
         if nb is None or not isinstance(msg.content, list):
             return msg
         mut = ("create_plan", "revise_current_plan")
-        if any(
-            isinstance(b, dict)
-            and b.get("type") == "tool_use"
-            and b.get("name", "") in mut
-            for b in msg.content
-        ):
+
+        def _has_plan_mutation(block: Any) -> bool:
+            if isinstance(block, dict):
+                btype = block.get("type")
+                name = block.get("name", "")
+            else:
+                btype = getattr(block, "type", None)
+                name = getattr(block, "name", "")
+            return btype in ("tool_use", "tool_call") and name in mut
+
+        if any(_has_plan_mutation(b) for b in msg.content):
             # pylint: disable-next=protected-access
             nb._plan_awaiting_user_confirm = True
         return msg
 
-    # TODO(as2-migration): agentscope 2.0 changed ``_reasoning`` from
-    # ``async def -> Msg`` to ``async def -> AsyncGenerator[Event | Msg]``.
-    # The 1.x version of this override interleaved proactive media filtering,
-    # a passive bad-request retry that stripped media + cached the
-    # ``rejects_media`` finding, a plan-tool filter, and an auto-continue
-    # nudge.  Porting all of that to operate on the event stream is involved,
-    # so for the round-trip mainline we drop everything except the plan
-    # text-only-after-mutation gate (which mutates ``tool_choice`` *before*
-    # the model call, so it ports trivially).  See git blame on the previous
-    # impl for the logic that still needs porting:
-    #   - ``_proactive_strip_media_blocks`` /
-    #     ``_set_formatter_media_strip`` (capability-cache aware)
-    #   - passive retry on ``_is_bad_request_or_media_error``
-    #   - ``_filter_plan_tools`` post-processing
-    #   - ``_auto_continue_if_text_only`` follow-up reasoning loop
+    # pylint: disable=too-many-branches,too-many-statements
     async def _reasoning(
         self,
         tool_choice: Literal["auto", "none", "required"] | None = None,
     ):
-        """Forward 2.0 ``_reasoning`` events with the plan-mutation gate."""
+        """Forward 2.0 ``_reasoning`` events with proactive media
+        stripping, passive bad-request retry, plan-mutation gate,
+        plan-tool filter, and auto-continue on text-only responses."""
+
+        # ── Plan gate: force text-only after plan mutation ──
         nb = getattr(self, "plan_notebook", None)
         if nb is not None and getattr(
             nb,
@@ -1168,201 +1038,136 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
             nb._plan_text_only_after_mutation = False
             tool_choice = "none"
 
-        async for evt in super()._reasoning(tool_choice=tool_choice):
-            yield evt
+        # ── Proactive media stripping ──
+        from .model_factory import _supports_multimodal_for_current_model
 
-    # pylint: disable=too-many-branches
-    async def _summarizing(self) -> Msg:
-        """Override summarizing with proactive media filtering,
-        passive fallback, and tool_use block filtering.
-
-        1. Proactive layer: if the model does not support multimodal
-           **or** the capability cache records ``rejects_media``,
-           strip media blocks *before* calling the model.
-        2. Passive layer: if the model call still fails with a
-           bad-request / media error, strip remaining blocks and retry,
-           then record the finding in the capability cache.
-        3. If the model IS marked as multimodal but still errors on
-           media, log a warning about possibly inaccurate capability flag.
-
-        Some models (e.g. kimi-k2.5) generate tool_use blocks even when
-        no tools are provided.  We set ``_in_summarizing`` so that
-        ``print`` can strip tool_use blocks from streaming chunks.
-        """
-        # --- Proactive filtering layer ---
         should_strip = (
-            not get_active_model_supports_multimodal()
+            not _supports_multimodal_for_current_model()
             or self._model_rejects_media()
         )
         if should_strip:
             if self._uses_request_time_media_normalization():
                 self._set_formatter_media_strip(True)
-                logger.debug(
-                    "Formatter will strip media from copied messages "
-                    "before summarizing.",
-                )
             else:
                 n = self._proactive_strip_media_blocks()
                 if n > 0:
                     logger.warning(
-                        "Proactively stripped %d media block(s) - "
-                        "model does not support multimodal.",
+                        "Proactively stripped %d media block(s) before "
+                        "_reasoning (model lacks multimodal support).",
                         n,
                     )
 
-        # --- Passive fallback layer ---
-        self._in_summarizing = True
+        # ── Model call with passive retry on media error ──
+        final_msg: Msg | None = None
         try:
-            try:
-                msg = await super()._summarizing()
-            except Exception as e:
-                if not self._is_bad_request_or_media_error(e):
-                    raise
-
-                model_key = self._get_model_key()
-
-                if self._uses_request_time_media_normalization():
-                    if get_active_model_supports_multimodal():
-                        logger.warning(
-                            "Model marked multimodal but "
-                            "rejected media. "
-                            "Capability flag may be wrong.",
-                        )
-                    self._set_formatter_media_strip(True)
-                    try:
-                        logger.warning(
-                            "_summarizing failed (%s). "
-                            "Retrying with request-time media stripping.",
-                            e,
-                        )
-                        msg = await super()._summarizing()
-                        if model_key:
-                            get_capability_cache().learn(
-                                model_key,
-                                "rejects_media",
-                                True,
-                            )
-                    finally:
-                        self._set_formatter_media_strip(False)
+            async for evt in super()._reasoning(tool_choice=tool_choice):
+                if isinstance(evt, Msg):
+                    final_msg = evt
                 else:
-                    n_stripped = self._strip_media_blocks_from_memory()
-                    if n_stripped == 0:
-                        raise
+                    yield evt
+        except Exception as e:
+            if not self._is_bad_request_or_media_error(e):
+                raise
 
-                    if get_active_model_supports_multimodal():
-                        logger.warning(
-                            "Model marked multimodal but "
-                            "rejected media. "
-                            "Capability flag may be wrong.",
-                        )
+            model_key = self._get_model_key()
+            if model_key:
+                get_capability_cache().learn(
+                    model_key,
+                    "rejects_media",
+                    True,
+                )
+            logger.warning(
+                "_reasoning failed with media error (%s); "
+                "stripping media and retrying.",
+                e,
+            )
+            if self._uses_request_time_media_normalization():
+                self._set_formatter_media_strip(True)
+            else:
+                self._strip_media_blocks_from_memory()
 
-                    logger.warning(
-                        "_summarizing failed (%s). "
-                        "Stripped %d media block(s) from memory, retrying.",
-                        e,
-                        n_stripped,
-                    )
-                    msg = await super()._summarizing()
-                    if model_key:
-                        get_capability_cache().learn(
-                            model_key,
-                            "rejects_media",
-                            True,
-                        )
-        finally:
-            self._in_summarizing = False
+            try:
+                async for evt in super()._reasoning(
+                    tool_choice=tool_choice,
+                ):
+                    if isinstance(evt, Msg):
+                        final_msg = evt
+                    else:
+                        yield evt
+            finally:
+                if self._uses_request_time_media_normalization():
+                    self._set_formatter_media_strip(False)
+        else:
             if should_strip and self._uses_request_time_media_normalization():
                 self._set_formatter_media_strip(False)
 
-        return self._strip_tool_use_from_msg(msg)
+        if final_msg is None:
+            return
 
-    async def print(
+        # ── Plan-tool filter ──
+        if nb is not None:
+            self._filter_plan_tools(final_msg, nb)
+
+        # ── Auto-continue: text-only → inject hint, let outer loop retry ──
+        if self._should_auto_continue(final_msg, tool_choice):
+            hint_body = self._auto_continue_system_hint()
+            tail = self._auto_continue_tail_context(
+                final_msg,
+                self._AUTO_CONTINUE_TAIL_CHARS,
+            )
+            if tail:
+                hint_body += (
+                    "\n\n<previous-assistant-tail>\n"
+                    f"{tail}\n"
+                    "</previous-assistant-tail>"
+                )
+            logger.info(
+                "Auto-continue: text-only response; injecting hint "
+                "(tool_choice=%r)",
+                tool_choice,
+            )
+            self.state.context.append(
+                Msg(
+                    name="user",
+                    role="user",
+                    content=[TextBlock(type="text", text=hint_body)],
+                ),
+            )
+            return  # outer loop continues → _check_next_action → reasoning
+
+        yield final_msg
+
+    def _should_auto_continue(
         self,
         msg: Msg,
-        last: bool = True,
-        speech: Any = None,
-    ) -> None:
-        """Filter tool_use blocks during _summarizing before they hit the
-        message queue, preventing the frontend from briefly rendering
-        phantom tool calls that will never be executed.
+        tool_choice: Literal["auto", "none", "required"] | None,
+    ) -> bool:
+        """Check if auto-continue should be triggered."""
+        from ..plan.hints import should_skip_auto_continue
 
-        On the *final* streaming event (``last=True``), append the
-        round-end notice so users see it immediately instead of only
-        after a page refresh.  Intermediate events that become empty
-        after filtering are silently skipped to avoid blank UI flashes.
-        """
+        nb = getattr(self, "plan_notebook", None)
+        if should_skip_auto_continue(nb):
+            return False
 
-        if not getattr(self, "_in_summarizing", False):
-            return await super().print(msg, last, speech=speech)
+        running = getattr(self, "_agent_config", None)
+        running = getattr(running, "running", None)
+        if running is None or not getattr(
+            running,
+            "auto_continue_on_text_only",
+            False,
+        ):
+            return False
 
-        original = msg.content
-        modified = False
+        if msg is None or msg.has_content_blocks("tool_call"):
+            return False
 
-        if isinstance(original, list):
-            filtered = [
-                b
-                for b in original
-                if not (isinstance(b, dict) and b.get("type") == "tool_use")
-            ]
-            if not filtered and not last:
-                return
-            if len(filtered) != len(original) or last:
-                msg.content = filtered
-                if last:
-                    msg.content.append(
-                        {"type": "text", "text": self._ROUND_END_NOTICE},
-                    )
-                modified = True
-        elif isinstance(original, str) and last:
-            msg.content = original + self._ROUND_END_NOTICE
-            modified = True
-        if modified:
-            try:
-                return await super().print(msg, last, speech=speech)
-            finally:
-                msg.content = original
-        return await super().print(msg, last, speech=speech)
+        if tool_choice == "none":
+            return False
 
-    _ROUND_END_NOTICE = (
-        "\n\n---\n"
-        "本轮调用已达最大次数，回复已终止，请继续输入。\n"
-        "Maximum iterations reached for this round. "
-        "Please send a new message to continue."
-    )
+        if self.state.cur_iter >= self.react_config.max_iters - 1:
+            return False
 
-    @staticmethod
-    def _strip_tool_use_from_msg(msg: Msg) -> Msg:
-        """Remove tool_use blocks from a message and append a user notice.
-
-        When _summarizing is called without tools, some models still
-        return tool_use blocks.  Those blocks can never be executed, so
-        strip them and append a bilingual notice telling the user this
-        round of calls has ended.
-        """
-        if isinstance(msg.content, str):
-            msg.content += QwenPawAgent._ROUND_END_NOTICE
-            return msg
-
-        filtered = [
-            block
-            for block in msg.content
-            if not (
-                isinstance(block, dict) and block.get("type") == "tool_use"
-            )
-        ]
-
-        n_removed = len(msg.content) - len(filtered)
-        if n_removed:
-            logger.debug(
-                "Stripped %d tool_use block(s) from _summarizing response",
-                n_removed,
-            )
-
-        filtered.append(
-            {"type": "text", "text": QwenPawAgent._ROUND_END_NOTICE},
-        )
-        msg.content = filtered
-        return msg
+        return True
 
     @staticmethod
     def _is_bad_request_or_media_error(exc: Exception) -> bool:
@@ -1388,8 +1193,22 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
         ]
         return any(kw in error_str for kw in keywords)
 
+    def _is_media_block(self, block: Any) -> bool:
+        """Return True if *block* carries image/audio/video data."""
+        if isinstance(block, dict):
+            return block.get("type") in self._MEDIA_BLOCK_TYPES
+        btype = getattr(block, "type", None)
+        if btype in self._MEDIA_BLOCK_TYPES:
+            return True
+        if btype == "data":
+            source = getattr(block, "source", None)
+            mt = getattr(source, "media_type", "") or ""
+            return mt.startswith(self._MEDIA_MIME_PREFIXES)
+        return False
+
+    # pylint: disable=too-many-nested-blocks
     def _strip_media_blocks_from_memory(self) -> int:
-        """Remove media blocks (image/audio/video) from all messages.
+        """Remove media blocks (image/audio/video/DataBlock) from all messages.
 
         Also strips media blocks nested inside ToolResultBlock outputs.
         Inserts placeholder text when stripping leaves content empty to
@@ -1398,128 +1217,57 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, Agent):
         Returns:
             Total number of media blocks removed.
         """
-        media_types = self._MEDIA_BLOCK_TYPES
         total_stripped = 0
 
-        for msg, _marks in self.memory.content:
+        for msg in self.state.context:
             if not isinstance(msg.content, list):
                 continue
 
             new_content = []
             stripped_this_message = 0
             for block in msg.content:
-                if (
-                    isinstance(block, dict)
-                    and block.get("type") in media_types
-                ):
+                if self._is_media_block(block):
                     total_stripped += 1
                     stripped_this_message += 1
                     continue
 
-                if (
-                    isinstance(block, dict)
-                    and block.get("type") == "tool_result"
-                    and isinstance(block.get("output"), list)
-                ):
-                    original_len = len(block["output"])
-                    block["output"] = [
-                        item
-                        for item in block["output"]
-                        if not (
-                            isinstance(item, dict)
-                            and item.get("type") in media_types
-                        )
-                    ]
-                    stripped_count = original_len - len(block["output"])
-                    total_stripped += stripped_count
-                    stripped_this_message += stripped_count
-                    if stripped_count > 0 and not block["output"]:
-                        block["output"] = MEDIA_UNSUPPORTED_PLACEHOLDER
+                btype = (
+                    block.get("type")
+                    if isinstance(block, dict)
+                    else getattr(block, "type", None)
+                )
+                if btype == "tool_result":
+                    output = (
+                        block.get("output")
+                        if isinstance(block, dict)
+                        else getattr(block, "output", None)
+                    )
+                    if isinstance(output, list):
+                        filtered = [
+                            item
+                            for item in output
+                            if not self._is_media_block(item)
+                        ]
+                        stripped_count = len(output) - len(filtered)
+                        total_stripped += stripped_count
+                        stripped_this_message += stripped_count
+                        if stripped_count > 0:
+                            if isinstance(block, dict):
+                                block["output"] = (
+                                    filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
+                                )
+                            else:
+                                block.output = (
+                                    filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
+                                )
 
                 new_content.append(block)
 
             if not new_content and stripped_this_message > 0:
                 new_content.append(
-                    {
-                        "type": "text",
-                        "text": MEDIA_UNSUPPORTED_PLACEHOLDER,
-                    },
+                    TextBlock(type="text", text=MEDIA_UNSUPPORTED_PLACEHOLDER),
                 )
 
             msg.content = new_content
 
         return total_stripped
-
-    # pylint: disable=protected-access
-    async def reply(
-        self,
-        msg: Msg | list[Msg] | None = None,
-        structured_model: Type[BaseModel] | None = None,
-    ) -> Msg:
-        """Override reply to process file blocks and handle commands.
-
-        Args:
-            msg: Input message(s) from user
-            structured_model: Optional pydantic model for structured output
-
-        Returns:
-            Response message
-        """
-        # Set workspace_dir and recent_max_bytes in context for tool functions
-        from ..config.context import (
-            set_current_workspace_dir,
-            set_current_recent_max_bytes,
-            set_current_session_id,
-            set_current_shell_command_timeout,
-            set_current_shell_command_executable,
-        )
-
-        set_current_workspace_dir(self._workspace_dir)
-        set_current_session_id(
-            self._request_context.get("session_id") or None,
-        )
-        light_ctx = self._agent_config.running.light_context_config
-        pruning_config = light_ctx.tool_result_pruning_config
-        set_current_recent_max_bytes(
-            pruning_config.pruning_recent_msg_max_bytes,
-        )
-        set_current_shell_command_timeout(
-            self._agent_config.running.shell_command_timeout,
-        )
-        set_current_shell_command_executable(
-            self._agent_config.running.shell_command_executable or None,
-        )
-
-        # Process file and media blocks in messages
-        if msg is not None:
-            await process_file_and_media_blocks_in_message(msg)
-
-        # Check if message is a system command
-        last_msg = msg[-1] if isinstance(msg, list) else msg
-        query = (
-            last_msg.get_text_content() if isinstance(last_msg, Msg) else None
-        )
-
-        # Slash-command dispatch is only active when a memory backend was
-        # wired; the Phase 1 runtime path runs without one, so any "/foo"
-        # falls through to the model untouched.
-        if self.command_handler is not None and self.command_handler.is_command(
-            query,
-        ):
-            logger.info(f"Received command: {query}")
-            msg = await self.command_handler.handle_command(query)
-            await self.print(msg)
-            return msg
-
-        # Normal message processing
-        logger.info("QwenPawAgent.reply: max_iters=%s", self.max_iters)
-
-        request_context = getattr(self, "_request_context", {}) or {}
-        channel_name = request_context.get("channel", "console")
-        workspace_dir = Path(self._workspace_dir or WORKING_DIR)
-        with apply_skill_config_env_overrides(workspace_dir, channel_name):
-            return await super().reply(
-                msg=msg,
-                structured_model=structured_model,
-            )
-

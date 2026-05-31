@@ -9,13 +9,12 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-# NOTE(as2-migration): ReActAgent removed; alias to Agent for import-only.
-from agentscope.agent import Agent as ReActAgent
+from agentscope.agent import Agent
 from agentscope.message import Msg, TextBlock, ToolResultBlock
+from agentscope.tool import Toolkit, ToolResponse
 
 # NOTE(as2-migration): ToolUseBlock renamed to ToolCallBlock in 2.0.
 from ..._compat.message import ToolUseBlock
-from agentscope.tool import Toolkit, ToolResponse
 
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from .prompts import (
@@ -143,16 +142,20 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             },
         )
 
-        self.summary_toolkit = Toolkit()
+        from qwenpaw.agents.tool_compat import make_tool
         from qwenpaw.agents.tools import (
             read_file,
             write_file,
             edit_file,
         )  # noqa: PLC0415
 
-        self.summary_toolkit.register_tool_function(read_file)
-        self.summary_toolkit.register_tool_function(write_file)
-        self.summary_toolkit.register_tool_function(edit_file)
+        self.summary_toolkit = Toolkit(
+            tools=[
+                make_tool(read_file),
+                make_tool(write_file),
+                make_tool(edit_file),
+            ],
+        )
 
     @staticmethod
     def _mask_key(key: str) -> str:
@@ -635,15 +638,24 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         else:
             logger.debug("No existing MEMORY.md file to backup")
 
-        dream_agent = ReActAgent(
+        if formatter is not None:
+            innermost = chat_model
+            while hasattr(innermost, "_inner"):
+                # pylint: disable=protected-access
+                innermost = innermost._inner
+            while hasattr(innermost, "_model"):
+                # pylint: disable=protected-access
+                innermost = innermost._model
+            if hasattr(innermost, "formatter"):
+                innermost.formatter = formatter
+
+        dream_agent = Agent(
             name="DreamOptimizer",
             model=chat_model,
-            sys_prompt="You are a Dream Memory Organizer specialized"
+            system_prompt="You are a Dream Memory Organizer specialized"
             " in optimizing long-term memory files.",
             toolkit=self.summary_toolkit,
-            formatter=formatter,
         )
-        dream_agent.set_console_output_enabled(False)
 
         user_msg = Msg(
             name="dream",

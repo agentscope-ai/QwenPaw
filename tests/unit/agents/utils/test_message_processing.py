@@ -110,7 +110,8 @@ class TestPrependToMessageContent:
         )
         prepend_to_message_content(msg, "guidance")
         first = msg.content[0]
-        assert first == {"type": "text", "text": "guidance"}
+        assert getattr(first, "type", None) == "text"
+        assert getattr(first, "text", None) == "guidance"
 
     def test_prepend_to_non_list_non_str_content_noop(self):
         """Non-string, non-list content is left untouched."""

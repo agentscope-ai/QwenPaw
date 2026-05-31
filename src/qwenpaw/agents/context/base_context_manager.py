@@ -6,7 +6,6 @@ from typing import Any
 
 from agentscope.message import Msg
 
-from .agent_context import AgentContext
 from ..utils.registry import Registry
 
 logger = logging.getLogger(__name__)
@@ -172,24 +171,6 @@ class BaseContextManager(ABC):
 
         Returns:
             A replacement ``Msg``, or ``None`` if no change.
-        """
-
-    @abstractmethod
-    def get_agent_context(self, **kwargs) -> AgentContext:
-        """Return the ``AgentContext`` object attached to this agent.
-
-        ``AgentContext`` is a custom ``InMemoryMemory`` implementation
-        with token-aware message handling, dialog persistence, and context
-        compression support. It is used by the agent loop for accurate token
-        counting and context-window management.
-
-        Args:
-            **kwargs: Implementation-specific options (e.g. token counter
-                to attach to the returned object).
-
-        Returns:
-            The agent context instance configured with the agent's token
-            counter.
         """
 
     @abstractmethod

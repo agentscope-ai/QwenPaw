@@ -3,7 +3,7 @@
 
 In agentscope 1.x ``Runner`` was the base class for any HTTP-served
 runner: it owned the streaming/query lifecycle that ``AgentApp`` adapted
-to FastAPI endpoints.  qwenpaw's :class:`~qwenpaw.app.runner.runner.AgentRunner`
+to FastAPI endpoints.  qwenpaw's ``AgentRunner``
 inherits from it but only relies on ``super().__init__()`` succeeding and
 on being able to set arbitrary instance attributes.
 
@@ -26,6 +26,7 @@ directly, delete this file and let routes call ``agent.reply_stream``.
 """
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import json
 import logging
@@ -35,7 +36,52 @@ from typing import Any, AsyncGenerator, Dict, List
 logger = logging.getLogger(__name__)
 
 
-# Module-level per-session agent cache. Keys: (session_id, provider_id, model_id).
+# SSE-keepalive heartbeat: if no event arrives from ``agent.reply_stream``
+# within this many seconds, ``stream_query`` re-yields the in-progress
+# ``response`` envelope so SSE bytes keep flowing.  Long tool-guard ASK
+# waits (300s default) would otherwise blow past common proxy / browser
+# idle-timeout thresholds (~60s) and drop the connection silently.
+HEARTBEAT_INTERVAL_SECONDS = 25.0
+
+# Sentinel yielded by :func:`_iter_with_heartbeat` instead of a real event
+# when ``HEARTBEAT_INTERVAL_SECONDS`` elapses with no agent output.
+_HEARTBEAT_TICK = object()
+
+
+async def _iter_with_heartbeat(source_iter, interval: float):
+    """Wrap an async-iter so it yields ``_HEARTBEAT_TICK`` on idle.
+
+    Uses ``asyncio.shield`` so that ``wait_for``'s cancellation on timeout
+    does NOT cancel the underlying ``__anext__()`` task — that task lives
+    across heartbeats and is awaited again on the next loop iteration.
+    Without shielding, a long approval wait would lose every heartbeat's
+    worth of pending state.
+    """
+    pending = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.ensure_future(source_iter.__anext__())
+            try:
+                value = await asyncio.wait_for(
+                    asyncio.shield(pending),
+                    timeout=interval,
+                )
+            except asyncio.TimeoutError:
+                yield _HEARTBEAT_TICK
+                continue
+            except StopAsyncIteration:
+                pending = None
+                return
+            pending = None
+            yield value
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+
+
+# Module-level per-session agent cache.
+# Keys: (session_id, provider_id, model_id).
 # Within a process this gives the agent its short-term memory
 # (agent.state.context).  The provider+model is part of the key so that when
 # the user switches active model in the frontend, the next request rebuilds
@@ -55,14 +101,28 @@ _AGENT_CACHE: Dict[tuple, Any] = {}
 # ``ContextVar.set`` is task-scoped (Starlette starts each HTTP request in
 # its own task), so concurrent requests with different sessions don't see
 # each other's value.
-_REQUEST_CONTEXT_VAR: contextvars.ContextVar[Dict[str, str]] = (
-    contextvars.ContextVar("_qp_request_context", default={})
-)
+_REQUEST_CONTEXT_VAR: contextvars.ContextVar[
+    Dict[str, str]
+] = contextvars.ContextVar("_qp_request_context", default={})
 
 
 def _current_request_context() -> Dict[str, str]:
     """Return the active per-request context (or empty dict)."""
     return _REQUEST_CONTEXT_VAR.get() or {}
+
+
+def _media_type_to_block_type(media_type: str | None) -> str:
+    """Map a MIME media_type to the 1.x block type the frontend expects.
+
+    AS 2.0 uses ``"data"`` for all media; the frontend renderer still
+    expects ``"image"``/``"video"``/``"audio"``.
+    """
+    if not media_type:
+        return "data"
+    major = media_type.split("/", 1)[0]
+    if major in ("image", "video", "audio"):
+        return major
+    return "data"
 
 
 class GuardedFunctionTool:
@@ -100,8 +160,9 @@ class GuardedFunctionTool:
                 (FunctionTool,),
                 {
                     "__init__": _guarded_tool_init,
-                    "_resolve_execution_level":
-                        _guarded_tool_resolve_execution_level,
+                    "_resolve_execution_level": (
+                        _guarded_tool_resolve_execution_level
+                    ),
                     "check_permissions": _guarded_tool_check_permissions,
                     "__doc__": cls.__doc__,
                 },
@@ -121,7 +182,8 @@ def _guarded_tool_init(
     from agentscope.tool import FunctionTool
 
     FunctionTool.__init__(self, func, **kwargs)
-    self._qp_agent_id = agent_id
+    self._qp_agent_id = agent_id  # pylint: disable=protected-access
+    # pylint: disable=protected-access
     self._qp_request_context = request_context or {}
 
 
@@ -135,8 +197,7 @@ def _guarded_tool_resolve_execution_level(self: Any) -> str:
     ``agent_id`` was attached at construction time (mainline single-agent
     dev path doesn't always set one) or when config loading fails — the
     bypass branch keeps the tool runnable in environments where the guard
-    can't be initialised, matching the 1.x fallback in
-    ``ToolGuardMixin._get_tool_execution_level``.
+    can't be initialised.
     """
     agent_id = getattr(self, "_qp_agent_id", None)
     if not agent_id:
@@ -158,28 +219,66 @@ def _guarded_tool_resolve_execution_level(self: Any) -> str:
         return "bypass"
 
 
+_NO_RETRY_INSTRUCTION = (
+    "\n\n⚠️ **System instruction**: this denial is final for the current "
+    "request. Do not retry this tool with similar parameters. Reply to "
+    "the user explaining why the action could not be completed and, if "
+    "appropriate, ask them how they want to proceed."
+)
+
+
+def _with_no_retry_instruction(body: str) -> str:
+    """Append a stop-retry hint to a denial message body.
+
+    1.x's ``_acting_denied`` injected a localized "do not retry" line into
+    the synthetic ``ToolResultBlock`` so the model wouldn't immediately
+    re-issue the denied tool call with a tweaked argument.  Centralised
+    here so every denial path (denied-list / user-denied / approval-timeout)
+    sends the same instruction.
+    """
+    return body + _NO_RETRY_INSTRUCTION
+
+
+# pylint: disable=too-many-return-statements
 async def _guarded_tool_check_permissions(
     self: Any,
-    tool: Any,
-    input_data: dict[str, Any],
+    input_data: dict[str, Any] | None = None,
+    context: Any = None,
+    *_extra_args: Any,
+    **_extra_kwargs: Any,
 ) -> Any:
     """Drive qwenpaw's tool-guard engine + ApprovalService for one tool call.
 
-    Ports the 1.x ``ToolGuardMixin._decide_guard_action`` +
-    ``_acting_with_approval`` flow to agentscope 2.0's
-    ``PermissionDecision`` surface.  ASK is implemented by blocking on
+    Signature matches agentscope 2.0's
+    :meth:`PermissionEngine.check_permission`
+    call site (:file:`agentscope/permission/_engine.py:212`):
+    ``await tool.check_permissions(input_data, self.context)``.  The tool
+    instance itself is ``self`` — we read ``self.name`` for guard rule
+    matching, not a separate ``tool`` arg.  Phase 1's ad-hoc smoke tests
+    called ``check_permissions(tool, input_data)`` and got past us because
+    the body never looked at ``tool.name`` carefully; once the real engine
+    swapped the order, ``tool_name`` silently became ``""`` and every
+    invocation skipped the guard.
+
+    ``*_extra_args`` / ``**_extra_kwargs`` swallow any additional positional
+    or keyword args agentscope might add in future releases without
+    breaking us.
+
+    Ports the 1.x guard decision + approval flow.  ASK is implemented
+    by blocking on
     :class:`PendingApproval.future` (resolved by the
     ``/approval/{approve,deny}`` HTTP endpoints) rather than emitting
     ``PermissionBehavior.ASK`` — the polling-based
     ``/console/push-messages`` path that the frontend already uses for
     1.x approval cards keeps working without an SSE round-trip change.
     """
+    del context  # qwenpaw's guard doesn't read PermissionContext yet
     from agentscope.permission import (
         PermissionBehavior,
         PermissionDecision,
     )
 
-    level = self._resolve_execution_level()
+    level = self._resolve_execution_level()  # pylint: disable=protected-access
 
     if level == "bypass":
         return PermissionDecision(
@@ -191,7 +290,9 @@ async def _guarded_tool_check_permissions(
     from ..security.tool_guard.execution_level import ToolExecutionLevel
     from ..security.tool_guard.models import GuardSeverity
 
-    tool_name = getattr(tool, "name", None) or ""
+    # ``self`` IS the tool (GuardedFunctionTool subclasses FunctionTool).
+    tool_name = getattr(self, "name", None) or ""
+    input_data = input_data or {}
     exec_level = ToolExecutionLevel.from_config(level)
     engine = get_guard_engine()
 
@@ -205,13 +306,14 @@ async def _guarded_tool_check_permissions(
     # Denied list (applies to every mode).
     if engine.is_denied(tool_name):
         denied_result = engine.guard(tool_name, input_data)
+        body = (
+            f"Tool '{tool_name}' is permanently blocked by the denied-list."
+            if denied_result is None or not denied_result.findings
+            else _format_guard_message(tool_name, denied_result)
+        )
         return PermissionDecision(
             behavior=PermissionBehavior.DENY,
-            message=(
-                f"Tool '{tool_name}' is in the denied set."
-                if denied_result is None or not denied_result.findings
-                else _format_guard_message(tool_name, denied_result)
-            ),
+            message=_with_no_retry_instruction(body),
         )
 
     # Resolve the guard_result that drives the rest of the decisions.
@@ -258,8 +360,9 @@ async def _guarded_tool_check_permissions(
             )
 
     # Anything left needs the user.
+    agent_id = self._qp_agent_id  # pylint: disable=protected-access
     decision = await _ask_user_approval(
-        agent_id=self._qp_agent_id,
+        agent_id=agent_id,
         tool_name=tool_name,
         input_data=input_data,
         guard_result=guard_result,
@@ -267,11 +370,14 @@ async def _guarded_tool_check_permissions(
     return decision
 
 
-def _strict_info_guard_result(tool_name: str, params: dict[str, Any]) -> Any:
-    """Synthesise an INFO-level ``ToolGuardResult`` for STRICT no-finding tools.
+def _strict_info_guard_result(
+    tool_name: str,
+    params: dict[str, Any],
+) -> Any:
+    """Synthesise an INFO-level ``ToolGuardResult`` for STRICT tools.
 
-    Mirrors :py:meth:`ToolGuardMixin._create_info_guard_result` so the
-    approval card in STRICT mode still has a body even when no rule fires.
+    The approval card in STRICT mode still needs a body even when no
+    rule fires.
     """
     from ..security.tool_guard.models import (
         GuardFinding,
@@ -286,9 +392,7 @@ def _strict_info_guard_result(tool_name: str, params: dict[str, Any]) -> Any:
         category=GuardThreatCategory.RESOURCE_ABUSE,
         severity=GuardSeverity.INFO,
         title="STRICT Mode Approval",
-        description=(
-            f"Tool '{tool_name}' requires approval in STRICT mode"
-        ),
+        description=(f"Tool '{tool_name}' requires approval in STRICT mode"),
         tool_name=tool_name,
         remediation="Approve or deny this tool call",
         guardian="strict_mode",
@@ -406,13 +510,15 @@ async def _ask_user_approval(
     if decision == ApprovalDecision.DENIED:
         return PermissionDecision(
             behavior=PermissionBehavior.DENY,
-            message=f"Denied by user.\n{summary}",
+            message=_with_no_retry_instruction(
+                f"User denied the request to run '{tool_name}'.\n{summary}",
+            ),
         )
     return PermissionDecision(
         behavior=PermissionBehavior.DENY,
-        message=(
-            "Approval request timed out "
-            f"({int(TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS)}s).\n{summary}"
+        message=_with_no_retry_instruction(
+            f"Approval for '{tool_name}' timed out after "
+            f"{int(TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS)}s.\n{summary}",
         ),
     )
 
@@ -425,44 +531,38 @@ def _build_qwenpaw_agent(
     """Construct a fully-wired :class:`QwenPawAgent` for one session.
 
     QwenPawAgent owns its own toolkit (built via ``_create_toolkit`` from
-    the agent's ``builtin_tools`` config — currently ~17 tools), system
-    prompt (assembled from working-dir files), and hook registration
-    (bootstrap + context-manager hooks via the 1.x hook compat shim).
-    Phase 1 keeps ``memory_manager`` / ``context_manager`` / ``plan_notebook``
-    / ``mcp_clients`` as ``None`` so we don't have to rewrite the
-    ``AgentContext``-on-``InMemoryMemory`` shim or the missing
-    ``_reasoning`` features in the same pass — those come back in Phase 2.
-
-    The tool-guard ASK flow that ``stream_query`` already drives still
-    works because we pin :data:`qwenpaw._compat.toolkit._CURRENT_AGENT_ID`
-    while ``QwenPawAgent.__init__`` runs.  The shim's
-    ``register_tool_function`` reads that ContextVar and wraps every tool
-    in :class:`GuardedFunctionTool` (which routes ``check_permissions``
-    through qwenpaw's guard engine + ``ApprovalService``).
+    the agent's ``builtin_tools`` config), system prompt (assembled from
+    working-dir files), and middleware registration (bootstrap +
+    context-manager middlewares).  The tool-guard ASK flow works because
+    ``_create_toolkit`` reads ``agent_config.id`` and wraps every tool in
+    :class:`GuardedFunctionTool`.
     """
+    from ..agents.context.light_context_manager import LightContextManager
     from ..agents.react_agent import QwenPawAgent
     from ..config.config import load_agent_config
-    from .toolkit import _CURRENT_AGENT_ID
+    from ..constant import WORKING_DIR
 
     agent_config = load_agent_config(agent_id)
 
-    token = _CURRENT_AGENT_ID.set(agent_id)
-    try:
-        agent = QwenPawAgent(
-            agent_config=agent_config,
-            workspace_dir=workspace_dir,
-            request_context={
-                "session_id": session_id,
-                "agent_id": agent_id,
-                "channel": "console",
-            },
-            memory_manager=None,
-            context_manager=None,
-            mcp_clients=None,
-            plan_notebook=None,
-        )
-    finally:
-        _CURRENT_AGENT_ID.reset(token)
+    ctx_working_dir = str(workspace_dir) if workspace_dir else str(WORKING_DIR)
+    context_manager = LightContextManager(
+        working_dir=ctx_working_dir,
+        agent_id=agent_id,
+    )
+
+    agent = QwenPawAgent(
+        agent_config=agent_config,
+        workspace_dir=workspace_dir,
+        request_context={
+            "session_id": session_id,
+            "agent_id": agent_id,
+            "channel": "console",
+        },
+        memory_manager=None,
+        context_manager=context_manager,
+        mcp_clients=None,
+        plan_notebook=None,
+    )
     return agent
 
 
@@ -470,37 +570,37 @@ def _get_or_build_agent(
     session_id: str,
     agent_id: str | None = None,
     workspace_dir: Any = None,
-) -> Any:
-    """Return the cached :class:`QwenPawAgent` for the active (provider, model)
-    on this session — build on first use, rebuild when the active model changes.
+) -> tuple[Any, bool]:
+    """Return ``(agent, is_new)`` for the active (provider, model) on this
+    session — build on first use, rebuild when the active model changes.
 
-    The cache lives for the process lifetime.  Restarting the daemon wipes
-    chat history — full persistence is part of a later migration pass.
-
-    ``agent_id`` is part of the cache key so two workspaces sharing a
-    ``session_id`` (rare today, expected once cross-workspace sessions
-    land) don't collide on the same cached agent — each gets its own
-    toolkit bound to the right per-agent guard config.  When the caller
-    passes ``None`` we substitute ``"default"`` so ``load_agent_config``
-    succeeds against the default workspace.
-
-    ``workspace_dir`` (typically ``AgentRunner.workspace_dir``) is forwarded
-    to ``QwenPawAgent`` so its ``_build_sys_prompt`` reads working-dir files
-    from the right place; ``None`` falls back to the env-driven
-    ``WORKING_DIR`` global inside the agent.
+    ``is_new`` is ``True`` when the agent was just built (not from cache);
+    callers use it to decide whether to load persisted session state.
     """
+    from ..config.config import load_agent_config
     from ..providers.provider_manager import ProviderManager
 
-    active = ProviderManager.get_instance().get_active_model()
+    resolved_agent_id = agent_id or "default"
+
+    # Resolve the *effective* model: agent-specific first, then global.
+    active = None
+    try:
+        agent_cfg = load_agent_config(resolved_agent_id)
+        slot = agent_cfg.active_model
+        if slot and slot.provider_id and slot.model:
+            active = slot
+    except Exception:
+        pass
+    if active is None:
+        active = ProviderManager.get_instance().get_active_model()
     if active is None or not active.provider_id or not active.model:
         raise RuntimeError(
             "stream_query: no active model configured; pick one in the UI",
         )
-    resolved_agent_id = agent_id or "default"
     key = (session_id, resolved_agent_id, active.provider_id, active.model)
     cached = _AGENT_CACHE.get(key)
     if cached is not None:
-        return cached
+        return cached, False
     agent = _build_qwenpaw_agent(
         session_id,
         resolved_agent_id,
@@ -516,10 +616,10 @@ def _get_or_build_agent(
         active.model,
         len(agent.toolkit.tool_groups[0].tools),
     )
-    return agent
+    return agent, True
 
 
-class Runner:  # pragma: no cover - migration shim
+class Runner:
     """No-contract stand-in for the deleted runtime ``Runner`` base.
 
     Provides the lifecycle hooks (``start`` / ``stop``) qwenpaw's
@@ -530,7 +630,6 @@ class Runner:  # pragma: no cover - migration shim
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         self.session: Any = None
-        return
 
     async def start(self) -> None:
         """Default start: delegate to ``init_handler`` when defined."""
@@ -544,6 +643,7 @@ class Runner:  # pragma: no cover - migration shim
         if shutdown_handler is not None:
             await shutdown_handler()
 
+    # pylint: disable=too-many-branches,too-many-statements
     async def stream_query(
         self,
         request: Any,
@@ -553,7 +653,7 @@ class Runner:  # pragma: no cover - migration shim
         """Drive a stock 2.0 agent via ``reply_stream`` and translate the
         ``AgentEvent`` stream into the frontend's envelope protocol.
 
-        Envelope sequence (matches ``Builder.tsx`` in ``@agentscope-ai/chat``)::
+        Envelope sequence (matches ``Builder.tsx``)::
 
             1. response.created     (object=response, status=created)
             2. response.in_progress (object=response, status=in_progress)
@@ -627,7 +727,7 @@ class Runner:  # pragma: no cover - migration shim
         ``Reply`` and ``ModelCall`` events are still dropped for the
         migration mainline — re-introduced once channels need them.
         """
-        from agentscope.event import EventType  # type: ignore
+        from agentscope.event import EventType
         from .agent_schemas import (
             AgentRequest,
             AgentResponse,
@@ -663,11 +763,23 @@ class Runner:  # pragma: no cover - migration shim
         # its own task) so concurrent requests with different workspaces do
         # not see each other's value.
         workspace_dir = getattr(self, "workspace_dir", None)
-        if workspace_dir is not None:
-            from ..config.context import set_current_workspace_dir
-            set_current_workspace_dir(workspace_dir)
 
-        # Stash per-request context for ``GuardedFunctionTool.check_permissions``
+        # NOTE: 5 per-request ContextVars (session_id, recent_max_bytes,
+        # shell_command_timeout/executable) + skill env-overrides + the
+        # ``process_file_and_media_blocks_in_message`` call all moved into
+        # :class:`RequestSetupMiddleware` (``agents/middlewares.py``) so
+        # both ``reply()`` and ``reply_stream()`` get the same setup
+        # without duplication.  Here we only need the two that the
+        # middleware can't set (because they're consumed *before*
+        # agent construction): ``workspace_dir`` and ``agent_id``.
+        from ..config.context import set_current_workspace_dir
+        from ..app.agent_context import set_current_agent_id
+
+        if workspace_dir is not None:
+            set_current_workspace_dir(workspace_dir)
+        set_current_agent_id(getattr(self, "agent_id", None) or "default")
+
+        # Stash per-request context for GuardedFunctionTool
         # — the toolkit is built once per (session, agent, model) and cached,
         # so the tool can't capture this at construction time.  Pull from the
         # AgentRequest (channel was attached by the channel layer; root ids
@@ -700,7 +812,36 @@ class Runner:  # pragma: no cover - migration shim
         response.status = RunStatus.InProgress
         yield response
 
-        msgs = _request_input_to_msgs(getattr(request, "input", []) or [])
+        raw_input = getattr(request, "input", []) or []
+        if raw_input:
+            for _ri, _rm in enumerate(raw_input):
+                _rc = getattr(_rm, "content", None) or []
+                _types = [
+                    getattr(
+                        c,
+                        "type",
+                        getattr(getattr(c, "type", None), "value", None),
+                    )
+                    for c in _rc
+                ]
+                logger.info(
+                    "stream_query: raw input[%d] role=%s content_types=%s",
+                    _ri,
+                    getattr(_rm, "role", "?"),
+                    _types,
+                )
+        msgs = _request_input_to_msgs(raw_input)
+        if msgs:
+            for _mi, _mm in enumerate(msgs):
+                _block_types = [
+                    getattr(b, "type", "?") for b in (_mm.content or [])
+                ]
+                logger.info(
+                    "stream_query: converted msg[%d] role=%s blocks=%s",
+                    _mi,
+                    _mm.role,
+                    _block_types,
+                )
 
         # The Message envelope we accumulate into and emit twice: once with
         # empty content (in_progress) so the frontend can register the msg.id
@@ -728,13 +869,106 @@ class Runner:  # pragma: no cover - migration shim
 
         error_text: str | None = None
         try:
-            agent = _get_or_build_agent(
+            agent, is_new_agent = _get_or_build_agent(
                 session_id,
                 agent_id=getattr(self, "agent_id", None),
                 workspace_dir=workspace_dir,
             )
 
-            async for event in agent.reply_stream(inputs=msgs):
+            # Restore persisted session state on first use (process restart).
+            if is_new_agent:
+                session = getattr(self, "session", None)
+                if session is not None:
+                    try:
+                        user_id = getattr(request, "user_id", "") or session_id
+                        channel = getattr(request, "channel", "") or ""
+                        await session.load_session_state(
+                            session_id=session_id,
+                            user_id=user_id,
+                            channel=channel,
+                            agent=agent,
+                        )
+                    except KeyError as e:
+                        logger.debug(
+                            "stream_query: session load skipped "
+                            "(schema mismatch): %s",
+                            e,
+                        )
+                    except Exception:
+                        logger.debug(
+                            "stream_query: session load failed",
+                            exc_info=True,
+                        )
+
+            # Slash-command interception: ``reply_stream`` bypasses
+            # ``QwenPawAgent.reply()`` (where command detection lives),
+            # so check here before driving the model.
+            cmd_handler = getattr(agent, "command_handler", None)
+            _last_text = _get_last_user_text(msgs)
+            if (
+                cmd_handler is not None
+                and _last_text is not None
+                and cmd_handler.is_command(_last_text)
+            ):
+                cmd_msg = await cmd_handler.handle_command(_last_text)
+                cmd_text = cmd_msg.get_text_content() or ""
+                yield completed_message
+                message_started = True
+                tc = TextContent(
+                    type=ContentType.TEXT,
+                    text=cmd_text,
+                    delta=False,
+                    index=0,
+                )
+                tc.msg_id = message_id
+                tc.object = "content"
+                yield tc
+                completed_message.content.append(tc)
+                completed_message.status = RunStatus.Completed
+                completed_message.metadata = (
+                    getattr(
+                        cmd_msg,
+                        "metadata",
+                        None,
+                    )
+                    or {}
+                )
+                response.output.append(completed_message)
+                yield completed_message
+                response.status = RunStatus.Completed
+                yield response
+                return
+
+            # NOTE: pre-migration ``QwenPawAgent.reply()`` did 8 setup
+            # steps before invoking the model (5 ContextVars +
+            # process_file_and_media_blocks + apply_skill_config_env_overrides
+            # + slash dispatch).  All but slash dispatch now run inside
+            # :class:`RequestSetupMiddleware` (``agents/middlewares.py``)
+            # which agentscope's middleware chain wraps around BOTH
+            # ``reply()`` and ``reply_stream()`` — single source of truth.
+            # Slash dispatch is kept inline above (line 897+) because it
+            # needs to short-circuit the SSE event stream and yield a
+            # text envelope directly, which is awkward inside a
+            # middleware (would have to fabricate the event stream shape).
+            #
+            # Wrap reply_stream so long idle periods (notably tool-guard
+            # ASK waits up to TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS=300s) emit
+            # SSE-keepalive heartbeats instead of letting the connection
+            # silently drop at the proxy / browser idle-timeout boundary.
+            agent_iter = agent.reply_stream(inputs=msgs).__aiter__()
+            async for event in _iter_with_heartbeat(
+                agent_iter,
+                HEARTBEAT_INTERVAL_SECONDS,
+            ):
+                if event is _HEARTBEAT_TICK:
+                    # Re-yield the in-progress response envelope.  Status
+                    # hasn't changed; the frontend's response reducer is
+                    # idempotent on duplicate in_progress events (the
+                    # startup path already emits Created→InProgress twice).
+                    # The bytes hitting the wire keep proxies happy.
+                    yield response
+                    continue
+
                 evt_type = getattr(event, "type", None)
                 if hasattr(evt_type, "value"):
                     evt_type = evt_type.value
@@ -753,7 +987,7 @@ class Runner:  # pragma: no cover - migration shim
                         message_started = True
                     block_id = event.block_id
                     delta = event.delta or ""
-                    # Tolerate a missing TEXT_BLOCK_START by registering lazily.
+                    # Tolerate missing TEXT_BLOCK_START; register lazily.
                     state = text_blocks.setdefault(
                         block_id,
                         {"index": len(text_blocks), "text": ""},
@@ -973,15 +1207,36 @@ class Runner:  # pragma: no cover - migration shim
                     state["output_text_acc"] += event.delta or ""
 
                 elif evt_type == EventType.TOOL_RESULT_DATA_DELTA.value:
-                    # Binary tool output — none of the four migrated tools
-                    # produce these; revisit when view_media/desktop_screenshot
-                    # ship.
-                    logger.debug(
-                        "stream_query: dropped TOOL_RESULT_DATA_DELTA "
-                        "(tool_call_id=%s media_type=%s)",
-                        getattr(event, "tool_call_id", None),
-                        getattr(event, "media_type", None),
+                    state = tool_calls.get(event.tool_call_id)
+                    if state is None:
+                        continue
+                    data_blocks = state.setdefault(
+                        "output_data_blocks",
+                        [],
                     )
+                    media_type = getattr(event, "media_type", None)
+                    block_type = _media_type_to_block_type(
+                        media_type,
+                    )
+                    block: dict[str, Any] = {
+                        "type": block_type,
+                        "source": {},
+                    }
+                    url = getattr(event, "url", None)
+                    b64 = getattr(event, "data", None)
+                    if url:
+                        block["source"] = {
+                            "type": "url",
+                            "url": url,
+                            "media_type": media_type or "",
+                        }
+                    elif b64:
+                        block["source"] = {
+                            "type": "base64",
+                            "data": b64,
+                            "media_type": media_type or "",
+                        }
+                    data_blocks.append(block)
 
                 elif evt_type == EventType.TOOL_RESULT_END.value:
                     state = tool_calls.get(event.tool_call_id)
@@ -990,12 +1245,28 @@ class Runner:  # pragma: no cover - migration shim
                     tool_state = getattr(event, "state", None)
                     if hasattr(tool_state, "value"):
                         tool_state = tool_state.value
+                    data_blocks = state.get("output_data_blocks")
+                    if data_blocks:
+                        output_blocks: list[dict[str, Any]] = list(
+                            data_blocks,
+                        )
+                        text_acc = state["output_text_acc"]
+                        if text_acc:
+                            output_blocks.append(
+                                {"type": "text", "text": text_acc},
+                            )
+                        tool_output: Any = json.dumps(
+                            output_blocks,
+                            ensure_ascii=False,
+                        )
+                    else:
+                        tool_output = state["output_text_acc"]
                     out_data = DataContent(
                         type=ContentType.DATA,
                         data={
                             "name": state["name"],
                             "call_id": event.tool_call_id,
-                            "output": state["output_text_acc"],
+                            "output": tool_output,
                             "state": tool_state,
                         },
                     )
@@ -1036,19 +1307,64 @@ class Runner:  # pragma: no cover - migration shim
             response.status = RunStatus.Completed
         yield response
 
+        # Persist agent state so the frontend's chat-history API and
+        # session reload see the conversation even after a restart.
+        try:
+            session = getattr(self, "session", None)
+            if session is not None and agent is not None:
+                user_id = getattr(request, "user_id", "") or session_id
+                channel = getattr(request, "channel", "") or ""
+                await session.save_session_state(
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    agent=agent,
+                )
+        except Exception:
+            logger.debug(
+                "stream_query: failed to persist session state",
+                exc_info=True,
+            )
 
-def _request_input_to_msgs(input_list: List[Any]) -> List[Any]:
+
+def _get_last_user_text(msgs: List[Any]) -> str | None:
+    """Extract the text of the last user message from a list of ``Msg``."""
+    if not msgs:
+        return None
+    last = msgs[-1]
+    if hasattr(last, "get_text_content"):
+        return last.get_text_content()
+    return None
+
+
+def _ensure_url_scheme(url: str) -> str:
+    """Prepend ``file://`` when *url* is an absolute local path."""
+    if url.startswith(("/", "~")):
+        from pathlib import Path
+
+        return Path(url).expanduser().resolve().as_uri()
+    return url
+
+
+def _request_input_to_msgs(  # pylint: disable=too-many-branches
+    input_list: List[Any],
+) -> List[Any]:
     """Convert ``AgentRequest.input`` (list of 1.x Message) to a list of
     agentscope 2.0 ``Msg`` objects.
 
-    Text-only fast path — anything else is dropped for the round-trip
-    mainline.  TODO(as2-migration): port image/audio/file/tool blocks
-    once those flows are exercised end-to-end.
+    Handles text, image, audio, video, and file content blocks.
     """
     try:
-        from agentscope.message import Msg, TextBlock
+        from agentscope.message import Msg, TextBlock, DataBlock
+        from agentscope.message._block import URLSource
     except Exception:  # pragma: no cover - defensive
         return []
+
+    _MEDIA_TYPES = {
+        "image": "image",
+        "audio": "audio",
+        "video": "video",
+    }
 
     out: List[Any] = []
     for m in input_list:
@@ -1057,8 +1373,6 @@ def _request_input_to_msgs(input_list: List[Any]) -> List[Any]:
             role = role.value
         role = role or "user"
         if role == "tool":
-            # agentscope 2.0 only allows system/user/assistant; collapse
-            # tool→assistant so the Msg validates.
             role = "assistant"
 
         blocks: list = []
@@ -1066,15 +1380,61 @@ def _request_input_to_msgs(input_list: List[Any]) -> List[Any]:
             ctype = getattr(c, "type", None)
             if hasattr(ctype, "value"):
                 ctype = ctype.value
+
             if ctype == "text":
                 text = getattr(c, "text", None) or ""
                 if text:
                     blocks.append(TextBlock(type="text", text=text))
+
+            elif ctype in _MEDIA_TYPES:
+                url = (
+                    getattr(c, "image_url", None)
+                    or getattr(c, "audio_url", None)
+                    or getattr(c, "video_url", None)
+                    or getattr(c, "url", None)
+                )
+                if url:
+                    url = _ensure_url_scheme(str(url))
+                    ext = "jpeg" if ctype == "image" else "mpeg"
+                    media_type = f"{_MEDIA_TYPES[ctype]}/{ext}"
+                    try:
+                        blocks.append(
+                            DataBlock(
+                                source=URLSource(
+                                    url=url,
+                                    media_type=media_type,
+                                ),
+                            ),
+                        )
+                    except Exception:
+                        logger.debug(
+                            "Failed to create DataBlock for %s url=%s",
+                            ctype,
+                            url,
+                        )
+
+            elif ctype == "file":
+                url = getattr(c, "file_url", None) or getattr(c, "url", None)
+                if url:
+                    url = _ensure_url_scheme(str(url))
+                    try:
+                        blocks.append(
+                            DataBlock(
+                                source=URLSource(
+                                    url=url,
+                                    media_type="application/octet-stream",
+                                ),
+                                name=getattr(c, "file_name", None),
+                            ),
+                        )
+                    except Exception:
+                        logger.debug(
+                            "Failed to create DataBlock for file url=%s",
+                            url,
+                        )
 
         if not blocks:
             continue
 
         out.append(Msg(name=role, role=role, content=blocks))
     return out
-
-

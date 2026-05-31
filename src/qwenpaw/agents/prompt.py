@@ -9,7 +9,7 @@ import logging
 import re
 from pathlib import Path
 
-from qwenpaw._compat.runtime import (
+from qwenpaw.exceptions import (
     ConfigurationException,
 )
 

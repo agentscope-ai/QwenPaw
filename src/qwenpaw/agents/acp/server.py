@@ -229,7 +229,7 @@ def _content_blocks_to_updates(
             _emit_thinking(block_data, tracker, updates)
         elif block_type == "text":
             _emit_text(block_data, tracker, updates)
-        elif block_type == "tool_use":
+        elif block_type in ("tool_use", "tool_call"):
             tc_id = str(block_data.get("id") or uuid4().hex[:8])
             if not tracker or tracker.is_new_tool_call(tc_id):
                 updates.append(

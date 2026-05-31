@@ -16,7 +16,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 
-from qwenpaw._compat.runtime import (
+from qwenpaw.exceptions import (
     AppBaseException,
 )
 

@@ -25,6 +25,8 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from aibot import WSClient, WSClientOptions, generate_req_id
+
 from qwenpaw._compat.agent_schemas import (
     AgentRequest,
     FileContent,
@@ -32,7 +34,6 @@ from qwenpaw._compat.agent_schemas import (
     TextContent,
     VideoContent,
 )
-from aibot import WSClient, WSClientOptions, generate_req_id
 
 from ....constant import DEFAULT_MEDIA_DIR
 from ....exceptions import ChannelError

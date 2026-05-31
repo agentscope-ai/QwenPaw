@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
-from qwenpaw._compat.runtime import (
+from qwenpaw.exceptions import (
     AgentRuntimeErrorException,
 )
 

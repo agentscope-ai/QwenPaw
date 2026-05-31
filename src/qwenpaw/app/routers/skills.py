@@ -19,7 +19,7 @@ from typing import Any
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from qwenpaw._compat.runtime import (
+from qwenpaw.exceptions import (
     AppBaseException,
 )
 

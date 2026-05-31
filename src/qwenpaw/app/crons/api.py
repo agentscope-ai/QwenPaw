@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from qwenpaw._compat.runtime import ConfigurationException
+from qwenpaw.exceptions import ConfigurationException
 
 from .manager import CronManager
 from .models import (

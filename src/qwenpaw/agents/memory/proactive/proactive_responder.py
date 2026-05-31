@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING, Optional, List, Dict
 
 import aiohttp
 
-# NOTE(as2-migration): ReActAgent removed; alias to Agent for import-only.
-from agentscope.agent import Agent as ReActAgent
+from agentscope.agent import Agent, ReActConfig
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
 
 from ....config.config import load_agent_config
+from ...tool_compat import make_tool
 from ...tools import (
     browser_use,
     execute_shell_command,
@@ -101,7 +101,7 @@ async def generate_proactive_response(
 
 async def _initialize_single_proactive_agent(
     agent_id: str = "proactive",
-) -> ReActAgent:
+) -> Agent:
     """Initialize a single proactive agent instance."""
     agent_config = load_agent_config(agent_id)
     agent_config.running.max_iters = 50
@@ -111,26 +111,34 @@ async def _initialize_single_proactive_agent(
 
     model, formatter = create_model_and_formatter(agent_id=agent_config.id)
 
-    # Create toolkit and register tools conditionally
-    toolkit = Toolkit()
-    toolkit.register_tool_function(browser_use)
-    toolkit.register_tool_function(read_file)
-    toolkit.register_tool_function(execute_shell_command)
+    tools = [
+        make_tool(browser_use),
+        make_tool(read_file),
+        make_tool(execute_shell_command),
+    ]
 
-    # Register desktop_screenshot only if the model supports multimodal
     from ...prompt import get_active_model_supports_multimodal
 
     if get_active_model_supports_multimodal():
-        toolkit.register_tool_function(desktop_screenshot)
+        tools.append(make_tool(desktop_screenshot))
 
-    agent = ReActAgent(
+    toolkit = Toolkit(tools=tools)
+
+    if formatter is not None:
+        innermost = model
+        while hasattr(innermost, "_inner"):
+            innermost = innermost._inner  # pylint: disable=protected-access
+        while hasattr(innermost, "_model"):
+            innermost = innermost._model  # pylint: disable=protected-access
+        if hasattr(innermost, "formatter"):
+            innermost.formatter = formatter
+
+    agent = Agent(
         name="ProactiveAssistant",
         model=model,
-        sys_prompt="You are a helpful assistant.",
+        system_prompt="You are a helpful assistant.",
         toolkit=toolkit,
-        formatter=formatter,
-        memory=None,
-        max_iters=agent_config.running.max_iters,
+        react_config=ReActConfig(max_iters=agent_config.running.max_iters),
     )
 
     return agent
@@ -138,7 +146,7 @@ async def _initialize_single_proactive_agent(
 
 async def _extract_tasks_from_memory(
     memory_context: str,
-    agent: ReActAgent,
+    agent: Agent,
 ) -> List[ProactiveTask]:
     """Extract likely user tasks from memory context."""
     prompt = f"{PROACTIVE_TASK_EXTRACTION_PROMPT}\n#Contexts: {memory_context}"
@@ -180,7 +188,7 @@ def _create_tasks_from_data(tasks_data: List[Dict]) -> List[ProactiveTask]:
 
 async def _execute_query(
     query: str,
-    agent: ReActAgent,
+    agent: Agent,
 ) -> ProactiveQueryResult:
     """Execute a query using available tools."""
     prompt = (

@@ -14,7 +14,7 @@ from pydantic import (
     model_validator,
 )
 import shortuuid
-from qwenpaw._compat.runtime import (
+from qwenpaw.exceptions import (
     ConfigurationException,
 )
 

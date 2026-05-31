@@ -20,7 +20,7 @@ from qwenpaw._compat.agent_schemas import (
     FunctionCallOutput,
     MessageType,
 )
-from qwenpaw._compat.runtime import (
+from qwenpaw.exceptions import (
     AgentRuntimeErrorException,
 )
 
@@ -175,11 +175,24 @@ def _build_media_message_from_block(
     output = block.get("output")
     media_message = None
     if isinstance(output, list):
+
+        def _resolve_media_type(item):
+            if not isinstance(item, dict):
+                return None
+            t = item.get("type")
+            if t in ("image", "audio", "video", "file"):
+                return t
+            if t == "data":
+                src = item.get("source") or {}
+                mt = src.get("media_type", "") if isinstance(src, dict) else ""
+                for prefix in ("image", "audio", "video"):
+                    if mt.startswith(f"{prefix}/"):
+                        return prefix
+                return "file"
+            return None
+
         media_items = [
-            item
-            for item in output
-            if isinstance(item, dict)
-            and item.get("type") in ("image", "audio", "video", "file")
+            item for item in output if _resolve_media_type(item) is not None
         ]
         if media_items:
             media_message = Message(
@@ -189,7 +202,7 @@ def _build_media_message_from_block(
             media_message.metadata = metadata
 
             for item in media_items:
-                itype = item.get("type")
+                itype = _resolve_media_type(item)
 
                 if itype == "image":
                     kwargs = {}
@@ -390,6 +403,23 @@ def agentscope_msg_to_message(
                 continue
             btype = block.get("type", "text")
 
+            # DataBlock (2.0): map type="data" to concrete media type
+            if btype == "data":
+                source = block.get("source") or {}
+                mt = (
+                    source.get("media_type", "")
+                    if isinstance(source, dict)
+                    else ""
+                )
+                if mt.startswith("image/"):
+                    btype = "image"
+                elif mt.startswith("audio/"):
+                    btype = "audio"
+                elif mt.startswith("video/"):
+                    btype = "video"
+                else:
+                    btype = "file"
+
             if btype == "text":
                 if current_type != MessageType.MESSAGE:
                     if current_message:
@@ -426,7 +456,7 @@ def agentscope_msg_to_message(
                 )
                 current_message.add_content(new_content=text_content)
 
-            elif btype == "tool_use":
+            elif btype in ("tool_use", "tool_call"):
                 if current_message:
                     results.append(current_message.completed())
 

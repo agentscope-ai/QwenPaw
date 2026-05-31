@@ -6,13 +6,13 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from fastapi import WebSocketDisconnect
+
 from qwenpaw._compat.agent_schemas import (
     ContentType,
     MessageType,
     RunStatus,
 )
-
-from fastapi import WebSocketDisconnect
 
 from .session import CallSessionManager
 

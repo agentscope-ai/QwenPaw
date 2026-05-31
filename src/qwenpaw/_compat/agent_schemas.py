@@ -177,7 +177,8 @@ _CONTENT_TYPE_REGISTRY: Dict[str, type] = {
 def _coerce_content_item(item: Any) -> Any:
     """Coerce a raw dict content item to its typed ``*Content`` subclass.
 
-    Channels access content via ``getattr(c, "type")`` / ``getattr(c, "text")``;
+    Channels access content via ``getattr(c, "type")`` / ``getattr(c,
+    "text")``;
     raw JSON dicts arriving through the HTTP layer would silently fail those
     checks (e.g. ``_apply_no_text_debounce`` would buffer the message and never
     process it) because dict attribute access returns ``None``.  Coerce here so

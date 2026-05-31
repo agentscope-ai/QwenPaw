@@ -332,7 +332,7 @@ async def edit_file(
     )
 
     if write_response.content and len(write_response.content) > 0:
-        write_text = write_response.content[0].get("text", "")
+        write_text = getattr(write_response.content[0], "text", "")
         if write_text.startswith("Error:"):
             return write_response
 

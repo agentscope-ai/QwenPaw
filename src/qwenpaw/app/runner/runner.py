@@ -12,13 +12,14 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Coroutine
 
 import frontmatter as fm
 from agentscope.message import Msg, TextBlock
+from dotenv import load_dotenv
+
 from qwenpaw._compat.runtime_engine import Runner
 from qwenpaw._compat.agent_schemas import AgentRequest
-from qwenpaw._compat.runtime import (
+from qwenpaw.exceptions import (
     AgentException,
     AppBaseException,
 )
-from dotenv import load_dotenv
 
 from .command_dispatch import (
     _get_last_user_text,
@@ -208,7 +209,7 @@ class AgentRunner(Runner):
     ) -> Msg | None:
         """Handle ``/<skill_name> [input]`` or ``/[skill name] [input]``.
 
-        *skills* is ``agent.toolkit.skills`` — already resolved for
+        *skills* is ``agent.toolkit._qp_skills`` — already resolved for
         the current channel during agent init.  Hot-reload safe because
         the agent is recreated on every query.
 
@@ -319,27 +320,35 @@ class AgentRunner(Runner):
         if not session_id or not user_id:
             return
         try:
-            context_manager = self.context_manager
-            if context_manager is None:
-                return
-            memory = context_manager.get_agent_context()
-            if memory is None:
-                return
-            state = await self.session.get_session_state_dict(
+            from agentscope.state import AgentState
+
+            raw = await self.session.get_session_state_dict(
                 session_id,
                 user_id,
                 channel,
                 allow_not_exist=True,
             )
-            memory_state = (state or {}).get("agent", {}).get("memory", {})
-            memory.load_state_dict(memory_state, strict=False)
+            agent_raw = (raw or {}).get("agent", {})
+            state_raw = agent_raw.get("state")
+            if isinstance(state_raw, dict):
+                try:
+                    state = AgentState.model_validate(state_raw)
+                except Exception:
+                    state = AgentState()
+            else:
+                state = AgentState()
+
             if msgs:
-                await memory.add(msgs[-1])
-            await memory.add(response_msg)
+                last_msg = msgs[-1]
+                if isinstance(last_msg, Msg):
+                    state.context.append(last_msg)
+            if isinstance(response_msg, Msg):
+                state.context.append(response_msg)
+
             await self.session.update_session_state(
                 session_id=session_id,
-                key="agent.memory",
-                value=memory.state_dict(),
+                key="agent.state",
+                value=state.model_dump(mode="json"),
                 user_id=user_id,
                 channel=channel,
             )
@@ -571,95 +580,10 @@ class AgentRunner(Runner):
                 )
 
             # --- Plan Mode ------------------------------------------
+            # PlanNotebook was removed in AgentScope 2.0.  The plan
+            # feature is disabled until rebuilt on top of the 2.0 Task
+            # system.  Pass None so downstream code gracefully no-ops.
             plan_notebook = None
-            plan_enabled = getattr(
-                getattr(agent_config, "plan", None),
-                "enabled",
-                False,
-            )
-            if plan_enabled:
-                try:
-                    from agentscope.plan import (
-                        PlanNotebook,
-                        InMemoryPlanStorage,
-                    )
-                    from ...plan.hints import SimplePlanToHint, set_plan_gate
-
-                    hint_gen = SimplePlanToHint()
-                    plan_notebook = PlanNotebook(
-                        plan_to_hint=hint_gen,
-                        storage=InMemoryPlanStorage(),
-                    )
-                    hint_gen.bind_notebook(plan_notebook)
-
-                    # Detect /plan <description> and set gate
-                    if query and query.strip().lower().startswith("/plan "):
-                        plan_desc = query.strip()[6:].strip()
-                        if plan_desc:
-                            set_plan_gate(plan_notebook, enabled=True)
-                            self._rewrite_last_message_text(
-                                msgs,
-                                plan_desc,
-                            )
-                            logger.info(
-                                "Plan mode: /plan gate set, desc=%s",
-                                plan_desc[:60],
-                            )
-
-                    # Register SSE broadcast hook + state tracking
-                    from ...plan.broadcast import broadcast_plan_update
-                    from ...plan.schemas import plan_to_response
-
-                    def _on_plan_change(  # pylint: disable=protected-access
-                        nb,
-                        plan,
-                    ):
-                        if getattr(nb, "_loading_from_state", False):
-                            nb._qp_had_plan = plan is not None
-                            nb._qp_prev_plan_id = (
-                                plan.id if plan is not None else None
-                            )
-                            return
-
-                        had_plan = getattr(nb, "_qp_had_plan", False)
-                        prev_id = getattr(nb, "_qp_prev_plan_id", None)
-
-                        if plan is not None:
-                            cur_id = plan.id
-                            if not had_plan or cur_id != prev_id:
-                                nb._plan_just_mutated = True
-                            nb._qp_prev_plan_id = cur_id
-                        else:
-                            if had_plan:
-                                nb._plan_recently_finished = True
-                                nb._plan_awaiting_user_confirm = False
-                            nb._qp_prev_plan_id = None
-                        nb._qp_had_plan = plan is not None
-
-                        payload = {
-                            "type": "plan_update",
-                            "plan": (
-                                plan_to_response(plan).model_dump()
-                                if plan is not None
-                                else None
-                            ),
-                        }
-                        broadcast_plan_update(
-                            self.agent_id,
-                            payload,
-                            session_id=session_id,
-                        )
-
-                    plan_notebook.register_plan_change_hook(
-                        "broadcast",
-                        _on_plan_change,
-                    )
-                except Exception:
-                    logger.warning(
-                        "Failed to create PlanNotebook",
-                        exc_info=True,
-                    )
-                    plan_notebook = None
 
             agent = QwenPawAgent(
                 agent_config=agent_config,
@@ -722,7 +646,7 @@ class AgentRunner(Runner):
                 skill_response = self._maybe_inject_skill(
                     query,
                     msgs,
-                    agent.toolkit.skills,
+                    getattr(agent.toolkit, "_qp_skills", {}),
                 )
                 if skill_response is not None:
                     await self._persist_exchange_to_session(
@@ -735,42 +659,6 @@ class AgentRunner(Runner):
                     yield skill_response, True
                     return
 
-            # Ensure session file has a valid plan_notebook dict
-            # to prevent TypeError/KeyError during load_state_dict
-            if plan_notebook is not None:
-                try:
-                    _states = await self.session.get_session_state_dict(
-                        session_id=session_id,
-                        user_id=user_id,
-                        channel=channel,
-                        allow_not_exist=True,
-                    )
-                    _agent_st = _states.get("agent", {})
-                    _nb_val = _agent_st.get("plan_notebook")
-                    if _agent_st and (
-                        "plan_notebook" not in _agent_st
-                        or not isinstance(_nb_val, dict)
-                    ):
-                        await self.session.update_session_state(
-                            session_id=session_id,
-                            key="agent.plan_notebook",
-                            value=plan_notebook.state_dict(),
-                            user_id=user_id,
-                            channel=channel,
-                            create_if_not_exist=False,
-                        )
-                except Exception:
-                    logger.debug(
-                        "Pre-populate plan_notebook skipped",
-                        exc_info=True,
-                    )
-
-            if plan_notebook is not None:
-                setattr(
-                    plan_notebook,
-                    "_loading_from_state",
-                    True,  # pylint: disable=protected-access
-                )
             try:
                 await self.session.load_session_state(
                     session_id=session_id,
@@ -784,34 +672,20 @@ class AgentRunner(Runner):
                     "will save fresh state on completion to recover file",
                     e,
                 )
-            finally:
-                if plan_notebook is not None:
-                    setattr(
-                        plan_notebook,
-                        "_loading_from_state",
-                        False,  # pylint: disable=protected-access
-                    )
             session_state_loaded = True
-
-            if plan_notebook is not None:
-                from ...plan.hints import clear_plan_awaiting_user_confirm
-
-                clear_plan_awaiting_user_confirm(plan_notebook)
 
             # Isolated cron: run without any prior context so each execution
             # is independent (saves tokens, avoids stale-context interference).
             _extra = getattr(request, "model_extra", None) or {}
-            if (
-                _extra.get("session_source") == "cron"
-                and agent.memory is not None
-            ):
-                # Snapshot the full history before clearing
-                _cron_memory_snapshot = agent.memory.state_dict()
-                await agent.memory.clear()
+            if _extra.get("session_source") == "cron":
+                _cron_memory_snapshot = agent.state.model_dump(mode="json")
+                agent.state.context.clear()
                 logger.debug(
                     "Isolated cron execution: snapshotted and cleared agent "
-                    "memory (%d items) for session_id=%s",
-                    len(_cron_memory_snapshot.get("memory", [])),
+                    "state (%d msgs) for session_id=%s",
+                    len(
+                        _cron_memory_snapshot.get("context", []),
+                    ),
                     session_id,
                 )
 
@@ -926,20 +800,23 @@ class AgentRunner(Runner):
         finally:
             if agent is not None and session_state_loaded:
                 # For isolated cron: restore the full history (snapshot) plus
-                # the new messages produced by this execution
-                if (
-                    _cron_memory_snapshot is not None
-                    and agent.memory is not None
-                ):
-                    new_messages = await agent.memory.get_memory()
-                    agent.memory.load_state_dict(_cron_memory_snapshot)
+                # the new messages produced by this execution.
+                if _cron_memory_snapshot is not None:
+                    from agentscope.state import AgentState
+
+                    new_messages = list(agent.state.context)
+                    agent.state = AgentState.model_validate(
+                        _cron_memory_snapshot,
+                    )
                     if new_messages:
-                        await agent.memory.add(new_messages)
+                        agent.state.context.extend(new_messages)
                     logger.debug(
                         "Isolated cron: restored %d historical + %d new "
                         "messages for session_id=%s",
-                        len(_cron_memory_snapshot.get("memory", [])),
-                        len(new_messages) if new_messages else 0,
+                        len(
+                            _cron_memory_snapshot.get("context", []),
+                        ),
+                        len(new_messages),
                         session_id,
                     )
 

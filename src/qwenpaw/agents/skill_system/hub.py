@@ -22,7 +22,7 @@ import frontmatter
 import httpx
 import yaml
 
-from qwenpaw._compat.runtime import ConfigurationException
+from qwenpaw.exceptions import ConfigurationException
 from ...exceptions import SkillsError
 from ...constant import EnvVarLoader
 from .models import SkillConflictError

@@ -314,7 +314,9 @@ class ConsoleChannel(BaseChannel):
                     type=MessageType.MESSAGE,
                     role="assistant",
                     content=new_parts,
+                    status=RunStatus.Completed,
                 )
+                media_message.object = "message"
         return media_message
 
     def _extract_token_usage(

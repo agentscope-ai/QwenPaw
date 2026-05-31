@@ -34,7 +34,7 @@ class AsMsgHandler:
 
         textual_parts = []
         total_token_count = 0
-        for block in output:
+        for block in output:  # pylint: disable=too-many-nested-blocks
             try:
                 if not isinstance(block, dict) or "type" not in block:
                     logger.warning(
@@ -51,17 +51,31 @@ class AsMsgHandler:
                         textual_parts[-1],
                     )
 
-                elif block_type in ["image", "audio", "video", "file"]:
+                elif block_type in ["image", "audio", "video", "file", "data"]:
                     source = block.get("source", {})
-                    if source.get("type") == "base64":
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
                         data = source.get("data", "")
                         total_token_count += len(data) // 4 if data else 10
                     else:
-                        url = source.get("url", "")
+                        url = (
+                            source.get("url", "")
+                            if isinstance(source, dict)
+                            else ""
+                        )
                         total_token_count += (
                             await self.count_str_token(url) if url else 10
                         )
-                        textual_parts.append(f"[{block_type}] {url}")
+                        display_type = block_type
+                        if block_type == "data" and isinstance(source, dict):
+                            mt = source.get("media_type", "")
+                            for prefix in ("image", "audio", "video"):
+                                if mt.startswith(f"{prefix}/"):
+                                    display_type = prefix
+                                    break
+                        textual_parts.append(f"[{display_type}] {url}")
 
                 else:
                     logger.warning(
@@ -96,6 +110,12 @@ class AsMsgHandler:
             )
 
         for block in message.content:
+            # agentscope 2.0 returns Pydantic block models (TextBlock,
+            # DataBlock, ToolCallBlock, ...) instead of the 1.x dicts.
+            # Normalise to a dict so the downstream ``.get()`` lookups still
+            # work without rewriting every branch below.
+            if hasattr(block, "model_dump"):
+                block = block.model_dump()
             block_type = block.get("type", "unknown")
 
             if block_type == "text":
@@ -120,26 +140,39 @@ class AsMsgHandler:
                     ),
                 )
 
-            elif block_type in ("image", "audio", "video", "file"):
+            elif block_type in ("image", "audio", "video", "file", "data"):
                 source = block.get("source", {})
-                url = source.get("url", "")
-                if source.get("type") == "base64":
-                    data = source.get("data", "")
-                    token_count = len(data) // 4 if data else 10
+                url = ""
+                if isinstance(source, dict):
+                    url = source.get("url", "")
+                    if source.get("type") == "base64":
+                        data = source.get("data", "")
+                        token_count = len(data) // 4 if data else 10
+                    else:
+                        token_count = (
+                            await self.count_str_token(url) if url else 10
+                        )
                 else:
-                    token_count = (
-                        await self.count_str_token(url) if url else 10
-                    )
+                    token_count = 10
+                display_type = block_type
+                if block_type == "data":
+                    mt = ""
+                    if isinstance(source, dict):
+                        mt = source.get("media_type", "")
+                    for prefix in ("image", "audio", "video"):
+                        if mt.startswith(f"{prefix}/"):
+                            display_type = prefix
+                            break
                 blocks.append(
                     AsBlockStat(
-                        block_type=block_type,
+                        block_type=display_type,
                         text="",
                         token_count=token_count,
                         media_url=url,
                     ),
                 )
 
-            elif block_type == "tool_use":
+            elif block_type in ("tool_use", "tool_call"):
                 tool_name = block.get("name", "")
                 tool_input = block.get("input", "")
                 try:
@@ -268,11 +301,17 @@ class AsMsgHandler:
         tool_result_ids: set[str] = set()
 
         for msg in messages:
-            for block in msg.get_content_blocks("tool_use"):
-                if tool_id := block.get("id"):
+            for block in msg.get_content_blocks("tool_call"):
+                tool_id = getattr(block, "id", None) or (
+                    block.get("id") if isinstance(block, dict) else None
+                )
+                if tool_id:
                     tool_use_ids.add(tool_id)
             for block in msg.get_content_blocks("tool_result"):
-                if tool_id := block.get("id"):
+                tool_id = getattr(block, "id", None) or (
+                    block.get("id") if isinstance(block, dict) else None
+                )
+                if tool_id:
                     tool_result_ids.add(tool_id)
 
         return tool_use_ids == tool_result_ids

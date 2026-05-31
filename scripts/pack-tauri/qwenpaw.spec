@@ -134,7 +134,6 @@ a = Analysis(
         "a2a.types",
         *collect_submodules("acp"),
         "acp",
-        "agentscope_runtime",
         "psutil",
         "multipart",
         "websockets",

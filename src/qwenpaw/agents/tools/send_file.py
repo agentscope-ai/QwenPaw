@@ -7,11 +7,8 @@ import unicodedata
 from urllib.parse import quote
 
 from agentscope.tool import ToolResponse
-from agentscope.message import TextBlock
+from agentscope.message import TextBlock, DataBlock, URLSource
 
-# NOTE(as2-migration): Image/Audio/VideoBlock collapsed into DataBlock in 2.0.
-from ..._compat.message import ImageBlock, AudioBlock, VideoBlock
-from ..schema import FileBlock
 from .file_io import _resolve_file_path
 
 
@@ -48,16 +45,6 @@ def _path_to_file_url(path: str) -> str:
     return f"file://{encoded_path}"
 
 
-def _auto_as_type(mt: str) -> str:
-    if mt.startswith("image/"):
-        return "image"
-    if mt.startswith("audio/"):
-        return "audio"
-    if mt.startswith("video/"):
-        return "video"
-    return "file"
-
-
 async def send_file_to_user(
     file_path: str,
 ) -> ToolResponse:
@@ -84,7 +71,6 @@ async def send_file_to_user(
         return ToolResponse(
             content=[
                 TextBlock(
-                    type="text",
                     text=f"Error: The file {file_path} does not exist.",
                 ),
             ],
@@ -94,7 +80,6 @@ async def send_file_to_user(
         return ToolResponse(
             content=[
                 TextBlock(
-                    type="text",
                     text=f"Error: The path {file_path} is not a file.",
                 ),
             ],
@@ -105,43 +90,20 @@ async def send_file_to_user(
     if mime_type is None:
         # Default to application/octet-stream for unknown types
         mime_type = "application/octet-stream"
-    as_type = _auto_as_type(mime_type)
 
     try:
-        # Use local file URL instead of base64
         file_url = _path_to_file_url(file_path)
-        source = {"type": "url", "url": file_url}
-
-        if as_type == "image":
-            return ToolResponse(
-                content=[
-                    ImageBlock(type="image", source=source),
-                    TextBlock(type="text", text="File sent successfully."),
-                ],
-            )
-        if as_type == "audio":
-            return ToolResponse(
-                content=[
-                    AudioBlock(type="audio", source=source),
-                    TextBlock(type="text", text="File sent successfully."),
-                ],
-            )
-        if as_type == "video":
-            return ToolResponse(
-                content=[
-                    VideoBlock(type="video", source=source),
-                    TextBlock(type="text", text="File sent successfully."),
-                ],
-            )
 
         return ToolResponse(
             content=[
-                FileBlock(
-                    type="file",
-                    source=source,
-                    filename=os.path.basename(file_path),
+                DataBlock(
+                    source=URLSource(
+                        url=file_url,
+                        media_type=mime_type,
+                    ),
+                    name=os.path.basename(file_path),
                 ),
-                TextBlock(type="text", text="File sent successfully."),
+                TextBlock(text="File sent successfully."),
             ],
         )
 
@@ -149,7 +111,6 @@ async def send_file_to_user(
         return ToolResponse(
             content=[
                 TextBlock(
-                    type="text",
                     text=f"Error: Send file failed due to \n{e}",
                 ),
             ],

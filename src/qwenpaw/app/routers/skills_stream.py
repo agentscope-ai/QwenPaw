@@ -10,7 +10,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from qwenpaw._compat.runtime import (
+from qwenpaw.exceptions import (
     AppBaseException,
 )
 

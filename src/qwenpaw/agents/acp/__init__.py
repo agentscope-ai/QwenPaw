@@ -4,7 +4,7 @@
 NOTE(as2-migration): ``.server`` and ``.service`` still import from
 ``agentscope_runtime.engine.schemas.agent_schemas`` and are not yet ported
 to agentscope 2.0.  Eagerly importing them here would break every consumer
-of ``qwenpaw.agents.acp`` — including ``qwenpaw.agents.tools.delegate_external_agent``
+of ``qwenpaw.agents.acp`` — including ``delegate_external_agent``
 which only needs ``tool_adapter``.  We expose ``QwenPawACPAgent`` /
 ``run_qwenpaw_agent`` / ``ACPService`` / ``*_acp_service`` via ``__getattr__``
 so the heavy modules load only when actually requested.
@@ -41,6 +41,11 @@ def __getattr__(name: str) -> Any:
     return value
 
 
+# pylint: disable=undefined-all-variable
+# Names below from "ACPService" onward are resolved by ``__getattr__`` above
+# (lazy-loaded from ``.server`` / ``.service``).  pylint's static analysis
+# can't follow ``__getattr__`` so it flags them as undefined; runtime is
+# fine — verified by ``from qwenpaw.agents.acp import ACPService`` working.
 __all__ = [
     "ACPErrors",
     "ACPConfigurationError",

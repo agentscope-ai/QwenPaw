@@ -60,7 +60,8 @@ async def _run_trigger_loop(
 
 async def is_last_message_proactive(workspace: Any) -> bool:
     """Check if the last message in session was a proactive message."""
-    from qwenpaw._compat.memory import InMemoryMemory  # NOTE(as2-migration)
+    from agentscope.state import AgentState
+    from qwenpaw._compat.memory import InMemoryMemory
     from ....app.runner.utils import agentscope_msg_to_message
 
     try:
@@ -80,11 +81,23 @@ async def is_last_message_proactive(workspace: Any) -> bool:
             channel,
         )
 
-        memories_data = state.get("agent", {}).get("memory", [])
+        agent_raw = state.get("agent", {})
+        messages = []
 
-        memory = InMemoryMemory()
-        memory.load_state_dict(memories_data)
-        messages = await memory.get_memory()
+        state_raw = agent_raw.get("state")
+        if isinstance(state_raw, dict):
+            try:
+                agent_state = AgentState.model_validate(state_raw)
+                messages = list(agent_state.context)
+            except Exception:
+                pass
+
+        if not messages:
+            memories_data = agent_raw.get("memory", [])
+            if memories_data:
+                memory = InMemoryMemory()
+                memory.load_state_dict(memories_data)
+                messages = await memory.get_memory()
 
         serializable_messages = agentscope_msg_to_message(messages)
 

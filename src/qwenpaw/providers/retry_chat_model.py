@@ -32,7 +32,7 @@ from typing import Any, AsyncGenerator
 
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
-from qwenpaw._compat.runtime import (
+from qwenpaw.exceptions import (
     RateLimitExceededException,
 )
 

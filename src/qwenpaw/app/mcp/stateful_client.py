@@ -110,6 +110,7 @@ class _MCPClientMixin:
     name: str
     session: ClientSession | None
     is_connected: bool
+    is_stateful: bool
     _oauth_required: bool
     _cached_tools: Any
     _stop_event: asyncio.Event
@@ -301,12 +302,18 @@ class _MCPClientMixin:
     async def list_tools(self):
         """Return all tools available from the MCP server.
 
+        Returns ``MCPTool`` instances so the tools are compatible with
+        agentscope 2.0's ``Toolkit`` (which expects ``ToolBase`` objects
+        with ``is_state_injected``, ``is_mcp``, etc.).
+
         Returns:
-            List of available MCP tools
+            List of MCPTool wrappers
 
         Raises:
             RuntimeError: If not connected
         """
+        from agentscope.tool import MCPTool
+
         self._validate_connection()
 
         try:
@@ -316,7 +323,14 @@ class _MCPClientMixin:
             raise
 
         self._cached_tools = res.tools
-        return res.tools
+        return [
+            MCPTool(
+                mcp_name=self.name,
+                tool=t,
+                session=self.session,
+            )
+            for t in res.tools
+        ]
 
     async def call_tool(self, name: str, arguments: dict | None = None):
         """Call a tool on the MCP server.
@@ -517,6 +531,7 @@ class StdIOStatefulClient(_MCPClientMixin):
             )
 
         self.name = name
+        self.is_stateful = True
         self.server_params = StdioServerParameters(
             command=command,
             args=args or [],
@@ -606,6 +621,7 @@ class HttpStatefulClient(_MCPClientMixin):
             raise TypeError(f"url must be str, got {type(url).__name__}")
 
         self.name = name
+        self.is_stateful = True
         self.transport = transport
         self.url = url
         self.headers = headers

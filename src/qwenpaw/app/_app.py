@@ -10,22 +10,14 @@ import uuid
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, ORJSONResponse
 
-# NOTE(as2-migration): agentscope_runtime.engine.app.AgentApp is gone in
-# 2.0; the equivalent is agentscope.app.create_app(storage, workspace_manager,
-# ...) which constructs a whole FastAPI app with built-in routers — a much
-# bigger refactor than the console path needs.  For now we stub AgentApp
-# with an empty-router shim so qwenpaw's own app boots; the /api/agent
-# surface (used by external runner clients, not the console) stays dark
-# until we port the multi-agent runner to the new schema.
-from qwenpaw._compat.runtime import (
+from qwenpaw.exceptions import (
     AppBaseException,
 )
-from qwenpaw._compat.agent_app import AgentApp
 
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path
@@ -83,7 +75,7 @@ load_envs_into_environ()
 class DynamicMultiAgentRunner:
     """Runner wrapper that dynamically routes to the correct workspace runner.
 
-    This allows AgentApp to work with multiple agents by inspecting
+    This allows the runner to work with multiple agents by inspecting
     the X-Agent-Id header on each request.
     """
 
@@ -202,7 +194,7 @@ class DynamicMultiAgentRunner:
             if workspace is not None and run_key is not None:
                 await workspace.task_tracker.unregister_external_task(run_key)
 
-    # Async context manager support for AgentApp lifecycle
+    # Async context manager support for lifecycle management
     async def __aenter__(self):
         """
         No-op context manager entry (workspaces manage their own runners).
@@ -214,17 +206,9 @@ class DynamicMultiAgentRunner:
         return None
 
 
-# Use dynamic runner for AgentApp
 runner = DynamicMultiAgentRunner()
 
-agent_app = AgentApp(
-    app_name="QwenPaw",
-    app_description="A helpful assistant with background task support",
-    runner=runner,
-    enable_stream_task=True,
-    stream_task_queue="stream_query",
-    stream_task_timeout=1800,
-)
+_agent_router = APIRouter()
 
 
 @asynccontextmanager
@@ -675,7 +659,7 @@ agent_scoped_router = create_agent_scoped_router()
 app.include_router(agent_scoped_router, prefix="/api")
 
 app.include_router(
-    agent_app.router,
+    _agent_router,
     prefix="/api/agent",
     tags=["agent"],
 )

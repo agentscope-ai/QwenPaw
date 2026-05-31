@@ -32,7 +32,7 @@ def _install_msg_dict_shim() -> None:
 
     if not hasattr(Msg, "from_dict"):
 
-        def _from_dict(cls, data):  # type: ignore[no-untyped-def]
+        def _from_dict(cls, data):  # pylint: disable=unused-argument
             from .message import msg_from_dict
 
             return msg_from_dict(data)
@@ -57,11 +57,7 @@ def _install_msg_dict_shim() -> None:
 _install_msg_dict_shim()
 
 
-# Toolkit + Agent hook shims live in their own modules; install side-effects
-# happen here so the patches are in place before any qwenpaw module imports
-# ``Toolkit`` or constructs an ``Agent`` subclass.
-from .toolkit import install_toolkit_shim  # noqa: E402
-from .hooks import install_hook_shim  # noqa: E402
-
-install_toolkit_shim()
-install_hook_shim()
+# The hook shim (hooks.py) has been replaced by native 2.0 Middleware
+# classes in ``qwenpaw.agents.middlewares``.
+# The toolkit shim (toolkit.py) has been replaced by direct use of
+# ``Toolkit(tools=[...])`` and ``qwenpaw.agents.tool_compat``.

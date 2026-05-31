@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Shims for the agentscope 1.x memory layer (``InMemoryMemory``, ``_MemoryMark``).
+"""Shims for the agentscope 1.x memory layer.
 
 In agentscope 2.0 the memory abstraction was folded into
 :class:`agentscope.state.AgentState` (the agent's ``state.context``).  The
@@ -21,10 +21,9 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Iterable, List, Tuple
 
-try:
-    from agentscope.message import Msg
-except ImportError:  # pragma: no cover - keeps the shim importable in isolation
-    Msg = Any  # type: ignore[assignment, misc]
+# NOTE: ``Msg`` is referenced in docstrings only; the runtime stores raw
+# objects from agentscope (or dict fallbacks during legacy deserialization),
+# so we don't import it here to keep this shim usable in isolation.
 
 
 class _MemoryMark(str, Enum):
@@ -38,7 +37,7 @@ class _MemoryMark(str, Enum):
     COMPRESSED = "compressed"
 
 
-class InMemoryMemory:  # pragma: no cover - migration stub
+class InMemoryMemory:
     """Tuple-list memory store mirroring the 1.x agentscope API.
 
     Exposes:
@@ -90,7 +89,10 @@ class InMemoryMemory:  # pragma: no cover - migration stub
             "content": [
                 [
                     msg.to_dict() if hasattr(msg, "to_dict") else msg,
-                    [m.value if isinstance(m, _MemoryMark) else m for m in marks],
+                    [
+                        m.value if isinstance(m, _MemoryMark) else m
+                        for m in marks
+                    ],
                 ]
                 for msg, marks in self.content
             ],
@@ -105,7 +107,8 @@ class InMemoryMemory:  # pragma: no cover - migration stub
         """Restore ``content`` and ``_compressed_summary`` from a dict."""
         if strict and "content" not in state_dict:
             raise KeyError(
-                "state_dict missing 'content' key required for InMemoryMemory.",
+                "state_dict missing 'content' key required for "
+                "InMemoryMemory.",
             )
 
         from .message import msg_from_dict

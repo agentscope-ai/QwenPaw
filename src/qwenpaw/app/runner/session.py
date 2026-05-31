@@ -18,7 +18,7 @@ import shutil
 from typing import Union, Sequence
 
 import aiofiles
-from qwenpaw._compat.runtime import ConfigurationException
+from qwenpaw.exceptions import ConfigurationException
 from ...exceptions import AgentStateError
 
 logger = logging.getLogger(__name__)
@@ -198,7 +198,7 @@ def _rewrite_weixin_in_session_filename(name: str) -> str | None:
 class SafeJSONSession:
     """Filename-safe JSON session store with async file I/O.
 
-    NOTE(as2-migration): previously subclassed ``agentscope.session.SessionBase``;
+    NOTE(as2-migration): previously subclassed ``SessionBase``;
     the base class was removed in 2.0 and this class always provided the
     full surface itself, so the inheritance was dropped.
     """

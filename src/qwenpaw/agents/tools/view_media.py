@@ -364,7 +364,7 @@ async def view_image(image_path: str) -> ToolResponse:
         content=[
             ImageBlock(
                 type="image",
-                source={"type": "url", "url": str(resolved)},
+                source={"type": "url", "url": resolved.as_uri()},
             ),
             TextBlock(type="text", text=text_msg),
         ],
@@ -434,7 +434,7 @@ async def view_video(video_path: str) -> ToolResponse:
         content=[
             VideoBlock(
                 type="video",
-                source={"type": "url", "url": str(resolved)},
+                source={"type": "url", "url": resolved.as_uri()},
             ),
             TextBlock(type="text", text=text_msg),
         ],

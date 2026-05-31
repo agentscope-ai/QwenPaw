@@ -20,7 +20,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from qwenpaw._compat.runtime import AppBaseException
+from qwenpaw.exceptions import AppBaseException
 
 from .models import ChatUpdate
 

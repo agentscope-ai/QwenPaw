@@ -233,39 +233,51 @@ class AnthropicProvider(Provider):
         from agentscope.credential import AnthropicCredential
         from agentscope.model import AnthropicChatModel
 
-        # TODO(as2-migration): the 2.0 AnthropicChatModel hard-codes
-        # ``anthropic.AsyncAnthropic(api_key=..., base_url=...)`` inside
-        # ``_call_api``; there is no hook for ``default_headers`` (so
-        # DashScope's ``x-dashscope-agentapp`` / ``X-DashScope-Cdpl`` tags
-        # are lost) or a custom ``http_client`` (so ``auth_mode=auth_token``
-        # via _StripApiKeyTransport stops working).  Restore both by
-        # subclassing AnthropicChatModel and overriding ``_call_api`` once
-        # the basic round-trip is green.
         effective_generate_kwargs = self.get_effective_generate_kwargs(
             model_id,
         )
         max_tokens = effective_generate_kwargs.pop("max_tokens", 16384)
 
-        # 2.0 Parameters only accepts max_tokens / thinking_enable /
-        # thinking_budget; siphon those out and drop the rest until per-call
-        # generate_kwargs are plumbed through QwenPawAgent → model.
         params_kwargs: Dict[str, Any] = {"max_tokens": max_tokens}
         for key in ("thinking_enable", "thinking_budget"):
             if key in effective_generate_kwargs:
                 params_kwargs[key] = effective_generate_kwargs.pop(key)
 
         credential = AnthropicCredential(
-            # AnthropicCredential requires a non-empty SecretStr; the
-            # SecretStr wrapping happens inside pydantic.
             api_key=self.api_key or "",
             base_url=self.base_url,
         )
 
-        return AnthropicChatModel(
+        merged_headers = self._build_default_headers()
+        dashscope_meta = json.dumps(
+            {
+                "agentType": "QwenPaw",
+                "deployType": "UnKnown",
+                "moduleCode": "model",
+                "agentCode": "UnKnown",
+            },
+            ensure_ascii=False,
+        )
+        if self.base_url in DASHSCOPE_BASE_URLS:
+            merged_headers["x-dashscope-agentapp"] = dashscope_meta
+        elif self.base_url in (
+            CODING_DASHSCOPE_BASE_URL,
+            TOKEN_PLAN_BASE_URL,
+        ):
+            merged_headers["X-DashScope-Cdpl"] = dashscope_meta
+
+        return _AnthropicChatModelCompat(
             credential=credential,
             model=model_id,
             parameters=AnthropicChatModel.Parameters(**params_kwargs),
             stream=True,
+            default_headers=merged_headers or None,
+            auth_mode=getattr(self, "auth_mode", None),
+            strip_http_client=(
+                self._get_strip_http_client()
+                if getattr(self, "auth_mode", None) == "auth_token"
+                else None
+            ),
         )
 
     async def probe_model_multimodal(
@@ -370,3 +382,100 @@ class AnthropicProvider(Provider):
                 elapsed,
             )
             return False, f"Probe failed: {e}"
+
+
+class _AnthropicChatModelCompat:
+    """Mixin wrapper around ``AnthropicChatModel`` that injects custom headers
+    and supports ``auth_token`` mode.
+
+    Constructed lazily so the import-heavy ``AnthropicChatModel`` doesn't slow
+    module load when Anthropic is not configured.
+    """
+
+    def __new__(cls, **kwargs: Any) -> Any:
+        from agentscope.model import AnthropicChatModel
+
+        default_headers = kwargs.pop("default_headers", None)
+        auth_mode = kwargs.pop("auth_mode", None)
+        strip_http_client = kwargs.pop("strip_http_client", None)
+
+        class _Compat(AnthropicChatModel):
+            _qp_default_headers = default_headers
+            _qp_auth_mode = auth_mode
+            _qp_strip_http_client = strip_http_client
+
+            async def _call_api(
+                self,
+                model_name,
+                messages,
+                tools=None,
+                tool_choice=None,
+                **generate_kwargs,
+            ):
+                client_kwargs: Dict[str, Any] = {
+                    "base_url": self.credential.base_url,
+                }
+                if self._qp_default_headers:
+                    client_kwargs["default_headers"] = self._qp_default_headers
+                if self._qp_auth_mode == "auth_token":
+                    client_kwargs[
+                        "auth_token"
+                    ] = self.credential.api_key.get_secret_value()
+                    if self._qp_strip_http_client is not None:
+                        client_kwargs[
+                            "http_client"
+                        ] = self._qp_strip_http_client
+                else:
+                    client_kwargs[
+                        "api_key"
+                    ] = self.credential.api_key.get_secret_value()
+
+                client = anthropic.AsyncAnthropic(**client_kwargs)
+
+                max_tokens = self.parameters.max_tokens or 8192
+                kw: Dict[str, Any] = {
+                    "model": model_name,
+                    "max_tokens": max_tokens,
+                    "stream": self.stream,
+                    **generate_kwargs,
+                }
+                if self.parameters.thinking_enable and "thinking" not in kw:
+                    budget = self.parameters.thinking_budget or (
+                        max_tokens // 2
+                    )
+                    if budget >= max_tokens:
+                        max_tokens = budget + 1024
+                        kw["max_tokens"] = max_tokens
+                    kw["thinking"] = {
+                        "type": "enabled",
+                        "budget_tokens": budget,
+                    }
+
+                fmt_tools, fmt_tc = self._format_tools(tools, tool_choice)
+                if fmt_tools:
+                    kw["tools"] = fmt_tools
+                if fmt_tc is not None:
+                    kw["tool_choice"] = fmt_tc
+
+                formatted = await self.formatter.format(messages)
+                if formatted and formatted[0]["role"] == "system":
+                    kw["system"] = formatted[0]["content"]
+                    formatted = formatted[1:]
+                kw["messages"] = formatted
+
+                from datetime import datetime
+
+                start = datetime.now()
+                response = await client.messages.create(**kw)
+
+                if self.stream:
+                    return self._parse_anthropic_stream_completion_response(
+                        start,
+                        response,
+                    )
+                return await self._parse_anthropic_completion_response(
+                    start,
+                    response,
+                )
+
+        return _Compat(**kwargs)

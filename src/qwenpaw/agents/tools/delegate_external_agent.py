@@ -70,6 +70,10 @@ def _get_acp_service() -> Any:
     from ...app.agent_context import get_current_agent_id
     from ...config.config import ACPConfig
     from ...config.config import load_agent_config
+
+    # pylint: disable=no-name-in-module
+    # ``get_acp_service`` / ``init_acp_service`` are exposed via the
+    # ``qwenpaw.agents.acp.__getattr__`` lazy-loader; pylint can't see them.
     from ..acp import get_acp_service, init_acp_service
 
     agent_id = get_current_agent_id()

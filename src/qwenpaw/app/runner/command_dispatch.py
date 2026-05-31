@@ -10,8 +10,9 @@ from typing import AsyncIterator
 from typing import TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
+from agentscope.state import AgentState
 
-from qwenpaw._compat.runtime import (
+from qwenpaw.exceptions import (
     AppBaseException,
 )
 
@@ -28,7 +29,6 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .runner import AgentRunner
-    from ...agents.context import AgentContext
 
 
 def _get_last_user_text(msgs) -> str | None:
@@ -246,21 +246,40 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
             yield error_msg, True
         return
 
-    # Conversation path: lightweight memory + CommandHandler
+    # Conversation path: lightweight state + CommandHandler
+    # Phase 2a: short-term memory lives on ``AgentState`` — no more
+    # ``AgentContext`` wrapper.  Build a minimal state holder so
+    # ``CommandHandler`` can read/write ``state.context`` and
+    # ``state.summary`` without a full ``QwenPawAgent``.
     context_manager = runner.context_manager
-    memory: "AgentContext" = context_manager.get_agent_context()
     session_state = await runner.session.get_session_state_dict(
         session_id=session_id,
         user_id=user_id,
         channel=channel_name,
     )
-    memory_state = session_state.get("agent", {}).get("memory", {})
-    if memory is not None:
-        memory.load_state_dict(memory_state, strict=False)
+
+    class _StateHolder:
+        """Minimal stand-in for ``Agent`` — just carries ``.state``."""
+
+        def __init__(self, state: AgentState) -> None:
+            self.state = state
+
+    agent_raw = session_state.get("agent", {})
+    state_raw = agent_raw.get("state")
+    if isinstance(state_raw, dict):
+        try:
+            state = AgentState.model_validate(state_raw)
+        except Exception:
+            state = AgentState()
+    else:
+        # Legacy 1.x session or empty — start fresh.
+        state = AgentState()
+
+    holder = _StateHolder(state)
 
     conv_handler = CommandHandler(
         agent_name=runner.agent_name,
-        memory=memory,
+        agent=holder,
         memory_manager=runner.memory_manager,
         context_manager=context_manager,
     )
@@ -274,54 +293,20 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
         )
     yield response_msg, True
 
-    # Update memory key with session_id & user_id to session,
-    # but only if identifiers are present
+    # Persist updated state back to session (Phase 2a shape:
+    # ``{"state": {...}}`` — matches ``QwenPawAgent.state_dict()``).
     if session_id and user_id:
         await runner.session.update_session_state(
             session_id=session_id,
-            key="agent.memory",
-            value=memory.state_dict(),
+            key="agent.state",
+            value=state.model_dump(mode="json"),
             user_id=user_id,
             channel=channel_name,
         )
 
-        # Clear plan state when /clear or /new is used
-        metadata = getattr(response_msg, "metadata", None)
-        if isinstance(metadata, dict) and metadata.get("clear_plan"):
-            try:
-                from agentscope.plan import PlanNotebook, InMemoryPlanStorage
-
-                _empty_nb = PlanNotebook(storage=InMemoryPlanStorage())
-                await runner.session.update_session_state(
-                    session_id=session_id,
-                    key="agent.plan_notebook",
-                    value=_empty_nb.state_dict(),
-                    user_id=user_id,
-                    channel=channel_name,
-                )
-                logger.info(
-                    "Cleared plan_notebook from session %s",
-                    session_id,
-                )
-            except Exception:
-                logger.debug(
-                    "Failed to clear plan_notebook from session",
-                    exc_info=True,
-                )
-
-            try:
-                from ...plan.broadcast import broadcast_plan_update
-
-                broadcast_plan_update(
-                    runner.agent_id,
-                    {"type": "plan_update", "plan": None},
-                    session_id=session_id,
-                )
-            except Exception:
-                logger.debug(
-                    "Failed to broadcast plan clear",
-                    exc_info=True,
-                )
+        # Plan state clearing is disabled — PlanNotebook was removed
+        # in AgentScope 2.0.  The clear_plan metadata flag is ignored
+        # until plan functionality is rebuilt on the 2.0 Task system.
     else:
         logger.warning(
             "Skipping session_state update for conversation"

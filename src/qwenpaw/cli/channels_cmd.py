@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 import click
-from qwenpaw._compat.runtime import (
+from qwenpaw.exceptions import (
     AppBaseException,
 )
 
