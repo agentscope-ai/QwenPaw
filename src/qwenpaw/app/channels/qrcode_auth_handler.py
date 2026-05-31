@@ -21,14 +21,19 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 import segno
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import HTTPException, Request
 
 from ...constant import PROJECT_NAME
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -588,6 +593,272 @@ class FeishuQRCodeAuthHandler(QRCodeAuthHandler):
 
 
 # ---------------------------------------------------------------------------
+# Cryptographic helpers
+# ---------------------------------------------------------------------------
+
+_AES_KEY_LENGTH = 32  # 256 bits
+
+
+def _generate_bind_key() -> str:
+    """Return a base64-encoded 256-bit AES key."""
+    return base64.b64encode(os.urandom(_AES_KEY_LENGTH)).decode()
+
+
+def _decrypt_secret(
+    encrypted_base64: str,
+    key_base64: str,
+    associated_data: bytes | None = None,
+) -> str:
+    """Decrypt an AES-256-GCM ciphertext (base64)."""
+    key = base64.b64decode(key_base64)
+    raw = base64.b64decode(encrypted_base64)
+
+    if len(raw) < 28:  # 12-byte IV + at least 16 bytes (ciphertext+tag)
+        raise ValueError(f"Ciphertext too short: {len(raw)} bytes (min 28)")
+
+    iv = raw[:12]
+    ciphertext_with_tag = raw[12:]
+    aesgcm = AESGCM(key)
+    plaintext = aesgcm.decrypt(iv, ciphertext_with_tag, associated_data)
+    return plaintext.decode("utf-8")
+
+
+def _encode_poll_token(task_id: str, aes_key: str) -> str:
+    """Combine task_id and AES key into a stateless token."""
+    import json
+
+    payload = json.dumps(
+        {"task_id": task_id, "key": aes_key},
+        separators=(",", ":"),
+    )
+    return base64.urlsafe_b64encode(payload.encode()).decode()
+
+
+def _decode_poll_token(token: str) -> Tuple[str, str]:
+    """Decode token back to (task_id, aes_key)."""
+    import json
+
+    try:
+        decoded = base64.urlsafe_b64decode(token.encode()).decode()
+        data = json.loads(decoded)
+        return data["task_id"], data["key"]
+    except Exception as exc:
+        raise ValueError(f"Invalid poll token: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# QQ QR code handler
+# ---------------------------------------------------------------------------
+
+
+class QQQRCodeAuthHandler(QRCodeAuthHandler):
+    _PORTAL_HOST: str = os.getenv("QQ_PORTAL_HOST", "q.qq.com")
+    _CREATE_PATH: str = "/lite/create_bind_task"
+    _POLL_PATH: str = "/lite/poll_bind_result"
+    _FRONTEND_PATH: str = "/qqbot/openclaw/connect.html"
+    _AAD_USE_TASK_ID: bool = os.getenv("QQ_AAD_USE_TASK_ID", "") == "1"
+
+    def _handle_completed(
+        self,
+        data: dict,
+        task_id: str,
+        aes_key: str,
+    ) -> PollResult:
+        raw_appid = data.get("bot_appid")
+        encrypted_secret = data.get("bot_encrypt_secret", "")
+        if not raw_appid or not encrypted_secret:
+            logger.error(
+                "QQ poll completed but missing appid/secret task_id=%s",
+                task_id,
+            )
+            return PollResult(
+                status="fail",
+                credentials={"fail_reason": "Missing app_id or secret"},
+            )
+
+        bot_appid = str(raw_appid)
+        aad = task_id.encode() if self._AAD_USE_TASK_ID else None
+        try:
+            client_secret = _decrypt_secret(
+                encrypted_secret,
+                aes_key,
+                associated_data=aad,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to decrypt QQ secret for task_id=%s",
+                task_id,
+            )
+            return PollResult(
+                status="fail",
+                credentials={"fail_reason": "Secret decryption failed"},
+            )
+
+        user_openid = str(data.get("user_openid", ""))
+        logger.info("QQ QR login succeeded task_id=%s", task_id)
+        return PollResult(
+            status="success",
+            credentials={
+                "app_id": bot_appid,
+                "client_secret": client_secret,
+                "user_openid": user_openid,
+            },
+        )
+
+    async def fetch_qrcode(self, request: Request) -> QRCodeResult:
+        import httpx
+        import json
+        from urllib.parse import urlencode
+
+        aes_key = _generate_bind_key()
+        url = f"https://{self._PORTAL_HOST}{self._CREATE_PATH}"
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    url,
+                    json={"key": aes_key},
+                    headers={"Content-Type": "application/json"},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPError as exc:
+            logger.exception("QQ create_bind_task HTTP request failed")
+            raise HTTPException(
+                status_code=502,
+                detail="QQ create_bind_task failed",
+            ) from exc
+        except (json.JSONDecodeError, Exception) as exc:
+            logger.exception("QQ create_bind_task invalid response")
+            raise HTTPException(
+                status_code=502,
+                detail="QQ returned invalid response",
+            ) from exc
+
+        if data.get("retcode") != 0:
+            msg = data.get("msg", "unknown error")
+            logger.error(
+                "QQ create_bind_task retcode=%s msg=%s",
+                data.get("retcode"),
+                msg,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="QQ create_bind_task error",
+            )
+
+        task_id = data.get("data", {}).get("task_id")
+        if not task_id:
+            raise HTTPException(
+                status_code=502,
+                detail="QQ create_bind_task returned empty task_id",
+            )
+
+        params = urlencode(
+            {
+                "task_id": task_id,
+                "_wv": "2",
+                "source": PROJECT_NAME,
+            },
+        )
+        scan_url = f"https://{self._PORTAL_HOST}{self._FRONTEND_PATH}?{params}"
+        poll_token = _encode_poll_token(task_id, aes_key)
+        logger.info("QQ QR session created task_id=%s", task_id)
+        return QRCodeResult(scan_url=scan_url, poll_token=poll_token)
+
+    async def poll_status(self, token: str, request: Request) -> PollResult:
+        import httpx
+        import json
+
+        try:
+            task_id, aes_key = _decode_poll_token(token)
+        except ValueError as exc:
+            logger.warning("QQ poll: invalid token – %s", exc)
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid poll token",
+            ) from exc
+
+        url = f"https://{self._PORTAL_HOST}{self._POLL_PATH}"
+
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    url,
+                    json={"task_id": task_id},
+                    headers={"Content-Type": "application/json"},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPStatusError as exc:
+            if 400 <= exc.response.status_code < 500:
+                logger.error(
+                    "QQ poll client error %d for task_id=%s",
+                    exc.response.status_code,
+                    task_id,
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid request to QQ Portal",
+                ) from exc
+            logger.exception("QQ poll server error for task_id=%s", task_id)
+            raise HTTPException(
+                status_code=502,
+                detail="QQ poll_bind_result failed",
+            ) from exc
+        except httpx.HTTPError as exc:
+            logger.exception("QQ poll network error for task_id=%s", task_id)
+            raise HTTPException(
+                status_code=502,
+                detail="QQ poll_bind_result failed",
+            ) from exc
+        except (json.JSONDecodeError, Exception) as exc:
+            logger.exception("QQ poll invalid JSON for task_id=%s", task_id)
+            raise HTTPException(
+                status_code=502,
+                detail="QQ returned invalid response",
+            ) from exc
+
+        retcode = data.get("retcode")
+        if retcode != 0:
+            msg = data.get("msg", "unknown")
+            logger.warning(
+                "QQ poll task_id=%s retcode=%s msg=%s",
+                task_id,
+                retcode,
+                msg,
+            )
+            # 所有非 0 retcode 都视为失败（前端应停止轮询或提示用户重试）
+            return PollResult(
+                status="fail",
+                credentials={"fail_reason": f"retcode={retcode}: {msg}"},
+            )
+
+        d = data.get("data", {})
+        status = d.get("status", -1)
+
+        if status == 2:
+            return self._handle_completed(d, task_id, aes_key)
+
+        if status == 3:
+            logger.info("QQ QR task_id=%s expired on portal", task_id)
+            return PollResult(status="expired", credentials={})
+
+        if status not in (0, 1):
+            logger.error(
+                "QQ poll unexpected status=%s for task_id=%s",
+                status,
+                task_id,
+            )
+            return PollResult(
+                status="fail",
+                credentials={"fail_reason": f"Unknown status {status}"},
+            )
+
+        return PollResult(status="waiting", credentials={})
+
+
+# ---------------------------------------------------------------------------
 # Handler registry – add new channels here
 # ---------------------------------------------------------------------------
 
@@ -596,4 +867,5 @@ QRCODE_AUTH_HANDLERS: Dict[str, QRCodeAuthHandler] = {
     "wecom": WecomQRCodeAuthHandler(),
     "dingtalk": DingtalkQRCodeAuthHandler(),
     "feishu": FeishuQRCodeAuthHandler(),
+    "qq": QQQRCodeAuthHandler(),
 }

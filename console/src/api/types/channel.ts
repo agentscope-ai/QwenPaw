@@ -48,6 +48,7 @@ export interface QQConfig extends BaseChannelConfig {
   app_id: string;
   client_secret: string;
   ack_message?: string;
+  user_openid?: string;
 }
 
 export interface TelegramConfig extends BaseChannelConfig {

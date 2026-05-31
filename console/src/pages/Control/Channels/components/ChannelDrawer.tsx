@@ -532,6 +532,43 @@ export function ChannelDrawer({
       case "qq":
         return (
           <>
+            <ConfigProvider prefixCls="ant">
+              <Alert
+                type="info"
+                showIcon
+                message={t("channels.qqSetupGuide")}
+                style={{ marginBottom: 16 }}
+              />
+            </ConfigProvider>
+            <QrcodeAuthBlock
+              label={t("channels.qqScanAuth")}
+              buttonText={t("channels.qqGetQrcode")}
+              imageAlt="QQ QR Code"
+              hintText={t("channels.qqScanHint")}
+              channel="qq"
+              successStatus="success"
+              successCredentialKey="app_id"
+              pollInterval={2000}
+              pollTimeout={300000}      // 5 分钟总超时
+              maxPollCount={180}        // 保险丝：最多 180 次轮询
+              onSuccess={(credentials) => {
+                form.setFieldsValue({
+                  app_id: credentials.app_id,
+                  client_secret: credentials.client_secret,
+                  user_openid: credentials.user_openid,
+                });
+                message.success(t("channels.qqAuthSuccess"));
+              }}
+              onError={(type) => {
+                if (type === "expired") {
+                  message.warning(t("channels.qqQrcodeExpired"));
+                } else if (type === "fail") {
+                  message.error(t("channels.qqQrcodeFailed"));
+                } else {
+                  message.error(t("channels.qqQrcodeFailed"));
+                }
+              }}
+            />
             <Form.Item
               name="app_id"
               label="App ID"
@@ -545,6 +582,9 @@ export function ChannelDrawer({
               rules={[{ required: true }]}
             >
               <Input.Password />
+            </Form.Item>
+            <Form.Item name="user_openid" hidden>
+              <Input />
             </Form.Item>
             <Form.Item
               name="ack_message"
