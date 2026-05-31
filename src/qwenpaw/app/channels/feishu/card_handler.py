@@ -377,7 +377,7 @@ class FeishuCardHandler:
         command dispatcher routes it to :class:`ApprovalCommandHandler`.
         Thread-safe via the manager's enqueue callback.
         """
-        from qwenpaw._compat.agent_schemas import (
+        from qwenpaw.schemas import (
             ContentType,
             TextContent,
         )

@@ -14,7 +14,7 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
-from qwenpaw._compat.agent_schemas import (
+from qwenpaw.schemas import (
     AgentRequest,
     _coerce_content_item,
 )

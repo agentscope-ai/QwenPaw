@@ -262,7 +262,7 @@ class SIPChannel(BaseChannel):
         self,
         native_payload: Any,
     ) -> Any:
-        from qwenpaw._compat.agent_schemas import (
+        from qwenpaw.schemas import (
             AgentRequest,
             ContentType,
             Message,
@@ -600,13 +600,9 @@ class SIPChannel(BaseChannel):
 
         try:
             # Import here to avoid top-level dependency
-            # NOTE(as2-migration): redirected to the compat shim that
-            # mirrors the 1.x runtime schemas.
-            from qwenpaw._compat import (
-                agent_schemas as _as,
-            )
+            from qwenpaw.schemas import RunStatus
 
-            completed = _as.RunStatus.Completed
+            completed = RunStatus.Completed
             async for event in self._process(request):
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)

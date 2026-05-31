@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional
 
 from aibot import WSClient, WSClientOptions, generate_req_id
 
-from qwenpaw._compat.agent_schemas import (
+from qwenpaw.schemas import (
     AgentRequest,
     FileContent,
     ImageContent,

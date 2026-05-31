@@ -59,7 +59,7 @@ from nio.responses import (
     WhoamiResponse,
 )
 
-from qwenpaw._compat.agent_schemas import (
+from qwenpaw.schemas import (
     AudioContent,
     ContentType,
     FileContent,

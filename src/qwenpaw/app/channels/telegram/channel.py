@@ -24,7 +24,7 @@ from telegram.error import (
     TimedOut,
 )
 
-from qwenpaw._compat.agent_schemas import (
+from qwenpaw.schemas import (
     TextContent,
     ImageContent,
     VideoContent,

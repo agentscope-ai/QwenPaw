@@ -8,7 +8,7 @@ from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import Msg
-from qwenpaw._compat.agent_schemas import (
+from qwenpaw.schemas import (
     Message,
     TextContent,
     ImageContent,

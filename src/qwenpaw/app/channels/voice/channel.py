@@ -202,7 +202,7 @@ class VoiceChannel(BaseChannel):
         native_payload: Any,
     ) -> Any:
         """Convert a voice payload dict to AgentRequest."""
-        from qwenpaw._compat.agent_schemas import (
+        from qwenpaw.schemas import (
             AgentRequest,
             Message,
             MessageType,

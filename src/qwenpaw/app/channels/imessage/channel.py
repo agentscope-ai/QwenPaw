@@ -15,7 +15,7 @@ import hashlib
 from pathlib import Path
 from typing import Any, Dict, Optional, List
 
-from qwenpaw._compat.agent_schemas import (
+from qwenpaw.schemas import (
     TextContent,
     ContentType,
 )

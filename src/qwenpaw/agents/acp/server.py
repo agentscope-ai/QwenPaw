@@ -57,7 +57,7 @@ from acp.schema import (
     SseMcpServer,
     TextContentBlock,
 )
-from qwenpaw._compat.agent_schemas import (
+from qwenpaw.schemas import (
     AgentRequest,
     Message,
     MessageType,

@@ -2066,7 +2066,7 @@ class TestBuildAgentRequestFromNative:
 
     def test_basic_request(self, qq_channel):
         """Should build basic request from native data."""
-        from qwenpaw._compat.agent_schemas import TextContent
+        from qwenpaw.schemas import TextContent
 
         native = {
             "channel_id": "qq",

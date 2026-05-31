@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
-from qwenpaw._compat.agent_schemas import (
+from qwenpaw.schemas import (
     ContentType,
     TextContent,
     ImageContent,

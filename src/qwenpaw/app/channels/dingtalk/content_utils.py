@@ -9,7 +9,7 @@ import re
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
-from qwenpaw._compat.agent_schemas import (
+from qwenpaw.schemas import (
     AudioContent,
     FileContent,
     ImageContent,

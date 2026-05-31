@@ -19,7 +19,7 @@ from nio import (
 )
 from nio.responses import WhoamiResponse
 
-from qwenpaw._compat.agent_schemas import (
+from qwenpaw.schemas import (
     AgentRequest,
     ContentType,
     ImageContent,
@@ -1007,7 +1007,7 @@ class TestMatrixChannelSendMedia:
         tmp_path,
     ):
         """Test sending video media type."""
-        from qwenpaw._compat.agent_schemas import (
+        from qwenpaw.schemas import (
             VideoContent,
         )
 
@@ -1039,7 +1039,7 @@ class TestMatrixChannelSendMedia:
         tmp_path,
     ):
         """Test sending audio media type."""
-        from qwenpaw._compat.agent_schemas import (
+        from qwenpaw.schemas import (
             AudioContent,
         )
 
@@ -1096,7 +1096,7 @@ class TestMatrixChannelSendMedia:
         )
         mock_async_client.room_send = AsyncMock(return_value=MagicMock())
 
-        from qwenpaw._compat.agent_schemas import FileContent
+        from qwenpaw.schemas import FileContent
 
         part = FileContent(
             type=ContentType.FILE,

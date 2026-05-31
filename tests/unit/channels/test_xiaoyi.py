@@ -872,7 +872,7 @@ class TestXiaoYiChannelMedia:
         xiaoyi_channel._connected = True
         xiaoyi_channel._session_task_map["session_123"] = "task_123"
 
-        from qwenpaw._compat.agent_schemas import (
+        from qwenpaw.schemas import (
             ImageContent,
             ContentType,
         )
@@ -1090,7 +1090,7 @@ class TestXiaoYiChannelPartsExtraction:
         mock_message = MagicMock()
         mock_message.type = "message"
 
-        from qwenpaw._compat.agent_schemas import (
+        from qwenpaw.schemas import (
             TextContent,
             ContentType,
         )

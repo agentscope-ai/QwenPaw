@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import WebSocketDisconnect
 
-from qwenpaw._compat.agent_schemas import (
+from qwenpaw.schemas import (
     ContentType,
     MessageType,
     RunStatus,
@@ -163,7 +163,7 @@ class ConversationRelayHandler:
 
     def _build_agent_request(self, text: str) -> Any:
         """Build an AgentRequest from user speech text."""
-        from qwenpaw._compat.agent_schemas import (
+        from qwenpaw.schemas import (
             AgentRequest,
             Message,
             Role,

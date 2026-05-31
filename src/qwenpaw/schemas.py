@@ -1,22 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Shim for ``agentscope_runtime.engine.schemas.agent_schemas``.
+"""QwenPaw streaming envelope schema.
 
-agentscope 2.0 replaced the runtime's event-stream schema (``Message``
-envelope holding a stream of typed ``*Content`` items, plus enums for
-``MessageType`` / ``RunStatus`` / ``Role`` / ``ContentType``) with a
-flatter task/session API in ``agentscope.app._schema``.  The two surfaces
-are not interconvertible: qwenpaw's runner, channels, and renderer were
-written against the streaming model and assume a ``Message`` with
-``add_content`` / ``completed`` / ``status`` lifecycle.
-
-This module recreates the 1.x surface as plain pydantic models so the
-console mainline boots.  The semantics are correct for the field shapes
-qwenpaw constructs (it is the *producer* of these envelopes); whether the
-downstream consumers (the deleted runtime HTTP layer) would have accepted
-them is irrelevant — qwenpaw only feeds them back into its own channels.
-
-TODO(as2-migration): delete once qwenpaw's runner is rewritten against
-``agentscope.event.*`` and channels consume that directly.
+Defines the ``Message`` / ``Content`` / ``AgentRequest`` / ``AgentResponse``
+types that ``stream_query`` produces and all channels consume.  These are
+qwenpaw's own envelope protocol — independent of agentscope's internal
+event types.
 """
 from __future__ import annotations
 

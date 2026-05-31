@@ -1513,7 +1513,7 @@ class TestDingTalkWorkspaceIntegration:
         dingtalk_with_workspace,
     ):
         """_stream_with_tracker should yield SSE formatted events."""
-        from qwenpaw._compat.agent_schemas import (
+        from qwenpaw.schemas import (
             RunStatus,
             Event,
             Message,

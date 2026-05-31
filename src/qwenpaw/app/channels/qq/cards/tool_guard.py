@@ -507,7 +507,7 @@ def _enqueue_approval_command(
     user_id: str,
 ) -> None:
     """Inject ``/approval {action} {request_id}`` into the channel queue."""
-    from qwenpaw._compat.agent_schemas import (
+    from qwenpaw.schemas import (
         ContentType,
         TextContent,
     )

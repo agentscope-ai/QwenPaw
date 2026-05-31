@@ -70,7 +70,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from qwenpaw._compat.agent_schemas import (
+from qwenpaw.schemas import (
     TextContent,
     ContentType,
 )

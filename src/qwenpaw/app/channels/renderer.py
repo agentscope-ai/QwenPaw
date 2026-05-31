@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, List, Union
 
-from qwenpaw._compat.agent_schemas import (
+from qwenpaw.schemas import (
     AudioContent,
     ContentType,
     FileContent,
@@ -86,7 +86,7 @@ class MessageRenderer:
 
     def message_to_parts(self, message: Any) -> List[_OutgoingPart]:
         """Convert Message to list of sendable parts (runtime Content)."""
-        from qwenpaw._compat.agent_schemas import MessageType
+        from qwenpaw.schemas import MessageType
 
         msg_type = getattr(message, "type", None)
         content = getattr(message, "content", None) or []
