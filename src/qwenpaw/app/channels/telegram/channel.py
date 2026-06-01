@@ -1366,7 +1366,7 @@ class TelegramChannel(BaseChannel):
 
         await app.updater.start_polling(
             bootstrap_retries=0,
-            allowed_updates=["message", "edited_message"],
+            allowed_updates=["message", "edited_message", "callback_query"],
             error_callback=_on_poll_error,
         )
         await app.start()
