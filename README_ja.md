@@ -58,23 +58,19 @@
 
 ## ニュース
 
-- [2026-05-27] **v1.1.9 — Coding モード** | エージェントが開発者に。
-
-  > **Coding モード**はフル IDE レイアウト（ファイルツリー + タブ付きエディタ + インライン Diff + Git パネル）を QwenPaw に直接搭載します。[ドキュメント →](https://qwenpaw.agentscope.io/docs/coding-mode)
-
-  <p align="center">
-    <a href="https://qwenpaw.agentscope.io/docs/coding-mode">
-      <img src="https://img.alicdn.com/imgextra/i4/O1CN014tF5921HlXCevvsBH_!!6000000000798-2-tps-3340-1678.png" width="720" alt="Coding モード — 3 パネル IDE レイアウト" />
-    </a>
-  </p>
+- [2026-06-01] **v1.1.10 — サブエージェント生成 & チャネル拡充** | エージェントがサブエージェントを生成可能に。Tencent Yuanbao チャネル追加。
 
   | ハイライト | 内容 |
   |-----------|------|
-  | **Coding モード** | 3 パネル Web IDE。LSP ジャンプ、AST 検索、インライン Diff レビュー対応。[Docs →](https://qwenpaw.agentscope.io/docs/coding-mode) |
-  | **Tauri デスクトップアプリ** | ネイティブ macOS & Windows アプリ。Python 不要。[Download →](https://github.com/agentscope-ai/QwenPaw/releases) |
-  | **統合アクセス制御** | チャネルごとのホワイトリスト/ブラックリスト/承認待ち管理。[Docs →](https://qwenpaw.agentscope.io/docs/channels) |
+  | **Spawn Subagent** | 新しい `spawn_subagent` ツールで、ワークスペース内に一時的なサブエージェントを生成。 |
+  | **ディレクトリを開く** | Coding モードに「ディレクトリを開く」タブを追加。コピーなしでローカルプロジェクトを参照可能。 |
+  | **Feishu スレッド返信** | Feishu メッセージスレッド内での返信に対応。 |
+  | **Tencent Yuanbao チャネル** | Tencent Yuanbao ボットのチャネル統合を新規追加。 |
+  | **動的アップロード制限** | コンソールとチャネル全体でアップロードサイズ制限を動的に設定可能。 |
 
-  その他：バックグラウンドタスクのタイムアウト、cron ジョブの分離実行、プラグインマネージャー刷新。[v1.1.9 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
+  その他：OpenRouter アトリビューションヘッダー、デスクトップ版バンドル CLI、スキル更新の安定性修正。[v1.1.10 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
+
+- [2026-05-27] **v1.1.9** — Coding モード（3 パネル Web IDE）、Tauri デスクトップアプリ、統合アクセス制御。[v1.1.9 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 
 - [2026-05-19] **v1.1.8** — 公式プラグイン配布、QwenPaw Pet、DingTalk / Feishu / Telegram ストリーミングカード。[v1.1.8 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.8)
 

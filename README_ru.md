@@ -58,23 +58,19 @@
 
 ## Новости
 
-- [2026-05-27] **v1.1.9 — Режим Coding** | Ваш агент стал разработчиком.
-
-  > **Coding Mode** встраивает полноценную IDE (дерево файлов + редактор с вкладками + инлайн-diff + Git-панель) прямо в QwenPaw. [Документация →](https://qwenpaw.agentscope.io/docs/coding-mode)
-
-  <p align="center">
-    <a href="https://qwenpaw.agentscope.io/docs/coding-mode">
-      <img src="https://img.alicdn.com/imgextra/i4/O1CN014tF5921HlXCevvsBH_!!6000000000798-2-tps-3340-1678.png" width="720" alt="Coding Mode — трёхпанельная IDE" />
-    </a>
-  </p>
+- [2026-06-01] **v1.1.10 — Порождение субагентов и новые каналы** | Агенты теперь могут порождать субагентов; добавлен канал Tencent Yuanbao.
 
   | Основное | Что нового |
   |----------|-----------|
-  | **Coding Mode** | Трёхпанельная Web IDE с LSP-переходами, AST-поиском и инлайн-diff. [Docs →](https://qwenpaw.agentscope.io/docs/coding-mode) |
-  | **Tauri Desktop** | Нативное приложение для macOS и Windows — без Python. [Скачать →](https://github.com/agentscope-ai/QwenPaw/releases) |
-  | **Единый контроль доступа** | Белые/чёрные списки и модерация по каналам через консоль. [Docs →](https://qwenpaw.agentscope.io/docs/channels) |
+  | **Spawn Subagent** | Новый инструмент `spawn_subagent` для запуска временных субагентов в рабочей области. |
+  | **Открыть каталог** | В Coding Mode добавлена вкладка «Открыть каталог» для ссылки на локальные проекты без копирования. |
+  | **Ответы в тредах Feishu** | Агенты могут отвечать в тредах сообщений Feishu. |
+  | **Канал Tencent Yuanbao** | Новая интеграция с ботом Tencent Yuanbao. |
+  | **Динамический лимит загрузки** | Лимит размера загрузки теперь настраивается для консоли и каналов. |
 
-  Также: тайм-аут фоновых задач, изолированные cron-сессии, редизайн менеджера плагинов. [v1.1.9 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
+  Также: заголовки атрибуции OpenRouter, встроенный CLI для десктопа, исправления стабильности обновления навыков. [v1.1.10 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
+
+- [2026-05-27] **v1.1.9** — Режим Coding (трёхпанельная Web IDE), Tauri Desktop, единый контроль доступа. [v1.1.9 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 
 - [2026-05-19] **v1.1.8** — Официальная дистрибуция плагинов, QwenPaw Pet, стриминг-карточки DingTalk / Feishu / Telegram. [v1.1.8 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.8)
 
