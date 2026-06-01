@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "desktop-diagnostics"
 description = "Allows the frontend to write temporary desktop diagnostics for native download failures."
-commands.allow = ["log_download_failure"]
+commands.allow = ["log_download_event", "log_download_failure"]

@@ -250,7 +250,11 @@ describe("openExternalLink", () => {
       uploadMocks.download.mock.invocationCallOrder[0],
     );
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(tauriMocks.invoke).not.toHaveBeenCalled();
+    expect(
+      tauriMocks.invoke.mock.calls.some(
+        ([command]) => command === "open_external_link",
+      ),
+    ).toBe(false);
   });
 
   it("uses the pywebview save bridge for legacy desktop downloads", async () => {

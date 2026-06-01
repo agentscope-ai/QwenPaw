@@ -11,6 +11,28 @@ pub(crate) struct DownloadFailureContext {
     error: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DownloadEventContext {
+    runtime: String,
+    stage: String,
+    url: String,
+    filename: String,
+    detail: Option<String>,
+}
+
+#[tauri::command]
+pub(crate) fn log_download_event(context: DownloadEventContext) {
+    log::info!(
+        "[download] event runtime={} stage={} url={} filename={} detail={}",
+        context.runtime,
+        context.stage,
+        url_for_log(&context.url),
+        context.filename,
+        context.detail.as_deref().unwrap_or(""),
+    );
+}
+
 #[tauri::command]
 pub(crate) fn log_download_failure(context: DownloadFailureContext) {
     log::warn!(

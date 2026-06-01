@@ -96,6 +96,34 @@ function errorMessageForLog(error: unknown): string {
   return String(error);
 }
 
+function headerKeysForLog(headers?: Record<string, string>): string {
+  return Object.keys(headers ?? {})
+    .sort()
+    .join(",");
+}
+
+async function logTauriDownloadEvent(
+  stage: string,
+  url: string,
+  filename: string,
+  detail?: string,
+): Promise<void> {
+  if (!isDesktopTauriRuntime()) return;
+  try {
+    await invoke("log_download_event", {
+      context: {
+        runtime: "tauri",
+        stage,
+        url,
+        filename,
+        detail,
+      },
+    });
+  } catch {
+    // Diagnostic logging must not change the download behavior.
+  }
+}
+
 async function logTauriDownloadFailure(
   url: string,
   filename: string,
@@ -134,13 +162,16 @@ async function downloadWithPyWebView(
 
 /** Ask Tauri's native dialog plugin for the destination path. */
 async function getTauriSavePath(filename: string): Promise<string> {
+  await logTauriDownloadEvent("save-dialog-open", "", filename);
   const savePath = await save({
     defaultPath: filename,
   });
   // No path means the user cancelled the native save dialog; it is not an error.
   if (!savePath) {
+    await logTauriDownloadEvent("save-dialog-cancelled", "", filename);
     throw new DownloadCancelledError();
   }
+  await logTauriDownloadEvent("save-dialog-selected", "", filename);
   return savePath;
 }
 
@@ -150,7 +181,28 @@ async function downloadWithTauri(
   filename: string,
   options: DownloadFileOptions,
 ): Promise<void> {
-  const savePath = await getTauriSavePath(filename);
+  let savePath: string;
+  try {
+    savePath = await getTauriSavePath(filename);
+  } catch (error) {
+    if (!(error instanceof DownloadCancelledError)) {
+      await logTauriDownloadFailure(url, filename, error);
+      await logTauriDownloadEvent(
+        "save-dialog-error",
+        url,
+        filename,
+        errorMessageForLog(error),
+      );
+    }
+    throw error;
+  }
+
+  await logTauriDownloadEvent(
+    "tauri-download-start",
+    url,
+    filename,
+    `headerKeys=${headerKeysForLog(options.headers)}`,
+  );
   try {
     await tauriDownload(
       url,
@@ -158,6 +210,7 @@ async function downloadWithTauri(
       undefined,
       headersForTauri(options.headers),
     );
+    await logTauriDownloadEvent("tauri-download-success", url, filename);
   } catch (error) {
     await logTauriDownloadFailure(url, filename, error);
     if (options.errorMessage) {
@@ -201,18 +254,27 @@ export async function downloadFileFromUrl(
   filename: string,
   options: DownloadFileOptions = {},
 ): Promise<void> {
+  await logTauriDownloadEvent(
+    "entry",
+    url,
+    filename,
+    `headerKeys=${headerKeysForLog(options.headers)}`,
+  );
   if (!url) {
     throw new Error(options.errorMessage || "Download URL is empty");
   }
 
   const requestUrl = resolveExternalUrl(url);
+  await logTauriDownloadEvent("resolved", requestUrl ?? "", filename);
   if (!requestUrl || !isHttpExternalUrl(requestUrl)) {
+    await logTauriDownloadEvent("invalid-url", requestUrl ?? url, filename);
     throw new Error(options.errorMessage || "Download URL is invalid");
   }
 
   const safeFilename = sanitizeSaveFilename(filename);
   const pywebviewSaveFile = getPyWebViewApi()?.save_file;
   if (pywebviewSaveFile && isHttpExternalUrl(requestUrl)) {
+    await logTauriDownloadEvent("runtime-pywebview", requestUrl, safeFilename);
     await downloadWithPyWebView(
       pywebviewSaveFile,
       requestUrl,
@@ -223,9 +285,11 @@ export async function downloadFileFromUrl(
   }
 
   if (isDesktopTauriRuntime()) {
+    await logTauriDownloadEvent("runtime-tauri", requestUrl, safeFilename);
     await downloadWithTauri(requestUrl, safeFilename, options);
     return;
   }
 
+  await logTauriDownloadEvent("runtime-browser", requestUrl, safeFilename);
   await downloadWithBrowser(requestUrl, safeFilename, options);
 }

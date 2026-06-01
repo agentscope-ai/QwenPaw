@@ -17,6 +17,7 @@ pub fn run() {
             backend::backend_port,
             backend::backend_startup_error,
             backend::restart_backend,
+            diagnostics::log_download_event,
             diagnostics::log_download_failure,
             external_link::open_external_link,
         ])
