@@ -122,7 +122,7 @@ async def _write_gitignore(cwd: Path) -> None:
             _DEFAULT_GITIGNORE,
             encoding="utf-8",
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
 
@@ -136,7 +136,7 @@ async def _exclude_nested_repos(cwd: Path) -> None:
                 for p in cwd.rglob(".git")
                 if p.is_dir() and p != cwd / ".git"
             ]
-        except Exception:  # noqa: BLE001
+        except Exception:
             return []
 
     nested = await asyncio.to_thread(_scan)
@@ -155,7 +155,7 @@ async def _exclude_nested_repos(cwd: Path) -> None:
 
     try:
         await asyncio.to_thread(_write_exclude)
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
 
@@ -203,7 +203,7 @@ async def _resolve_branch(cwd: Path) -> tuple[str, bool]:
         return "", True
     try:
         is_own = Path(toplevel.strip()).resolve() == cwd.resolve()
-    except Exception:  # noqa: BLE001
+    except Exception:
         is_own = False
     if not is_own:
         return "", True

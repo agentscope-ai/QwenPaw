@@ -195,7 +195,7 @@ class RequestSetupMiddleware(MiddlewareBase):
             set_current_shell_command_executable(
                 running.shell_command_executable or None,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.warning(
                 "RequestSetupMiddleware: ContextVar setup failed; "
                 "tools may see defaults",

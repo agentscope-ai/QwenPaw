@@ -145,7 +145,7 @@ class CodingModeMixin:
     # System prompt injection
     # ------------------------------------------------------------------
 
-    def _build_sys_prompt(self) -> str:  # noqa: D102
+    def _build_sys_prompt(self) -> str:
         """Append the Coding Mode persona block to the base system prompt."""
         base: str = super()._build_sys_prompt()  # type: ignore[misc]
         if not self._coding_mode_enabled():
@@ -188,7 +188,7 @@ class CodingModeMixin:
             cm = config.coding_mode
             if cm and cm.project_dir:
                 return cm.project_dir
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
         # Fallback to stale in-memory config

@@ -109,7 +109,7 @@ async def _fetch_json(
         resp = await client.get(url, timeout=10.0)
         if resp.status_code == 200:
             return resp.json()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug(f"OAuth metadata fetch failed for {url}: {exc}")
     return None
 
@@ -127,7 +127,7 @@ async def _probe_resource_metadata_url(
         for part in www_auth.split(","):
             if "resource_metadata=" in part.lower():
                 return part.split("=", 1)[1].strip().strip('"')
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug(f"MCP probe failed for {mcp_url}: {exc}")
     return None
 
@@ -265,7 +265,7 @@ async def _dynamic_register(
             )
             if resp.status_code in (200, 201):
                 return resp.json().get("client_id")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug(f"Dynamic client registration failed: {exc}")
     return None
 
@@ -323,7 +323,7 @@ def _redirect_uri(request: Request) -> str:
     """
     try:
         return str(request.url_for("oauth_callback"))
-    except Exception:  # noqa: BLE001
+    except Exception:
         base = str(request.base_url).rstrip("/")
         return f"{base}/api/mcp/oauth/callback"
 
@@ -523,7 +523,7 @@ async def _exchange_code_for_tokens(
                 data=token_data,
                 timeout=15.0,
             )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise ValueError(f"Token exchange request failed: {exc}") from exc
 
     if resp.status_code not in (200, 201):
@@ -618,7 +618,7 @@ async def oauth_callback(
     try:
         tokens = await _exchange_code_for_tokens(session, code)
         await _persist_tokens(request, session, tokens)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.error(
             f"OAuth callback failed for '{session.client_key}': {exc}",
             exc_info=True,

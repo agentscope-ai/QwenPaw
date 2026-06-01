@@ -3903,7 +3903,7 @@ _CDP_SCAN_PORT_MAX = 10000
 def _fetch_cdp_json(port: int) -> list:
     """Fetch CDP /json endpoint synchronously. Raises on failure."""
     url = f"http://localhost:{port}/json"
-    with urllib_request.urlopen(url, timeout=1) as resp:  # noqa: S310
+    with urllib_request.urlopen(url, timeout=1) as resp:
         return json.loads(resp.read())
 
 

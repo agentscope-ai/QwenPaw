@@ -209,7 +209,7 @@ def _guarded_tool_resolve_execution_level(self: Any) -> str:
         profile = load_agent_config(agent_id)
         raw = getattr(profile, "approval_level", None)
         return ToolExecutionLevel.from_config(raw).value
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning(
             "GuardedFunctionTool: failed to resolve approval_level for "
             "agent=%s (%s); falling back to BYPASS",
@@ -493,7 +493,7 @@ async def _ask_user_approval(
             pending.request_id,
             TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.error(
             "GuardedFunctionTool: wait_for_approval crashed (%s); denying",
             exc,

@@ -78,7 +78,7 @@ def detect_system_timezone() -> str:
         return "UTC"
 
 
-def _detect_system_timezone_inner() -> str:  # noqa: R0911
+def _detect_system_timezone_inner() -> str:
     probes = [_probe_python, _probe_env]
     if os.name == "nt":
         probes.append(_probe_windows_registry)

@@ -615,7 +615,7 @@ class QwenPawACPAgent(Agent):
             raw = TokenRecordingModelWrapper.pop_usage_for_session(
                 session_id,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
         if not raw:
             return None

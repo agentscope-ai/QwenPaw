@@ -470,7 +470,7 @@ def shutdown_all() -> None:
     for c in clients:
         try:
             c.shutdown()
-        except Exception:  # noqa: BLE001  pragma: no cover
+        except Exception:  # pragma: no cover
             LOGGER.debug("LSP shutdown raised", exc_info=True)
 
 
