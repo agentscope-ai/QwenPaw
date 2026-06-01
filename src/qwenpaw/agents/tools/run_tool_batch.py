@@ -36,6 +36,7 @@ _STEP_REF_INLINE_PATTERN = re.compile(
 
 # --- Helpers --------------------------------------------------------------
 
+
 def _json_tool_response(payload: dict[str, Any]) -> ToolResponse:
     """Wrap a JSON-serialisable dict in a single-TextBlock ToolResponse."""
     return ToolResponse(
@@ -56,7 +57,7 @@ def _extract_text(response: ToolResponse) -> str:
     ``TextBlock``.  We scan all blocks to find the first one whose
     ``type`` is ``"text"``.
     """
-    for block in (response.content or []):
+    for block in response.content or []:
         block_type = (
             block.get("type", "")
             if isinstance(block, dict)
@@ -78,7 +79,7 @@ def _extract_text(response: ToolResponse) -> str:
 #   agent_management (chat/submit/check)   →  "ERROR: ..."
 #   shell (non-zero exit)                  →  "Command failed ..."
 _ERROR_PREFIXES = (
-    "error:",           # covers "Error:" and "ERROR:" (case-insensitive)
+    "error:",  # covers "Error:" and "ERROR:" (case-insensitive)
     "command failed ",  # shell non-zero exit code
 )
 
@@ -124,6 +125,7 @@ def _response_payload(response: ToolResponse) -> dict[str, Any]:
 
 # --- Step-reference resolution --------------------------------------------
 
+
 def resolve_step_refs(
     value: Any,
     results: list[dict[str, Any]],
@@ -150,7 +152,10 @@ def _resolve_step_ref_string(
     match = _STEP_REF_PATTERN.match(value)
     if match:
         return _lookup_step_ref(
-            match.group(1), match.group(2), results, value,
+            match.group(1),
+            match.group(2),
+            results,
+            value,
         )
 
     # Inline match – substitute into the surrounding string.
@@ -161,8 +166,13 @@ def _resolve_step_ref_string(
             results,
             value,
         )
-        return resolved if isinstance(resolved, str) else json.dumps(
-            resolved, ensure_ascii=False,
+        return (
+            resolved
+            if isinstance(resolved, str)
+            else json.dumps(
+                resolved,
+                ensure_ascii=False,
+            )
         )
 
     return _STEP_REF_INLINE_PATTERN.sub(_replace, value)
@@ -264,8 +274,13 @@ def _resolve_args(value: Any, args: dict[str, Any]) -> Any:
 
         def _replace(m: re.Match[str]) -> str:
             resolved = _lookup_arg(m.group(1), args)
-            return resolved if isinstance(resolved, str) else json.dumps(
-                resolved, ensure_ascii=False,
+            return (
+                resolved
+                if isinstance(resolved, str)
+                else json.dumps(
+                    resolved,
+                    ensure_ascii=False,
+                )
             )
 
         return _ARG_REF_INLINE_PATTERN.sub(_replace, value)
@@ -283,6 +298,7 @@ def _lookup_arg(path: str, args: dict[str, Any]) -> Any:
 
 
 # --- Single-step execution ------------------------------------------------
+
 
 async def _call_tool(
     tool_name: str,
@@ -322,6 +338,7 @@ async def _call_tool(
 
 
 # --- Step execution loop --------------------------------------------------
+
 
 async def _run_steps(  # pylint: disable=too-many-branches
     actions: list[dict[str, Any]],
@@ -467,6 +484,7 @@ def _build_batch_response(
 
 # --- Main entry point -----------------------------------------------------
 
+
 async def run_tool_batch(  # pylint: disable=too-many-return-statements
     actions: list[dict[str, Any]] | None = None,
     file_path: str = "",
@@ -580,5 +598,8 @@ async def run_tool_batch(  # pylint: disable=too-many-return-statements
     # --- Execute ---
     results, all_content_blocks = await _run_steps(actions, stop_on_error)
     return _build_batch_response(
-        actions, results, all_content_blocks, last_only=last_only,
+        actions,
+        results,
+        all_content_blocks,
+        last_only=last_only,
     )
