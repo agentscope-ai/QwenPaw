@@ -315,12 +315,15 @@ class WeChatChannel(BaseChannel):
         return h
 
     def to_handle_from_target(self, *, user_id: str, session_id: str) -> str:
-        return session_id or f"wechat:{user_id}"
+        if session_id and session_id.startswith("wechat:"):
+            return session_id
+        return f"wechat:{user_id}"
 
     def get_to_handle_from_request(self, request: Any) -> str:
-        session_id = getattr(request, "session_id", "") or ""
-        user_id = getattr(request, "user_id", "") or ""
-        return session_id or f"wechat:{user_id}"
+        return self.to_handle_from_target(
+            user_id=getattr(request, "user_id", "") or "",
+            session_id=getattr(request, "session_id", "") or "",
+        )
 
     def get_on_reply_sent_args(self, request: Any, to_handle: str) -> tuple:
         return (

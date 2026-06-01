@@ -459,6 +459,34 @@ class TestWeChatResolveSession:
 
         assert result == "wechat:user123"
 
+    def test_to_handle_from_target_custom_session_ignored(
+        self,
+        wechat_channel,
+    ):
+        """to_handle_from_target ignores custom session_id without prefix.
+
+        When a cron job uses share_session=false, session_id is a custom
+        string (e.g. 'cat_monitor_cron_session') without the 'wechat:'
+        prefix. We must not use it as the handle because
+        _parse_user_id_from_handle cannot extract the correct user_id
+        from it — the handle must always carry the 'wechat:' prefix.
+        """
+        result = wechat_channel.to_handle_from_target(
+            user_id="o9cq803Ccv8lpYRWNsXSz67tXEhM@im.wechat",
+            session_id="cat_monitor_cron_session",
+        )
+
+        assert result == "wechat:o9cq803Ccv8lpYRWNsXSz67tXEhM@im.wechat"
+
+    def test_to_handle_from_target_prefixed_session_used(self, wechat_channel):
+        """to_handle_from_target should use session_id with wechat: prefix."""
+        result = wechat_channel.to_handle_from_target(
+            user_id="user123",
+            session_id="wechat:o9cq803Ccv8lpYRWNsXSz67tXEhM@im.wechat",
+        )
+
+        assert result == "wechat:o9cq803Ccv8lpYRWNsXSz67tXEhM@im.wechat"
+
     def test_get_to_handle_from_request(self, wechat_channel):
         """get_to_handle_from_request should extract handle from request."""
         mock_request = MagicMock()
@@ -468,6 +496,29 @@ class TestWeChatResolveSession:
         result = wechat_channel.get_to_handle_from_request(mock_request)
 
         assert result == "wechat:session_abc"
+
+    def test_get_to_handle_from_request_custom_session_ignored(
+        self,
+        wechat_channel,
+    ):
+        """get_to_handle_from_request should ignore non-prefixed session_id."""
+        mock_request = MagicMock()
+        mock_request.session_id = "custom_cron_session"
+        mock_request.user_id = "o9cq803Ccv8lpYRWNsXSz67tXEhM@im.wechat"
+
+        result = wechat_channel.get_to_handle_from_request(mock_request)
+
+        assert result == "wechat:o9cq803Ccv8lpYRWNsXSz67tXEhM@im.wechat"
+
+    def test_get_to_handle_from_request_empty_session(self, wechat_channel):
+        """get_to_handle_from_request should fallback when session_id empty."""
+        mock_request = MagicMock()
+        mock_request.session_id = ""
+        mock_request.user_id = "user123"
+
+        result = wechat_channel.get_to_handle_from_request(mock_request)
+
+        assert result == "wechat:user123"
 
     def test_get_on_reply_sent_args(self, wechat_channel):
         """get_on_reply_sent_args should return correct tuple."""
