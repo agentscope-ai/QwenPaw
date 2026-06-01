@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Tests for CronExecutor share_session fix (GitHub issue #4818).
+"""Tests for CronExecutor share_session serial-wait behavior.
 
 Covers:
-- ``_is_session_busy()`` delegation to TaskTracker
-- Auto-fallback when ``share_session=True`` and session is busy
+- ``_wait_for_session_idle()`` delegation to TaskTracker
+- Serial waiting when ``share_session=True`` and session is busy
 - ``session_source`` values: ``"cron"`` vs ``"cron:shared"``
 - Empty delta detection and ``"warning"`` trace status
-- Return dict fields: ``trace_event_count``, ``session_fell_back``
-- ``JobRuntimeSpec.share_session`` default is now ``False``
+- Return dict fields: ``trace_event_count``
+- ``JobRuntimeSpec.share_session`` default is ``True``
 - ``SessionSource.cron_shared`` enum value
 """
 from __future__ import annotations
@@ -35,7 +35,7 @@ from qwenpaw.app.runner.models import SessionSource
 
 def _make_job(
     *,
-    share_session: bool = False,
+    share_session: bool = True,
     task_type: str = "agent",
     text: str | None = None,
     request: CronJobRequest | None = None,
@@ -72,6 +72,7 @@ def _make_executor(
         task_tracker.has_active_tasks = AsyncMock(
             return_value=session_busy,
         )
+        task_tracker.wait_all_done = AsyncMock(return_value=True)
         runner._task_tracker = task_tracker
     else:
         runner._task_tracker = None
@@ -92,55 +93,58 @@ def _make_executor(
 
 
 # ---------------------------------------------------------------------------
-# _is_session_busy
+# _wait_for_session_idle
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_is_session_busy_no_tracker():
-    """Returns False when runner has no _task_tracker attribute."""
+async def test_wait_for_session_idle_no_tracker():
+    """Returns immediately when runner has no _task_tracker attribute."""
     executor, _ = _make_executor(has_task_tracker=False)
+    # Should not raise
     # pylint: disable=protected-access
-    result = await executor._is_session_busy()
-    assert result is False
+    await executor._wait_for_session_idle()
 
 
 @pytest.mark.asyncio
-async def test_is_session_busy_tracker_says_idle():
-    """Returns False when TaskTracker has no active tasks."""
-    executor, _ = _make_executor(has_task_tracker=True, session_busy=False)
-    # pylint: disable=protected-access
-    result = await executor._is_session_busy()
-    assert result is False
-
-
-@pytest.mark.asyncio
-async def test_is_session_busy_tracker_says_busy():
-    """Returns True when TaskTracker has active tasks."""
-    executor, _ = _make_executor(has_task_tracker=True, session_busy=True)
-    # pylint: disable=protected-access
-    result = await executor._is_session_busy()
-    assert result is True
-
-
-@pytest.mark.asyncio
-async def test_is_session_busy_tracker_exception():
-    """Returns False if TaskTracker.has_active_tasks() raises."""
+async def test_wait_for_session_idle_not_busy():
+    """Does not wait when TaskTracker has no active tasks."""
     executor, runner = _make_executor(
         has_task_tracker=True,
         session_busy=False,
     )
     # pylint: disable=protected-access
+    await executor._wait_for_session_idle()
+    runner._task_tracker.wait_all_done.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_wait_for_session_idle_busy_waits():
+    """Waits for active tasks when TaskTracker reports busy."""
+    executor, runner = _make_executor(has_task_tracker=True, session_busy=True)
+    # pylint: disable=protected-access
+    await executor._wait_for_session_idle()
+    runner._task_tracker.has_active_tasks.assert_called_once()
+    runner._task_tracker.wait_all_done.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_wait_for_session_idle_tracker_exception():
+    """Silently ignores exceptions from TaskTracker."""
+    executor, runner = _make_executor(
+        has_task_tracker=True,
+        session_busy=True,
+    )
+    # pylint: disable=protected-access
     runner._task_tracker.has_active_tasks = AsyncMock(
         side_effect=RuntimeError("boom"),
     )
-    # pylint: disable=protected-access
-    result = await executor._is_session_busy()
-    assert result is False
+    # Should not raise
+    await executor._wait_for_session_idle()
 
 
 # ---------------------------------------------------------------------------
-# share_session auto-fallback
+# share_session serial wait (no fallback)
 # ---------------------------------------------------------------------------
 
 
@@ -152,55 +156,24 @@ async def test_is_session_busy_tracker_exception():
     "qwenpaw.app.crons.executor.read_session_messages",
     new_callable=AsyncMock,
 )
-async def test_share_session_fallback_when_busy(
+async def test_share_session_waits_when_busy(
     mock_read,
     _mock_create,
     mock_delta,
     _mock_finalize,
 ):
-    """When share_session=True and session is busy, falls back to isolated."""
+    """When share_session=True and session is busy, waits serially."""
     mock_read.return_value = []
     mock_delta.return_value = [{"role": "assistant", "content": "hi"}]
 
     executor, runner = _make_executor(session_busy=True)
     job = _make_job(share_session=True)
 
-    result = await executor.execute(job)
+    await executor.execute(job)
 
-    # Should have fallen back
-    assert result["session_fell_back"] is True
-
-    # Verify the request used the isolated session_id pattern
-    call_args = runner.stream_query.call_args
-    req = call_args[0][0]
-    assert req["session_id"] == "sess-1:cron:job-1"
-    assert req["session_source"] == "cron"
-
-
-@pytest.mark.asyncio
-@patch("qwenpaw.app.crons.executor.finalize_trace", new_callable=AsyncMock)
-@patch("qwenpaw.app.crons.executor.append_trace_from_session_delta")
-@patch("qwenpaw.app.crons.executor.create_trace", new_callable=AsyncMock)
-@patch(
-    "qwenpaw.app.crons.executor.read_session_messages",
-    new_callable=AsyncMock,
-)
-async def test_share_session_no_fallback_when_idle(
-    mock_read,
-    _mock_create,
-    mock_delta,
-    _mock_finalize,
-):
-    """When share_session=True and session is idle, uses shared session."""
-    mock_read.return_value = []
-    mock_delta.return_value = [{"role": "assistant", "content": "hi"}]
-
-    executor, runner = _make_executor(session_busy=False)
-    job = _make_job(share_session=True)
-
-    result = await executor.execute(job)
-
-    assert result["session_fell_back"] is False
+    # Should have waited and then used the shared session
+    # pylint: disable=protected-access
+    runner._task_tracker.wait_all_done.assert_called_once()
 
     call_args = runner.stream_query.call_args
     req = call_args[0][0]
@@ -216,22 +189,55 @@ async def test_share_session_no_fallback_when_idle(
     "qwenpaw.app.crons.executor.read_session_messages",
     new_callable=AsyncMock,
 )
-async def test_isolated_session_default_no_fallback(
+async def test_share_session_no_wait_when_idle(
     mock_read,
     _mock_create,
     mock_delta,
     _mock_finalize,
 ):
-    """When share_session=False (default), no fallback logic runs."""
+    """When share_session=True and session is idle, uses shared session."""
+    mock_read.return_value = []
+    mock_delta.return_value = [{"role": "assistant", "content": "hi"}]
+
+    executor, runner = _make_executor(session_busy=False)
+    job = _make_job(share_session=True)
+
+    await executor.execute(job)
+
+    # pylint: disable=protected-access
+    runner._task_tracker.wait_all_done.assert_not_called()
+
+    call_args = runner.stream_query.call_args
+    req = call_args[0][0]
+    assert req["session_id"] == "sess-1"
+    assert req["session_source"] == "cron:shared"
+
+
+@pytest.mark.asyncio
+@patch("qwenpaw.app.crons.executor.finalize_trace", new_callable=AsyncMock)
+@patch("qwenpaw.app.crons.executor.append_trace_from_session_delta")
+@patch("qwenpaw.app.crons.executor.create_trace", new_callable=AsyncMock)
+@patch(
+    "qwenpaw.app.crons.executor.read_session_messages",
+    new_callable=AsyncMock,
+)
+async def test_isolated_session_no_wait(
+    mock_read,
+    _mock_create,
+    mock_delta,
+    _mock_finalize,
+):
+    """When share_session=False, no wait logic runs."""
     mock_read.return_value = []
     mock_delta.return_value = [{"role": "assistant", "content": "hi"}]
 
     executor, runner = _make_executor(session_busy=True)
     job = _make_job(share_session=False)
 
-    result = await executor.execute(job)
+    await executor.execute(job)
 
-    assert result["session_fell_back"] is False
+    # pylint: disable=protected-access
+    runner._task_tracker.wait_all_done.assert_not_called()
 
     call_args = runner.stream_query.call_args
     req = call_args[0][0]
@@ -258,7 +264,7 @@ async def test_session_source_cron_shared(
     mock_delta,
     _mock_finalize,
 ):
-    """share_session=True + idle session sets session_source=cron:shared."""
+    """share_session=True sets session_source=cron:shared."""
     mock_read.return_value = []
     mock_delta.return_value = [{"role": "assistant", "content": "x"}]
 
@@ -384,7 +390,7 @@ async def test_agent_return_fields(
     mock_delta,
     _mock_finalize,
 ):
-    """Agent result includes trace_event_count and session_fell_back."""
+    """Agent result includes trace_event_count."""
     mock_read.return_value = []
     mock_delta.return_value = [{"role": "assistant", "content": "hi"}]
 
@@ -396,9 +402,7 @@ async def test_agent_return_fields(
     assert result["task_type"] == "agent"
     assert "run_id" in result
     assert "trace_event_count" in result
-    assert "session_fell_back" in result
     assert result["trace_event_count"] == 1
-    assert result["session_fell_back"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -425,10 +429,10 @@ async def test_text_task_does_not_check_session():
 # ---------------------------------------------------------------------------
 
 
-def test_job_runtime_share_session_default_is_false():
-    """JobRuntimeSpec.share_session defaults to False."""
+def test_job_runtime_share_session_default_is_true():
+    """JobRuntimeSpec.share_session defaults to True."""
     runtime = JobRuntimeSpec()
-    assert runtime.share_session is False
+    assert runtime.share_session is True
 
 
 def test_session_source_cron_shared_enum():

@@ -156,12 +156,12 @@ class JobRuntimeSpec(BaseModel):
     timeout_seconds: int = Field(default=120, ge=1)
     misfire_grace_seconds: int = Field(default=60, ge=0)
     share_session: bool = Field(
-        default=False,
+        default=True,
         description=(
             "Whether to share session with target user. "
-            "If False, creates isolated context with unique run ID. "
-            "Sharing is discouraged for agent tasks because concurrent "
-            "access can corrupt session state and produce empty traces."
+            "If True, the cron job waits for active tasks to complete "
+            "and inherits the shared context. "
+            "If False, creates isolated context with unique run ID."
         ),
     )
 

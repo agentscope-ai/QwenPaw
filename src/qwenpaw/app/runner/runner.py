@@ -841,14 +841,13 @@ class AgentRunner(Runner):
 
             # Isolated cron: run without any prior context so each execution
             # is independent (saves tokens, avoids stale-context interference).
-            # Also applies to "cron:shared" mode (share_session=true) to
-            # prevent concurrent session state corruption.
+            # Only applies to session_source="cron" (share_session=false).
+            # For session_source="cron:shared" (share_session=true), the
+            # user explicitly wants the cron to inherit the shared context,
+            # so we must NOT clear agent memory.
             _extra = getattr(request, "model_extra", None) or {}
             _session_source = _extra.get("session_source", "")
-            if (
-                _session_source in ("cron", "cron:shared")
-                and agent.memory is not None
-            ):
+            if _session_source == "cron" and agent.memory is not None:
                 # Snapshot the full history before clearing
                 _cron_memory_snapshot = agent.memory.state_dict()
                 await agent.memory.clear()

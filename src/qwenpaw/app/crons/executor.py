@@ -22,15 +22,25 @@ class CronExecutor:
         self._runner = runner
         self._channel_manager = channel_manager
 
-    async def _is_session_busy(self) -> bool:
-        """Check if the target session has an active task in TaskTracker."""
+    async def _wait_for_session_idle(self) -> None:
+        """Wait for any active tasks in the target session to complete.
+
+        When share_session=True, the cron job must execute serially after
+        existing tasks finish so it can inherit the shared context rather
+        than silently dropping it by falling back to an isolated session.
+        """
         task_tracker = getattr(self._runner, "_task_tracker", None)
         if task_tracker is None:
-            return False
+            return
         try:
-            return await task_tracker.has_active_tasks()
+            if await task_tracker.has_active_tasks():
+                logger.info(
+                    "cron share_session: waiting for active tasks to "
+                    "complete before executing in shared session",
+                )
+                await task_tracker.wait_all_done()
         except Exception:  # pylint: disable=broad-except
-            return False
+            pass
 
     # pylint: disable=too-many-statements
     async def execute(self, job: CronJobSpec) -> dict[str, Any]:
@@ -101,24 +111,13 @@ class CronExecutor:
 
         # Determine session_id based on share_session
         share_session = job.runtime.share_session
-        session_fell_back = False
         if share_session:
-            # Auto-fallback: if the target session has an active task,
-            # sharing it would cause concurrent access / empty traces.
-            if await self._is_session_busy():
-                logger.warning(
-                    "cron share_session fallback: job_id=%s target session "
-                    "%s is busy, falling back to isolated session",
-                    job.id,
-                    target_session_id[:40] if target_session_id else "",
-                )
-                share_session = False
-                session_fell_back = True
+            # Wait serially for any active tasks to complete so the cron
+            # job can inherit the shared context rather than losing it.
+            await self._wait_for_session_idle()
 
         if share_session:
             req["session_id"] = target_session_id or f"cron:{job.id}"
-            # Even in shared mode, mark session_source so the runner can
-            # distinguish cron-originated queries from interactive ones.
             req["session_source"] = "cron:shared"
         else:
             # Use job.id (not run_id) so all runs of this job accumulate in the
@@ -190,13 +189,11 @@ class CronExecutor:
             if not delta:
                 logger.warning(
                     "cron agent produced empty trace: job_id=%s "
-                    "session_id=%s share_session=%s fell_back=%s "
-                    "baseline_count=%d. The session may have been "
-                    "overwritten by a concurrent query.",
+                    "session_id=%s share_session=%s "
+                    "baseline_count=%d.",
                     job.id,
                     req["session_id"][:40],
                     job.runtime.share_session,
-                    session_fell_back,
                     baseline_count,
                 )
             await finalize_trace(
@@ -209,7 +206,6 @@ class CronExecutor:
                 "delivery_status": "failed" if delivery_error else "success",
                 "delivery_error": delivery_error,
                 "trace_event_count": len(delta),
-                "session_fell_back": session_fell_back,
             }
         except asyncio.TimeoutError:
             logger.warning(
