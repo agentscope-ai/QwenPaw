@@ -1,600 +1,28 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-nested-blocks
-"""QwenPaw runtime engine.
-
-:class:`Runner` builds a per-session :class:`agentscope.agent.Agent` and
-exposes :meth:`Runner.stream_query`, which drives ``agent.reply_stream``
-and translates its ``AgentEvent`` stream into the ``Message`` / ``Content``
-envelope shape defined in :mod:`qwenpaw.schemas` — which is what the
-console channel and the ``@agentscope-ai/chat`` frontend consume.
-
-The core agent lifecycle (tool guard, MCP, hooks, skills) is provided by
-``QwenPawAgent`` middlewares; mission mode is handled separately.
-"""
+"""Runner base class with stream_query — the core event-to-envelope
+translator."""
 from __future__ import annotations
 
-import asyncio
-import contextvars
 import json
 import logging
 import uuid
-from typing import Any, AsyncGenerator, Dict, List
+from typing import Any, AsyncGenerator, Dict
 
-logger = logging.getLogger(__name__)
-
-# SSE-keepalive heartbeat: if no event arrives from ``agent.reply_stream``
-# within this many seconds, ``stream_query`` re-yields the in-progress
-# ``response`` envelope so SSE bytes keep flowing.  Long tool-guard ASK
-# waits (300s default) would otherwise blow past common proxy / browser
-# idle-timeout thresholds (~60s) and drop the connection silently.
-HEARTBEAT_INTERVAL_SECONDS = 25.0
-
-# Sentinel yielded by :func:`_iter_with_heartbeat` instead of a real event
-# when ``HEARTBEAT_INTERVAL_SECONDS`` elapses with no agent output.
-_HEARTBEAT_TICK = object()
-
-
-async def _iter_with_heartbeat(source_iter, interval: float):
-    """Wrap an async-iter so it yields ``_HEARTBEAT_TICK`` on idle.
-
-    Uses ``asyncio.shield`` so that ``wait_for``'s cancellation on timeout
-    does NOT cancel the underlying ``__anext__()`` task — that task lives
-    across heartbeats and is awaited again on the next loop iteration.
-    Without shielding, a long approval wait would lose every heartbeat's
-    worth of pending state.
-    """
-    pending = None
-    try:
-        while True:
-            if pending is None:
-                pending = asyncio.ensure_future(source_iter.__anext__())
-            try:
-                value = await asyncio.wait_for(
-                    asyncio.shield(pending),
-                    timeout=interval,
-                )
-            except asyncio.TimeoutError:
-                yield _HEARTBEAT_TICK
-                continue
-            except StopAsyncIteration:
-                pending = None
-                return
-            pending = None
-            yield value
-    finally:
-        if pending is not None and not pending.done():
-            pending.cancel()
-
-
-# Module-level per-session agent cache.
-# Keys: (session_id, provider_id, model_id).
-# Within a process this gives the agent its short-term memory
-# (agent.state.context).  The provider+model is part of the key so that when
-# the user switches active model in the frontend, the next request rebuilds
-# the agent against the new model instead of reusing the stale one (which
-# would silently keep talking to the old endpoint).
-_AGENT_CACHE: Dict[tuple, Any] = {}
-
-# Per-request context propagated to ``GuardedFunctionTool.check_permissions``.
-# Tools are constructed once per (session, agent, model) in
-# ``_build_qwenpaw_toolkit`` and cached, but ``check_permissions`` runs on
-# every tool call — set this ContextVar in ``stream_query`` before driving
-# the agent so the guard can build a proper ``PendingApproval`` (which
-# needs session_id / user_id / channel / agent_id / root_session_id /
-# root_agent_id for cross-session approval routing in the frontend).
-#
-# ``ContextVar.set`` is task-scoped (Starlette starts each HTTP request in
-# its own task), so concurrent requests with different sessions don't see
-# each other's value.
-_REQUEST_CONTEXT_VAR: contextvars.ContextVar[
-    Dict[str, str]
-] = contextvars.ContextVar("_qp_request_context", default={})
-
-
-def _current_request_context() -> Dict[str, str]:
-    """Return the active per-request context (or empty dict)."""
-    return _REQUEST_CONTEXT_VAR.get() or {}
-
-
-def _media_type_to_block_type(media_type: str | None) -> str:
-    """Map a MIME media_type to the 1.x block type the frontend expects.
-
-    AS 2.0 uses ``"data"`` for all media; the frontend renderer still
-    expects ``"image"``/``"video"``/``"audio"``.
-    """
-    if not media_type:
-        return "data"
-    major = media_type.split("/", 1)[0]
-    if major in ("image", "video", "audio"):
-        return major
-    return "data"
-
-
-class GuardedFunctionTool:
-    """Skeleton ``FunctionTool`` that routes permission decisions through
-    qwenpaw's tool-guard execution level.
-
-    For the migration mainline ``_resolve_execution_level()`` always
-    returns ``"bypass"``, so every tool call is auto-allowed — same
-    behavior as the prior ``_AutoAllowFunctionTool``.  The branches for
-    OFF / AUTO / SMART / STRICT are stubbed with TODOs; the next pass
-    wires them to ``qwenpaw.security.tool_guard.engine`` and emits
-    ``PermissionDecision(ASK, ...)`` so agentscope 2.0's
-    ``RequireUserConfirmEvent`` plumbing (already translated by
-    ``stream_query``) carries the findings to the frontend's
-    ``ApprovalCard``.
-
-    The class is defined at module scope (rather than nested inside
-    :func:`_build_qwenpaw_toolkit`) so the skeleton survives toolkit
-    rebuilds — when the agent cache evicts an entry on active-model
-    change, the next ``_build_qwenpaw_toolkit()`` call still wires
-    the same ``GuardedFunctionTool``.
-
-    Inheriting from ``FunctionTool`` happens lazily inside ``__new__`` so
-    importing this module does not require the agentscope package to be
-    importable at definition time (matches the rest of ``runtime_engine``,
-    which imports agentscope only inside function bodies).
-    """
-
-    def __new__(cls, *args: Any, **kwargs: Any) -> Any:  # type: ignore[misc]
-        from agentscope.tool import FunctionTool
-
-        if cls is GuardedFunctionTool:
-            real_cls = type(
-                "GuardedFunctionTool",
-                (FunctionTool,),
-                {
-                    "__init__": _guarded_tool_init,
-                    "_resolve_execution_level": (
-                        _guarded_tool_resolve_execution_level
-                    ),
-                    "check_permissions": _guarded_tool_check_permissions,
-                    "__doc__": cls.__doc__,
-                },
-            )
-            return real_cls(*args, **kwargs)
-        return object.__new__(cls)
-
-
-def _guarded_tool_init(
-    self: Any,
-    func: Any,
-    *,
-    agent_id: str | None = None,
-    request_context: dict[str, str] | None = None,
-    **kwargs: Any,
-) -> None:
-    from agentscope.tool import FunctionTool
-
-    FunctionTool.__init__(self, func, **kwargs)
-    self._qp_agent_id = agent_id  # pylint: disable=protected-access
-    # pylint: disable=protected-access
-    self._qp_request_context = request_context or {}
-
-
-def _guarded_tool_resolve_execution_level(self: Any) -> str:
-    """Return the active tool execution level for this tool.
-
-    Resolves the per-agent ``approval_level`` from the workspace's
-    ``agent.json`` via :func:`load_agent_config`.  Returns one of
-    ``"off"`` / ``"auto"`` / ``"smart"`` / ``"strict"`` (canonical lower-case
-    values from :class:`ToolExecutionLevel`), or ``"bypass"`` when no
-    ``agent_id`` was attached at construction time (mainline single-agent
-    dev path doesn't always set one) or when config loading fails — the
-    bypass branch keeps the tool runnable in environments where the guard
-    can't be initialised.
-    """
-    agent_id = getattr(self, "_qp_agent_id", None)
-    if not agent_id:
-        return "bypass"
-    try:
-        from .config.config import load_agent_config
-        from .security.tool_guard.execution_level import ToolExecutionLevel
-
-        profile = load_agent_config(agent_id)
-        raw = getattr(profile, "approval_level", None)
-        return ToolExecutionLevel.from_config(raw).value
-    except Exception as exc:
-        logger.warning(
-            "GuardedFunctionTool: failed to resolve approval_level for "
-            "agent=%s (%s); falling back to BYPASS",
-            agent_id,
-            exc,
-        )
-        return "bypass"
-
-
-_NO_RETRY_INSTRUCTION = (
-    "\n\n⚠️ **System instruction**: this denial is final for the current "
-    "request. Do not retry this tool with similar parameters. Reply to "
-    "the user explaining why the action could not be completed and, if "
-    "appropriate, ask them how they want to proceed."
+from .heartbeat import (
+    _iter_with_heartbeat,
+    _HEARTBEAT_TICK,
+    HEARTBEAT_INTERVAL_SECONDS,
+)
+from .context import _REQUEST_CONTEXT_VAR
+from .agent_cache import _get_or_build_agent
+from .message_convert import (
+    _get_last_user_text,
+    _media_type_to_block_type,
+    _request_input_to_msgs,
 )
 
-
-def _with_no_retry_instruction(body: str) -> str:
-    """Append a stop-retry hint to a denial message body.
-
-    1.x's ``_acting_denied`` injected a localized "do not retry" line into
-    the synthetic ``ToolResultBlock`` so the model wouldn't immediately
-    re-issue the denied tool call with a tweaked argument.  Centralised
-    here so every denial path (denied-list / user-denied / approval-timeout)
-    sends the same instruction.
-    """
-    return body + _NO_RETRY_INSTRUCTION
-
-
-# pylint: disable=too-many-return-statements
-async def _guarded_tool_check_permissions(
-    self: Any,
-    input_data: dict[str, Any] | None = None,
-    context: Any = None,
-    *_extra_args: Any,
-    **_extra_kwargs: Any,
-) -> Any:
-    """Drive qwenpaw's tool-guard engine + ApprovalService for one tool call.
-
-    Signature matches agentscope's
-    :meth:`PermissionEngine.check_permission` call site
-    (:file:`agentscope/permission/_engine.py:212`):
-    ``await tool.check_permissions(input_data, self.context)``.  The tool
-    instance itself is ``self`` — we read ``self.name`` for guard-rule
-    matching, not a separate ``tool`` arg.
-
-    ``*_extra_args`` / ``**_extra_kwargs`` swallow any additional positional
-    or keyword args agentscope might add in future releases without
-    breaking us.
-
-    ASK is implemented by blocking on :class:`PendingApproval.future`
-    (resolved by the ``/approval/{approve,deny}`` HTTP endpoints) rather
-    than emitting ``PermissionBehavior.ASK`` — the polling-based
-    ``/console/push-messages`` path that the frontend already uses for
-    approval cards keeps working without an SSE round-trip change.
-    """
-    del context  # qwenpaw's guard doesn't read PermissionContext yet
-    from agentscope.permission import (
-        PermissionBehavior,
-        PermissionDecision,
-    )
-
-    level = self._resolve_execution_level()  # pylint: disable=protected-access
-
-    if level == "bypass":
-        return PermissionDecision(
-            behavior=PermissionBehavior.ALLOW,
-            message="Tool guard BYPASS — no agent_id bound.",
-        )
-
-    from .security.tool_guard.engine import get_guard_engine
-    from .security.tool_guard.execution_level import ToolExecutionLevel
-    from .security.tool_guard.models import GuardSeverity
-
-    # ``self`` IS the tool (GuardedFunctionTool subclasses FunctionTool).
-    tool_name = getattr(self, "name", None) or ""
-    input_data = input_data or {}
-    exec_level = ToolExecutionLevel.from_config(level)
-    engine = get_guard_engine()
-
-    # OFF: bypass without engine.
-    if exec_level.is_disabled() or not engine.enabled:
-        return PermissionDecision(
-            behavior=PermissionBehavior.ALLOW,
-            message=f"Tool guard {exec_level.value.upper()} — allowed.",
-        )
-
-    # Denied list (applies to every mode).
-    if engine.is_denied(tool_name):
-        denied_result = engine.guard(tool_name, input_data)
-        body = (
-            f"Tool '{tool_name}' is permanently blocked by the denied-list."
-            if denied_result is None or not denied_result.findings
-            else _format_guard_message(tool_name, denied_result)
-        )
-        return PermissionDecision(
-            behavior=PermissionBehavior.DENY,
-            message=_with_no_retry_instruction(body),
-        )
-
-    # Resolve the guard_result that drives the rest of the decisions.
-    if exec_level.requires_approval_for_all_tools():
-        guard_result = engine.guard(
-            tool_name,
-            input_data,
-            only_always_run=False,
-        )
-        if guard_result is None or not guard_result.findings:
-            guard_result = _strict_info_guard_result(tool_name, input_data)
-    else:
-        guarded = engine.is_guarded(tool_name)
-        guard_result = engine.guard(
-            tool_name,
-            input_data,
-            only_always_run=not guarded,
-        )
-
-    # No findings on AUTO/SMART → allow.
-    if guard_result is None or not guard_result.findings:
-        return PermissionDecision(
-            behavior=PermissionBehavior.ALLOW,
-            message="Tool guard: no findings.",
-        )
-
-    # Auto-deny rules (HIGH-RISK rules flagged by config).
-    if engine.should_auto_deny_result(guard_result):
-        return PermissionDecision(
-            behavior=PermissionBehavior.DENY,
-            message=_format_guard_message(tool_name, guard_result),
-        )
-
-    # SMART: skip approval for low-risk findings.
-    if exec_level.is_smart_mode():
-        max_sev = guard_result.max_severity
-        if max_sev in (GuardSeverity.INFO, GuardSeverity.LOW):
-            return PermissionDecision(
-                behavior=PermissionBehavior.ALLOW,
-                message=(
-                    "Tool guard SMART: auto-allowed low-risk "
-                    f"({max_sev.value})."
-                ),
-            )
-
-    # Anything left needs the user.
-    agent_id = self._qp_agent_id  # pylint: disable=protected-access
-    decision = await _ask_user_approval(
-        agent_id=agent_id,
-        tool_name=tool_name,
-        input_data=input_data,
-        guard_result=guard_result,
-    )
-    return decision
-
-
-def _strict_info_guard_result(
-    tool_name: str,
-    params: dict[str, Any],
-) -> Any:
-    """Synthesise an INFO-level ``ToolGuardResult`` for STRICT tools.
-
-    The approval card in STRICT mode still needs a body even when no
-    rule fires.
-    """
-    from .security.tool_guard.models import (
-        GuardFinding,
-        GuardSeverity,
-        GuardThreatCategory,
-        ToolGuardResult,
-    )
-
-    finding = GuardFinding(
-        id=uuid.uuid4().hex[:8],
-        rule_id="strict_mode",
-        category=GuardThreatCategory.RESOURCE_ABUSE,
-        severity=GuardSeverity.INFO,
-        title="STRICT Mode Approval",
-        description=(f"Tool '{tool_name}' requires approval in STRICT mode"),
-        tool_name=tool_name,
-        remediation="Approve or deny this tool call",
-        guardian="strict_mode",
-        metadata={"reason": "strict_mode_enabled"},
-    )
-    return ToolGuardResult(
-        tool_name=tool_name,
-        params=params,
-        findings=[finding],
-        guardians_used=["strict_mode"],
-    )
-
-
-def _format_guard_message(tool_name: str, guard_result: Any) -> str:
-    """Human-readable message attached to a ``PermissionDecision``."""
-    from .security.tool_guard.approval import format_findings_summary
-
-    return (
-        f"Tool '{tool_name}' flagged "
-        f"(severity={guard_result.max_severity.value}, "
-        f"findings={guard_result.findings_count}):\n"
-        f"{format_findings_summary(guard_result)}"
-    )
-
-
-async def _ask_user_approval(
-    *,
-    agent_id: str,
-    tool_name: str,
-    input_data: dict[str, Any],
-    guard_result: Any,
-) -> Any:
-    """Create a ``PendingApproval`` and block on its Future.
-
-    The frontend polls ``/console/push-messages`` (which iterates
-    ``ApprovalService._pending`` directly) so creating the record is
-    sufficient — no extra push needed.  ``/approval/{approve,deny}``
-    resolves the Future; we map the resulting ``ApprovalDecision`` to
-    ``PermissionBehavior``.
-    """
-    from agentscope.permission import (
-        PermissionBehavior,
-        PermissionDecision,
-    )
-
-    from .app.approvals import get_approval_service
-    from .constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
-    from .security.tool_guard.approval import (
-        ApprovalDecision,
-        format_findings_summary,
-    )
-
-    ctx = _current_request_context()
-    session_id = str(ctx.get("session_id") or "")
-    user_id = str(ctx.get("user_id") or "")
-    channel = str(ctx.get("channel") or "")
-    root_session_id = str(ctx.get("root_session_id") or session_id)
-    owner_agent_id = str(ctx.get("root_agent_id") or agent_id or "unknown")
-
-    svc = get_approval_service()
-    tool_call_id = str(ctx.get("tool_call_id") or "")
-    if session_id and tool_call_id:
-        await svc.cancel_stale_pending_for_tool_call(
-            session_id,
-            tool_call_id,
-        )
-
-    pending = await svc.create_pending(
-        session_id=session_id,
-        root_session_id=root_session_id,
-        owner_agent_id=owner_agent_id,
-        user_id=user_id,
-        channel=channel,
-        agent_id=agent_id or "unknown",
-        tool_name=tool_name,
-        result=guard_result,
-        timeout_seconds=TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
-        extra={
-            "tool_call": {
-                "id": tool_call_id,
-                "name": tool_name,
-                "input": dict(input_data or {}),
-            },
-        },
-    )
-
-    logger.info(
-        "GuardedFunctionTool: awaiting approval for tool=%s session=%s "
-        "request_id=%s severity=%s",
-        tool_name,
-        session_id[:8] if session_id else "",
-        pending.request_id[:8],
-        pending.severity,
-    )
-
-    try:
-        decision = await svc.wait_for_approval(
-            pending.request_id,
-            TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
-        )
-    except Exception as exc:
-        logger.error(
-            "GuardedFunctionTool: wait_for_approval crashed (%s); denying",
-            exc,
-            exc_info=True,
-        )
-        decision = ApprovalDecision.DENIED
-
-    summary = format_findings_summary(guard_result)
-    if decision == ApprovalDecision.APPROVED:
-        return PermissionDecision(
-            behavior=PermissionBehavior.ALLOW,
-            message=f"Approved by user.\n{summary}",
-        )
-    if decision == ApprovalDecision.DENIED:
-        return PermissionDecision(
-            behavior=PermissionBehavior.DENY,
-            message=_with_no_retry_instruction(
-                f"User denied the request to run '{tool_name}'.\n{summary}",
-            ),
-        )
-    return PermissionDecision(
-        behavior=PermissionBehavior.DENY,
-        message=_with_no_retry_instruction(
-            f"Approval for '{tool_name}' timed out after "
-            f"{int(TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS)}s.\n{summary}",
-        ),
-    )
-
-
-def _build_qwenpaw_agent(
-    session_id: str,
-    agent_id: str,
-    workspace_dir: Any = None,
-) -> Any:
-    """Construct a fully-wired :class:`QwenPawAgent` for one session.
-
-    QwenPawAgent owns its own toolkit (built via ``_create_toolkit`` from
-    the agent's ``builtin_tools`` config), system prompt (assembled from
-    working-dir files), and middleware registration (bootstrap +
-    context-manager middlewares).  The tool-guard ASK flow works because
-    ``_create_toolkit`` reads ``agent_config.id`` and wraps every tool in
-    :class:`GuardedFunctionTool`.
-    """
-    from .agents.context.light_context_manager import LightContextManager
-    from .agents.react_agent import QwenPawAgent
-    from .config.config import load_agent_config
-    from .constant import WORKING_DIR
-
-    agent_config = load_agent_config(agent_id)
-
-    ctx_working_dir = str(workspace_dir) if workspace_dir else str(WORKING_DIR)
-    context_manager = LightContextManager(
-        working_dir=ctx_working_dir,
-        agent_id=agent_id,
-    )
-
-    agent = QwenPawAgent(
-        agent_config=agent_config,
-        workspace_dir=workspace_dir,
-        request_context={
-            "session_id": session_id,
-            "agent_id": agent_id,
-            "channel": "console",
-        },
-        memory_manager=None,
-        context_manager=context_manager,
-        mcp_clients=None,
-    )
-    return agent
-
-
-def _get_or_build_agent(
-    session_id: str,
-    agent_id: str | None = None,
-    workspace_dir: Any = None,
-) -> tuple[Any, bool]:
-    """Return ``(agent, is_new)`` for the active (provider, model) on this
-    session — build on first use, rebuild when the active model changes.
-
-    ``is_new`` is ``True`` when the agent was just built (not from cache);
-    callers use it to decide whether to load persisted session state.
-    """
-    from .config.config import load_agent_config
-    from .providers.provider_manager import ProviderManager
-
-    resolved_agent_id = agent_id or "default"
-
-    # Resolve the *effective* model: agent-specific first, then global.
-    active = None
-    try:
-        agent_cfg = load_agent_config(resolved_agent_id)
-        slot = agent_cfg.active_model
-        if slot and slot.provider_id and slot.model:
-            active = slot
-    except Exception:
-        pass
-    if active is None:
-        active = ProviderManager.get_instance().get_active_model()
-    if active is None or not active.provider_id or not active.model:
-        raise RuntimeError(
-            "stream_query: no active model configured; pick one in the UI",
-        )
-    key = (session_id, resolved_agent_id, active.provider_id, active.model)
-    cached = _AGENT_CACHE.get(key)
-    if cached is not None:
-        return cached, False
-    agent = _build_qwenpaw_agent(
-        session_id,
-        resolved_agent_id,
-        workspace_dir=workspace_dir,
-    )
-    _AGENT_CACHE[key] = agent
-    logger.info(
-        "stream_query: built QwenPawAgent for session=%s agent=%s "
-        "provider=%s model=%s tools=%d",
-        session_id,
-        resolved_agent_id,
-        active.provider_id,
-        active.model,
-        len(agent.toolkit.tool_groups[0].tools),
-    )
-    return agent, True
+logger = logging.getLogger(__name__)
 
 
 class Runner:
@@ -706,7 +134,7 @@ class Runner:
         migration mainline — re-introduced once channels need them.
         """
         from agentscope.event import EventType
-        from .schemas import (
+        from ..schemas import (
             AgentRequest,
             AgentResponse,
             ContentType,
@@ -749,8 +177,8 @@ class Runner:
         # without duplication.  Here we only need the two that the
         # middleware can't set (because they're consumed *before*
         # agent construction): ``workspace_dir`` and ``agent_id``.
-        from .config.context import set_current_workspace_dir
-        from .app.agent_context import set_current_agent_id
+        from ..config.context import set_current_workspace_dir
+        from ..app.agent_context import set_current_agent_id
 
         if workspace_dir is not None:
             set_current_workspace_dir(workspace_dir)
@@ -846,10 +274,23 @@ class Runner:
 
         error_text: str | None = None
         try:
+            # Get MCP clients from workspace manager
+            mcp_clients = None
+            mcp_mgr = getattr(self, "_mcp_manager", None)
+            if mcp_mgr is not None:
+                try:
+                    mcp_clients = await mcp_mgr.get_clients()
+                except Exception:
+                    logger.debug(
+                        "stream_query: failed to get MCP clients",
+                        exc_info=True,
+                    )
+
             agent, is_new_agent = _get_or_build_agent(
                 session_id,
                 agent_id=getattr(self, "agent_id", None),
                 workspace_dir=workspace_dir,
+                mcp_clients=mcp_clients or None,
             )
 
             # Restore persisted session state on first use (process restart).
@@ -882,7 +323,7 @@ class Runner:
             # the model.
             _last_text = _get_last_user_text(msgs)
             if _last_text and _last_text.startswith("/"):
-                from .app.runner.command_dispatch import dispatch_command
+                from ..app.runner.command_dispatch import dispatch_command
 
                 cmd_msg = await dispatch_command(
                     _last_text,
@@ -1278,6 +719,13 @@ class Runner:
         except Exception as exc:
             logger.exception("stream_query: reply_stream raised")
             error_text = str(exc) or exc.__class__.__name__
+            # Evict cached agent — it may be in a dirty state (e.g.
+            # pending tool calls that will never resolve).
+            from .agent_cache import _AGENT_CACHE
+
+            keys_to_evict = [k for k, v in _AGENT_CACHE.items() if v is agent]
+            for k in keys_to_evict:
+                del _AGENT_CACHE[k]
 
         if message_started:
             completed_message.status = RunStatus.Completed
@@ -1309,125 +757,3 @@ class Runner:
                 "stream_query: failed to persist session state",
                 exc_info=True,
             )
-
-
-def _get_last_user_text(msgs: List[Any]) -> str | None:
-    """Extract the text of the last user message from a list of ``Msg``."""
-    if not msgs:
-        return None
-    last = msgs[-1]
-    if hasattr(last, "get_text_content"):
-        return last.get_text_content()
-    return None
-
-
-def _ensure_url_scheme(url: str) -> str:
-    """Prepend ``file://`` when *url* is an absolute local path.
-
-    Always ``unquote()`` first so percent-encoded non-ASCII characters
-    (e.g. ``%E6%B5%8B%E8%AF%95`` → ``测试``) resolve to the real
-    filename on disk.  Then uses ``file://`` + raw path (not
-    ``Path.as_uri()``) to avoid re-encoding.
-    """
-    if url.startswith(("/", "~")):
-        from pathlib import Path
-        from urllib.parse import unquote
-
-        resolved = str(Path(unquote(url)).expanduser().resolve())
-        return "file://" + resolved
-    return url
-
-
-# pylint: disable=too-many-branches
-def _request_input_to_msgs(
-    input_list: List[Any],
-) -> List[Any]:
-    """Convert ``AgentRequest.input`` (list of 1.x Message) to a list of
-    agentscope 2.0 ``Msg`` objects.
-
-    Handles text, image, audio, video, and file content blocks.
-    """
-    try:
-        from agentscope.message import Msg, TextBlock, DataBlock
-        from agentscope.message._block import URLSource
-    except Exception:  # pragma: no cover - defensive
-        return []
-
-    _MEDIA_TYPES = {
-        "image": "image",
-        "audio": "audio",
-        "video": "video",
-    }
-
-    out: List[Any] = []
-    for m in input_list:
-        role = getattr(m, "role", None)
-        if hasattr(role, "value"):
-            role = role.value
-        role = role or "user"
-        if role == "tool":
-            role = "assistant"
-
-        blocks: list = []
-        for c in getattr(m, "content", None) or []:
-            ctype = getattr(c, "type", None)
-            if hasattr(ctype, "value"):
-                ctype = ctype.value
-
-            if ctype == "text":
-                text = getattr(c, "text", None) or ""
-                if text:
-                    blocks.append(TextBlock(type="text", text=text))
-
-            elif ctype in _MEDIA_TYPES:
-                url = (
-                    getattr(c, "image_url", None)
-                    or getattr(c, "audio_url", None)
-                    or getattr(c, "video_url", None)
-                    or getattr(c, "url", None)
-                )
-                if url:
-                    url = _ensure_url_scheme(str(url))
-                    ext = "jpeg" if ctype == "image" else "mpeg"
-                    media_type = f"{_MEDIA_TYPES[ctype]}/{ext}"
-                    try:
-                        blocks.append(
-                            DataBlock(
-                                source=URLSource(
-                                    url=url,
-                                    media_type=media_type,
-                                ),
-                            ),
-                        )
-                    except Exception:
-                        logger.debug(
-                            "Failed to create DataBlock for %s url=%s",
-                            ctype,
-                            url,
-                        )
-
-            elif ctype == "file":
-                url = getattr(c, "file_url", None) or getattr(c, "url", None)
-                if url:
-                    url = _ensure_url_scheme(str(url))
-                    try:
-                        blocks.append(
-                            DataBlock(
-                                source=URLSource(
-                                    url=url,
-                                    media_type="application/octet-stream",
-                                ),
-                                name=getattr(c, "file_name", None),
-                            ),
-                        )
-                    except Exception:
-                        logger.debug(
-                            "Failed to create DataBlock for file url=%s",
-                            url,
-                        )
-
-        if not blocks:
-            continue
-
-        out.append(Msg(name=role, role=role, content=blocks))
-    return out

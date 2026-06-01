@@ -28,7 +28,7 @@ from .middlewares import (
     RequestSetupMiddleware,
 )
 from .model_factory import create_model_and_formatter
-from ..runtime_engine import GuardedFunctionTool
+from ..runtime import GuardedFunctionTool
 from .prompt import (
     build_multimodal_hint,
     build_system_prompt_from_working_dir,
@@ -189,6 +189,14 @@ class QwenPawAgent(CodingModeMixin, Agent):
             "middlewares": middlewares,
         }
         super().__init__(**init_kwargs)
+
+        # Bypass agentscope's built-in permission engine — qwenpaw uses
+        # its own GuardedFunctionTool.check_permissions for tool-guard.
+        # Without this, MCP tools (which have no check_permissions override)
+        # fall through to the default "ask" behavior, blocking execution.
+        from agentscope.permission import PermissionMode
+
+        self.state.permission_context.mode = PermissionMode.BYPASS
 
         # Register memory tools provided by the memory manager
         if self.memory_manager is not None:
@@ -382,7 +390,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         except Exception as e:  # pylint: disable=broad-except
             logger.warning(f"Failed to register Coding Mode tools: {e}")
 
-        return Toolkit(tools=tool_instances)
+        return Toolkit(tools=tool_instances, mcps=self._mcp_clients or None)
 
     def _register_skills(
         self,

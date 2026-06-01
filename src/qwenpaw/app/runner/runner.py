@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from dotenv import load_dotenv
 
-from qwenpaw.runtime_engine import Runner
+from qwenpaw.runtime import Runner
 
 from .session import SafeJSONSession
 from ...config.config import load_agent_config
