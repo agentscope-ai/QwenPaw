@@ -2269,7 +2269,15 @@
     "importing": "Importando...",
     "dropFailed": "Falha ao ler a pasta",
     "workingDir": "Diretório de trabalho",
-    "importCopyNote": "A pasta será copiada para coding_projects/. Os arquivos originais não serão modificados."
+    "importCopyNote": "A pasta será copiada para coding_projects/. Os arquivos originais não serão modificados.",
+    "importCopyDesc": "A importacao cria uma copia da pasta. O Agent trabalha na copia e seus arquivos originais nao sao alterados. Para trabalhar diretamente no original, use \"Abrir diretorio\".",
+    "tabOpenDir": "Abrir diretório",
+    "openDirDesc": "Abrir um diretório local existente — nenhum arquivo será copiado",
+    "openDirBtn": "Abrir este diretório",
+    "openDirLoading": "Carregando...",
+    "openDirEmpty": "Sem subdiretórios",
+    "openDirHome": "Início",
+    "openDirRefresh": "Atualizar"
   },
   "market": {
     "searchPlaceholder": "Buscar habilidades em várias plataformas",

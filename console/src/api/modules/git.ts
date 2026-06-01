@@ -37,10 +37,11 @@ export const gitApi = {
       body: JSON.stringify({ branch, create }),
     }),
 
-  diff: (path?: string, staged = false) => {
+  diff: (path?: string, staged = false, untracked = false) => {
     const params = new URLSearchParams();
     if (path) params.set("path", path);
     if (staged) params.set("staged", "true");
+    if (untracked) params.set("untracked", "true");
     return request<{ diff: string }>(
       `/workspace/git/diff?${params.toString()}`,
     );

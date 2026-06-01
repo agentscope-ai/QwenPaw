@@ -2338,7 +2338,15 @@
     "importing": "Importing...",
     "dropFailed": "Failed to read folder",
     "workingDir": "Working directory",
-    "importCopyNote": "The folder will be copied into coding_projects/. Original files will not be modified."
+    "importCopyNote": "The folder will be copied into coding_projects/. Original files will not be modified.",
+    "importCopyDesc": "Import creates a copy of the folder. The Agent works on the copy and your original files stay untouched. To work directly on the original, use \"Open Directory\" instead.",
+    "tabOpenDir": "Open Directory",
+    "openDirDesc": "Open an existing local directory — no files will be copied",
+    "openDirBtn": "Open This Directory",
+    "openDirLoading": "Loading...",
+    "openDirEmpty": "No subdirectories here",
+    "openDirHome": "Home",
+    "openDirRefresh": "Refresh"
   },
   "market": {
     "searchPlaceholder": "Search skills across platforms",

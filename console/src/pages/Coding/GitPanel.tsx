@@ -189,7 +189,8 @@ export default function GitPanel() {
 
   const handleShowDiff = useCallback(async (file: GitChangedFile) => {
     try {
-      const res = await gitApi.diff(file.path, file.staged);
+      const isUntracked = file.status === "?";
+      const res = await gitApi.diff(file.path, file.staged, isUntracked);
       setDiffFile({
         path: file.path,
         staged: file.staged,
@@ -238,6 +239,11 @@ export default function GitPanel() {
       void msgApi.warning("Please enter a commit message");
       return;
     }
+    const hasStaged = status?.changes.some((f) => f.staged);
+    if (!hasStaged) {
+      void msgApi.warning("No staged files. Stage changes before committing.");
+      return;
+    }
     setCommitting(true);
     try {
       await gitApi.commit(commitMsg.trim());
@@ -246,11 +252,20 @@ export default function GitPanel() {
       await refreshLog();
       void msgApi.success("Committed successfully");
     } catch (e: unknown) {
-      void msgApi.error(String(e));
+      const raw = e instanceof Error ? e.message : String(e);
+      if (raw.includes("nothing to commit")) {
+        void msgApi.warning("Nothing to commit");
+      } else if (raw.includes("nothing added to commit")) {
+        void msgApi.warning(
+          "No staged files. Stage changes before committing.",
+        );
+      } else {
+        void msgApi.error(raw);
+      }
     } finally {
       setCommitting(false);
     }
-  }, [commitMsg, refresh, refreshLog, msgApi]);
+  }, [commitMsg, status, refresh, refreshLog, msgApi]);
 
   // ---- Render ---------------------------------------------------------------
 
@@ -281,7 +296,7 @@ export default function GitPanel() {
             value: b.name,
             label: b.name,
           }))}
-          dropdownRender={(menu) => (
+          popupRender={(menu) => (
             <>
               {menu}
               <div
@@ -411,32 +426,6 @@ export default function GitPanel() {
                 {status.changes.length === 0 && (
                   <p className={styles.empty}>No changes</p>
                 )}
-
-                {/* Commit box */}
-                <div className={styles.commitBox}>
-                  <Input.TextArea
-                    rows={2}
-                    placeholder="Commit message…"
-                    value={commitMsg}
-                    onChange={(e) => setCommitMsg(e.target.value)}
-                    className={styles.commitInput}
-                    onKeyDown={(e) => {
-                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                        void handleCommit();
-                      }
-                    }}
-                  />
-                  <Button
-                    type="primary"
-                    size="small"
-                    block
-                    loading={committing}
-                    onClick={handleCommit}
-                    icon={<GitCommit size={12} />}
-                  >
-                    Commit
-                  </Button>
-                </div>
               </div>
             ),
           },
@@ -490,6 +479,32 @@ export default function GitPanel() {
           },
         ]}
       />
+
+      {/* Commit box — outside Tabs so it's always pinned at bottom */}
+      <div className={styles.commitBox}>
+        <Input.TextArea
+          rows={2}
+          placeholder="Commit message…"
+          value={commitMsg}
+          onChange={(e) => setCommitMsg(e.target.value)}
+          className={styles.commitInput}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+              void handleCommit();
+            }
+          }}
+        />
+        <Button
+          type="primary"
+          size="small"
+          block
+          loading={committing}
+          onClick={handleCommit}
+          icon={<GitCommit size={12} />}
+        >
+          Commit
+        </Button>
+      </div>
 
       {/* Diff modal */}
       <Modal

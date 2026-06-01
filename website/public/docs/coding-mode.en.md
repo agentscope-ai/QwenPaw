@@ -24,13 +24,18 @@ QwenPaw's regular Chat mode is great for Q&A and one-off tasks. But once you wan
 
 In the chat header, find the `Code` / `Chat` toggle button and click `Code` to enter.
 
-### 2. Stage a Project Copy
+### 2. Choose a Project
 
-The first time you enter Coding Mode, a project picker opens. You can **clone a remote repo**, **copy a local folder**, **upload a zip**, or **create a blank project** — whichever you choose, the result lands as a **copy** under `coding_projects/<name>/` inside QwenPaw's workspace. Your original directory is never modified. That copy is what we call the "project directory" throughout the rest of this guide.
+The first time you enter Coding Mode, a project picker opens. There are two approaches:
+
+- **Open an existing directory** — browse and select a local directory via the file browser. The Agent works directly in that directory without copying anything. Best when you want the Agent to operate on your existing project in place.
+- **Import as a copy** — **clone a remote repo**, **copy a local folder**, **upload a zip**, or **create a blank project**. The result lands as a **copy** under `coding_projects/<name>/` inside QwenPaw's workspace. Your original directory is never modified.
+
+Either way, the selected directory becomes the "project directory" referenced throughout the rest of this guide.
 
 ![Project selection modal](https://img.alicdn.com/imgextra/i3/O1CN01ofmycu235UOvIHxKZ_!!6000000007204-2-tps-3346-1670.png)
 
-> **Why not edit in place?** Working on a copy keeps the Agent away from your active working tree (IDE open, uncommitted changes, CI running, etc.). The copy still includes `.git`, so you can commit / push to the original remote as usual.
+> **Open vs Import?** If your project has an IDE open, uncommitted changes, or CI running, consider importing as a copy to keep the Agent away from your active working tree. The copy still includes `.git`, so you can commit / push as usual. If you want the Agent to work directly on the original directory (e.g. quick edits or code review), choose "Open Directory".
 
 ### 3. Start Working
 

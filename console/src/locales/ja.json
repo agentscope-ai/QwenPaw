@@ -2234,7 +2234,15 @@
     "importing": "インポート中...",
     "dropFailed": "フォルダの読み取りに失敗",
     "workingDir": "作業ディレクトリ",
-    "importCopyNote": "フォルダは coding_projects/ にコピーされます。元のファイルは変更されません。"
+    "importCopyNote": "フォルダは coding_projects/ にコピーされます。元のファイルは変更されません。",
+    "importCopyDesc": "インポートするとフォルダのコピーが作成され、Agent はコピー上で作業します。元のファイルは変更されません。元のディレクトリで直接作業するには「ディレクトリを開く」を使用してください。",
+    "tabOpenDir": "ディレクトリを開く",
+    "openDirDesc": "ローカルの既存ディレクトリを直接開きます（ファイルはコピーされません）",
+    "openDirBtn": "このディレクトリを開く",
+    "openDirLoading": "読み込み中...",
+    "openDirEmpty": "サブディレクトリがありません",
+    "openDirHome": "ホーム",
+    "openDirRefresh": "更新"
   },
   "market": {
     "searchPlaceholder": "プラットフォームを横断してスキルを検索",

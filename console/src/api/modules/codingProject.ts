@@ -17,6 +17,12 @@ export interface ProjectListItem {
   is_active: boolean;
 }
 
+export interface BrowseDirsResponse {
+  current: string;
+  parent: string | null;
+  dirs: Array<{ name: string; path: string }>;
+}
+
 export const codingProjectApi = {
   /** Get the current active coding project. */
   get: () => request<CodingProjectInfo>("/workspace/coding-project"),
@@ -85,6 +91,14 @@ export const codingProjectApi = {
     }
     return res.json() as Promise<{ path: string; name: string }>;
   },
+
+  /** Browse directories on the server for the file-browser UI. */
+  browseDirs: (path?: string, showHidden?: boolean) =>
+    request<BrowseDirsResponse>(
+      `/workspace/coding-project/browse-dirs?path=${encodeURIComponent(
+        path || "~",
+      )}${showHidden ? "&show_hidden=true" : ""}`,
+    ),
 
   /** Low-level: POST to clone endpoint and return a ReadableStream of SSE. */
   cloneStream: (url: string, name?: string): Promise<Response> =>

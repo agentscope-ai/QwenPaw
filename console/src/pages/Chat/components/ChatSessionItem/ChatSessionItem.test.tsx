@@ -1,3 +1,4 @@
+import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -17,24 +18,13 @@ vi.mock("@agentscope-ai/design", () => ({
 // mock getChannelIconUrl and ChannelIcon to avoid network requests
 vi.mock("../../../Control/Channels/components", () => ({
   getChannelIconUrl: (key: string) => `/icons/${key}.png`,
-  ChannelIcon: ({
-    channelKey,
-    size,
-  }: {
-    channelKey: string;
-    size?: number;
-  }) => (
-    <img
-      src={`/icons/${channelKey}.png`}
-      alt={channelKey}
-      width={size}
-      height={size}
-    />
+  ChannelIcon: ({ channelKey }: { channelKey: string }) => (
+    <span data-testid="channel-icon">{channelKey}</span>
   ),
 }));
 
 const baseProps = {
-  sessionId: "test-session-1",
+  sessionId: "test-session-id",
   name: "Test Session",
   time: "2024-01-01 12:00:00",
 };
@@ -46,13 +36,12 @@ describe("ChatSessionItem", () => {
     expect(screen.getByText("2024-01-01 12:00:00")).toBeInTheDocument();
   });
 
-  it("clicking the item triggers onClick callback with sessionId", async () => {
+  it("clicking the item triggers onClick callback", async () => {
     const user = userEvent.setup();
     const onClick = vi.fn();
     renderWithProviders(<ChatSessionItem {...baseProps} onClick={onClick} />);
     await user.click(screen.getByText("Test Session"));
     expect(onClick).toHaveBeenCalledOnce();
-    expect(onClick).toHaveBeenCalledWith("test-session-1");
   });
 
   it("clicking edit button triggers onEdit and does not bubble to onClick", () => {

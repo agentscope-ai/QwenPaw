@@ -2346,7 +2346,15 @@
     "importing": "导入中...",
     "dropFailed": "读取文件夹失败",
     "workingDir": "工作区目录",
-    "importCopyNote": "文件夹将被复制到 coding_projects/ 目录下（不会修改原始文件）"
+    "importCopyNote": "文件夹将被复制到 coding_projects/ 目录下（不会修改原始文件）",
+    "importCopyDesc": "导入会将文件夹复制为副本，Agent 在副本上工作，不会修改原始文件。如需直接操作原目录，请使用「打开目录」",
+    "tabOpenDir": "打开目录",
+    "openDirDesc": "直接打开本机上已有的目录，不会复制任何文件",
+    "openDirBtn": "打开此目录",
+    "openDirLoading": "加载中...",
+    "openDirEmpty": "此目录下没有子目录",
+    "openDirHome": "主目录",
+    "openDirRefresh": "刷新"
   },
   "market": {
     "searchPlaceholder": "在多平台中搜索技能",

@@ -267,7 +267,7 @@ export function PendingApprovalsDrawer({
       title={t("channels.pendingApprovals")}
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
     >
       <div
         style={{

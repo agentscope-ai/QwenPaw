@@ -753,7 +753,15 @@
     "importing": "Mengimpor...",
     "dropFailed": "Gagal membaca folder",
     "workingDir": "Direktori kerja",
-    "importCopyNote": "Folder akan disalin ke coding_projects/. File asli tidak akan diubah."
+    "importCopyNote": "Folder akan disalin ke coding_projects/. File asli tidak akan diubah.",
+    "importCopyDesc": "Impor akan membuat salinan folder. Agent bekerja pada salinan, file asli tidak diubah. Untuk bekerja langsung pada aslinya, gunakan \"Buka Direktori\".",
+    "tabOpenDir": "Buka Direktori",
+    "openDirDesc": "Buka direktori lokal yang sudah ada — tidak ada file yang disalin",
+    "openDirBtn": "Buka Direktori Ini",
+    "openDirLoading": "Memuat...",
+    "openDirEmpty": "Tidak ada subdirektori",
+    "openDirHome": "Beranda",
+    "openDirRefresh": "Segarkan"
   },
   "market": {
     "searchPlaceholder": "Cari skill di berbagai platform",

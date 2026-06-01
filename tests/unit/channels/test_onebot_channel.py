@@ -718,9 +718,103 @@ class TestLifecycle:
         assert ch._app is not None
         assert ch._runner is not None
         assert ch._site is not None
+        assert ch._watchdog_task is not None
+        assert not ch._watchdog_task.done()
         await ch.stop()
         assert ch._site is None
         assert ch._runner is None
+        assert ch._stopping is True
+
+
+# ===================================================================
+# Watchdog / reconnect
+# ===================================================================
+
+
+class TestWatchdog:
+    async def test_watchdog_restarts_when_site_is_none(self):
+        """Watchdog should restart the WS server if _site becomes None."""
+        ch = _make_channel(ws_port=0)
+        ch._watchdog_interval = 0.05  # speed up for test
+        await ch.start()
+        assert ch._site is not None
+
+        # Simulate server crash: clear server state without full stop
+        old_site = ch._site
+        await old_site.stop()
+        await ch._runner.cleanup()
+        ch._site = None
+        ch._runner = None
+        ch._app = None
+
+        # Wait for watchdog to detect and restart
+        await asyncio.sleep(0.2)
+
+        assert ch._site is not None, "watchdog should have restarted server"
+        assert ch._app is not None
+        assert ch._runner is not None
+
+        await ch.stop()
+
+    async def test_watchdog_restarts_when_port_unreachable(self):
+        """Watchdog should restart if _site exists but port is dead."""
+        ch = _make_channel(ws_port=0)
+        ch._watchdog_interval = 0.05
+        await ch.start()
+        assert ch._site is not None
+
+        # Simulate TCPSite still exists but underlying socket is dead:
+        # stop the site but keep the Python object reference
+        old_site = ch._site
+        await old_site.stop()
+        # _site is NOT None, but the port is no longer listening
+
+        # Wait for watchdog to detect via TCP probe and restart
+        await asyncio.sleep(0.3)
+
+        assert ch._site is not None
+        assert (
+            ch._site is not old_site
+        ), "watchdog should have created a new site"
+
+        await ch.stop()
+
+    async def test_watchdog_stops_on_channel_stop(self):
+        """Watchdog task should be cancelled when channel stops."""
+        ch = _make_channel(ws_port=0)
+        ch._watchdog_interval = 0.05
+        await ch.start()
+        watchdog = ch._watchdog_task
+        assert watchdog is not None
+
+        await ch.stop()
+        assert watchdog.done()
+
+    async def test_watchdog_no_restart_when_healthy(self):
+        """Watchdog should not touch a healthy server."""
+        ch = _make_channel(ws_port=0)
+        ch._watchdog_interval = 0.05
+        await ch.start()
+        original_site = ch._site
+
+        # Wait a couple of watchdog cycles
+        await asyncio.sleep(0.15)
+
+        # Site should remain the same object (not recreated)
+        assert ch._site is original_site
+        await ch.stop()
+
+    async def test_is_server_healthy_when_listening(self):
+        """_is_server_healthy returns True when port is accepting."""
+        ch = _make_channel(ws_port=0)
+        await ch._start_ws_server()
+        assert await ch._is_server_healthy() is True
+        await ch._stop_ws_server()
+
+    async def test_is_server_healthy_when_site_none(self):
+        """_is_server_healthy returns False when _site is None."""
+        ch = _make_channel(ws_port=0)
+        assert await ch._is_server_healthy() is False
 
 
 # ===================================================================
