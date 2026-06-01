@@ -14,7 +14,7 @@ What stays qwenpaw-specific:
 1. **Dialog JSONL persistence** — append messages to
    ``{dialog_path}/{YYYY-mm-dd}.jsonl`` so we have an off-context conversation
    log per day.  Used by ``/new`` (persist-then-clear) and by the
-   ``LightContextManager.pre_reasoning`` compactor (Phase 2b path, dormant
+   ``LightContextManager.pre_reasoning`` compactor (currently dormant
    without ``memory_manager``).
 
 2. **Token accounting for /history** — pretty-print the current context

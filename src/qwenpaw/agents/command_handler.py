@@ -93,13 +93,13 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         Args:
             agent_name: Name of the agent for message creation.
-            agent: The owning agentscope 2.0 Agent.  All short-term context
-                reads/writes go through ``agent.state.context`` and
-                ``agent.state.summary`` — Phase 2a deleted the qwenpaw
-                ``AgentContext`` wrapper that previously sat between us.
-            memory_manager: Optional long-term memory manager (ReMe). Phase
-                2a always passes ``None`` — /compact, /load_history, and
-                similar paths gate on this and silently refuse when missing.
+            agent: The owning agent.  All short-term context reads/writes
+                go through ``agent.state.context`` and
+                ``agent.state.summary`` directly.
+            memory_manager: Optional long-term memory manager (ReMe).
+                Currently always ``None`` — ``/compact``, ``/load_history``
+                and similar paths gate on this and silently refuse when
+                missing.
             context_manager: Optional context manager.  Required for the
                 ``/new`` JSONL-persist path (we need the dialog directory).
         """
@@ -112,8 +112,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Get hot-reloaded agent config.
 
         Falls back to ``context_manager.agent_id`` when ``memory_manager``
-        is None (Phase 2a runs short-term context only; long-term ReMe
-        memory comes back in Phase 2b).
+        is ``None``.
         """
         source = self.memory_manager or self.context_manager
         if source is None:
@@ -124,7 +123,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         return load_agent_config(source.agent_id)
 
     # ------------------------------------------------------------------
-    # State accessors (Phase 2a — short-term memory is agent.state)
+    # State accessors — short-term memory lives on ``agent.state``.
     # ------------------------------------------------------------------
 
     @property

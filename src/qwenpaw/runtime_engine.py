@@ -1,28 +1,14 @@
 # -*- coding: utf-8 -*-
 """QwenPaw runtime engine.
 
-In agentscope 1.x ``Runner`` was the base class for any HTTP-served
-runner: it owned the streaming/query lifecycle that ``AgentApp`` adapted
-to FastAPI endpoints.  qwenpaw's ``AgentRunner``
-inherits from it but only relies on ``super().__init__()`` succeeding and
-on being able to set arbitrary instance attributes.
+:class:`Runner` builds a per-session :class:`agentscope.agent.Agent` and
+exposes :meth:`Runner.stream_query`, which drives ``agent.reply_stream``
+and translates its ``AgentEvent`` stream into the ``Message`` / ``Content``
+envelope shape defined in :mod:`qwenpaw.schemas` — which is what the
+console channel and the ``@agentscope-ai/chat`` frontend consume.
 
-agentscope 2.0 has no equivalent — the runner role was absorbed into
-:class:`agentscope.agent.Agent` and the HTTP plumbing into
-:func:`agentscope.app.create_app`.
-
-For the migration mainline we don't need the full 1.x lifecycle.  This
-``stream_query`` instead builds a minimal stock-2.0 ``Agent`` per session
-and translates the ``AgentEvent`` stream from ``agent.reply_stream`` into
-the 1.x ``Message`` / ``Content`` envelope shape that qwenpaw's console
-channel and the ``@agentscope-ai/chat`` frontend already understand.
-
-The complex bits previously in ``AgentRunner.query_handler`` (plan notebook,
-mission mode) are handled separately; the core agent lifecycle (tool
-guard, mcp, hooks, skills) runs through ``QwenPawAgent`` middlewares.
-
-NOTE: channels consume qwenpaw's own envelope schema (``qwenpaw.schemas``),
-not agentscope event types directly.  This module translates between them.
+The core agent lifecycle (tool guard, MCP, hooks, skills) is provided by
+``QwenPawAgent`` middlewares; mission mode is handled separately.
 """
 from __future__ import annotations
 
@@ -249,28 +235,22 @@ async def _guarded_tool_check_permissions(
 ) -> Any:
     """Drive qwenpaw's tool-guard engine + ApprovalService for one tool call.
 
-    Signature matches agentscope 2.0's
-    :meth:`PermissionEngine.check_permission`
-    call site (:file:`agentscope/permission/_engine.py:212`):
+    Signature matches agentscope's
+    :meth:`PermissionEngine.check_permission` call site
+    (:file:`agentscope/permission/_engine.py:212`):
     ``await tool.check_permissions(input_data, self.context)``.  The tool
-    instance itself is ``self`` — we read ``self.name`` for guard rule
-    matching, not a separate ``tool`` arg.  Phase 1's ad-hoc smoke tests
-    called ``check_permissions(tool, input_data)`` and got past us because
-    the body never looked at ``tool.name`` carefully; once the real engine
-    swapped the order, ``tool_name`` silently became ``""`` and every
-    invocation skipped the guard.
+    instance itself is ``self`` — we read ``self.name`` for guard-rule
+    matching, not a separate ``tool`` arg.
 
     ``*_extra_args`` / ``**_extra_kwargs`` swallow any additional positional
     or keyword args agentscope might add in future releases without
     breaking us.
 
-    Ports the 1.x guard decision + approval flow.  ASK is implemented
-    by blocking on
-    :class:`PendingApproval.future` (resolved by the
-    ``/approval/{approve,deny}`` HTTP endpoints) rather than emitting
-    ``PermissionBehavior.ASK`` — the polling-based
+    ASK is implemented by blocking on :class:`PendingApproval.future`
+    (resolved by the ``/approval/{approve,deny}`` HTTP endpoints) rather
+    than emitting ``PermissionBehavior.ASK`` — the polling-based
     ``/console/push-messages`` path that the frontend already uses for
-    1.x approval cards keeps working without an SSE round-trip change.
+    approval cards keeps working without an SSE round-trip change.
     """
     del context  # qwenpaw's guard doesn't read PermissionContext yet
     from agentscope.permission import (
@@ -756,11 +736,10 @@ class Runner:
         # resolve relative paths and the shell cwd; without setting this
         # ContextVar they fall back to the env-driven global ``WORKING_DIR``
         # — fine for single-agent dev but causes cross-agent file collisions
-        # in multi-agent deployments.  Match the 1.x react_agent.py:1450
-        # behaviour: set the ContextVar here once, before driving the agent.
-        # ``ContextVar.set`` is task-scoped (Starlette starts each request in
-        # its own task) so concurrent requests with different workspaces do
-        # not see each other's value.
+        # in multi-agent deployments.  Set the ContextVar here once before
+        # driving the agent.  ``ContextVar.set`` is task-scoped (Starlette
+        # starts each request in its own task) so concurrent requests with
+        # different workspaces do not see each other's value.
         workspace_dir = getattr(self, "workspace_dir", None)
 
         # NOTE: 5 per-request ContextVars (session_id, recent_max_bytes,

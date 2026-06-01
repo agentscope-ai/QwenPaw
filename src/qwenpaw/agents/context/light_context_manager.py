@@ -677,16 +677,12 @@ class LightContextManager(BaseContextManager):
 
     @staticmethod
     async def _print_status_message(agent: "QwenPawAgent", text: str) -> None:
-        # 1.x pushed compaction-progress UI strings via ``agent.print``;
-        # 2.0 removed ``Agent.print`` and the qwenpaw override (which was
-        # only a 1.x shim) was deleted in Phase 2c.  This whole method is
-        # only reachable from the qwenpaw compactor in ``pre_reasoning``,
-        # which itself early-returns when ``memory_manager is None``
-        # (Phase 2a default).  When memory_manager comes back in Phase 2b,
-        # swap to a proper status-event channel (e.g. push to
-        # ``app.console_push_store`` so the frontend renders a status pill
-        # without polluting ``state.context``).  For now just log so the
-        # information isn't completely lost.
+        # Only reachable from the qwenpaw compactor in ``pre_reasoning``,
+        # which early-returns when ``memory_manager is None`` (the current
+        # default).  When ReMe memory comes back, swap to a proper status-
+        # event channel (e.g. ``app.console_push_store``) so the frontend
+        # renders a status pill without polluting ``state.context``.  For
+        # now just log so the information isn't completely lost.
         del agent
         logger.info("compaction status: %s", text)
 
@@ -759,14 +755,11 @@ class LightContextManager(BaseContextManager):
             token_counter = get_token_counter(agent_config)
             max_input_length = get_model_max_input_length(agent_config)
 
-            # Phase 2a: short-term memory now lives on ``agent.state``;
-            # there's no separate qwenpaw memory wrapper.  The whole
-            # ``pre_reasoning`` branch below only runs when
-            # ``memory_manager is not None`` (long-term ReMe) — in Phase 2a
-            # it short-circuits at the early-return above, so the
-            # double-compactor risk against 2.0's native ``compress_context``
-            # is dormant.  Phase 2b must decide between the two before
-            # re-enabling ``memory_manager``.
+            # The branch below only runs when ``memory_manager is not
+            # None`` (long-term ReMe).  Today that's never the case — it
+            # short-circuits at the early-return above — so the double-
+            # compactor risk against agentscope's native ``compress_context``
+            # is dormant.  Re-enabling ReMe must pick one or the other.
             system_prompt = (
                 agent._system_prompt  # pylint: disable=protected-access
             )
@@ -1004,7 +997,6 @@ class LightContextManager(BaseContextManager):
             if not trc.enabled:
                 return None
 
-            # Phase 2a: read directly off ``state.context``; no memory wrapper.
             messages = list(agent.state.context)
             await self._prune_tool_result(
                 messages=messages,

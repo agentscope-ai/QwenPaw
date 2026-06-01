@@ -15,15 +15,15 @@ from __future__ import annotations
 def _install_msg_dict_shim() -> None:
     try:
         from agentscope.message import Msg
-    except Exception:  # pragma: no cover - keep imports tolerant
+    except Exception:
         return
 
     if not hasattr(Msg, "to_dict"):
 
-        def _to_dict(self):  # type: ignore[no-untyped-def]
+        def _to_dict(self):
             return self.model_dump()
 
-        Msg.to_dict = _to_dict  # type: ignore[attr-defined]
+        Msg.to_dict = _to_dict
 
     if not hasattr(Msg, "from_dict"):
 
@@ -32,7 +32,7 @@ def _install_msg_dict_shim() -> None:
 
             return msg_from_dict(data)
 
-        Msg.from_dict = classmethod(_from_dict)  # type: ignore[attr-defined]
+        Msg.from_dict = classmethod(_from_dict)
 
     # ``Msg.timestamp`` (1.x format ``"YYYY-mm-dd HH:MM:SS.fff"``) was
     # renamed to ``Msg.created_at`` (ISO-8601 ``"YYYY-mm-ddTHH:MM:SS.fff"``)
@@ -46,7 +46,7 @@ def _install_msg_dict_shim() -> None:
                 return ""
             return str(value).replace("T", " ")
 
-        Msg.timestamp = property(_timestamp)  # type: ignore[attr-defined]
+        Msg.timestamp = property(_timestamp)
 
 
 _install_msg_dict_shim()

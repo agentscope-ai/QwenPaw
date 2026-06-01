@@ -246,9 +246,8 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
             yield error_msg, True
         return
 
-    # Conversation path: lightweight state + CommandHandler
-    # Phase 2a: short-term memory lives on ``AgentState`` — no more
-    # ``AgentContext`` wrapper.  Build a minimal state holder so
+    # Conversation path: lightweight state + CommandHandler.
+    # Build a minimal state holder so
     # ``CommandHandler`` can read/write ``state.context`` and
     # ``state.summary`` without a full ``QwenPawAgent``.
     context_manager = runner.context_manager
@@ -293,8 +292,8 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
         )
     yield response_msg, True
 
-    # Persist updated state back to session (Phase 2a shape:
-    # ``{"state": {...}}`` — matches ``QwenPawAgent.state_dict()``).
+    # Persist updated state back to session as ``{"state": {...}}`` —
+    # matches ``QwenPawAgent.state_dict()``.
     if session_id and user_id:
         await runner.session.update_session_state(
             session_id=session_id,

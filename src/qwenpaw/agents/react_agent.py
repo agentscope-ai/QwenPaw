@@ -217,20 +217,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 [fn.__name__ for fn in memory_tools],
             )
 
-        # Phase 2a: short-term memory lives on ``self.state.context``
-        # (``list[Msg]``) and ``self.state.summary`` (``str``) natively, owned
-        # by the 2.0 ``Agent`` base.  The qwenpaw ``AgentContext`` wrapper has
-        # been deleted — direct self.state access is the new API.  We keep
-        # ``self.memory = None`` only as a tombstone so any straggling
-        # ``getattr(agent, "memory", None)`` checks elsewhere see a falsy
-        # value instead of ``AttributeError`` until those callers migrate.
+        # Tombstone for legacy ``getattr(agent, "memory", None)`` callers;
+        # short-term memory itself lives on ``self.state.context``.
         self.memory = None  # type: ignore[assignment]
 
-        # CommandHandler needs the agent reference now (to read
-        # ``self.state.context`` for /history, /new, etc.) instead of a
-        # separate memory wrapper.  ``context_manager`` is still required —
-        # it owns the dialog-path resolution + the post_acting tool-result
-        # pruning hook.
+        # ``context_manager`` is required: it owns the dialog-path
+        # resolution and the post_acting tool-result pruning hook.
         if self.context_manager is not None:
             self.command_handler = CommandHandler(
                 agent_name=self.name,
@@ -511,7 +503,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         """
         self._system_prompt = self._build_sys_prompt()
 
-        # Phase 2a: short-term context lives on ``self.state.context``.
         for msg in self.state.context:
             if msg.role == "system":
                 msg.content = self._system_prompt

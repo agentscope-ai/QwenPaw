@@ -176,7 +176,6 @@ async def get_chat(
     agent_raw = state.get("agent", {})
     memories: list[Msg] = []
 
-    # Phase 2a format: ``agent.state`` contains AgentState pydantic dump.
     state_raw = agent_raw.get("state")
     if isinstance(state_raw, dict):
         try:
