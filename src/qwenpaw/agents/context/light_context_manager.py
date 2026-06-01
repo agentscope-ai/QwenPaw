@@ -708,7 +708,7 @@ class LightContextManager(BaseContextManager):
         )
 
         # Commands are handled before the ReAct loop — skip memory search.
-        command_handler = agent.command_handler
+        command_handler = agent.command_handler  # type: ignore[has-type]
         if command_handler is not None and command_handler.is_command(query):
             return None
 
