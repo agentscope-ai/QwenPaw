@@ -9,6 +9,7 @@ that solve the CPU leak issue caused by cross-task context manager exits.
 """
 
 from .manager import MCPClientManager
+from .pool import SharedMCPPool
 from .stateful_client import HttpStatefulClient, StdIOStatefulClient
 from .watcher import MCPConfigWatcher
 
@@ -16,5 +17,6 @@ __all__ = [
     "HttpStatefulClient",
     "MCPClientManager",
     "MCPConfigWatcher",
+    "SharedMCPPool",
     "StdIOStatefulClient",
 ]

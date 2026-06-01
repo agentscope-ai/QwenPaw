@@ -34,6 +34,7 @@ class MCPClientManager:
     def __init__(self) -> None:
         """Initialize an empty MCP client manager."""
         self._clients: Dict[str, Any] = {}
+        self._configs: Dict[str, "MCPClientConfig"] = {}
         self._lock = asyncio.Lock()
 
     async def init_from_config(self, config: "MCPConfig") -> None:
@@ -95,77 +96,79 @@ class MCPClientManager:
     ) -> None:
         """Replace or add a client with new configuration.
 
-        Flow: connect new (outside lock) → atomic swap (inside lock) →
-        close old (outside lock).
-        The lock is held only for the dict swap, not during the slow close().
+        Flow: acquire new from pool → atomic swap → release old to pool.
 
         Args:
             key: Client identifier (from config)
             client_config: New client configuration
             timeout: Connection timeout in seconds (default 60s)
         """
-        # 1. Create and connect new client outside lock (may be slow)
-        logger.debug(f"Connecting new MCP client: {key}")
-        new_client = self._build_client(client_config)
+        from .pool import SharedMCPPool
 
-        try:
-            # Add timeout to prevent indefinite blocking
-            await asyncio.wait_for(new_client.connect(), timeout=timeout)
-        except BaseException:
-            await self._force_cleanup_client(new_client)
-            raise
+        pool = SharedMCPPool.instance()
 
-        # 2. Atomically swap inside lock (dict ops only — no async I/O here)
+        # 1. Acquire new client from pool (may be slow)
+        logger.debug(f"Acquiring new MCP client: {key}")
+        new_client = await pool.acquire(
+            client_config,
+            builder=self._build_client,
+            timeout=timeout,
+        )
+
+        # 2. Atomically swap inside lock
         async with self._lock:
-            old_client = self._clients.get(key)
+            old_config = self._configs.get(key)
             self._clients[key] = new_client
-            if old_client is None:
+            self._configs[key] = client_config
+            if old_config is None:
                 logger.debug(f"Added new MCP client: {key}")
 
-        # 3. Close old client outside lock — close() may await for up to
-        #    a full reconnect sleep (≥1 s) and should not block get_clients()
-        #    / get_client() / close_all().  Matches remove_client() pattern.
-        if old_client is not None:
-            logger.debug(f"Closing old MCP client: {key}")
+        # 3. Release old client to pool outside lock
+        if old_config is not None:
+            logger.debug(f"Releasing old MCP client: {key}")
             try:
-                await old_client.close()
+                await pool.release(old_config)
             except Exception as e:
                 logger.warning(
-                    f"Error closing old MCP client '{key}': {e}",
+                    f"Error releasing old MCP client '{key}': {e}",
                 )
 
     async def remove_client(self, key: str) -> None:
-        """Remove and close a client.
+        """Remove and release a client back to the shared pool.
 
         Args:
             key: Client identifier to remove
         """
         async with self._lock:
-            old_client = self._clients.pop(key, None)
+            self._clients.pop(key, None)
+            config = self._configs.pop(key, None)
 
-        if old_client is not None:
+        if config is not None:
+            from .pool import SharedMCPPool
+
             logger.debug(f"Removing MCP client: {key}")
-            try:
-                await old_client.close()
-            except Exception as e:
-                logger.warning(f"Error closing MCP client '{key}': {e}")
+            await SharedMCPPool.instance().release(config)
 
     async def close_all(self) -> None:
-        """Close all MCP clients.
+        """Release all MCP clients back to the shared pool.
 
-        Called during application shutdown.
+        Called during application shutdown.  Clients are only actually
+        closed when all agents have released them (refcount reaches 0).
         """
-        async with self._lock:
-            clients_snapshot = list(self._clients.items())
-            self._clients.clear()
+        from .pool import SharedMCPPool
 
-        logger.debug("Closing all MCP clients")
-        for key, client in clients_snapshot:
-            if client is not None:
-                try:
-                    await client.close()
-                except Exception as e:
-                    logger.warning(f"Error closing MCP client '{key}': {e}")
+        async with self._lock:
+            configs_snapshot = list(self._configs.items())
+            self._clients.clear()
+            self._configs.clear()
+
+        pool = SharedMCPPool.instance()
+        logger.debug("Releasing all MCP clients to pool")
+        for key, config in configs_snapshot:
+            try:
+                await pool.release(config)
+            except Exception as e:
+                logger.warning(f"Error releasing MCP client '{key}': {e}")
 
     async def _add_client(
         self,
@@ -175,21 +178,26 @@ class MCPClientManager:
     ) -> None:
         """Add a new client (used during initial setup).
 
+        Uses SharedMCPPool to reuse existing server processes when
+        multiple agents share the same MCP configuration (#4842).
+
         Args:
             key: Client identifier
             client_config: Client configuration
             timeout: Connection timeout in seconds (default 60s)
         """
-        client = self._build_client(client_config)
+        from .pool import SharedMCPPool
 
-        try:
-            await asyncio.wait_for(client.connect(), timeout=timeout)
-        except BaseException:
-            await self._force_cleanup_client(client)
-            raise
+        pool = SharedMCPPool.instance()
+        client = await pool.acquire(
+            client_config,
+            builder=self._build_client,
+            timeout=timeout,
+        )
 
         async with self._lock:
             self._clients[key] = client
+            self._configs[key] = client_config
 
     @staticmethod
     async def _force_cleanup_client(client: Any) -> None:
