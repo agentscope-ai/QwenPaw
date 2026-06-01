@@ -917,6 +917,59 @@ class Runner:
                 yield response
                 return
 
+            # Daemon commands: /restart, /status, /reload-config, etc.
+            if _last_text and _last_text.startswith("/"):
+                daemon_text = await _maybe_handle_daemon_command(
+                    self,
+                    _last_text,
+                )
+                if daemon_text is not None:
+                    yield completed_message
+                    message_started = True
+                    tc = TextContent(
+                        type=ContentType.TEXT,
+                        text=daemon_text,
+                        delta=False,
+                        index=0,
+                    )
+                    tc.msg_id = message_id
+                    tc.object = "content"
+                    yield tc
+                    completed_message.content.append(tc)
+                    completed_message.status = RunStatus.Completed
+                    response.output.append(completed_message)
+                    yield completed_message
+                    response.status = RunStatus.Completed
+                    yield response
+                    return
+
+            # Control commands: /skills, /stop, /model, /approval, etc.
+            if _last_text and _last_text.startswith("/"):
+                ctrl_text = await _maybe_handle_control_command(
+                    self,
+                    _last_text,
+                    request,
+                )
+                if ctrl_text is not None:
+                    yield completed_message
+                    message_started = True
+                    tc = TextContent(
+                        type=ContentType.TEXT,
+                        text=ctrl_text,
+                        delta=False,
+                        index=0,
+                    )
+                    tc.msg_id = message_id
+                    tc.object = "content"
+                    yield tc
+                    completed_message.content.append(tc)
+                    completed_message.status = RunStatus.Completed
+                    response.output.append(completed_message)
+                    yield completed_message
+                    response.status = RunStatus.Completed
+                    yield response
+                    return
+
             # Skill dispatch: /skill_name [input]
             # If the user typed /name (no input) → return skill info card.
             # If /name input → rewrite the last message with the skill
@@ -1320,6 +1373,89 @@ class Runner:
                 "stream_query: failed to persist session state",
                 exc_info=True,
             )
+
+
+async def _maybe_handle_daemon_command(
+    runner: Any,
+    query: str,
+) -> str | None:
+    """Handle daemon commands (/restart, /status, /version, /logs, etc.).
+
+    Returns response text if handled, None otherwise.
+    """
+    from .app.runner.daemon_commands import (
+        parse_daemon_query,
+        DaemonCommandHandlerMixin,
+        DaemonContext,
+    )
+    from .config.config import load_agent_config
+
+    parsed = parse_daemon_query(query)
+    if parsed is None:
+        return None
+
+    handler = DaemonCommandHandlerMixin()
+    agent_id = getattr(runner, "agent_id", None) or "default"
+    session_id = ""
+    daemon_ctx = DaemonContext(
+        load_config_fn=lambda: load_agent_config(agent_id),
+        memory_manager=getattr(runner, "memory_manager", None),
+        context_manager=getattr(runner, "context_manager", None),
+        manager=getattr(runner, "_manager", None),
+        agent_id=agent_id,
+        session_id=session_id,
+        agent_name=getattr(runner, "agent_name", "QwenPaw"),
+    )
+    msg = await handler.handle_daemon_command(query, daemon_ctx)
+    if parsed[0] in ("reload-config", "restart"):
+        invalidate = getattr(runner, "invalidate_agent_name_cache", None)
+        if callable(invalidate):
+            invalidate()
+    return msg.get_text_content() if msg else None
+
+
+async def _maybe_handle_control_command(
+    runner: Any,
+    query: str,
+    request: Any,
+) -> str | None:
+    """Handle control commands (/skills, /stop, /model, /approval, etc.).
+
+    Returns response text if handled, None otherwise.
+    """
+    from .app.runner.control_commands import (
+        is_control_command,
+        handle_control_command,
+    )
+    from .app.runner.control_commands.base import ControlContext
+
+    if not is_control_command(query):
+        return None
+
+    workspace = getattr(runner, "_workspace", None)
+    if workspace is None:
+        return None
+
+    channel_mgr = getattr(workspace, "channel_manager", None)
+    channel = None
+    if channel_mgr is not None:
+        channel_id = getattr(request, "channel", None) or "console"
+        try:
+            channel = await channel_mgr.get_channel(channel_id)
+        except Exception:
+            pass
+
+    ctx = ControlContext(
+        workspace=workspace,
+        payload=request,
+        channel=channel,
+        session_id=getattr(request, "session_id", "") or "",
+        user_id=getattr(request, "user_id", "") or "",
+        agent_id=getattr(runner, "agent_id", "") or "",
+        args={},
+    )
+
+    return await handle_control_command(query, ctx)
 
 
 def _get_last_user_text(msgs: List[Any]) -> str | None:
