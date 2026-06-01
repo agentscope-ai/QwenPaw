@@ -65,6 +65,7 @@ from .utils import (
     extract_json_key,
     extract_post_image_keys,
     extract_post_media_file_keys,
+    extract_interactive_text,
     extract_post_text,
     normalize_feishu_md,
     sender_display_string,
@@ -715,163 +716,24 @@ class FeishuChannel(BaseChannel):
             content_parts: List[Any] = []
             text_parts: List[str] = []
 
-            if msg_type == "text":
-                text = extract_json_key(content_raw, "text")
-                if text:
-                    for key in bot_mention_keys:
-                        text = text.replace(key, "")
-                    text = text.strip()
-                if text:
-                    text_parts.append(text)
-            elif msg_type == "post":
-                text = extract_post_text(content_raw)
-                if text:
-                    text_parts.append(text)
-                # Download images in post message
-                for img_key in extract_post_image_keys(content_raw):
-                    url_or_path = await self._download_image_resource(
-                        message_id,
-                        img_key,
-                    )
-                    if url_or_path:
-                        content_parts.append(
-                            ImageContent(
-                                type=ContentType.IMAGE,
-                                image_url=url_or_path,
-                            ),
-                        )
-                    else:
-                        text_parts.append("[image: download failed]")
-                # Download media files in post message
-                for file_key in extract_post_media_file_keys(content_raw):
-                    url_or_path = await self._download_file_resource(
-                        message_id,
-                        file_key,
-                    )
-                    if url_or_path:
-                        content_parts.append(
-                            FileContent(
-                                type=ContentType.FILE,
-                                file_url=url_or_path,
-                            ),
-                        )
-                    else:
-                        text_parts.append("[media: download failed]")
-            elif msg_type == "image":
-                image_key = extract_json_key(
-                    content_raw,
-                    "image_key",
-                    "file_key",
-                    "imageKey",
-                    "fileKey",
-                )
-                if image_key:
-                    url_or_path = await self._download_image_resource(
-                        message_id,
-                        image_key,
-                    )
-                    if url_or_path:
-                        content_parts.append(
-                            ImageContent(
-                                type=ContentType.IMAGE,
-                                image_url=url_or_path,
-                            ),
-                        )
-                    else:
-                        text_parts.append("[image: download failed]")
-                else:
-                    text_parts.append("[image: missing key]")
-            elif msg_type == "file":
-                file_key = extract_json_key(
-                    content_raw,
-                    "file_key",
-                    "fileKey",
-                )
-                file_name = extract_json_key(
-                    content_raw,
-                    "file_name",
-                    "fileName",
-                )
-                if file_key:
-                    url_or_path = await self._download_file_resource(
-                        message_id,
-                        file_key,
-                        filename_hint=file_name or "file.bin",
-                    )
-                    if url_or_path:
-                        content_parts.append(
-                            FileContent(
-                                type=ContentType.FILE,
-                                file_url=url_or_path,
-                            ),
-                        )
-                    else:
-                        text_parts.append("[file: download failed]")
-                else:
-                    text_parts.append("[file: missing key]")
-            elif msg_type == "media":
-                # Video message type
-                file_key = extract_json_key(
-                    content_raw,
-                    "file_key",
-                    "fileKey",
-                )
-                file_name = extract_json_key(
-                    content_raw,
-                    "file_name",
-                    "fileName",
-                )
-                if file_key:
-                    url_or_path = await self._download_file_resource(
-                        message_id,
-                        file_key,
-                        filename_hint=file_name or "video.mp4",
-                    )
-                    if url_or_path:
-                        content_parts.append(
-                            FileContent(
-                                type=ContentType.FILE,
-                                file_url=url_or_path,
-                            ),
-                        )
-                    else:
-                        text_parts.append("[video: download failed]")
-                else:
-                    text_parts.append("[video: missing key]")
-            elif msg_type == "audio":
-                file_key = extract_json_key(
-                    content_raw,
-                    "file_key",
-                    "fileKey",
-                )
-                if file_key:
-                    url_or_path = await self._download_file_resource(
-                        message_id,
-                        file_key,
-                        filename_hint="audio.opus",
-                    )
-                    if url_or_path:
-                        content_parts.append(
-                            AudioContent(
-                                type=ContentType.AUDIO,
-                                data=url_or_path,
-                            ),
-                        )
-                    else:
-                        text_parts.append("[audio: download failed]")
-                else:
-                    text_parts.append("[audio: missing key]")
-            else:
-                text_parts.append(f"[{msg_type}]")
+            # ---- shared message content parsing ----
+            parsed_text, parsed_content = await self._parse_message_content(
+                msg_type, content_raw, message_id,
+            )
+            # Strip bot mention keys from text items (text type only).
+            if msg_type == "text" and bot_mention_keys and parsed_text:
+                for key in bot_mention_keys:
+                    parsed_text[0] = parsed_text[0].replace(key, "")
+                parsed_text[0] = parsed_text[0].strip()
+                if not parsed_text[0]:
+                    parsed_text.pop(0)
 
-            # Handle quoted (replied-to) message if present.
-            # Feishu provides two IDs for reply chains:
-            #   - parent_id: the message this one directly replies to
-            #   - root_id:   the root of the entire reply tree
-            # We use parent_id because the user's intent is to reference
-            # the message they directly replied to, not the root of the
-            # thread.  Both IDs are identical when replying to the root
-            # message.  The logic is the same for group and p2p chats.
+            # Text items are already formatted (main text bare,
+            # error/fallback in brackets).
+            text_parts.extend(parsed_text)
+            content_parts.extend(parsed_content)
+
+
             parent_id = str(
                 getattr(message, "parent_id", "") or "",
             ).strip()
@@ -1067,6 +929,151 @@ class FeishuChannel(BaseChannel):
             logger.exception("feishu _download_file_resource failed")
             return None
 
+    async def _parse_message_content(
+        self,
+        msg_type: str,
+        content_raw: str,
+        message_id: str,
+    ) -> Tuple[List[str], List[Any]]:
+        """Parse message content into (text_items, content_parts).
+
+        Shared parsing engine used by both ``_on_message`` (inbound) and
+        ``_process_quoted_message`` (quoted reply).  Unifies the
+        previously duplicated type-dispatch branches for text / post /
+        image / file / media / audio / interactive, including media
+        download via SDK.
+
+        **Text item format convention:**
+        * Main extracted text is returned **bare** (no brackets, no
+          prefix), e.g. ``"Hello"``.
+        * Error / fallback messages are returned **wrapped in brackets**,
+          e.g. ``"[image: download failed]"``.  This lets callers
+          distinguish main text from error text and format accordingly.
+
+        Args:
+            msg_type: Message type -- text, post, image, file, media,
+                      audio, interactive.
+            content_raw: Raw JSON content string from the message body.
+            message_id: Message ID used for media resource downloads.
+
+        Returns:
+            ``(text_items, content_parts)`` where *text_items* is a
+            list of strings and *content_parts* is a list of
+            ``ImageContent`` / ``FileContent`` / ``AudioContent`` objects.
+        """
+        text_items: List[str] = []
+        content_items: List[Any] = []
+
+        if msg_type == "text":
+            text = extract_json_key(content_raw, "text")
+            if text and text.strip():
+                text_items.append(text.strip())
+
+        elif msg_type == "post":
+            text = extract_post_text(content_raw)
+            if text:
+                text_items.append(text)
+            for img_key in extract_post_image_keys(content_raw):
+                url_or_path = await self._download_image_resource(
+                    message_id, img_key,
+                )
+                if url_or_path:
+                    content_items.append(
+                        ImageContent(
+                            type=ContentType.IMAGE,
+                            image_url=url_or_path,
+                        ),
+                    )
+                else:
+                    text_items.append("[image: download failed]")
+            for file_key in extract_post_media_file_keys(content_raw):
+                url_or_path = await self._download_file_resource(
+                    message_id, file_key,
+                )
+                if url_or_path:
+                    content_items.append(
+                        FileContent(
+                            type=ContentType.FILE,
+                            file_url=url_or_path,
+                        ),
+                    )
+                else:
+                    text_items.append("[media: download failed]")
+
+        elif msg_type == "image":
+            image_key = extract_json_key(
+                content_raw,
+                "image_key",
+                "file_key",
+                "imageKey",
+                "fileKey",
+            )
+            if image_key:
+                url_or_path = await self._download_image_resource(
+                    message_id, image_key,
+                )
+                if url_or_path:
+                    content_items.append(
+                        ImageContent(
+                            type=ContentType.IMAGE,
+                            image_url=url_or_path,
+                        ),
+                    )
+                else:
+                    text_items.append("[image: download failed]")
+            else:
+                text_items.append("[image: missing key]")
+
+        elif msg_type in ("file", "media", "audio"):
+            file_key = extract_json_key(
+                content_raw, "file_key", "fileKey",
+            )
+            file_name = extract_json_key(
+                content_raw, "file_name", "fileName",
+            )
+            hint_map = {
+                "file": "file.bin",
+                "media": "video.mp4",
+                "audio": "audio.opus",
+            }
+            label_map = {"file": "file", "media": "video", "audio": "audio"}
+            hint = file_name or hint_map.get(msg_type, "file.bin")
+            label = label_map.get(msg_type, msg_type)
+            if file_key:
+                url_or_path = await self._download_file_resource(
+                    message_id, file_key, filename_hint=hint,
+                )
+                if url_or_path:
+                    if msg_type == "audio":
+                        content_items.append(
+                            AudioContent(
+                                type=ContentType.AUDIO,
+                                data=url_or_path,
+                            ),
+                        )
+                    else:
+                        content_items.append(
+                            FileContent(
+                                type=ContentType.FILE,
+                                file_url=url_or_path,
+                            ),
+                        )
+                else:
+                    text_items.append(f"[{label}: download failed]")
+            else:
+                text_items.append(f"[{label}: missing key]")
+
+        elif msg_type == "interactive":
+            text = extract_interactive_text(content_raw)
+            if text:
+                text_items.append(text)
+            else:
+                text_items.append("[interactive]")
+
+        else:
+            text_items.append(f"[{msg_type}]")
+
+        return text_items, content_items
     async def _fetch_quoted_message_content(
         self,
         parent_id: str,
@@ -1085,6 +1092,7 @@ class FeishuChannel(BaseChannel):
             return None
         try:
             req = GetMessageRequest.builder().message_id(parent_id).build()
+            req.add_query("card_msg_content_type", "user_card_content")
             resp = await self._client.im.v1.message.aget(req)
             if not resp.success():
                 logger.info(
@@ -1141,120 +1149,44 @@ class FeishuChannel(BaseChannel):
             quoted_msg_type,
         )
 
-        if quoted_msg_type == "text":
-            quoted_text = extract_json_key(quoted_content, "text")
-            if quoted_text:
-                text_parts.insert(0, f"[quoted message: {quoted_text}]")
 
-        elif quoted_msg_type == "post":
-            quoted_text = extract_post_text(quoted_content)
-            if quoted_text:
-                text_parts.insert(0, f"[quoted message: {quoted_text}]")
-            for img_key in extract_post_image_keys(quoted_content):
-                url_or_path = await self._download_image_resource(
-                    parent_id,
-                    img_key,
-                )
-                if url_or_path:
-                    content_parts.append(
-                        ImageContent(
-                            type=ContentType.IMAGE,
-                            image_url=url_or_path,
-                        ),
-                    )
-                else:
-                    text_parts.insert(0, "[quoted image: download failed]")
-            for file_key in extract_post_media_file_keys(quoted_content):
-                url_or_path = await self._download_file_resource(
-                    parent_id,
-                    file_key,
-                )
-                if url_or_path:
-                    content_parts.append(
-                        FileContent(
-                            type=ContentType.FILE,
-                            file_url=url_or_path,
-                        ),
-                    )
-                else:
-                    text_parts.insert(0, "[quoted media: download failed]")
+        # Delegate to shared parsing engine.
+        parsed_text, parsed_content = await self._parse_message_content(
+            quoted_msg_type, quoted_content, parent_id,
+        )
 
-        elif quoted_msg_type == "image":
-            image_key = extract_json_key(
-                quoted_content,
-                "image_key",
-                "file_key",
-                "imageKey",
-                "fileKey",
-            )
-            if image_key:
-                url_or_path = await self._download_image_resource(
-                    parent_id,
-                    image_key,
-                )
-                if url_or_path:
-                    content_parts.append(
-                        ImageContent(
-                            type=ContentType.IMAGE,
-                            image_url=url_or_path,
-                        ),
-                    )
+        _QUOTED_LABEL: Dict[str, str] = {
+            "text": "message", "post": "message",
+            "image": "image", "file": "file",
+            "media": "video", "audio": "audio",
+            "interactive": "interactive card",
+        }
+        label = _QUOTED_LABEL.get(quoted_msg_type, quoted_msg_type)
+
+        if parsed_text:
+            main_text = parsed_text[0]
+            if main_text.startswith("["):
+                # Bracketed fallback/error.  If it is just the type name
+                # (e.g. "[interactive]") use the label; otherwise
+                # preserve the embedded message.
+                if main_text == f"[{quoted_msg_type}]":
+                    text_parts.insert(0, f"[quoted {label}]")
                 else:
-                    text_parts.insert(0, "[quoted image: download failed]")
+                    text_parts.insert(0, f"[quoted {main_text[1:]}")
             else:
-                text_parts.insert(0, "[quoted image: missing key]")
-
-        elif quoted_msg_type in ("file", "media", "audio"):
-            file_key = extract_json_key(
-                quoted_content,
-                "file_key",
-                "fileKey",
-            )
-            file_name = extract_json_key(
-                quoted_content,
-                "file_name",
-                "fileName",
-            )
-            hint_map = {
-                "file": "file.bin",
-                "media": "video.mp4",
-                "audio": "audio.opus",
-            }
-            hint = file_name or hint_map.get(quoted_msg_type, "file.bin")
-            if file_key:
-                url_or_path = await self._download_file_resource(
-                    parent_id,
-                    file_key,
-                    filename_hint=hint,
-                )
-                if url_or_path:
-                    if quoted_msg_type == "audio":
-                        content_parts.append(
-                            AudioContent(
-                                type=ContentType.AUDIO,
-                                data=url_or_path,
-                            ),
-                        )
-                    else:
-                        content_parts.append(
-                            FileContent(
-                                type=ContentType.FILE,
-                                file_url=url_or_path,
-                            ),
-                        )
+                text_parts.insert(0, f"[quoted {label}: {main_text}]")
+            for err in parsed_text[1:]:
+                if err.startswith("["):
+                    text_parts.insert(0, f"[quoted {err[1:]}")
                 else:
-                    text_parts.insert(
-                        0,
-                        f"[quoted {quoted_msg_type}: download failed]",
-                    )
-            else:
-                text_parts.insert(
-                    0,
-                    f"[quoted {quoted_msg_type}: missing key]",
-                )
-
+                    text_parts.insert(0, f"[quoted {err}]")
+        elif parsed_content:
+            pass
         else:
-            text_parts.insert(0, f"[quoted {quoted_msg_type} message]")
+            text_parts.insert(0, f"[quoted {label}]")
+
+        content_parts.extend(parsed_content)
+
 
     def _receive_id_store_path(self) -> Path:
         """
