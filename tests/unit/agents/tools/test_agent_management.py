@@ -6,7 +6,7 @@ from __future__ import annotations
 import httpx
 from agentscope.tool import Toolkit
 
-from qwenpaw.agents.tool_compat import make_tool
+from agentscope.tool import FunctionTool
 from qwenpaw.agents.tools import agent_management
 
 
@@ -218,8 +218,8 @@ def test_collect_final_agent_chat_response_keeps_last_sse_payload(monkeypatch):
 async def test_agent_management_tools_can_be_registered_in_toolkit():
     toolkit = Toolkit(
         tools=[
-            make_tool(agent_management.list_agents),
-            make_tool(agent_management.chat_with_agent),
+            FunctionTool(agent_management.list_agents),
+            FunctionTool(agent_management.chat_with_agent),
         ],
     )
 

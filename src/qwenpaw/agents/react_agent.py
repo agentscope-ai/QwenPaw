@@ -28,7 +28,7 @@ from .middlewares import (
     RequestSetupMiddleware,
 )
 from .model_factory import create_model_and_formatter
-from .tool_compat import make_tool
+from ..runtime_engine import GuardedFunctionTool
 from .prompt import (
     build_multimodal_hint,
     build_system_prompt_from_working_dir,
@@ -196,7 +196,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
             basic_group = self.toolkit.tool_groups[0]
             for tool_fn in memory_tools:
                 basic_group.tools.append(
-                    make_tool(
+                    GuardedFunctionTool(
                         tool_fn,
                         agent_id=self._agent_config.id,
                     ),
@@ -370,7 +370,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 logger.debug("Skipped disabled tool: %s", tool_name)
                 continue
 
-            tool_instances.append(make_tool(tool_func, agent_id=agent_id))
+            tool_instances.append(
+                GuardedFunctionTool(tool_func, agent_id=agent_id),
+            )
             logger.debug("Registered tool: %s", tool_name)
 
         # Coding Mode tools (lsp, ast_search)

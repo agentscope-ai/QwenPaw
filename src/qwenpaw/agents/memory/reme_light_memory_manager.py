@@ -140,7 +140,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             },
         )
 
-        from qwenpaw.agents.tool_compat import make_tool
+        from agentscope.tool import FunctionTool
         from qwenpaw.agents.tools import (
             read_file,
             write_file,
@@ -149,9 +149,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         self.summary_toolkit = Toolkit(
             tools=[
-                make_tool(read_file),
-                make_tool(write_file),
-                make_tool(edit_file),
+                FunctionTool(read_file),
+                FunctionTool(write_file),
+                FunctionTool(edit_file),
             ],
         )
 

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..constant import WORKING_DIR
-from .tool_compat import make_tool
+from ..runtime_engine import GuardedFunctionTool
 from .tools import ast_tool
 from .tools._lsp_servers import detect_available_lsp_languages
 from .tools.lsp_tool import make_lsp_tool
@@ -244,7 +244,10 @@ class CodingModeMixin:
             available = detect_available_lsp_languages(project_dir)
             if available:
                 result.append(
-                    make_tool(make_lsp_tool(available), agent_id=agent_id),
+                    GuardedFunctionTool(
+                        make_lsp_tool(available),
+                        agent_id=agent_id,
+                    ),
                 )
                 logger.info(
                     "Registered Coding Mode lsp tool with languages: %s",
@@ -262,7 +265,10 @@ class CodingModeMixin:
         try:
             if ast_tool.is_ast_grep_available():
                 result.append(
-                    make_tool(ast_tool.ast_search, agent_id=agent_id),
+                    GuardedFunctionTool(
+                        ast_tool.ast_search,
+                        agent_id=agent_id,
+                    ),
                 )
                 logger.info("Registered Coding Mode ast_search tool")
             else:

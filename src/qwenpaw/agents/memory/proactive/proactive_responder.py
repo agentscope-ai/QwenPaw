@@ -11,10 +11,9 @@ import aiohttp
 
 from agentscope.agent import Agent, ReActConfig
 from agentscope.message import Msg
-from agentscope.tool import Toolkit
+from agentscope.tool import FunctionTool, Toolkit
 
 from ....config.config import load_agent_config
-from ...tool_compat import make_tool
 from ...tools import (
     browser_use,
     execute_shell_command,
@@ -112,15 +111,15 @@ async def _initialize_single_proactive_agent(
     model, formatter = create_model_and_formatter(agent_id=agent_config.id)
 
     tools = [
-        make_tool(browser_use),
-        make_tool(read_file),
-        make_tool(execute_shell_command),
+        FunctionTool(browser_use),
+        FunctionTool(read_file),
+        FunctionTool(execute_shell_command),
     ]
 
     from ...prompt import get_active_model_supports_multimodal
 
     if get_active_model_supports_multimodal():
-        tools.append(make_tool(desktop_screenshot))
+        tools.append(FunctionTool(desktop_screenshot))
 
     toolkit = Toolkit(tools=tools)
 
