@@ -15,8 +15,6 @@ from agentscope.middleware import MiddlewareBase
 if TYPE_CHECKING:
     from agentscope.agent import Agent
 
-    from .context.base_context_manager import BaseContextManager
-
 logger = logging.getLogger(__name__)
 
 
@@ -42,83 +40,6 @@ class BootstrapMiddleware(MiddlewareBase):
             logger.exception("Bootstrap middleware pre_reasoning raised")
         async for event in next_handler():
             yield event
-
-
-class ContextManagerMiddleware(MiddlewareBase):
-    """Bridge the LightContextManager lifecycle hooks into the 2.0 middleware.
-
-    Wraps the four context-manager callbacks:
-
-    * ``pre_reply``   — memory retrieval before the reply loop
-    * ``post_reply``  — periodic auto-memory after reply
-    * ``pre_reasoning`` — context compaction before each reasoning step
-    * ``post_acting``  — tool-result pruning after each tool call
-    """
-
-    def __init__(self, context_manager: BaseContextManager) -> None:
-        self._cm = context_manager
-
-    async def on_reply(
-        self,
-        agent: Agent,
-        input_kwargs: dict,
-        next_handler: Callable[..., AsyncGenerator],
-    ) -> AsyncGenerator:
-        # pre_reply: memory retrieval (side effects on agent state)
-        try:
-            await self._cm.pre_reply(agent, input_kwargs)
-        except Exception:
-            logger.exception("ContextManager pre_reply raised")
-
-        events: list[Any] = []
-        async for event in next_handler():
-            events.append(event)
-            yield event
-
-        # post_reply: periodic auto-memory
-        if events:
-            try:
-                await self._cm.post_reply(
-                    agent,
-                    input_kwargs,
-                    events[-1],
-                )
-            except Exception:
-                logger.exception("ContextManager post_reply raised")
-
-    async def on_reasoning(
-        self,
-        agent: Agent,
-        input_kwargs: dict,
-        next_handler: Callable[..., AsyncGenerator],
-    ) -> AsyncGenerator:
-        try:
-            await self._cm.pre_reasoning(agent, input_kwargs)
-        except Exception:
-            logger.exception("ContextManager pre_reasoning raised")
-        async for event in next_handler():
-            yield event
-
-    async def on_acting(
-        self,
-        agent: Agent,
-        input_kwargs: dict,
-        next_handler: Callable[..., AsyncGenerator],
-    ) -> AsyncGenerator:
-        events: list[Any] = []
-        async for event in next_handler():
-            events.append(event)
-            yield event
-
-        if events:
-            try:
-                await self._cm.post_acting(
-                    agent,
-                    input_kwargs,
-                    events[-1],
-                )
-            except Exception:
-                logger.exception("ContextManager post_acting raised")
 
 
 class RequestSetupMiddleware(MiddlewareBase):

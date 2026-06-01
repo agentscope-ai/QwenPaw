@@ -25,18 +25,15 @@ from .command_handler import CommandHandler
 from .hooks import BootstrapHook
 from .middlewares import (
     BootstrapMiddleware,
-    ContextManagerMiddleware,
     RequestSetupMiddleware,
 )
 from .model_factory import create_model_and_formatter
 from .tool_compat import make_tool
-from .prompt import (  # pylint: disable=unused-import
+from .prompt import (
     build_multimodal_hint,
     build_system_prompt_from_working_dir,
-    get_active_model_supports_multimodal,
 )
-from .skill_system import (  # pylint: disable=unused-import
-    apply_skill_config_env_overrides,
+from .skill_system import (
     ensure_skills_initialized,
     get_workspace_skills_dir,
     resolve_effective_skills,
@@ -488,7 +485,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
             BootstrapMiddleware(bootstrap_hook),
         ]
         if self.context_manager is not None:
-            mws.append(ContextManagerMiddleware(self.context_manager))
+            # ``BaseContextManager`` itself inherits from
+            # ``MiddlewareBase`` — no wrapper needed.
+            mws.append(self.context_manager)
         logger.debug("Built %d middleware(s)", len(mws))
         return mws
 
