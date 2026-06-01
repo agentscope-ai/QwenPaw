@@ -739,8 +739,7 @@ class TestHelperFunctions:
         from qwenpaw.app.channels.yuanbao.channel import _sender_display
 
         result = _sender_display("", "abcdefgh")
-        assert result in ("unknown#fgh", "unknown#efgh")
-        assert result.startswith("unknown#")
+        assert result == "unknown#efgh"
 
     def test_sender_display_short_id(self):
         from qwenpaw.app.channels.yuanbao.channel import _sender_display

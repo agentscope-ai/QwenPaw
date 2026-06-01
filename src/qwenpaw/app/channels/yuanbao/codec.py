@@ -609,6 +609,8 @@ def _to_proto_msg_body(elements: List[dict]) -> List[dict]:
             proto_content["text"] = content["text"]
         if "uuid" in content:
             proto_content["uuid"] = content["uuid"]
+        if "image_format" in content:
+            proto_content["imageFormat"] = content["image_format"]
         if "url" in content:
             proto_content["url"] = content["url"]
         if "file_name" in content:
@@ -641,6 +643,8 @@ def _from_proto_msg_body(elements: list) -> List[dict]:
             content["text"] = mc["text"]
         if mc.get("uuid"):
             content["uuid"] = mc["uuid"]
+        if mc.get("imageFormat") is not None:
+            content["image_format"] = mc["imageFormat"]
         if mc.get("url"):
             content["url"] = mc["url"]
         if mc.get("fileName"):
