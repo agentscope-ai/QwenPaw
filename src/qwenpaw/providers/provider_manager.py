@@ -436,15 +436,8 @@ AZURE_OPENAI_MODELS: List[ModelInfo] = [
 
 MINIMAX_MODELS: List[ModelInfo] = [
     ModelInfo(
-        id="MiniMax-M2.5",
-        name="MiniMax M2.5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.5-highspeed",
-        name="MiniMax M2.5 Highspeed",
+        id="MiniMax-M3",
+        name="MiniMax M3",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",

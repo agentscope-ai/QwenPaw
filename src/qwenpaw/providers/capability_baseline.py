@@ -634,8 +634,7 @@ class ExpectedCapabilityRegistry:
         # ---------------------------------------------------------------
         _mm_doc = "https://www.minimax.io/platform/document/announcement"
         for mid in (
-            "MiniMax-M2.5",
-            "MiniMax-M2.5-highspeed",
+            "MiniMax-M3",
             "MiniMax-M2.7",
             "MiniMax-M2.7-highspeed",
         ):
@@ -655,8 +654,7 @@ class ExpectedCapabilityRegistry:
         # ---------------------------------------------------------------
         _mm_cn_doc = "https://platform.minimaxi.com/document/announcement"
         for mid in (
-            "MiniMax-M2.5",
-            "MiniMax-M2.5-highspeed",
+            "MiniMax-M3",
             "MiniMax-M2.7",
             "MiniMax-M2.7-highspeed",
         ):
