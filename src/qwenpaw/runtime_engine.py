@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=too-many-nested-blocks
 """QwenPaw runtime engine.
 
 :class:`Runner` builds a per-session :class:`agentscope.agent.Agent` and
@@ -20,7 +21,6 @@ import uuid
 from typing import Any, AsyncGenerator, Dict, List
 
 logger = logging.getLogger(__name__)
-
 
 # SSE-keepalive heartbeat: if no event arrives from ``agent.reply_stream``
 # within this many seconds, ``stream_query`` re-yields the in-progress
@@ -74,7 +74,6 @@ async def _iter_with_heartbeat(source_iter, interval: float):
 # the agent against the new model instead of reusing the stale one (which
 # would silently keep talking to the old endpoint).
 _AGENT_CACHE: Dict[tuple, Any] = {}
-
 
 # Per-request context propagated to ``GuardedFunctionTool.check_permissions``.
 # Tools are constructed once per (session, agent, model) in
@@ -878,57 +877,27 @@ class Runner:
                             exc_info=True,
                         )
 
-            # Slash-command interception: ``reply_stream`` bypasses
-            # ``QwenPawAgent.reply()`` (where command detection lives),
-            # so check here before driving the model.
-            cmd_handler = getattr(agent, "command_handler", None)
+            # Slash-command interception: conversation, daemon, control,
+            # and skill commands are all dispatched here before driving
+            # the model.
             _last_text = _get_last_user_text(msgs)
-            if (
-                cmd_handler is not None
-                and _last_text is not None
-                and cmd_handler.is_command(_last_text)
-            ):
-                cmd_msg = await cmd_handler.handle_command(_last_text)
-                cmd_text = cmd_msg.get_text_content() or ""
-                yield completed_message
-                message_started = True
-                tc = TextContent(
-                    type=ContentType.TEXT,
-                    text=cmd_text,
-                    delta=False,
-                    index=0,
-                )
-                tc.msg_id = message_id
-                tc.object = "content"
-                yield tc
-                completed_message.content.append(tc)
-                completed_message.status = RunStatus.Completed
-                completed_message.metadata = (
-                    getattr(
-                        cmd_msg,
-                        "metadata",
-                        None,
-                    )
-                    or {}
-                )
-                response.output.append(completed_message)
-                yield completed_message
-                response.status = RunStatus.Completed
-                yield response
-                return
-
-            # Daemon commands: /restart, /status, /reload-config, etc.
             if _last_text and _last_text.startswith("/"):
-                daemon_text = await _maybe_handle_daemon_command(
-                    self,
+                from .app.runner.command_dispatch import dispatch_command
+
+                cmd_msg = await dispatch_command(
                     _last_text,
+                    agent=agent,
+                    runner=self,
+                    request=request,
+                    msgs=msgs,
                 )
-                if daemon_text is not None:
+                if cmd_msg is not None:
+                    cmd_text = cmd_msg.get_text_content() or ""
                     yield completed_message
                     message_started = True
                     tc = TextContent(
                         type=ContentType.TEXT,
-                        text=daemon_text,
+                        text=cmd_text,
                         delta=False,
                         index=0,
                     )
@@ -937,67 +906,34 @@ class Runner:
                     yield tc
                     completed_message.content.append(tc)
                     completed_message.status = RunStatus.Completed
-                    response.output.append(completed_message)
-                    yield completed_message
-                    response.status = RunStatus.Completed
-                    yield response
-                    return
-
-            # Control commands: /skills, /stop, /model, /approval, etc.
-            if _last_text and _last_text.startswith("/"):
-                ctrl_text = await _maybe_handle_control_command(
-                    self,
-                    _last_text,
-                    request,
-                )
-                if ctrl_text is not None:
-                    yield completed_message
-                    message_started = True
-                    tc = TextContent(
-                        type=ContentType.TEXT,
-                        text=ctrl_text,
-                        delta=False,
-                        index=0,
+                    completed_message.metadata = (
+                        getattr(cmd_msg, "metadata", None) or {}
                     )
-                    tc.msg_id = message_id
-                    tc.object = "content"
-                    yield tc
-                    completed_message.content.append(tc)
-                    completed_message.status = RunStatus.Completed
                     response.output.append(completed_message)
                     yield completed_message
                     response.status = RunStatus.Completed
                     yield response
-                    return
-
-            # Skill dispatch: /skill_name [input]
-            # If the user typed /name (no input) → return skill info card.
-            # If /name input → rewrite the last message with the skill
-            # body and fall through to reply_stream.
-            if _last_text and _last_text.startswith("/"):
-                skill_result = _maybe_dispatch_skill(
-                    agent,
-                    _last_text,
-                    msgs,
-                )
-                if skill_result is not None:
-                    yield completed_message
-                    message_started = True
-                    tc = TextContent(
-                        type=ContentType.TEXT,
-                        text=skill_result,
-                        delta=False,
-                        index=0,
-                    )
-                    tc.msg_id = message_id
-                    tc.object = "content"
-                    yield tc
-                    completed_message.content.append(tc)
-                    completed_message.status = RunStatus.Completed
-                    response.output.append(completed_message)
-                    yield completed_message
-                    response.status = RunStatus.Completed
-                    yield response
+                    # Persist state (commands like /clear modify agent.state)
+                    session = getattr(self, "session", None)
+                    if session is not None and agent is not None:
+                        try:
+                            await session.save_session_state(
+                                session_id=session_id,
+                                user_id=(
+                                    getattr(request, "user_id", "")
+                                    or session_id
+                                ),
+                                channel=(
+                                    getattr(request, "channel", "") or ""
+                                ),
+                                agent=agent,
+                            )
+                        except Exception:
+                            logger.debug(
+                                "stream_query: command path state persist "
+                                "failed",
+                                exc_info=True,
+                            )
                     return
 
             # Wrap reply_stream so long idle periods (notably tool-guard
@@ -1375,89 +1311,6 @@ class Runner:
             )
 
 
-async def _maybe_handle_daemon_command(
-    runner: Any,
-    query: str,
-) -> str | None:
-    """Handle daemon commands (/restart, /status, /version, /logs, etc.).
-
-    Returns response text if handled, None otherwise.
-    """
-    from .app.runner.daemon_commands import (
-        parse_daemon_query,
-        DaemonCommandHandlerMixin,
-        DaemonContext,
-    )
-    from .config.config import load_agent_config
-
-    parsed = parse_daemon_query(query)
-    if parsed is None:
-        return None
-
-    handler = DaemonCommandHandlerMixin()
-    agent_id = getattr(runner, "agent_id", None) or "default"
-    session_id = ""
-    daemon_ctx = DaemonContext(
-        load_config_fn=lambda: load_agent_config(agent_id),
-        memory_manager=getattr(runner, "memory_manager", None),
-        context_manager=getattr(runner, "context_manager", None),
-        manager=getattr(runner, "_manager", None),
-        agent_id=agent_id,
-        session_id=session_id,
-        agent_name=getattr(runner, "agent_name", "QwenPaw"),
-    )
-    msg = await handler.handle_daemon_command(query, daemon_ctx)
-    if parsed[0] in ("reload-config", "restart"):
-        invalidate = getattr(runner, "invalidate_agent_name_cache", None)
-        if callable(invalidate):
-            invalidate()
-    return msg.get_text_content() if msg else None
-
-
-async def _maybe_handle_control_command(
-    runner: Any,
-    query: str,
-    request: Any,
-) -> str | None:
-    """Handle control commands (/skills, /stop, /model, /approval, etc.).
-
-    Returns response text if handled, None otherwise.
-    """
-    from .app.runner.control_commands import (
-        is_control_command,
-        handle_control_command,
-    )
-    from .app.runner.control_commands.base import ControlContext
-
-    if not is_control_command(query):
-        return None
-
-    workspace = getattr(runner, "_workspace", None)
-    if workspace is None:
-        return None
-
-    channel_mgr = getattr(workspace, "channel_manager", None)
-    channel = None
-    if channel_mgr is not None:
-        channel_id = getattr(request, "channel", None) or "console"
-        try:
-            channel = await channel_mgr.get_channel(channel_id)
-        except Exception:
-            pass
-
-    ctx = ControlContext(
-        workspace=workspace,
-        payload=request,
-        channel=channel,
-        session_id=getattr(request, "session_id", "") or "",
-        user_id=getattr(request, "user_id", "") or "",
-        agent_id=getattr(runner, "agent_id", "") or "",
-        args={},
-    )
-
-    return await handle_control_command(query, ctx)
-
-
 def _get_last_user_text(msgs: List[Any]) -> str | None:
     """Extract the text of the last user message from a list of ``Msg``."""
     if not msgs:
@@ -1466,104 +1319,6 @@ def _get_last_user_text(msgs: List[Any]) -> str | None:
     if hasattr(last, "get_text_content"):
         return last.get_text_content()
     return None
-
-
-def _maybe_dispatch_skill(
-    agent: Any,
-    query: str,
-    msgs: List[Any],
-) -> str | None:
-    """Handle ``/skill_name [input]`` skill invocation.
-
-    Returns a text string to short-circuit (skill info card), or ``None``
-    to fall through to ``reply_stream`` (skill invocation rewrites msgs
-    in-place).
-    """
-    from pathlib import Path as _Path
-
-    import frontmatter as fm
-
-    from .agents.utils.file_handling import (
-        read_text_file_with_encoding_fallback,
-    )
-
-    toolkit = getattr(agent, "toolkit", None)
-    skills = getattr(toolkit, "_qp_skills", None) if toolkit else None
-    if not skills:
-        return None
-
-    parsed = _parse_skill_query(query)
-    if not parsed:
-        return None
-    name, user_input = parsed
-
-    skill = next(
-        (s for s in skills.values() if _Path(s["dir"]).name.lower() == name),
-        None,
-    )
-    if not skill:
-        return None
-
-    skill_dir = _Path(skill["dir"])
-    skill_md = skill_dir / "SKILL.md"
-    if not skill_md.exists():
-        return None
-
-    raw = read_text_file_with_encoding_fallback(skill_md)
-    post = fm.loads(raw)
-    display_name = post.get("name") or name
-
-    if not user_input:
-        desc = post.get("description") or "No description."
-        return (
-            f"**{name}**\n\n"
-            f"- **command**: `/{name} <input>` to invoke\n"
-            f"- **name**: {display_name}\n"
-            f"- **description**: {desc}\n"
-            f"- **path**: `{skill_dir}`"
-        )
-
-    from agentscope.message import TextBlock as _TB
-
-    merged = (
-        f"Use the [{display_name}] skill in "
-        f"`{skill_dir}` to fulfill "
-        f"user's task: {user_input}\n\n"
-        f"{post.content}"
-    )
-    if msgs:
-        last = msgs[-1]
-        content = getattr(last, "content", None)
-        if isinstance(content, list):
-            for i, block in enumerate(content):
-                if isinstance(block, dict) and block.get("type") == "text":
-                    content[i] = _TB(type="text", text=merged)
-                    return None
-            content.insert(0, _TB(type="text", text=merged))
-        elif isinstance(content, str):
-            last.content = merged
-    return None
-
-
-def _parse_skill_query(query: str) -> tuple[str, str] | None:
-    """Parse ``/name [input]`` or ``/[name with spaces] [input]``."""
-    stripped = query.strip()
-    if not stripped.startswith("/"):
-        return None
-    rest = stripped[1:]
-    if rest.startswith("["):
-        close = rest.find("]")
-        if close < 0:
-            return None
-        name = rest[1:close].strip().lower()
-        user_input = rest[close + 1 :].strip()
-        return (name, user_input) if name else None
-    parts = rest.split(None, 1)
-    if not parts:
-        return None
-    name = parts[0].lower()
-    user_input = parts[1] if len(parts) > 1 else ""
-    return (name, user_input) if name else None
 
 
 def _ensure_url_scheme(url: str) -> str:
@@ -1583,7 +1338,8 @@ def _ensure_url_scheme(url: str) -> str:
     return url
 
 
-def _request_input_to_msgs(  # pylint: disable=too-many-branches
+# pylint: disable=too-many-branches
+def _request_input_to_msgs(
     input_list: List[Any],
 ) -> List[Any]:
     """Convert ``AgentRequest.input`` (list of 1.x Message) to a list of
