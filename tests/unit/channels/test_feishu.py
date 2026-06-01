@@ -3146,3 +3146,301 @@ class TestFeishuChannelThreadReply:
         await feishu_channel._before_consume_process(request)
 
         feishu_channel._create_streaming_card.assert_not_called()
+
+
+# -----------------------------------------------------------------------
+# Tests for extract_interactive_text (feishu utils)
+# -----------------------------------------------------------------------
+class TestExtractInteractiveText:
+    """Unit tests for extract_interactive_text()."""
+
+    CARD_PAYLOAD = json.dumps(
+        {
+            "title": "\U0001f9ea 卡片元素测试 2026-06-01",
+            "elements": [
+                [
+                    {"tag": "text", "text": "一、基础文本样式"},
+                    {"tag": "text", "text": "\n- "},
+                    {"tag": "text", "text": "粗体文字"},
+                    {"tag": "text", "text": " "},
+                    {"tag": "text", "text": "斜体文字"},
+                    {"tag": "text", "text": " "},
+                    {"tag": "text", "text": "删除线"},
+                    {
+                        "tag": "text",
+                        "text": " 行内代码\n- 普通段落文字，看看换行长文本的展示效果如何，这是一段比较长的文本用于测试卡片内的自动换行行为",
+                    },
+                ],
+                [
+                    {"tag": "text", "text": "二、链接和引用"},
+                    {"tag": "text", "text": "\n- 飞书链接："},
+                    {
+                        "tag": "a",
+                        "href": "https://www.feishu.cn",
+                        "text": "点我打开飞书",
+                    },
+                    {"tag": "text", "text": "\n- 内部链接："},
+                    {
+                        "tag": "a",
+                        "href": "https://xiaopeng.feishu.cn",
+                        "text": "https://xiaopeng.feishu.cn",
+                    },
+                    {
+                        "tag": "text",
+                        "text": "\n- > 引用块样式测试\n- 分隔线测试：---",
+                    },
+                ],
+                [
+                    {
+                        "tag": "img",
+                        "image_key": "img_v3_02ad_e19fca1f-912a-450e-95de-3c229091b53g",
+                    },
+                    {
+                        "tag": "text",
+                        "text": "请将客户端升级至最新版本，以查看表格内容",
+                    },
+                    {"tag": "text", "text": ""},
+                ],
+                [{"tag": "text", "text": "四、长表格测试（10行）"}],
+                [
+                    {
+                        "tag": "img",
+                        "image_key": "img_v3_02ad_e19fca1f-912a-450e-95de-3c229091b53g",
+                    },
+                    {
+                        "tag": "text",
+                        "text": "请将客户端升级至最新版本，以查看表格内容",
+                    },
+                    {"tag": "text", "text": ""},
+                ],
+                [
+                    {"tag": "text", "text": "五、总结"},
+                    {
+                        "tag": "text",
+                        "text": "\n本次 测试卡片包含以下元素：\n1. ✅ Blue header 标题\n2. ✅ Markdown 文本（粗体/斜体/代码/引用/列表）\n3. ✅ Table 短表（5行4列）\n4. ✅ Table 长表（10行4列）\n5. ✅ 多段 markdown 混排\n> 共",
+                    },
+                    {"tag": "text", "text": "5 个元素"},
+                    {"tag": "text", "text": "，全 部正常渲染 🎉"},
+                ],
+            ],
+        }
+    )
+
+    def test_extracts_title_and_text(self):
+        """Should extract title and all text elements from a real card payload."""
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+
+        result = extract_interactive_text(self.CARD_PAYLOAD)
+        assert result is not None
+        assert "卡片元素测试 2026-06-01" in result
+        assert "基础文本样式" in result
+        assert "粗体文字" in result
+        assert "五、总结" in result
+        assert "5 个元素" in result
+
+    def test_extracts_links_as_markdown(self):
+        """Should extract links as [text](href) format."""
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+
+        result = extract_interactive_text(self.CARD_PAYLOAD)
+        assert result is not None
+        assert "[点我打开飞书](https://www.feishu.cn)" in result
+        assert "[https://xiaopeng.feishu.cn](https://xiaopeng.feishu.cn)" in result
+
+    def test_returns_none_for_empty(self):
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+
+        assert extract_interactive_text(None) is None
+        assert extract_interactive_text("") is None
+
+    def test_returns_none_for_invalid_json(self):
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+
+        assert extract_interactive_text("{broken") is None
+
+    def test_title_only(self):
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+
+        payload = json.dumps({"title": "Hello Card"})
+        result = extract_interactive_text(payload)
+        assert result == "Hello Card"
+
+    def test_no_title_no_elements(self):
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+
+        result = extract_interactive_text(json.dumps({"other": "data"}))
+        assert result is None
+
+    def test_nested_elements(self):
+        """Should handle nested elements like column_set > columns > elements."""
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+
+        payload = json.dumps(
+            {
+                "title": "Nested",
+                "elements": [
+                    {
+                        "tag": "column_set",
+                        "columns": [
+                            {
+                                "tag": "column",
+                                "elements": [
+                                    {"tag": "text", "text": "Cell A"},
+                                    {"tag": "text", "text": "Cell B"},
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        result = extract_interactive_text(payload)
+        assert result is not None
+        assert "Nested" in result
+        assert "Cell A" in result
+        assert "Cell B" in result
+
+    def test_official_card_all_tags(self):
+        """Should handle all tag types from Feishu official card spec."""
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+
+        payload = json.dumps({
+            "title": "卡片标题",
+            "elements": [
+                [
+                    {"tag": "button", "text": "主按钮", "type": "primary"},
+                    {"tag": "button", "text": "次按钮", "type": "default"},
+                    {"tag": "button", "text": "危险按钮", "type": "danger"},
+                ],
+                [
+                    {"tag": "a", "href": "https://www.feishu.cn", "text": "飞书"},
+                    {"tag": "text", "text": "整合即时沟通功能于一体"},
+                    {"tag": "at", "user_id": "@_user_1", "user_name": "张三"},
+                    {"tag": "text", "text": "更高效、更愉悦。"},
+                ],
+                [{"tag": "hr"}],
+                [
+                    {"tag": "text", "text": "图片标题"},
+                    {"tag": "img", "image_key": "img_xxx"},
+                ],
+                [
+                    {
+                        "tag": "note",
+                        "elements": [
+                            {"tag": "img", "image_key": "img_xxx"},
+                            {"tag": "text", "text": "备注信息"},
+                        ],
+                    }
+                ],
+                [
+                    {"tag": "text", "text": "深度整合使用率极高的办公工具。"},
+                    {"tag": "img", "image_key": "img_xxx"},
+                ],
+                [
+                    {"tag": "text", "text": "在移动端同样便捷。"},
+                    {
+                        "tag": "select_static",
+                        "options": ["选项1", "选项2", "选项3"],
+                        "placeholder": "默认提示文本",
+                    },
+                ],
+                [
+                    {"tag": "text", "text": "ISV产品接入。"},
+                    {
+                        "tag": "overflow",
+                        "options": ["打开飞书应用目录", "打开飞书开发文档"],
+                    },
+                ],
+                [
+                    {"tag": "text", "text": "国际权威安全认证。"},
+                    {
+                        "tag": "date_picker",
+                        "placeholder": "请选择日期",
+                        "initial_date": "2021-1-1",
+                    },
+                ],
+            ],
+        })
+        result = extract_interactive_text(payload)
+        assert result is not None
+        # title
+        assert "卡片标题" in result
+        # button text
+        assert "主按钮" in result
+        assert "危险按钮" in result
+        # link
+        assert "[飞书](https://www.feishu.cn)" in result
+        # at mention
+        assert "@张三" in result
+        # note nested text
+        assert "备注信息" in result
+        # select_static placeholder + options
+        assert "默认提示文本" in result
+        assert "选项1" in result
+        # overflow options
+        assert "打开飞书应用目录" in result
+        # date_picker placeholder
+        assert "请选择日期" in result
+        # hr and img should NOT appear as text
+        assert "hr" not in result.split()
+        assert "img_xxx" not in result
+
+    def test_table_component_with_user_card_content(self):
+        """Real payload from card_msg_content_type=user_card_content.
+
+        Verifies that native table components (columns + rows) are parsed
+        into readable text with headers and cell values.
+        """
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+        content = (
+            '{"config":{},"elements":['
+            '{"content":"**粗体文本** | *斜体文本* | ~~删除线文本~~ | `行内代码` | [超链接](https://open.feishu.cn)","i18n_content":{},"tag":"markdown","text_align":"left"},'
+            '{"tag":"hr"},'
+            '{"content":"**多级列表：**\\n- 第一项\\n    - 子项 1\\n    - 子项 2\\n- 第二项\\n1. 有序列表 1\\n2. 有序列表 2\\n","i18n_content":{},"tag":"markdown","text_align":"left"},'
+            '{"tag":"hr"},'
+            '{"content":"📊 **原生表格组件**","i18n_content":{},"tag":"markdown","text_align":"left"},'
+            '{"columns":['
+            '{"data_type":"text","display_name":"项目","horizontal_align":"left","name":"col0","width":"auto"},'
+            '{"data_type":"text","display_name":"类型","horizontal_align":"center","name":"col1","width":"auto"},'
+            '{"data_type":"text","display_name":"数值","horizontal_align":"right","name":"col2","width":"auto"},'
+            '{"data_type":"text","display_name":"状态","horizontal_align":"center","name":"col3","width":"auto"}'
+            '],"header_style":{},"page_size":10,"rows":['
+            '{"col0":"数据吞吐量","col1":"指标","col2":"1,285 MB/s","col3":"✅ 正常"},'
+            '{"col0":"存储使用率","col1":"指标","col2":"67.3%","col3":"⚠️ 偏高"},'
+            '{"col0":"API调用次数","col1":"指标","col2":"23,456","col3":"✅ 正常"},'
+            '{"col0":"错误率","col1":"指标","col2":"0.02%","col3":"✅ 正常"},'
+            '{"col0":"响应延迟P99","col1":"指标","col2":"234ms","col3":"⚠️ 偏高"},'
+            '{"col0":"数据删除量","col1":"指标","col2":"1.2 TB","col3":"✅ 已完成"}'
+            '],"tag":"table"},'
+            '{"tag":"hr"},'
+            '{"content":"📝 **备注：** 这张卡片使用了飞书卡片新版格式，包含 **markdown** 文本、`原生表格组件`、分割线、按钮等元素。","i18n_content":{},"tag":"markdown","text_align":"left"},'
+            '{"actions":[{"behaviors":[{"type":"callback"}],"custom_action_id":"act1","tag":"button","text":{"content":"✅ 确认","i18n":{},"tag":"plain_text"},"type":"primary"},{"behaviors":[{"type":"callback"}],"custom_action_id":"act2","tag":"button","text":{"content":"⏸ 暂停","i18n":{},"tag":"plain_text"},"type":"default"},{"behaviors":[{"type":"callback"}],"custom_action_id":"act3","tag":"button","text":{"content":"❌ 取消","i18n":{},"tag":"plain_text"},"type":"danger"}],"tag":"action"}'
+            '],"header":{"template":"blue","title":{"content":"🎯 富文本测试卡片（Skill版）","i18n":{},"tag":"plain_text"}}}'
+        )
+        result = extract_interactive_text(content)
+        assert result is not None
+        # Title
+        assert "🎯 富文本测试卡片（Skill版）" in result
+        # Markdown content
+        assert "粗体文本" in result
+        assert "原生表格组件" in result
+        # Table headers
+        assert "项目" in result
+        assert "类型" in result
+        assert "数值" in result
+        assert "状态" in result
+        # Table row data
+        assert "数据吞吐量" in result
+        assert "1,285 MB/s" in result
+        assert "存储使用率" in result
+        assert "67.3%" in result
+        assert "API调用次数" in result
+        assert "错误率" in result
+        assert "0.02%" in result
+        assert "响应延迟P99" in result
+        assert "数据删除量" in result
+        assert "1.2 TB" in result
+        # Buttons
+        assert "确认" in result
+        assert "暂停" in result
+        assert "取消" in result
