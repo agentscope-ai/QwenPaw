@@ -1508,3 +1508,122 @@ class TestWecomChannelEdgeCases:
         # Should detect as voice (AMR format)
         call_args = wecom_channel._upload_media.call_args
         assert call_args[0][1] in ["voice", "file"]
+
+
+# =============================================================================
+# P0: Session Isolation Tests (Security)
+# =============================================================================
+
+
+class TestWecomChannelSessionIsolation:
+    """
+    P0: Tests verifying that session identity is always derived from
+    authenticated sender_id, never from user-controlled payload fields.
+    """
+
+    def test_different_users_get_different_session_ids(
+        self,
+        wecom_channel,
+    ):
+        """Two different sender_ids must produce different session_ids."""
+        sid_a = wecom_channel.resolve_session_id(
+            sender_id="user_A",
+            channel_meta={"wecom_chat_type": "single"},
+        )
+        sid_b = wecom_channel.resolve_session_id(
+            sender_id="user_B",
+            channel_meta={"wecom_chat_type": "single"},
+        )
+        assert sid_a != sid_b
+        assert sid_a == "wecom:user_A"
+        assert sid_b == "wecom:user_B"
+
+    def test_session_id_derived_from_sender_id_not_payload(
+        self,
+        wecom_channel,
+    ):
+        """build_agent_request_from_native must resolve session_id from
+        sender_id + meta, ignoring any session_id already in the payload."""
+        from agentscope_runtime.engine.schemas.agent_schemas import TextContent
+
+        payload = {
+            "channel_id": "wecom",
+            "sender_id": "real_user",
+            "session_id": "wecom:attacker_spoofed_session",
+            "content_parts": [TextContent(type="text", text="Hello")],
+            "meta": {"wecom_chat_type": "single"},
+        }
+
+        request = wecom_channel.build_agent_request_from_native(payload)
+
+        assert request.session_id == "wecom:real_user", (
+            f"session_id must be derived from sender_id, "
+            f"got {request.session_id}"
+        )
+
+    def test_session_id_ignores_spoofed_payload_value(
+        self,
+        wecom_channel,
+    ):
+        """Even when payload contains a different user's session_id,
+        the resolved session_id must match the authenticated sender_id."""
+        from agentscope_runtime.engine.schemas.agent_schemas import TextContent
+
+        payload = {
+            "channel_id": "wecom",
+            "sender_id": "user_B",
+            "session_id": "wecom:user_A",
+            "content_parts": [TextContent(type="text", text="Hello")],
+            "meta": {"wecom_chat_type": "single"},
+        }
+
+        request = wecom_channel.build_agent_request_from_native(payload)
+
+        assert request.session_id == "wecom:user_B", (
+            f"session_id must match sender_id (user_B), "
+            f"not spoofed value (user_A), got {request.session_id}"
+        )
+
+    def test_group_session_isolation(
+        self,
+        wecom_channel,
+    ):
+        """Different groups must have different session_ids."""
+        sid_g1 = wecom_channel.resolve_session_id(
+            sender_id="user_A",
+            channel_meta={
+                "wecom_chat_type": "group",
+                "wecom_chatid": "group_1",
+            },
+        )
+        sid_g2 = wecom_channel.resolve_session_id(
+            sender_id="user_B",
+            channel_meta={
+                "wecom_chat_type": "group",
+                "wecom_chatid": "group_2",
+            },
+        )
+        assert sid_g1 != sid_g2
+        assert sid_g1 == "wecom:group:group_1"
+        assert sid_g2 == "wecom:group:group_2"
+
+    def test_group_and_dm_sessions_isolated(
+        self,
+        wecom_channel,
+    ):
+        """A user's DM session must differ from a group session even
+        if the user is in that group."""
+        dm_sid = wecom_channel.resolve_session_id(
+            sender_id="user_A",
+            channel_meta={"wecom_chat_type": "single"},
+        )
+        group_sid = wecom_channel.resolve_session_id(
+            sender_id="user_A",
+            channel_meta={
+                "wecom_chat_type": "group",
+                "wecom_chatid": "group_1",
+            },
+        )
+        assert dm_sid != group_sid
+        assert dm_sid == "wecom:user_A"
+        assert group_sid == "wecom:group:group_1"
