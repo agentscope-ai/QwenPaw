@@ -1284,8 +1284,7 @@ class Runner:
                     response.output.append(out_envelope)
                     yield out_envelope
 
-                # Other events (Reply/ModelCall) — drop for the
-                # migration mainline.  Re-introduce on the way back.
+                # Other events (Reply/ModelCall) — not needed by channels.
 
         except Exception as exc:
             logger.exception("stream_query: reply_stream raised")

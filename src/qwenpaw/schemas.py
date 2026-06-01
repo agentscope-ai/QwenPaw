@@ -17,8 +17,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # Enums.
-# Values match the 1.x runtime so any JSON payloads exchanged with legacy
-# consumers (e.g. saved chat histories on disk) round-trip cleanly.
 # ---------------------------------------------------------------------------
 
 

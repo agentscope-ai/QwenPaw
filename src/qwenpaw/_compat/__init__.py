@@ -40,7 +40,7 @@ def _install_msg_dict_shim() -> None:
     # context store which does ``msg.timestamp.split()[0]``) keep working.
     if not hasattr(Msg, "timestamp"):
 
-        def _timestamp(self):  # type: ignore[no-untyped-def]
+        def _timestamp(self):
             value = getattr(self, "created_at", None)
             if not value:
                 return ""
@@ -50,13 +50,3 @@ def _install_msg_dict_shim() -> None:
 
 
 _install_msg_dict_shim()
-
-
-# History of what previously lived here:
-# - ``hooks.py`` → replaced by native 2.0 Middleware classes in
-#   ``qwenpaw.agents.middlewares``.
-# - ``toolkit.py`` → replaced by direct use of ``Toolkit(tools=[...])``
-#   and ``qwenpaw.agents.tool_compat``.
-# - ``memory.py`` → folded into
-#   ``qwenpaw.app.runner.utils.parse_legacy_memory_state`` plus the
-#   ``Msg.from_dict`` polyfill installed above.
