@@ -18,7 +18,9 @@ Dependencies follow `pyproject.toml`.
 - **conda** (Miniconda/Anaconda) on PATH
 - **Node.js / npm** (for the console frontend)
 - (Windows only) **NSIS**: `makensis` on PATH
-- **Icons**: Pre-generated `icon.ico` (Windows) and `icon.icns` (macOS) are included in `scripts/pack/assets/`
+- **Icons**: `scripts/pack/assets/icon.svg` is the source of truth. Windows
+  and macOS icon artifacts are generated during packaging; macOS uses a
+  safe-area variant to match Dock and Launchpad sizing.
 
 ## One-click build
 
@@ -87,6 +89,6 @@ When users download the QwenPaw macOS app (e.g. from Releases) as a `.app` (in a
 | `build_common.py` | Create temporary conda env, install `qwenpaw[full]` from a wheel, conda-pack; produces archive. |
 | `build_macos.sh` | One-click: build wheel → build_common → unpack into QwenPaw.app; optional zip. |
 | `build_win.ps1` | One-click: build wheel → build_common → unpack → create VBS/BAT launchers → makensis installer. |
+| `generate_macos_icon.sh` | Generate macOS safe-area icons from `assets/icon.svg` into a build output directory. |
 | `desktop.nsi` | NSIS script: pack `dist/win-unpacked`, add icons, and create shortcuts. |
-| `assets/icon.ico` | Pre-generated Windows icon (installer and shortcuts). |
-| `assets/icon.icns` | Pre-generated macOS icon (app bundle). |
+| `assets/icon.svg` | Canonical icon source used to generate desktop icon artifacts. |

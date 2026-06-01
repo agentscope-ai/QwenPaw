@@ -17,7 +17,8 @@
 - **conda**（Miniconda/Anaconda）在 PATH
 - **Node.js / npm**（用于构建 console 前端）
 - （仅 Windows）**NSIS**：`makensis` 在 PATH
-- **图标**：预生成的 `icon.ico` (Windows) 和 `icon.icns` (macOS) 已包含在 `scripts/pack/assets/` 中
+- **图标**：`scripts/pack/assets/icon.svg` 是唯一源图。Windows 和 macOS
+  图标产物都在打包时生成；macOS 会生成带安全边距的版本，以匹配 Dock 和启动台的视觉尺寸。
 
 ## 一键打包
 
@@ -85,6 +86,6 @@ PYTHONNOUSERSITE=1 PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m qw
 | `build_common.py` | 创建临时 conda 环境，从 wheel 安装 `qwenpaw[full]`，conda-pack 产出归档 |
 | `build_macos.sh` | 一键：构建 wheel → build_common → 解压到 QwenPaw.app；可选打 zip |
 | `build_win.ps1` | 一键：构建 wheel → build_common → 解压 → 创建 VBS/BAT 启动器 → makensis 安装包 |
+| `generate_macos_icon.sh` | 从 `assets/icon.svg` 生成带安全边距的 macOS 图标到构建输出目录 |
 | `desktop.nsi` | NSIS 脚本：打包 `dist/win-unpacked`，添加图标，创建快捷方式 |
-| `assets/icon.ico` | 预生成的 Windows 图标（安装包和快捷方式使用） |
-| `assets/icon.icns` | 预生成的 macOS 图标（应用包使用） |
+| `assets/icon.svg` | 桌面图标产物的唯一源图 |

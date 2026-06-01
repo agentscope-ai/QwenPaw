@@ -36,8 +36,8 @@
     "active": true,
     "targets": ["app", "nsis"],
     "icon": [
-      "../../scripts/pack/assets/icon.icns",
-      "../../scripts/pack/assets/icon.ico"
+      "icons/icon.icns",
+      "icons/icon.ico"
     ],
     "resources": ["binaries/qwenpaw-backend"],
     "windows": {
@@ -46,8 +46,8 @@
         "silent": true
       },
       "nsis": {
-        "installerIcon": "../../scripts/pack/assets/icon.ico",
-        "uninstallerIcon": "../../scripts/pack/assets/icon.ico",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
         "installerHooks": "nsis-hooks.nsh",
         "languages": [
           "English",

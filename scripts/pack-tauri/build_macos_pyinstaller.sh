@@ -80,8 +80,8 @@ echo ""
 echo "== Step 1: Building Console Static Assets =="
 cd console
 npm ci
-echo "Generating Tauri icons..."
-npm exec -- tauri icon ../scripts/pack/assets/icon.svg
+echo "Generating macOS safe-area Tauri icons..."
+bash ../scripts/pack/generate_macos_icon.sh "${REPO_ROOT}/console/src-tauri/icons"
 echo "Syncing Tauri version..."
 node ../scripts/pack-tauri/sync_tauri_version.mjs
 echo "Building console frontend..."

@@ -105,7 +105,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Generating Tauri icons..."
-npm exec -- tauri icon ../scripts/pack/assets/icon.svg
+npm exec -- tauri icon --output src-tauri/icons ../scripts/pack/assets/icon.svg
 if ($LASTEXITCODE -ne 0) {
     throw "Tauri icon generation failed"
 }

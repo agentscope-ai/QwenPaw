@@ -34,6 +34,10 @@ src/qwenpaw/console/
 # Docs bundled at build time (copied from website/public/docs/)
 src/qwenpaw/docs/
 
+# Generated desktop icons; scripts/pack/assets/icon.svg is the source of truth.
+scripts/pack/assets/icon.icns
+scripts/pack/assets/icon.ico
+
 # frontend (website)
 website/node_modules/
 website/.vite/

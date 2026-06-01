@@ -265,8 +265,35 @@ $QwenpawCmd = Join-Path $EnvRoot "qwenpaw.cmd"
 @"%~dp0python.exe" -u -m qwenpaw %*
 "@ | Set-Content -Path $QwenpawCmd -Encoding ASCII
 
-# Copy icon.ico to env root so NSIS can find it
-$IconSrc = Join-Path $PackDir "assets\icon.ico"
+# Generate icon.ico from the canonical SVG, then copy it to env root so NSIS
+# can find it.
+$DistRoot = if ([System.IO.Path]::IsPathRooted($Dist)) {
+  $Dist
+} else {
+  Join-Path $RepoRoot $Dist
+}
+$GeneratedIconDir = Join-Path $DistRoot "generated-icons\windows"
+New-Item -ItemType Directory -Force -Path $GeneratedIconDir | Out-Null
+$TauriCli = Join-Path $RepoRoot "console\node_modules\.bin\tauri.cmd"
+if (-not (Test-Path $TauriCli)) {
+  Write-Host "[build_win] Installing frontend tooling for Tauri icon generation"
+  Push-Location (Join-Path $RepoRoot "console")
+  try {
+    npm ci
+    if ($LASTEXITCODE -ne 0) { throw "npm ci failed with exit code $LASTEXITCODE" }
+  } finally {
+    Pop-Location
+  }
+}
+Write-Host "[build_win] Generating icon.ico from assets\icon.svg"
+Push-Location (Join-Path $RepoRoot "console")
+try {
+  npm exec -- tauri icon --output $GeneratedIconDir ../scripts/pack/assets/icon.svg
+  if ($LASTEXITCODE -ne 0) { throw "Tauri icon generation failed with exit code $LASTEXITCODE" }
+} finally {
+  Pop-Location
+}
+$IconSrc = Join-Path $GeneratedIconDir "icon.ico"
 if (Test-Path $IconSrc) {
   Copy-Item $IconSrc -Destination $EnvRoot -Force
   Write-Host "[build_win] Copied icon.ico to env root"
