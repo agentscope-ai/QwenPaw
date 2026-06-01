@@ -828,7 +828,6 @@ class QQQRCodeAuthHandler(QRCodeAuthHandler):
                 retcode,
                 msg,
             )
-            # 所有非 0 retcode 都视为失败（前端应停止轮询或提示用户重试）
             return PollResult(
                 status="fail",
                 credentials={"fail_reason": f"retcode={retcode}: {msg}"},
