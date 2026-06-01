@@ -17,6 +17,10 @@ const SUPPORTED_EXTERNAL_PROTOCOLS = new Set([
 const TAURI_OPEN_EXTERNAL_LINK_COMMAND = "open_external_link";
 type ExternalLinkRuntime = "pywebview" | "tauri" | "browser";
 
+function hasHttpUrlPrefix(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}
+
 /** Resolve absolute and app-relative URLs while ignoring empty or hash-only links. */
 export function resolveExternalUrl(url: string): string | null {
   const trimmedUrl = url.trim();
@@ -41,7 +45,7 @@ function protocolOf(url: string): string {
 /** Return true when a resolved URL is HTTP(S), the legacy desktop bridge's scope. */
 export function isHttpExternalUrl(url: string): boolean {
   try {
-    return HTTP_PROTOCOLS.has(protocolOf(url));
+    return hasHttpUrlPrefix(url) && HTTP_PROTOCOLS.has(protocolOf(url));
   } catch {
     return false;
   }
@@ -49,7 +53,11 @@ export function isHttpExternalUrl(url: string): boolean {
 
 function isSupportedExternalUrl(url: string): boolean {
   try {
-    return SUPPORTED_EXTERNAL_PROTOCOLS.has(protocolOf(url));
+    const protocol = protocolOf(url);
+    if (HTTP_PROTOCOLS.has(protocol)) {
+      return hasHttpUrlPrefix(url);
+    }
+    return SUPPORTED_EXTERNAL_PROTOCOLS.has(protocol);
   } catch {
     return false;
   }

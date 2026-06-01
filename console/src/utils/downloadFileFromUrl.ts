@@ -206,7 +206,7 @@ export async function downloadFileFromUrl(
   }
 
   const requestUrl = resolveExternalUrl(url);
-  if (!requestUrl) {
+  if (!requestUrl || !isHttpExternalUrl(requestUrl)) {
     throw new Error(options.errorMessage || "Download URL is invalid");
   }
 

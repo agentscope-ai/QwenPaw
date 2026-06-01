@@ -108,6 +108,15 @@ describe("openExternalLink", () => {
     expect(windowOpen).not.toHaveBeenCalled();
   });
 
+  it("rejects ambiguous HTTP links without slashes before opening", () => {
+    tauriMocks.isTauri.mockReturnValue(true);
+
+    openExternalLink("http:example.com");
+
+    expect(tauriMocks.invoke).not.toHaveBeenCalled();
+    expect(windowOpen).not.toHaveBeenCalled();
+  });
+
   it("uses the Tauri external link command for supported non-HTTP schemes", () => {
     tauriMocks.isTauri.mockReturnValue(true);
 
@@ -350,6 +359,28 @@ describe("openExternalLink", () => {
     expect(fetchMock).toHaveBeenCalledWith("https://evil.example/api/export", {
       headers: { "X-Agent-Id": "agent-a" },
     });
+  });
+
+  it("rejects non-HTTP URLs before selecting a download runtime", async () => {
+    tauriMocks.isTauri.mockReturnValue(true);
+    dialogMocks.save.mockResolvedValue("C:\\Downloads\\mail.zip");
+
+    await expect(
+      downloadFileFromUrl("mailto:support@example.com", "mail.zip"),
+    ).rejects.toThrow("Download URL is invalid");
+
+    expect(dialogMocks.save).not.toHaveBeenCalled();
+    expect(uploadMocks.download).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects ambiguous HTTP downloads without slashes", async () => {
+    await expect(
+      downloadFileFromUrl("http:example.com/export.zip", "backup.zip"),
+    ).rejects.toThrow("Download URL is invalid");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(uploadMocks.download).not.toHaveBeenCalled();
   });
 
   it("uses browser downloads outside Tauri", async () => {
