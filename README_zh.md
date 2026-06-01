@@ -60,23 +60,19 @@
 
 ## 新闻
 
-- [2026-05-27] **v1.1.9 — Coding 模式** | Agent 变身开发者。
-
-  > **Coding 模式**将完整 IDE 布局（文件树 + 标签编辑器 + 内联 Diff + Git 面板）直接嵌入 QwenPaw。[查看文档 →](https://qwenpaw.agentscope.io/docs/coding-mode)
-
-  <p align="center">
-    <a href="https://qwenpaw.agentscope.io/docs/coding-mode">
-      <img src="https://img.alicdn.com/imgextra/i4/O1CN014tF5921HlXCevvsBH_!!6000000000798-2-tps-3340-1678.png" width="720" alt="Coding 模式 — 三面板 IDE 布局" />
-    </a>
-  </p>
+- [2026-06-01] **v1.1.10 — 子 Agent 派生 & 更多渠道** | Agent 可派生子 Agent 执行任务；腾讯元宝加入渠道。
 
   | 亮点 | 更新内容 |
   |------|----------|
-  | **Coding 模式** | 三面板 Web IDE，支持 LSP 跳转定义、AST 结构搜索、内联 Diff 审查。[文档 →](https://qwenpaw.agentscope.io/docs/coding-mode) |
-  | **Tauri 桌面应用** | 原生 macOS & Windows 应用，无需配置 Python。[下载 →](https://github.com/agentscope-ai/QwenPaw/releases) |
-  | **统一访问控制** | 按渠道配置白名单/黑名单/待审批，Console 可视化管理。[文档 →](https://qwenpaw.agentscope.io/docs/channels) |
+  | **Spawn Subagent** | 新增 `spawn_subagent` 工具，支持在工作区内派生临时子 Agent。 |
+  | **打开目录** | Coding 模式新增"打开目录"标签页，可直接引用本地项目而无需复制。 |
+  | **飞书话题回复** | Agent 支持在飞书消息话题中回复。 |
+  | **腾讯元宝渠道** | 新增腾讯元宝 Bot 渠道集成。 |
+  | **动态上传限制** | 上传大小限制可在控制台和渠道中动态配置。 |
 
-  另有：后台任务超时、定时任务隔离执行、插件管理器改版。[v1.1.9 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
+  另有：OpenRouter 归因标头、桌面端内置 CLI、技能更新稳定性修复。[v1.1.10 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
+
+- [2026-05-27] **v1.1.9** — Coding 模式（三面板 Web IDE）、Tauri 桌面应用、统一访问控制。[v1.1.9 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 
 - [2026-05-19] **v1.1.8** — 官方插件分发、QwenPaw Pet 桌面宠物、钉钉/飞书/Telegram 流式卡片。[v1.1.8 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.8)
 

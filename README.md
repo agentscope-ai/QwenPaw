@@ -60,23 +60,19 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-- [2026-05-27] **v1.1.9 — Coding Mode** | Your agent just became a dev.
-
-  > **Coding Mode** brings a full IDE layout — file tree, tabbed editor with inline diff review, and a Git panel — directly into QwenPaw. [Read the docs →](https://qwenpaw.agentscope.io/docs/coding-mode)
-
-  <p align="center">
-    <a href="https://qwenpaw.agentscope.io/docs/coding-mode">
-      <img src="https://img.alicdn.com/imgextra/i4/O1CN014tF5921HlXCevvsBH_!!6000000000798-2-tps-3340-1678.png" width="720" alt="Coding Mode — three-panel IDE layout" />
-    </a>
-  </p>
+- [2026-06-01] **v1.1.10 — Spawn Subagent & More Channels** | Agents can now spawn sub-agents; Tencent Yuanbao joins the channel family.
 
   | Highlight | What's new |
   |-----------|------------|
-  | **Coding Mode** | Three-panel Web IDE with LSP jump-to-definition, AST search, and inline diff review. [Docs →](https://qwenpaw.agentscope.io/docs/coding-mode) |
-  | **Tauri Desktop App** | Native macOS & Windows app — no Python setup needed. [Download →](https://github.com/agentscope-ai/QwenPaw/releases) |
-  | **Unified Access Control** | Per-channel whitelist / blacklist / pending-approval with console UI. [Docs →](https://qwenpaw.agentscope.io/docs/channels) |
+  | **Spawn Subagent** | New `spawn_subagent` tool for ephemeral in-workspace sub-agent execution. |
+  | **Open Directory** | Coding mode gains an "Open Directory" tab to reference local projects without copying. |
+  | **Feishu Thread Reply** | Agents can now reply within Feishu message threads. |
+  | **Tencent Yuanbao Channel** | New channel integration for Tencent Yuanbao bot. |
+  | **Dynamic Upload Limit** | Upload size limit is now configurable across console and channels. |
 
-  Also: background task timeout, isolated cron sessions, plugin manager redesign. [v1.1.9 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
+  Also: OpenRouter attribution headers, bundled desktop CLI, skill update stability fixes. [v1.1.10 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
+
+- [2026-05-27] **v1.1.9** — Coding Mode (three-panel Web IDE), Tauri desktop app, unified access control. [v1.1.9 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 
 - [2026-05-19] **v1.1.8** — Official plugin distribution, QwenPaw Pet, streaming cards for DingTalk / Feishu / Telegram. [v1.1.8 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.8)
 
