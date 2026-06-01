@@ -1442,8 +1442,8 @@ export function ChannelDrawer({
                 activeKey === "dingtalk"
                   ? t("channels.streamingEnabledDingtalkHint")
                   : activeKey === "feishu"
-                    ? t("channels.streamingEnabledFeishuHint")
-                    : undefined
+                  ? t("channels.streamingEnabledFeishuHint")
+                  : undefined
               }
             >
               <Switch />
