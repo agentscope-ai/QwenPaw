@@ -956,8 +956,9 @@ class BaseChannel(ABC):
     ) -> "AgentRequest":
         """
         Build AgentRequest from runtime content parts (Message content list).
-        Use agentscope_runtime Message/Content types; no intermediate envelope.
-        Subclasses call this after parsing native payload to content_parts.
+        Uses :mod:`qwenpaw.schemas` Message / Content types directly — no
+        intermediate envelope. Subclasses call this after parsing the
+        native payload into ``content_parts``.
         """
         from qwenpaw.schemas import (
             AgentRequest,

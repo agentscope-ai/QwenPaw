@@ -1,11 +1,5 @@
 # -*- coding: utf-8 -*-
-"""QwenPaw exception definitions and converters.
-
-All exception classes previously shim-imported from
-``qwenpaw._compat.runtime`` (which proxied the deleted
-``agentscope_runtime.engine.schemas.exception`` module) now live here
-as first-class QwenPaw types.
-"""
+"""QwenPaw exception definitions and converters."""
 
 from typing import Any, Dict, Optional
 
@@ -16,9 +10,8 @@ from typing import Any, Dict, Optional
 class AppBaseException(Exception):
     """Top-level base for QwenPaw application exceptions.
 
-    Accepts ``error_code`` / ``detail`` / arbitrary kwargs to match the
-    surface of the original ``agentscope_runtime`` base class, which was
-    used to build HTTP error responses.
+    Accepts ``error_code`` / ``detail`` / arbitrary kwargs so that
+    handlers can build structured HTTP error responses.
     """
 
     def __init__(
@@ -391,7 +384,7 @@ def convert_model_exception(  # pylint: disable=too-many-return-statements
     exc: Exception,
     model_name: Optional[str] = None,
 ) -> AgentRuntimeErrorException:
-    """Convert exceptions to agentscope_runtime exceptions.
+    """Wrap a model SDK exception in :class:`AgentRuntimeErrorException`.
 
     Args:
         exc: Original exception

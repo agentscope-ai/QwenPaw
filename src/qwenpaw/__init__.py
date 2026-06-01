@@ -22,9 +22,6 @@ except Exception as exc:
 _t0 = time.perf_counter()
 setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
 
-# NOTE(as2-migration): import for side effects — installs the
-# Msg.to_dict / Msg.from_dict polyfills on agentscope 2.0.
-
 if _bootstrap_err is not None:
     logging.getLogger(__name__).warning(
         "qwenpaw: failed to load persisted envs on init: %s",

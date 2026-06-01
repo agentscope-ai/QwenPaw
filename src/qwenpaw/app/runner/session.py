@@ -3,11 +3,6 @@
 compatibility.
 
 Windows filenames cannot contain: \\ / : * ? " < > |
-
-NOTE(as2-migration): agentscope 2.0 removed ``agentscope.session.SessionBase``;
-the package re-exports nothing.  ``SafeJSONSession`` implements the full
-save / load / update / get surface itself, so we just drop the inheritance —
-no consumers type against the base class.
 """
 import os
 import re
@@ -196,12 +191,7 @@ def _rewrite_weixin_in_session_filename(name: str) -> str | None:
 
 
 class SafeJSONSession:
-    """Filename-safe JSON session store with async file I/O.
-
-    NOTE(as2-migration): previously subclassed ``SessionBase``;
-    the base class was removed in 2.0 and this class always provided the
-    full surface itself, so the inheritance was dropped.
-    """
+    """Filename-safe JSON session store with async file I/O."""
 
     def __init__(
         self,

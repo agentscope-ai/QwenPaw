@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# NOTE(as2-migration): execute_python_code / view_text_file / write_text_file
-# were removed in agentscope 2.0 (replaced by class-based Bash/Read/Write
-# tools).  qwenpaw's react_agent no longer registers them, so we just drop
-# the re-exports.  The strings live on in security/tool_guard guardians for
-# backward compatibility with existing allowlists.
+# Note: ``execute_python_code`` / ``view_text_file`` / ``write_text_file``
+# are intentionally not re-exported — qwenpaw's react_agent does not
+# register them. The literal names still appear in
+# ``security/tool_guard`` guardians for backward compatibility with
+# pre-existing allowlists.
 from .file_io import (
     read_file,
     write_file,

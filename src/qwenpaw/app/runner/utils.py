@@ -436,10 +436,8 @@ def agentscope_msg_to_message(
         current_type = None
 
         for block in msg.content:
-            # NOTE(as2-migration): agentscope 2.0 stores content as
-            # pydantic block models, not dicts.  Normalize to dict so
-            # the rest of this conversion (which uses .get) keeps
-            # working while we incrementally port call sites.
+            # Normalize pydantic block models to dict so the rest of
+            # this conversion (which uses .get) handles both shapes.
             if hasattr(block, "model_dump"):
                 block = block.model_dump()
             if not isinstance(block, dict):
