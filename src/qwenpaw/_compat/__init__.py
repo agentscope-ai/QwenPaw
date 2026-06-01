@@ -3,9 +3,11 @@
 
 Remaining contents:
 - ``Msg.to_dict`` / ``Msg.from_dict`` / ``Msg.timestamp`` monkey-patches
-  (session files and some call sites still use the 1.x shape)
-- ``memory.py``: InMemoryMemory for legacy session deserialization
-- ``message.py``: ImageBlock/VideoBlock/ToolUseBlock factory aliases
+  (session files on disk still use the 1.x shape, and a couple of call
+  sites — e.g. ``/load_history`` — read them via ``Msg.from_dict``).
+- ``message.py``: legacy block coercion driven by ``msg_from_dict`` for
+  1.x session restore.  No live code constructs the legacy block names
+  directly anymore.
 """
 from __future__ import annotations
 
@@ -50,7 +52,11 @@ def _install_msg_dict_shim() -> None:
 _install_msg_dict_shim()
 
 
-# The hook shim (hooks.py) has been replaced by native 2.0 Middleware
-# classes in ``qwenpaw.agents.middlewares``.
-# The toolkit shim (toolkit.py) has been replaced by direct use of
-# ``Toolkit(tools=[...])`` and ``qwenpaw.agents.tool_compat``.
+# History of what previously lived here:
+# - ``hooks.py`` → replaced by native 2.0 Middleware classes in
+#   ``qwenpaw.agents.middlewares``.
+# - ``toolkit.py`` → replaced by direct use of ``Toolkit(tools=[...])``
+#   and ``qwenpaw.agents.tool_compat``.
+# - ``memory.py`` → folded into
+#   ``qwenpaw.app.runner.utils.parse_legacy_memory_state`` plus the
+#   ``Msg.from_dict`` polyfill installed above.

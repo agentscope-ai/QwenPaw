@@ -10,11 +10,8 @@ from datetime import datetime
 from pathlib import Path
 
 from agentscope.agent import Agent
-from agentscope.message import Msg, TextBlock, ToolResultBlock
+from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
 from agentscope.tool import Toolkit, ToolResponse
-
-# NOTE(as2-migration): ToolUseBlock renamed to ToolCallBlock in 2.0.
-from ..._compat.message import ToolUseBlock
 
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from .prompts import (
@@ -498,12 +495,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                         type="text",
                         text="Searching memory for relevant context...",
                     ),
-                    ToolUseBlock(
-                        type="tool_use",
+                    ToolCallBlock(
                         id=_id,
                         name="memory_search",
-                        input=tool_use_input,
-                        raw_input=json.dumps(
+                        input=json.dumps(
                             tool_use_input,
                             ensure_ascii=False,
                         ),

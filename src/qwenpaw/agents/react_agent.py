@@ -293,15 +293,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
         # --- 1.x legacy format: migrate ``memory`` → ``state`` ---
         memory_raw = state_dict.get("memory")
         if isinstance(memory_raw, dict):
-            from qwenpaw._compat.memory import InMemoryMemory
+            from qwenpaw.app.runner.utils import parse_legacy_memory_state
 
-            shim = InMemoryMemory()
-            shim.load_state_dict(memory_raw, strict=False)
-            msgs = [msg for msg, _ in shim.content]
+            msgs, summary = parse_legacy_memory_state(memory_raw)
             self.state = AgentState()
             self.state.context.extend(msgs)
-            # pylint: disable=protected-access
-            self.state.summary = shim._compressed_summary or ""
+            self.state.summary = summary
             logger.info(
                 "Migrated 1.x session: %d messages + summary(%d chars)",
                 len(msgs),

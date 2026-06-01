@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """ACP client and server exports.
 
-NOTE(as2-migration): ``.server`` and ``.service`` still import from
-``agentscope_runtime.engine.schemas.agent_schemas`` and are not yet ported
-to agentscope 2.0.  Eagerly importing them here would break every consumer
-of ``qwenpaw.agents.acp`` — including ``delegate_external_agent``
-which only needs ``tool_adapter``.  We expose ``QwenPawACPAgent`` /
-``run_qwenpaw_agent`` / ``ACPService`` / ``*_acp_service`` via ``__getattr__``
-so the heavy modules load only when actually requested.
+``.server`` and ``.service`` are heavy modules: they pull in the full
+qwenpaw envelope schema and the ACP transport stack.  Eagerly importing
+them here would slow down every consumer of ``qwenpaw.agents.acp`` —
+including ``delegate_external_agent`` which only needs
+``tool_adapter`` — so we expose ``QwenPawACPAgent`` /
+``run_qwenpaw_agent`` / ``ACPService`` / ``*_acp_service`` via
+``__getattr__`` and load them lazily on first access.
 """
 from importlib import import_module
 from typing import Any

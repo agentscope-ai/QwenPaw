@@ -122,7 +122,7 @@ async def _process_session_memory(
 ) -> List[dict]:
     """Process a session's memory and return a list of messages."""
     from agentscope.state import AgentState
-    from qwenpaw._compat.memory import InMemoryMemory
+    from ....app.runner.utils import parse_legacy_memory_state
 
     try:
         state = await workspace.runner.session.get_session_state_dict(
@@ -147,9 +147,7 @@ async def _process_session_memory(
         if not messages:
             memories_data = agent_raw.get("memory", [])
             if memories_data:
-                memory = InMemoryMemory()
-                memory.load_state_dict(memories_data)
-                messages = await memory.get_memory()
+                messages, _summary = parse_legacy_memory_state(memories_data)
 
         if not messages:
             return []

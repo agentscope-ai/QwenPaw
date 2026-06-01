@@ -10,13 +10,25 @@ from urllib.parse import unquote
 from pathlib import Path
 from typing import Optional
 
-from agentscope.message import TextBlock
+from agentscope.message import DataBlock, TextBlock, URLSource
 from agentscope.tool import ToolResponse
 
-# NOTE(as2-migration): ImageBlock/VideoBlock collapsed into DataBlock in 2.0.
-from ..._compat.message import ImageBlock, VideoBlock
-
 logger = logging.getLogger(__name__)
+
+
+def _media_data_block(url: str, modality: str) -> DataBlock:
+    """Build a DataBlock from a URL, inferring ``media_type`` from the path.
+
+    Mirrors the behaviour of the deleted ``_compat.message.ImageBlock`` /
+    ``VideoBlock`` shim: when ``mimetypes.guess_type`` can't decide we
+    fall back to a wildcard like ``image/*`` so the formatter still
+    routes the block as the right modality.
+    """
+    media_type, _ = mimetypes.guess_type(url)
+    if not media_type:
+        media_type = f"{modality}/*"
+    return DataBlock(source=URLSource(url=url, media_type=media_type))
+
 
 _IMAGE_EXTENSIONS = {
     ".png",
@@ -343,10 +355,7 @@ async def view_image(image_path: str) -> ToolResponse:
         )
         return ToolResponse(
             content=[
-                ImageBlock(
-                    type="image",
-                    source={"type": "url", "url": image_path},
-                ),
+                _media_data_block(image_path, "image"),
                 TextBlock(type="text", text=text_msg),
             ],
         )
@@ -364,10 +373,7 @@ async def view_image(image_path: str) -> ToolResponse:
     )
     return ToolResponse(
         content=[
-            ImageBlock(
-                type="image",
-                source={"type": "url", "url": "file://" + str(resolved)},
-            ),
+            _media_data_block("file://" + str(resolved), "image"),
             TextBlock(type="text", text=text_msg),
         ],
     )
@@ -413,10 +419,7 @@ async def view_video(video_path: str) -> ToolResponse:
         )
         return ToolResponse(
             content=[
-                VideoBlock(
-                    type="video",
-                    source={"type": "url", "url": video_path},
-                ),
+                _media_data_block(video_path, "video"),
                 TextBlock(type="text", text=text_msg),
             ],
         )
@@ -434,10 +437,7 @@ async def view_video(video_path: str) -> ToolResponse:
     )
     return ToolResponse(
         content=[
-            VideoBlock(
-                type="video",
-                source={"type": "url", "url": "file://" + str(resolved)},
-            ),
+            _media_data_block("file://" + str(resolved), "video"),
             TextBlock(type="text", text=text_msg),
         ],
     )

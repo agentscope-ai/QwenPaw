@@ -9,8 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from agentscope.message import Msg
 from agentscope.state import AgentState
 
-from qwenpaw._compat.memory import InMemoryMemory
-
 from .session import SafeJSONSession
 from .manager import ChatManager
 from .models import (
@@ -18,7 +16,7 @@ from .models import (
     ChatUpdate,
     ChatHistory,
 )
-from .utils import agentscope_msg_to_message
+from .utils import agentscope_msg_to_message, parse_legacy_memory_state
 
 logger = logging.getLogger(__name__)
 
@@ -194,9 +192,7 @@ async def get_chat(
     if not memories:
         memory_raw = agent_raw.get("memory", {})
         if memory_raw:
-            memory = InMemoryMemory()
-            memory.load_state_dict(memory_raw, strict=False)
-            memories = await memory.get_memory(prepend_summary=True)
+            memories, _summary = parse_legacy_memory_state(memory_raw)
 
     messages = agentscope_msg_to_message(memories)
     return ChatHistory(messages=messages, status=status)

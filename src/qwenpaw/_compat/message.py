@@ -1,20 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Shims for message block names that changed in agentscope 2.0.
+"""Legacy session deserialization for agentscope 1.x payloads.
 
-The 2.0 schema dropped per-modality block classes (``ImageBlock``,
-``AudioBlock``, ``VideoBlock``) in favour of a single ``DataBlock`` whose
-type is fixed at ``"data"`` and whose modality is inferred from the
-attached ``source.media_type``.  Likewise, ``ToolUseBlock`` was renamed
-to ``ToolCallBlock`` with a tighter contract:
+The single load-bearing export is :func:`msg_from_dict`, used via the
+``Msg.from_dict`` polyfill installed in ``_compat/__init__.py``.  It
+rehydrates session JSON written by 1.x — translating the old field
+shape (``timestamp`` → ``created_at``) and the old per-modality block
+types (``image`` / ``audio`` / ``video`` → ``DataBlock``;
+``tool_use`` → ``ToolCallBlock``) on the fly.  See the in-tree caller
+``agents/command_handler.py:_load_history``.
 
-    * ``input`` is now a JSON-encoded ``str`` instead of a free-form
-      ``dict``,
-    * the ``raw_input`` field is gone (the encoded ``input`` is
-      authoritative).
-
-This module exposes thin wrappers so remaining call sites
-(view_media.py, adbpg/reme_light memory managers) keep working.
-Delete once those callers are ported to ``DataBlock`` directly.
+Once all on-disk sessions have been re-saved in the 2.0 format this
+whole module can be deleted together with the polyfill.
 """
 from __future__ import annotations
 
@@ -28,15 +24,6 @@ from agentscope.message import (
     ToolCallBlock,
     URLSource,
 )
-
-
-# ---------------------------------------------------------------------------
-# Media block factories.
-# Old call sites do e.g. ``ImageBlock(type="image", source={"type": "url",
-# "url": "..."})``.  We accept the same signature for compatibility but
-# build the unified ``DataBlock`` underneath, defaulting ``media_type`` to
-# the modality if the caller didn't provide one.
-# ---------------------------------------------------------------------------
 
 
 _MODALITY_DEFAULT_MIME = {
@@ -88,65 +75,6 @@ def _coerce_source(
     raise ValueError(f"Unknown source type: {src_type!r}")
 
 
-def _make_media_block(
-    modality: str,
-    *,
-    type: str | None = None,  # pylint: disable=redefined-builtin
-    source: Any,
-    name: str | None = None,
-    **_ignored: Any,
-) -> DataBlock:
-    """Build a :class:`DataBlock` from legacy modality-specific kwargs."""
-    # ``type`` kwarg is accepted for backward compatibility but ignored:
-    # ``DataBlock.type`` is always ``"data"`` in 2.0.
-    del type
-    coerced = _coerce_source(source, modality)
-    return DataBlock(source=coerced, name=name)
-
-
-def ImageBlock(**kwargs: Any) -> DataBlock:  # noqa: N802
-    """Legacy ``ImageBlock`` constructor → returns a ``DataBlock``."""
-    return _make_media_block("image", **kwargs)
-
-
-def AudioBlock(**kwargs: Any) -> DataBlock:  # noqa: N802
-    """Legacy ``AudioBlock`` constructor → returns a ``DataBlock``."""
-    return _make_media_block("audio", **kwargs)
-
-
-def VideoBlock(**kwargs: Any) -> DataBlock:  # noqa: N802
-    """Legacy ``VideoBlock`` constructor → returns a ``DataBlock``."""
-    return _make_media_block("video", **kwargs)
-
-
-# ---------------------------------------------------------------------------
-# Tool-use block shim.
-# ---------------------------------------------------------------------------
-
-
-def ToolUseBlock(  # noqa: N802
-    *,
-    id: str,  # pylint: disable=redefined-builtin
-    name: str,
-    input: Any,  # pylint: disable=redefined-builtin
-    type: str | None = None,  # pylint: disable=redefined-builtin
-    raw_input: str | None = None,
-    **_ignored: Any,
-) -> ToolCallBlock:
-    """Legacy ``ToolUseBlock`` constructor → returns a ``ToolCallBlock``.
-
-    The new block stores ``input`` as a JSON string; if the caller passes
-    a dict (the old convention) we serialize it.  ``raw_input`` is
-    accepted but ignored — the encoded ``input`` is authoritative in 2.0.
-    """
-    del type, raw_input
-    if isinstance(input, str):
-        input_str = input
-    else:
-        input_str = json.dumps(input, ensure_ascii=False)
-    return ToolCallBlock(id=id, name=name, input=input_str)
-
-
 # ---------------------------------------------------------------------------
 # Msg deserialization shim.
 # Sessions saved by 1.x stored messages as ``{id, name, role, content,
@@ -160,8 +88,10 @@ def _coerce_block(block: Any) -> Any:
     """Map a stored content block dict to a 2.0 block instance.
 
     Old per-modality blocks (``image`` / ``audio`` / ``video``) are
-    rewritten to the unified ``DataBlock``.  Anything else is returned
-    as-is so the union discriminator on ``Msg.content`` can handle it.
+    rewritten to the unified ``DataBlock``; legacy ``tool_use`` blocks
+    are rewritten to ``ToolCallBlock`` (with ``input`` JSON-encoded if
+    needed).  Anything else is returned as-is so the union discriminator
+    on ``Msg.content`` can handle it.
     """
     if not isinstance(block, Mapping):
         return block
@@ -170,17 +100,20 @@ def _coerce_block(block: Any) -> Any:
         source = block.get("source")
         if source is None:
             return block
-        return _make_media_block(
-            btype,
-            source=source,
+        return DataBlock(
+            source=_coerce_source(source, btype),
             name=block.get("name"),
         )
     if btype == "tool_use":
-        # Legacy tool_use → tool_call.
-        return ToolUseBlock(
+        raw = block.get("input") or block.get("raw_input") or "{}"
+        if isinstance(raw, str):
+            input_str = raw
+        else:
+            input_str = json.dumps(raw, ensure_ascii=False)
+        return ToolCallBlock(
             id=block.get("id", ""),
             name=block.get("name", ""),
-            input=block.get("input") or block.get("raw_input") or "{}",
+            input=input_str,
         )
     return block
 

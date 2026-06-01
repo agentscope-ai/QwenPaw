@@ -14,11 +14,8 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from agentscope.message import Msg, TextBlock, ToolResultBlock
+from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
 from agentscope.tool import ToolResponse
-
-# NOTE(as2-migration): ToolUseBlock renamed to ToolCallBlock in 2.0.
-from ..._compat.message import ToolUseBlock
 
 from .adbpg_client import (
     ADBPGConfig,
@@ -242,12 +239,10 @@ class ADBPGMemoryManager(BaseMemoryManager):
                         type="text",
                         text="Searching long-term memory...",
                     ),
-                    ToolUseBlock(
-                        type="tool_use",
+                    ToolCallBlock(
                         id=_id,
                         name="memory_search",
-                        input=tool_input,
-                        raw_input=json.dumps(tool_input, ensure_ascii=False),
+                        input=json.dumps(tool_input, ensure_ascii=False),
                     ),
                 ],
             )
