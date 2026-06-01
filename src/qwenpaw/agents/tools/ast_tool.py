@@ -21,7 +21,8 @@ from pathlib import Path
 from typing import Optional
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
@@ -46,8 +47,12 @@ _SUBPROCESS_FLAGS = 0
 # ---------------------------------------------------------------------
 
 
-def _make_response(text: str) -> ToolResponse:
-    return ToolResponse(content=[TextBlock(type="text", text=text)])
+def _make_response(text: str) -> ToolChunk:
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
+        content=[TextBlock(type="text", text=text)],
+    )
 
 
 def _ast_grep_binary() -> Optional[str]:
@@ -80,7 +85,7 @@ def _resolve_root() -> Path:
 def _resolve_search_path(
     path: str,
     root: Path,
-) -> "Path | ToolResponse":
+) -> "Path | ToolChunk":
     """Resolve and validate the ``path`` argument.
 
     Empty string  → return ``root`` (search whole project).
@@ -214,7 +219,7 @@ async def ast_search(  # pylint: disable=too-many-return-statements
     language: str,
     path: str = "",
     max_matches: int = _DEFAULT_MAX_MATCHES,
-) -> ToolResponse:
+) -> ToolChunk:
     """Search the project for code matching an AST pattern.
 
     Backed by the ``ast-grep`` CLI (``ast-grep run -p ... -l ...``).
@@ -254,7 +259,7 @@ async def ast_search(  # pylint: disable=too-many-return-statements
 
     root = _resolve_root()
     target_or_err = _resolve_search_path(path, root)
-    if isinstance(target_or_err, ToolResponse):
+    if isinstance(target_or_err, ToolChunk):
         return target_or_err
     target: Path = target_or_err
 

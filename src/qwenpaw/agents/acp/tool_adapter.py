@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""ACP to ToolResponse adapter helpers for delegate_external_agent."""
+"""ACP to ToolChunk adapter helpers for delegate_external_agent."""
 
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 
 def _text_block(text: str) -> TextBlock:
@@ -17,8 +18,13 @@ def response_blocks(
     *,
     stream: bool = False,
     is_last: bool = True,
-) -> ToolResponse:
-    return ToolResponse(content=blocks, stream=stream, is_last=is_last)
+) -> ToolChunk:
+    return ToolChunk(
+        content=blocks,
+        state=ToolResultState.SUCCESS,
+        stream=stream,
+        is_last=is_last,
+    )
 
 
 def response_text(
@@ -26,7 +32,7 @@ def response_text(
     *,
     stream: bool = False,
     is_last: bool = True,
-) -> ToolResponse:
+) -> ToolChunk:
     return response_blocks([_text_block(text)], stream=stream, is_last=is_last)
 
 
@@ -130,7 +136,7 @@ def format_stream_snapshot_response(
     runner_name: str,
     execution_cwd: Path,
     include_header: bool = False,
-) -> Optional[ToolResponse]:
+) -> Optional[ToolChunk]:
     del runner_name
     del execution_cwd
     del include_header
@@ -149,7 +155,7 @@ def format_final_assistant_response(
     runner_name: str,
     execution_cwd: Path,
     final_event: Optional[dict[str, Any]],
-) -> ToolResponse:
+) -> ToolChunk:
     text = None
     if final_event is not None:
         text = render_event_text(final_event or {})
@@ -171,7 +177,7 @@ def format_final_assistant_response(
 def format_permission_suspended_response(
     *,
     suspended_permission: Any,
-) -> ToolResponse:
+) -> ToolChunk:
     agent = getattr(suspended_permission, "agent", "unknown")
     tool_name = getattr(
         suspended_permission,
@@ -230,7 +236,7 @@ def format_permission_suspended_response(
     return response_text(text)
 
 
-def format_close_response(*, runner_name: str, closed: bool) -> ToolResponse:
+def format_close_response(*, runner_name: str, closed: bool) -> ToolChunk:
     if closed:
         text = f"Closed the bound ACP session for runner '{runner_name}'."
     else:

@@ -6,7 +6,8 @@ import mimetypes
 import unicodedata
 from urllib.parse import unquote
 
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 from agentscope.message import TextBlock, DataBlock, URLSource
 
 from .file_io import _resolve_file_path
@@ -33,7 +34,7 @@ def _path_to_file_url(path: str) -> str:
 
 async def send_file_to_user(
     file_path: str,
-) -> ToolResponse:
+) -> ToolChunk:
     """Send a file to the user.
 
     Args:
@@ -41,7 +42,7 @@ async def send_file_to_user(
             Path to the file to send.
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             The tool response containing the file or an error message.
     """
 
@@ -54,7 +55,9 @@ async def send_file_to_user(
     file_path = _resolve_file_path(file_path)
 
     if not os.path.exists(file_path):
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     text=f"Error: The file {file_path} does not exist.",
@@ -63,7 +66,9 @@ async def send_file_to_user(
         )
 
     if not os.path.isfile(file_path):
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     text=f"Error: The path {file_path} is not a file.",
@@ -80,7 +85,9 @@ async def send_file_to_user(
     try:
         file_url = _path_to_file_url(file_path)
 
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 DataBlock(
                     source=URLSource(
@@ -94,7 +101,9 @@ async def send_file_to_user(
         )
 
     except Exception as e:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     text=f"Error: Send file failed due to \n{e}",

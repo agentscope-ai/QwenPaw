@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from ...config.context import get_current_workspace_dir
 from ...exceptions import SkillsError
@@ -20,16 +21,20 @@ from ..skill_system.workspace_service import SkillService
 logger = logging.getLogger(__name__)
 
 
-def _tool_text_response(text: str) -> ToolResponse:
-    """Wrap text in a single-TextBlock ToolResponse."""
-    return ToolResponse(content=[TextBlock(type="text", text=text)])
+def _tool_text_response(text: str) -> ToolChunk:
+    """Wrap text in a single-TextBlock ToolChunk."""
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
+        content=[TextBlock(type="text", text=text)],
+    )
 
 
 async def materialize_skill(
     name: str,
     description: str,
     body: str,
-) -> ToolResponse:
+) -> ToolChunk:
     """Persist a confirmed skill proposal into the workspace.
 
     Runs format validation and the security scanner, writes

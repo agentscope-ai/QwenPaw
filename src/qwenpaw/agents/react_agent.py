@@ -74,9 +74,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Valid namesake strategies for tool registration
-NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
-
 
 class QwenPawAgent(CodingModeMixin, Agent):
     """QwenPaw Agent with integrated tools, skills, and memory management.
@@ -99,7 +96,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         memory_manager: BaseMemoryManager | None = None,
         context_manager: BaseContextManager | None = None,
         request_context: Optional[dict[str, str]] = None,
-        namesake_strategy: NamesakeStrategy = "skip",
         workspace_dir: Path | None = None,
         task_tracker: Any | None = None,
     ):
@@ -118,9 +114,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
             context_manager: Optional context manager instance
             request_context: Optional request context with session_id,
                 user_id, channel, agent_id
-            namesake_strategy: Strategy to handle namesake tool functions.
-                Options: "override", "skip", "raise", "rename"
-                (default: "skip")
             workspace_dir: Workspace directory for reading prompt files
                 (if None, uses global WORKING_DIR)
         """
@@ -128,7 +121,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._env_context = env_context
         self._request_context = dict(request_context or {})
         self._mcp_clients = mcp_clients or []
-        self._namesake_strategy = namesake_strategy
         self._workspace_dir = workspace_dir
         self._task_tracker = task_tracker
 
@@ -504,7 +496,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         for msg in self.state.context:
             if msg.role == "system":
-                msg.content = self._system_prompt
+                msg.content = [
+                    TextBlock(type="text", text=self._system_prompt),
+                ]
             break
 
     async def register_mcp_clients(self) -> None:

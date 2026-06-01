@@ -11,7 +11,8 @@ from pathlib import Path
 
 from agentscope.agent import Agent
 from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
-from agentscope.tool import Toolkit, ToolResponse
+from agentscope.tool import Toolkit, ToolChunk
+from agentscope.message import ToolResultState
 
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from .prompts import (
@@ -346,7 +347,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         query: str,
         max_results: int = 5,
         min_score: float = 0.1,
-    ) -> ToolResponse:
+    ) -> ToolChunk:
         """
         Search MEMORY.md and memory/*.md files semantically.
 
@@ -363,13 +364,15 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 Minimum similarity score for results. Defaults to 0.1.
 
         Returns:
-            `ToolResponse`:
+            `ToolChunk`:
                 Search results formatted with paths, line numbers, and
                 content.
         """
         self._warn_if_version_mismatch()
         if self._reme is None or not getattr(self._reme, "_started", False):
-            return ToolResponse(
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.SUCCESS,
                 content=[
                     TextBlock(
                         type="text",
