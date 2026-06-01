@@ -28,8 +28,6 @@ from qwenpaw.agents.tools.shell import (
     _read_temp_file,
     _sanitize_win_cmd,
     _shell_basename,
-    _truncate_shell_output,
-    _SHELL_OUTPUT_MAX_BYTES,
     _windows_shell_creationflags,
     smart_decode,
 )
@@ -304,63 +302,6 @@ class TestSmartDecode:
         data = b"\xff\xfe"  # BOM for UTF-16-LE, invalid UTF-8
         result = smart_decode(data)
         assert isinstance(result, str)
-
-
-# ---------------------------------------------------------------------------
-# _truncate_shell_output
-# ---------------------------------------------------------------------------
-
-
-class TestTruncateShellOutput:
-    """Tests for _truncate_shell_output pre-commit truncation."""
-
-    def test_empty_string_unchanged(self):
-        assert _truncate_shell_output("") == ""
-
-    def test_under_limit_unchanged(self):
-        text = "hello world"
-        assert _truncate_shell_output(text) == text
-
-    def test_exact_limit_unchanged(self):
-        text = "a" * _SHELL_OUTPUT_MAX_BYTES
-        assert _truncate_shell_output(text) == text
-
-    def test_over_limit_truncated(self):
-        # Create text that exceeds the limit
-        text = "x" * (_SHELL_OUTPUT_MAX_BYTES + 10000)
-        result = _truncate_shell_output(text)
-        # Result should be smaller than original
-        assert len(result.encode("utf-8")) < len(text.encode("utf-8"))
-        # Result should contain truncation notice
-        assert "<<<TRUNCATED>>>" in result
-        # Result should contain head content
-        assert result.startswith("x")
-
-    def test_over_limit_contains_head_and_tail(self):
-        text = "A" * 50000 + "B" * 50000 + "C" * 50000
-        result = _truncate_shell_output(text, max_bytes=10000)
-        assert "<<<TRUNCATED>>>" in result
-        # Head should contain 'A's
-        assert result.startswith("A")
-        # Tail should contain 'C's
-        assert result.endswith("C")
-
-    def test_custom_max_bytes(self):
-        text = "a" * 2000
-        result = _truncate_shell_output(text, max_bytes=500)
-        assert "<<<TRUNCATED>>>" in result
-        assert len(result.encode("utf-8")) <= 500 + 300  # content + notice
-
-    def test_unicode_content(self):
-        text = "你好" * 50000  # Well over limit in bytes
-        result = _truncate_shell_output(text)
-        assert "<<<TRUNCATED>>>" in result
-        assert len(result.encode("utf-8")) < len(text.encode("utf-8"))
-
-    def test_original_size_in_notice(self):
-        text = "z" * 150000
-        result = _truncate_shell_output(text, max_bytes=100000)
-        assert "150000 bytes" in result
 
 
 # ---------------------------------------------------------------------------
