@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,unused-argument
 """
 ChannelManager.replace_channel Unit Tests
 =========================================
@@ -10,11 +11,10 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from qwenpaw.app.channels.base import BaseChannel, ProcessHandler
+from qwenpaw.app.channels.base import BaseChannel
 from qwenpaw.app.channels.manager import ChannelManager
 
 
@@ -25,8 +25,6 @@ from qwenpaw.app.channels.manager import ChannelManager
 
 class StubChannel(BaseChannel):
     """Minimal concrete BaseChannel used only in these tests."""
-
-    channel = "stub"
 
     def __init__(
         self,
@@ -69,7 +67,7 @@ class StubChannel(BaseChannel):
         pass
 
     @classmethod
-    def from_config(cls, process, config, on_reply_sent=None, **kwargs):
+    def from_config(cls, process, config, on_reply_sent=None):
         return cls()
 
     async def consume_one(self, payload: Any) -> None:
@@ -128,9 +126,9 @@ class TestReplaceChannelOrdering:
 
     @pytest.mark.asyncio
     async def test_old_removed_from_list_before_new_starts(self):
-        """While the new channel is starting, the old channel must already
-        be gone from self.channels so concurrent lookups don't see a stale
-        (stopped) channel."""
+        """While the new channel is starting, the old channel must
+        already be gone from self.channels so concurrent lookups
+        don't see a stale (stopped) channel."""
         old = StubChannel("mych")
         new = StubChannel("mych")
         mgr = _make_manager(old)
@@ -149,12 +147,13 @@ class TestReplaceChannelOrdering:
 
         await mgr.replace_channel(new)
 
-        # During new.start(), old is already removed and new is not yet added
+        # During new.Start(), old is removed and new not yet added
         assert channels_during_new_start == [[]]
 
     @pytest.mark.asyncio
     async def test_new_added_to_list_after_start(self):
-        """After replace_channel succeeds, only the new channel is in the list."""
+        """After replace_channel succeeds, only the new channel is
+        in the list."""
         old = StubChannel("mych")
         new = StubChannel("mych")
         mgr = _make_manager(old)
@@ -188,8 +187,8 @@ class TestReplaceChannelOrdering:
 
 
 class TestReplaceChannelNewChannel:
-    """When there is no existing channel with the same name, the new one
-    should simply be added."""
+    """When there is no existing channel with the same name, the new
+    one should simply be added."""
 
     @pytest.mark.asyncio
     async def test_add_new_channel(self):
@@ -204,13 +203,12 @@ class TestReplaceChannelNewChannel:
 
     @pytest.mark.asyncio
     async def test_add_new_channel_no_old_stop(self):
-        """No old channel to stop, so stop should not be called on anything."""
+        """No old channel to stop, so stop should not be called."""
         new = StubChannel("fresh")
         mgr = _make_manager()
 
         await mgr.replace_channel(new)
 
-        # No exception means no spurious stop was attempted
         assert new.stop_called is False
 
 
@@ -219,25 +217,30 @@ class TestReplaceChannelNewStartFails:
 
     @pytest.mark.asyncio
     async def test_old_restored_on_new_start_failure(self):
-        """If the new channel fails to start, the old channel should be
-        restored (restarted and added back to the list)."""
+        """If the new channel fails to start, the old channel should
+        be restored (restarted and added back to the list)."""
         old = StubChannel("mych")
-        new = StubChannel("mych", start_side_effect=RuntimeError("port busy"))
+        new = StubChannel(
+            "mych",
+            start_side_effect=RuntimeError("port busy"),
+        )
         mgr = _make_manager(old)
 
         with pytest.raises(RuntimeError, match="port busy"):
             await mgr.replace_channel(new)
 
-        # Old channel should be restored
         assert old in mgr.channels
         assert old.start_called is True  # restarted
         assert new not in mgr.channels
 
     @pytest.mark.asyncio
     async def test_new_is_stopped_after_start_failure(self):
-        """A new channel that failed to start should have stop() called
-        for cleanup."""
-        new = StubChannel("mych", start_side_effect=RuntimeError("boom"))
+        """A new channel that failed to start should have stop()
+        called for cleanup."""
+        new = StubChannel(
+            "mych",
+            start_side_effect=RuntimeError("boom"),
+        )
         mgr = _make_manager()
 
         with pytest.raises(RuntimeError, match="boom"):
@@ -247,8 +250,11 @@ class TestReplaceChannelNewStartFails:
 
     @pytest.mark.asyncio
     async def test_original_exception_propagates(self):
-        """The original start exception should propagate to the caller."""
-        new = StubChannel("mych", start_side_effect=ConnectionError("refused"))
+        """The original start exception should propagate."""
+        new = StubChannel(
+            "mych",
+            start_side_effect=ConnectionError("refused"),
+        )
         mgr = _make_manager()
 
         with pytest.raises(ConnectionError, match="refused"):
@@ -256,15 +262,17 @@ class TestReplaceChannelNewStartFails:
 
     @pytest.mark.asyncio
     async def test_restore_failure_does_not_swallow_original(self):
-        """If restoring the old channel also fails, the original exception
-        should still propagate (not the restore failure)."""
+        """If restoring the old channel also fails, the original
+        exception should still propagate (not the restore failure)."""
         old = StubChannel(
             "mych",
             stop_side_effect=None,
             start_side_effect=RuntimeError("old also broken"),
         )
-        # First stop works, then on restore start fails
-        new = StubChannel("mych", start_side_effect=RuntimeError("new broken"))
+        new = StubChannel(
+            "mych",
+            start_side_effect=RuntimeError("new broken"),
+        )
         mgr = _make_manager(old)
 
         with pytest.raises(RuntimeError, match="new broken"):
@@ -272,9 +280,12 @@ class TestReplaceChannelNewStartFails:
 
     @pytest.mark.asyncio
     async def test_no_old_channel_new_start_fails(self):
-        """When adding a brand-new channel that fails to start, there's
-        no old channel to restore — just raise."""
-        new = StubChannel("fresh", start_side_effect=RuntimeError("fail"))
+        """When adding a brand-new channel that fails to start,
+        there's no old channel to restore — just raise."""
+        new = StubChannel(
+            "fresh",
+            start_side_effect=RuntimeError("fail"),
+        )
         mgr = _make_manager()
 
         with pytest.raises(RuntimeError, match="fail"):
@@ -284,16 +295,18 @@ class TestReplaceChannelNewStartFails:
 
 
 class TestReplaceChannelOldStopFails:
-    """When the old channel's stop() raises, the replace should still
-    proceed (stop errors are logged, not re-raised)."""
+    """When the old channel's stop() raises, the replace should
+    still proceed (stop errors are logged, not re-raised)."""
 
     @pytest.mark.asyncio
     async def test_old_stop_error_does_not_block_replace(self):
-        old = StubChannel("mych", stop_side_effect=RuntimeError("stop err"))
+        old = StubChannel(
+            "mych",
+            stop_side_effect=RuntimeError("stop err"),
+        )
         new = StubChannel("mych")
         mgr = _make_manager(old)
 
-        # Should NOT raise — old stop errors are caught and logged
         await mgr.replace_channel(new)
 
         assert new in mgr.channels
@@ -302,8 +315,12 @@ class TestReplaceChannelOldStopFails:
 
     @pytest.mark.asyncio
     async def test_old_stop_cancelled_error_handled(self):
-        """asyncio.CancelledError from old.stop() should be silently caught."""
-        old = StubChannel("mych", stop_side_effect=asyncio.CancelledError())
+        """asyncio.CancelledError from old.stop() should be
+        silently caught."""
+        old = StubChannel(
+            "mych",
+            stop_side_effect=asyncio.CancelledError(),
+        )
         new = StubChannel("mych")
         mgr = _make_manager(old)
 
@@ -316,7 +333,7 @@ class TestReplaceChannelEnqueueCallback:
     """Verify enqueue callback is set on the new channel."""
 
     @pytest.mark.asyncio
-    async def test_enqueue_callback_set_for_manager_queue_channel(self):
+    async def test_enqueue_callback_set_for_manager_queue(self):
         new = StubChannel("mych")
         new.uses_manager_queue = True
         mgr = _make_manager()
@@ -341,38 +358,31 @@ class TestReplaceChannelConcurrency:
 
     @pytest.mark.asyncio
     async def test_concurrent_replaces_do_not_duplicate(self):
-        """Two concurrent replace_channel calls for the same channel should
-        not result in duplicate entries."""
+        """Two concurrent replace_channel calls for the same channel
+        should not result in duplicate entries."""
         old = StubChannel("mych")
         mgr = _make_manager(old)
 
-        # Slow starts so they overlap
         new1 = StubChannel("mych")
         new2 = StubChannel("mych")
-
-        delay_event = asyncio.Event()
 
         orig_start1 = new1.start
 
         async def slow_start1():
-            # Wait a bit to let the second replace also proceed
             await asyncio.sleep(0.05)
             await orig_start1()
 
         new1.start = slow_start1  # type: ignore[assignment]
 
-        # Run both concurrently
         results = await asyncio.gather(
             mgr.replace_channel(new1),
             mgr.replace_channel(new2),
             return_exceptions=True,
         )
 
-        # No exceptions expected (both should succeed)
         for r in results:
-            assert not isinstance(r, Exception), f"Unexpected error: {r}"
+            assert not isinstance(r, Exception), f"Error: {r}"
 
-        # At least one of the new channels should be in the list
         channel_names = [c.channel for c in mgr.channels]
         assert channel_names.count("mych") >= 1
 
@@ -397,7 +407,8 @@ class TestReplaceChannelMultipleChannels:
 
     @pytest.mark.asyncio
     async def test_replace_preserves_order(self):
-        """After replace, the new channel should be appended at the end."""
+        """After replace, the new channel should be appended at
+        the end."""
         ch_a = StubChannel("alpha")
         ch_b = StubChannel("beta")
         ch_c = StubChannel("gamma")
@@ -407,5 +418,5 @@ class TestReplaceChannelMultipleChannels:
         await mgr.replace_channel(new_b)
 
         names = [c.channel for c in mgr.channels]
-        # Old ch_b was removed from its position, new_b appended
+        # Old ch_b removed from position, new_b appended
         assert names == ["alpha", "gamma", "beta"]
