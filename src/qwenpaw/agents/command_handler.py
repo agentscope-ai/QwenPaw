@@ -620,11 +620,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _messages: list[Msg],
         _args: str = "",
     ) -> Msg:
-        """Process bare /plan command to show plan status.
-
-        PlanNotebook was removed in AgentScope 2.0.  This command is
-        temporarily disabled until plan functionality is rebuilt on top
-        of the 2.0 Task system.
+        """Stub for the legacy ``/plan`` command — plan mode is currently
+        unavailable in qwenpaw.
         """
         return await self._make_system_msg(
             "**Plan Mode**\n\n"

@@ -304,9 +304,8 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
             channel=channel_name,
         )
 
-        # Plan state clearing is disabled — PlanNotebook was removed
-        # in AgentScope 2.0.  The clear_plan metadata flag is ignored
-        # until plan functionality is rebuilt on the 2.0 Task system.
+        # Plan state clearing is a no-op: plan mode is unavailable, so
+        # the clear_plan metadata flag is ignored.
     else:
         logger.warning(
             "Skipping session_state update for conversation"

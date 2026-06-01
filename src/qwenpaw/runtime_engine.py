@@ -561,7 +561,6 @@ def _build_qwenpaw_agent(
         memory_manager=None,
         context_manager=context_manager,
         mcp_clients=None,
-        plan_notebook=None,
     )
     return agent
 

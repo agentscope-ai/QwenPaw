@@ -105,7 +105,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         namesake_strategy: NamesakeStrategy = "skip",
         workspace_dir: Path | None = None,
         task_tracker: Any | None = None,
-        plan_notebook: Any | None = None,
     ):
         """Initialize QwenPawAgent.
 
@@ -135,11 +134,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._namesake_strategy = namesake_strategy
         self._workspace_dir = workspace_dir
         self._task_tracker = task_tracker
-        # The 1.x base ReActAgent stored ``plan_notebook`` itself; 2.0
-        # ``Agent`` doesn't, so the param was silently dropped — every
-        # ``getattr(self, "plan_notebook", None)`` site downstream saw
-        # ``None`` even when the caller passed a notebook in.
-        self.plan_notebook = plan_notebook
 
         # Extract configuration from agent_config
         running_config = agent_config.running
@@ -250,19 +244,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
     # Session persistence calls state_dict/load_state_dict on the agent;
     # these round-trip through self.state (AgentState pydantic model).
     def state_dict(self) -> dict:
-        """Serialize the agent's 2.0 ``AgentState`` to a JSON-safe dict.
-
-        Includes ``plan_notebook`` state when present so a single
-        ``save_session_state(agent=agent)`` round-trip preserves everything.
-        """
+        """Serialize the agent's 2.0 ``AgentState`` to a JSON-safe dict."""
         state = getattr(self, "state", None)
         if state is None:
             return {}
-        d: dict = {"state": state.model_dump(mode="json")}
-        nb = getattr(self, "plan_notebook", None)
-        if nb is not None and hasattr(nb, "state_dict"):
-            d["plan_notebook"] = nb.state_dict()
-        return d
+        return {"state": state.model_dump(mode="json")}
 
     def load_state_dict(self, state_dict: dict, strict: bool = True) -> None:
         """Restore ``self.state`` from a dict produced by :meth:`state_dict`.
@@ -287,7 +273,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 raise KeyError(
                     f"Could not load AgentState from snapshot: {exc}",
                 ) from exc
-            self._restore_plan_notebook(state_dict)
             return
 
         # --- 1.x legacy format: migrate ``memory`` → ``state`` ---
@@ -304,31 +289,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 len(msgs),
                 len(self.state.summary),
             )
-            self._restore_plan_notebook(state_dict)
             return
 
         if strict:
             raise KeyError(
                 "state_dict has neither 'state' nor 'memory' key",
             )
-
-    def _restore_plan_notebook(self, state_dict: dict) -> None:
-        """Restore plan_notebook state if present in the snapshot."""
-        nb_raw = state_dict.get("plan_notebook")
-        nb = getattr(self, "plan_notebook", None)
-        if (
-            nb_raw is not None
-            and nb is not None
-            and hasattr(nb, "load_state_dict")
-        ):
-            try:
-                nb.load_state_dict(nb_raw)
-                logger.debug("Restored plan_notebook from session state")
-            except Exception:
-                logger.warning(
-                    "Failed to restore plan_notebook state",
-                    exc_info=True,
-                )
 
     def _create_toolkit(
         self,
@@ -733,89 +699,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
     _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
     _MEDIA_MIME_PREFIXES = ("image/", "audio/", "video/")
 
-    # ------------------------------------------------------------------
-    # Plan gate: block non-create_plan tools when /plan gate is active
-    # ------------------------------------------------------------------
-
-    _PLAN_TOOLS_WITH_JSON_ARGS = frozenset(
-        {
-            "create_plan",
-            "revise_current_plan",
-        },
-    )
-    _PLAN_JSON_KEYS = ("subtask", "subtasks")
-
-    @staticmethod
-    def _fix_stringified_json_args(tool_call) -> None:
-        """Parse JSON-string arguments that models sometimes produce for
-        nested objects (e.g. ``subtask``).  Modifies *tool_call* in place.
-
-        agentscope 2.0 changed ``ToolCallBlock.input`` from ``dict`` to
-        ``str`` (raw JSON streamed in deltas); by the time ``_acting``
-        runs the input is still a string, so the nested-dict fixup below
-        no longer applies and we early-return.  Kept as a no-op so callers
-        don't need to branch — re-introduce real handling once we own the
-        post-parse dict surface again.
-        """
-        import json as _json
-
-        inp = getattr(tool_call, "input", None)
-        if not isinstance(inp, dict):
-            return
-        for key in QwenPawAgent._PLAN_JSON_KEYS:
-            val = inp.get(key)
-            if isinstance(val, str):
-                try:
-                    inp[key] = _json.loads(val)
-                except (ValueError, TypeError):
-                    pass
-            elif isinstance(val, list):
-                for i, item in enumerate(val):
-                    if isinstance(item, str):
-                        try:
-                            val[i] = _json.loads(item)
-                        except (ValueError, TypeError):
-                            pass
-
-    # Pre-call mutations (json-arg fix, plan hooks) then forward to
-    # super()._acting.  Plan gate denial is disabled (Plan feature
-    # is temporarily disabled in 2.0).
-    async def _acting(self, tool_call):
-        """Forward 2.0 ``_acting`` events with plan-mutation pre/post hooks.
-
-        ``tool_call`` is now an ``agentscope.message.ToolCallBlock`` Pydantic
-        model (use attribute access), not the 1.x dict.
-        """
-        tool_name = str(getattr(tool_call, "name", ""))
-
-        if tool_name in self._PLAN_TOOLS_WITH_JSON_ARGS:
-            self._fix_stringified_json_args(tool_call)
-
-        nb = getattr(self, "plan_notebook", None)
-
-        # Pre-lock BEFORE executing create_plan / revise_current_plan so that
-        # parallel tool calls (asyncio.gather) cannot slip an execution
-        # tool past the gate before the lock is set.
-        # pylint: disable=protected-access
-        if nb is not None and tool_name in {
-            "create_plan",
-            "revise_current_plan",
-        }:
-            nb._plan_awaiting_user_confirm = True
-
-        async for item in super()._acting(tool_call):
-            yield item
-
-        if nb is not None and tool_name in {
-            "create_plan",
-            "revise_current_plan",
-        }:
-            # Force the next post-plan reasoning pass to be text-only.  This
-            # prevents models from emitting other tools in the same turn
-            # run before the user has confirmed the plan or modified it.
-            # pylint: disable=protected-access
-            nb._plan_text_only_after_mutation = True
-
     _AUTO_CONTINUE_MAX_EXTRA = 2
     _AUTO_CONTINUE_TAIL_CHARS = 600
 
@@ -891,54 +774,14 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return
         setattr(formatter, "_qwenpaw_force_strip_media", enabled)
 
-    @staticmethod
-    def _filter_plan_tools(msg: Msg, nb: Any) -> Msg:
-        """Arm `_plan_awaiting_user_confirm` before any tool runs.
-
-        Race-prevention: when the assistant message carries plan mutation
-        tools alongside other tool calls, callers of ``asyncio.gather``
-        may hit ``_acting()`` on sibling tools before the mutation tool
-        executes.  Setting the lock here (before tools run) makes
-        ``check_plan_tool_gate`` refuse non-plan-management tools while
-        still returning a readable tool_result instead of stripping blocks.
-        """
-        if nb is None or not isinstance(msg.content, list):
-            return msg
-        mut = ("create_plan", "revise_current_plan")
-
-        def _has_plan_mutation(block: Any) -> bool:
-            if isinstance(block, dict):
-                btype = block.get("type")
-                name = block.get("name", "")
-            else:
-                btype = getattr(block, "type", None)
-                name = getattr(block, "name", "")
-            return btype in ("tool_use", "tool_call") and name in mut
-
-        if any(_has_plan_mutation(b) for b in msg.content):
-            # pylint: disable-next=protected-access
-            nb._plan_awaiting_user_confirm = True
-        return msg
-
     # pylint: disable=too-many-branches,too-many-statements
     async def _reasoning(
         self,
         tool_choice: Literal["auto", "none", "required"] | None = None,
     ):
         """Forward 2.0 ``_reasoning`` events with proactive media
-        stripping, passive bad-request retry, plan-mutation gate,
-        plan-tool filter, and auto-continue on text-only responses."""
-
-        # ── Plan gate: force text-only after plan mutation ──
-        nb = getattr(self, "plan_notebook", None)
-        if nb is not None and getattr(
-            nb,
-            "_plan_text_only_after_mutation",
-            False,
-        ):
-            # pylint: disable=protected-access
-            nb._plan_text_only_after_mutation = False
-            tool_choice = "none"
+        stripping, passive bad-request retry, and auto-continue on
+        text-only responses."""
 
         # ── Proactive media stripping ──
         from .model_factory import _supports_multimodal_for_current_model
@@ -1006,10 +849,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         if final_msg is None:
             return
 
-        # ── Plan-tool filter ──
-        if nb is not None:
-            self._filter_plan_tools(final_msg, nb)
-
         # ── Auto-continue: text-only → inject hint, let outer loop retry ──
         if self._should_auto_continue(final_msg, tool_choice):
             hint_body = self._auto_continue_system_hint()
@@ -1045,12 +884,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         tool_choice: Literal["auto", "none", "required"] | None,
     ) -> bool:
         """Check if auto-continue should be triggered."""
-        from ..plan.hints import should_skip_auto_continue
-
-        nb = getattr(self, "plan_notebook", None)
-        if should_skip_auto_continue(nb):
-            return False
-
         running = getattr(self, "_agent_config", None)
         running = getattr(running, "running", None)
         if running is None or not getattr(
