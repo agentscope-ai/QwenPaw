@@ -19,6 +19,7 @@ Telegram Bot API refs:
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -147,7 +148,8 @@ def build_compact_text(tool_name: str, severity: str) -> str:
     """Build a compact card text (streaming mode — body already sent)."""
     return (
         f"🛡️ *Tool Approval Required*\n"
-        f"*Tool*: `{tool_name}`  |  *Severity*: {severity}"
+        f"*Tool*: `{_escape_mdv2(tool_name)}`"
+        f"  \\|  *Severity*: {_escape_mdv2(severity)}"
     )
 
 
@@ -159,30 +161,38 @@ def build_resolved_text(
 ) -> str:
     """Build the text shown after a button click.
 
-    When ``body_text`` is present (non-streaming), returns plain text
-    to avoid MarkdownV2 parse errors from special characters in the
-    raw body.  When empty (streaming compact card), uses MarkdownV2.
+    When body_text is present (non-streaming), the body is kept as
+    plain text and the status line is appended without formatting
+    (parse_mode=None).  When body is empty (compact/streaming),
+    MarkdownV2 formatting is used.
     """
-    use_md = not body_text
-    if use_md:
-        by_text = f" by *{operator_display}*" if operator_display else ""
-    else:
-        by_text = f" by {operator_display}" if operator_display else ""
-
     status_map = {
         "approve": ("✅", "Approved"),
         "deny": ("🚫", "Denied"),
     }
     icon, word = status_map.get(action, ("⌛", "Expired"))
 
-    if use_md:
-        status_line = f"{icon} *{word}*{by_text}  |  Tool: `{tool_name}`"
-    else:
-        status_line = f"{icon} {word}{by_text}  |  Tool: {tool_name}"
-
     if body_text:
+        # Plain text — no markdown, no escape needed.
+        by_text = f" by {operator_display}" if operator_display else ""
+        status_line = f"{icon} {word}{by_text}  |  Tool: {tool_name}"
         return f"{body_text}\n\n{status_line}"
-    return status_line
+
+    # Compact (streaming) — MarkdownV2.
+    by = _escape_mdv2(operator_display)
+    by_text = f" by *{by}*" if operator_display else ""
+    return (
+        f"{icon} *{word}*{by_text}" f"  \\|  Tool: `{_escape_mdv2(tool_name)}`"
+    )
+
+
+# MarkdownV2 special characters that must be escaped.
+_MDV2_ESCAPE_RE = re.compile(r"([_*\[\]()~`>#+\-=|{}.!\\])")
+
+
+def _escape_mdv2(text: str) -> str:
+    """Escape special characters for Telegram MarkdownV2."""
+    return _MDV2_ESCAPE_RE.sub(r"\\\1", text)
 
 
 # =====================================================================
@@ -243,7 +253,7 @@ async def render(
         parse_mode = ParseMode.MARKDOWN_V2
     else:
         text = build_approval_text(body_text)
-        parse_mode = None  # raw body text, no HTML formatting
+        parse_mode = None  # raw body text, no formatting
 
     try:
         kwargs: Dict[str, Any] = {
@@ -414,16 +424,15 @@ async def _update_message_resolved(
         body_text=body_text,
     )
     # Use MarkdownV2 only for compact (no body) cards; plain text when
-    # body is present to avoid parse errors from special characters.
-    parse_mode = None if body_text else ParseMode.MARKDOWN_V2
+    # body is present to avoid parse errors from raw body content.
+    edit_kwargs: Dict[str, Any] = {
+        "text": resolved_text,
+        "reply_markup": None,
+    }
+    if not body_text:
+        edit_kwargs["parse_mode"] = ParseMode.MARKDOWN_V2
     try:
-        kwargs: Dict[str, Any] = {
-            "text": resolved_text,
-            "reply_markup": None,
-        }
-        if parse_mode:
-            kwargs["parse_mode"] = parse_mode
-        await query.edit_message_text(**kwargs)
+        await query.edit_message_text(**edit_kwargs)
         logger.info(
             "telegram approval card updated: action=%s operator=%s",
             action,
