@@ -210,12 +210,74 @@ def _select_builtin_variant(
     )
 
 
+def cleanup_stale_skill_dirs(target_dir: Path | None = None) -> None:
+    """Remove stale ``~``-prefixed directories left by pip upgrades on Windows.
+
+    On Windows, ``pip install --upgrade`` sometimes fails to fully delete
+    old skill directories, leaving behind truncated copies with ``~``-prefixed
+    names (e.g. ``~ron-en`` instead of ``cron-en``).  These ghost directories
+    pollute the skill pool UI (#4839).
+
+    Safety strategy:
+      - **Whitelist check**: Only directories that *both* start with ``~``
+        *and* contain a ``SKILL.md`` file are deleted (confirmed to be stale
+        skill copies, not user data).
+      - **Non-whitelisted**: If a ``~``-prefixed directory does *not* contain
+        ``SKILL.md``, a warning is logged but the directory is left intact.
+      - **Error tolerance**: Deletion failures (e.g. antivirus locks) are
+        logged as warnings and never crash the application.
+    """
+    import shutil
+
+    skill_dir = target_dir or get_builtin_skills_dir()
+    if not skill_dir.exists():
+        return
+
+    for path in sorted(skill_dir.iterdir()):
+        if not path.is_dir() or not path.name.startswith("~"):
+            continue
+
+        # Strategy A: whitelist — only delete if it looks like a skill dir.
+        if (path / "SKILL.md").exists():
+            try:
+                shutil.rmtree(path)
+                logger.info(
+                    "Removed stale skill directory: %s",
+                    path.name,
+                )
+            except OSError as exc:
+                logger.warning(
+                    "Failed to remove stale skill directory '%s': %s. "
+                    "You may delete it manually.",
+                    path,
+                    exc,
+                )
+        else:
+            # Strategy B: not a confirmed skill dir — warn only.
+            logger.warning(
+                "Detected possible stale directory '%s' in skills folder. "
+                "It does not contain SKILL.md so it was not auto-deleted. "
+                "Please remove it manually if it is not needed.",
+                path,
+            )
+
+
 def _iter_packaged_builtin_dirs() -> Iterator[Path]:
-    """Yield packaged builtin skill directories in stable order."""
+    """Yield packaged builtin skill directories in stable order.
+
+    Skips ``~``-prefixed directories (stale pip upgrade remnants on
+    Windows, see #4839) and runs cleanup on first scan.
+    """
     builtin_dir = get_builtin_skills_dir()
     if not builtin_dir.exists():
         return
+
+    # Best-effort cleanup of stale dirs before scanning.
+    cleanup_stale_skill_dirs(builtin_dir)
+
     for skill_dir in sorted(builtin_dir.iterdir()):
+        if skill_dir.name.startswith("~"):
+            continue
         if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
             yield skill_dir
 
@@ -893,7 +955,9 @@ def reconcile_pool_manifest() -> dict[str, Any]:
         discovered = {
             path.name: path
             for path in pool_dir.iterdir()
-            if path.is_dir() and (path / "SKILL.md").exists()
+            if path.is_dir()
+            and not path.name.startswith("~")
+            and (path / "SKILL.md").exists()
         }
 
         for skill_name, skill_dir in sorted(discovered.items()):
@@ -997,7 +1061,9 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         discovered = {
             path.name: path
             for path in workspace_skills_dir.iterdir()
-            if path.is_dir() and (path / "SKILL.md").exists()
+            if path.is_dir()
+            and not path.name.startswith("~")
+            and (path / "SKILL.md").exists()
         }
 
         for skill_name, skill_dir in sorted(discovered.items()):
