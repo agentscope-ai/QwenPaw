@@ -178,6 +178,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Mapping from msg_type to human-readable label used in [quoted ...] text.
+_QUOTED_LABEL: Dict[str, str] = {
+    "text": "message",
+    "post": "message",
+    "image": "image",
+    "file": "file",
+    "media": "video",
+    "audio": "audio",
+    "interactive": "interactive card",
+}
+
 
 class FeishuChannel(BaseChannel):
     """Feishu/Lark channel: WebSocket receive, Open API send.
@@ -718,7 +729,9 @@ class FeishuChannel(BaseChannel):
 
             # ---- shared message content parsing ----
             parsed_text, parsed_content = await self._parse_message_content(
-                msg_type, content_raw, message_id,
+                msg_type,
+                content_raw,
+                message_id,
             )
             # Strip bot mention keys from text items (text type only).
             if msg_type == "text" and bot_mention_keys and parsed_text:
@@ -732,7 +745,6 @@ class FeishuChannel(BaseChannel):
             # error/fallback in brackets).
             text_parts.extend(parsed_text)
             content_parts.extend(parsed_content)
-
 
             parent_id = str(
                 getattr(message, "parent_id", "") or "",
@@ -975,7 +987,8 @@ class FeishuChannel(BaseChannel):
                 text_items.append(text)
             for img_key in extract_post_image_keys(content_raw):
                 url_or_path = await self._download_image_resource(
-                    message_id, img_key,
+                    message_id,
+                    img_key,
                 )
                 if url_or_path:
                     content_items.append(
@@ -988,7 +1001,8 @@ class FeishuChannel(BaseChannel):
                     text_items.append("[image: download failed]")
             for file_key in extract_post_media_file_keys(content_raw):
                 url_or_path = await self._download_file_resource(
-                    message_id, file_key,
+                    message_id,
+                    file_key,
                 )
                 if url_or_path:
                     content_items.append(
@@ -1010,7 +1024,8 @@ class FeishuChannel(BaseChannel):
             )
             if image_key:
                 url_or_path = await self._download_image_resource(
-                    message_id, image_key,
+                    message_id,
+                    image_key,
                 )
                 if url_or_path:
                     content_items.append(
@@ -1026,10 +1041,14 @@ class FeishuChannel(BaseChannel):
 
         elif msg_type in ("file", "media", "audio"):
             file_key = extract_json_key(
-                content_raw, "file_key", "fileKey",
+                content_raw,
+                "file_key",
+                "fileKey",
             )
             file_name = extract_json_key(
-                content_raw, "file_name", "fileName",
+                content_raw,
+                "file_name",
+                "fileName",
             )
             hint_map = {
                 "file": "file.bin",
@@ -1041,7 +1060,9 @@ class FeishuChannel(BaseChannel):
             label = label_map.get(msg_type, msg_type)
             if file_key:
                 url_or_path = await self._download_file_resource(
-                    message_id, file_key, filename_hint=hint,
+                    message_id,
+                    file_key,
+                    filename_hint=hint,
                 )
                 if url_or_path:
                     if msg_type == "audio":
@@ -1074,6 +1095,7 @@ class FeishuChannel(BaseChannel):
             text_items.append(f"[{msg_type}]")
 
         return text_items, content_items
+
     async def _fetch_quoted_message_content(
         self,
         parent_id: str,
@@ -1149,18 +1171,13 @@ class FeishuChannel(BaseChannel):
             quoted_msg_type,
         )
 
-
         # Delegate to shared parsing engine.
         parsed_text, parsed_content = await self._parse_message_content(
-            quoted_msg_type, quoted_content, parent_id,
+            quoted_msg_type,
+            quoted_content,
+            parent_id,
         )
 
-        _QUOTED_LABEL: Dict[str, str] = {
-            "text": "message", "post": "message",
-            "image": "image", "file": "file",
-            "media": "video", "audio": "audio",
-            "interactive": "interactive card",
-        }
         label = _QUOTED_LABEL.get(quoted_msg_type, quoted_msg_type)
 
         if parsed_text:
@@ -1186,7 +1203,6 @@ class FeishuChannel(BaseChannel):
             text_parts.insert(0, f"[quoted {label}]")
 
         content_parts.extend(parsed_content)
-
 
     def _receive_id_store_path(self) -> Path:
         """
