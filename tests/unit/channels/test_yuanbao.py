@@ -44,7 +44,7 @@ def yuanbao_channel(mock_process, tmp_path):
     channel = YuanbaoChannel(
         process=mock_process,
         enabled=True,
-        app_key="test_app_key_123",
+        app_id="test_app_key_123",
         app_secret="test_app_secret_456",
         api_domain="yuanbao.tencent.com",
         bot_prefix="[Bot] ",
@@ -100,7 +100,7 @@ class TestYuanbaoChannelInit:
         channel = YuanbaoChannel(
             process=mock_process,
             enabled=True,
-            app_key="key_abc",
+            app_id="key_abc",
             app_secret="secret_xyz",
             api_domain="custom.domain.com",
             bot_prefix="[Test] ",
@@ -108,7 +108,7 @@ class TestYuanbaoChannelInit:
         )
 
         assert channel.enabled is True
-        assert channel.app_key == "key_abc"
+        assert channel.app_id == "key_abc"
         assert channel.app_secret == "secret_xyz"
         assert channel.api_domain == "custom.domain.com"
         assert channel.bot_prefix == "[Test] "
@@ -130,7 +130,7 @@ class TestYuanbaoChannelInit:
         channel = YuanbaoChannel(
             process=mock_process,
             enabled=True,
-            app_key="k",
+            app_id="k",
             app_secret="s",
             workspace_dir=workspace,
         )
@@ -153,7 +153,7 @@ class TestYuanbaoChannelFactory:
 
         config = {
             "enabled": True,
-            "app_key": "dict_key",
+            "app_id": "dict_key",
             "app_secret": "dict_secret",
             "api_domain": "dict.domain.com",
             "bot_prefix": "[Dict] ",
@@ -164,7 +164,7 @@ class TestYuanbaoChannelFactory:
         )
 
         assert channel.enabled is True
-        assert channel.app_key == "dict_key"
+        assert channel.app_id == "dict_key"
         assert channel.app_secret == "dict_secret"
         assert channel.api_domain == "dict.domain.com"
 
@@ -173,7 +173,7 @@ class TestYuanbaoChannelFactory:
 
         config = Mock()
         config.enabled = True
-        config.app_key = "obj_key"
+        config.app_id = "obj_key"
         config.app_secret = "obj_secret"
         config.api_domain = "obj.domain.com"
         config.bot_prefix = "[Obj] "
@@ -191,7 +191,7 @@ class TestYuanbaoChannelFactory:
             config=config,
         )
 
-        assert channel.app_key == "obj_key"
+        assert channel.app_id == "obj_key"
         assert channel.app_secret == "obj_secret"
 
 
@@ -409,7 +409,7 @@ class TestAuthSignature:
         sig = _compute_signature(
             nonce="abc123",
             timestamp="2026-01-01 00:00:00",
-            app_key="test_key",
+            app_id="test_key",
             app_secret="test_secret",
         )
         assert isinstance(sig, str)
@@ -437,12 +437,12 @@ class TestTokenManager:
         from qwenpaw.app.channels.yuanbao.auth import TokenManager
 
         manager = TokenManager(
-            app_key="test_key",
+            app_id="test_key",
             app_secret="test_secret",
             api_domain="yuanbao.tencent.com",
         )
 
-        assert manager.app_key == "test_key"
+        assert manager.app_id == "test_key"
         assert manager.app_secret == "test_secret"
         assert manager._cache is None
 
@@ -701,6 +701,329 @@ class TestCodecHelpers:
         assert len(result) == 1
         assert result[0]["msg_type"] == "TIMTextElem"
         assert result[0]["msg_content"]["text"] == "world"
+
+
+# =============================================================================
+# P1: Inbound Message Handling Tests
+# =============================================================================
+
+
+class TestHelperFunctions:
+    """P1: Helper function tests (_short_id, _sender_display)."""
+
+    def test_short_id_long_string(self):
+        from qwenpaw.app.channels.yuanbao.channel import _short_id
+
+        result = _short_id(
+            "CK8kfT4SpnXTsZg7ovLVTzWJLv8EymvNXO1BhLuAgOYwVFC1HLHzx5qq7AG0zjPq",
+        )
+        assert result == "7AG0zjPq"
+        assert len(result) == 8
+
+    def test_short_id_short_string(self):
+        from qwenpaw.app.channels.yuanbao.channel import _short_id
+
+        result = _short_id("abc")
+        assert result == "abc"
+
+    def test_sender_display_normal(self):
+        from qwenpaw.app.channels.yuanbao.channel import _sender_display
+
+        result = _sender_display(
+            "灰",
+            "CK8kfT4SpnXTsZg7ovLVTzWJLv8EymvNXO1BhLuAgOYwVFC1HLHzx5qq7AG0zjPq",
+        )
+        assert result == "灰#zjPq"
+
+    def test_sender_display_empty_nickname(self):
+        from qwenpaw.app.channels.yuanbao.channel import _sender_display
+
+        result = _sender_display("", "abcdefgh")
+        assert result in ("unknown#fgh", "unknown#efgh")
+        assert result.startswith("unknown#")
+
+    def test_sender_display_short_id(self):
+        from qwenpaw.app.channels.yuanbao.channel import _sender_display
+
+        result = _sender_display("Test", "ab")
+        assert result == "Test#ab"
+
+
+class TestNormalizeInbound:
+    """P1: _normalize_inbound tests."""
+
+    def test_normalize_text_message(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        data = {
+            "callback_command": "C2C.CallbackAfterSendMsg",
+            "from_account": "sender123",
+            "msg_body": [
+                {"msg_type": "TIMTextElem", "msg_content": {"text": "你好"}},
+            ],
+        }
+        result = YuanbaoChannel._normalize_inbound(data)
+        assert result["msg_body"][0]["msg_content"]["text"] == "你好"
+
+    def test_normalize_string_content(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        data = {
+            "msg_body": [
+                {"msg_type": "TIMTextElem", "msg_content": '{"text": "hi"}'},
+            ],
+        }
+        result = YuanbaoChannel._normalize_inbound(data)
+        assert result["msg_body"][0]["msg_content"] == {"text": "hi"}
+
+    def test_normalize_invalid_json_string_content(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        data = {
+            "msg_body": [
+                {"msg_type": "TIMTextElem", "msg_content": "plain text"},
+            ],
+        }
+        result = YuanbaoChannel._normalize_inbound(data)
+        assert result["msg_body"][0]["msg_content"] == {"text": "plain text"}
+
+
+@pytest.mark.asyncio
+class TestParseMsgBody:
+    """P1: _parse_msg_body tests."""
+
+    async def test_parse_text_elem(self, connected_channel):
+        msg_body = [
+            {"msg_type": "TIMTextElem", "msg_content": {"text": "你好呀"}},
+        ]
+        parts, mentioned = await connected_channel._parse_msg_body(msg_body)
+        assert len(parts) == 1
+        assert parts[0].text == "你好呀"
+        assert mentioned is False
+
+    async def test_parse_custom_elem_at_mention(self, connected_channel):
+        """TIMCustomElem with elem_type=1002 should set bot_mentioned."""
+        import json
+
+        connected_channel._bot_id = "test_bot_id"
+        msg_body = [
+            {
+                "msg_type": "TIMCustomElem",
+                "msg_content": {
+                    "data": json.dumps(
+                        {
+                            "elem_type": 1002,
+                            "user_id": "test_bot_id",
+                            "text": "@Bot",
+                        },
+                    ),
+                    "desc": "@Bot",
+                },
+            },
+            {"msg_type": "TIMTextElem", "msg_content": {"text": "hello"}},
+        ]
+        parts, mentioned = await connected_channel._parse_msg_body(
+            msg_body,
+            is_group=True,
+        )
+        assert mentioned is True
+        assert len(parts) == 1
+        assert parts[0].text == "hello"
+
+    async def test_parse_custom_elem_at_other(self, connected_channel):
+        """TIMCustomElem mentioning another user should not set mentioned."""
+        import json
+
+        connected_channel._bot_id = "test_bot_id"
+        msg_body = [
+            {
+                "msg_type": "TIMCustomElem",
+                "msg_content": {
+                    "data": json.dumps(
+                        {
+                            "elem_type": 1002,
+                            "user_id": "other_user",
+                        },
+                    ),
+                },
+            },
+            {"msg_type": "TIMTextElem", "msg_content": {"text": "hey"}},
+        ]
+        parts, mentioned = await connected_channel._parse_msg_body(
+            msg_body,
+            is_group=True,
+        )
+        assert mentioned is False
+        assert len(parts) == 1
+
+    async def test_parse_image_elem(self, connected_channel):
+        """TIMImageElem should download and return ImageContent."""
+        msg_body = [
+            {
+                "msg_type": "TIMImageElem",
+                "msg_content": {
+                    "uuid": "img.jpg",
+                    "image_info_array": [
+                        {"type": 1, "url": "https://example.com/img.jpg"},
+                    ],
+                },
+            },
+        ]
+        with patch(
+            "qwenpaw.app.channels.yuanbao.channel.download_media",
+            new_callable=AsyncMock,
+            return_value=None,
+        ), patch.object(
+            connected_channel,
+            "_resolve_media_url",
+            new_callable=AsyncMock,
+            return_value="https://example.com/img.jpg",
+        ):
+            parts, _ = await connected_channel._parse_msg_body(msg_body)
+
+        assert len(parts) == 1
+        assert parts[0].image_url == "https://example.com/img.jpg"
+
+    async def test_parse_empty_body(self, connected_channel):
+        parts, mentioned = await connected_channel._parse_msg_body([])
+        assert parts == []
+        assert mentioned is False
+
+
+@pytest.mark.asyncio
+class TestHandleChatMessage:
+    """P1: _handle_chat_message integration tests."""
+
+    async def test_dedup_drops_duplicate(self, connected_channel):
+        """Same msg_id should be dropped on second call."""
+        connected_channel._enqueue = MagicMock()
+        inbound = {
+            "callback_command": "C2C.CallbackAfterSendMsg",
+            "from_account": "sender_abc",
+            "sender_nickname": "灰",
+            "msg_id": "msg_123",
+            "msg_body": [
+                {"msg_type": "TIMTextElem", "msg_content": {"text": "hi"}},
+            ],
+        }
+        await connected_channel._handle_chat_message(inbound)
+        await connected_channel._handle_chat_message(inbound)
+        assert connected_channel._enqueue.call_count == 1
+
+    async def test_ignores_self_message(self, connected_channel):
+        """Messages from bot itself should be ignored."""
+        connected_channel._enqueue = MagicMock()
+        connected_channel._bot_id = "test_bot_id"
+        inbound = {
+            "callback_command": "C2C.CallbackAfterSendMsg",
+            "from_account": "test_bot_id",
+            "sender_nickname": "Bot",
+            "msg_id": "msg_self",
+            "msg_body": [
+                {"msg_type": "TIMTextElem", "msg_content": {"text": "echo"}},
+            ],
+        }
+        await connected_channel._handle_chat_message(inbound)
+        connected_channel._enqueue.assert_not_called()
+
+    async def test_group_without_mention_filtered(self, connected_channel):
+        """Group msg without @bot should be filtered when require_mention."""
+        connected_channel._enqueue = MagicMock()
+        connected_channel.require_mention = True
+        inbound = {
+            "callback_command": "Group.CallbackAfterSendMsg",
+            "from_account": "sender_abc",
+            "sender_nickname": "灰",
+            "group_code": "293831858",
+            "msg_id": "msg_grp_1",
+            "msg_body": [
+                {"msg_type": "TIMTextElem", "msg_content": {"text": "你是谁"}},
+            ],
+        }
+        await connected_channel._handle_chat_message(inbound)
+        connected_channel._enqueue.assert_not_called()
+
+    async def test_group_with_mention_passes(self, connected_channel):
+        """Group msg with @bot should pass through."""
+        import json
+
+        connected_channel._enqueue = MagicMock()
+        connected_channel.require_mention = True
+        connected_channel._bot_id = "test_bot_id"
+        inbound = {
+            "callback_command": "Group.CallbackAfterSendMsg",
+            "from_account": "sender_abc",
+            "sender_nickname": "灰",
+            "group_code": "293831858",
+            "msg_id": "msg_grp_2",
+            "msg_body": [
+                {
+                    "msg_type": "TIMCustomElem",
+                    "msg_content": {
+                        "data": json.dumps(
+                            {
+                                "elem_type": 1002,
+                                "user_id": "test_bot_id",
+                            },
+                        ),
+                        "desc": "@Bot",
+                    },
+                },
+                {"msg_type": "TIMTextElem", "msg_content": {"text": "1"}},
+            ],
+        }
+        await connected_channel._handle_chat_message(inbound)
+        connected_channel._enqueue.assert_called_once()
+
+    async def test_c2c_message_enqueues_correct_payload(
+        self,
+        connected_channel,
+    ):
+        """C2C message should produce correct native payload."""
+        connected_channel._enqueue = MagicMock()
+        inbound = {
+            "callback_command": "C2C.CallbackAfterSendMsg",
+            "from_account": (
+                "CK8kfT4SpnXTsZg7ovLVTzWJLv8Eymv"
+                "NXO1BhLuAgOYwVFC1HLHzx5qq7AG0zjPq"
+            ),
+            "sender_nickname": "灰",
+            "msg_id": "msg_c2c_1",
+            "msg_body": [
+                {"msg_type": "TIMTextElem", "msg_content": {"text": "你好呀"}},
+            ],
+        }
+        await connected_channel._handle_chat_message(inbound)
+
+        native = connected_channel._enqueue.call_args[0][0]
+        assert native["channel_id"] == "yuanbao"
+        assert native["sender_id"] == "灰#zjPq"
+        expected_sender = (
+            "CK8kfT4SpnXTsZg7ovLVTzWJLv8Eymv"
+            "NXO1BhLuAgOYwVFC1HLHzx5qq7AG0zjPq"
+        )
+        assert native["acl_sender_id"] == expected_sender
+        assert native["session_id"] == "7AG0zjPq"
+        assert native["meta"]["chat_type"] == "c2c"
+        assert native["meta"]["user_name"] == "灰"
+
+    async def test_session_map_persisted(self, connected_channel, tmp_path):
+        """Session map should be saved to disk after handling message."""
+        connected_channel._enqueue = MagicMock()
+        connected_channel._workspace_dir = tmp_path
+        inbound = {
+            "callback_command": "C2C.CallbackAfterSendMsg",
+            "from_account": "sender12345678",
+            "sender_nickname": "Test",
+            "msg_id": "msg_persist",
+            "msg_body": [
+                {"msg_type": "TIMTextElem", "msg_content": {"text": "hi"}},
+            ],
+        }
+        await connected_channel._handle_chat_message(inbound)
+
+        session_file = tmp_path / "yuanbao_sessions.json"
+        assert session_file.exists()
 
 
 # =============================================================================

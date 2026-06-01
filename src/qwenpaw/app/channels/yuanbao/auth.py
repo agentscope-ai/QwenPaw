@@ -54,14 +54,14 @@ class TokenCache:
 def _compute_signature(
     nonce: str,
     timestamp: str,
-    app_key: str,
+    app_id: str,
     app_secret: str,
 ) -> str:
     """Compute HMAC-SHA256 signature for sign-token request.
 
-    The plain text is: nonce + timestamp + appKey + appSecret
+    The plain text is: nonce + timestamp + appId + appSecret
     """
-    plain = nonce + timestamp + app_key + app_secret
+    plain = nonce + timestamp + app_id + app_secret
     return hmac.new(
         app_secret.encode("utf-8"),
         plain.encode("utf-8"),
@@ -87,11 +87,11 @@ class TokenManager:
 
     def __init__(
         self,
-        app_key: str,
+        app_id: str,
         app_secret: str,
         api_domain: str = DEFAULT_API_DOMAIN,
     ):
-        self.app_key = app_key
+        self.app_id = app_id
         self.app_secret = app_secret
         self.api_domain = api_domain
         self._cache: Optional[TokenCache] = None
@@ -142,12 +142,12 @@ class TokenManager:
             signature = _compute_signature(
                 nonce,
                 timestamp,
-                self.app_key,
+                self.app_id,
                 self.app_secret,
             )
 
             body = {
-                "app_key": self.app_key,
+                "app_key": self.app_id,
                 "nonce": nonce,
                 "signature": signature,
                 "timestamp": timestamp,

@@ -1150,11 +1150,11 @@ export function ChannelDrawer({
         return (
           <>
             <Form.Item
-              name="app_key"
-              label="App Key"
-              rules={[{ required: true, message: "Please input App Key" }]}
+              name="app_id"
+              label="App ID"
+              rules={[{ required: true, message: "Please input App ID" }]}
             >
-              <Input placeholder="App Key from Yuanbao platform" />
+              <Input placeholder="App ID from Yuanbao platform" />
             </Form.Item>
             <Form.Item
               name="app_secret"

@@ -53,3 +53,6 @@ TEXT_CHUNK_LIMIT = 2800
 
 # Maximum media upload size (bytes) — 20 MB
 MEDIA_MAX_BYTES = 20 * 1024 * 1024
+
+# Session ID suffix length (last N chars of raw account id)
+SESSION_ID_SUFFIX_LEN = 8

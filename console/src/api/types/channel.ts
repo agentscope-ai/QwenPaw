@@ -153,7 +153,7 @@ export interface WeChatConfig extends BaseChannelConfig {
 }
 
 export interface YuanbaoConfig extends BaseChannelConfig {
-  app_key: string;
+  app_id: string;
   app_secret: string;
   api_domain: string;
   media_dir?: string;

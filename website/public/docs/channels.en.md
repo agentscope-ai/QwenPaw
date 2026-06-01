@@ -925,7 +925,7 @@ The Yuanbao channel connects QwenPaw to Tencent's Yuanbao AI assistant platform 
 
 | Field        | Type   | Default                   | Description                        |
 | ------------ | ------ | ------------------------- | ---------------------------------- |
-| `app_key`    | string | `""` (required)           | App ID from Yuanbao platform       |
+| `app_id`     | string | `""` (required)           | App ID from Yuanbao platform       |
 | `app_secret` | string | `""` (required)           | App Secret from Yuanbao platform   |
 | `api_domain` | string | `bot.yuanbao.tencent.com` | REST API domain for authentication |
 
@@ -1329,7 +1329,7 @@ After configuration, start a call from your SIP phone or browser:
 | WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts                                                 |
 | WeChat     | wechat     | bot_token (or QR login); optional bot_token_file, base_url, media_dir                                      |
 | XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                                                          |
-| Yuanbao    | yuanbao    | app_key, app_secret; optional api_domain, media_dir                                                        |
+| Yuanbao    | yuanbao    | app_id, app_secret; optional api_domain, media_dir                                                         |
 | Voice      | voice      | twilio_account_sid, twilio_auth_token, phone_number, phone_number_sid; optional tts_provider, stt_provider |
 
 All channels also support the common access control fields (`dm_policy`, `group_policy`, `allow_from`, `deny_message`, `require_mention`) documented in the common fields section below.

@@ -9,7 +9,6 @@ Supports C2C (direct) and group chat with streaming output.
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 from pathlib import Path
@@ -46,10 +45,8 @@ from .codec import (
     build_send_group_msg,
     decode_auth_bind_rsp,
     decode_conn_msg,
-    decode_inbound_message,
     decode_kickout_msg,
     decode_ping_rsp,
-    decode_push_msg,
     decode_send_rsp,
 )
 from .constants import (
@@ -63,6 +60,7 @@ from .constants import (
     NO_RECONNECT_CLOSE_CODES,
     RECONNECT_DELAYS,
     SEND_TIMEOUT,
+    SESSION_ID_SUFFIX_LEN,
 )
 from ..utils import split_text
 from .media import (
@@ -76,6 +74,23 @@ from .utils import download_media
 logger = logging.getLogger(__name__)
 
 
+def _short_id(raw_id: str) -> str:
+    """Take last N chars of a raw account/group id."""
+    n = SESSION_ID_SUFFIX_LEN
+    return raw_id[-n:] if len(raw_id) >= n else raw_id
+
+
+def _sender_display(nickname: str, raw_sender_id: str) -> str:
+    """Build human-readable sender display: nickname#last4."""
+    nick = (nickname or "").strip() or "unknown"
+    suffix = (
+        raw_sender_id[-4:]
+        if len(raw_sender_id) >= 4
+        else (raw_sender_id or "????")
+    )
+    return f"{nick}#{suffix}"
+
+
 class YuanbaoChannel(BaseChannel):
     """Yuanbao channel using protobuf WebSocket for real-time messaging."""
 
@@ -86,7 +101,7 @@ class YuanbaoChannel(BaseChannel):
         self,
         process: ProcessHandler,
         enabled: bool,
-        app_key: str,
+        app_id: str,
         app_secret: str,
         api_domain: str = DEFAULT_API_DOMAIN,
         bot_prefix: str = "",
@@ -120,7 +135,7 @@ class YuanbaoChannel(BaseChannel):
         )
 
         self.enabled = enabled
-        self.app_key = app_key
+        self.app_id = app_id
         self.app_secret = app_secret
         self.api_domain = api_domain
         self.bot_prefix = bot_prefix
@@ -150,8 +165,9 @@ class YuanbaoChannel(BaseChannel):
         # Bot identity (resolved during sign-token)
         self._bot_id: str = ""
 
-        # Session tracking for reply routing
+        # Session tracking for reply routing (short_id → raw ids)
         self._session_map: Dict[str, Dict[str, Any]] = {}
+        self._load_session_map_from_disk()
 
         # Heartbeat state
         self._heartbeat_task: Optional[asyncio.Task] = None
@@ -188,7 +204,7 @@ class YuanbaoChannel(BaseChannel):
             return cls(
                 process=process,
                 enabled=config.get("enabled", False),
-                app_key=config.get("app_key", ""),
+                app_id=config.get("app_id", ""),
                 app_secret=config.get("app_secret", ""),
                 api_domain=config.get(
                     "api_domain",
@@ -217,7 +233,7 @@ class YuanbaoChannel(BaseChannel):
         return cls(
             process=process,
             enabled=config.enabled,
-            app_key=config.app_key,
+            app_id=config.app_id,
             app_secret=config.app_secret,
             api_domain=config.api_domain,
             bot_prefix=config.bot_prefix,
@@ -251,19 +267,21 @@ class YuanbaoChannel(BaseChannel):
     ) -> str:
         """Build session_id from meta or sender_id."""
         meta = channel_meta or {}
+        if meta.get("session_id"):
+            return meta["session_id"]
         group_code = (meta.get("group_code") or "").strip()
         chat_type = (meta.get("chat_type") or "").strip()
         if chat_type == "group" and group_code:
-            return f"yuanbao:group:{group_code}"
+            return group_code
         if sender_id:
-            return f"yuanbao:{sender_id}"
-        return "yuanbao:unknown"
+            return _short_id(sender_id)
+        return "unknown"
 
     def get_to_handle_from_request(self, request: Any) -> str:
-        """Return session_id as send target (like wecom)."""
+        """Return session_id as send target."""
         session_id = getattr(request, "session_id", "") or ""
         user_id = getattr(request, "user_id", "") or ""
-        return session_id or f"yuanbao:{user_id}"
+        return session_id or user_id
 
     def get_on_reply_sent_args(
         self,
@@ -277,40 +295,15 @@ class YuanbaoChannel(BaseChannel):
 
     def to_handle_from_target(self, *, user_id: str, session_id: str) -> str:
         """Map cron dispatch target to channel-specific to_handle."""
-        return session_id or f"yuanbao:{user_id}"
-
-    @staticmethod
-    def _parse_target_from_handle(to_handle: str) -> Dict[str, str]:
-        """Parse to_handle → chat_type, target_id.
-
-        - ``yuanbao:group:<code>`` → group, <code>
-        - ``yuanbao:<sender>``     → c2c, <sender>
-        """
-        handle = (to_handle or "").strip()
-        if handle.startswith("yuanbao:group:"):
-            return {
-                "chat_type": "group",
-                "target_id": handle.removeprefix("yuanbao:group:"),
-            }
-        if handle.startswith("yuanbao:direct:"):
-            return {
-                "chat_type": "c2c",
-                "target_id": handle.removeprefix("yuanbao:direct:"),
-            }
-        if handle.startswith("yuanbao:"):
-            return {
-                "chat_type": "c2c",
-                "target_id": handle.removeprefix("yuanbao:"),
-            }
-        return {"chat_type": "c2c", "target_id": handle}
+        return session_id or user_id
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     def _validate_config(self) -> None:
-        if not self.app_key:
-            raise ValueError("Yuanbao app_key is required")
+        if not self.app_id:
+            raise ValueError("Yuanbao app_id is required")
         if not self.app_secret:
             raise ValueError("Yuanbao app_secret is required")
 
@@ -346,7 +339,7 @@ class YuanbaoChannel(BaseChannel):
             return
 
         self._token_manager = TokenManager(
-            app_key=self.app_key,
+            app_id=self.app_id,
             app_secret=self.app_secret,
             api_domain=self.api_domain,
         )
@@ -363,6 +356,7 @@ class YuanbaoChannel(BaseChannel):
         await self._cleanup_session()
 
         # Step 1: Get token via sign-token API
+        assert self._token_manager is not None
         token_data = await self._token_manager.get_token()
         self._bot_id = token_data.bot_id
         logger.info(
@@ -419,6 +413,7 @@ class YuanbaoChannel(BaseChannel):
 
     async def _wait_for_auth_response(self) -> bool:
         """Wait for AuthBindRsp from server."""
+        assert self._ws is not None
         try:
             msg = await asyncio.wait_for(
                 self._ws.receive(),
@@ -573,6 +568,10 @@ class YuanbaoChannel(BaseChannel):
 
     async def _handle_binary_frame(self, raw: bytes) -> None:
         """Decode and dispatch a binary ConnMsg frame."""
+        logger.debug(
+            "yuanbao: raw ws frame %d bytes",
+            len(raw),
+        )
         conn_msg = decode_conn_msg(raw)
         if not conn_msg or not conn_msg.get("head"):
             logger.warning(
@@ -586,7 +585,7 @@ class YuanbaoChannel(BaseChannel):
         cmd = head.get("cmd", "")
         data = conn_msg.get("data", b"")
 
-        logger.info(
+        logger.debug(
             "yuanbao: frame cmdType=%s cmd=%s module=%s data_len=%s",
             cmd_type,
             cmd,
@@ -627,9 +626,9 @@ class YuanbaoChannel(BaseChannel):
                 await self._handle_auth_failure()
             return
 
-        # Business response — log and resolve pending request
+        # Business response — resolve pending request
         rsp = decode_send_rsp(data) if data else {}
-        logger.info(
+        logger.debug(
             "yuanbao: response cmd=%s status=%s rsp=%s",
             cmd,
             head.get("status", 0),
@@ -641,16 +640,14 @@ class YuanbaoChannel(BaseChannel):
             if not future.done():
                 future.set_result(rsp)
 
-    async def _handle_push(  # pylint: disable=too-many-branches
+    async def _handle_push(
         self,
         head: dict,
         data: bytes,
     ) -> None:
         """Handle a push frame (inbound message).
 
-        Push structure: ConnMsg.data may contain:
-        1. PushMsg wrapper → inner data is InboundMessagePush
-        2. Direct InboundMessagePush (try as fallback)
+        ConnMsg.data contains a JSON-encoded message body.
         """
         # Send push ACK if required
         if head.get("needAck"):
@@ -675,91 +672,64 @@ class YuanbaoChannel(BaseChannel):
         if not data:
             return
 
-        # Try decoding InboundMessagePush from multiple paths:
-        inbound = None
-
-        # Path 1: Data is JSON text (server sends JSON, not protobuf, for push)
+        # Server sends JSON inside the protobuf data field
         try:
             json_data = json.loads(data)
-            if isinstance(json_data, dict) and json_data.get(
-                "callback_command",
-            ):
-                inbound = self._parse_json_inbound(json_data)
-                logger.info("yuanbao: decoded via JSON push")
         except (ValueError, UnicodeDecodeError):
-            pass
-
-        # Path 2: Protobuf InboundMessagePush (direct)
-        if not inbound or not inbound.get("callback_command"):
-            inbound = decode_inbound_message(data)
-            if inbound and inbound.get("callback_command"):
-                logger.info("yuanbao: decoded via protobuf InboundMessagePush")
-
-        # Path 3: PushMsg wrapper → inner data
-        if not inbound or not inbound.get("callback_command"):
-            push_msg = decode_push_msg(data)
-            if push_msg and push_msg.get("data"):
-                push_data = push_msg["data"]
-                if isinstance(push_data, str):
-                    try:
-                        push_data = base64.b64decode(push_data)
-                    except Exception:
-                        pass
-                if isinstance(push_data, (bytes, bytearray)):
-                    inbound = decode_inbound_message(push_data)
-                    if inbound:
-                        logger.info("yuanbao: decoded via PushMsg wrapper")
-
-        if inbound and inbound.get("callback_command"):
-            logger.info(
-                "yuanbao: received message cmd=%s from=%s",
-                inbound.get("callback_command"),
-                inbound.get("from_account", ""),
-            )
-            await self._handle_chat_message(inbound)
-        else:
-            logger.info(
-                "yuanbao: push not decoded (head_cmd=%s, data_len=%s)",
+            logger.warning(
+                "yuanbao: push data is not valid JSON (cmd=%s, %d bytes)",
                 cmd,
                 len(data),
             )
+            return
 
-    def _parse_json_inbound(self, data: dict) -> dict:
-        """Parse a JSON-format inbound message into internal format."""
+        if not isinstance(json_data, dict):
+            return
+
+        callback_cmd = json_data.get("callback_command", "")
+        if not callback_cmd:
+            logger.info(
+                "yuanbao: push without callback_command (cmd=%s)",
+                cmd,
+            )
+            return
+
+        logger.debug(
+            "yuanbao: raw inbound JSON: %s",
+            json.dumps(json_data, ensure_ascii=False)[:3000],
+        )
+
+        inbound = self._normalize_inbound(json_data)
+        logger.info(
+            "yuanbao: recv %s from=%s",
+            callback_cmd,
+            inbound.get("from_account", "")[-8:],
+        )
+        await self._handle_chat_message(inbound)
+
+    @staticmethod
+    def _normalize_inbound(data: dict) -> dict:
+        """Normalize inbound JSON — ensure msg_content is always a dict."""
         msg_body = []
         for elem in data.get("msg_body", []):
             content = elem.get("msg_content", {})
-            # Pass through the entire msg_content to preserve all fields
-            # (video, audio, etc.) rather than cherry-picking known keys.
             if isinstance(content, str):
                 try:
                     content = json.loads(content)
                 except (ValueError, TypeError):
                     content = {"text": content}
+            if not isinstance(content, dict):
+                content = {}
             msg_body.append(
                 {
                     "msg_type": elem.get("msg_type", ""),
-                    "msg_content": content
-                    if isinstance(content, dict)
-                    else {},
+                    "msg_content": content,
                 },
             )
 
-        return {
-            "callback_command": data.get("callback_command", ""),
-            "from_account": data.get("from_account", ""),
-            "to_account": data.get("to_account", ""),
-            "sender_nickname": data.get("sender_nickname", ""),
-            "group_code": data.get("group_code", ""),
-            "group_name": data.get("group_name", ""),
-            "msg_seq": data.get("msg_seq", 0),
-            "msg_time": data.get("msg_time", 0),
-            "msg_key": data.get("msg_key", ""),
-            "msg_id": data.get("msg_id", ""),
-            "msg_body": msg_body,
-            "bot_owner_id": data.get("bot_owner_id", ""),
-            "claw_msg_type": data.get("claw_msg_type", 0),
-        }
+        normalized = dict(data)
+        normalized["msg_body"] = msg_body
+        return normalized
 
     async def _handle_auth_failure(self) -> None:
         """Handle auth failure by refreshing token and reconnecting."""
@@ -808,7 +778,7 @@ class YuanbaoChannel(BaseChannel):
         self,
         inbound: Dict[str, Any],
     ) -> None:
-        """Convert decoded InboundMessagePush to native payload."""
+        """Convert decoded inbound JSON to native payload."""
         msg_id = inbound.get("msg_id", "") or inbound.get(
             "msg_key",
             "",
@@ -822,51 +792,71 @@ class YuanbaoChannel(BaseChannel):
             if len(self._seen_message_ids) > 5000:
                 self._prune_seen_ids()
 
-        sender_id = inbound.get("from_account", "")
-        group_code = inbound.get("group_code", "")
+        raw_sender_id = inbound.get("from_account", "")
         callback_cmd = inbound.get("callback_command", "")
+        nickname = inbound.get("sender_nickname", "")
 
-        # Determine chat type
-        is_group = bool(group_code) or "Group" in callback_cmd
+        # Determine chat type from callback_command prefix
+        is_group = callback_cmd.startswith("Group.")
         chat_type = "group" if is_group else "c2c"
+        group_code = inbound.get("group_code", "") if is_group else ""
 
         # Ignore messages from self
-        if sender_id == self._bot_id:
+        if raw_sender_id == self._bot_id:
             return
 
-        # Build session id
-        if is_group:
-            session_id = f"yuanbao:group:{group_code}"
-        else:
-            session_id = f"yuanbao:direct:{sender_id}"
-
-        # Parse content from protobuf msg_body
-        content_parts = await self._parse_msg_body(
+        # Parse content from msg_body
+        content_parts, bot_mentioned = await self._parse_msg_body(
             inbound.get("msg_body", []),
+            is_group=is_group,
         )
         if not content_parts:
             return
 
-        # Store session info for reply routing
+        # Build meta early so _check_group_mention can inspect it
+        meta: Dict[str, Any] = {
+            "chat_type": chat_type,
+            "group_code": group_code,
+            "msg_id": msg_id,
+            "raw_sender_id": raw_sender_id,
+            "is_group": is_group,
+            "user_name": nickname,
+        }
+        if bot_mentioned:
+            meta["bot_mentioned"] = True
+
+        # Group mention policy check (require_mention)
+        if not self._check_group_mention(is_group, meta):
+            return
+
+        # Build short sender_id and session_id (like feishu/dingtalk)
+        sender_display = _sender_display(nickname, raw_sender_id)
+        session_id = (
+            group_code
+            if is_group
+            else _short_id(
+                raw_sender_id,
+            )
+        )
+        meta["session_id"] = session_id
+        meta["sender_id"] = sender_display
+
+        # Store session info for reply routing (short → raw)
         self._session_map[session_id] = {
             "chat_type": chat_type,
-            "sender_id": sender_id,
+            "sender_id": raw_sender_id,
             "group_code": group_code,
             "msg_id": msg_id,
         }
+        self._save_session_map_to_disk()
 
         native = {
             "channel_id": self.channel,
-            "sender_id": sender_id,
+            "sender_id": sender_display,
+            "acl_sender_id": raw_sender_id,
             "session_id": session_id,
             "content_parts": content_parts,
-            "meta": {
-                "session_id": session_id,
-                "chat_type": chat_type,
-                "group_code": group_code,
-                "msg_id": msg_id,
-                "sender_id": sender_id,
-            },
+            "meta": meta,
         }
 
         if self._enqueue:
@@ -893,16 +883,39 @@ class YuanbaoChannel(BaseChannel):
             logger.warning("yuanbao: resolve media URL failed: %s", exc)
             return url
 
-    async def _parse_msg_body(  # pylint: disable=too-many-branches,too-many-statements  # noqa: E501
+    def _is_bot_mention(self, content: dict) -> bool:
+        """Check if a TIMCustomElem content mentions this bot."""
+        data_str = content.get("data", "")
+        if not data_str or not isinstance(data_str, str):
+            return False
+        try:
+            custom = json.loads(data_str)
+            if custom.get("elem_type") == 1002:
+                return custom.get("user_id", "") == self._bot_id
+        except (ValueError, TypeError):
+            pass
+        return False
+
+    async def _parse_msg_body(  # pylint: disable=too-many-branches,too-many-statements,unused-argument  # noqa: E501
         self,
         msg_body: List[dict],
-    ) -> List[Any]:
-        """Parse protobuf msg_body elements into content parts."""
+        is_group: bool = False,
+    ) -> tuple:
+        """Parse msg_body elements into content parts."""
         parts: List[Any] = []
+        bot_mentioned = False
 
         for elem in msg_body:
             msg_type = elem.get("msg_type", "")
             content = elem.get("msg_content", {})
+
+            # TIMCustomElem with elem_type 1002 is an @mention tag
+            # in group chats — skip it but note the mention.
+            if msg_type == "TIMCustomElem":
+                bot_mentioned = bot_mentioned or self._is_bot_mention(
+                    content,
+                )
+                continue
 
             if msg_type == "TIMTextElem":
                 text = content.get("text", "").strip()
@@ -1026,7 +1039,7 @@ class YuanbaoChannel(BaseChannel):
                             ),
                         )
 
-        return parts
+        return parts, bot_mentioned
 
     def _prune_seen_ids(self) -> None:
         sorted_ids = sorted(
@@ -1036,6 +1049,52 @@ class YuanbaoChannel(BaseChannel):
         remove_count = len(sorted_ids) // 2
         for msg_id, _ in sorted_ids[:remove_count]:
             self._seen_message_ids.pop(msg_id, None)
+
+    # ------------------------------------------------------------------
+    # Session map persistence (short_session_id → raw ids)
+    # ------------------------------------------------------------------
+
+    def _session_map_path(self) -> Path:
+        """Path to persist session mapping for send / cron."""
+        if self._workspace_dir:
+            return self._workspace_dir / "yuanbao_sessions.json"
+        return self._media_dir.parent / "yuanbao_sessions.json"
+
+    def _load_session_map_from_disk(self) -> None:
+        """Load session map from disk into memory."""
+        path = self._session_map_path()
+        if not path.is_file():
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, dict):
+                self._session_map = data
+        except Exception:
+            logger.debug(
+                "yuanbao: load session map from %s failed",
+                path,
+                exc_info=True,
+            )
+
+    def _save_session_map_to_disk(self) -> None:
+        """Persist session map to disk."""
+        path = self._session_map_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    self._session_map,
+                    fh,
+                    indent=2,
+                    ensure_ascii=False,
+                )
+        except Exception:
+            logger.debug(
+                "yuanbao: save session map to %s failed",
+                path,
+                exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # Outgoing: send text / media
@@ -1064,11 +1123,6 @@ class YuanbaoChannel(BaseChannel):
             )
             if target_id:
                 return {"chat_type": chat_type, "target_id": target_id}
-
-        # Fallback: parse from to_handle string
-        parsed = self._parse_target_from_handle(to_handle)
-        if parsed.get("target_id"):
-            return parsed
 
         logger.warning(
             "yuanbao: no target resolved for to_handle=%s session=%s",

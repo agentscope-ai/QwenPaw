@@ -937,7 +937,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
 ```json
 "yuanbao": {
   "enabled": true,
-  "app_key": "你的 AppID",
+  "app_id": "你的 AppID",
   "app_secret": "你的 AppSecret"
 }
 ```
@@ -946,7 +946,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
 
 | 字段         | 类型   | 默认值                    | 说明                 |
 | ------------ | ------ | ------------------------- | -------------------- |
-| `app_key`    | string | `""`（必填）              | 元宝平台的 AppID     |
+| `app_id`     | string | `""`（必填）              | 元宝平台的 AppID     |
 | `app_secret` | string | `""`（必填）              | 元宝平台的 AppSecret |
 | `api_domain` | string | `bot.yuanbao.tencent.com` | REST API 域名        |
 
@@ -1362,7 +1362,7 @@ pip install "qwenpaw[sip,sip-livekit]"
 | 企业微信   | wecom      | bot_id, secret；可选 media_dir                                                                         |
 | 微信个人   | wechat     | bot_token（或扫码登录）；可选 bot_token_file, base_url, media_dir                                      |
 | 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                                                          |
-| 元宝       | yuanbao    | app_key, app_secret；可选 api_domain, media_dir                                                        |
+| 元宝       | yuanbao    | app_id, app_secret；可选 api_domain, media_dir                                                         |
 | Voice      | voice      | twilio_account_sid, twilio_auth_token, phone_number, phone_number_sid；可选 tts_provider, stt_provider |
 
 所有频道均支持本页顶部「通用字段」中介绍的访问控制字段（`dm_policy`、`group_policy`、`allow_from`、`deny_message`、`require_mention`）。

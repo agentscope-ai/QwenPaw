@@ -332,7 +332,7 @@ def decode_conn_msg(raw: bytes) -> Optional[dict]:
         cls = _get_message_class(CONN_MSG)
         msg = cls()
         msg.ParseFromString(raw)
-        result = {
+        return {
             "head": {
                 "cmdType": msg.head.cmdType,
                 "cmd": msg.head.cmd,
@@ -344,7 +344,6 @@ def decode_conn_msg(raw: bytes) -> Optional[dict]:
             },
             "data": bytes(msg.data) if msg.data else b"",
         }
-        return result
     except Exception:
         return None
 

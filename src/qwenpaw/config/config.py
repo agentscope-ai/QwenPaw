@@ -416,7 +416,7 @@ class YuanbaoConfig(BaseChannelConfig):
     sign-token authentication. Supports C2C and group messaging.
     """
 
-    app_key: str = ""
+    app_id: str = ""
     app_secret: str = ""
     api_domain: str = "bot.yuanbao.tencent.com"
     media_dir: Optional[str] = None
