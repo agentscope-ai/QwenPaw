@@ -271,7 +271,11 @@ def _is_browser_running(state: dict) -> bool:
 
 
 def _reset_browser_state(state: dict) -> None:
-    """Reset all browser-related state variables."""
+    """Reset all browser-related state variables.
+
+    Also removes Chromium lock/singleton files from user_data_dir so
+    that the directory is not left locked on Windows (#4844).
+    """
     # Clear sync/async specific state
     state["playwright"] = None
     state["browser"] = None
@@ -297,6 +301,9 @@ def _reset_browser_state(state: dict) -> None:
     state["owned_browser_process"] = False
     state["browser_pid"] = None
     state["browser_process"] = None
+
+    # Clean up lock files left behind by Chromium on Windows.
+    _cleanup_browser_lock_files(state)
 
 
 async def _idle_watchdog(
@@ -333,22 +340,87 @@ def _atexit_cleanup() -> None:
     Playwright child processes are cleaned up by the OS when the parent
     exits, but this gives Playwright a chance to flush any pending I/O and
     close Chrome gracefully before the process disappears.
+
+    On Windows the event loop is often still running at atexit time, so
+    we fall back to synchronous process-tree killing and lock-file
+    cleanup when ``loop.run_until_complete`` is not available (#4844).
     """
     if not _workspace_states:
         return
 
+    # Try the clean async path first.
     try:
         loop = asyncio.get_event_loop()
-        if loop.is_running() or loop.is_closed():
+        if not loop.is_running() and not loop.is_closed():
+            for ws_state in list(_workspace_states.values()):
+                if _is_browser_running(ws_state):
+                    try:
+                        loop.run_until_complete(_action_stop(ws_state))
+                    except Exception:
+                        pass
             return
-        for ws_state in list(_workspace_states.values()):
-            if _is_browser_running(ws_state):
-                try:
-                    loop.run_until_complete(_action_stop(ws_state))
-                except Exception:
-                    pass
     except Exception:
         pass
+
+    # Fallback: kill owned browser processes synchronously and clean up
+    # lock files.  This covers the case where the event loop is still
+    # running (common on Windows with uvicorn).
+    for ws_state in list(_workspace_states.values()):
+        _sync_kill_browser_process(ws_state)
+        _cleanup_browser_lock_files(ws_state)
+
+
+def _sync_kill_browser_process(state: dict) -> None:
+    """Synchronously kill an owned browser process tree (atexit fallback)."""
+    proc = state.get("browser_process")
+    if proc is None or proc.poll() is not None:
+        return
+    pid = proc.pid
+    try:
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+        else:
+            proc.terminate()
+        proc.wait(timeout=5)
+    except Exception:
+        try:
+            proc.kill()
+            proc.wait(timeout=3)
+        except Exception:
+            pass
+
+
+def _cleanup_browser_lock_files(state: dict) -> None:
+    """Remove Chromium lock/singleton files from user_data_dir.
+
+    Chrome creates ``SingletonLock``, ``SingletonCookie``, and
+    ``SingletonSocket`` files that persist after the process exits
+    on Windows, preventing directory access by backup tools (#4844).
+    """
+    user_data_dir = state.get("user_data_dir")
+    if not user_data_dir:
+        return
+    base = Path(user_data_dir)
+    if not base.exists():
+        return
+    lock_names = (
+        "SingletonLock",
+        "SingletonCookie",
+        "SingletonSocket",
+        "lockfile",
+    )
+    for name in lock_names:
+        lock_file = base / name
+        try:
+            if lock_file.exists():
+                lock_file.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 atexit.register(_atexit_cleanup)
@@ -674,16 +746,33 @@ def _start_managed_chromium_process(
 
 
 async def _stop_owned_browser_process(state: dict) -> bool:
+    """Terminate the owned browser process tree.
+
+    On Windows, ``proc.terminate()`` only kills the main process but
+    leaves renderer/GPU child processes alive, causing directory locks
+    and resource leaks (#4844).  We use ``taskkill /F /T`` to kill the
+    entire process tree reliably.
+    """
     proc = state.get("browser_process")
     if proc is None:
         return False
 
+    pid = proc.pid
     if proc.poll() is not None:
         return True
 
     try:
         if sys.platform == "win32":
-            proc.terminate()
+            # Kill entire process tree on Windows to avoid orphaned
+            # renderer/GPU processes that hold directory locks.
+            await asyncio.to_thread(
+                lambda: subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                    timeout=10,
+                    check=False,
+                ),
+            )
         else:
             proc.send_signal(signal.SIGTERM)
         await asyncio.to_thread(proc.wait, 5)
@@ -694,6 +783,11 @@ async def _stop_owned_browser_process(state: dict) -> bool:
             await asyncio.to_thread(proc.wait, 5)
             return True
         except Exception:
+            logger.debug(
+                "Failed to kill browser process pid=%s",
+                pid,
+                exc_info=True,
+            )
             return False
     except Exception:
         return False
