@@ -707,8 +707,10 @@ class ChannelManager:
     ) -> None:
         """Replace a single channel by name.
 
-        Flow: set enqueue callback → start new (outside lock)
-        → swap + stop old (inside lock). Lock only guards the swap+stop.
+        Flow: set enqueue callback → stop old (inside lock)
+        → start new (outside lock) → add new (inside lock).
+        Stop old before starting new to avoid port/resource conflicts.
+        If new fails to start, attempt to restore the old channel.
 
         Args:
             new_channel: New channel instance to replace with
@@ -723,8 +725,28 @@ class ChannelManager:
         if getattr(new_channel, "uses_manager_queue", True):
             new_channel.set_enqueue(self._make_enqueue_cb(new_channel_name))
 
-        # 2) Start new channel outside lock (may be slow, e.g. DingTalk)
-        logger.info(f"Pre-starting new channel: {new_channel_name}")
+        # 2) Stop old channel inside lock and remove from list
+        async with self._lock:
+            old_channel = None
+            for i, ch in enumerate(self.channels):
+                if ch.channel == new_channel_name:
+                    old_channel = ch
+                    self.channels.pop(i)
+                    break
+
+        if old_channel is not None:
+            logger.info(f"Stopping old channel: {old_channel.channel}")
+            try:
+                await old_channel.stop()
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.exception(
+                    f"Failed to stop old channel: {old_channel.channel}",
+                )
+
+        # 3) Start new channel outside lock (may be slow, e.g. DingTalk)
+        logger.info(f"Starting new channel: {new_channel_name}")
         try:
             await new_channel.start()
         except Exception:
@@ -735,30 +757,26 @@ class ChannelManager:
                 await new_channel.stop()
             except Exception:
                 pass
-            raise
-
-        # 3) Swap + stop old inside lock
-        async with self._lock:
-            old_channel = None
-            for i, ch in enumerate(self.channels):
-                if ch.channel == new_channel_name:
-                    old_channel = ch
-                    self.channels[i] = new_channel
-                    break
-
-            if old_channel is None:
-                logger.info(f"Adding new channel: {new_channel_name}")
-                self.channels.append(new_channel)
-            else:
-                logger.info(f"Stopping old channel: {old_channel.channel}")
+            # Attempt to restore old channel if it was stopped
+            if old_channel is not None:
                 try:
-                    await old_channel.stop()
-                except asyncio.CancelledError:
-                    pass
+                    await old_channel.start()
+                    async with self._lock:
+                        self.channels.append(old_channel)
+                    logger.info(
+                        f"Restored old channel after failed replace: "
+                        f"{old_channel.channel}",
+                    )
                 except Exception:
                     logger.exception(
-                        f"Failed to stop old channel: {old_channel.channel}",
+                        f"Failed to restore old channel: "
+                        f"{old_channel.channel}",
                     )
+            raise
+
+        # 4) Add new channel to list inside lock
+        async with self._lock:
+            self.channels.append(new_channel)
 
     async def send_event(
         self,
