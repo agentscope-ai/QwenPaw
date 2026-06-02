@@ -172,6 +172,24 @@ def test_registry_skips_empty_and_failed_prompt_providers():
     log_exception.assert_called_once()
 
 
+def test_registry_skips_section_referencing_missing_anchor():
+    """Plugin section with missing anchor in host_sections is skipped."""
+    registry = PluginRegistry()
+    registry.register_prompt_section(
+        plugin_id="test-a",
+        name="plugin.extra",
+        after="env_context",
+        agent_id=None,
+        provider=lambda agent: "EXTRA",
+    )
+
+    sections = registry.build_prompt_sections(
+        _PromptOnlyAgent(agent_id="datapaw"),
+        {"workspace": "WORKSPACE"},
+    )
+    assert [s.content for s in sections] == ["WORKSPACE"]
+
+
 def test_qwenpaw_agent_build_sys_prompt_includes_plugin_sections(monkeypatch):
     """QwenPawAgent._build_sys_prompt consumes registered plugin sections."""
     from qwenpaw.agents import react_agent

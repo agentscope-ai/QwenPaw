@@ -2,7 +2,7 @@
 # pylint:disable=too-many-nested-blocks
 """Central plugin registry."""
 
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Set, Type
 from dataclasses import dataclass, field
 import logging
 
@@ -150,6 +150,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._http_router_registrations: List[HttpRouterRegistration] = []
         self._http_prefix_to_plugin: Dict[str, str] = {}
         self._prompt_sections: List[PromptSectionRegistration] = []
+        self._prompt_section_names: Set[str] = set()
 
         self._initialized = True
 
@@ -452,12 +453,10 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         if not normalized_name:
             raise ValueError("Prompt section name must not be empty")
 
-        for section in self._prompt_sections:
-            if section.name == normalized_name:
-                raise ValueError(
-                    f"Prompt section '{normalized_name}' is already "
-                    f"registered by plugin '{section.plugin_id}'",
-                )
+        if normalized_name in self._prompt_section_names:
+            raise ValueError(
+                f"Prompt section '{normalized_name}' is already registered",
+            )
 
         normalized_after = after.strip() or "workspace"
         anchor = self._normalize_prompt_anchor(normalized_after)
@@ -469,16 +468,17 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         registration = PromptSectionRegistration(
             plugin_id=plugin_id,
             name=normalized_name,
-            after=normalized_after,
+            after=anchor,
             agent_id=agent_id,
             provider=provider,
         )
         self._prompt_sections.append(registration)
+        self._prompt_section_names.add(normalized_name)
         logger.info(
             "Registered prompt section '%s' from plugin '%s' after '%s'",
             registration.name,
             plugin_id,
-            registration.after,
+            anchor,
         )
 
     def get_prompt_sections(self) -> List[PromptSectionRegistration]:
@@ -511,7 +511,15 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         }
         for section in plugin_sections:
             anchor = self._normalize_prompt_anchor(section.after)
-            sections_by_anchor[anchor].append(section)
+            if anchor in sections_by_anchor:
+                sections_by_anchor[anchor].append(section)
+            else:
+                logger.warning(
+                    "Plugin section '%s' references unknown anchor '%s',"
+                    " skipped",
+                    section.name,
+                    anchor,
+                )
 
         resolved: List[ResolvedPromptSection] = []
 
@@ -521,6 +529,8 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                     ResolvedPromptSection(name=name, content=str(content)),
                 )
 
+        # SECURITY: plugin text is concatenated verbatim into the
+        # system prompt. Only trusted plugins can reach this path.
         def _render(section: PromptSectionRegistration) -> str:
             try:
                 return section.provider(agent)
@@ -640,6 +650,10 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._control_commands = [
             c for c in self._control_commands if c.plugin_id != plugin_id
         ]
+        removed_names = {
+            s.name for s in self._prompt_sections if s.plugin_id == plugin_id
+        }
+        self._prompt_section_names -= removed_names
         self._prompt_sections = [
             s for s in self._prompt_sections if s.plugin_id != plugin_id
         ]
