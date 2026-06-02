@@ -713,6 +713,21 @@ class AgentRunner(Runner):
                 task_tracker=self._task_tracker,
                 plan_notebook=plan_notebook,
             )
+
+            # Fire message.before hook
+            try:
+                from ...plugins.registry import PluginRegistry
+
+                await PluginRegistry().fire_hooks(
+                    "message",
+                    "message.before",
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    agent_id=self.agent_id,
+                )
+            except Exception as e:
+                logger.error(f"message.before hook error: {e}", exc_info=True)
             await agent.register_mcp_clients()
             agent.set_console_output_enabled(enabled=False)
 
@@ -855,6 +870,23 @@ class AgentRunner(Runner):
                     len(_cron_memory_snapshot.get("memory", [])),
                     session_id,
                 )
+                # Fire session.reset hook
+                try:
+                    from ...plugins.registry import PluginRegistry
+
+                    await PluginRegistry().fire_hooks(
+                        "session",
+                        "session.reset",
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                        agent_id=self.agent_id,
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"session.reset hook error: {e}",
+                        exc_info=True,
+                    )
 
             # Rebuild system prompt so it always reflects the latest
             # AGENTS.md / SOUL.md / PROFILE.md, not the stale one saved
@@ -993,6 +1025,21 @@ class AgentRunner(Runner):
 
             if self._chat_manager is not None and chat is not None:
                 await self._chat_manager.touch_chat(chat.id)
+
+            # Fire message.after hook
+            try:
+                from ...plugins.registry import PluginRegistry
+
+                await PluginRegistry().fire_hooks(
+                    "message",
+                    "message.after",
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    agent_id=self.agent_id,
+                )
+            except Exception as e:
+                logger.error(f"message.after hook error: {e}", exc_info=True)
 
     async def init_handler(self, *args, **kwargs):
         """

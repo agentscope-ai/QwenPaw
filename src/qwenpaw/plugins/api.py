@@ -188,6 +188,80 @@ class PluginApi:
                 f"'{hook_name}' (priority={priority})",
             )
 
+    def register_session_hook(
+        self,
+        event: str,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+    ):
+        """Register a session lifecycle hook.
+
+        Args:
+            event: One of "session.create", "session.reset", "session.end"
+            hook_name: Unique hook identifier
+            callback: Async or sync function called with **context kwargs
+            priority: Execution priority (lower = earlier, default=100)
+
+        Example:
+            >>> api.register_session_hook(
+            ...     event="session.create",
+            ...     hook_name="init_context",
+            ...     callback=self.on_session_create,
+            ...     priority=50,
+            ... )
+        """
+        if self._registry:
+            self._registry.register_session_hook(
+                event=event,
+                plugin_id=self.plugin_id,
+                hook_name=hook_name,
+                callback=callback,
+                priority=priority,
+            )
+            logger.info(
+                f"Plugin '{self.plugin_id}' registered session hook "
+                f"'{hook_name}' for event '{event}' "
+                f"(priority={priority})",
+            )
+
+    def register_message_hook(
+        self,
+        event: str,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+    ):
+        """Register a message lifecycle hook.
+
+        Args:
+            event: One of "message.before", "message.after"
+            hook_name: Unique hook identifier
+            callback: Async or sync function called with **context kwargs
+            priority: Execution priority (lower = earlier, default=100)
+
+        Example:
+            >>> api.register_message_hook(
+            ...     event="message.before",
+            ...     hook_name="filter_message",
+            ...     callback=self.on_message_before,
+            ...     priority=50,
+            ... )
+        """
+        if self._registry:
+            self._registry.register_message_hook(
+                event=event,
+                plugin_id=self.plugin_id,
+                hook_name=hook_name,
+                callback=callback,
+                priority=priority,
+            )
+            logger.info(
+                f"Plugin '{self.plugin_id}' registered message hook "
+                f"'{hook_name}' for event '{event}' "
+                f"(priority={priority})",
+            )
+
     def register_http_router(
         self,
         router: Any,
