@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """Shared fixtures for ``tests/unit/app/routers/``.
 
-Each test gets a fresh FastAPI app whose ``app.state.multi_agent_manager``
-points to a ``MagicMock`` so router code can call
-``request.app.state.multi_agent_manager.get_agent(...)`` without booting
-the real runtime.
+Only truly shared building blocks live here: the ``workspace_mock`` /
+``manager_mock`` mocks that every router test will want. Each
+``test_xxx_router.py`` builds its own ``app`` fixture mounting just the
+router under test — keeping that local avoids the "messages-only app"
+trap a contributor would otherwise hit when adding a new router test.
 """
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
@@ -13,8 +14,6 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -32,19 +31,3 @@ def manager_mock(workspace_mock) -> Any:
     manager = MagicMock(name="MultiAgentManager")
     manager.get_agent = AsyncMock(return_value=workspace_mock)
     return manager
-
-
-@pytest.fixture
-def app(manager_mock) -> FastAPI:
-    """A fresh FastAPI app with the messages router mounted under /api."""
-    from qwenpaw.app.routers.messages import router as messages_router
-
-    application = FastAPI()
-    application.state.multi_agent_manager = manager_mock
-    application.include_router(messages_router, prefix="/api")
-    return application
-
-
-@pytest.fixture
-def client(app: FastAPI) -> TestClient:
-    return TestClient(app)

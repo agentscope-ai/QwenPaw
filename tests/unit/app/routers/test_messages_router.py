@@ -2,15 +2,37 @@
 """Unit tests for ``qwenpaw.app.routers.messages``.
 
 These tests use FastAPI's ``TestClient`` against a synthetic app whose
-``app.state.multi_agent_manager`` is a MagicMock — see
-``conftest.py``.
+``app.state.multi_agent_manager`` is a MagicMock — the shared mocks
+come from ``conftest.py``; the messages-only ``app`` fixture lives
+here so other ``test_xxx_router.py`` files are not tempted to inherit
+it.
 """
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
 from agentscope_runtime.engine.schemas.exception import AppBaseException
+
+
+@pytest.fixture
+def app(manager_mock) -> FastAPI:
+    """A fresh FastAPI app mounting only the messages router under /api."""
+    from qwenpaw.app.routers.messages import router as messages_router
+
+    application = FastAPI()
+    application.state.multi_agent_manager = manager_mock
+    application.include_router(messages_router, prefix="/api")
+    return application
+
+
+@pytest.fixture
+def client(app: FastAPI) -> TestClient:
+    return TestClient(app)
 
 
 _DEFAULT_PAYLOAD = {
@@ -165,14 +187,11 @@ def test_send_message_validation_error_on_missing_field(client):
 def test_send_message_returns_500_when_manager_not_in_state():
     # Build an app WITHOUT setting app.state.multi_agent_manager so the
     # ``_get_multi_agent_manager`` guard raises 500.
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-
     from qwenpaw.app.routers.messages import router
 
-    app = FastAPI()
-    app.include_router(router, prefix="/api")
-    local_client = TestClient(app)
+    bare_app = FastAPI()
+    bare_app.include_router(router, prefix="/api")
+    local_client = TestClient(bare_app)
 
     response = local_client.post("/api/messages/send", json=_DEFAULT_PAYLOAD)
 
