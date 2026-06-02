@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any
+
+from cachetools import LRUCache
 
 logger = logging.getLogger(__name__)
 
-_AGENT_CACHE: Dict[tuple, Any] = {}
+_MAX_CACHED_AGENTS = 128
+_AGENT_CACHE: LRUCache = LRUCache(maxsize=_MAX_CACHED_AGENTS)
 
 
 def _build_qwenpaw_agent(

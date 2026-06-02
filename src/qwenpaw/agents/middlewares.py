@@ -89,25 +89,29 @@ class RequestSetupMiddleware(MiddlewareBase):
         input_kwargs: dict,
         next_handler: Callable[..., AsyncGenerator],
     ) -> AsyncGenerator:
-        # --- Step 1-5: per-request ContextVars ---
-        # Wrapped in try so a stale config doesn't break the whole turn —
-        # tools fall back to module defaults rather than failing here.
-        try:
-            from ..config.context import (
-                set_current_workspace_dir,
-                set_current_session_id,
-                set_current_recent_max_bytes,
-                set_current_shell_command_timeout,
-                set_current_shell_command_executable,
-            )
-            from ..app.agent_context import set_current_agent_id
+        # --- Step 1-4: critical per-request ContextVars ---
+        # These must succeed; a missing session_id causes hard failures
+        # in downstream tools (e.g. delegate_external_agent).
+        from ..config.context import (
+            set_current_workspace_dir,
+            set_current_session_id,
+            set_current_recent_max_bytes,
+            set_current_shell_command_timeout,
+            set_current_shell_command_executable,
+        )
+        from ..app.agent_context import set_current_agent_id
 
-            if self._workspace_dir is not None:
-                set_current_workspace_dir(self._workspace_dir)
-            set_current_agent_id(self._agent_id or "default")
-            set_current_session_id(
-                self._request_context.get("session_id") or None,
-            )
+        if self._workspace_dir is not None:
+            set_current_workspace_dir(self._workspace_dir)
+        set_current_agent_id(self._agent_id or "default")
+        set_current_session_id(
+            self._request_context.get("session_id") or None,
+        )
+
+        # --- Step 5: non-critical config-derived vars ---
+        # Wrapped in try so a stale/broken config doesn't break the whole
+        # turn — tools fall back to module defaults rather than failing.
+        try:
             running = self._agent_config.running
             set_current_recent_max_bytes(
                 running.light_context_config.tool_result_pruning_config.pruning_recent_msg_max_bytes,  # noqa  # pylint: disable=line-too-long
@@ -118,8 +122,8 @@ class RequestSetupMiddleware(MiddlewareBase):
             )
         except Exception:
             logger.warning(
-                "RequestSetupMiddleware: ContextVar setup failed; "
-                "tools may see defaults",
+                "RequestSetupMiddleware: config-derived ContextVar setup "
+                "failed; tools may see defaults",
                 exc_info=True,
             )
 

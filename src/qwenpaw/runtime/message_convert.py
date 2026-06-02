@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 from typing import Any, List
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +99,15 @@ def _request_input_to_msgs(
                 )
                 if url:
                     url = _ensure_url_scheme(str(url))
-                    ext = "jpeg" if ctype == "image" else "mpeg"
-                    media_type = f"{_MEDIA_TYPES[ctype]}/{ext}"
+                    url_path = urlparse(url).path
+                    guessed, _ = mimetypes.guess_type(url_path)
+                    if guessed and guessed.startswith(
+                        f"{_MEDIA_TYPES[ctype]}/",
+                    ):
+                        media_type = guessed
+                    else:
+                        fallback_ext = "jpeg" if ctype == "image" else "mpeg"
+                        media_type = f"{_MEDIA_TYPES[ctype]}/{fallback_ext}"
                     try:
                         blocks.append(
                             DataBlock(

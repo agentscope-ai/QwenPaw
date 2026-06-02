@@ -90,7 +90,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
         except (ValueError, TypeError):
             return ToolChunk(
                 is_last=True,
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -105,7 +105,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
         except (ValueError, TypeError):
             return ToolChunk(
                 is_last=True,
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -119,7 +119,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
     if not os.path.exists(file_path):
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -131,7 +131,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
     if not os.path.isfile(file_path):
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -152,7 +152,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
         if s > total:
             return ToolChunk(
                 is_last=True,
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -164,7 +164,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
         if s > e:
             return ToolChunk(
                 is_last=True,
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -212,7 +212,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
     except Exception as e:
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -238,7 +238,7 @@ async def write_file(
     if not file_path:
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -266,7 +266,7 @@ async def write_file(
     except Exception as e:
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -297,7 +297,7 @@ async def edit_file(
     if not file_path:
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -311,7 +311,7 @@ async def edit_file(
     if not os.path.exists(resolved_path):
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -323,7 +323,7 @@ async def edit_file(
     if not os.path.isfile(resolved_path):
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -337,7 +337,7 @@ async def edit_file(
     except Exception as e:
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -349,7 +349,7 @@ async def edit_file(
     if old_text not in content:
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -398,7 +398,7 @@ async def append_file(
     if not file_path:
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -426,7 +426,7 @@ async def append_file(
     except Exception as e:
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",

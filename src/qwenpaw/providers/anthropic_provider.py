@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from datetime import datetime
 from typing import Any, Dict, List
 
 import httpx
@@ -403,15 +404,24 @@ class _AnthropicChatModelCompat:
             _qp_default_headers = default_headers
             _qp_auth_mode = auth_mode
             _qp_strip_http_client = strip_http_client
+            _qp_cached_client: Any = None
+            _qp_cached_client_key: tuple = ()
 
-            async def _call_api(
-                self,
-                model_name,
-                messages,
-                tools=None,
-                tool_choice=None,
-                **generate_kwargs,
-            ):
+            def _get_or_create_client(self) -> Any:
+                """Return a cached AsyncAnthropic client, rebuilding only when
+                credential or base_url changes."""
+                key = (
+                    self.credential.base_url,
+                    self.credential.api_key.get_secret_value(),
+                    id(self._qp_default_headers),
+                    self._qp_auth_mode,
+                )
+                if (
+                    self._qp_cached_client is not None
+                    and self._qp_cached_client_key == key
+                ):
+                    return self._qp_cached_client
+
                 client_kwargs: Dict[str, Any] = {
                     "base_url": self.credential.base_url,
                 }
@@ -430,7 +440,21 @@ class _AnthropicChatModelCompat:
                         "api_key"
                     ] = self.credential.api_key.get_secret_value()
 
-                client = anthropic.AsyncAnthropic(**client_kwargs)
+                self._qp_cached_client = anthropic.AsyncAnthropic(
+                    **client_kwargs,
+                )
+                self._qp_cached_client_key = key
+                return self._qp_cached_client
+
+            async def _call_api(
+                self,
+                model_name,
+                messages,
+                tools=None,
+                tool_choice=None,
+                **generate_kwargs,
+            ):
+                client = self._get_or_create_client()
 
                 max_tokens = self.parameters.max_tokens or 8192
                 kw: Dict[str, Any] = {
@@ -462,8 +486,6 @@ class _AnthropicChatModelCompat:
                     kw["system"] = formatted[0]["content"]
                     formatted = formatted[1:]
                 kw["messages"] = formatted
-
-                from datetime import datetime
 
                 start = datetime.now()
                 response = await client.messages.create(**kw)
