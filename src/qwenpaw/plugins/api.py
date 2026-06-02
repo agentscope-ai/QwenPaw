@@ -232,6 +232,42 @@ class PluginApi:
                 f"'{hook_name}' (priority={priority})",
             )
 
+    def register_workspace_created_hook(
+        self,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+    ):
+        """Register a hook that fires when a new workspace is created.
+
+        The callback receives a single ``workspace_info`` dict with at
+        least ``agent_id`` (str) and ``workspace_dir`` (str) keys.
+
+        Args:
+            hook_name: Unique hook identifier
+            callback: Sync function to call on workspace creation.
+                Signature: ``(workspace_info: dict) -> None``
+            priority: Execution priority (lower = earlier, default=100)
+
+        Example:
+            >>> api.register_workspace_created_hook(
+            ...     hook_name="provision_new_workspace",
+            ...     callback=self.on_workspace_created,
+            ... )
+        """
+        if self._registry:
+            self._registry.register_workspace_created_hook(
+                plugin_id=self.plugin_id,
+                hook_name=hook_name,
+                callback=callback,
+                priority=priority,
+            )
+            logger.info(
+                f"Plugin '{self.plugin_id}' registered "
+                f"workspace_created hook '{hook_name}' "
+                f"(priority={priority})",
+            )
+
     def register_http_router(
         self,
         router: Any,
@@ -457,8 +493,11 @@ class PluginApi:
         default enable/channel strategy.  On uninstall, skills sourced
         from this plugin are automatically cleaned up.
 
+        Skills are also automatically installed into workspaces created
+        after the server starts, via a ``workspace_created`` hook.
+
         The host handles:
-        - Copying or mounting the skill directory into the workspace.
+        - Copying the skill directory into the workspace.
         - Reconciling the workspace skill manifest.
         - Applying the default enabled/channels strategy.
         - Cleaning up manifest entries on uninstall (by ``source``).
@@ -497,10 +536,27 @@ class PluginApi:
             _ = delete_files  # unused but part of uninstall hook contract
             self._do_uninstall_skills(plugin_id, source_tag)
 
+        def _on_workspace_created(workspace_info: dict):
+            """Install plugin skills into a newly created workspace."""
+            self._install_skills_into_workspace(
+                workspace_info,
+                skills_dir,
+                source_tag,
+                enabled_by_default,
+                resolved_channels,
+            )
+
         # Register skill installation on startup
         self.register_startup_hook(
             hook_name=f"install_skills_{self.plugin_id}",
             callback=_install_skills,
+            priority=80,
+        )
+
+        # Register hook to provision newly created workspaces
+        self.register_workspace_created_hook(
+            hook_name=f"provision_skills_{self.plugin_id}",
+            callback=_on_workspace_created,
             priority=80,
         )
 
@@ -510,14 +566,34 @@ class PluginApi:
             callback=_uninstall_skills,
         )
 
-    def _do_install_skills(
+    def _get_skill_names(self, skills_dir: Path) -> List[str]:
+        """Return sub-directory names that contain a SKILL.md file."""
+        if not skills_dir.exists() or not skills_dir.is_dir():
+            logger.warning(
+                f"Plugin '{self.plugin_id}' skills_dir "
+                f"does not exist: {skills_dir}",
+            )
+            return []
+        return [
+            d.name
+            for d in skills_dir.iterdir()
+            if d.is_dir() and (d / "SKILL.md").exists()
+        ]
+
+    def _install_skills_into_workspace(
         self,
+        workspace_info: dict,
         skills_dir: Path,
         source_tag: str,
         enabled_by_default: bool,
         resolved_channels: List[str],
     ) -> None:
-        """Copy plugin skills into workspaces and update manifests."""
+        """Copy plugin skills into a single workspace and update its manifest.
+
+        This is the shared implementation used by both the startup hook
+        (for all existing workspaces) and the workspace_created hook
+        (for newly created workspaces).
+        """
         try:
             from ..agents.skill_system.store import (
                 copy_skill_dir,
@@ -528,67 +604,87 @@ class PluginApi:
             )
             from ..agents.skill_system.registry import (
                 reconcile_workspace_manifest,
-                list_workspaces,
             )
 
-            if not skills_dir.exists() or not skills_dir.is_dir():
-                logger.warning(
-                    f"Plugin '{self.plugin_id}' skills_dir "
-                    f"does not exist: {skills_dir}",
-                )
+            skill_names = self._get_skill_names(skills_dir)
+            if not skill_names:
                 return
 
-            skill_names = [
-                d.name
-                for d in skills_dir.iterdir()
-                if d.is_dir() and (d / "SKILL.md").exists()
-            ]
-            if not skill_names:
-                logger.debug(
-                    f"Plugin '{self.plugin_id}' has no skills "
-                    f"in {skills_dir}",
+            workspace_dir = Path(workspace_info["workspace_dir"])
+            ws_skills_dir = get_workspace_skills_dir(workspace_dir)
+            ws_skills_dir.mkdir(parents=True, exist_ok=True)
+
+            for skill_name in skill_names:
+                copy_skill_dir(
+                    skills_dir / skill_name,
+                    ws_skills_dir / skill_name,
                 )
+
+            reconcile_workspace_manifest(workspace_dir)
+
+            manifest_path = get_workspace_skill_manifest_path(
+                workspace_dir,
+            )
+
+            def _apply_defaults(
+                payload,
+                _names=tuple(skill_names),
+                _src=source_tag,
+                _enabled=enabled_by_default,
+                _channels=tuple(resolved_channels),
+            ):
+                skills = payload.setdefault("skills", {})
+                for name in _names:
+                    entry = skills.get(name)
+                    if entry is None:
+                        continue
+                    entry["source"] = _src
+                    entry["enabled"] = _enabled
+                    entry["channels"] = _channels
+                return payload
+
+            mutate_json(
+                manifest_path,
+                default_workspace_manifest(),
+                _apply_defaults,
+            )
+
+            logger.debug(
+                f"Plugin '{self.plugin_id}' installed "
+                f"{len(skill_names)} skill(s) into workspace "
+                f"'{workspace_info.get('agent_id', '?')}'",
+            )
+        except Exception as exc:
+            logger.error(
+                f"Failed to install skills for plugin "
+                f"'{self.plugin_id}' into workspace "
+                f"'{workspace_info.get('agent_id', '?')}': {exc}",
+                exc_info=True,
+            )
+
+    def _do_install_skills(
+        self,
+        skills_dir: Path,
+        source_tag: str,
+        enabled_by_default: bool,
+        resolved_channels: List[str],
+    ) -> None:
+        """Copy plugin skills into all existing workspaces."""
+        try:
+            from ..agents.skill_system.registry import list_workspaces
+
+            skill_names = self._get_skill_names(skills_dir)
+            if not skill_names:
                 return
 
             workspaces = list_workspaces()
             for workspace_info in workspaces:
-                workspace_dir = Path(workspace_info["workspace_dir"])
-                ws_skills_dir = get_workspace_skills_dir(workspace_dir)
-                ws_skills_dir.mkdir(parents=True, exist_ok=True)
-
-                for skill_name in skill_names:
-                    copy_skill_dir(
-                        skills_dir / skill_name,
-                        ws_skills_dir / skill_name,
-                    )
-
-                reconcile_workspace_manifest(workspace_dir)
-
-                manifest_path = get_workspace_skill_manifest_path(
-                    workspace_dir,
-                )
-
-                def _apply_defaults(
-                    payload,
-                    _names=skill_names,
-                    _src=source_tag,
-                    _enabled=enabled_by_default,
-                    _channels=resolved_channels,
-                ):
-                    skills = payload.setdefault("skills", {})
-                    for name in _names:
-                        entry = skills.get(name)
-                        if entry is None:
-                            continue
-                        entry["source"] = _src
-                        entry["enabled"] = _enabled
-                        entry["channels"] = _channels
-                    return payload
-
-                mutate_json(
-                    manifest_path,
-                    default_workspace_manifest(),
-                    _apply_defaults,
+                self._install_skills_into_workspace(
+                    workspace_info,
+                    skills_dir,
+                    source_tag,
+                    enabled_by_default,
+                    resolved_channels,
                 )
 
             logger.info(
@@ -627,6 +723,10 @@ class PluginApi:
                     workspace_dir,
                 )
 
+                # NOTE: The closure captures loop variables via default args.
+                # This is safe because mutate_json is called synchronously
+                # immediately below.  If mutate_json ever becomes async or
+                # deferred, these must be refactored to explicit arguments.
                 def _remove_plugin_skills(
                     payload,
                     _ws_skills=ws_skills_dir,
@@ -643,7 +743,15 @@ class PluginApi:
                         skills.pop(name, None)
                         skill_dir = _ws_skills / name
                         if skill_dir.exists():
-                            shutil.rmtree(skill_dir, ignore_errors=True)
+                            try:
+                                shutil.rmtree(skill_dir)
+                            except OSError as rmtree_exc:
+                                logger.warning(
+                                    "Failed to fully remove skill "
+                                    "directory %s: %s",
+                                    skill_dir,
+                                    rmtree_exc,
+                                )
                     if to_remove:
                         logger.info(
                             "Removed skills %s from workspace '%s'",

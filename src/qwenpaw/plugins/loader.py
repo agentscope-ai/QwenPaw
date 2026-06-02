@@ -689,6 +689,7 @@ class PluginLoader:
                 logger.error(
                     f"Error in uninstall hook '{hook.hook_name}' "
                     f"for plugin '{plugin_id}': {exc}",
+                    exc_info=True,
                 )
 
         # Remove Python module and all sub-modules so the next import

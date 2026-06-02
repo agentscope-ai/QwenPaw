@@ -25,7 +25,13 @@ import pytest
 
 @pytest.fixture()
 def fresh_registry():
-    """Create a fresh PluginRegistry (bypass singleton for test isolation)."""
+    """Create a fresh PluginRegistry (bypass singleton for test isolation).
+
+    .. warning::
+        This fixture is NOT safe for parallel test execution (e.g.
+        ``pytest-xdist``).  It mutates the class-level ``_instance``
+        attribute without locking.  Only use with sequential test runs.
+    """
     from qwenpaw.plugins.registry import PluginRegistry
 
     # Force a new instance by clearing the singleton
@@ -488,3 +494,171 @@ class TestRegisterSkillProvider:
         # Verify internal source_tag format
         expected_tag = "plugin:test-plugin"
         assert expected_tag == f"plugin:{plugin_api.plugin_id}"
+
+    def test_register_skill_provider_registers_workspace_created_hook(
+        self,
+        plugin_api,
+        fresh_registry,
+    ):
+        """register_skill_provider also registers a workspace_created hook."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skills_dir = Path(tmpdir)
+            skill_dir = skills_dir / "auto-skill"
+            skill_dir.mkdir()
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: Auto Skill\n---\nAuto.",
+                encoding="utf-8",
+            )
+
+            plugin_api.register_skill_provider(
+                skills_dir=skills_dir,
+                enabled_by_default=True,
+                channels=["all"],
+            )
+
+        hooks = fresh_registry.get_workspace_created_hooks()
+        hook_names = [h.hook_name for h in hooks]
+        assert "provision_skills_test-plugin" in hook_names
+
+
+# ---------------------------------------------------------------------------
+# workspace_created hook infrastructure
+# ---------------------------------------------------------------------------
+
+
+class TestWorkspaceCreatedHook:
+    """Tests for workspace_created hook registration and dispatch."""
+
+    def test_register_workspace_created_hook_stores_in_registry(
+        self,
+        plugin_api,
+        fresh_registry,
+    ):
+        """workspace_created hooks are stored in registry."""
+        callback = MagicMock()
+        plugin_api.register_workspace_created_hook(
+            hook_name="on_ws_created",
+            callback=callback,
+            priority=50,
+        )
+
+        hooks = fresh_registry.get_workspace_created_hooks()
+        assert len(hooks) == 1
+        assert hooks[0].plugin_id == "test-plugin"
+        assert hooks[0].hook_name == "on_ws_created"
+        assert hooks[0].callback is callback
+        assert hooks[0].priority == 50
+
+    def test_workspace_created_hooks_sorted_by_priority(
+        self,
+        plugin_api,
+        fresh_registry,
+    ):
+        """Multiple workspace_created hooks are sorted by priority."""
+        plugin_api.register_workspace_created_hook(
+            hook_name="low_prio",
+            callback=MagicMock(),
+            priority=200,
+        )
+        plugin_api.register_workspace_created_hook(
+            hook_name="high_prio",
+            callback=MagicMock(),
+            priority=10,
+        )
+
+        hooks = fresh_registry.get_workspace_created_hooks()
+        assert hooks[0].hook_name == "high_prio"
+        assert hooks[1].hook_name == "low_prio"
+
+    def test_workspace_created_hooks_cleaned_on_unregister(
+        self,
+        plugin_api,
+        fresh_registry,
+    ):
+        """workspace_created hooks are removed when plugin is unregistered."""
+        plugin_api.register_workspace_created_hook(
+            hook_name="provision",
+            callback=MagicMock(),
+        )
+        assert len(fresh_registry.get_workspace_created_hooks()) == 1
+
+        fresh_registry.unregister_plugin("test-plugin")
+        assert len(fresh_registry.get_workspace_created_hooks()) == 0
+
+    def test_fire_workspace_created_hooks_calls_callbacks(
+        self,
+        fresh_registry,
+    ):
+        """_fire_workspace_created_hooks invokes registered callbacks."""
+        from qwenpaw.plugins.api import PluginApi
+        from qwenpaw.app.multi_agent_manager import MultiAgentManager
+
+        api = PluginApi(
+            "hook-plugin",
+            config={},
+            manifest={"id": "hook-plugin"},
+        )
+        api.set_registry(fresh_registry)
+
+        received_info: Dict[str, Any] = {}
+
+        def on_created(workspace_info):
+            received_info.update(workspace_info)
+
+        api.register_workspace_created_hook(
+            hook_name="test_hook",
+            callback=on_created,
+        )
+
+        workspace_info = {
+            "agent_id": "agent-42",
+            "workspace_dir": "/tmp/ws/agent-42",
+        }
+        MultiAgentManager._fire_workspace_created_hooks(workspace_info)
+
+        assert received_info["agent_id"] == "agent-42"
+        assert received_info["workspace_dir"] == "/tmp/ws/agent-42"
+
+    def test_fire_workspace_created_hooks_error_isolation(
+        self,
+        fresh_registry,
+    ):
+        """Errors in one hook don't prevent subsequent hooks from running."""
+        from qwenpaw.plugins.api import PluginApi
+        from qwenpaw.app.multi_agent_manager import MultiAgentManager
+
+        api = PluginApi(
+            "err-plugin",
+            config={},
+            manifest={"id": "err-plugin"},
+        )
+        api.set_registry(fresh_registry)
+
+        second_called = []
+
+        def bad_hook(workspace_info):
+            raise RuntimeError("boom")
+
+        def good_hook(workspace_info):
+            second_called.append(workspace_info["agent_id"])
+
+        api.register_workspace_created_hook(
+            hook_name="bad",
+            callback=bad_hook,
+            priority=10,
+        )
+        api.register_workspace_created_hook(
+            hook_name="good",
+            callback=good_hook,
+            priority=20,
+        )
+
+        # Should not raise
+        MultiAgentManager._fire_workspace_created_hooks(
+            {
+                "agent_id": "ws-1",
+                "workspace_dir": "/tmp/ws-1",
+            },
+        )
+
+        assert "ws-1" in second_called

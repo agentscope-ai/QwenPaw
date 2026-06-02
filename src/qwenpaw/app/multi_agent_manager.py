@@ -124,6 +124,16 @@ class MultiAgentManager:
                 f"Workspace created and started: {agent_id} "
                 f"({elapsed:.3f}s)",
             )
+
+            # Fire workspace_created hooks so plugins can provision
+            # skills / config into the newly created workspace.
+            self._fire_workspace_created_hooks(
+                {
+                    "agent_id": agent_id,
+                    "workspace_dir": str(agent_ref.workspace_dir),
+                },
+            )
+
             return instance
         except Exception as e:
             logger.error(f"Failed to start workspace {agent_id}: {e}")
@@ -134,6 +144,37 @@ class MultiAgentManager:
             async with self._lock:
                 self._pending_starts.pop(agent_id, None)
             event.set()
+
+    @staticmethod
+    def _fire_workspace_created_hooks(workspace_info: dict) -> None:
+        """Invoke all registered workspace_created hooks synchronously.
+
+        Errors in individual hooks are logged but do not prevent
+        subsequent hooks from running.
+
+        Args:
+            workspace_info: Dict with at least ``agent_id`` and
+                ``workspace_dir`` keys.
+        """
+        try:
+            from ..plugins.registry import PluginRegistry
+
+            registry = PluginRegistry()
+            hooks = registry.get_workspace_created_hooks()
+        except Exception:
+            # Plugin system not initialised yet — nothing to do.
+            return
+
+        for hook in hooks:
+            try:
+                hook.callback(workspace_info)
+            except Exception as exc:
+                logger.error(
+                    f"Error in workspace_created hook "
+                    f"'{hook.hook_name}' for plugin "
+                    f"'{hook.plugin_id}': {exc}",
+                    exc_info=True,
+                )
 
     async def _graceful_stop_old_instance(
         self,
