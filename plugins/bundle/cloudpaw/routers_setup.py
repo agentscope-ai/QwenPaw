@@ -104,27 +104,12 @@ def _inject_routers(routers: list) -> None:
     """Inject routers into the running FastAPI application."""
     app = None
     try:
-        from agentscope_runtime.engine.app import AgentApp
+        from qwenpaw.app._app import app as _app
 
-        # pylint: disable=protected-access
-        agent_app = (
-            AgentApp._instances.get(AgentApp)
-            if hasattr(AgentApp, "_instances")
-            else None
-        )
-        if agent_app:
-            app = agent_app.app
+        if hasattr(_app, "state"):
+            app = _app
     except Exception:
         pass
-
-    if app is None:
-        try:
-            from qwenpaw.app._app import app as _app
-
-            if hasattr(_app, "state"):
-                app = _app
-        except Exception:
-            pass
 
     if app is None:
         logger.warning(

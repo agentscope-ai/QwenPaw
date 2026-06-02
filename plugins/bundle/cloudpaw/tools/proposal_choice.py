@@ -17,7 +17,8 @@ import re
 from typing import Any, List, Optional, Union
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.message import ToolResultState
+from agentscope.tool import ToolChunk
 
 # pylint: disable=no-name-in-module
 from qwenpaw.app.interaction import InteractionManager
@@ -217,7 +218,7 @@ def _validate_proposals(proposals: List[List[List[Any]]]) -> Union[str, None]:
 async def proposal_choice(
     data: str,
     strategy_names: Optional[str] = None,
-) -> ToolResponse:
+) -> ToolChunk:
     """Display a resource proposal to user and wait for confirmation.
 
     Presents a resource proposal in table format with fixed headers and
@@ -257,7 +258,7 @@ async def proposal_choice(
             Example: '["最低价方案", "中等配置", "高性能方案"]'
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             When user confirms deployment: "用户确认部署"
             When user requests adjustment: "用户要求调整资源：{user input text}"
             When timeout (1 hour): "用户确认部署"
@@ -266,7 +267,8 @@ async def proposal_choice(
     try:
         raw_data: Any = json.loads(data)
     except (json.JSONDecodeError, TypeError):
-        return ToolResponse(
+        return ToolChunk(
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",
@@ -296,7 +298,8 @@ async def proposal_choice(
     expected_count = len(custom_names) if custom_names else 0
     normalized = _normalize_proposals(raw_data, expected_count=expected_count)
     if isinstance(normalized, str):
-        return ToolResponse(
+        return ToolChunk(
+            state=ToolResultState.SUCCESS,
             content=[TextBlock(type="text", text=normalized)],
         )
     proposals: List[List[List[Any]]] = normalized
@@ -304,7 +307,8 @@ async def proposal_choice(
     # Validate proposals structure
     error = _validate_proposals(proposals)
     if error:
-        return ToolResponse(
+        return ToolChunk(
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(type="text", text=error),
             ],
@@ -331,7 +335,8 @@ async def proposal_choice(
             },
             ensure_ascii=False,
         )
-        return ToolResponse(
+        return ToolChunk(
+            state=ToolResultState.SUCCESS,
             content=[TextBlock(type="text", text=payload)],
         )
 
@@ -346,7 +351,8 @@ async def proposal_choice(
             timeout=_INTERACTION_TIMEOUT,
         )
     except asyncio.TimeoutError:
-        return ToolResponse(
+        return ToolChunk(
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",
@@ -358,6 +364,7 @@ async def proposal_choice(
         InteractionManager.cleanup(session_id)
 
     result = interaction.result or "用户未做出选择"
-    return ToolResponse(
+    return ToolChunk(
+        state=ToolResultState.SUCCESS,
         content=[TextBlock(type="text", text=result)],
     )
