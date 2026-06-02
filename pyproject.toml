@@ -77,6 +77,7 @@ include-package-data = true
     "security/tool_guard/rules/**",
     "security/skill_scanner/rules/**",
     "security/skill_scanner/data/**",
+    "app/channels/yuanbao/proto/*.json",
     "docs/*.md",
 ]
 
