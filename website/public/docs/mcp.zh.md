@@ -355,6 +355,16 @@ QwenPaw 提供了一组开箱即用的内置工具，智能体可以直接调用
 - 使用 `action` 参数指定操作类型
 - 默认为无头模式（headless），使用 `headed=True` 启动可见浏览器窗口
 - 支持多标签页（使用不同的 `page_id`）
+- `click` 支持两种定位方式：元素定位（`ref`/`selector`）和页面坐标定位（`page_x`、`page_y`，单位为页面 viewport 像素）。当两者同时提供时，优先级为 `ref > selector > page_x/page_y`，坐标参数仅在未提供 `ref/selector` 时生效
+  - 坐标点击底层使用 `page.mouse.click(...)`，支持 `button` 与 `double_click`，但不支持 `modifiers_json`
+
+```json
+{
+  "action": "click",
+  "page_x": 420,
+  "page_y": 260
+}
+```
 
 **CDP 模式（高级功能）：**
 浏览器工具支持通过 Chrome DevTools Protocol (CDP) 连接到已运行的 Chrome 浏览器：

@@ -1592,12 +1592,14 @@ async def _action_screenshot(
         )
 
 
-async def _action_click(  # pylint: disable=too-many-branches
+async def _action_click(  # pylint: disable=too-many-branches,too-many-return-statements
     state: dict,
     page_id: str,
     selector: str,
     ref: str = "",
     element: str = "",  # pylint: disable=unused-argument
+    page_x: int = -1,
+    page_y: int = -1,
     wait: int = 0,
     double_click: bool = False,
     button: str = "left",
@@ -1606,14 +1608,38 @@ async def _action_click(  # pylint: disable=too-many-branches
 ) -> ToolResponse:
     ref = (ref or "").strip()
     selector = (selector or "").strip()
+    has_any_coord = page_x != -1 or page_y != -1
+    coords_are_int = isinstance(page_x, int) and isinstance(page_y, int)
+    has_page_xy = coords_are_int and page_x >= 0 and page_y >= 0
     if not ref and not selector:
-        return _tool_response(
-            json.dumps(
-                {"ok": False, "error": "selector or ref required for click"},
-                ensure_ascii=False,
-                indent=2,
-            ),
-        )
+        if has_any_coord and (not coords_are_int or page_x < 0 or page_y < 0):
+            return _tool_response(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": (
+                            "page_x and page_y must both be non-negative"
+                            " integers for coordinate click"
+                        ),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+        if not has_page_xy:
+            return _tool_response(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": (
+                            "selector or ref required for click, or provide both"
+                            " page_x and page_y"
+                        ),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -1629,17 +1655,21 @@ async def _action_click(  # pylint: disable=too-many-branches
         mods = _parse_json_param(modifiers_json, [])
         if not isinstance(mods, list):
             mods = []
-        kwargs = {
+        click_kwargs = {
             "button": (
                 button if button in ("left", "right", "middle") else "left"
             ),
         }
         if mods:
-            kwargs["modifiers"] = [
+            click_kwargs["modifiers"] = [
                 m
                 for m in mods
                 if m in ("Alt", "Control", "ControlOrMeta", "Meta", "Shift")
             ]
+        mouse_kwargs = {
+            "button": click_kwargs["button"],
+            "click_count": 2 if double_click else 1,
+        }
 
         if _USE_SYNC_PLAYWRIGHT:
             loop = asyncio.get_event_loop()
@@ -1662,26 +1692,35 @@ async def _action_click(  # pylint: disable=too-many-branches
                 if double_click:
                     await loop.run_in_executor(
                         _get_executor(),
-                        lambda: locator.dblclick(**kwargs),
+                        lambda: locator.dblclick(**click_kwargs),
                     )
                 else:
                     await loop.run_in_executor(
                         _get_executor(),
-                        lambda: locator.click(**kwargs),
+                        lambda: locator.click(**click_kwargs),
                     )
-            else:
+            elif selector:
                 root = _get_root(page, frame_selector)
                 locator = root.locator(selector).first
                 if double_click:
                     await loop.run_in_executor(
                         _get_executor(),
-                        lambda: locator.dblclick(**kwargs),
+                        lambda: locator.dblclick(**click_kwargs),
                     )
                 else:
                     await loop.run_in_executor(
                         _get_executor(),
-                        lambda: locator.click(**kwargs),
+                        lambda: locator.click(**click_kwargs),
                     )
+            else:
+                await loop.run_in_executor(
+                    _get_executor(),
+                    lambda: page.mouse.click(
+                        page_x,
+                        page_y,
+                        **mouse_kwargs,
+                    ),
+                )
         else:
             # Standard async mode
             if ref:
@@ -1701,20 +1740,33 @@ async def _action_click(  # pylint: disable=too-many-branches
                         ),
                     )
                 if double_click:
-                    await locator.dblclick(**kwargs)
+                    await locator.dblclick(**click_kwargs)
                 else:
-                    await locator.click(**kwargs)
-            else:
+                    await locator.click(**click_kwargs)
+            elif selector:
                 root = _get_root(page, frame_selector)
                 locator = root.locator(selector).first
                 if double_click:
-                    await locator.dblclick(**kwargs)
+                    await locator.dblclick(**click_kwargs)
                 else:
-                    await locator.click(**kwargs)
+                    await locator.click(**click_kwargs)
+            else:
+                await page.mouse.click(
+                    page_x,
+                    page_y,
+                    **mouse_kwargs,
+                )
 
         return _tool_response(
             json.dumps(
-                {"ok": True, "message": f"Clicked {ref or selector}"},
+                {
+                    "ok": True,
+                    "message": (
+                        f"Clicked {ref or selector}"
+                        if (ref or selector)
+                        else f"Clicked page coordinate ({page_x}, {page_y})"
+                    ),
+                },
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -3724,6 +3776,8 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
                     selector=(act.get("selector") or "").strip(),
                     ref=(act.get("ref") or "").strip(),
                     element=act.get("element", ""),
+                    page_x=act.get("page_x", -1),
+                    page_y=act.get("page_y", -1),
                     wait=act.get("wait", 0),
                     double_click=act.get("double_click", False),
                     button=act.get("button", "left"),
@@ -4185,6 +4239,8 @@ async def browser_use(  # pylint: disable=R0911,R0912
     double_click: bool = False,
     button: str = "left",
     modifiers_json: str = "",
+    page_x: int = -1,
+    page_y: int = -1,
     start_ref: str = "",
     end_ref: str = "",
     start_selector: str = "",
@@ -4247,7 +4303,8 @@ async def browser_use(  # pylint: disable=R0911,R0912
             multiple tabs.
         selector (str):
             CSS selector to locate element for click/type/hover etc. Prefer
-            ref when available.
+            ref when available. For action=click, selector/ref take precedence
+            over page_x/page_y when both are provided.
         text (str):
             Text to type. Required for action=type.
         code (str):
@@ -4311,6 +4368,14 @@ async def browser_use(  # pylint: disable=R0911,R0912
         modifiers_json (str):
             JSON array of modifier keys, e.g. ["Shift","Control"]. Used with
             action=click.
+        page_x (int):
+            Page viewport X coordinate in pixels for action=click. Used only
+            when neither ref nor selector is provided.
+        page_y (int):
+            Page viewport Y coordinate in pixels for action=click. Used only
+            when neither ref nor selector is provided.
+            Coordinate click uses page.mouse.click; it supports button and
+            double_click but not modifiers_json.
         start_ref (str):
             Drag start element ref. Used with action=drag.
         end_ref (str):
@@ -4373,7 +4438,9 @@ async def browser_use(  # pylint: disable=R0911,R0912
             "wait" (seconds to wait after the action), "stop_on_error"
             (bool, default True). Example:
             [{"action": "navigate", "url": "https://example.com"},
-             {"action": "click", "ref": "e1"}, {"action": "type", "ref": "e2", "text": "hello"}].
+             {"action": "click", "ref": "e1"},
+             {"action": "click", "page_x": 400, "page_y": 240},
+             {"action": "type", "ref": "e2", "text": "hello"}].
         cdp_url (str):
             CDP base URL, e.g. "http://localhost:9222". Required for
             action=connect_cdp.
@@ -4458,6 +4525,8 @@ async def browser_use(  # pylint: disable=R0911,R0912
                 selector,
                 ref,
                 element,
+                page_x,
+                page_y,
                 wait,
                 double_click,
                 button,

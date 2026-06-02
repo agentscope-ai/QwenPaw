@@ -335,6 +335,16 @@ Configure this option on the `execute_shell_command` tool card (only this tool s
 - Use `action` parameter to specify operation type
 - Runs in headless mode by default; use `headed=True` to launch a visible browser window
 - Supports multiple tabs (use different `page_id` values)
+- `click` supports two targeting modes: element locators (`ref`/`selector`) and page coordinates (`page_x` / `page_y`, in page viewport pixels). When both are provided, the priority is `ref > selector > page_x/page_y`, and the coordinate parameters only take effect when neither `ref` nor `selector` is given
+  - Coordinate clicks are backed by `page.mouse.click(...)`; they support `button` and `double_click`, but not `modifiers_json`
+
+```json
+{
+  "action": "click",
+  "page_x": 420,
+  "page_y": 260
+}
+```
 
 **CDP Mode (Advanced Feature):**
 The browser tool supports connecting to a running Chrome browser via Chrome DevTools Protocol (CDP):
