@@ -117,17 +117,17 @@ export function PendingApprovalsDrawer({
     }
   };
 
-  const handleNicknameSave = async (entry: PendingEntry, nickname: string) => {
+  const handleUsernameSave = async (entry: PendingEntry, username: string) => {
     try {
-      await accessControlApi.updateNickname(
+      await accessControlApi.updateUsername(
         entry.channel,
         entry.user_id,
-        nickname,
+        username,
       );
       setPending((prev) =>
         prev.map((p) =>
           p.channel === entry.channel && p.user_id === entry.user_id
-            ? { ...p, nickname }
+            ? { ...p, username }
             : p,
         ),
       );
@@ -185,18 +185,18 @@ export function PendingApprovalsDrawer({
       ),
     },
     {
-      title: t("channels.nickname"),
-      dataIndex: "nickname",
-      key: "nickname",
+      title: t("channels.username"),
+      dataIndex: "username",
+      key: "username",
       width: 120,
-      render: (nickname: string, record: PendingEntry) => (
+      render: (username: string, record: PendingEntry) => (
         <Text
           editable={{
-            onChange: (value) => handleNicknameSave(record, value),
-            text: nickname || "",
+            onChange: (value) => handleUsernameSave(record, value),
+            text: username || "",
           }}
         >
-          {nickname || <span style={{ color: "#bbb" }}>-</span>}
+          {username || <span style={{ color: "#bbb" }}>-</span>}
         </Text>
       ),
     },

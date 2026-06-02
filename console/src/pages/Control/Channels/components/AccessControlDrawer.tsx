@@ -28,13 +28,13 @@ interface AccessControlDrawerProps {
 }
 
 function toEntries(
-  map: Record<string, { remark: string; nickname: string }> | undefined,
+  map: Record<string, { remark: string; username: string }> | undefined,
 ): ACLUserEntry[] {
   if (!map) return [];
   return Object.entries(map).map(([userId, info]) => ({
     userId,
     remark: info?.remark ?? "",
-    nickname: info?.nickname ?? "",
+    username: info?.username ?? "",
   }));
 }
 
@@ -48,6 +48,7 @@ export function AccessControlDrawer({
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [newUserId, setNewUserId] = useState("");
+  const [newUsername, setNewUsername] = useState("");
   const [newRemark, setNewRemark] = useState("");
   const [activeTab, setActiveTab] = useState<"whitelist" | "blacklist">(
     "whitelist",
@@ -92,10 +93,12 @@ export function AccessControlDrawer({
           channel: selectedChannel,
           user_id: newUserId.trim(),
           remark: newRemark.trim(),
+          username: newUsername.trim(),
         },
       ]);
       message.success(t("channels.userAdded"));
       setNewUserId("");
+      setNewUsername("");
       setNewRemark("");
       await fetchACLs();
     } catch {
@@ -126,7 +129,7 @@ export function AccessControlDrawer({
         const channelData = prev[selectedChannel];
         if (!channelData) return prev;
         const list = channelData[activeTab];
-        const existing = list[userId] ?? { remark: "", nickname: "" };
+        const existing = list[userId] ?? { remark: "", username: "" };
         return {
           ...prev,
           [selectedChannel]: {
@@ -173,22 +176,22 @@ export function AccessControlDrawer({
     ? toEntries(currentACL[activeTab])
     : [];
 
-  const handleNicknameSave = async (userId: string, nickname: string) => {
+  const handleUsernameSave = async (userId: string, username: string) => {
     if (!selectedChannel) return;
     try {
-      await accessControlApi.updateNickname(selectedChannel, userId, nickname);
+      await accessControlApi.updateUsername(selectedChannel, userId, username);
       setAllACLs((prev) => {
         const channelData = prev[selectedChannel];
         if (!channelData) return prev;
         const list = channelData[activeTab];
-        const existing = list[userId] ?? { remark: "", nickname: "" };
+        const existing = list[userId] ?? { remark: "", username: "" };
         return {
           ...prev,
           [selectedChannel]: {
             ...channelData,
             [activeTab]: {
               ...list,
-              [userId]: { ...existing, nickname },
+              [userId]: { ...existing, username },
             },
           },
         };
@@ -200,18 +203,18 @@ export function AccessControlDrawer({
 
   const columns = [
     {
-      title: t("channels.nickname"),
-      dataIndex: "nickname",
-      key: "nickname",
+      title: t("channels.username"),
+      dataIndex: "username",
+      key: "username",
       width: 120,
-      render: (nickname: string, record: ACLUserEntry) => (
+      render: (username: string, record: ACLUserEntry) => (
         <Typography.Text
           editable={{
-            onChange: (value) => handleNicknameSave(record.userId, value),
-            text: nickname || "",
+            onChange: (value) => handleUsernameSave(record.userId, value),
+            text: username || "",
           }}
         >
-          {nickname || <span style={{ color: "#bbb" }}>-</span>}
+          {username || <span style={{ color: "#bbb" }}>-</span>}
         </Typography.Text>
       ),
     },
@@ -371,6 +374,7 @@ export function AccessControlDrawer({
         onCancel={() => {
           setAddModalOpen(false);
           setNewUserId("");
+          setNewUsername("");
           setNewRemark("");
         }}
         onOk={async () => {
@@ -392,6 +396,19 @@ export function AccessControlDrawer({
               placeholder={t("channels.addUserPlaceholder")}
               value={newUserId}
               onChange={(e) => setNewUserId(e.target.value)}
+            />
+          </div>
+          <div>
+            <Typography.Text
+              strong
+              style={{ display: "block", marginBottom: 6 }}
+            >
+              {t("channels.username")}
+            </Typography.Text>
+            <Input
+              placeholder={t("channels.usernamePlaceholder")}
+              value={newUsername}
+              onChange={(e) => setNewUsername(e.target.value)}
             />
           </div>
           <div>

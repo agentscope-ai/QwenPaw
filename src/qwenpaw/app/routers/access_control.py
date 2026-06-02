@@ -27,7 +27,7 @@ async def _get_store(request: Request):
 
 class UserInfoResponse(BaseModel):
     remark: str = ""
-    nickname: str = ""
+    username: str = ""
 
 
 class ACLResponse(BaseModel):
@@ -42,6 +42,7 @@ class ACLActionEntry(BaseModel):
     channel: str
     user_id: str
     remark: str = ""
+    username: str = ""
 
 
 class ACLActionBody(BaseModel):
@@ -56,10 +57,10 @@ class UpdateRemarkBody(BaseModel):
     remark: str
 
 
-class UpdateNicknameBody(BaseModel):
+class UpdateUsernameBody(BaseModel):
     channel: str
     user_id: str
-    nickname: str
+    username: str
 
 
 class PendingEntry(BaseModel):
@@ -67,7 +68,8 @@ class PendingEntry(BaseModel):
     channel: str
     timestamp: float
     first_message: str = ""
-    nickname: str = ""
+    remark: str = ""
+    username: str = ""
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -205,6 +207,7 @@ async def add_to_whitelist(request: Request, body: ACLActionBody):
             entry.channel,
             entry.user_id,
             entry.remark,
+            username=entry.username,
         )
     return {"status": "ok", "count": len(body.entries)}
 
@@ -234,6 +237,7 @@ async def add_to_blacklist(request: Request, body: ACLActionBody):
             entry.channel,
             entry.user_id,
             entry.remark,
+            username=entry.username,
         )
     return {"status": "ok", "count": len(body.entries)}
 
@@ -272,15 +276,15 @@ async def update_remark(request: Request, body: UpdateRemarkBody):
 
 
 @router.post(
-    "/nickname",
-    summary="Update nickname for a user in any list",
+    "/username",
+    summary="Update username for a user in any list",
 )
-async def update_nickname(request: Request, body: UpdateNicknameBody):
+async def update_username(request: Request, body: UpdateUsernameBody):
     store = await _get_store(request)
-    found = store.update_nickname(
+    found = store.update_username(
         body.channel,
         body.user_id,
-        body.nickname,
+        body.username,
     )
     if not found:
         raise HTTPException(

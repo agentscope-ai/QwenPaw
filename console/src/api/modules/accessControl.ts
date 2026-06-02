@@ -2,7 +2,7 @@ import { request } from "../request";
 
 export interface UserInfo {
   remark: string;
-  nickname: string;
+  username: string;
 }
 
 export interface ACLData {
@@ -17,13 +17,13 @@ export interface PendingEntry {
   timestamp: number;
   first_message: string;
   remark: string;
-  nickname: string;
+  username: string;
 }
 
 export interface ACLUserEntry {
   userId: string;
   remark: string;
-  nickname: string;
+  username: string;
 }
 
 export const accessControlApi = {
@@ -37,7 +37,12 @@ export const accessControlApi = {
    * Pass an array of entries (1 or more).
    */
   addAclWhitelist: (
-    entries: { channel: string; user_id: string; remark?: string }[],
+    entries: {
+      channel: string;
+      user_id: string;
+      remark?: string;
+      username?: string;
+    }[],
   ) =>
     request("/access-control/whitelist/add", {
       method: "POST",
@@ -51,7 +56,12 @@ export const accessControlApi = {
     }),
 
   addAclBlacklist: (
-    entries: { channel: string; user_id: string; remark?: string }[],
+    entries: {
+      channel: string;
+      user_id: string;
+      remark?: string;
+      username?: string;
+    }[],
   ) =>
     request("/access-control/blacklist/add", {
       method: "POST",
@@ -105,9 +115,9 @@ export const accessControlApi = {
       body: JSON.stringify({ channel, user_id: userId, remark }),
     }),
 
-  updateNickname: (channel: string, userId: string, nickname: string) =>
-    request("/access-control/nickname", {
+  updateUsername: (channel: string, userId: string, username: string) =>
+    request("/access-control/username", {
       method: "POST",
-      body: JSON.stringify({ channel, user_id: userId, nickname }),
+      body: JSON.stringify({ channel, user_id: userId, username }),
     }),
 };
