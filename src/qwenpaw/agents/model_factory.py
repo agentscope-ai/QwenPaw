@@ -22,12 +22,12 @@ from agentscope.model import ChatModelBase
 
 try:
     from agentscope.formatter import AnthropicChatFormatter
-except ImportError:  # pragma: no cover - compatibility fallback
+except ImportError:
     AnthropicChatFormatter = None
 
 try:
     from agentscope.formatter import GeminiChatFormatter
-except ImportError:  # pragma: no cover - compatibility fallback
+except ImportError:
     GeminiChatFormatter = None
 
 from .utils.message_request_normalizer import (
@@ -128,72 +128,86 @@ def _normalize_messages_for_formatter(
     return normalized_msgs, is_anthropic_formatter, is_gemini_formatter
 
 
-# TODO: remove after agentscope anthropic formatter updated
-def _format_anthropic_media_block(block: dict) -> dict:
-    """Format an image or video block for Anthropic API.
+def _anthropic_media_dedup_key(source: Any) -> str | None:
+    """Return a hashable key identifying a media source for dedup.
 
-    If the source is a URLSource pointing to a local file it will be
-    converted to base64.  Web URLs are passed through as-is.
-
-    Args:
-        block (`dict`):
-            A block dict with ``type`` of ``"image"`` or ``"video"``.
-
-    Returns:
-        `dict`: Formatted block for the Anthropic API.
-
-    Raises:
-        `ModelFormatterError`:
-            If the source type or media format is not supported.
+    A user-uploaded image often re-appears inside ``view_image``'s
+    ``ToolResultBlock.output``.  Without dedup both copies get
+    base64-encoded into the wire request, doubling payload size and
+    occasionally tripping gateway limits (e.g. dash_anthropic's 6 MB
+    cap).  This key lets the formatter spot the second occurrence and
+    swap it for a short text placeholder.
     """
-    typ = block["type"]
-    extensions = (
-        _SUPPORTED_IMAGE_EXTENSIONS
-        if typ == "image"
-        else _SUPPORTED_VIDEO_EXTENSIONS
-    )
+    media_type = getattr(source, "media_type", "") or ""
+    url = getattr(source, "url", None)
+    if url is not None:
+        return f"url|{media_type}|{url}"
+    data = getattr(source, "data", "") or ""
+    if data:
+        return f"b64|{media_type}|{len(data)}|{data[:128]}"
+    return None
 
-    source = block["source"]
 
-    if source["type"] == "base64":
-        return {**block}
+def _format_anthropic_video_data_block(block: Any) -> dict | None:
+    """Format a 2.0 ``DataBlock`` of video media for Anthropic-compatible APIs.
 
-    url = source["url"]
-    raw_url = _file_url_to_path(url)
+    agentscope's stock Anthropic formatter drops every non-image
+    ``DataBlock``; this helper keeps video support so third-party
+    Anthropic-compatible providers that DO accept video keep working.
 
+    Returns the wire dict, or ``None`` if the source is unusable
+    (missing file, unsupported extension, exotic scheme).
+    """
+    source = getattr(block, "source", None)
+    if source is None:
+        return None
+
+    media_type = getattr(source, "media_type", None) or ""
+
+    # Base64Source — pass data straight through.
+    data_attr = getattr(source, "data", None)
+    if data_attr is not None:
+        return {
+            "type": "video",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": data_attr,
+            },
+        }
+
+    url_str = str(getattr(source, "url", "") or "")
+    if not url_str:
+        return None
+
+    raw_url = _file_url_to_path(url_str)
     if os.path.exists(raw_url) and os.path.isfile(raw_url):
         ext = os.path.splitext(raw_url)[1].lower()
-        media_type = extensions.get(ext)
-        if media_type:
+        resolved_media_type = (
+            media_type
+            if media_type.startswith("video/")
+            else _SUPPORTED_VIDEO_EXTENSIONS.get(ext)
+        )
+        if resolved_media_type:
             with open(raw_url, "rb") as f:
-                data = base64.b64encode(f.read()).decode(
-                    "utf-8",
-                )
+                encoded = base64.b64encode(f.read()).decode("utf-8")
             return {
-                "type": typ,
+                "type": "video",
                 "source": {
                     "type": "base64",
-                    "media_type": media_type,
-                    "data": data,
+                    "media_type": resolved_media_type,
+                    "data": encoded,
                 },
             }
 
     parsed_url = urlparse(raw_url)
-    if parsed_url.scheme not in ("", "file"):
+    if parsed_url.scheme in ("http", "https"):
         return {
-            "type": typ,
-            "source": {
-                "type": "url",
-                "url": url,
-            },
+            "type": "video",
+            "source": {"type": "url", "url": url_str},
         }
 
-    raise ModelFormatterError(
-        message=(
-            f'Invalid {typ} URL: "{url}". '
-            "It should be a local file or a web URL."
-        ),
-    )
+    return None
 
 
 def _format_openai_video_block(video_block: dict) -> dict:
@@ -299,65 +313,6 @@ def _media_source_key(block: dict) -> str | None:
     return url
 
 
-def _format_anthropic_output_items(
-    output: list,
-    seen_media: set[str] | None = None,
-) -> list:
-    """Format a list of tool_result output blocks for Anthropic API,
-    converting image, video, and file blocks as needed.
-
-    When *seen_media* is provided, media blocks whose source has already
-    been encoded in a preceding top-level block are replaced with a
-    lightweight text placeholder to avoid duplicating large base64 data.
-    """
-    result: list[dict] = []
-    for item in output:
-        item_type = item.get("type")
-
-        if item_type == "file":
-            # Anthropic tool_result content only supports 'text' and 'image';
-            # convert file blocks to a readable text placeholder so the
-            # conversation history stays intact without triggering a 400 error.
-            source = item.get("source", {})
-            file_url = source.get("url", "")
-            filename = (
-                item.get("filename")
-                or file_url.rsplit("/", 1)[-1]
-                or "unknown"
-            )
-            readable_path = file_url.removeprefix("file://")
-            result.append(
-                {
-                    "type": "text",
-                    "text": f"File '{filename}' is available at:"
-                    f" {readable_path}",
-                },
-            )
-            continue
-
-        if item_type not in ("image", "video"):
-            result.append(item)
-            continue
-
-        key = _media_source_key(item)
-        if key and seen_media is not None and key in seen_media:
-            result.append(
-                {
-                    "type": "text",
-                    "text": (
-                        f"[{item['type'].title()} omitted — same "
-                        f"{item['type']} already visible above]"
-                    ),
-                },
-            )
-        else:
-            result.append(_format_anthropic_media_block(item))
-            if key and seen_media is not None:
-                seen_media.add(key)
-
-    return result
-
-
 def _block_to_dict(block: Any) -> dict:
     """Coerce a Pydantic block or dict to a plain dict for formatting."""
     if isinstance(block, dict):
@@ -365,106 +320,6 @@ def _block_to_dict(block: Any) -> dict:
     if hasattr(block, "model_dump"):
         return block.model_dump()
     return dict(block) if hasattr(block, "__iter__") else {"type": "unknown"}
-
-
-# TODO: remove after agentscope anthropic formatter updated
-def _format_anthropic_messages(  # pylint: disable=too-many-branches
-    msgs: list,
-) -> list[dict]:
-    """Format messages for Anthropic API with image/video block support.
-
-    Handles both dict blocks (1.x) and Pydantic block objects (2.0).
-    """
-    messages: list[dict] = []
-    seen_media: set[str] = set()
-    for index, msg in enumerate(msgs):
-        content_blocks: list[dict] = []
-
-        for block in msg.content or []:
-            bd = _block_to_dict(block)
-            typ = bd.get("type")
-            if typ in ["thinking", "text"]:
-                content_blocks.append({**bd})
-
-            elif typ in ("image", "video"):
-                key = _media_source_key(bd)
-                if key:
-                    seen_media.add(key)
-                content_blocks.append(
-                    _format_anthropic_media_block(bd),
-                )
-
-            elif typ == "data":
-                # 2.0 DataBlock — extract media type and convert
-                source = bd.get("source", {})
-                mt = source.get("media_type", "") or ""
-                main_type = mt.split("/")[0]
-                if main_type in ("image", "video"):
-                    media_block = {
-                        "type": main_type,
-                        "source": source,
-                    }
-                    key = _media_source_key(media_block)
-                    if key:
-                        seen_media.add(key)
-                    content_blocks.append(
-                        _format_anthropic_media_block(media_block),
-                    )
-
-            elif typ in ("tool_use", "tool_call"):
-                content_blocks.append(
-                    {
-                        "id": bd.get("id"),
-                        "type": "tool_use",
-                        "name": bd.get("name"),
-                        "input": bd.get("input", {}),
-                    },
-                )
-
-            elif typ == "tool_result":
-                output = bd.get("output")
-                if output is None:
-                    content_value: list = [
-                        {"type": "text", "text": ""},
-                    ]
-                elif isinstance(output, list):
-                    content_value = _format_anthropic_output_items(
-                        output,
-                        seen_media,
-                    )
-                else:
-                    content_value = [
-                        {"type": "text", "text": str(output)},
-                    ]
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": bd.get("id"),
-                                "content": content_value,
-                            },
-                        ],
-                    },
-                )
-
-        if msg.role == "system" and index != 0:
-            role = "user"
-        else:
-            role = msg.role
-
-        msg_anthropic: dict = {
-            "role": role,
-            "content": content_blocks or "",
-        }
-
-        if msg_anthropic["content"] or msg_anthropic.get(
-            "tool_calls",
-        ):
-            messages.append(msg_anthropic)
-
-    return messages
 
 
 def _substitute_video_blocks(
@@ -698,6 +553,13 @@ def _fix_image_mime_types(messages: list[dict]) -> None:
 
 _MEDIA_BLOCK_TYPES = ("image", "audio", "video")
 
+# Block types the upstream agentscope OpenAI / Gemini formatters silently
+# drop.  Tracked here so ``aligned_reasoning`` can predict which assistant
+# messages will vanish from the formatted output and stay in sync.  Keep
+# this in lockstep with the ``else: logger.warning("Unsupported block
+# type ...")`` branch in agentscope's ``_openai_formatter``.
+_FORMATTER_SKIPPED_TYPES = frozenset({"thinking", "file"})
+
 
 # pylint: disable=too-many-branches
 def _fixup_media_list(items: list) -> None:
@@ -706,6 +568,10 @@ def _fixup_media_list(items: list) -> None:
     - Strips ``file://`` prefixes from source URLs (dict blocks).
     - Replaces media blocks whose local file no longer exists with
       a text placeholder so the downstream formatter won't throw.
+    - Converts ``file`` blocks to text placeholders — neither the
+      OpenAI nor the Anthropic top-level formatters accept them and
+      the upstream OpenAI path silently drops the whole message when
+      nothing else survives.
     - Handles both dict blocks (1.x) and Pydantic block objects (2.0).
     - Recurses into ``tool_result`` output lists.
     """
@@ -775,6 +641,39 @@ def _fixup_media_list(items: list) -> None:
                     )
                 elif unquote(url_str) != url_str:
                     source.url = "file://" + local_path
+        elif btype == "file":
+            if isinstance(block, dict):
+                source = block.get("source") or {}
+                file_url = (
+                    source.get("url", "") if isinstance(source, dict) else ""
+                )
+                fname_hint = block.get("filename") or block.get("name")
+            else:
+                source = getattr(block, "source", None)
+                file_url = str(getattr(source, "url", "")) if source else ""
+                fname_hint = getattr(block, "filename", None) or getattr(
+                    block,
+                    "name",
+                    None,
+                )
+            readable_path = (
+                _file_url_to_path(file_url)
+                if isinstance(file_url, str) and file_url.startswith("file://")
+                else file_url
+            )
+            filename = (
+                fname_hint
+                or (readable_path.rsplit("/", 1)[-1] if readable_path else "")
+                or "file"
+            )
+            items[i] = TextBlock(
+                type="text",
+                text=(
+                    f"File '{filename}' is available at: {readable_path}"
+                    if readable_path
+                    else f"File '{filename}'"
+                ),
+            )
         elif btype == "tool_result":
             output = (
                 block.get("output")
@@ -804,11 +703,65 @@ def _create_file_block_support_formatter(
     class FileBlockSupportFormatter(base_formatter_class):
         """Formatter with file block support for tool results."""
 
-        # pylint: disable=too-many-branches
+        def __init__(self, **kwargs):
+            # Expand the Anthropic formatter's supported_input_media_types
+            # to include video — third-party Anthropic-compatible
+            # providers can accept video even though Anthropic's own API
+            # cannot.  Without this, ``_format_anthropic_data_block``
+            # short-circuits and our override below never runs.
+            if AnthropicChatFormatter is not None and issubclass(
+                base_formatter_class,
+                AnthropicChatFormatter,
+            ):
+                kwargs.setdefault(
+                    "input_types",
+                    ["text/plain", "image/*", "video/*"],
+                )
+            super().__init__(**kwargs)
+
+        def _format_anthropic_data_block(self, block):
+            """Route video ``DataBlock``s to our local helper; defer
+            everything else to the upstream Anthropic formatter.
+
+            Also dedups the same media within one ``format()`` call:
+            the second appearance of a given source becomes a short
+            text placeholder instead of another base64 copy.
+
+            Only the Anthropic base invokes this method — it lives on
+            our subclass as dead code for OpenAI / Gemini bases.
+            """
+            source = getattr(block, "source", None)
+            media_type = getattr(source, "media_type", "") or ""
+
+            seen: set[str] = getattr(self, "_seen_media_keys", None) or set()
+            self._seen_media_keys = seen
+            key = _anthropic_media_dedup_key(source) if source else None
+            if key is not None:
+                if key in seen:
+                    main_type = media_type.split("/")[0] or "media"
+                    return {
+                        "type": "text",
+                        "text": (
+                            f"[{main_type.title()} omitted — "
+                            f"already shown above]"
+                        ),
+                    }
+                seen.add(key)
+
+            if media_type.startswith("video/"):
+                return _format_anthropic_video_data_block(block)
+            return super()._format_anthropic_data_block(block)
+
+        # pylint: disable=too-many-branches, too-many-statements
         async def format(self, msgs):
             """Override ``format`` (2.0 API) to inject normalization,
             reasoning_content relay, and provider-specific fixups.
             """
+
+            # Per-wire-request dedup scope — second occurrence of the
+            # same media source becomes a text placeholder.  Reset on
+            # every call so state never leaks across requests.
+            self._seen_media_keys = set()
 
             def _battr(block, key, default=None):
                 """Get attribute from dict or Pydantic block."""
@@ -851,36 +804,34 @@ def _create_file_block_support_formatter(
                 if isinstance(msg.content, list):
                     _fixup_media_list(msg.content)
 
-            # For Anthropic, fully override formatting to handle
-            # media blocks (top-level & inside tool_result output).
-            if is_anthropic_formatter:
-                messages = _format_anthropic_messages(normalized_msgs)
-            else:
-                _needs_video = not _is_gemini_formatter
-                video_subs: dict[str, dict] = {}
-                if _needs_video:
-                    video_subs = _substitute_video_blocks(
-                        normalized_msgs,
-                    )
+            # OpenAI-family formatters reject video blocks; substitute
+            # them with text placeholders before formatting and restore
+            # the wire dicts afterwards.  Anthropic and Gemini skip
+            # this dance — Anthropic now handles video via our
+            # ``_format_anthropic_data_block`` override, Gemini accepts
+            # video natively.
+            _needs_video = not _is_gemini_formatter and not (
+                is_anthropic_formatter
+            )
+            video_subs: dict[str, dict] = {}
+            if _needs_video:
+                video_subs = _substitute_video_blocks(normalized_msgs)
 
-                messages = await super().format(normalized_msgs)
+            messages = await super().format(normalized_msgs)
 
-                if video_subs:
-                    _replace_video_placeholders(
-                        messages,
-                        video_subs,
-                    )
-                    _restore_video_blocks(normalized_msgs, video_subs)
+            if video_subs:
+                _replace_video_placeholders(messages, video_subs)
+                _restore_video_blocks(normalized_msgs, video_subs)
 
-                if _needs_video and getattr(
-                    self,
-                    "promote_tool_result_images",
-                    False,
-                ):
-                    messages = _promote_tool_result_videos(
-                        normalized_msgs,
-                        messages,
-                    )
+            if _needs_video and getattr(
+                self,
+                "promote_tool_result_images",
+                False,
+            ):
+                messages = _promote_tool_result_videos(
+                    normalized_msgs,
+                    messages,
+                )
 
             messages = _reorder_tool_and_promoted_messages(messages)
             _fix_image_mime_types(messages)
@@ -897,27 +848,57 @@ def _create_file_block_support_formatter(
                 for m in (
                     msg for msg in normalized_msgs if msg.role == "assistant"
                 ):
-                    is_thinking_only = (
-                        isinstance(m.content, list)
-                        and m.content
-                        and all(
-                            _battr(b, "type") == "thinking" for b in m.content
-                        )
+                    types = (
+                        [_battr(b, "type") for b in m.content]
+                        if isinstance(m.content, list)
+                        else []
                     )
-                    if not is_thinking_only:
-                        aligned_reasoning.append(
-                            reasoning_contents.get(id(m)),
-                        )
+                    # Drop prediction: a Msg whose blocks are *entirely*
+                    # in the skip set vanishes from formatter output
+                    # (currently {thinking, file}).  See
+                    # ``_FORMATTER_SKIPPED_TYPES``.
+                    is_dropped_by_formatter = bool(types) and all(
+                        t in _FORMATTER_SKIPPED_TYPES for t in types
+                    )
+                    if is_dropped_by_formatter:
+                        continue
+                    # Split prediction: DashScope / OpenAI-family
+                    # formatters split a single Msg containing BOTH text
+                    # and a tool-call into two wire ``assistant``
+                    # entries.  Mirror that split so positional
+                    # alignment holds even when ReAct collapses an
+                    # entire reasoning + tool + final-text turn into one
+                    # Msg.
+                    non_thinking = [t for t in types if t != "thinking"]
+                    has_text = "text" in non_thinking
+                    has_tool = any(
+                        t in ("tool_use", "tool_call") for t in non_thinking
+                    )
+                    wire_count = 2 if (has_text and has_tool) else 1
+                    aligned_reasoning.extend(
+                        [reasoning_contents.get(id(m))] * wire_count,
+                    )
 
                 out_assistant = [
                     m for m in messages if m.get("role") == "assistant"
                 ]
 
                 if len(aligned_reasoning) != len(out_assistant):
+                    # Mismatch means either (a) a new block type is
+                    # being dropped without being listed in
+                    # _FORMATTER_SKIPPED_TYPES, or (b) the formatter
+                    # produced a split this code doesn't predict.
+                    # Index-based injection past the offending msg would
+                    # attribute reasoning to the wrong response, which
+                    # is actively misleading — skip the whole turn and
+                    # warn loudly so the gap can be closed.
                     logger.warning(
                         "Assistant message count mismatch after formatting "
                         "(%d expected survivors, %d actual). "
-                        "Skipping reasoning_content injection.",
+                        "Skipping reasoning_content injection for this turn. "
+                        "A block type may be dropped by the base formatter "
+                        "without being listed in _FORMATTER_SKIPPED_TYPES, "
+                        "or a new split pattern needs to be predicted.",
                         len(aligned_reasoning),
                         len(out_assistant),
                     )

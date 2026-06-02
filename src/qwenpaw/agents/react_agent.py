@@ -687,10 +687,15 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     # ------------------------------------------------------------------
     # Media-block fallback: strip unsupported media blocks (image, audio,
-    # video) from memory and retry when the model rejects them.
+    # video, file) from memory and retry when the model rejects them.
+    # Unlike ``model_factory._fixup_media_list`` (which converts file
+    # blocks to text placeholders so the user-facing message history
+    # stays readable), this fallback strips them entirely — its purpose
+    # is to make a previously-rejected request retryable, so leaving
+    # residue would defeat the point.
     # ------------------------------------------------------------------
 
-    _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
+    _MEDIA_BLOCK_TYPES = {"image", "audio", "video", "file"}
     _MEDIA_MIME_PREFIXES = ("image/", "audio/", "video/")
 
     _AUTO_CONTINUE_MAX_EXTRA = 2
@@ -900,27 +905,43 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     @staticmethod
     def _is_bad_request_or_media_error(exc: Exception) -> bool:
-        """Return True for 400-class or media-related model errors.
+        """Return True only for errors that genuinely look media-related.
 
-        Targets bad-request (400) errors because unsupported media
-        content typically causes request validation failures.  Keyword
-        matching provides an extra safety net for providers that use
-        non-standard status codes.
+        A bare 400 is no longer sufficient — provider gateways return
+        400 for many unrelated reasons (request too large, malformed
+        block fields, exceeded context length) and treating them all as
+        "media rejected" poisons the capability cache, causing
+        subsequent requests to silently drop user-uploaded images.
         """
-        status = getattr(exc, "status_code", None)
-        if status == 400:
-            return True
-
         error_str = str(exc).lower()
-        keywords = [
+
+        # Veto: errors clearly about request size / context length are
+        # never about media support — stripping media may incidentally
+        # make the next request fit, but it's a coincidence, not a
+        # learned capability.
+        size_signals = (
+            "too large",
+            "toolarge",
+            "max bytes",
+            "request body",
+            "context length",
+            "context_length",
+            "maximum context",
+            "max_tokens",
+        )
+        if any(sig in error_str for sig in size_signals):
+            return False
+
+        # Match only when the error message itself names a media modality.
+        media_keywords = (
             "image",
             "audio",
             "video",
             "vision",
             "multimodal",
             "image_url",
-        ]
-        return any(kw in error_str for kw in keywords)
+        )
+        return any(kw in error_str for kw in media_keywords)
 
     def _is_media_block(self, block: Any) -> bool:
         """Return True if *block* carries image/audio/video data."""

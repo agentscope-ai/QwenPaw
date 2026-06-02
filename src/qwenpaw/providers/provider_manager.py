@@ -1324,6 +1324,20 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 result.get("supports_image"),
                 result.get("supports_video"),
             )
+            # Heal a poisoned ``rejects_media`` cache entry: if the
+            # probe actually saw the image, force ``rejects_media`` to
+            # False so subsequent ``_reasoning`` calls stop stripping
+            # media.  Without this, a stale entry written from an
+            # unrelated 400 (request too large, malformed block fields)
+            # would silently drop every future image.
+            if result.get("supports_image"):
+                from .model_capability_cache import get_capability_cache
+
+                get_capability_cache().learn(
+                    f"{provider_id}:{model_id}",
+                    "rejects_media",
+                    False,
+                )
         except Exception as e:
             logger.warning("Auto-probe multimodal failed: %s", e)
 
