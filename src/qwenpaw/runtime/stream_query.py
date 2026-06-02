@@ -198,35 +198,7 @@ class Runner:
         yield response
 
         raw_input = getattr(request, "input", []) or []
-        if raw_input:
-            for _ri, _rm in enumerate(raw_input):
-                _rc = getattr(_rm, "content", None) or []
-                _types = [
-                    getattr(
-                        c,
-                        "type",
-                        getattr(getattr(c, "type", None), "value", None),
-                    )
-                    for c in _rc
-                ]
-                logger.info(
-                    "stream_query: raw input[%d] role=%s content_types=%s",
-                    _ri,
-                    getattr(_rm, "role", "?"),
-                    _types,
-                )
         msgs = _request_input_to_msgs(raw_input)
-        if msgs:
-            for _mi, _mm in enumerate(msgs):
-                _block_types = [
-                    getattr(b, "type", "?") for b in (_mm.content or [])
-                ]
-                logger.info(
-                    "stream_query: converted msg[%d] role=%s blocks=%s",
-                    _mi,
-                    _mm.role,
-                    _block_types,
-                )
 
         # The Message envelope we accumulate into and emit twice: once with
         # empty content (in_progress) so the frontend can register the msg.id

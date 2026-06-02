@@ -863,18 +863,27 @@ def _create_file_block_support_formatter(
                     if is_dropped_by_formatter:
                         continue
                     # Split prediction: DashScope / OpenAI-family
-                    # formatters split a single Msg containing BOTH text
-                    # and a tool-call into two wire ``assistant``
-                    # entries.  Mirror that split so positional
-                    # alignment holds even when ReAct collapses an
-                    # entire reasoning + tool + final-text turn into one
-                    # Msg.
+                    # formatters produce one assistant wire msg per
+                    # "segment" — where tool_result blocks act as
+                    # separators (they become role="tool" messages).
+                    # Each contiguous run of text/tool_call between
+                    # tool_results becomes one assistant message.
                     non_thinking = [t for t in types if t != "thinking"]
-                    has_text = "text" in non_thinking
-                    has_tool = any(
-                        t in ("tool_use", "tool_call") for t in non_thinking
-                    )
-                    wire_count = 2 if (has_text and has_tool) else 1
+                    segments = 0
+                    in_segment = False
+                    for bt in non_thinking:
+                        if bt == "tool_result":
+                            in_segment = False
+                        else:
+                            if not in_segment:
+                                segments += 1
+                                in_segment = True
+                    # Within a segment, text+tool_call still counts as
+                    # one wire msg (content + tool_calls merged).  But
+                    # if a segment has text ONLY or tool_call ONLY,
+                    # that's also 1.  The only extra split is text that
+                    # follows tool_calls (rare in model output).
+                    wire_count = max(segments, 1)
                     aligned_reasoning.extend(
                         [reasoning_contents.get(id(m))] * wire_count,
                     )
@@ -884,14 +893,6 @@ def _create_file_block_support_formatter(
                 ]
 
                 if len(aligned_reasoning) != len(out_assistant):
-                    # Mismatch means either (a) a new block type is
-                    # being dropped without being listed in
-                    # _FORMATTER_SKIPPED_TYPES, or (b) the formatter
-                    # produced a split this code doesn't predict.
-                    # Index-based injection past the offending msg would
-                    # attribute reasoning to the wrong response, which
-                    # is actively misleading — skip the whole turn and
-                    # warn loudly so the gap can be closed.
                     logger.warning(
                         "Assistant message count mismatch after formatting "
                         "(%d expected survivors, %d actual). "
@@ -902,6 +903,21 @@ def _create_file_block_support_formatter(
                         len(aligned_reasoning),
                         len(out_assistant),
                     )
+                    for _i, m in enumerate(
+                        msg
+                        for msg in normalized_msgs
+                        if msg.role == "assistant"
+                    ):
+                        types = (
+                            [_battr(b, "type") for b in m.content]
+                            if isinstance(m.content, list)
+                            else []
+                        )
+                        logger.warning(
+                            "  src assistant[%d] blocks=%s",
+                            _i,
+                            types,
+                        )
                 else:
                     for i, out_msg in enumerate(out_assistant):
                         if aligned_reasoning[i]:
