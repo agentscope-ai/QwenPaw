@@ -839,6 +839,7 @@
     "addUser": "Добавить",
     "addUserPlaceholder": "Введите ID пользователя",
     "userId": "ID пользователя",
+    "nickname": "Никнейм",
     "channel": "Канал",
     "firstMessage": "Первое сообщение",
     "time": "Время",

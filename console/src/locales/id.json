@@ -361,6 +361,7 @@
     "addUser": "Tambah",
     "addUserPlaceholder": "Masukkan ID pengguna",
     "userId": "ID Pengguna",
+    "nickname": "Nama Panggilan",
     "channel": "Kanal",
     "firstMessage": "Pesan Pertama",
     "time": "Waktu",

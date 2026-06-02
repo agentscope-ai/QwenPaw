@@ -1,10 +1,13 @@
 import { request } from "../request";
 
+export interface UserInfo {
+  remark: string;
+  nickname: string;
+}
+
 export interface ACLData {
-  /** user_id -> remark */
-  whitelist: Record<string, string>;
-  /** user_id -> remark */
-  blacklist: Record<string, string>;
+  whitelist: Record<string, UserInfo>;
+  blacklist: Record<string, UserInfo>;
   pending: PendingEntry[];
 }
 
@@ -14,11 +17,13 @@ export interface PendingEntry {
   timestamp: number;
   first_message: string;
   remark: string;
+  nickname: string;
 }
 
 export interface ACLUserEntry {
   userId: string;
   remark: string;
+  nickname: string;
 }
 
 export const accessControlApi = {
@@ -98,5 +103,11 @@ export const accessControlApi = {
     request("/access-control/pending/remark", {
       method: "POST",
       body: JSON.stringify({ channel, user_id: userId, remark }),
+    }),
+
+  updateNickname: (channel: string, userId: string, nickname: string) =>
+    request("/access-control/nickname", {
+      method: "POST",
+      body: JSON.stringify({ channel, user_id: userId, nickname }),
     }),
 };

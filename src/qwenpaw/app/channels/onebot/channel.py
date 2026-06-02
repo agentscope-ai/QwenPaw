@@ -473,7 +473,7 @@ class OneBotChannel(BaseChannel):
             "message_type": message_type,
             "message_id": message_id,
             "sender_id": user_id,
-            "sender_name": sender_name,
+            "user_name": sender_name,
             "group_id": group_id if is_group else "",
             "is_group": is_group,
             "bot_mentioned": bot_mentioned,

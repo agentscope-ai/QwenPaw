@@ -2184,6 +2184,7 @@ class MatrixChannel(BaseChannel):
                 "worker_name": worker_name,
                 "event_id": event.event_id,
                 "sender_id": sender_id,
+                "user_name": self._get_display_name(room, sender_id),
             },
         }
 
@@ -2483,6 +2484,7 @@ class MatrixChannel(BaseChannel):
                 "worker_name": worker_name,
                 "event_id": event.event_id,
                 "sender_id": sender_id,
+                "user_name": self._get_display_name(room, sender_id),
             },
         }
 
@@ -2643,6 +2645,7 @@ class MatrixChannel(BaseChannel):
                 "worker_name": worker_name,
                 "event_id": event.event_id,
                 "sender_id": sender_id,
+                "user_name": self._get_display_name(room, sender_id),
             },
         }
 

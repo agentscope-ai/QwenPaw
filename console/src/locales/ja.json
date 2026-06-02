@@ -839,6 +839,7 @@
     "addUser": "ユーザーを追加",
     "addUserPlaceholder": "ユーザーIDを入力",
     "userId": "ユーザーID",
+    "nickname": "ニックネーム",
     "channel": "チャンネル",
     "firstMessage": "最初のメッセージ",
     "time": "時間",

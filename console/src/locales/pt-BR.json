@@ -1046,6 +1046,7 @@
     "addUser": "Adicionar",
     "addUserPlaceholder": "Digite o ID do usuário",
     "userId": "ID do Usuário",
+    "nickname": "Apelido",
     "channel": "Canal",
     "firstMessage": "Primeira Mensagem",
     "time": "Hora",

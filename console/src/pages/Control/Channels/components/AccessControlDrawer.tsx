@@ -27,9 +27,15 @@ interface AccessControlDrawerProps {
   onClose: () => void;
 }
 
-function toEntries(map: Record<string, string> | undefined): ACLUserEntry[] {
+function toEntries(
+  map: Record<string, { remark: string; nickname: string }> | undefined,
+): ACLUserEntry[] {
   if (!map) return [];
-  return Object.entries(map).map(([userId, remark]) => ({ userId, remark }));
+  return Object.entries(map).map(([userId, info]) => ({
+    userId,
+    remark: info?.remark ?? "",
+    nickname: info?.nickname ?? "",
+  }));
 }
 
 export function AccessControlDrawer({
@@ -119,11 +125,16 @@ export function AccessControlDrawer({
       setAllACLs((prev) => {
         const channelData = prev[selectedChannel];
         if (!channelData) return prev;
+        const list = channelData[activeTab];
+        const existing = list[userId] ?? { remark: "", nickname: "" };
         return {
           ...prev,
           [selectedChannel]: {
             ...channelData,
-            [activeTab]: { ...channelData[activeTab], [userId]: remark },
+            [activeTab]: {
+              ...list,
+              [userId]: { ...existing, remark },
+            },
           },
         };
       });
@@ -162,7 +173,48 @@ export function AccessControlDrawer({
     ? toEntries(currentACL[activeTab])
     : [];
 
+  const handleNicknameSave = async (userId: string, nickname: string) => {
+    if (!selectedChannel) return;
+    try {
+      await accessControlApi.updateNickname(selectedChannel, userId, nickname);
+      setAllACLs((prev) => {
+        const channelData = prev[selectedChannel];
+        if (!channelData) return prev;
+        const list = channelData[activeTab];
+        const existing = list[userId] ?? { remark: "", nickname: "" };
+        return {
+          ...prev,
+          [selectedChannel]: {
+            ...channelData,
+            [activeTab]: {
+              ...list,
+              [userId]: { ...existing, nickname },
+            },
+          },
+        };
+      });
+    } catch {
+      message.error(t("channels.operationFailed"));
+    }
+  };
+
   const columns = [
+    {
+      title: t("channels.nickname"),
+      dataIndex: "nickname",
+      key: "nickname",
+      width: 120,
+      render: (nickname: string, record: ACLUserEntry) => (
+        <Typography.Text
+          editable={{
+            onChange: (value) => handleNicknameSave(record.userId, value),
+            text: nickname || "",
+          }}
+        >
+          {nickname || <span style={{ color: "#bbb" }}>-</span>}
+        </Typography.Text>
+      ),
+    },
     {
       title: t("channels.userId"),
       dataIndex: "userId",

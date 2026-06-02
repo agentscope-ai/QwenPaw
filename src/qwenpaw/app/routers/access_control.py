@@ -25,9 +25,14 @@ async def _get_store(request: Request):
 # ── Request / Response schemas ──────────────────────────────────────────────
 
 
+class UserInfoResponse(BaseModel):
+    remark: str = ""
+    nickname: str = ""
+
+
 class ACLResponse(BaseModel):
-    whitelist: Dict[str, str] = Field(default_factory=dict)
-    blacklist: Dict[str, str] = Field(default_factory=dict)
+    whitelist: Dict[str, UserInfoResponse] = Field(default_factory=dict)
+    blacklist: Dict[str, UserInfoResponse] = Field(default_factory=dict)
     pending: List[dict] = Field(default_factory=list)
 
 
@@ -51,11 +56,18 @@ class UpdateRemarkBody(BaseModel):
     remark: str
 
 
+class UpdateNicknameBody(BaseModel):
+    channel: str
+    user_id: str
+    nickname: str
+
+
 class PendingEntry(BaseModel):
     user_id: str
     channel: str
     timestamp: float
     first_message: str = ""
+    nickname: str = ""
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -250,6 +262,25 @@ async def update_remark(request: Request, body: UpdateRemarkBody):
         body.channel,
         body.user_id,
         body.remark,
+    )
+    if not found:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found in any list",
+        )
+    return {"status": "ok"}
+
+
+@router.post(
+    "/nickname",
+    summary="Update nickname for a user in any list",
+)
+async def update_nickname(request: Request, body: UpdateNicknameBody):
+    store = await _get_store(request)
+    found = store.update_nickname(
+        body.channel,
+        body.user_id,
+        body.nickname,
     )
     if not found:
         raise HTTPException(

@@ -1135,6 +1135,7 @@
     "addUser": "Add User",
     "addUserPlaceholder": "Enter user ID",
     "userId": "User ID",
+    "nickname": "Nickname",
     "channel": "Channel",
     "firstMessage": "First Message",
     "time": "Time",

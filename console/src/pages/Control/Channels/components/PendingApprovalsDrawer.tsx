@@ -117,6 +117,25 @@ export function PendingApprovalsDrawer({
     }
   };
 
+  const handleNicknameSave = async (entry: PendingEntry, nickname: string) => {
+    try {
+      await accessControlApi.updateNickname(
+        entry.channel,
+        entry.user_id,
+        nickname,
+      );
+      setPending((prev) =>
+        prev.map((p) =>
+          p.channel === entry.channel && p.user_id === entry.user_id
+            ? { ...p, nickname }
+            : p,
+        ),
+      );
+    } catch {
+      message.error(t("channels.operationFailed"));
+    }
+  };
+
   const handleAction = async (entry: PendingEntry, action: PendingAction) => {
     const key = `${entry.channel}:${entry.user_id}`;
     setActionLoading(key);
@@ -163,6 +182,22 @@ export function PendingApprovalsDrawer({
             <span>{getChannelLabel(channel as ChannelKey, t)}</span>
           </Space>
         </Tooltip>
+      ),
+    },
+    {
+      title: t("channels.nickname"),
+      dataIndex: "nickname",
+      key: "nickname",
+      width: 120,
+      render: (nickname: string, record: PendingEntry) => (
+        <Text
+          editable={{
+            onChange: (value) => handleNicknameSave(record, value),
+            text: nickname || "",
+          }}
+        >
+          {nickname || <span style={{ color: "#bbb" }}>-</span>}
+        </Text>
       ),
     },
     {
