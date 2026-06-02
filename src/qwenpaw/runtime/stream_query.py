@@ -15,7 +15,7 @@ from .heartbeat import (
     HEARTBEAT_INTERVAL_SECONDS,
 )
 from .context import _REQUEST_CONTEXT_VAR
-from .agent_cache import _get_or_build_agent
+from .agent_factory import _get_or_build_agent
 from .message_convert import (
     _get_last_user_text,
     _media_type_to_block_type,
@@ -286,37 +286,36 @@ class Runner:
                         exc_info=True,
                     )
 
-            agent, is_new_agent = _get_or_build_agent(
+            agent = _get_or_build_agent(
                 session_id,
                 agent_id=getattr(self, "agent_id", None),
                 workspace_dir=workspace_dir,
                 mcp_clients=mcp_clients or None,
             )
 
-            # Restore persisted session state on first use (process restart).
-            if is_new_agent:
-                session = getattr(self, "session", None)
-                if session is not None:
-                    try:
-                        user_id = getattr(request, "user_id", "") or session_id
-                        channel = getattr(request, "channel", "") or ""
-                        await session.load_session_state(
-                            session_id=session_id,
-                            user_id=user_id,
-                            channel=channel,
-                            agent=agent,
-                        )
-                    except KeyError as e:
-                        logger.debug(
-                            "stream_query: session load skipped "
-                            "(schema mismatch): %s",
-                            e,
-                        )
-                    except Exception:
-                        logger.debug(
-                            "stream_query: session load failed",
-                            exc_info=True,
-                        )
+            # Load persisted session state (conversation history).
+            session = getattr(self, "session", None)
+            if session is not None:
+                try:
+                    user_id = getattr(request, "user_id", "") or session_id
+                    channel = getattr(request, "channel", "") or ""
+                    await session.load_session_state(
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                        agent=agent,
+                    )
+                except KeyError as e:
+                    logger.debug(
+                        "stream_query: session load skipped "
+                        "(schema mismatch): %s",
+                        e,
+                    )
+                except Exception:
+                    logger.debug(
+                        "stream_query: session load failed",
+                        exc_info=True,
+                    )
 
             # Slash-command interception: conversation, daemon, control,
             # and skill commands are all dispatched here before driving
@@ -772,14 +771,6 @@ class Runner:
                     "stream_query: write_query_error_dump failed",
                     exc_info=True,
                 )
-
-            # Evict cached agent — it may be in a dirty state (e.g.
-            # pending tool calls that will never resolve).
-            from .agent_cache import _AGENT_CACHE
-
-            keys_to_evict = [k for k, v in _AGENT_CACHE.items() if v is agent]
-            for k in keys_to_evict:
-                del _AGENT_CACHE[k]
 
         except BaseException as exc:
             # CancelledError (Python 3.11+: not an Exception subclass).

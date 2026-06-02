@@ -1,16 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Per-session agent construction and caching."""
+"""Per-session agent construction."""
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from cachetools import LRUCache
-
 logger = logging.getLogger(__name__)
-
-_MAX_CACHED_AGENTS = 128
-_AGENT_CACHE: LRUCache = LRUCache(maxsize=_MAX_CACHED_AGENTS)
 
 
 def _build_qwenpaw_agent(
@@ -61,15 +56,14 @@ def _get_or_build_agent(
     agent_id: str | None = None,
     workspace_dir: Any = None,
     mcp_clients: list | None = None,
-) -> tuple[Any, bool]:
-    """Return ``(agent, is_new)`` for the active (provider, model) on this
-    session — build on first use, rebuild when the active model changes.
+) -> Any:
+    """Build a fresh agent for this request.
 
-    ``is_new`` is ``True`` when the agent was just built (not from cache);
-    callers use it to decide whether to load persisted session state.
+    State continuity is handled by session load/save in stream_query,
+    not by caching agent instances in memory.
     """
-    from ..config.config import load_agent_config
     from ..providers.provider_manager import ProviderManager
+    from ..config.config import load_agent_config
 
     resolved_agent_id = agent_id or "default"
 
@@ -88,17 +82,13 @@ def _get_or_build_agent(
         raise RuntimeError(
             "stream_query: no active model configured; pick one in the UI",
         )
-    key = (session_id, resolved_agent_id, active.provider_id, active.model)
-    cached = _AGENT_CACHE.get(key)
-    if cached is not None:
-        return cached, False
+
     agent = _build_qwenpaw_agent(
         session_id,
         resolved_agent_id,
         workspace_dir=workspace_dir,
         mcp_clients=mcp_clients,
     )
-    _AGENT_CACHE[key] = agent
     logger.info(
         "stream_query: built QwenPawAgent for session=%s agent=%s "
         "provider=%s model=%s tools=%d",
@@ -108,4 +98,4 @@ def _get_or_build_agent(
         active.model,
         len(agent.toolkit.tool_groups[0].tools),
     )
-    return agent, True
+    return agent
