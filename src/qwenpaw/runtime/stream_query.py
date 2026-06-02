@@ -726,7 +726,53 @@ class Runner:
 
         except Exception as exc:
             logger.exception("stream_query: reply_stream raised")
-            error_text = str(exc) or exc.__class__.__name__
+
+            # Normalize provider-specific errors (rate limit, auth,
+            # context-too-long) into user-readable exceptions.
+            from ..exceptions import convert_model_exception
+
+            model_name: str | None = None
+            try:
+                _agent_local = locals().get("agent")
+                if _agent_local is not None:
+                    _m = getattr(_agent_local, "model", None)
+                    if _m is not None:
+                        model_name = getattr(
+                            _m,
+                            "model_name",
+                            None,
+                        ) or getattr(_m, "name", None)
+            except Exception:
+                pass
+
+            normalized = convert_model_exception(exc, model_name=model_name)
+            error_text = (
+                normalized.message or str(exc) or exc.__class__.__name__
+            )
+
+            # Write agent state + traceback to a temp file for debugging.
+            try:
+                from ..app.runner.query_error_dump import (
+                    write_query_error_dump,
+                )
+
+                dump_path = write_query_error_dump(
+                    request,
+                    exc,
+                    {"agent": locals().get("agent")},
+                )
+                if dump_path:
+                    error_text += f" [dump: {dump_path}]"
+                    logger.info(
+                        "stream_query: error dump written to %s",
+                        dump_path,
+                    )
+            except Exception:
+                logger.debug(
+                    "stream_query: write_query_error_dump failed",
+                    exc_info=True,
+                )
+
             # Evict cached agent — it may be in a dirty state (e.g.
             # pending tool calls that will never resolve).
             from .agent_cache import _AGENT_CACHE
@@ -734,6 +780,33 @@ class Runner:
             keys_to_evict = [k for k, v in _AGENT_CACHE.items() if v is agent]
             for k in keys_to_evict:
                 del _AGENT_CACHE[k]
+
+        except BaseException as exc:
+            # CancelledError (Python 3.11+: not an Exception subclass).
+            # Clean up pending approvals so they don't block future turns,
+            # and give the agent a chance to tidy up internal state.
+            logger.info(
+                "stream_query: cancelled (session=%s): %s",
+                session_id,
+                type(exc).__name__,
+            )
+            try:
+                from ..app.approvals import get_approval_service
+
+                svc = get_approval_service()
+                await svc.cancel_all_pending_by_root_session(session_id)
+            except Exception:
+                logger.debug(
+                    "stream_query: approval cleanup failed",
+                    exc_info=True,
+                )
+            interrupt_fn = getattr(agent, "interrupt", None)
+            if interrupt_fn is not None:
+                try:
+                    interrupt_fn()
+                except Exception:
+                    pass
+            raise
 
         if message_started:
             completed_message.status = RunStatus.Completed
