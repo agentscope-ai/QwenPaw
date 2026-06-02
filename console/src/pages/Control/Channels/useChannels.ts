@@ -26,6 +26,8 @@ export function useChannels() {
       if (types) setChannelTypes(types);
     } catch (error) {
       console.error("❌ Failed to load channels:", error);
+    } finally {
+      setLoading(false);
     }
     // Fetch schemas separately so failures don't block core channel loading
     try {
@@ -33,8 +35,6 @@ export function useChannels() {
       if (schemas) setChannelSchemas(schemas);
     } catch {
       // Plugin system may not be available; non-critical
-    } finally {
-      setLoading(false);
     }
   }, []);
 

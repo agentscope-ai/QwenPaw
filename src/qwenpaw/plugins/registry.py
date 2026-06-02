@@ -771,16 +771,30 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             TypeError: If channel_class is not a BaseChannel subclass.
         """
         from ..app.channels.base import BaseChannel
-        from ..app.channels.registry import _get_cached_builtin_channels
+        from ..app.channels.registry import BUILTIN_CHANNEL_KEYS
 
         if not channel_key or not channel_key.strip():
             raise ValueError("channel_key must be a non-empty string")
 
         normalized_key = channel_key.strip().lower()
 
+        # Validate config_fields structure
+        required_field_keys = {"name", "label", "type"}
+        valid_field_types = {"text", "password", "number", "switch", "select"}
+        for field in config_fields or []:
+            missing = required_field_keys - field.keys()
+            if missing:
+                raise ValueError(
+                    f"config_field missing required keys: {missing}",
+                )
+            if field["type"] not in valid_field_types:
+                raise ValueError(
+                    f"unsupported config_field type: {field['type']}; "
+                    f"must be one of {valid_field_types}",
+                )
+
         # Prevent overriding built-in channels
-        builtin_keys = _get_cached_builtin_channels()
-        if normalized_key in builtin_keys:
+        if normalized_key in BUILTIN_CHANNEL_KEYS:
             raise ValueError(
                 f"Channel '{normalized_key}' conflicts with a built-in "
                 f"channel and cannot be registered by a plugin",
