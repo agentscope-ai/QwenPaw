@@ -1442,12 +1442,26 @@ mkdir slack-channel-plugin && cd slack-channel-plugin
 
 #### 3. 创建 channel.py — BaseChannel 子类
 
+Channel 类必须实现 `BaseChannel` 的契约，核心方法包括：
+
+- **`from_config(cls, process, config, ...)`** — 类方法，从保存的配置创建实例。
+  `ChannelManager` 启动时通过它实例化你的频道。
+- **`start()` / `stop()`** — 生命周期钩子，频道启用/禁用时调用。
+- **`send(to_handle, text, meta)`** — 向用户/会话发送消息。
+
 ```python
 # -*- coding: utf-8 -*-
 """Slack 频道实现。"""
 
 import logging
-from qwenpaw.app.channels.base import BaseChannel
+from pathlib import Path
+from typing import Optional
+
+from qwenpaw.app.channels.base import (
+    BaseChannel,
+    OnReplySent,
+    ProcessHandler,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1457,20 +1471,79 @@ class SlackChannel(BaseChannel):
 
     channel = "slack"  # 唯一 key，必须与 config key 一致
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.bot_token = kwargs.get("bot_token", "")
+    def __init__(
+        self,
+        process: ProcessHandler,
+        enabled: bool = True,
+        bot_token: str = "",
+        signing_secret: str = "",
+        bot_prefix: str = "",
+        on_reply_sent: OnReplySent = None,
+        show_tool_details: bool = True,
+        filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
+        **kwargs,
+    ):
+        super().__init__(
+            process,
+            on_reply_sent=on_reply_sent,
+            show_tool_details=show_tool_details,
+            filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
+        )
+        self.enabled = enabled
+        self.bot_prefix = bot_prefix
+        self.bot_token = bot_token
+        self.signing_secret = signing_secret
 
-    async def _listen(self):
-        """开始监听 Slack 事件。"""
-        logger.info("Slack channel listening...")
-        # 在此实现 Slack RTM 或 Socket Mode
+    @classmethod
+    def from_config(
+        cls,
+        process: ProcessHandler,
+        config,
+        on_reply_sent: OnReplySent = None,
+        show_tool_details: bool = True,
+        filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
+        workspace_dir: Optional[Path] = None,
+    ) -> "SlackChannel":
+        """从配置创建实例。
 
-    async def _send(self, target, content, **kwargs):
-        """向 Slack 发送消息。"""
-        logger.info(f"Sending to Slack {target}: {content}")
+        注意：插件频道的 ``config`` 是 ``types.SimpleNamespace`` 对象
+        （不是 dict），请使用 ``getattr(config, "field", default)``
+        安全读取字段。
+        """
+        return cls(
+            process=process,
+            enabled=getattr(config, "enabled", False),
+            bot_token=getattr(config, "bot_token", ""),
+            signing_secret=getattr(config, "signing_secret", ""),
+            bot_prefix=getattr(config, "bot_prefix", ""),
+            on_reply_sent=on_reply_sent,
+            show_tool_details=show_tool_details,
+            filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
+        )
+
+    async def start(self):
+        """启动 Slack 事件监听。"""
+        logger.info("Slack channel starting (token=%s...)", self.bot_token[:8])
+        # 在此启动 Slack Socket Mode 客户端
+
+    async def stop(self):
+        """停止 Slack 事件监听。"""
+        logger.info("Slack channel stopping")
+
+    async def send(self, to_handle: str, text: str, meta=None):
+        """向 Slack 用户或频道发送消息。"""
+        logger.info("Sending to Slack %s: %s", to_handle, text[:50])
         # 使用 slack-sdk 发送消息
 ```
+
+> **重要：`config` 参数类型** — 插件频道的 `from_config()` 收到的 `config`
+> 是 `types.SimpleNamespace` 对象（不是 dict 或 Pydantic model）。框架会将
+> `BaseChannelConfig` 的默认值与用户保存的配置合并后传入。请始终使用
+> `getattr(config, "field", default)` 安全读取字段。
 
 #### 4. 创建 plugin.py — 插件入口
 
@@ -1478,10 +1551,7 @@ class SlackChannel(BaseChannel):
 # -*- coding: utf-8 -*-
 """Slack Channel 插件入口。"""
 
-import importlib.util
 import logging
-import os
-
 from qwenpaw.plugins.api import PluginApi
 
 logger = logging.getLogger(__name__)
@@ -1492,15 +1562,10 @@ class SlackChannelPlugin:
 
     def register(self, api: PluginApi):
         """注册 Slack 频道。"""
-        plugin_dir = os.path.dirname(os.path.abspath(__file__))
-        spec = importlib.util.spec_from_file_location(
-            "slack_channel", os.path.join(plugin_dir, "channel.py"),
-        )
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        from .channel import SlackChannel
 
         api.register_channel(
-            channel_class=mod.SlackChannel,
+            channel_class=SlackChannel,
             label="Slack",
             description="Slack workspace integration",
             config_fields=[
@@ -1544,14 +1609,43 @@ qwenpaw app
 启动后，在控制台的 **Control → Channels** 中可以看到 Slack 频道卡片，点击即可
 填写凭证并启用。
 
+#### 6. 添加 Webhook 端点（可选）
+
+如果你的频道需要接收 HTTP 回调（如 Slack Events API），可以在同一个插件中
+注册 FastAPI 路由：
+
+```python
+from fastapi import APIRouter
+
+def register(self, api: PluginApi):
+    from .channel import SlackChannel
+
+    api.register_channel(channel_class=SlackChannel, ...)
+
+    # 在 /api/slack/events 挂载 webhook 端点
+    router = APIRouter()
+
+    @router.post("/events")
+    async def slack_events(request):
+        body = await request.json()
+        # 处理 Slack 事件验证和消息
+        return {"ok": True}
+
+    api.register_http_router(router, prefix="/slack", tags=["slack"])
+```
+
 **要点：**
 
 - `channel_class` 必须是 `BaseChannel` 的子类，且需要有 `channel` 类属性（唯一
   key）。
+- **必须实现 `from_config`** — `ChannelManager` 启动时通过它创建频道实例。
+  `config` 参数是 `SimpleNamespace`，不是 dict。
 - `config_fields` 定义控制台设置面板中显示的表单字段，支持类型：`text`、
   `password`、`number`、`switch`、`select`。
 - 插件频道与内置频道共享启用/禁用、访问控制、`bot_prefix` 等功能。
 - 如果插件频道 key 与内置频道冲突，内置频道优先，插件频道会被跳过并打印警告。
+- 对于基于 webhook 的频道，可在同一个插件中组合 `register_channel` 和
+  `register_http_router`。
 
 ## 依赖管理
 
