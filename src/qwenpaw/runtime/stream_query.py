@@ -377,6 +377,14 @@ class Runner:
                             )
                     return
 
+            # Refresh system prompt so edits to AGENTS.md / SOUL.md /
+            # PROFILE.md take effect immediately without restarting the
+            # session (mirrors the per-turn refresh that 1.x query_handler
+            # performed).
+            rebuild = getattr(agent, "rebuild_sys_prompt", None)
+            if rebuild is not None:
+                rebuild()
+
             # Wrap reply_stream so long idle periods (notably tool-guard
             # ASK waits up to TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS=300s) emit
             # SSE-keepalive heartbeats instead of letting the connection
