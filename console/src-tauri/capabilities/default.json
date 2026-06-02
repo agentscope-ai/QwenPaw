@@ -8,10 +8,9 @@
   },
   "permissions": [
     "backend",
+    "backend-download",
     "core:default",
-    "desktop-diagnostics",
     "dialog:allow-save",
-    "upload:allow-download",
     "open-external-link"
   ]
 }

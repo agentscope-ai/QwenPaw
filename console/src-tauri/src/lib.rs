@@ -1,7 +1,7 @@
 //! Tauri desktop entry point and plugin/command registration.
 
 mod backend;
-mod diagnostics;
+mod backend_download;
 mod external_link;
 
 use tauri::{Manager, RunEvent, WindowEvent};
@@ -12,13 +12,11 @@ pub fn run() {
     let build_result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_upload::init())
         .invoke_handler(tauri::generate_handler![
+            backend_download::download_backend_file,
             backend::backend_port,
             backend::backend_startup_error,
             backend::restart_backend,
-            diagnostics::log_download_event,
-            diagnostics::log_download_failure,
             external_link::open_external_link,
         ])
         .manage(backend::BackendState::default())
