@@ -13,6 +13,13 @@ import ReactDOM from "react-dom";
 import * as antd from "antd";
 import * as antdIcons from "@ant-design/icons";
 import { getApiUrl, getApiToken } from "../api/config";
+import type {
+  HostAgentInfo,
+  HostSessionInfo,
+  HostThemeMode,
+  QwenPawAuditNamespace,
+  QwenPawChatNamespace,
+} from "./types/qwenpaw";
 
 declare const VITE_API_BASE_URL: string;
 
@@ -29,6 +36,14 @@ export interface HostExternals {
   apiBaseUrl: string;
   getApiUrl: typeof getApiUrl;
   getApiToken: typeof getApiToken;
+  // ── Hooks + helpers attached later by installHostSdk() ─────────────────────
+  useTheme?: () => HostThemeMode;
+  useLocale?: () => string;
+  useSelectedAgent?: () => HostAgentInfo;
+  useCurrentSession?: () => HostSessionInfo | null;
+  getSelectedAgentId?: () => string;
+  getCurrentSessionId?: () => string | null;
+  fetch?: (path: string, init?: RequestInit) => Promise<Response>;
 }
 
 export interface PluginRouteDeclaration {
@@ -137,6 +152,10 @@ export interface WindowNamespace {
     pluginId: string,
     renderers: Record<string, React.FC<any>>,
   ) => void;
+  /** Chat-surface customization API. Attached by installHostSdk(). */
+  chat?: QwenPawChatNamespace;
+  /** Override audit log. Attached by installHostSdk(). */
+  audit?: QwenPawAuditNamespace;
 }
 
 declare global {

@@ -2,11 +2,16 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./i18n";
 import { installHostExternals } from "./plugins/hostExternals";
+import { installHostSdk } from "./plugins/hostSdk/install";
 import { registerHostModulesEager } from "./plugins/dynamicModuleRegistry";
 
 // Expose host dependencies (React, antd, etc.) on window
 // so that plugin UI modules can use them without bundling their own copies.
 installHostExternals();
+
+// Attach window.QwenPaw.chat (Chat customization), extend
+// window.QwenPaw.host with hooks + fetch, attach window.QwenPaw.audit.
+installHostSdk();
 
 // Dynamic module registration - no generated files needed!
 // Automatically discovers all modules in src/pages at build time
