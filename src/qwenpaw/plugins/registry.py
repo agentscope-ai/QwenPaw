@@ -781,15 +781,15 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         # Validate config_fields structure
         required_field_keys = {"name", "label", "type"}
         valid_field_types = {"text", "password", "number", "switch", "select"}
-        for field in config_fields or []:
-            missing = required_field_keys - field.keys()
+        for field_def in config_fields or []:
+            missing = required_field_keys - field_def.keys()
             if missing:
                 raise ValueError(
                     f"config_field missing required keys: {missing}",
                 )
-            if field["type"] not in valid_field_types:
+            if field_def["type"] not in valid_field_types:
                 raise ValueError(
-                    f"unsupported config_field type: {field['type']}; "
+                    f"unsupported config_field type: {field_def['type']}; "
                     f"must be one of {valid_field_types}",
                 )
 
