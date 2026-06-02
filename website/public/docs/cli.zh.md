@@ -292,11 +292,11 @@ qwenpaw env delete TAVILY_API_KEY
 
 **别名：** 可以用 `qwenpaw channel`（单数）作为 `qwenpaw channels` 的简写。
 
-| 命令                             | 说明                                                                            |
-| -------------------------------- | ------------------------------------------------------------------------------- |
-| `qwenpaw channels list`          | 查看所有频道的状态（密钥脱敏）                                                  |
-| `qwenpaw channels send`          | 向用户/会话单向发送消息（需要全部 5 个参数）                                    |
-| `qwenpaw channels config`        | 交互式启用/禁用频道并填写凭据                                                   |
+| 命令                      | 说明                                         |
+| ------------------------- | -------------------------------------------- |
+| `qwenpaw channels list`   | 查看所有频道的状态（密钥脱敏）               |
+| `qwenpaw channels send`   | 向用户/会话单向发送消息（需要全部 5 个参数） |
+| `qwenpaw channels config` | 交互式启用/禁用频道并填写凭据                |
 
 **多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
 

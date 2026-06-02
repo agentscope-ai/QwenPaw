@@ -307,11 +307,11 @@ subcommand); use `remove` to uninstall custom channels (no `uninstall`).
 
 **Alias:** You can use `qwenpaw channel` (singular) as a shorthand for `qwenpaw channels`.
 
-| Command                          | What it does                                                                                                      |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `qwenpaw channels list`          | Show all channels and their status (secrets masked)                                                               |
-| `qwenpaw channels send`          | Send a one-way message to a user/session via a channel (requires all 5 parameters)                                |
-| `qwenpaw channels config`        | Interactively enable/disable channels and fill in credentials                                                     |
+| Command                   | What it does                                                                       |
+| ------------------------- | ---------------------------------------------------------------------------------- |
+| `qwenpaw channels list`   | Show all channels and their status (secrets masked)                                |
+| `qwenpaw channels send`   | Send a one-way message to a user/session via a channel (requires all 5 parameters) |
+| `qwenpaw channels config` | Interactively enable/disable channels and fill in credentials                      |
 
 **Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
 
