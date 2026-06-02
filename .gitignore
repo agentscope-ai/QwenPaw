@@ -133,3 +133,5 @@ e2e/reports/
 e2e/data/
 e2e/.pytest_cache/
 e2e/__pycache__/
+
+diff_main.txt
