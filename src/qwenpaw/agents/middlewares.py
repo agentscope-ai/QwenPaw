@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """Native AgentScope 2.0 middleware implementations for QwenPaw.
 
-These replace the monkey-patched ``register_instance_hook`` shim that was
-in ``qwenpaw._compat.hooks``.  Each middleware is passed via the
-``Agent(middlewares=[...])`` constructor parameter.
+Each middleware is passed via the ``Agent(middlewares=[...])`` constructor
+parameter.
 """
 from __future__ import annotations
 

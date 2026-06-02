@@ -686,9 +686,8 @@ class Runner:
 
             model_name: str | None = None
             try:
-                _agent_local = locals().get("agent")
-                if _agent_local is not None:
-                    _m = getattr(_agent_local, "model", None)
+                if agent is not None:
+                    _m = getattr(agent, "model", None)
                     if _m is not None:
                         model_name = getattr(
                             _m,
@@ -712,7 +711,7 @@ class Runner:
                 dump_path = write_query_error_dump(
                     request,
                     exc,
-                    {"agent": locals().get("agent")},
+                    {"agent": agent},
                 )
                 if dump_path:
                     error_text += f" [dump: {dump_path}]"
