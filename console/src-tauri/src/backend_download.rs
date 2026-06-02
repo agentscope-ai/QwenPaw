@@ -1,6 +1,6 @@
 //! Native downloads for files served by the bundled local backend.
 
-use std::{collections::HashMap, net::IpAddr, path::PathBuf};
+use std::{collections::HashMap, net::IpAddr, path::PathBuf, time::Duration};
 
 use futures_util::TryStreamExt;
 use reqwest::{
@@ -12,6 +12,9 @@ use tokio::{
     fs::File,
     io::{AsyncWriteExt, BufWriter},
 };
+
+const BACKEND_DOWNLOAD_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+const BACKEND_DOWNLOAD_TOTAL_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,6 +35,8 @@ pub(crate) async fn download_backend_file(
 
     let response = reqwest::Client::builder()
         .no_proxy()
+        .connect_timeout(BACKEND_DOWNLOAD_CONNECT_TIMEOUT)
+        .timeout(BACKEND_DOWNLOAD_TOTAL_TIMEOUT)
         .build()
         .map_err(|err| format!("failed to create download client: {err}"))?
         .get(url)
