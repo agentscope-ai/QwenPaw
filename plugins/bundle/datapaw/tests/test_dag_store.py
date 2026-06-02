@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Tests for DataPaw DAG backing store and broadcaster."""
 import asyncio
 

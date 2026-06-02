@@ -50,7 +50,10 @@ if __package__:
     # pylint: disable-next=relative-beyond-top-level
     from .constants import BUILTIN_DATAPAW_AGENT_ID, PLUGIN_DIR
 else:
-    from constants import BUILTIN_DATAPAW_AGENT_ID, PLUGIN_DIR
+    from constants import (  # type: ignore[no-redef]
+        BUILTIN_DATAPAW_AGENT_ID,
+        PLUGIN_DIR,
+    )
 
 logger = logging.getLogger(__name__)
 

@@ -37,7 +37,7 @@ if __package__:
     # pylint: disable-next=relative-beyond-top-level
     from .constants import BUILTIN_DATAPAW_AGENT_ID
 else:
-    from constants import BUILTIN_DATAPAW_AGENT_ID
+    from constants import BUILTIN_DATAPAW_AGENT_ID  # type: ignore[no-redef]
 
 # Imported after the conditional block above so plugin-dir sys.path
 # injection (in constants.py) is in effect; ``core`` is a datapaw-only

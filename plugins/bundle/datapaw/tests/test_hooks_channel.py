@@ -153,7 +153,7 @@ def test_wrapped_stream_one_passthrough_when_no_queue():
 
 
 def test_wrapped_stream_one_native_content_parts_does_not_warn(caplog):
-    """Native content_parts path should not log obsolete DAG fan-out warning."""
+    """Native content_parts path doesn't log obsolete DAG warning."""
     from hooks import _wrap_stream_one
 
     payload = {"content_parts": []}
