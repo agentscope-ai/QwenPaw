@@ -15,10 +15,11 @@ import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import { chatApi } from "../../api/modules/chat";
 import { agentApi } from "../../api/modules/agent";
+import { skillApi } from "../../api/modules/skill";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
-import type { ProviderInfo, ModelInfo } from "../../api/types";
+import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
@@ -129,11 +130,17 @@ function payloadCompletesResponse(payload: unknown): boolean {
   return record.object === "response" && record.status === "completed";
 }
 
-function renderSuggestionLabel(command: string, description: string) {
+function renderSuggestionLabel(command: string, description?: string) {
   return (
-    <div className={styles.suggestionLabel}>
+    <div
+      className={`${styles.suggestionLabel} ${
+        description ? "" : styles.suggestionLabelCompact
+      }`}
+    >
       <span className={styles.suggestionCommand}>{command}</span>
-      <span className={styles.suggestionDescription}>{description}</span>
+      {description ? (
+        <span className={styles.suggestionDescription}>{description}</span>
+      ) : null}
     </div>
   );
 }
@@ -144,6 +151,12 @@ function renderSuggestionLabel(command: string, description: string) {
 
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
+
+function isSkillAvailableInConsole(skill: SkillSpec): boolean {
+  if (!skill.enabled) return false;
+  const channels = skill.channels?.length ? skill.channels : ["all"];
+  return channels.includes("all") || channels.includes(DEFAULT_CHANNEL);
+}
 
 // ---------------------------------------------------------------------------
 // Custom hooks
@@ -697,6 +710,11 @@ export default function ChatPage() {
     Map<string, ApprovalMessageData>
   >(new Map());
   const [planEnabled, setPlanEnabled] = useState(false);
+  const [chatSkills, setChatSkills] = useState<SkillSpec[]>([]);
+  const consoleSkills = useMemo(
+    () => chatSkills.filter(isSkillAvailableInConsole),
+    [chatSkills],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -711,11 +729,66 @@ export default function ChatPage() {
     };
   }, [selectedAgent]);
 
+  useEffect(() => {
+    let cancelled = false;
+    skillApi
+      .listSkills(selectedAgent)
+      .then((skills) => {
+        if (cancelled) return;
+        const nextSkills = Array.isArray(skills) ? skills : [];
+        setChatSkills(nextSkills);
+      })
+      .catch((error) => {
+        console.warn("[ChatSkills] failed to load slash skills", {
+          selectedAgent,
+          error,
+        });
+        if (!cancelled) setChatSkills([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent]);
+
   const isChatActiveRef = useRef(false);
   isChatActiveRef.current =
     location.pathname === "/" || location.pathname.startsWith("/chat");
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || !isChatActive()) return;
+      const textarea = event.target;
+      if (!(textarea instanceof HTMLTextAreaElement)) return;
+      if (!textarea.closest('[class*="sender"]')) return;
+      if (
+        !textarea.value.startsWith("/") ||
+        /\s/.test(textarea.value.slice(1))
+      ) {
+        return;
+      }
+
+      const selectedItem =
+        document.querySelector(
+          '[role="menuitemcheckbox"][aria-checked="true"]',
+        ) || document.querySelector('[role="menuitem"][aria-current="true"]');
+      if (!(selectedItem instanceof HTMLElement)) return;
+
+      const selectedValue = selectedItem.getAttribute("data-path-key")?.trim();
+      if (!selectedValue) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      setTextareaValue(textarea, `/${selectedValue} `);
+      textarea.focus();
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [isChatActive]);
 
   // Consume approvals from Context and filter by current session.
   // Uses a serialized key to avoid creating a new Map (and triggering
@@ -1221,6 +1294,18 @@ export default function ChatPage() {
         description: t("chat.commands.plan.description"),
       });
     }
+    const reservedCommands = new Set(
+      commandSuggestions.map((item) => item.value.trim()),
+    );
+    const skillSuggestions: CommandSuggestion[] = consoleSkills
+      .filter((skill) => !reservedCommands.has(skill.name))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((skill) => ({
+        command: `/${skill.name}`,
+        value: skill.name,
+        description: "",
+      }));
+    const senderSuggestions = [...commandSuggestions, ...skillSuggestions];
 
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;
@@ -1291,7 +1376,7 @@ export default function ChatPage() {
           customRequest: handleFileUpload,
         },
         placeholder: t("chat.inputPlaceholder"),
-        suggestions: commandSuggestions.map((item) => ({
+        suggestions: senderSuggestions.map((item) => ({
           label: renderSuggestionLabel(item.command, item.description),
           value: item.value,
         })),
@@ -1416,6 +1501,8 @@ export default function ChatPage() {
     toolRenderConfig,
     scheduleHistoryClear,
     planEnabled,
+    consoleSkills,
+    selectedAgent,
     onFileCardClick,
     whisperChecked,
     whisperEnabled,
