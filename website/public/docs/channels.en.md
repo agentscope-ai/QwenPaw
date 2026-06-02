@@ -1531,6 +1531,138 @@ With the app running you can read and update channel config; changes are written
 - `PUT /config/channels/{channel_name}` — Update one
 
 ---
+
+## Extending channels
+
+To add a new platform (e.g. WeCom, Slack), implement a subclass of **BaseChannel**; core code stays unchanged.
+
+### Data flow and queue
+
+- **ChannelManager** keeps one queue per channel that uses it. When a message arrives, the channel calls **`self._enqueue(payload)`** (injected by the manager at startup); the manager's consumer loop then calls **`channel.consume_one(payload)`**.
+- The base class implements a **default `consume_one`**: turn payload into `AgentRequest`, run `_process`, call `send_message_content` for each completed message, and `_on_consume_error` on failure. Most channels only need to implement "incoming → request" and "response → outgoing"; they do not override `consume_one`.
+
+### Subclass must implement
+
+| Method                                                  | Purpose                                                                                                                                                            |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `build_agent_request_from_native(self, native_payload)` | Convert the channel's native message to `AgentRequest` (using runtime `Message` / `TextContent` / `ImageContent` etc.) and set `request.channel_meta` for sending. |
+| `from_env` / `from_config`                              | Build instance from environment or config.                                                                                                                         |
+| `async start()` / `async stop()`                        | Lifecycle (connect, subscribe, cleanup).                                                                                                                           |
+| `async send(self, to_handle, text, meta=None)`          | Send one text (and optional attachments).                                                                                                                          |
+
+### What the base class provides
+
+- **Consume flow**: `_payload_to_request`, `get_to_handle_from_request` (default `user_id`), `get_on_reply_sent_args`, `_before_consume_process` (e.g. save receive_id), `_on_consume_error` (default: `send_content_parts`), and optional **`refresh_webhook_or_token`** (no-op; override when the channel needs to refresh tokens).
+- **Helpers**: `resolve_session_id`, `build_agent_request_from_user_content`, `_message_to_content_parts`, `send_message_content`, `send_content_parts`, `to_handle_from_target`.
+
+Override **`consume_one`** only when the flow differs (e.g. console printing, debounce). Override **`get_to_handle_from_request`** / **`get_on_reply_sent_args`** when the send target or callback args differ.
+
+### Example: minimal channel (text only)
+
+For text-only channels using the manager queue, you do not need to implement `consume_one`; the base default is enough:
+
+```python
+# my_channel.py
+from agentscope_runtime.engine.schemas.agent_schemas import TextContent, ContentType
+from qwenpaw.app.channels.base import BaseChannel
+from qwenpaw.app.channels.schema import ChannelType
+
+class MyChannel(BaseChannel):
+    channel: ChannelType = "my_channel"
+
+    def __init__(self, process, enabled=True, bot_prefix="", **kwargs):
+        super().__init__(process, on_reply_sent=kwargs.get("on_reply_sent"))
+        self.enabled = enabled
+        self.bot_prefix = bot_prefix
+
+    @classmethod
+    def from_config(cls, process, config, on_reply_sent=None, show_tool_details=True):
+        return cls(process=process, enabled=getattr(config, "enabled", True),
+                   bot_prefix=getattr(config, "bot_prefix", ""), on_reply_sent=on_reply_sent)
+
+    @classmethod
+    def from_env(cls, process, on_reply_sent=None):
+        return cls(process=process, on_reply_sent=on_reply_sent)
+
+    def build_agent_request_from_native(self, native_payload):
+        payload = native_payload if isinstance(native_payload, dict) else {}
+        channel_id = payload.get("channel_id") or self.channel
+        sender_id = payload.get("sender_id") or ""
+        meta = payload.get("meta") or {}
+        session_id = self.resolve_session_id(sender_id, meta)
+        text = payload.get("text", "")
+        content_parts = [TextContent(type=ContentType.TEXT, text=text)]
+        request = self.build_agent_request_from_user_content(
+            channel_id=channel_id, sender_id=sender_id, session_id=session_id,
+            content_parts=content_parts, channel_meta=meta,
+        )
+        request.channel_meta = meta
+        return request
+
+    async def start(self):
+        pass
+
+    async def stop(self):
+        pass
+
+    async def send(self, to_handle, text, meta=None):
+        # Call your HTTP API etc. to send
+        pass
+```
+
+When you receive a message, build a native dict and enqueue (`_enqueue` is injected by the manager):
+
+```python
+native = {
+    "channel_id": "my_channel",
+    "sender_id": "user_123",
+    "text": "Hello",
+    "meta": {},
+}
+self._enqueue(native)
+```
+
+### Example: multimodal (text + image / video / audio / file)
+
+In `build_agent_request_from_native`, parse attachments into runtime content and call `build_agent_request_from_user_content`:
+
+```python
+from agentscope_runtime.engine.schemas.agent_schemas import (
+    TextContent, ImageContent, VideoContent, AudioContent, FileContent, ContentType,
+)
+
+def build_agent_request_from_native(self, native_payload):
+    payload = native_payload if isinstance(native_payload, dict) else {}
+    channel_id = payload.get("channel_id") or self.channel
+    sender_id = payload.get("sender_id") or ""
+    meta = payload.get("meta") or {}
+    session_id = self.resolve_session_id(sender_id, meta)
+    content_parts = []
+    if payload.get("text"):
+        content_parts.append(TextContent(type=ContentType.TEXT, text=payload["text"]))
+    for att in payload.get("attachments") or []:
+        t = (att.get("type") or "file").lower()
+        url = att.get("url") or ""
+        if not url:
+            continue
+        if t == "image":
+            content_parts.append(ImageContent(type=ContentType.IMAGE, image_url=url))
+        elif t == "video":
+            content_parts.append(VideoContent(type=ContentType.VIDEO, video_url=url))
+        elif t == "audio":
+            content_parts.append(AudioContent(type=ContentType.AUDIO, data=url))
+        else:
+            content_parts.append(FileContent(type=ContentType.FILE, file_url=url))
+    if not content_parts:
+        content_parts = [TextContent(type=ContentType.TEXT, text="")]
+    request = self.build_agent_request_from_user_content(
+        channel_id=channel_id, sender_id=sender_id, session_id=session_id,
+        content_parts=content_parts, channel_meta=meta,
+    )
+    request.channel_meta = meta
+    return request
+```
+
 ### Adding custom channels via plugins
 
 Custom channels are now registered through the **plugin system**. See the
@@ -1564,6 +1696,7 @@ in the same plugin to mount routes under `/api`.
 >    FastAPI `APIRouter`
 > 5. Install the plugin: `qwenpaw plugin install <path>`
 > 6. Remove the old module from `custom_channels/`
+
 ---
 
 ## Related pages

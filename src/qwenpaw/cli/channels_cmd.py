@@ -10,11 +10,6 @@ from qwenpaw.exceptions import (
     AppBaseException,
 )
 
-from ..config import (
-    get_config_path,
-    load_config,
-    save_config,
-)
 from ..config.config import (
     Config,
     ConsoleConfig,
@@ -32,10 +27,7 @@ from ..config.config import (
 from .utils import prompt_confirm, prompt_path, prompt_select
 from .http import client, print_json, resolve_base_url
 from ..config import get_available_channels
-from ..app.channels.registry import (
-    BUILTIN_CHANNEL_KEYS,
-    get_channel_registry,
-)
+from ..app.channels.registry import get_channel_registry
 
 
 # Fields that contain secrets — display masked in ``list``
@@ -878,8 +870,6 @@ def list_cmd(agent_id: str) -> None:
     except (ValueError, AppBaseException) as e:
         click.echo(f"Error: {e}", err=True)
         raise SystemExit(1) from e
-
-
 
 
 @channels_group.command("config")
