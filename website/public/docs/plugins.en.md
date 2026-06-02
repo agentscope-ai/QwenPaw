@@ -12,6 +12,7 @@ The plugin system supports the following extension capabilities:
 - **Command Plugins**: Register custom `/command` magic commands
 - **HTTP API Plugins**: Expose custom REST endpoints under `/api` via a FastAPI `APIRouter`
 - **Frontend Extension Plugins**: Browser-side JS plugins that share the host's React / Ant Design runtime and declaratively extend the UI via `window.QwenPaw.*` API — register sidebar menus, page routes, UI slots, chat customizations, and more without modifying host code
+- **Channel Plugins**: Register custom messaging channels (e.g. Slack, LINE)
 
 ## Plugin Management
 
@@ -133,6 +134,7 @@ my-plugin/
 | `provider` | Registers a custom LLM provider / model endpoint.                      |
 | `hook`     | Runs code during application startup or shutdown (app lifespan level). |
 | `command`  | Registers one or more `/slash` control commands.                       |
+| `channel`  | Registers a custom messaging channel.                                  |
 | `frontend` | Ships a frontend JS bundle loaded dynamically by the UI.               |
 | `general`  | Fallback for plugins that combine multiple capabilities or don't fit.  |
 
@@ -1416,6 +1418,155 @@ plugin = ThinkingLogPlugin()
 - Full source: `plugins/middleware-demo/thinking-log-middleware/thinking_log_plugin.py`
 
 ---
+
+### Example 10: Register a Custom Channel
+
+Channel plugins let you add new messaging platforms to QwenPaw. The channel
+appears in the Console UI alongside built-in channels (DingTalk, Telegram,
+etc.) and can be configured, enabled, and disabled the same way.
+
+#### 1. Create Plugin Directory
+
+```bash
+mkdir slack-channel-plugin && cd slack-channel-plugin
+```
+
+#### 2. Create plugin.json
+
+```json
+{
+  "id": "slack-channel",
+  "name": "Slack Channel",
+  "version": "1.0.0",
+  "type": "channel",
+  "description": "Slack workspace integration for QwenPaw",
+  "author": "Your Name",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "dependencies": ["slack-sdk>=3.0.0"],
+  "min_version": "1.1.5",
+  "meta": {
+    "channel_key": "slack"
+  }
+}
+```
+
+#### 3. Create channel.py — BaseChannel subclass
+
+```python
+# -*- coding: utf-8 -*-
+"""Slack channel implementation."""
+
+import logging
+from qwenpaw.app.channels.base import BaseChannel
+
+logger = logging.getLogger(__name__)
+
+
+class SlackChannel(BaseChannel):
+    """Slack messaging channel."""
+
+    channel = "slack"  # unique key, must match config key
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.bot_token = kwargs.get("bot_token", "")
+
+    async def _listen(self):
+        """Start listening for Slack events."""
+        logger.info("Slack channel listening...")
+        # Implement Slack RTM or Socket Mode here
+
+    async def _send(self, target, content, **kwargs):
+        """Send a message to Slack."""
+        logger.info(f"Sending to Slack {target}: {content}")
+        # Use slack-sdk to post messages
+```
+
+#### 4. Create plugin.py — Plugin entry point
+
+```python
+# -*- coding: utf-8 -*-
+"""Slack Channel Plugin Entry Point."""
+
+import importlib.util
+import logging
+import os
+
+from qwenpaw.plugins.api import PluginApi
+
+logger = logging.getLogger(__name__)
+
+
+class SlackChannelPlugin:
+    """Slack Channel Plugin."""
+
+    def register(self, api: PluginApi):
+        """Register the Slack channel."""
+        plugin_dir = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location(
+            "slack_channel", os.path.join(plugin_dir, "channel.py"),
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        api.register_channel(
+            channel_class=mod.SlackChannel,
+            label="Slack",
+            description="Slack workspace integration",
+            config_fields=[
+                {
+                    "name": "bot_token",
+                    "label": "Bot Token",
+                    "type": "password",
+                    "required": True,
+                    "placeholder": "xoxb-...",
+                    "help": "Slack Bot User OAuth Token",
+                },
+                {
+                    "name": "signing_secret",
+                    "label": "Signing Secret",
+                    "type": "password",
+                    "required": True,
+                    "help": "Slack app Signing Secret",
+                },
+                {
+                    "name": "default_channel",
+                    "label": "Default Channel",
+                    "type": "text",
+                    "required": False,
+                    "placeholder": "#general",
+                },
+            ],
+        )
+        logger.info("✓ Slack channel registered")
+
+
+plugin = SlackChannelPlugin()
+```
+
+#### 5. Install and Use
+
+```bash
+qwenpaw plugin install slack-channel-plugin
+qwenpaw app
+```
+
+After starting, go to **Control → Channels** in the Console. The Slack
+channel card will appear alongside built-in channels. Click it to fill in
+credentials and enable it.
+
+**Key points:**
+
+- The `channel_class` must be a `BaseChannel` subclass with a `channel`
+  class attribute (the unique key).
+- `config_fields` defines the form fields shown in the Console settings
+  drawer. Supported types: `text`, `password`, `number`, `switch`, `select`.
+- Plugin channels share the same enable/disable, access control, and
+  `bot_prefix` features as built-in channels.
+- If a plugin channel key conflicts with a built-in key, the built-in
+  takes precedence and the plugin channel is skipped with a warning.
 
 ## Dependency Management
 

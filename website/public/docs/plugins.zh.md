@@ -12,6 +12,7 @@ QwenPaw 提供了插件系统，允许用户扩展 QwenPaw 的功能。
 - **Command 插件**：注册自定义的 `/command` 魔法命令
 - **HTTP API 插件**：通过 FastAPI `APIRouter` 在 `/api` 下暴露自定义 REST 接口
 - **前端扩展插件**：在浏览器中运行的 JS 插件，共享宿主的 React / Ant Design 运行时，通过声明式 `window.QwenPaw.*` API 扩展界面——注册侧边栏菜单、页面路由、UI 插槽、聊天定制等，无需修改宿主代码
+- **Channel 插件**：注册自定义消息频道（如 Slack、LINE）
 
 ## 插件管理
 
@@ -133,6 +134,7 @@ my-plugin/
 | `provider` | 注册自定义 LLM 提供商 / 模型端点。                   |
 | `hook`     | 在应用启动 / 关闭时执行代码（app 生命周期级别）。    |
 | `command`  | 注册 `/slash` 控制命令。                             |
+| `channel`  | 注册自定义消息频道。                                 |
 | `frontend` | 提供前端 JS bundle，由 UI 动态加载。                 |
 | `general`  | 兜底类型，用于组合型插件或不属于以上任何类别的插件。 |
 
@@ -1405,6 +1407,151 @@ plugin = ThinkingLogPlugin()
 - 完整源码参见 `plugins/middleware-demo/thinking-log-middleware/thinking_log_plugin.py`
 
 ---
+
+### 示例 10：注册自定义消息频道
+
+Channel 插件可以为 QwenPaw 添加新的消息平台。注册后的频道会在控制台 UI 中与内置
+频道（钉钉、Telegram 等）一起显示，支持同样的启用/禁用和配置方式。
+
+#### 1. 创建插件目录
+
+```bash
+mkdir slack-channel-plugin && cd slack-channel-plugin
+```
+
+#### 2. 创建 plugin.json
+
+```json
+{
+  "id": "slack-channel",
+  "name": "Slack Channel",
+  "version": "1.0.0",
+  "type": "channel",
+  "description": "Slack workspace integration for QwenPaw",
+  "author": "Your Name",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "dependencies": ["slack-sdk>=3.0.0"],
+  "min_version": "1.1.5",
+  "meta": {
+    "channel_key": "slack"
+  }
+}
+```
+
+#### 3. 创建 channel.py — BaseChannel 子类
+
+```python
+# -*- coding: utf-8 -*-
+"""Slack 频道实现。"""
+
+import logging
+from qwenpaw.app.channels.base import BaseChannel
+
+logger = logging.getLogger(__name__)
+
+
+class SlackChannel(BaseChannel):
+    """Slack 消息频道。"""
+
+    channel = "slack"  # 唯一 key，必须与 config key 一致
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.bot_token = kwargs.get("bot_token", "")
+
+    async def _listen(self):
+        """开始监听 Slack 事件。"""
+        logger.info("Slack channel listening...")
+        # 在此实现 Slack RTM 或 Socket Mode
+
+    async def _send(self, target, content, **kwargs):
+        """向 Slack 发送消息。"""
+        logger.info(f"Sending to Slack {target}: {content}")
+        # 使用 slack-sdk 发送消息
+```
+
+#### 4. 创建 plugin.py — 插件入口
+
+```python
+# -*- coding: utf-8 -*-
+"""Slack Channel 插件入口。"""
+
+import importlib.util
+import logging
+import os
+
+from qwenpaw.plugins.api import PluginApi
+
+logger = logging.getLogger(__name__)
+
+
+class SlackChannelPlugin:
+    """Slack Channel 插件。"""
+
+    def register(self, api: PluginApi):
+        """注册 Slack 频道。"""
+        plugin_dir = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location(
+            "slack_channel", os.path.join(plugin_dir, "channel.py"),
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        api.register_channel(
+            channel_class=mod.SlackChannel,
+            label="Slack",
+            description="Slack workspace integration",
+            config_fields=[
+                {
+                    "name": "bot_token",
+                    "label": "Bot Token",
+                    "type": "password",
+                    "required": True,
+                    "placeholder": "xoxb-...",
+                    "help": "Slack Bot User OAuth Token",
+                },
+                {
+                    "name": "signing_secret",
+                    "label": "Signing Secret",
+                    "type": "password",
+                    "required": True,
+                    "help": "Slack app Signing Secret",
+                },
+                {
+                    "name": "default_channel",
+                    "label": "Default Channel",
+                    "type": "text",
+                    "required": False,
+                    "placeholder": "#general",
+                },
+            ],
+        )
+        logger.info("✓ Slack channel registered")
+
+
+plugin = SlackChannelPlugin()
+```
+
+#### 5. 安装和使用
+
+```bash
+qwenpaw plugin install slack-channel-plugin
+qwenpaw app
+```
+
+启动后，在控制台的 **Control → Channels** 中可以看到 Slack 频道卡片，点击即可
+填写凭证并启用。
+
+**要点：**
+
+- `channel_class` 必须是 `BaseChannel` 的子类，且需要有 `channel` 类属性（唯一
+  key）。
+- `config_fields` 定义控制台设置面板中显示的表单字段，支持类型：`text`、
+  `password`、`number`、`switch`、`select`。
+- 插件频道与内置频道共享启用/禁用、访问控制、`bot_prefix` 等功能。
+- 如果插件频道 key 与内置频道冲突，内置频道优先，插件频道会被跳过并打印警告。
 
 ## 依赖管理
 

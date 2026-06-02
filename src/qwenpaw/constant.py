@@ -255,9 +255,6 @@ BACKUP_DIR = (
     .resolve()
 )
 
-# Custom channel modules (installed via `qwenpaw channels install`); manager
-# loads BaseChannel subclasses from here.
-CUSTOM_CHANNELS_DIR = WORKING_DIR / "custom_channels"
 
 # Plugin directory (installed via `qwenpaw plugin install`)
 PLUGINS_DIR = WORKING_DIR / "plugins"

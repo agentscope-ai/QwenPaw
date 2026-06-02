@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Channel registry: built-in + custom channels from working dir."""
+"""Channel registry: built-in + plugin-registered channels."""
 
 from __future__ import annotations
 
 import importlib
 import logging
-import sys
 import threading
 from typing import TYPE_CHECKING
 
-from ...constant import CUSTOM_CHANNELS_DIR
 from .base import BaseChannel
 
 if TYPE_CHECKING:
@@ -97,97 +95,7 @@ def clear_builtin_channel_cache() -> None:
         _BUILTIN_CHANNEL_CACHE = None
 
 
-def _discover_custom_channels() -> dict[str, type[BaseChannel]]:
-    """Load channel classes from CUSTOM_CHANNELS_DIR."""
-    out: dict[str, type[BaseChannel]] = {}
-    if not CUSTOM_CHANNELS_DIR.is_dir():
-        return out
-
-    dir_str = str(CUSTOM_CHANNELS_DIR)
-    if dir_str not in sys.path:
-        sys.path.insert(0, dir_str)
-
-    for path in sorted(CUSTOM_CHANNELS_DIR.iterdir()):
-        if path.suffix == ".py" and path.stem != "__init__":
-            name = path.stem
-        elif path.is_dir() and (path / "__init__.py").exists():
-            name = path.name
-        else:
-            continue
-        try:
-            mod = importlib.import_module(name)
-        except Exception:
-            logger.exception("failed to load custom channel: %s", name)
-            continue
-        for obj in vars(mod).values():
-            if (
-                isinstance(obj, type)
-                and issubclass(obj, BaseChannel)
-                and obj is not BaseChannel
-            ):
-                key = getattr(obj, "channel", None)
-                if key:
-                    out[key] = obj
-                    logger.debug("custom channel registered: %s", key)
-    return out
-
-
 BUILTIN_CHANNEL_KEYS = frozenset(_BUILTIN_SPECS.keys())
-
-
-def register_custom_channel_routes(app) -> None:
-    """Let custom channels register additional HTTP routes on the FastAPI app.
-
-    Custom channel modules may define a module-level callable
-    ``register_app_routes(app)``.  If present, it is called so the
-    channel can mount its own API endpoints (e.g. QR login pages,
-    webhook handlers, etc.).
-
-    Must be called at module level (before the SPA catch-all route)
-    to ensure route priority.  Channels that need access to
-    ``app.state.multi_agent_manager`` should read it lazily at
-    request time.
-
-    **All routes MUST be under the ``/api/`` prefix.** Routes without
-    this prefix will be silently swallowed by the SPA catch-all
-    (``/{full_path:path}``). A warning is emitted at startup if any
-    non-``/api/`` routes are detected.
-
-    Errors in individual channel hooks are logged but never propagated.
-    """
-    if not CUSTOM_CHANNELS_DIR.is_dir():
-        return
-
-    dir_str = str(CUSTOM_CHANNELS_DIR)
-    if dir_str not in sys.path:
-        sys.path.insert(0, dir_str)
-
-    for path in sorted(CUSTOM_CHANNELS_DIR.iterdir()):
-        if path.suffix == ".py" and path.stem != "__init__":
-            name = path.stem
-        elif path.is_dir() and (path / "__init__.py").exists():
-            name = path.name
-        else:
-            continue
-        try:
-            mod = importlib.import_module(name)
-            hook = getattr(mod, "register_app_routes", None)
-            if not callable(hook):
-                continue
-            prev_routes = {r.path for r in app.routes}
-            hook(app)
-            new_routes = {r.path for r in app.routes} - prev_routes
-            non_api = {p for p in new_routes if not p.startswith("/api/")}
-            if non_api:
-                logger.warning(
-                    "Custom channel %s registered routes without /api/ "
-                    "prefix: %s. These will be swallowed by the SPA "
-                    "catch-all.",
-                    name,
-                    non_api,
-                )
-        except Exception:
-            logger.exception("Failed to load custom channel routes: %s", name)
 
 
 def _get_plugin_channels() -> dict[str, type[BaseChannel]]:
@@ -212,15 +120,13 @@ def _get_plugin_channels() -> dict[str, type[BaseChannel]]:
 
 
 def get_channel_registry() -> dict[str, type[BaseChannel]]:
-    """Built-in + custom_channels/ + plugin-registered channels."""
+    """Built-in + plugin-registered channels."""
     out = _get_cached_builtin_channels()
-    out.update(_discover_custom_channels())
-    # Only add plugin channels that don't conflict with existing keys
     for key, ch_cls in _get_plugin_channels().items():
         if key in out:
             logger.warning(
                 "Plugin channel '%s' skipped: key already exists in "
-                "built-in or custom_channels/",
+                "built-in channels",
                 key,
             )
             continue
