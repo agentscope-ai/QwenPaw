@@ -13,6 +13,7 @@ import asyncio
 import io
 import json
 import logging
+import sys
 import zipfile
 from pathlib import Path
 
@@ -33,6 +34,28 @@ router = APIRouter(prefix="/workspace/coding-project", tags=["coding-project"])
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _list_windows_drives_response() -> dict:
+    """Return a browse-dirs response listing drives."""
+    dirs: list[dict] = []
+    for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        root = Path(f"{letter}:\\")
+        try:
+            if root.exists():
+                dirs.append(
+                    {
+                        "name": f"{letter}:",
+                        "path": str(root),
+                    },
+                )
+        except OSError:
+            continue
+    return {
+        "current": "/",
+        "parent": None,
+        "dirs": dirs,
+    }
 
 
 def _projects_base(workspace_dir: Path) -> Path:
@@ -454,7 +477,17 @@ async def browse_dirs(
         description="Include hidden directories",
     ),
 ) -> dict:
-    """Return subdirectories at *path* for the file browser UI."""
+    """Return subdirectories at *path* for the file browser UI.
+
+    On Windows, ``"/"`` is treated as a virtual root that
+    lists all available drive letters (C:, D:, ...).
+    """
+    # Windows virtual root: list all drive letters
+    if sys.platform == "win32" and path in ("/", "\\"):
+        return await asyncio.to_thread(
+            _list_windows_drives_response,
+        )
+
     target = await asyncio.to_thread(
         lambda: Path(path).expanduser().resolve(),
     )
@@ -502,9 +535,15 @@ async def browse_dirs(
                 detail=f"Failed to list directory: {target}",
             ) from exc
         parent = target.parent
+        # On Windows drive root, parent points to
+        # the virtual drives listing.
+        if sys.platform == "win32" and parent == target:
+            parent_str: str | None = "/"
+        else:
+            parent_str = str(parent) if parent != target else None
         return {
             "current": str(target),
-            "parent": (str(parent) if parent != target else None),
+            "parent": parent_str,
             "dirs": dirs,
         }
 
