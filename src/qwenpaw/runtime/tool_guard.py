@@ -10,18 +10,17 @@ logger = logging.getLogger(__name__)
 
 
 class GuardedFunctionTool:
-    """Skeleton ``FunctionTool`` that routes permission decisions through
-    qwenpaw's tool-guard execution level.
+    """Permission-checked tool wrapper using qwenpaw's tool-guard engine.
 
-    For the migration mainline ``_resolve_execution_level()`` always
-    returns ``"bypass"``, so every tool call is auto-allowed — same
-    behavior as the prior ``_AutoAllowFunctionTool``.  The branches for
-    OFF / AUTO / SMART / STRICT are stubbed with TODOs; the next pass
-    wires them to ``qwenpaw.security.tool_guard.engine`` and emits
-    ``PermissionDecision(ASK, ...)`` so agentscope 2.0's
-    ``RequireUserConfirmEvent`` plumbing (already translated by
-    ``stream_query``) carries the findings to the frontend's
-    ``ApprovalCard``.
+    Routes every tool invocation through
+    ``qwenpaw.security.tool_guard.engine`` which evaluates guard rules and
+    returns a ``PermissionDecision``.  Depending on execution level
+    (OFF / AUTO / SMART / STRICT), the decision can be:
+
+    - ALLOW — tool runs immediately
+    - DENY  — tool is blocked with an error message
+    - ASK   — an approval request is sent to the user via the approval
+              service; the tool blocks until the user responds or timeout
 
     Request context (session_id, user_id, channel, etc.) is passed at
     construction time via the ``request_context`` parameter and stored

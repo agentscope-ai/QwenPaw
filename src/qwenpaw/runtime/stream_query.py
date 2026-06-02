@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-nested-blocks
-"""Runner base class with stream_query — the core event-to-envelope
-translator."""
+"""Runner base class — drives an agentscope 2.0 Agent and translates
+events into the frontend's SSE envelope protocol."""
 from __future__ import annotations
 
 import json
@@ -14,7 +14,7 @@ from .heartbeat import (
     _HEARTBEAT_TICK,
     HEARTBEAT_INTERVAL_SECONDS,
 )
-from .agent_factory import _get_or_build_agent
+from .agent_factory import build_agent
 from .message_convert import (
     _get_last_user_text,
     _media_type_to_block_type,
@@ -25,12 +25,11 @@ logger = logging.getLogger(__name__)
 
 
 class Runner:
-    """No-contract stand-in for the deleted runtime ``Runner`` base.
+    """Base class providing lifecycle hooks and ``stream_query``.
 
-    Provides the lifecycle hooks (``start`` / ``stop``) qwenpaw's
-    ``AgentRunner`` expects from its parent, plus a ``stream_query`` that
-    drives a 2.0 ``Agent`` via ``reply_stream`` and translates the event
-    stream into the frontend's envelope protocol.
+    ``stream_query`` drives a 2.0 ``Agent`` via ``reply_stream`` and
+    translates the event stream into the frontend's envelope protocol.
+    ``AgentRunner`` inherits from this class.
     """
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
@@ -124,13 +123,13 @@ class Runner:
                emitted at ``TOOL_RESULT_END`` with the accumulated
                textual tool output and the final ``ToolResultState``.
 
-        ``TOOL_RESULT_DATA_DELTA`` (binary tool output) is dropped with a
-        debug log — none of the four migrated tools produce binary
-        results; revisit when ``view_media``/``desktop_screenshot``-style
-        tools are re-introduced.
+        ``TOOL_RESULT_DATA_DELTA`` (binary/structured tool output) is
+        accumulated into ``output_data_blocks`` and merged into the tool
+        result envelope at ``TOOL_RESULT_END``.
 
-        ``Reply`` and ``ModelCall`` events are still dropped for the
-        migration mainline — re-introduced once channels need them.
+        ``Reply`` and ``ModelCall`` events are silently ignored — they
+        carry redundant information already captured by the text/tool
+        event stream.
         """
         from agentscope.event import EventType
         from ..schemas import (
@@ -198,7 +197,6 @@ class Runner:
         yield response
 
         raw_input = getattr(request, "input", []) or []
-        msgs = _request_input_to_msgs(raw_input)
 
         # The Message envelope we accumulate into and emit twice: once with
         # empty content (in_progress) so the frontend can register the msg.id
@@ -225,7 +223,10 @@ class Runner:
         tool_calls: Dict[str, Dict[str, Any]] = {}
 
         error_text: str | None = None
+        agent = None
         try:
+            msgs = _request_input_to_msgs(raw_input)
+
             # Get MCP clients from workspace manager
             mcp_clients = None
             mcp_mgr = getattr(self, "_mcp_manager", None)
@@ -238,7 +239,7 @@ class Runner:
                         exc_info=True,
                     )
 
-            agent = _get_or_build_agent(
+            agent = build_agent(
                 session_id,
                 agent_id=getattr(self, "agent_id", None),
                 workspace_dir=workspace_dir,
@@ -744,7 +745,7 @@ class Runner:
                     "stream_query: approval cleanup failed",
                     exc_info=True,
                 )
-            interrupt_fn = getattr(agent, "interrupt", None)
+            interrupt_fn = getattr(agent, "interrupt", None) if agent else None
             if interrupt_fn is not None:
                 try:
                     interrupt_fn()

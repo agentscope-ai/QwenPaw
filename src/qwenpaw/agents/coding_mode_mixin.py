@@ -11,16 +11,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from ..constant import WORKING_DIR
 from ..runtime import GuardedFunctionTool
 from .tools import ast_tool
 from .tools._lsp_servers import detect_available_lsp_languages
 from .tools.lsp_tool import make_lsp_tool
-
-if TYPE_CHECKING:
-    from agentscope.tool import Toolkit
 
 logger = logging.getLogger(__name__)
 

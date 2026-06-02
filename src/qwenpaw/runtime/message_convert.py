@@ -62,6 +62,10 @@ def _request_input_to_msgs(
         from agentscope.message import Msg, TextBlock, DataBlock
         from agentscope.message._block import URLSource
     except Exception:
+        logger.error(
+            "Failed to import agentscope.message; user input will be dropped",
+            exc_info=True,
+        )
         return []
 
     _MEDIA_TYPES = {
