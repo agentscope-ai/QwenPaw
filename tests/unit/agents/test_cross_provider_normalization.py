@@ -333,8 +333,10 @@ def test_thinking_blocks_preserved_for_openai(monkeypatch) -> None:
     assert thinking_blocks[0]["thinking"] == "Let me consider..."
 
 
-def test_thinking_blocks_preserved_for_anthropic(monkeypatch) -> None:
-    """Thinking blocks must survive normalization for Anthropic."""
+def test_unsigned_thinking_blocks_dropped_for_anthropic(monkeypatch) -> None:
+    """Cross-provider thinking blocks without ``signature`` must be dropped
+    before sending to Anthropic — the API rejects unsigned thinking blocks
+    with ``messages.*.content.*.thinking.signature: Field required``."""
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
@@ -356,7 +358,53 @@ def test_thinking_blocks_preserved_for_anthropic(monkeypatch) -> None:
 
     blocks = normalized[1].content
     thinking_blocks = [b for b in blocks if b.get("type") == "thinking"]
+    assert thinking_blocks == []
+    text_blocks = [b for b in blocks if b.get("type") == "text"]
+    assert len(text_blocks) == 1
+
+
+def test_signed_thinking_blocks_preserved_for_anthropic(monkeypatch) -> None:
+    """Native Claude thinking blocks carry a ``signature`` and must be
+    preserved across normalization so extended-thinking chains stay intact."""
+    if AnthropicChatFormatter is None:
+        pytest.skip("AnthropicChatFormatter not available")
+
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+
+    history = [
+        Msg(name="user", role="user", content="Think about this"),
+        Msg(
+            name="assistant",
+            role="assistant",
+            content=[
+                {
+                    "type": "thinking",
+                    "thinking": "Let me consider...",
+                    "signature": "sig-from-claude",
+                },
+                {"type": "text", "text": "Here is my answer."},
+            ],
+        ),
+    ]
+
+    (
+        normalized,
+        _is_anthropic,
+        _is_gemini,
+    ) = model_factory._normalize_messages_for_formatter(
+        history,
+        AnthropicChatFormatter,
+        SimpleNamespace(),
+    )
+
+    blocks = normalized[1].content
+    thinking_blocks = [b for b in blocks if b.get("type") == "thinking"]
     assert len(thinking_blocks) == 1
+    assert thinking_blocks[0]["signature"] == "sig-from-claude"
 
 
 def test_thinking_blocks_preserved_for_gemini(monkeypatch) -> None:

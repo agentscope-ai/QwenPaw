@@ -906,13 +906,19 @@ class TestDingTalkResolveSession:
         assert result == "dingtalk:user456"
 
     def test_to_handle_from_target_formats_correctly(self, dingtalk_channel):
-        """to_handle_from_target should format handle with session_id."""
+        """to_handle_from_target should include user_id prefix for DM."""
         result = dingtalk_channel.to_handle_from_target(
             user_id="user123",
             session_id="sess_abc",
         )
+        assert result == "dingtalk:sw:user123_sess_abc"
 
-        assert result == "dingtalk:sw:sess_abc"
+        # Without user_id, falls back to suffix-only key (group chat)
+        result_no_user = dingtalk_channel.to_handle_from_target(
+            user_id="",
+            session_id="sess_abc",
+        )
+        assert result_no_user == "dingtalk:sw:sess_abc"
 
     def test_route_from_handle_sw(self, dingtalk_channel):
         """_route_from_handle should parse 'dingtalk:sw:' format."""
@@ -3131,28 +3137,26 @@ class TestDingTalkLoadSessionWebhookEntry:
 class TestDingTalkAdditionalCoverage:
     """Additional tests to reach 60% coverage."""
 
-    def test_check_allowlist_empty(self, dingtalk_channel):
-        """Check allowlist when empty allows all."""
-        dingtalk_channel.allow_from = set()
+    def test_access_control_disabled_allows_all(self, dingtalk_channel):
+        """Access control disabled allows all users."""
+        dingtalk_channel.access_control_dm = False
+        dingtalk_channel.access_control_group = False
 
-        allowed, _ = dingtalk_channel._check_allowlist("any_user", False)
-        assert allowed is True
+        assert dingtalk_channel.access_control_enabled is False
 
-    def test_check_allowlist_blocked(self, dingtalk_channel):
-        """Check blocked user in allowlist."""
-        dingtalk_channel.allow_from = {"user1", "user2"}
-        dingtalk_channel.dm_policy = "allowlist"
+    def test_access_control_dm_enabled(self, dingtalk_channel):
+        """Access control dm enabled makes access_control_enabled True."""
+        dingtalk_channel.access_control_dm = True
+        dingtalk_channel.access_control_group = False
 
-        allowed, msg = dingtalk_channel._check_allowlist("other_user", False)
-        assert allowed is False
-        assert "not authorized" in msg
+        assert dingtalk_channel.access_control_enabled is True
 
-    def test_check_allowlist_allowed(self, dingtalk_channel):
-        """Check allowed user in allowlist."""
-        dingtalk_channel.allow_from = {"user1", "user2"}
+    def test_access_control_group_enabled(self, dingtalk_channel):
+        """Access control group enabled makes access_control_enabled True."""
+        dingtalk_channel.access_control_dm = False
+        dingtalk_channel.access_control_group = True
 
-        allowed, _ = dingtalk_channel._check_allowlist("user1", False)
-        assert allowed is True
+        assert dingtalk_channel.access_control_enabled is True
 
     def test_check_group_mention_not_required(self, dingtalk_channel):
         """Check group mention when not required."""

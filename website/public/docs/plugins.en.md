@@ -90,6 +90,7 @@ my-plugin/
   "id": "my-plugin",
   "name": "My Plugin",
   "version": "1.0.0",
+  "type": "general",
   "description": "Plugin description",
   "author": "Your Name",
   "entry": {
@@ -100,6 +101,36 @@ my-plugin/
   "meta": {}
 }
 ```
+
+#### Manifest Field Reference
+
+| Field            | Type               | Required | Description                                                                                                                                                                |
+| ---------------- | ------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`             | `string`           | yes      | Unique plugin identifier. Used as the install directory name; must not contain path separators.                                                                            |
+| `version`        | `string`           | yes      | Semantic version of the plugin (e.g. `1.0.0`).                                                                                                                             |
+| `name`           | `string` \| object | no       | Display name. Defaults to `id`. May also be `{"zh-CN": "...", "en-US": "..."}`; the first non-empty localised value is used (English preferred).                           |
+| `type`           | `string`           | no       | One of `tool`, `provider`, `hook`, `command`, `frontend`, `general`. When omitted, the type is inferred from `meta` / `entry` (legacy plugins). Prefer setting explicitly. |
+| `description`    | `string` \| object | no       | Short description shown in the plugin list. Localised form is accepted (see `name`).                                                                                       |
+| `author`         | `string`           | no       | Author or organisation name.                                                                                                                                               |
+| `entry.backend`  | `string`           | no\*     | Path (relative to plugin dir) of the Python entry file that exports `plugin`.                                                                                              |
+| `entry.frontend` | `string`           | no\*     | Path of the built frontend bundle (e.g. `dist/index.js`).                                                                                                                  |
+| `dependencies`   | `string[]`         | no       | Python package requirements installed via pip/uv at install time.                                                                                                          |
+| `min_version`    | `string`           | no       | Minimum QwenPaw version required. Defaults to `0.1.0`.                                                                                                                     |
+| `meta`           | `object`           | no       | Free-form plugin metadata. Used by the UI and by `type` inference (e.g. `meta.tools[]`, `meta.hook_type`, `meta.provider_id`).                                             |
+| `entry_point`    | `string`           | no       | **Legacy.** Equivalent to `entry.backend`. Still accepted for backwards compatibility with older plugins; new plugins should use `entry.backend`.                          |
+
+\* At least one of `entry.backend` / `entry.frontend` (or legacy `entry_point`) must be provided.
+
+#### `type` values
+
+| Value      | When to use                                                           |
+| ---------- | --------------------------------------------------------------------- |
+| `tool`     | Registers one or more agent tools (functions the LLM can call).       |
+| `provider` | Registers a custom LLM provider / model endpoint.                     |
+| `hook`     | Runs code during application startup or shutdown.                     |
+| `command`  | Registers one or more `/slash` control commands.                      |
+| `frontend` | Ships a frontend JS bundle loaded dynamically by the UI.              |
+| `general`  | Fallback for plugins that combine multiple capabilities or don't fit. |
 
 #### plugin.py
 
@@ -159,6 +190,7 @@ my-plugin/
   "id": "my-plugin",
   "name": "My Plugin",
   "version": "1.0.0",
+  "type": "frontend",
   "author": "Your Name",
   "entry": { "frontend": "dist/index.js" }
 }
@@ -280,6 +312,7 @@ cd my-llm-provider
   "id": "my-llm-provider",
   "name": "My LLM Provider",
   "version": "1.0.0",
+  "type": "provider",
   "description": "Custom LLM provider for enterprise",
   "author": "Your Name",
   "entry": {
@@ -415,6 +448,7 @@ cd monitoring-hook
   "id": "monitoring-hook",
   "name": "Monitoring Hook",
   "version": "1.0.0",
+  "type": "hook",
   "description": "Initialize monitoring service at startup",
   "author": "Your Name",
   "entry": {
@@ -504,6 +538,7 @@ cd status-command
   "id": "status-command",
   "name": "Status Command",
   "version": "1.0.0",
+  "type": "command",
   "description": "Custom status command",
   "author": "Your Name",
   "entry": {
@@ -649,6 +684,7 @@ mkdir welcome-plugin && cd welcome-plugin
   "id": "welcome-plugin",
   "name": "Welcome Plugin",
   "version": "1.0.0",
+  "type": "frontend",
   "description": "Welcome page plugin",
   "author": "Your Name",
   "entry": { "frontend": "dist/index.js" }
@@ -765,6 +801,7 @@ mkdir tool-render-plugin && cd tool-render-plugin
   "id": "tool-render-plugin",
   "name": "Tool Render Plugin",
   "version": "1.0.0",
+  "type": "frontend",
   "description": "Custom tool result renderer",
   "author": "Your Name",
   "entry": { "frontend": "dist/index.js" }
@@ -845,6 +882,7 @@ mkdir custom-greeting-plugin && cd custom-greeting-plugin
   "id": "custom-greeting-plugin",
   "name": "Custom Greeting",
   "version": "1.0.0",
+  "type": "frontend",
   "description": "Customize chat greeting",
   "author": "Your Name",
   "entry": { "frontend": "dist/index.js" }
@@ -921,6 +959,7 @@ mkdir pet-api-plugin && cd pet-api-plugin
   "id": "pet-api-plugin",
   "name": "Pet API Plugin",
   "version": "1.0.0",
+  "type": "general",
   "description": "Expose a small REST API under /api/pets",
   "author": "Your Name",
   "entry": {

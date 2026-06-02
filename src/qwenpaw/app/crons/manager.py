@@ -330,9 +330,10 @@ class CronManager:
                 task.get_name(),
                 repr(exc),
             )
-            # Push error to the console for the frontend to display
+            # Push error to the console for the frontend to display.
+            # Agent cron jobs skip push bubbles.
             session_id = job.dispatch.target.session_id
-            if session_id:
+            if session_id and job.task_type != "agent":
                 error_text = f"❌ Cron job [{job.name}] failed: {exc}"
                 asyncio.ensure_future(
                     push_store_append(session_id, error_text),

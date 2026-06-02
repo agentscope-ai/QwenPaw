@@ -394,8 +394,14 @@ def classify_pool_skill_source(
 # ---------------------------------------------------------------------------
 
 
-def _is_hidden(name: str) -> bool:
-    return name in _IGNORED_SKILL_ARTIFACTS
+def is_ignored_skill_entry(name: str) -> bool:
+    """Names to skip when enumerating skill-candidate directories.
+
+    Single extension point for "not a real skill" name rules used by every
+    skill-dir enumeration (registry scanners, pool / workspace conflict
+    checks, zip imports). Add new patterns here when they appear.
+    """
+    return name in _IGNORED_SKILL_ARTIFACTS or name.startswith("~")
 
 
 def _extract_and_validate_zip(data: bytes, tmp_dir: Path) -> None:
@@ -621,7 +627,11 @@ def workspace_skill_name_conflict(
     if not (skill_root / normalized_name).exists():
         return None
     existing = (
-        {p.name for p in skill_root.iterdir() if p.is_dir()}
+        {
+            p.name
+            for p in skill_root.iterdir()
+            if p.is_dir() and not is_ignored_skill_entry(p.name)
+        }
         if skill_root.exists()
         else set()
     )
@@ -843,7 +853,9 @@ def extract_zip_skills(data: bytes) -> tuple[Path, list[tuple[Path, str]]]:
     tmp_dir = Path(tempfile.mkdtemp(prefix="qwenpaw_skill_upload_"))
     _extract_and_validate_zip(data, tmp_dir)
     real_entries = [
-        path for path in tmp_dir.iterdir() if not _is_hidden(path.name)
+        path
+        for path in tmp_dir.iterdir()
+        if not is_ignored_skill_entry(path.name)
     ]
     extract_root = (
         real_entries[0]
@@ -856,7 +868,7 @@ def extract_zip_skills(data: bytes) -> tuple[Path, list[tuple[Path, str]]]:
         found = [
             (path, _resolve_skill_name(path))
             for path in sorted(extract_root.iterdir())
-            if not _is_hidden(path.name)
+            if not is_ignored_skill_entry(path.name)
             and path.is_dir()
             and (path / "SKILL.md").exists()
         ]

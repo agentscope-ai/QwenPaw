@@ -31,7 +31,7 @@ def _minimal_text_cron_spec(*, name: str) -> dict:
 
 
 @pytest.mark.integration
-@pytest.mark.p1
+@pytest.mark.p0
 # pylint: disable-next=too-many-statements
 def test_agent_scoped_cron_job_lifecycle(
     app_server,

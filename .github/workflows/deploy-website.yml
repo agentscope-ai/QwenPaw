@@ -17,8 +17,10 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # Only deploy on full releases, skip pre-releases
-    if: github.event.release.prerelease == false
+    # Deploy on: stable releases OR manual workflow_dispatch
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.release.prerelease == false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,6 +46,79 @@ jobs:
         env:
           VITE_BASE_PATH: "/"
         run: pnpm run build
+
+      - name: Generate contributors_data.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 << 'PYEOF'
+          import json
+          import subprocess
+          import sys
+
+          BOT_SUFFIXES = ("[bot]", "-bot")
+          BOT_LIST = {
+              "dependabot", "renovate", "github-actions",
+              "aquamarine-bot", "codecov", "allcontributors",
+          }
+
+          def is_bot(login):
+              lower = login.lower()
+              return (
+                  any(lower.endswith(s) for s in BOT_SUFFIXES)
+                  or lower in BOT_LIST
+              )
+
+          contributors = []
+          page = 1
+          while True:
+              result = subprocess.run(
+                  [
+                      "gh", "api",
+                      f"repos/${{ github.repository }}/contributors"
+                      f"?per_page=100&page={page}",
+                      "--jq",
+                      '.[] | "\(.login)\t\(.contributions)\t\(.type)"',
+                  ],
+                  capture_output=True, text=True,
+              )
+              if result.returncode != 0:
+                  print(
+                      f"::warning::GitHub API failed on page {page}: "
+                      f"{result.stderr.strip() or 'unknown error'}. "
+                      f"Falling back to static contributors_data.json."
+                  )
+                  sys.exit(0)
+              if not result.stdout.strip():
+                  break
+              for line in result.stdout.strip().split("\n"):
+                  parts = line.split("\t")
+                  if len(parts) < 3:
+                      continue
+                  login, contribs, user_type = (
+                      parts[0], int(parts[1]), parts[2]
+                  )
+                  if user_type == "Bot" or is_bot(login):
+                      continue
+                  contributors.append({
+                      "login": login,
+                      "avatar_url": f"https://github.com/{login}.png",
+                      "html_url": f"https://github.com/{login}",
+                      "contributions": int(contribs),
+                  })
+              page += 1
+              if page > 20:
+                  break
+
+          if not contributors:
+              print("::warning::No contributors fetched. Using fallback.")
+              sys.exit(0)
+
+          contributors.sort(key=lambda x: x["login"].lower())
+          with open("website/dist/contributors_data.json", "w") as f:
+              json.dump(contributors, f, indent=2)
+          print(f"Generated contributors_data.json ({len(contributors)} contributors)")
+          PYEOF
 
       # Copy installation scripts so they are served from the website
       # (e.g. qwenpaw.agentscope.io/install.sh) instead of raw.githubusercontent.com,

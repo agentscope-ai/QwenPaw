@@ -60,32 +60,27 @@
 
 ## 新闻
 
-- [2026-05-19] 我们发布了 **v1.1.8**！完整更新说明见 [v1.1.8 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+- [2026-06-01] **v1.1.10 — 子 Agent 派生 & 更多渠道** | Agent 可派生子 Agent 执行任务；腾讯元宝加入渠道。
 
-  - **[v1.1.8] 新增**：官方插件资源（网站下载 + 控制台一键安装）；QwenPaw Pet 桌面宠物；CloudPaw 阿里云部署插件；`/make-skill` 命令；自定义 HTTP Headers 与鉴权模式；支持模型独立配置上下文；收件箱批量操作；聊天历史抽屉固定。
-  - **[v1.1.8] 安全**：备份信任控制；Skill 与 AgentMd 路径穿越防护；插件 API 认证。
-  - **[v1.1.8] 修复**：企业微信/微信/QQ 频道稳定性；按模型限速；SSE 连接泄漏。
-  - **[v1.1.8] 感谢新贡献者**：@Morxi。
+  | 亮点 | 更新内容 |
+  |------|----------|
+  | **Spawn Subagent** | 新增 `spawn_subagent` 工具，支持在工作区内派生临时子 Agent。 |
+  | **打开目录** | Coding 模式新增"打开目录"标签页，可直接引用本地项目而无需复制。 |
+  | **飞书话题回复** | Agent 支持在飞书消息话题中回复。 |
+  | **腾讯元宝渠道** | 新增腾讯元宝 Bot 渠道集成。 |
+  | **动态上传限制** | 上传大小限制可在控制台和渠道中动态配置。 |
 
-- [2026-05-14] 我们发布了 **v1.1.7**！完整更新说明见 [v1.1.7 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+  另有：OpenRouter 归因标头、桌面端内置 CLI、技能更新稳定性修复。[v1.1.10 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 
-- [2026-05-09] 我们发布了 **v1.1.6**！完整更新说明见 [v1.1.6 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+- [2026-05-27] **v1.1.9** — Coding 模式（三面板 Web IDE）、Tauri 桌面应用、统一访问控制。[v1.1.9 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 
-- [2026-04-29] 我们发布了 **v1.1.5**！完整更新说明见 [v1.1.5 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+- [2026-05-19] **v1.1.8** — 官方插件分发、QwenPaw Pet 桌面宠物、钉钉/飞书/Telegram 流式卡片。[v1.1.8 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.8)
 
-- [2026-04-12] **CoPaw 正式更名为 QwenPaw**：这是一次品牌名称焕新，也是我们迈向下一阶段开源的重要一步。
+- [2026-05-14] **v1.1.7** — 浏览器批量操作、OAuth 2.1 MCP、定时任务日历视图、多文件附件。[v1.1.7 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.7)
 
-新的名字，更好地体现了我们正在构建的开源生态，以及我们持续推进的整体开源方向：
+- [2026-05-09] **v1.1.6** — Whisper 语音输入、GPT Image 2 插件、火山引擎 Provider、Mermaid 图表。[v1.1.6 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.6)
 
-*Qwen* — 代表和 Qwen 开源生态的融合，以及对模型侧的对焦，包括本地化模型、大小模型协同。
-
-*Paw* — 是我们初心的延续，目标是陪伴用户、成为用户可以信任的个人助手。
-
-名称焕新，但在开源社区的愿景和目标始终不变：
-- 继续打造更实用、更安全、更个性化的个人 AI 体验；
-- 继续坚持开源共建、和社区一同前行！
-
-感谢大家一直以来的支持。从今天起，请大家叫我们 QwenPaw。
+- [2026-04-12] **CoPaw 正式更名 QwenPaw** — 融入 Qwen 开源生态，初心不变。[v1.0.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.0.0)
 
 ---
 
