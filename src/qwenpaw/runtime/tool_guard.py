@@ -6,8 +6,6 @@ import logging
 import uuid
 from typing import Any
 
-from .context import _current_request_context
-
 logger = logging.getLogger(__name__)
 
 
@@ -25,11 +23,10 @@ class GuardedFunctionTool:
     ``stream_query``) carries the findings to the frontend's
     ``ApprovalCard``.
 
-    The class is defined at module scope (rather than nested inside
-    :func:`_build_qwenpaw_toolkit`) so the skeleton survives toolkit
-    rebuilds — when the agent cache evicts an entry on active-model
-    change, the next ``_build_qwenpaw_toolkit()`` call still wires
-    the same ``GuardedFunctionTool``.
+    Request context (session_id, user_id, channel, etc.) is passed at
+    construction time via the ``request_context`` parameter and stored
+    on ``self._qp_request_context``.  This avoids ContextVar-based
+    implicit passing.
 
     Inheriting from ``FunctionTool`` happens lazily inside ``__new__`` so
     importing this module does not require the agentscope package to be
@@ -241,11 +238,13 @@ async def _guarded_tool_check_permissions(
 
     # Anything left needs the user.
     agent_id = self._qp_agent_id  # pylint: disable=protected-access
+    request_context = getattr(self, "_qp_request_context", None) or {}
     decision = await _ask_user_approval(
         agent_id=agent_id,
         tool_name=tool_name,
         input_data=input_data,
         guard_result=guard_result,
+        request_context=request_context,
     )
     return decision
 
@@ -304,6 +303,7 @@ async def _ask_user_approval(
     tool_name: str,
     input_data: dict[str, Any],
     guard_result: Any,
+    request_context: dict[str, str] | None = None,
 ) -> Any:
     """Create a ``PendingApproval`` and block on its Future.
 
@@ -325,7 +325,7 @@ async def _ask_user_approval(
         format_findings_summary,
     )
 
-    ctx = _current_request_context()
+    ctx = request_context or {}
     session_id = str(ctx.get("session_id") or "")
     user_id = str(ctx.get("user_id") or "")
     channel = str(ctx.get("channel") or "")

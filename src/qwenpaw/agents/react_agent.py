@@ -207,6 +207,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     GuardedFunctionTool(
                         tool_fn,
                         agent_id=self._agent_config.id,
+                        request_context=self._request_context,
                     ),
                 )
             logger.debug(
@@ -379,13 +380,20 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 continue
 
             tool_instances.append(
-                GuardedFunctionTool(tool_func, agent_id=agent_id),
+                GuardedFunctionTool(
+                    tool_func,
+                    agent_id=agent_id,
+                    request_context=self._request_context,
+                ),
             )
             logger.debug("Registered tool: %s", tool_name)
 
         # Coding Mode tools (lsp, ast_search)
         try:
-            coding_tools = self._collect_coding_mode_tools(agent_id=agent_id)
+            coding_tools = self._collect_coding_mode_tools(
+                agent_id=agent_id,
+                request_context=self._request_context,
+            )
             tool_instances.extend(coding_tools)
         except Exception as e:  # pylint: disable=broad-except
             logger.warning(f"Failed to register Coding Mode tools: {e}")

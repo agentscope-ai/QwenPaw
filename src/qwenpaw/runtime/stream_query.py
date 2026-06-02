@@ -14,7 +14,6 @@ from .heartbeat import (
     _HEARTBEAT_TICK,
     HEARTBEAT_INTERVAL_SECONDS,
 )
-from .context import _REQUEST_CONTEXT_VAR
 from .agent_factory import _get_or_build_agent
 from .message_convert import (
     _get_last_user_text,
@@ -156,27 +155,14 @@ class Runner:
 
         session_id = request.session_id
 
-        # Per-workspace tool context.  ``AgentRunner.__init__`` stores
-        # ``self.workspace_dir`` (handed in by the workspace manager at
-        # construction — one ``AgentRunner`` per ``Workspace`` per agent_id).
-        # qwenpaw's file/shell tools call ``get_current_workspace_dir()`` to
-        # resolve relative paths and the shell cwd; without setting this
-        # ContextVar they fall back to the env-driven global ``WORKING_DIR``
-        # — fine for single-agent dev but causes cross-agent file collisions
-        # in multi-agent deployments.  Set the ContextVar here once before
-        # driving the agent.  ``ContextVar.set`` is task-scoped (Starlette
-        # starts each request in its own task) so concurrent requests with
-        # different workspaces do not see each other's value.
         workspace_dir = getattr(self, "workspace_dir", None)
 
-        # NOTE: 5 per-request ContextVars (session_id, recent_max_bytes,
-        # shell_command_timeout/executable) + skill env-overrides + the
-        # ``process_file_and_media_blocks_in_message`` call all moved into
-        # :class:`RequestSetupMiddleware` (``agents/middlewares.py``) so
-        # both ``reply()`` and ``reply_stream()`` get the same setup
-        # without duplication.  Here we only need the two that the
-        # middleware can't set (because they're consumed *before*
-        # agent construction): ``workspace_dir`` and ``agent_id``.
+        # The middleware (RequestSetupMiddleware) handles per-request
+        # ContextVars (workspace_dir, agent_id, session_id, shell config,
+        # etc.) inside on_reply — it fires for both reply() and
+        # reply_stream().  We only set workspace_dir/agent_id here for
+        # consumers that run *before* the middleware chain (e.g. agent
+        # factory resolving config paths).
         from ..config.context import set_current_workspace_dir
         from ..app.agent_context import set_current_agent_id
 
@@ -184,23 +170,17 @@ class Runner:
             set_current_workspace_dir(workspace_dir)
         set_current_agent_id(getattr(self, "agent_id", None) or "default")
 
-        # Stash per-request context for GuardedFunctionTool
-        # — the toolkit is built once per (session, agent, model) and cached,
-        # so the tool can't capture this at construction time.  Pull from the
-        # AgentRequest (channel was attached by the channel layer; root ids
-        # come back to the canonical session/agent for now, get re-introduced
-        # with sub-agent routing in a later pass).
+        # Build the per-request context that tools (GuardedFunctionTool)
+        # will use for approval routing.
         agent_id_for_ctx = getattr(self, "agent_id", None) or ""
-        _REQUEST_CONTEXT_VAR.set(
-            {
-                "session_id": session_id or "",
-                "user_id": request.user_id or "",
-                "channel": getattr(request, "channel", None) or "",
-                "agent_id": agent_id_for_ctx,
-                "root_session_id": session_id or "",
-                "root_agent_id": agent_id_for_ctx,
-            },
-        )
+        request_context: dict[str, str] = {
+            "session_id": session_id or "",
+            "user_id": request.user_id or "",
+            "channel": getattr(request, "channel", None) or "",
+            "agent_id": agent_id_for_ctx,
+            "root_session_id": session_id or "",
+            "root_agent_id": agent_id_for_ctx,
+        }
 
         logger.info(
             "stream_query: enter session=%s workspace=%s input_len=%s",
@@ -291,6 +271,7 @@ class Runner:
                 agent_id=getattr(self, "agent_id", None),
                 workspace_dir=workspace_dir,
                 mcp_clients=mcp_clients or None,
+                request_context=request_context,
             )
 
             # Load persisted session state (conversation history).

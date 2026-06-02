@@ -13,6 +13,7 @@ def _build_qwenpaw_agent(
     agent_id: str,
     workspace_dir: Any = None,
     mcp_clients: list | None = None,
+    request_context: dict[str, str] | None = None,
 ) -> Any:
     """Construct a fully-wired :class:`QwenPawAgent` for one session.
 
@@ -36,14 +37,15 @@ def _build_qwenpaw_agent(
         agent_id=agent_id,
     )
 
+    ctx = request_context or {}
+    ctx.setdefault("session_id", session_id)
+    ctx.setdefault("agent_id", agent_id)
+    ctx.setdefault("channel", "console")
+
     agent = QwenPawAgent(
         agent_config=agent_config,
         workspace_dir=workspace_dir,
-        request_context={
-            "session_id": session_id,
-            "agent_id": agent_id,
-            "channel": "console",
-        },
+        request_context=ctx,
         memory_manager=None,
         context_manager=context_manager,
         mcp_clients=mcp_clients,
@@ -56,6 +58,7 @@ def _get_or_build_agent(
     agent_id: str | None = None,
     workspace_dir: Any = None,
     mcp_clients: list | None = None,
+    request_context: dict[str, str] | None = None,
 ) -> Any:
     """Build a fresh agent for this request.
 
@@ -88,6 +91,7 @@ def _get_or_build_agent(
         resolved_agent_id,
         workspace_dir=workspace_dir,
         mcp_clients=mcp_clients,
+        request_context=request_context,
     )
     logger.info(
         "stream_query: built QwenPawAgent for session=%s agent=%s "

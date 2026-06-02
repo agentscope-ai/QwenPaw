@@ -224,6 +224,7 @@ class CodingModeMixin:
     def _collect_coding_mode_tools(
         self,
         agent_id: str | None = None,
+        request_context: dict[str, str] | None = None,
     ) -> list:
         """Collect Coding Mode tool instances (`lsp`, `ast_search`).
 
@@ -247,6 +248,7 @@ class CodingModeMixin:
                     GuardedFunctionTool(
                         make_lsp_tool(available),
                         agent_id=agent_id,
+                        request_context=request_context,
                     ),
                 )
                 logger.info(
@@ -268,6 +270,7 @@ class CodingModeMixin:
                     GuardedFunctionTool(
                         ast_tool.ast_search,
                         agent_id=agent_id,
+                        request_context=request_context,
                     ),
                 )
                 logger.info("Registered Coding Mode ast_search tool")
