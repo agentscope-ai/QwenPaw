@@ -140,6 +140,16 @@ def mock_api(page):
 
 
 
+def pytest_collection_modifyitems(config, items):
+    """Auto-skip tests marked with @pytest.mark.requires_llm when no model key is configured."""
+    if os.getenv("QWENPAW_MODEL_KEY"):
+        return
+    skip_llm = pytest.mark.skip(reason="QWENPAW_MODEL_KEY not set — LLM tests skipped")
+    for item in items:
+        if "requires_llm" in item.keywords:
+            item.add_marker(skip_llm)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def warmup_server():
     """

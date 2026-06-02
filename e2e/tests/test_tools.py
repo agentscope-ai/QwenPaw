@@ -156,18 +156,15 @@ class TestToolsPageDisplayAndGlobalToggle:
                 page.wait_for_timeout(3000)
                 # Verify the state change: inspect the first tool card's status
                 new_status_el = page.locator('span[class*="statusText"]').first
-                if new_status_el.is_visible(timeout=5000):
-                    new_status_val = new_status_el.inner_text().strip()
-                    new_enabled = new_status_val == "Enabled"
-                    logger.info(f"First tool status after toggle: {new_status_val}")
-                    if new_enabled == initial_enabled:
-                        page.wait_for_timeout(2000)
-                        new_status_val = new_status_el.inner_text().strip()
-                        new_enabled = new_status_val == "Enabled"
-                    assert new_enabled != initial_enabled, f"State should change after global toggle, initial={initial_enabled}, new={new_enabled}"
-                else:
+                expected_text = "Disabled" if initial_enabled else "Enabled"
+                try:
+                    expect(new_status_el).to_have_text(expected_text, timeout=8000)
                     new_enabled = not initial_enabled
-                    logger.warning("Could not detect status change, assuming toggle succeeded")
+                except Exception:
+                    new_status_val = new_status_el.inner_text().strip() if new_status_el.is_visible() else ""
+                    new_enabled = new_status_val == "Enabled"
+                    assert new_enabled != initial_enabled, f"State should change after global toggle, initial={initial_enabled}, new={new_enabled}"
+                logger.info(f"First tool status after toggle: {expected_text}")
 
             logger.info(f"Global toggle new state: {'enabled' if new_enabled else 'disabled'}")
 
@@ -298,25 +295,25 @@ class TestToolEnableDisableAndAsyncToggle:
                 async_text = async_button.inner_text().strip()
                 logger.info(f"Async-execute button text: {async_text}")
 
-                # Determine current async-execute state
-                is_async_enabled = "Enabled" in async_text
+                # Determine current async-execute state (case-insensitive)
+                is_async_enabled = "enabled" in async_text.lower() and "disabled" not in async_text.lower()
 
                 # Toggle the async-execute state
                 async_button.click()
-                page.wait_for_timeout(1000)
+                page.wait_for_timeout(2000)
 
                 # Verify the state changed
                 new_async_text = async_button.inner_text().strip()
                 logger.info(f"Async-execute new state: {new_async_text}")
-                new_is_async_enabled = "Enabled" in new_async_text
+                new_is_async_enabled = "enabled" in new_async_text.lower() and "disabled" not in new_async_text.lower()
                 assert new_is_async_enabled != is_async_enabled, "Async-execute state should have toggled"
 
                 # Restore async-execute state
                 async_button.click()
-                page.wait_for_timeout(1000)
+                page.wait_for_timeout(2000)
                 restored_async_text = async_button.inner_text().strip()
                 logger.info(f"Async-execute restored state: {restored_async_text}")
-                restored_is_async_enabled = "Enabled" in restored_async_text
+                restored_is_async_enabled = "enabled" in restored_async_text.lower() and "disabled" not in restored_async_text.lower()
                 assert restored_is_async_enabled == is_async_enabled, "Async-execute state should be restored"
 
                 # If we enabled the tool earlier to test async-execute, restore it to disabled
@@ -343,9 +340,11 @@ class TestToolEnableDisableAndAsyncToggle:
 
                 # Click to toggle state
                 enable_disable_button.click()
-                page.wait_for_timeout(1500)
-
-                # Verify the status text was updated
+                expected_status = "Disabled" if is_currently_enabled else "Enabled"
+                try:
+                    expect(status_text).to_have_text(expected_status, timeout=8000)
+                except Exception:
+                    page.wait_for_timeout(2000)
                 new_status = status_text.inner_text().strip()
                 logger.info(f"New status: {new_status}")
                 assert new_status != initial_status, f"Status should have changed from '{initial_status}'"

@@ -193,13 +193,20 @@ class TestConsoleEditConfig:
             if channels_page.has_form_validation_errors():
                 pytest.fail(f"Console channel should have no form validation errors, but errors were detected")
 
-            channels_page.close_drawer()
-            channels_page.page.wait_for_timeout(1500)
+            channels_page.page.wait_for_timeout(2000)
+            drawer_still_open = channels_page.page.locator('.qwenpaw-drawer-open, .ant-drawer-open').first
+            if drawer_still_open.count() > 0 and drawer_still_open.is_visible(timeout=1000):
+                channels_page.close_drawer()
+                channels_page.page.wait_for_timeout(1000)
+            try:
+                channels_page.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
             logger.info("Config saved")
 
             log_test_step("5. Reload the page and reopen the drawer, verify the save took effect")
             channels_page.page.reload(wait_until="domcontentloaded")
-            channels_page.page.wait_for_timeout(2000)
+            channels_page.page.wait_for_timeout(3000)
             channels_page.click_channel_card(channel_name)
             channels_page.wait_for_drawer_open()
             channels_page.page.wait_for_timeout(1000)
