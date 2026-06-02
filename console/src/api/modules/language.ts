@@ -1,6 +1,6 @@
 import { request } from "../request";
 
-export const languageApi = {
+export const settingsApi = {
   getLanguage: () => request<{ language: string }>("/settings/language"),
 
   updateLanguage: (language: string) =>
@@ -8,4 +8,10 @@ export const languageApi = {
       method: "PUT",
       body: JSON.stringify({ language }),
     }),
+
+  getUploadLimit: () =>
+    request<{ upload_max_size_mb: number | null }>("/settings/upload-limit"),
 };
+
+/** @deprecated Use settingsApi instead */
+export const languageApi = settingsApi;

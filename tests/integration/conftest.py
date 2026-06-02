@@ -216,6 +216,11 @@ class AppServer:
     client: httpx.Client
     logs: list[str]
     log_thread: threading.Thread
+    # Working directory of the subprocess (= QWENPAW_WORKING_DIR). Tests that
+    # need to seed file-backed stores (inbox_events.json, cron jobs_history/,
+    # backups, etc.) write directly under this path. The subprocess re-reads
+    # these files on each HTTP request, so no restart is needed after seeding.
+    working_dir: Path
 
     @property
     def base_url(self) -> str:
@@ -403,6 +408,7 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
                 client=client,
                 logs=logs,
                 log_thread=log_thread,
+                working_dir=working_dir,
             )
         finally:
             client.close()

@@ -259,7 +259,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
     <Drawer
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
       placement="right"
       width={360}
       closable={false}

@@ -66,6 +66,7 @@ INTENT_PUBLIC_GUILD_MESSAGES = 1 << 30
 INTENT_DIRECT_MESSAGE = 1 << 12
 INTENT_GROUP_AND_C2C = 1 << 25
 INTENT_GUILD_MEMBERS = 1 << 1
+INTENT_INTERACTION = 1 << 26
 
 RECONNECT_DELAYS = [1, 2, 5, 10, 30, 60]
 RATE_LIMIT_DELAY = 60
@@ -370,7 +371,14 @@ async def _api_request_async(
     if body is not None:
         kwargs["json"] = body
     async with session.request(method, url, **kwargs) as resp:
-        data = await resp.json()
+        # Some endpoints (e.g. PUT /interactions/{id}) return empty body.
+        raw = await resp.read()
+        data: Dict[str, Any] = {}
+        if raw and raw.strip():
+            try:
+                data = json.loads(raw)
+            except (ValueError, TypeError):
+                data = {}
         if resp.status >= 400:
             raise QQApiError(path=path, status=resp.status, data=data)
         return data
@@ -666,6 +674,8 @@ class QQChannel(BaseChannel):
         workspace_dir: Path | None = None,
         max_reconnect_attempts: int = 100,
         ack_message: str = "",
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
@@ -673,6 +683,8 @@ class QQChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self.app_id = app_id
@@ -701,6 +713,11 @@ class QQChannel(BaseChannel):
         self._token_lock = threading.Lock()
 
         self._http: Optional[aiohttp.ClientSession] = None
+
+        # Interactive card handler (tool-guard approval cards).
+        from .cards.dispatcher import QQCardHandler
+
+        self._card_handler = QQCardHandler(self)
 
     def _get_access_token_sync(self) -> str:
         """Sync get access_token for WebSocket thread. Instance-level cache."""
@@ -830,6 +847,12 @@ class QQChannel(BaseChannel):
                 100,
             ),
             ack_message=getattr(config, "ack_message", ""),
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
+            ),
         )
 
     def _resolve_send_path(
@@ -1463,12 +1486,15 @@ class QQChannel(BaseChannel):
                 break
         if not sender:
             return
+
         msg_id = d.get("id", "")
         att = d.get("attachments") or []
+        is_group = spec.message_type in ("group", "guild")
         meta: Dict[str, Any] = {
             "message_type": spec.message_type,
             "message_id": msg_id,
             "sender_id": sender,
+            "is_group": is_group,
             "incoming_raw": d,
             "attachments": att,
         }
@@ -1538,6 +1564,35 @@ class QQChannel(BaseChannel):
         )
 
     # ------------------------------------------------------------------
+    # Interactive cards (tool-guard approval)
+    # ------------------------------------------------------------------
+
+    def _handle_interaction_event(self, d: Dict[str, Any]) -> None:
+        """Handle an INTERACTION_CREATE WebSocket event."""
+        self._card_handler.handle_interaction_event(d)
+
+    async def on_event_message_completed(
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Render card-flagged events via the card handler; else default."""
+        if await self._card_handler.try_send_card_for_event(
+            to_handle,
+            event,
+            send_meta,
+        ):
+            return
+        await super().on_event_message_completed(
+            request,
+            to_handle,
+            event,
+            send_meta,
+        )
+
+    # ------------------------------------------------------------------
     # WebSocket: payload dispatch
     # ------------------------------------------------------------------
 
@@ -1578,6 +1633,7 @@ class QQChannel(BaseChannel):
                 )
             else:
                 intents = INTENT_PUBLIC_GUILD_MESSAGES | INTENT_GUILD_MEMBERS
+                intents |= INTENT_INTERACTION
                 if state.identify_fail_count < 3:
                     intents |= INTENT_DIRECT_MESSAGE | INTENT_GROUP_AND_C2C
                 ws.send(
@@ -1607,6 +1663,8 @@ class QQChannel(BaseChannel):
                 state.reconnect_attempts = 0
                 state.last_connect_time = time.time()
                 logger.info("qq session resumed")
+            elif t == "INTERACTION_CREATE":
+                self._handle_interaction_event(d or {})
             elif t in _MESSAGE_EVENT_SPECS:
                 self._handle_msg_event(t, d or {})
             return None

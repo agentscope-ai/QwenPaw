@@ -1,5 +1,9 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# AI agent / copilot local config
+.aone_copilot/
+.agents/
+
 # dependencies
 /.pnp
 .pnp.js
@@ -119,6 +123,13 @@ src/.hypothesis/
 
 # Worktrees
 .worktrees/
+.qwenpaw/worktrees/
 
 # Local File
 /localfile/
+
+# E2E test artifacts
+e2e/reports/
+e2e/data/
+e2e/.pytest_cache/
+e2e/__pycache__/

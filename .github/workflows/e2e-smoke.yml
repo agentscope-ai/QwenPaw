@@ -1,0 +1,76 @@
+name: E2E Smoke Tests
+
+on:
+  pull_request:
+    branches: [main, master, dev, develop]
+    paths:
+      - 'console/**'
+      - 'e2e/**'
+      - '.github/workflows/e2e-smoke.yml'
+  push:
+    branches: [main, master, dev, develop]
+    paths:
+      - 'console/**'
+      - 'e2e/**'
+      - '.github/workflows/e2e-smoke.yml'
+
+jobs:
+  e2e-smoke:
+    name: Playwright UI Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: console/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: console
+        run: npm ci
+
+      - name: Start frontend dev server
+        working-directory: console
+        run: |
+          npm run dev &
+          # Wait for dev server to be ready
+          npx wait-on http://localhost:5173 --timeout 30000
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-e2e-${{ hashFiles('e2e/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-e2e-
+
+      - name: Install E2E dependencies
+        working-directory: e2e
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium --with-deps
+
+      - name: Run UI smoke tests
+        working-directory: e2e
+        env:
+          QWENPAW_BASE_URL: http://localhost:5173
+          QWENPAW_HEADLESS: 'true'
+          QWENPAW_TIMEOUT: '30000'
+        run: |
+          pytest tests/ -m "ui_smoke" -v --tb=short
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-smoke-report
+          path: e2e/reports/
+          retention-days: 7

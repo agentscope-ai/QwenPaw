@@ -800,6 +800,37 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   color: #ff7f16 !important;
 }
 
+/* ─── Mobile safe-area & keyboard adaptation (#4738) ──────────────────────── */
+/* Ensure the chat input area stays above the mobile browser toolbar / keyboard */
+
+/* Apply safe-area padding to the chat input container */
+.qwenpaw-chat-anywhere-input,
+[class*="chat-anywhere-input"] {
+  padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+}
+
+/* When the virtual keyboard is open (supported browsers), shrink viewport */
+@supports (height: 100dvh) {
+  .qwenpaw-chat-anywhere-chat,
+  [class*="chat-anywhere-chat"] {
+    height: 100dvh;
+  }
+}
+
+/* Touch-device-specific: ensure send button is always reachable */
+@media (hover: none) and (pointer: coarse) {
+  .qwenpaw-chat-anywhere-input,
+  [class*="chat-anywhere-input"] {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
+  }
+
+  /* Prevent iOS bounce-scroll that can hide the input */
+  .qwenpaw-chat-anywhere-chat,
+  [class*="chat-anywhere-chat"] {
+    overscroll-behavior: none;
+  }
+}
+
 #root {
   height: 100%;
   overflow: hidden;

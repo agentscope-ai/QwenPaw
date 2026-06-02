@@ -11,7 +11,7 @@ _CONSOLE_HTTP_TIMEOUT = 30.0
 
 
 @pytest.mark.integration
-@pytest.mark.p1
+@pytest.mark.p0
 def test_agent_scoped_console_chat_stop_no_running_task(app_server) -> None:
     """Test purpose:
     - Verify scoped console chat/stop returns a stable JSON contract when no
@@ -62,7 +62,7 @@ def test_agent_scoped_console_chat_stop_no_running_task(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p1
+@pytest.mark.p0
 def test_agent_scoped_console_upload_small_file(app_server) -> None:
     """Test purpose:
     - Verify scoped console upload accepts a small file and returns metadata

@@ -87,6 +87,14 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 }
 
+/** Parse metadata.timestamp string (e.g. "2026-05-27 10:44:53.362") to unix seconds. */
+const parseTimestamp = (msg: Record<string, unknown>): number => {
+  const ts = (msg.metadata as Record<string, unknown>)?.timestamp;
+  if (!ts || typeof ts !== "string") return 0;
+  const ms = new Date(ts.replace(" ", "T")).getTime();
+  return Number.isNaN(ms) ? 0 : Math.floor(ms / 1000);
+};
+
 /** Extract plain text from a message's content array. */
 const extractTextFromContent = (content: unknown): string => {
   if (typeof content === "string") return content;
@@ -175,6 +183,7 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
       {
         code: "AgentScopeRuntimeRequestCard",
         data: {
+          created_at: parseTimestamp(msg),
           input: [
             {
               role: "user",
@@ -195,11 +204,14 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
 const buildResponseCard = (
   outputMessages: OutputMessage[],
 ): IAgentScopeRuntimeWebUIMessage => {
-  const now = Math.floor(Date.now() / 1000);
+  const fallbackNow = Math.floor(Date.now() / 1000);
   const maxSeq = outputMessages.reduce(
     (max, m) => Math.max(max, m.sequence_number || 0),
     0,
   );
+
+  const firstTs = parseTimestamp(outputMessages[0]);
+  const lastTs = parseTimestamp(outputMessages[outputMessages.length - 1]);
 
   const normalizedMessages = outputMessages.map((msg) => ({
     ...msg,
@@ -217,10 +229,10 @@ const buildResponseCard = (
           output: normalizedMessages,
           object: "response",
           status: "completed",
-          created_at: now,
+          created_at: firstTs || fallbackNow,
           sequence_number: maxSeq + 1,
           error: null,
-          completed_at: now,
+          completed_at: lastTs || fallbackNow,
           usage: null,
         },
       },

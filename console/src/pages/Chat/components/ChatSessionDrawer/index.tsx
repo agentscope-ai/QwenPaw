@@ -164,7 +164,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Current value of the rename input */
   const [editValue, setEditValue] = useState("");
 
-  /** Whether the session list is being fetched (default true because destroyOnClose re-mounts) */
+  /** Whether the session list is being fetched (default true because destroyOnHidden re-mounts) */
   const [listLoading, setListLoading] = useState(true);
 
   /** Height of the virtual list container, measured via ResizeObserver */
@@ -499,7 +499,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     <Drawer
       open={props.open}
       onClose={props.pinned ? undefined : props.onClose}
-      destroyOnClose={!props.pinned}
+      destroyOnHidden={!props.pinned}
       placement="right"
       width={360}
       closable={false}

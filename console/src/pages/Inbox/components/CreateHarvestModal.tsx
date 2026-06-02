@@ -79,7 +79,7 @@ export function CreateHarvestModal({
           <Sparkles size={18} /> Create Harvest
         </span>
       }
-      destroyOnClose
+      destroyOnHidden
     >
       <div className={styles.templateGrid}>
         {TEMPLATES.map((template) => (

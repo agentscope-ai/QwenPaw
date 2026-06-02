@@ -1,6 +1,9 @@
 .environmentsPage {
-  height: calc(100vh - 128px);
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
 }
 
 /* ---- Page Header (breadcrumb style) ---- */
@@ -68,6 +71,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  flex: 1;
+  min-height: 0;
   padding: 80px 24px;
 }
 
@@ -85,11 +90,10 @@
 /* ---- Table card ---- */
 
 .tableCard {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   background: #fff;
-  border: 1px solid #e8e8e8;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  overflow: hidden;
-  transition: all 0.2s ease-in-out;
 
   &:hover {
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
@@ -106,7 +110,6 @@
   padding: 16px 24px;
   background: #fafafa;
   border-bottom: 1px solid #f0f0f0;
-  transition: background 0.2s ease-in-out;
 
   &:hover {
     background: #f5f5f5;
@@ -146,7 +149,6 @@
   gap: 16px;
   padding: 12px 24px;
   border-bottom: 1px solid #f5f5f5;
-  transition: all 0.2s ease-in-out;
   flex-wrap: wrap;
 
   &:last-child {
@@ -200,7 +202,6 @@
   border-radius: 8px;
   background: #fff;
   overflow: hidden;
-  transition: all 0.2s ease-in-out;
 
   &:focus-within {
     border-color: #ff7f16;
@@ -211,26 +212,10 @@
 
 .inputGroupError {
   border-color: #ff4d4f;
-  animation: shake 0.3s ease-in-out;
 
   &:focus-within {
     border-color: #ff4d4f;
     box-shadow: 0 0 0 2px rgba(255, 77, 79, 0.2);
-  }
-}
-
-@keyframes shake {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-
-  25% {
-    transform: translateX(-2px);
-  }
-
-  75% {
-    transform: translateX(2px);
   }
 }
 
@@ -247,7 +232,6 @@
   background: #fafafa;
   min-width: 60px;
   text-align: center;
-  transition: all 0.2s ease-in-out;
 
   .inputGroup:focus-within & {
     color: #ff7f16;
@@ -266,7 +250,6 @@
   font-size: 14px;
   background: transparent;
   padding-left: 12px;
-  transition: all 0.2s ease-in-out;
 
   &::placeholder {
     color: #bfbfbf;
@@ -281,7 +264,6 @@
     font-family: "SF Mono", "Menlo", "Consolas", monospace;
     font-size: 14px;
     padding-left: 12px;
-    transition: all 0.2s ease-in-out;
 
     &::placeholder {
       color: #bfbfbf;
@@ -300,7 +282,6 @@
   background: transparent;
   cursor: pointer;
   color: #999;
-  transition: all 0.2s ease-in-out;
   border-radius: 4px;
 
   &:hover {
@@ -330,7 +311,6 @@
   cursor: pointer;
   font-size: 16px;
   color: #c0c0c0;
-  transition: all 0.2s ease-in-out;
 
   &:hover {
     color: #ff7f16;
@@ -367,7 +347,6 @@
   padding: 16px 24px;
   border-top: 1px solid #f0f0f0;
   background: #fafafa;
-  transition: background 0.2s ease-in-out;
 
   &:hover {
     background: #f5f5f5;
@@ -385,7 +364,6 @@
   cursor: pointer;
   font-size: 14px;
   color: #999;
-  transition: all 0.2s ease-in-out;
 
   &:hover {
     color: #ff7f16;

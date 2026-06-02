@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Pytest
+.pytest_cache/
+
+# Test Reports (auto-generated)
+reports/*.png
+reports/*.log
+reports/*.html
+reports/*.webm
+reports/allure-results/
+reports/logs/
+reports/screenshots/
+reports/videos/
+tests/reports/
