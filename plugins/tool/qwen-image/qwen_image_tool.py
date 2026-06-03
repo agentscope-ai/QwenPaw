@@ -286,7 +286,7 @@ async def generate_image_qwen(
         tool_config = get_tool_config("generate_image_qwen")
         if not tool_config:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -304,7 +304,7 @@ async def generate_image_qwen(
         )
         if not api_key:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -318,7 +318,7 @@ async def generate_image_qwen(
 
         if model not in _VALID_MODELS_GENERATE:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -333,7 +333,7 @@ async def generate_image_qwen(
 
         if not 1 <= n <= 6:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -383,7 +383,7 @@ async def generate_image_qwen(
             )
             logger.error(error_msg)
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -395,7 +395,7 @@ async def generate_image_qwen(
         image_urls = _parse_image_urls(rsp)
         if not image_urls:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -473,7 +473,7 @@ async def generate_image_qwen(
             exc_info=True,
         )
         return ToolChunk(
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -532,7 +532,7 @@ async def edit_image_qwen(
     try:
         if not reference_images:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -547,7 +547,7 @@ async def edit_image_qwen(
         tool_config = get_tool_config("edit_image_qwen")
         if not tool_config:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -565,7 +565,7 @@ async def edit_image_qwen(
         )
         if not api_key:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -579,7 +579,7 @@ async def edit_image_qwen(
 
         if model not in _VALID_MODELS_EDIT:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -594,7 +594,7 @@ async def edit_image_qwen(
 
         if not 1 <= n <= 6:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -613,7 +613,7 @@ async def edit_image_qwen(
                 resolved = _resolve_image_url(img_input)
             except (FileNotFoundError, ValueError) as e:
                 return ToolChunk(
-                    state=ToolResultState.SUCCESS,
+                    state=ToolResultState.ERROR,
                     content=[
                         TextBlock(
                             type="text",
@@ -662,7 +662,7 @@ async def edit_image_qwen(
             )
             logger.error(error_msg)
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -674,7 +674,7 @@ async def edit_image_qwen(
         image_urls = _parse_image_urls(rsp)
         if not image_urls:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -752,7 +752,7 @@ async def edit_image_qwen(
             exc_info=True,
         )
         return ToolChunk(
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",

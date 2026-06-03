@@ -220,7 +220,7 @@ async def text_to_video_wan(
         tool_config = get_tool_config("text_to_video_wan")
         if not tool_config:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -235,7 +235,7 @@ async def text_to_video_wan(
         api_key, endpoint, timeout = _extract_config(tool_config)
         if not api_key:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -249,7 +249,7 @@ async def text_to_video_wan(
 
         if resolution not in _VALID_RESOLUTIONS:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -264,7 +264,7 @@ async def text_to_video_wan(
 
         if ratio not in _VALID_RATIOS:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -279,7 +279,7 @@ async def text_to_video_wan(
 
         if not 2 <= duration <= 15:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -324,7 +324,7 @@ async def text_to_video_wan(
             )
             logger.error(error_msg)
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -377,7 +377,7 @@ async def text_to_video_wan(
             exc_info=True,
         )
         return ToolChunk(
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -436,7 +436,7 @@ async def image_to_video_wan(
         tool_config = get_tool_config("image_to_video_wan")
         if not tool_config:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -451,7 +451,7 @@ async def image_to_video_wan(
         api_key, endpoint, timeout = _extract_config(tool_config)
         if not api_key:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -465,7 +465,7 @@ async def image_to_video_wan(
 
         if resolution not in _VALID_RESOLUTIONS:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -480,7 +480,7 @@ async def image_to_video_wan(
 
         if not 2 <= duration <= 15:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -501,7 +501,7 @@ async def image_to_video_wan(
                 ("http://", "https://"),
             ):
                 return ToolChunk(
-                    state=ToolResultState.SUCCESS,
+                    state=ToolResultState.ERROR,
                     content=[
                         TextBlock(
                             type="text",
@@ -519,7 +519,7 @@ async def image_to_video_wan(
         else:
             if not first_frame_url:
                 return ToolChunk(
-                    state=ToolResultState.SUCCESS,
+                    state=ToolResultState.ERROR,
                     content=[
                         TextBlock(
                             type="text",
@@ -536,7 +536,7 @@ async def image_to_video_wan(
                 resolved_first = _resolve_image_url(first_frame_url)
             except (FileNotFoundError, ValueError) as e:
                 return ToolChunk(
-                    state=ToolResultState.SUCCESS,
+                    state=ToolResultState.ERROR,
                     content=[
                         TextBlock(
                             type="text",
@@ -556,7 +556,7 @@ async def image_to_video_wan(
                     )
                 except (FileNotFoundError, ValueError) as e:
                     return ToolChunk(
-                        state=ToolResultState.SUCCESS,
+                        state=ToolResultState.ERROR,
                         content=[
                             TextBlock(
                                 type="text",
@@ -572,7 +572,7 @@ async def image_to_video_wan(
                     ("http://", "https://"),
                 ):
                     return ToolChunk(
-                        state=ToolResultState.SUCCESS,
+                        state=ToolResultState.ERROR,
                         content=[
                             TextBlock(
                                 type="text",
@@ -626,7 +626,7 @@ async def image_to_video_wan(
             )
             logger.error(error_msg)
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -679,7 +679,7 @@ async def image_to_video_wan(
             exc_info=True,
         )
         return ToolChunk(
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -745,7 +745,7 @@ async def reference_to_video_wan(
         tool_config = get_tool_config("reference_to_video_wan")
         if not tool_config:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -760,7 +760,7 @@ async def reference_to_video_wan(
         api_key, endpoint, timeout = _extract_config(tool_config)
         if not api_key:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -774,7 +774,7 @@ async def reference_to_video_wan(
 
         if not reference_images:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -788,7 +788,7 @@ async def reference_to_video_wan(
 
         if resolution not in _VALID_RESOLUTIONS:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -803,7 +803,7 @@ async def reference_to_video_wan(
 
         if ratio not in _VALID_RATIOS:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -818,7 +818,7 @@ async def reference_to_video_wan(
 
         if not 2 <= duration <= 15:
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -839,7 +839,7 @@ async def reference_to_video_wan(
                 resolved = _resolve_image_url(img_path)
             except (FileNotFoundError, ValueError) as e:
                 return ToolChunk(
-                    state=ToolResultState.SUCCESS,
+                    state=ToolResultState.ERROR,
                     content=[
                         TextBlock(
                             type="text",
@@ -857,7 +857,7 @@ async def reference_to_video_wan(
         for vid_url in reference_videos:
             if not vid_url.startswith(("http://", "https://")):
                 return ToolChunk(
-                    state=ToolResultState.SUCCESS,
+                    state=ToolResultState.ERROR,
                     content=[
                         TextBlock(
                             type="text",
@@ -878,7 +878,7 @@ async def reference_to_video_wan(
                 resolved_ff = _resolve_image_url(first_frame_url)
             except (FileNotFoundError, ValueError) as e:
                 return ToolChunk(
-                    state=ToolResultState.SUCCESS,
+                    state=ToolResultState.ERROR,
                     content=[
                         TextBlock(
                             type="text",
@@ -919,7 +919,7 @@ async def reference_to_video_wan(
             )
             logger.error(error_msg)
             return ToolChunk(
-                state=ToolResultState.SUCCESS,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -974,7 +974,7 @@ async def reference_to_video_wan(
             exc_info=True,
         )
         return ToolChunk(
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
