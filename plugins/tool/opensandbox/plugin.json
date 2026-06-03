@@ -1,0 +1,20 @@
+{
+  "id": "opensandbox",
+  "name": "OpenSandbox",
+  "version": "0.1.0",
+  "type": "tool",
+  "description": "Register the official OpenSandbox MCP server for sandboxed agent workloads",
+  "description_i18n": {
+    "zh-CN": "注册官方 OpenSandbox MCP 服务端，用于在远程沙箱中执行 Agent 研发作业",
+    "en-US": "Register the official OpenSandbox MCP server for sandboxed agent workloads"
+  },
+  "author": "QwenPaw Team",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "dependencies": ["opensandbox-mcp>=0.1.1"],
+  "min_version": "1.1.6",
+  "meta": {
+    "tools": []
+  }
+}
