@@ -38,23 +38,24 @@ router = APIRouter(prefix="/workspace/coding-project", tags=["coding-project"])
 
 def _list_windows_drives_response() -> dict:
     """Return a browse-dirs response listing drives."""
+    import ctypes
+
+    bitmask = ctypes.windll.kernel32.GetLogicalDrives()
     dirs: list[dict] = []
-    for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
-        root = Path(f"{letter}:\\")
-        try:
-            if root.exists():
-                dirs.append(
-                    {
-                        "name": f"{letter}:",
-                        "path": str(root),
-                    },
-                )
-        except OSError:
-            continue
+    for i in range(26):
+        if bitmask & (1 << i):
+            letter = chr(ord("A") + i)
+            dirs.append(
+                {
+                    "name": f"{letter}:",
+                    "path": f"{letter}:\\",
+                },
+            )
     return {
         "current": "/",
         "parent": None,
         "dirs": dirs,
+        "selectable": False,
     }
 
 
