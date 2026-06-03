@@ -245,7 +245,7 @@ class PluginApi:
 
         Args:
             hook_name: Unique hook identifier
-            callback: Sync function to call on workspace creation.
+            callback: Sync or async function to call on workspace creation.
                 Signature: ``(workspace_info: dict) -> None``
             priority: Execution priority (lower = earlier, default=100)
 

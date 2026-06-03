@@ -127,7 +127,7 @@ class MultiAgentManager:
 
             # Fire workspace_created hooks so plugins can provision
             # skills / config into the newly created workspace.
-            self._fire_workspace_created_hooks(
+            await self._fire_workspace_created_hooks(
                 {
                     "agent_id": agent_id,
                     "workspace_dir": str(agent_ref.workspace_dir),
@@ -146,8 +146,13 @@ class MultiAgentManager:
             event.set()
 
     @staticmethod
-    def _fire_workspace_created_hooks(workspace_info: dict) -> None:
-        """Invoke all registered workspace_created hooks synchronously.
+    async def _fire_workspace_created_hooks(workspace_info: dict) -> None:
+        """Invoke all registered workspace_created hooks.
+
+        Supports both sync and async callbacks:
+        - Async callbacks are awaited directly.
+        - Sync callbacks are offloaded to a thread via
+          ``asyncio.to_thread`` so they never block the event loop.
 
         Errors in individual hooks are logged but do not prevent
         subsequent hooks from running.
@@ -159,15 +164,18 @@ class MultiAgentManager:
         try:
             from ..plugins.registry import PluginRegistry
 
-            registry = PluginRegistry()
-            hooks = registry.get_workspace_created_hooks()
+            hooks = PluginRegistry().get_workspace_created_hooks()
         except Exception:
             # Plugin system not initialised yet — nothing to do.
             return
 
         for hook in hooks:
             try:
-                hook.callback(workspace_info)
+                callback = hook.callback
+                if asyncio.iscoroutinefunction(callback):
+                    await callback(workspace_info)
+                else:
+                    await asyncio.to_thread(callback, workspace_info)
             except Exception as exc:
                 logger.error(
                     f"Error in workspace_created hook "

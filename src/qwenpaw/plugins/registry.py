@@ -457,7 +457,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         Args:
             plugin_id: Plugin identifier
             hook_name: Hook name
-            callback: Callback function.
+            callback: Sync or async callback function.
                 Signature: ``(workspace_info: dict) -> None``
             priority: Priority (lower = earlier execution)
         """

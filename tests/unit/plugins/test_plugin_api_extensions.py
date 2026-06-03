@@ -549,6 +549,102 @@ class TestWorkspaceCreatedHook:
         assert hooks[0].callback is callback
         assert hooks[0].priority == 50
 
+
+# ---------------------------------------------------------------------------
+# _fire_workspace_created_hooks: sync / async dispatch
+# ---------------------------------------------------------------------------
+
+
+class TestFireWorkspaceCreatedHooks:
+    """Tests for async _fire_workspace_created_hooks dispatch logic."""
+
+    @pytest.mark.asyncio
+    async def test_sync_callback_offloaded_to_thread(
+        self,
+        plugin_api,
+    ):
+        """Sync callbacks are executed via asyncio.to_thread (non-blocking)."""
+        invoked_with = {}
+
+        def sync_hook(workspace_info: dict) -> None:
+            invoked_with.update(workspace_info)
+
+        plugin_api.register_workspace_created_hook(
+            hook_name="sync_hook",
+            callback=sync_hook,
+        )
+
+        from qwenpaw.app.multi_agent_manager import MultiAgentManager
+
+        await MultiAgentManager._fire_workspace_created_hooks(
+            {"agent_id": "a1", "workspace_dir": "/tmp/ws"},
+        )
+
+        assert invoked_with == {
+            "agent_id": "a1",
+            "workspace_dir": "/tmp/ws",
+        }
+
+    @pytest.mark.asyncio
+    async def test_async_callback_awaited(
+        self,
+        plugin_api,
+    ):
+        """Async callbacks are directly awaited."""
+        invoked_with = {}
+
+        async def async_hook(workspace_info: dict) -> None:
+            invoked_with.update(workspace_info)
+
+        plugin_api.register_workspace_created_hook(
+            hook_name="async_hook",
+            callback=async_hook,
+        )
+
+        from qwenpaw.app.multi_agent_manager import MultiAgentManager
+
+        await MultiAgentManager._fire_workspace_created_hooks(
+            {"agent_id": "a2", "workspace_dir": "/tmp/ws2"},
+        )
+
+        assert invoked_with == {
+            "agent_id": "a2",
+            "workspace_dir": "/tmp/ws2",
+        }
+
+    @pytest.mark.asyncio
+    async def test_hook_error_does_not_block_subsequent_hooks(
+        self,
+        plugin_api,
+    ):
+        """A failing hook does not prevent later hooks from running."""
+        results = []
+
+        def failing_hook(_info: dict) -> None:
+            raise RuntimeError("boom")
+
+        def good_hook(_info: dict) -> None:
+            results.append("ok")
+
+        plugin_api.register_workspace_created_hook(
+            hook_name="fail_first",
+            callback=failing_hook,
+            priority=10,
+        )
+        plugin_api.register_workspace_created_hook(
+            hook_name="succeed_second",
+            callback=good_hook,
+            priority=20,
+        )
+
+        from qwenpaw.app.multi_agent_manager import MultiAgentManager
+
+        await MultiAgentManager._fire_workspace_created_hooks(
+            {"agent_id": "a3", "workspace_dir": "/tmp/ws3"},
+        )
+
+        assert results == ["ok"]
+
     def test_workspace_created_hooks_sorted_by_priority(
         self,
         plugin_api,
@@ -585,7 +681,8 @@ class TestWorkspaceCreatedHook:
         fresh_registry.unregister_plugin("test-plugin")
         assert len(fresh_registry.get_workspace_created_hooks()) == 0
 
-    def test_fire_workspace_created_hooks_calls_callbacks(
+    @pytest.mark.asyncio
+    async def test_fire_workspace_created_hooks_calls_callbacks(
         self,
         fresh_registry,
     ):
@@ -614,12 +711,13 @@ class TestWorkspaceCreatedHook:
             "agent_id": "agent-42",
             "workspace_dir": "/tmp/ws/agent-42",
         }
-        MultiAgentManager._fire_workspace_created_hooks(workspace_info)
+        await MultiAgentManager._fire_workspace_created_hooks(workspace_info)
 
         assert received_info["agent_id"] == "agent-42"
         assert received_info["workspace_dir"] == "/tmp/ws/agent-42"
 
-    def test_fire_workspace_created_hooks_error_isolation(
+    @pytest.mark.asyncio
+    async def test_fire_workspace_created_hooks_error_isolation(
         self,
         fresh_registry,
     ):
@@ -654,7 +752,7 @@ class TestWorkspaceCreatedHook:
         )
 
         # Should not raise
-        MultiAgentManager._fire_workspace_created_hooks(
+        await MultiAgentManager._fire_workspace_created_hooks(
             {
                 "agent_id": "ws-1",
                 "workspace_dir": "/tmp/ws-1",
