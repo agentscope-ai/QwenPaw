@@ -611,11 +611,14 @@ class QwenPawACPAgent(Agent):
                 # multi-step prompts (with tool calls) report usage
                 # per LLM call, matching QwenCode behaviour.
                 await self._emit_usage_if_available(session_id)
-        except Exception:
+        except Exception as exc:  # pylint: disable=broad-except
             logger.exception(
                 "ACP prompt error: session=%s",
                 session_id,
             )
+            # Surface the failure to the client instead of ending the turn
+            # silently, so ACP UIs (e.g. the paw TUI) can show it.
+            await self._report_prompt_error(session_id, exc)
         finally:
             self._cancel_events.pop(session_id, None)
 
@@ -836,6 +839,31 @@ class QwenPawACPAgent(Agent):
                 ),
             )
         return commands
+
+    async def _report_prompt_error(
+        self,
+        session_id: str,
+        exc: BaseException,
+    ) -> None:
+        """Send a prompt failure to the client as a visible message.
+
+        ACP has no dedicated error update, so the message is delivered as
+        an ``agent_message_chunk`` prefixed with a clear error marker —
+        this renders in the transcript of any ACP client.
+        """
+        try:
+            await self._conn.session_update(
+                session_id=session_id,
+                update=update_agent_message(
+                    text_block(f"\n\n⚠️ **Error:** {exc}"),
+                ),
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.exception(
+                "ACP: failed to report prompt error to client "
+                "(session=%s)",
+                session_id,
+            )
 
     async def _advertise_commands(self, session_id: str) -> None:
         """Send the ``available_commands_update`` for a session."""

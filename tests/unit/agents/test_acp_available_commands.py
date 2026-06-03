@@ -83,3 +83,22 @@ async def test_load_session_advertises_commands():
     session_id, update = conn.updates[0]
     assert session_id == "sess-123"
     assert update.session_update == "available_commands_update"
+
+
+async def test_report_prompt_error_is_sent_to_client():
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _FakeConn()
+    agent.on_connect(conn)
+
+    await agent._report_prompt_error(
+        "sess-err",
+        RuntimeError("boom: invalid api key"),
+    )
+
+    assert conn.updates
+    session_id, update = conn.updates[0]
+    assert session_id == "sess-err"
+    # Delivered as a visible assistant message chunk with the error text.
+    assert update.session_update == "agent_message_chunk"
+    assert "Error" in update.content.text
+    assert "boom: invalid api key" in update.content.text
