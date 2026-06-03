@@ -13,6 +13,17 @@ import ReactDOM from "react-dom";
 import * as antd from "antd";
 import * as antdIcons from "@ant-design/icons";
 import { getApiUrl, getApiToken } from "../api/config";
+import {
+  buildAuditNamespace,
+  buildMenuNamespace,
+  buildRouteNamespace,
+  buildSlotNamespace,
+  type QwenPawAuditNamespace,
+  type QwenPawMenuNamespace,
+  type QwenPawRouteNamespace,
+  type QwenPawSlotNamespace,
+} from "./registry/sdk";
+import { menuRegistry, routeRegistry } from "./registry/store";
 
 declare const VITE_API_BASE_URL: string;
 
@@ -130,13 +141,21 @@ export interface WindowNamespace {
    * Plugins can access and modify module exports to monkey-patch host functions.
    */
   modules: Record<string, Record<string, unknown>>;
-  /** Register page routes for a plugin. */
+  /** Register page routes for a plugin. Translates to menu.add + route.add. */
   registerRoutes?: (pluginId: string, routes: PluginRouteDeclaration[]) => void;
   /** Register tool-call renderers for a plugin. */
   registerToolRender?: (
     pluginId: string,
     renderers: Record<string, React.FC<any>>,
   ) => void;
+  /** Console-wide plugin Menu API. Attached by installHostExternals(). */
+  menu?: QwenPawMenuNamespace;
+  /** Console-wide plugin Route API. */
+  route?: QwenPawRouteNamespace;
+  /** Console-wide plugin Slot API (header.left, sider.bottom, …). */
+  slot?: QwenPawSlotNamespace;
+  /** Override audit log (debug). */
+  audit?: QwenPawAuditNamespace;
 }
 
 declare global {
@@ -148,6 +167,29 @@ declare global {
 // ─────────────────────────────────────────────────────────────────────────────
 // Install (call once in main.tsx)
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Synthesize the `plugins-group` parent menu the first time a legacy
+ * `registerRoutes` call lands. Idempotent via menuRegistry snapshot check —
+ * if a plugin (or test) has already created `plugins-group` (via the new API
+ * or a prior synthesis call), we skip. No mutable module flag, so behaviour
+ * is correct under test reset / hot reload.
+ */
+function ensurePluginsGroup(): void {
+  const exists = menuRegistry
+    .snapshot("primary.settings")
+    .some((i) => i.id === "plugins-group");
+  if (exists) return;
+  menuRegistry.addBuiltin([
+    {
+      id: "plugins-group",
+      location: "primary.settings",
+      label: "Plugins",
+      isGroup: true,
+      order: 999,
+    },
+  ]);
+}
 
 export function installHostExternals(): void {
   const apiBaseUrl =
@@ -169,11 +211,47 @@ export function installHostExternals(): void {
     };
   }
 
+  // ── Console-wide extension API ─────────────────────────────────────────
+  if (!window.QwenPaw.menu) window.QwenPaw.menu = buildMenuNamespace();
+  if (!window.QwenPaw.route) window.QwenPaw.route = buildRouteNamespace();
+  if (!window.QwenPaw.slot) window.QwenPaw.slot = buildSlotNamespace();
+  if (!window.QwenPaw.audit) window.QwenPaw.audit = buildAuditNamespace();
+
+  // ── Back-compat shim ───────────────────────────────────────────────────
+  // Legacy registerRoutes(pluginId, routes[]) fans out to:
+  //   1. route.add with id = `legacy:<pluginId>:<path>`
+  //   2. menu.add under the synthesized `plugins-group` (settings location).
+  // Visual output matches the pre-refactor Sidebar plugins-group rendering.
   if (!window.QwenPaw.registerRoutes) {
     window.QwenPaw.registerRoutes = (pluginId, routes) => {
+      ensurePluginsGroup();
+      for (const r of routes) {
+        const id = `legacy:${pluginId}:${r.path.replace(/^\//, "")}`;
+        routeRegistry.add(pluginId, {
+          id,
+          path: r.path,
+          component: r.component,
+        });
+        menuRegistry.add(pluginId, {
+          id,
+          location: "primary.settings",
+          parentId: "plugins-group",
+          label: r.label,
+          // Emoji string in original API → wrap to match prior Sidebar font-size styling.
+          icon: React.createElement(
+            "span",
+            { style: { fontSize: 16 } },
+            r.icon,
+          ),
+          route: id,
+          order: r.priority ?? 0,
+        });
+      }
+      // Keep the legacy pluginSystem in sync so usePlugins().pluginRoutes still works
+      // for any consumer that has not migrated yet (e.g. the chat-extension branch).
       pluginSystem.addRoutes(pluginId, routes);
       console.info(
-        `[plugin:${pluginId}] registerRoutes → ${routes.length} route(s)`,
+        `[plugin:${pluginId}] registerRoutes → ${routes.length} route(s) (translated to menu+route)`,
       );
     };
   }
