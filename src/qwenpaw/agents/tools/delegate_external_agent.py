@@ -630,7 +630,6 @@ async def _stream_action_responses(
                             f'runner="{runner_name}", '
                             'message="continue") with higher max_runtime.'
                         ),
-                        stream=True,
                         is_last=True,
                     )
                     return
@@ -796,7 +795,7 @@ async def _validate_runner_start(
         "failed",
         error=start_error,
     )
-    return response_text(start_error, stream=True)
+    return response_text(start_error)
 
 
 async def _cancel_runner_turn(
@@ -827,7 +826,6 @@ def _interrupted_response(runner_name: str) -> ToolChunk:
             f'delegate_external_agent(action="message", '
             f'runner="{runner_name}", message="continue").'
         ),
-        stream=True,
         is_last=True,
     )
 
@@ -894,13 +892,13 @@ async def _run_streaming_agent_action(
         raise
     except ImportError as e:
         await _set_failed_runner_state(state, e)
-        yield response_text(f"ACP mode not available: {e}.", stream=True)
+        yield response_text(f"ACP mode not available: {e}.")
     except ValueError as e:
         await _set_failed_runner_state(state, e)
-        yield response_text(f"Error: {e}", stream=True)
+        yield response_text(f"Error: {e}")
     except Exception as e:
         await _set_failed_runner_state(state, e)
-        yield response_text(f"ACP execution error: {e}", stream=True)
+        yield response_text(f"ACP execution error: {e}")
 
 
 async def delegate_external_agent(

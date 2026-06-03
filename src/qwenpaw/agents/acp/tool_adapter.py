@@ -16,13 +16,11 @@ def _text_block(text: str) -> TextBlock:
 def response_blocks(
     blocks: list[TextBlock],
     *,
-    stream: bool = False,
     is_last: bool = True,
 ) -> ToolChunk:
     return ToolChunk(
         content=blocks,
         state=ToolResultState.SUCCESS,
-        stream=stream,
         is_last=is_last,
     )
 
@@ -30,10 +28,9 @@ def response_blocks(
 def response_text(
     text: str,
     *,
-    stream: bool = False,
     is_last: bool = True,
 ) -> ToolChunk:
-    return response_blocks([_text_block(text)], stream=stream, is_last=is_last)
+    return response_blocks([_text_block(text)], is_last=is_last)
 
 
 def _header_text(*, runner_name: str, execution_cwd: Path) -> str:
@@ -147,7 +144,7 @@ def format_stream_snapshot_response(
             blocks.append(_text_block(cleaned))
     if not blocks:
         return None
-    return response_blocks(blocks, stream=True, is_last=False)
+    return response_blocks(blocks, is_last=False)
 
 
 def format_final_assistant_response(
