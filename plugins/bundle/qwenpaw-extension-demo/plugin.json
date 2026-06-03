@@ -1,0 +1,22 @@
+{
+  "id": "qwenpaw-extension-demo",
+  "name": "QwenPaw Extension Demo",
+  "version": "0.1.0",
+  "type": "general",
+  "description": "演示并验证 QwenPaw 前端扩展点 API:menu / route / slot / chat.welcome / chat.response / chat.actions / chat.rightHeader / audit。安装后请刷新页面。",
+  "description_i18n": {
+    "zh-CN": "演示并验证 QwenPaw 前端扩展点 API。安装后请刷新页面。",
+    "en-US": "Demo + smoke test for the new QwenPaw frontend extension APIs (menu / route / slot / chat.*). Refresh the page after install."
+  },
+  "author": "QwenPaw Team",
+  "entry": {
+    "backend": "plugin.py",
+    "frontend": "frontend/dist/index.js"
+  },
+  "dependencies": [],
+  "min_version": "1.1.5",
+  "meta": {
+    "category": "developer-tools",
+    "purpose": "extension-api-smoke-test"
+  }
+}
