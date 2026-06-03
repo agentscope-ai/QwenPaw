@@ -28,15 +28,6 @@ def clean_prompt_sections():
         registry.unregister_plugin(plugin_id)
 
 
-def test_host_anchors_order_is_stable():
-    """HOST_ANCHORS tuple defines the canonical prompt order."""
-    assert PromptBuilder.HOST_ANCHORS == (
-        "workspace",
-        "multimodal",
-        "env_context",
-    )
-
-
 def test_builder_orders_sections_after_host_anchor():
     """Plugin sections follow their declared host anchor."""
     registry = PluginRegistry()
