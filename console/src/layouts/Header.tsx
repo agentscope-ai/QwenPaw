@@ -21,6 +21,7 @@ import {
 } from "./constants";
 import { useTheme } from "../contexts/ThemeContext";
 import { useState, useEffect } from "react";
+import { Slot } from "../plugins/registry/Slot";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -191,7 +192,9 @@ export default function Header() {
             </Badge>
           )}
         </div>
+        <Slot name="header.left" kind="fill" />
         <Space size="middle">
+          <Slot name="header.right" kind="fill" />
           <Dropdown
             menu={{
               items: [

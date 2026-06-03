@@ -3,6 +3,10 @@ import App from "./App.tsx";
 import "./i18n";
 import { installHostExternals } from "./plugins/hostExternals";
 import { registerHostModulesEager } from "./plugins/dynamicModuleRegistry";
+// Bare side-effect imports: each file self-registers its data into
+// menuRegistry / routeRegistry so consumers' first render sees them.
+import "./layouts/registry/builtinMenu";
+import "./layouts/registry/builtinRoutes.tsx";
 
 // Expose host dependencies (React, antd, etc.) on window
 // so that plugin UI modules can use them without bundling their own copies.
