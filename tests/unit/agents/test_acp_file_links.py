@@ -8,6 +8,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from qwenpaw.agents.acp.server import (
+    _extract_tool_output,
     _media_block_url,
     _msg_to_updates,
     _tool_result_content,
@@ -35,12 +36,12 @@ def test_media_block_url_extracts_file_blocks():
             "type": "file",
             "source": {"type": "url", "url": "file:///tmp/a.pdf"},
             "filename": "a.pdf",
-        }
+        },
     ) == ("file:///tmp/a.pdf", "a.pdf", None)
 
     # Name falls back to the URL basename when no filename is given.
     url, name, _mime = _media_block_url(
-        {"type": "image", "source": {"type": "url", "url": "file:///x/c.png"}}
+        {"type": "image", "source": {"type": "url", "url": "file:///x/c.png"}},
     )
     assert (url, name) == ("file:///x/c.png", "c.png")
 
@@ -74,6 +75,39 @@ def test_tool_result_content_appends_resource_link():
 def test_plain_text_output_has_no_resource_link():
     contents = _tool_result_content([{"type": "text", "text": "done"}])
     assert [c.content.type for c in contents] == ["text"]
+
+
+def test_remote_url_media_gets_no_resource_link():
+    # Only local file:// media becomes a clickable resource_link; remote
+    # URLs are not turned into openable resources, but still show as text.
+    output = [
+        {
+            "type": "image",
+            "source": {"type": "url", "url": "https://example.com/a.png"},
+            "filename": "a.png",
+        },
+        {"type": "text", "text": "File sent successfully."},
+    ]
+    contents = _tool_result_content(output)
+    assert [c.content.type for c in contents] == ["text"]
+    text = contents[0].content.text
+    assert "📎 a.png" in text
+
+
+def test_extract_tool_output_handles_block_objects():
+    # Object-style blocks (not dicts), e.g. agentscope ImageBlock/TextBlock.
+    output = [
+        SimpleNamespace(
+            type="file",
+            source={"type": "url", "url": "file:///tmp/r.pdf"},
+            filename="r.pdf",
+        ),
+        SimpleNamespace(type="text", text="File sent successfully."),
+    ]
+    text = _extract_tool_output(output)
+    assert "📎 r.pdf" in text
+    assert "File sent successfully." in text
+    assert "namespace(" not in text  # no raw repr fallback
 
 
 def test_tool_result_update_carries_link_end_to_end():

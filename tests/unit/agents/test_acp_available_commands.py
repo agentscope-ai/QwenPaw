@@ -5,6 +5,8 @@ The ACP server sends an ``available_commands_update`` notification after a
 session is created so clients (e.g. the paw TUI) can offer autocompletion.
 """
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import asyncio

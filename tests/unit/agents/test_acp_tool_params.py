@@ -25,7 +25,8 @@ def test_streamed_tool_input_emitted_when_it_arrives():
 
     # Snapshot 1: tool call appears with empty (still-streaming) args.
     u1 = _msg_to_updates(
-        _msg([{"id": "t1", "name": name, "input": {}}]), tracker
+        _msg([{"id": "t1", "name": name, "input": {}}]),
+        tracker,
     )
     assert [u.session_update for u in u1] == ["tool_call"]
     assert u1[0].raw_input == {}
@@ -44,7 +45,7 @@ def test_streamed_tool_input_emitted_when_it_arrives():
         _msg([{"id": "t1", "name": name, "input": {"command": "echo hi"}}]),
         tracker,
     )
-    assert u3 == []
+    assert not u3
 
 
 def test_tool_input_present_on_start_is_not_resent():
@@ -63,4 +64,4 @@ def test_tool_input_present_on_start_is_not_resent():
         _msg([{"id": "t2", "name": "execute_shell_command", "input": args}]),
         tracker,
     )
-    assert u2 == []
+    assert not u2

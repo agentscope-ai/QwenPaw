@@ -319,18 +319,22 @@ def _extract_tool_output(output: Any) -> str:
     if isinstance(output, list):
         parts = []
         for item in output:
-            if isinstance(item, dict):
-                if "text" in item:
-                    parts.append(item.get("text") or "")
-                    continue
-                media = _media_block_url(item)
-                if media is not None:
-                    _url, name, _mime = media
-                    parts.append(f"📎 {name}")
-                    continue
-                parts.append(str(item))
-            else:
-                parts.append(str(item))
+            # Works for both dict blocks and attribute-style block objects
+            # (e.g. agentscope ImageBlock/TextBlock from send_file_to_user).
+            text = (
+                item.get("text")
+                if isinstance(item, dict)
+                else getattr(item, "text", None)
+            )
+            if text:
+                parts.append(text)
+                continue
+            media = _media_block_url(item)
+            if media is not None:
+                _url, name, _mime = media
+                parts.append(f"📎 {name}")
+                continue
+            parts.append(str(item))
         return "\n".join(p for p in parts if p)
     return str(output)
 
@@ -371,9 +375,12 @@ def _tool_result_content(output: Any) -> list[Any]:
     """Build the ACP tool-call ``content`` for a completed tool result.
 
     Always includes the flattened text; additionally appends a
-    ``resource_link`` block for every file/media block in the output so ACP
-    clients (e.g. the paw TUI) can offer a clickable link to the file the
-    agent sent via ``send_file_to_user``.
+    ``resource_link`` block for every **local** ``file://`` media block in
+    the output so ACP clients (e.g. the paw TUI) can offer a clickable link
+    to the file the agent sent via ``send_file_to_user``. Remote URLs
+    (http/https/...) are intentionally not turned into resource links — they
+    still appear as a readable ``📎`` line in the text — so clients are not
+    nudged into treating untrusted remote URLs as openable resources.
     """
     contents: list[Any] = [
         tool_content(text_block(_extract_tool_output(output))),
@@ -384,6 +391,8 @@ def _tool_result_content(output: Any) -> list[Any]:
             if media is None:
                 continue
             url, name, mime = media
+            if not url.startswith("file://"):
+                continue
             contents.append(
                 tool_content(
                     ResourceContentBlock(
@@ -986,8 +995,7 @@ class QwenPawACPAgent(Agent):
             )
         except Exception:  # pylint: disable=broad-except
             logger.exception(
-                "ACP: failed to report prompt error to client "
-                "(session=%s)",
+                "ACP: failed to report prompt error to client (session=%s)",
                 session_id,
             )
 
