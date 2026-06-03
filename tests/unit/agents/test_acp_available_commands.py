@@ -11,6 +11,7 @@ import asyncio
 
 from qwenpaw.agents.acp.server import (
     _ACP_REDUNDANT_COMMANDS,
+    ACP_AGENT_META_KEY,
     ACP_ERROR_META_KEY,
     QwenPawACPAgent,
 )
@@ -84,6 +85,15 @@ async def test_load_session_advertises_commands():
     session_id, update = conn.updates[0]
     assert session_id == "sess-123"
     assert update.session_update == "available_commands_update"
+
+
+async def test_new_session_reports_agent_id_in_meta():
+    agent = QwenPawACPAgent(agent_id="my-agent")
+    conn = _FakeConn()
+    agent.on_connect(conn)
+
+    response = await agent.new_session(cwd="/tmp")
+    assert response.field_meta == {ACP_AGENT_META_KEY: "my-agent"}
 
 
 async def test_report_prompt_error_is_sent_to_client():

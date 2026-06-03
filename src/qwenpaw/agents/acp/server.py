@@ -90,6 +90,11 @@ _ACP_REDUNDANT_COMMANDS = frozenset(
 # error style). Clients that ignore ``_meta`` still display the text.
 ACP_ERROR_META_KEY = "qwenpaw.error"
 
+# ``_meta`` key on the new/load-session response carrying the resolved agent
+# id, so ACP clients can show which agent they're talking to (the protocol
+# has no standard field for it).
+ACP_AGENT_META_KEY = "qwenpaw.agent"
+
 
 PromptBlocks = list[
     TextContentBlock
@@ -546,6 +551,7 @@ class QwenPawACPAgent(Agent):
         return NewSessionResponse(
             session_id=session_id,
             config_options=self._build_config_options(session_id),
+            field_meta=self._session_meta(),
         )
 
     async def load_session(  # pylint: disable=unused-argument
@@ -568,7 +574,7 @@ class QwenPawACPAgent(Agent):
             cwd,
         )
         asyncio.create_task(self._advertise_commands(session_id))
-        return LoadSessionResponse()
+        return LoadSessionResponse(field_meta=self._session_meta())
 
     async def prompt(  # pylint: disable=too-many-locals,unused-argument
         self,
@@ -853,6 +859,19 @@ class QwenPawACPAgent(Agent):
         if info is not None:
             return info.get("mode", self.MODE_DEFAULT)
         return self.MODE_DEFAULT
+
+    def _session_meta(self) -> dict[str, Any] | None:
+        """``_meta`` for session responses: the resolved agent id.
+
+        Best-effort — returns ``None`` if the agent id can't be resolved,
+        so a session is never blocked on it.
+        """
+        try:
+            agent_id = self._resolve_agent_id()
+        except Exception:  # pylint: disable=broad-except
+            logger.exception("ACP: failed to resolve agent id for _meta")
+            return None
+        return {ACP_AGENT_META_KEY: agent_id} if agent_id else None
 
     @staticmethod
     def _build_available_commands() -> list[AvailableCommand]:
