@@ -2,6 +2,7 @@ import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
 import { useCodeFileCacheStore } from "../../stores/codeFileCacheStore";
+import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 import type { MdFileInfo, MdFileContent, DailyMemoryFile } from "../types";
 
 function getSelectedAgentId(): string {
@@ -35,11 +36,6 @@ function generateFallbackFilename(): string {
   return `qwenpaw_workspace_${agentId}_${timestamp}.zip`;
 }
 
-export interface WorkspaceDownloadResult {
-  blob: Blob;
-  filename: string;
-}
-
 export const workspaceApi = {
   listFiles: () =>
     request<MdFileInfo[]>("/workspace/files").then((files) =>
@@ -62,37 +58,16 @@ export const workspaceApi = {
     ),
 
   // Workspace package download
-  downloadWorkspace: async (): Promise<WorkspaceDownloadResult> => {
-    const response = await fetch(getApiUrl("/workspace/download"), {
-      method: "GET",
-      headers: buildAuthHeaders(),
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        `Workspace download failed: ${response.status} ${response.statusText}`,
-      );
-    }
-
-    const blob = await response.blob();
-
-    // Extract filename from Content-Disposition header
-    const disposition = response.headers.get("Content-Disposition");
-    let filename: string;
-
-    if (disposition) {
-      const filenameMatch = disposition.match(/filename="(.+?)"/);
-      if (filenameMatch && filenameMatch[1]) {
-        filename = filenameMatch[1];
-      } else {
-        filename = generateFallbackFilename();
-      }
-    } else {
-      filename = generateFallbackFilename();
-    }
-
-    return { blob, filename };
-  },
+  downloadWorkspace: () =>
+    downloadFileFromUrl(
+      getApiUrl("/workspace/download"),
+      generateFallbackFilename(),
+      {
+        headers: buildAuthHeaders(),
+        errorMessage: "Workspace download failed",
+        preferResponseFilename: true,
+      },
+    ),
 
   // File upload functionality
   uploadFile: async (

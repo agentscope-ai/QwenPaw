@@ -211,6 +211,7 @@ class FeishuChannel(BaseChannel):
         require_mention: bool = False,
         domain: str = "feishu",
         streaming_enabled: bool = False,
+        share_session_in_group: bool = False,
         access_control_dm: bool = False,
         access_control_group: bool = False,
     ):
@@ -236,6 +237,7 @@ class FeishuChannel(BaseChannel):
         self.encrypt_key = encrypt_key or ""
         self.verification_token = verification_token or ""
         self.domain = domain if domain in ("feishu", "lark") else "feishu"
+        self.share_session_in_group = share_session_in_group
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
         )
@@ -310,6 +312,9 @@ class FeishuChannel(BaseChannel):
             streaming_enabled=(
                 os.getenv("FEISHU_STREAMING_ENABLED", "0") == "1"
             ),
+            share_session_in_group=(
+                os.getenv("FEISHU_SHARE_SESSION_IN_GROUP", "0") == "1"
+            ),
         )
 
     @classmethod
@@ -345,6 +350,9 @@ class FeishuChannel(BaseChannel):
             domain=config.domain or "feishu",
             streaming_enabled=bool(
                 getattr(config, "streaming_enabled", False),
+            ),
+            share_session_in_group=bool(
+                getattr(config, "share_session_in_group", False),
             ),
             access_control_dm=bool(
                 getattr(config, "access_control_dm", False),
@@ -921,14 +929,18 @@ class FeishuChannel(BaseChannel):
                 "meta": meta,
             }
             # When message is in a topic thread, override user_id to the
-            # thread_id so all members in the same topic share one session
-            # (analogous to shared mode using group_id).
+            # thread_id so all members in the same topic share one session.
             if thread_id:
                 thread_uid = (
                     f"thread:{short_session_id_from_full_id(thread_id)}"
                 )
                 native["user_id"] = thread_uid
                 meta["feishu_sender_id"] = thread_uid
+            # When share_session_in_group is enabled (and no thread), set
+            # feishu_sender_id to "group" so all members share the same
+            # context (session_id already distinguishes different groups).
+            elif is_group and self.share_session_in_group:
+                meta["feishu_sender_id"] = "group"
             logger.info(
                 "feishu recv from=%s chat=%s msg_id=%s type=%s text_len=%s",
                 sender_display[:40],
