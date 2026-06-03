@@ -651,7 +651,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         dream_toolkit.register_tool_function(read_file)
         dream_toolkit.register_tool_function(write_file)
         dream_toolkit.register_tool_function(edit_file)
-        
+
         set_current_workspace_dir(workspace_path)
         pruning_cfg = light_ctx.tool_result_pruning_config
         recent_max_bytes = pruning_cfg.pruning_recent_msg_max_bytes
