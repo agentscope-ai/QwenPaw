@@ -417,7 +417,7 @@ Star QwenPaw on GitHub and be instantly notified of new releases.
 | **Horizontal Expansion** | More channels, models, skills, MCPs — **community contributions welcome**                  | Seeking Contributors |
 | **Existing Feature Extension** | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome** | Seeking Contributors |
 | **Client Experience**    | Install, update, and packaging improvements                                                  | In Progress          |
-| **Models**               | multi-model switching                                                                         | In Progress          |
+| **Models**               | Multi-model switching                                                                         | In Progress          |
 |                          | OAuth                                                                                        | Planned              |
 |                          | Response API                                                                                 | Planned              |
 | **Workspace**            | File access control with Sandbox integration                                                 | In Progress          |
@@ -427,7 +427,7 @@ Star QwenPaw on GitHub and be instantly notified of new releases.
 |                          | Tool self-evolution                                                                          | Planned              |
 |                          | Compatibility with existing agents (e.g. Claude Code)                                        | Planned              |
 | **Multi-agent**          | Group chat                                                                                   | Planned              |
-|                          | Subagent Visulization                                                                                 | Planned              |
+|                          | Subagent Visualization                                                                                 | Planned              |
 |                          | HiClaw enterprise capabilities                                                               | Planned              |
 | **Context Management**   | Personal Knowledge Base                                                             | In Progress          |
 |                          | User-selectable compression (fine-grained control)                                           | Planned              |
