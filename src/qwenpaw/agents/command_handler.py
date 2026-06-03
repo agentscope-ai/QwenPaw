@@ -25,16 +25,19 @@ logger = logging.getLogger(__name__)
 # advertising commands to clients (e.g. the ACP
 # ``available_commands_update`` notification). Intentionally a small,
 # curated subset of ``SYSTEM_COMMANDS`` — only the conversation commands
-# meant to be typed by users are advertised (``/new``, ``/clear``,
-# ``/compact``). The rest (``history``, ``plan``, ``compact_str``,
-# ``summarize_status``, ``message``, ``dump_history``, ``load_history``,
-# ``proactive``) are still handled if typed but are not advertised, to keep
-# the ACP command palette focused. Descriptions mirror the console command
-# palette copy (``console/src/locales/en.json`` → ``chat.commands``) where
-# they overlap, so the same wording is shown across the web UI and ACP
-# clients.
+# meant to be typed by users are advertised (``/clear``, ``/compact``).
+# The rest are still handled if typed but are not advertised, to keep the
+# ACP command palette focused:
+#   - ``new`` overlaps the dedicated ACP ``new_session`` affordance (clients
+#     start a fresh session natively); ``/clear`` covers the in-session
+#     "start over" need, so ``/new`` is not advertised over ACP.
+#   - ``history``, ``plan``, ``compact_str``, ``summarize_status``,
+#     ``message``, ``dump_history``, ``load_history``, ``proactive`` are
+#     internal/programmatic.
+# Descriptions mirror the console command palette copy
+# (``console/src/locales/en.json`` → ``chat.commands``) where they overlap,
+# so the same wording is shown across the web UI and ACP clients.
 SYSTEM_COMMAND_DESCRIPTIONS: dict[str, str] = {
-    "new": "Start a new conversation",
     "clear": "Clear the conversation context",
     "compact": (
         "Compact the conversation context; optional instruction supported"

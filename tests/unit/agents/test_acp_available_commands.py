@@ -38,13 +38,17 @@ def test_build_available_commands_set():
     names = {c.name for c in commands}
 
     # Exactly the curated subset is advertised: the user-facing conversation
-    # commands plus mission and skills. Everything else (history, plan, the
-    # ACP-redundant control commands, etc.) is intentionally not advertised.
-    assert names == {"new", "clear", "compact", "mission", "skills"}
+    # commands plus mission and skills. Everything else (history, plan, /new,
+    # the ACP-redundant control commands, etc.) is intentionally not
+    # advertised.
+    assert names == {"clear", "compact", "mission", "skills"}
 
-    # Previously-advertised commands that are now hidden from the palette.
+    # Hidden from the palette: history/plan are internal; /new overlaps the
+    # dedicated ACP ``new_session`` affordance (clients start a fresh session
+    # natively, and /clear covers the in-session "start over" need).
     assert "history" not in names
     assert "plan" not in names
+    assert "new" not in names
 
     # Commands with a dedicated ACP affordance are not advertised.
     assert names.isdisjoint(_ACP_REDUNDANT_COMMANDS)
@@ -68,7 +72,7 @@ async def test_new_session_advertises_commands():
 
     names = {c.name for c in update.available_commands}
     assert "mission" in names
-    assert "new" in names
+    assert "clear" in names
 
 
 async def test_load_session_advertises_commands():
