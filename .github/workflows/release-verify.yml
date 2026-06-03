@@ -296,7 +296,10 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
+            # install.ps1 creates qwenpaw.cmd / qwenpaw.ps1 — bash needs .cmd
             export PATH="$USERPROFILE/.qwenpaw/bin:$PATH"
+            shopt -s expand_aliases
+            alias qwenpaw='qwenpaw.cmd'
           else
             export PATH="$HOME/.qwenpaw/bin:$PATH"
           fi
