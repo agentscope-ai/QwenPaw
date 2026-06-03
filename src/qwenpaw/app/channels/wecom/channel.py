@@ -390,6 +390,7 @@ class WecomChannel(BaseChannel):
                 "sender_id",
                 first.get("sender_id", ""),
             ),
+            "acl_sender_id": first.get("acl_sender_id") or "",
             "user_id": last.get("user_id", first.get("user_id", "")),
             "session_id": last.get(
                 "session_id",
