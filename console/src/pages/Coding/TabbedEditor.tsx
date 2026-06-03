@@ -4,9 +4,10 @@
  *   • Monaco model-per-path (undo history & cursor persist on tab switch)
  *   • Inline Diff view when Agent modifies the open file:
  *       - Switches to DiffEditor (renderSideBySide: false → VS Code inline style)
- *       - "Keep" accepts the new content; "Undo" reverts to original
+ *       - Per-hunk "Keep"/"Undo" widgets + global "Keep all"/"Undo all"
  *   • Preview mode for images, Markdown, PDF, CSV (toggle per tab)
- *   • Ctrl/Cmd+C copies code with `path:line[-line]` context for Chat
+ *   • Toolbar "Copy to Chat" button injects `path:line[-line]` context
+ *     into the Chat composer (raw Cmd/Ctrl+C still copies plain text)
  *   • Cmd/Ctrl+S to save
  */
 
@@ -34,6 +35,7 @@ import { workspaceApi } from "../../api/modules/workspace";
 import { useWorkspaceWatch } from "../../hooks/useWorkspaceWatch";
 import { useTheme } from "../../contexts/ThemeContext";
 import { setTextareaValue } from "../Chat/utils";
+import { clearLastEditorCopy, setLastEditorCopy } from "./lastEditorCopy";
 import {
   useCurrentDiffs,
   useCodingTabsStore,
@@ -171,6 +173,76 @@ function formatSelectionForChat(
 }
 
 // ---------------------------------------------------------------------------
+// Hunk-level Keep / Undo helpers
+// ---------------------------------------------------------------------------
+
+interface Hunk {
+  originalStartLineNumber: number;
+  originalEndLineNumber: number;
+  modifiedStartLineNumber: number;
+  modifiedEndLineNumber: number;
+}
+
+// Convert Monaco's 1-indexed inclusive [startLine..endLine] range to a
+// 0-indexed [start, end) slice range. When endLine === 0 (or below
+// startLine) the change is a pure insert with no source-side lines, so
+// the range collapses to an empty slice at the insertion point.
+function rangeFromLines(
+  startLine: number,
+  endLine: number,
+): { start: number; end: number } {
+  if (endLine === 0 || endLine < startLine) {
+    return { start: startLine, end: startLine };
+  }
+  return { start: startLine - 1, end: endLine };
+}
+
+// Bake a hunk's modified content into the original baseline. The returned
+// string is the new `original` for the pending diff; the kept block
+// becomes equal on both sides and stops being a hunk, while other hunks
+// remain visible.
+function applyKeepHunk(original: string, modified: string, hunk: Hunk): string {
+  const origLines = original.split("\n");
+  const modLines = modified.split("\n");
+  const o = rangeFromLines(
+    hunk.originalStartLineNumber,
+    hunk.originalEndLineNumber,
+  );
+  const m = rangeFromLines(
+    hunk.modifiedStartLineNumber,
+    hunk.modifiedEndLineNumber,
+  );
+  const replacement = modLines.slice(m.start, m.end);
+  return [
+    ...origLines.slice(0, o.start),
+    ...replacement,
+    ...origLines.slice(o.end),
+  ].join("\n");
+}
+
+// Revert a hunk's modified content back to the original. The returned
+// string is the new `modified` (which the caller should also write back
+// to disk so the on-disk file matches the visible state).
+function applyUndoHunk(original: string, modified: string, hunk: Hunk): string {
+  const origLines = original.split("\n");
+  const modLines = modified.split("\n");
+  const o = rangeFromLines(
+    hunk.originalStartLineNumber,
+    hunk.originalEndLineNumber,
+  );
+  const m = rangeFromLines(
+    hunk.modifiedStartLineNumber,
+    hunk.modifiedEndLineNumber,
+  );
+  const replacement = origLines.slice(o.start, o.end);
+  return [
+    ...modLines.slice(0, m.start),
+    ...replacement,
+    ...modLines.slice(m.end),
+  ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -225,7 +297,34 @@ export default function TabbedEditor({
    */
   const { selectedAgent } = useAgentStore();
   const pendingDiffs = useCurrentDiffs();
-  const { setDiff, removeDiff, updateDiffModified } = useCodingTabsStore();
+  const { setDiff, removeDiff, updateDiffModified, updateDiffOriginal } =
+    useCodingTabsStore();
+
+  /**
+   * Per-hunk Keep / Undo widgets are rendered as React JSX in an
+   * absolutely-positioned overlay layered on top of the DiffEditor,
+   * NOT inside Monaco's DOM. Earlier attempts using Monaco view zones
+   * or content widgets to host the buttons hit a wall: Monaco's mouse
+   * handler intercepts mousedown on its own children and prevents the
+   * click from firing. Rendering buttons outside Monaco entirely makes
+   * clicks fire normally.
+   *
+   * The empty view zones added below exist only to push code lines
+   * apart so the overlay has a 22px-tall gap to sit in (no source-text
+   * overlap). Monaco reports the pixel-top of each zone via
+   * `onDomNodeTop`, which is what drives the overlay positions.
+   */
+  const diffEditorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(null);
+  const hunkZoneIdsRef = useRef<string[]>([]);
+
+  // Each overlay: the line-change it represents, plus the pixel-top of
+  // its view zone (kept in sync via onDomNodeTop and editor scroll).
+  interface HunkOverlay {
+    zoneId: string;
+    change: MonacoEditor.ILineChange;
+    top: number;
+  }
+  const [hunkOverlays, setHunkOverlays] = useState<HunkOverlay[]>([]);
 
   const activeTab = tabs.find((t) => t.path === activeTabPath) ?? null;
   const activeDiffRaw = activeTabPath ? pendingDiffs[activeTabPath] : undefined;
@@ -286,7 +385,7 @@ export default function TabbedEditor({
   }, []);
 
   const handleMount = useCallback(
-    (editor: MonacoEditor.IStandaloneCodeEditor, monaco: Monaco) => {
+    (editor: MonacoEditor.IStandaloneCodeEditor) => {
       editorRef.current = editor;
 
       editor.onDidChangeCursorSelection((e) => {
@@ -297,73 +396,141 @@ export default function TabbedEditor({
             sel.startColumn !== sel.endColumn,
         );
       });
-
-      // Ctrl/Cmd+C → copy with `path:line[-line]` context
-      editor.addCommand(
-        monaco.KeyMod.CtrlCmd | (monaco.KeyCode.KeyC as unknown as number),
-        () => {
-          const sel = editor.getSelection();
-          if (!sel || sel.isEmpty()) {
-            document.execCommand("copy");
-            return;
-          }
-          const model = editor.getModel();
-          if (!model) return;
-          const filePath = activeTabPathRef.current;
-          if (!filePath) {
-            navigator.clipboard
-              .writeText(model.getValueInRange(sel))
-              .catch(() => undefined);
-            return;
-          }
-          const { mode, code, startLine, endLine } = detectCopyMode(sel, model);
-          navigator.clipboard
-            .writeText(
-              formatSelectionForChat(filePath, code, startLine, endLine, mode),
-            )
-            .catch(() => undefined);
-        },
-      );
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
   /**
-   * Register the Ctrl/Cmd+C override on the modified (right) pane of the
-   * DiffEditor so copy-to-Chat context works even in diff review mode.
+   * Cmd/Ctrl+C in any of our editors (normal or diff-modified): let
+   * Monaco run its native copy (plain text → system clipboard), then
+   * snapshot the selection so the Chat composer's paste handler can
+   * swap in `path:line[-line]` format when the same text lands in the
+   * chat textarea.
+   *
+   * Registered at document level (capture) so it fires regardless of
+   * which Monaco instance owns the copy (regular vs diff editor) and
+   * regardless of bubbling quirks.
+   */
+  useEffect(() => {
+    const onCopy = () => {
+      // Any copy event that does NOT originate from our editor
+      // invalidates the cache — otherwise a same-text copy elsewhere
+      // (e.g. a markdown preview in the same page) would still trigger
+      // the formatted swap on the next chat paste.
+      const path = activeTabPathRef.current;
+      const editor: MonacoEditor.IStandaloneCodeEditor | null =
+        diffEditorRef.current?.getModifiedEditor() ?? editorRef.current;
+      if (!path || !editor || !editor.hasTextFocus()) {
+        clearLastEditorCopy();
+        return;
+      }
+      const sel = editor.getSelection();
+      const model = editor.getModel();
+      if (!sel || !model || sel.isEmpty()) {
+        clearLastEditorCopy();
+        return;
+      }
+      const { mode, code, startLine, endLine } = detectCopyMode(sel, model);
+      const formatted = formatSelectionForChat(
+        path,
+        code,
+        startLine,
+        endLine,
+        mode,
+      );
+      if (formatted !== code) {
+        setLastEditorCopy({ text: code, formatted, ts: Date.now() });
+      } else {
+        clearLastEditorCopy();
+      }
+    };
+    document.addEventListener("copy", onCopy, true);
+    return () => document.removeEventListener("copy", onCopy, true);
+  }, []);
+
+  /**
+   * Re-create per-hunk spacer view zones to match the diff editor's
+   * current line changes, and seed the React overlay state for those
+   * zones. Called on mount and on every onDidUpdateDiff so spacers /
+   * overlays stay aligned with the diff state.
+   *
+   * The zones themselves are empty 22px placeholders — they exist only
+   * to push code lines apart so the floating overlay (rendered in JSX
+   * outside Monaco) has a gap to sit in without covering source text.
+   */
+  const refreshHunkWidgets = useCallback(() => {
+    const diffEditor = diffEditorRef.current;
+    if (!diffEditor) return;
+    const modifiedEditor = diffEditor.getModifiedEditor();
+
+    // Tear down previous spacer zones before adding fresh ones.
+    if (hunkZoneIdsRef.current.length > 0) {
+      modifiedEditor.changeViewZones((accessor) => {
+        for (const zoneId of hunkZoneIdsRef.current) {
+          accessor.removeZone(zoneId);
+        }
+      });
+      hunkZoneIdsRef.current = [];
+    }
+
+    const lineChanges = diffEditor.getLineChanges();
+    if (!lineChanges || lineChanges.length === 0) {
+      setHunkOverlays([]);
+      return;
+    }
+
+    // Build the next overlay list in a single React state update.
+    // Each zone is empty (just creates 22px of vertical space). Monaco
+    // calls onDomNodeTop with the zone's pixel-top whenever it changes
+    // (initial layout, scroll, content edits) — we use that to drive
+    // the React overlay's `top: …px` style.
+    const next: HunkOverlay[] = [];
+    modifiedEditor.changeViewZones((accessor) => {
+      for (const change of lineChanges) {
+        // afterLineNumber: 0 means "before line 1". For modification or
+        // pure addition, anchor the zone right above modifiedStart. For
+        // pure deletion (modifiedEndLineNumber === 0) Monaco reports
+        // the line *after* which the deletion appears, so we anchor
+        // there directly — the zone shows at the deletion gap.
+        const afterLine =
+          change.modifiedEndLineNumber === 0
+            ? change.modifiedStartLineNumber
+            : change.modifiedStartLineNumber - 1;
+
+        const spacer = document.createElement("div");
+        const zoneId = accessor.addZone({
+          afterLineNumber: Math.max(0, afterLine),
+          heightInPx: 22,
+          domNode: spacer,
+          onDomNodeTop: (top) => {
+            setHunkOverlays((prev) =>
+              prev.map((o) => (o.zoneId === zoneId ? { ...o, top } : o)),
+            );
+          },
+        });
+        hunkZoneIdsRef.current.push(zoneId);
+        next.push({ zoneId, change, top: 0 });
+      }
+    });
+    setHunkOverlays(next);
+  }, []);
+
+  /**
+   * Wire up per-hunk spacer view zones on the modified (right) pane of
+   * the DiffEditor. Monaco's `onDomNodeTop` callback (set per zone in
+   * refreshHunkWidgets) fires whenever a zone's on-screen top changes
+   * — including on scroll — so we don't need a separate scroll
+   * listener; the React overlay tops stay in sync automatically.
    */
   const handleDiffMount: DiffOnMount = useCallback(
-    (diffEditor, monaco) => {
-      const modifiedEditor = diffEditor.getModifiedEditor();
-      modifiedEditor.addCommand(
-        monaco.KeyMod.CtrlCmd | (monaco.KeyCode.KeyC as unknown as number),
-        () => {
-          const sel = modifiedEditor.getSelection();
-          if (!sel || sel.isEmpty()) {
-            document.execCommand("copy");
-            return;
-          }
-          const model = modifiedEditor.getModel();
-          if (!model) return;
-          const filePath = activeTabPathRef.current;
-          if (!filePath) {
-            navigator.clipboard
-              .writeText(model.getValueInRange(sel))
-              .catch(() => undefined);
-            return;
-          }
-          const { mode, code, startLine, endLine } = detectCopyMode(sel, model);
-          navigator.clipboard
-            .writeText(
-              formatSelectionForChat(filePath, code, startLine, endLine, mode),
-            )
-            .catch(() => undefined);
-        },
-      );
+    (diffEditor) => {
+      diffEditorRef.current = diffEditor;
+      diffEditor.onDidUpdateDiff(() => refreshHunkWidgets());
+      // Initial pass — Monaco may have already finished diffing by the
+      // time we mount (small files), so run once eagerly.
+      refreshHunkWidgets();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [refreshHunkWidgets],
   );
 
   // ---- Save ---------------------------------------------------------------
@@ -464,6 +631,85 @@ export default function TabbedEditor({
     onTabContentChange,
     onTabDirtyChange,
   ]);
+
+  /**
+   * Keep a single hunk: bake its modified content into the original
+   * baseline. The kept block stops being a diff; remaining hunks stay.
+   * If this collapses the whole diff, drop it entirely.
+   */
+  const handleKeepHunk = useCallback(
+    (hunk: Hunk) => {
+      const diff = pendingDiffs[activeTabPath];
+      if (!diff || diff.modified === null) return;
+      const newOriginal = applyKeepHunk(diff.original, diff.modified, hunk);
+      if (newOriginal === diff.modified) {
+        removeDiff(selectedAgent, activeTabPath);
+        onTabContentChange(activeTabPath, diff.modified);
+        onTabDirtyChange(activeTabPath, false);
+      } else {
+        updateDiffOriginal(selectedAgent, activeTabPath, newOriginal);
+      }
+    },
+    [
+      activeTabPath,
+      pendingDiffs,
+      selectedAgent,
+      removeDiff,
+      updateDiffOriginal,
+      onTabContentChange,
+      onTabDirtyChange,
+    ],
+  );
+
+  /**
+   * Undo a single hunk: revert its modified content to the original and
+   * persist that to disk. Other hunks remain. If the file ends up equal
+   * to the original baseline, drop the diff entirely.
+   */
+  const handleUndoHunk = useCallback(
+    async (hunk: Hunk) => {
+      const diff = pendingDiffs[activeTabPath];
+      if (!diff || diff.modified === null) return;
+      const newModified = applyUndoHunk(diff.original, diff.modified, hunk);
+
+      undoInProgressRef.current.add(activeTabPath);
+      try {
+        await workspaceApi.saveCodeFile(activeTabPath, newModified);
+      } catch {
+        // ignore — UI state is updated below regardless
+      } finally {
+        setTimeout(() => undoInProgressRef.current.delete(activeTabPath), 1500);
+      }
+
+      if (newModified === diff.original) {
+        removeDiff(selectedAgent, activeTabPath);
+      } else {
+        updateDiffModified(selectedAgent, activeTabPath, newModified);
+      }
+      onTabContentChange(activeTabPath, newModified);
+      onTabDirtyChange(activeTabPath, false);
+    },
+    [
+      activeTabPath,
+      pendingDiffs,
+      selectedAgent,
+      removeDiff,
+      updateDiffModified,
+      onTabContentChange,
+      onTabDirtyChange,
+    ],
+  );
+
+  // When the diff goes away (Keep all, Undo all, or final hunk
+  // resolved), Monaco unmounts the DiffEditor — drop our local
+  // bookkeeping. Monaco disposes its own view zones on unmount.
+  const hasActiveDiff = activeDiff != null;
+  useEffect(() => {
+    if (hasActiveDiff) return;
+    hunkZoneIdsRef.current = [];
+    diffEditorRef.current = null;
+    setHunkOverlays([]);
+  }, [hasActiveDiff]);
 
   // ---- File-watch: show inline diff instead of silent reload ---------------
 
@@ -582,30 +828,30 @@ export default function TabbedEditor({
         </span>
 
         {activeDiff ? (
-          /* Diff mode: show Keep / Undo */
+          /* Diff mode: show global Keep all / Undo all */
           <div className={styles.diffActions}>
             <span className={styles.diffLabel}>
               <GitCompareArrows size={12} />
               Agent changed this file
             </span>
-            <Tooltip title="Keep changes (accept)">
+            <Tooltip title="Keep all changes in this file">
               <button
                 type="button"
                 className={`${styles.iconBtn} ${styles.keepBtn}`}
                 onClick={handleKeep}
               >
                 <Check size={13} />
-                Keep
+                Keep all
               </button>
             </Tooltip>
-            <Tooltip title="Undo changes (revert to original)">
+            <Tooltip title="Undo all changes in this file (revert to original)">
               <button
                 type="button"
                 className={`${styles.iconBtn} ${styles.undoBtn}`}
                 onClick={() => void handleUndo()}
               >
                 <RotateCcw size={13} />
-                Undo
+                Undo all
               </button>
             </Tooltip>
           </div>
@@ -670,26 +916,58 @@ export default function TabbedEditor({
           activeTab &&
           (activeDiff ? (
             /* ── Inline diff view (VS Code "Copilot Edits" style) ─────── */
-            <DiffEditor
-              height="100%"
-              original={activeDiff.original}
-              modified={activeDiff.modified}
-              language={getLanguage(activeTab.path)}
-              theme={isDark ? "vs-dark" : "light"}
-              beforeMount={handleBeforeMount}
-              onMount={handleDiffMount}
-              options={{
-                renderSideBySide: false,
-                readOnly: false,
-                originalEditable: false,
-                minimap: { enabled: false },
-                fontSize: 13,
-                lineNumbers: "on",
-                scrollBeyondLastLine: false,
-                wordWrap: "off",
-                renderOverviewRuler: false,
-              }}
-            />
+            <div className={styles.diffWrap}>
+              <DiffEditor
+                height="100%"
+                original={activeDiff.original}
+                modified={activeDiff.modified}
+                language={getLanguage(activeTab.path)}
+                theme={isDark ? "vs-dark" : "light"}
+                beforeMount={handleBeforeMount}
+                onMount={handleDiffMount}
+                options={{
+                  renderSideBySide: false,
+                  readOnly: false,
+                  originalEditable: false,
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  lineNumbers: "on",
+                  scrollBeyondLastLine: false,
+                  wordWrap: "off",
+                  renderOverviewRuler: false,
+                }}
+              />
+              {/* Per-hunk Keep / Undo overlays — rendered as React JSX
+                  OUTSIDE Monaco's DOM (positioned over the editor). The
+                  buttons must live outside Monaco because Monaco's
+                  mouseHandler captures mousedown on its own children
+                  (view zones, content widgets) and prevents the click
+                  from firing. */}
+              {hunkOverlays.map((ov) => (
+                <div
+                  key={ov.zoneId}
+                  className={styles.hunkWidget}
+                  style={{ top: ov.top }}
+                >
+                  <button
+                    type="button"
+                    className={`${styles.hunkBtn} ${styles.hunkKeepBtn}`}
+                    onClick={() => handleKeepHunk(ov.change)}
+                  >
+                    <Check size={11} style={{ marginRight: 4 }} />
+                    Keep
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.hunkBtn} ${styles.hunkUndoBtn}`}
+                    onClick={() => void handleUndoHunk(ov.change)}
+                  >
+                    <RotateCcw size={11} style={{ marginRight: 4 }} />
+                    Undo
+                  </button>
+                </div>
+              ))}
+            </div>
           ) : (
             /* ── Normal editor ──────────────────────────────────────────── */
             <Editor
@@ -699,7 +977,7 @@ export default function TabbedEditor({
               language={getLanguage(activeTab.path)}
               theme={isDark ? "vs-dark" : "light"}
               beforeMount={handleBeforeMount}
-              onMount={(editor, monaco) => handleMount(editor, monaco)}
+              onMount={handleMount}
               onChange={(v) => {
                 onTabContentChange(activeTabPath, v ?? "");
                 onTabDirtyChange(activeTabPath, true);

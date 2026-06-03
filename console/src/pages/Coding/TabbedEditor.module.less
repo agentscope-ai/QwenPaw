@@ -229,6 +229,71 @@
   overflow: hidden;
 }
 
+// ---- Diff editor wrap + per-hunk action overlays --------------------------
+// The wrap is a positioning context for the per-hunk Keep / Undo
+// overlays that float on top of the DiffEditor. Monaco renders inside
+// the wrap; the overlays are React siblings positioned by absolute
+// `top` (in px) driven by Monaco's view-zone onDomNodeTop callback.
+//
+// Why an overlay (not a Monaco widget): clicks on DOM that lives inside
+// Monaco's view-zones or content-widgets get hijacked by Monaco's mouse
+// handler (focus + preventDefault). Rendering buttons OUTSIDE Monaco
+// sidesteps the whole event-handler chain.
+.diffWrap {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+.hunkWidget {
+  position: absolute;
+  right: 24px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0;
+  background: transparent;
+  pointer-events: auto;
+  z-index: 5;
+}
+
+.hunkBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 1;
+  border: 1px solid;
+  border-radius: 3px;
+  background: var(--body-background, #fff);
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.hunkKeepBtn {
+  color: #52c41a;
+  border-color: rgba(82, 196, 26, 0.4);
+
+  &:hover {
+    background: rgba(82, 196, 26, 0.12);
+  }
+}
+
+.hunkUndoBtn {
+  color: #ff4d4f;
+  border-color: rgba(255, 77, 79, 0.35);
+
+  &:hover {
+    background: rgba(255, 77, 79, 0.1);
+  }
+}
+
 // ---- Empty state -----------------------------------------------------------
 .empty {
   height: 100%;
@@ -315,5 +380,25 @@
 
   .emptyText {
     color: rgba(255, 255, 255, 0.35);
+  }
+
+  .hunkBtn {
+    background: #2a2a2a;
+  }
+
+  .hunkKeepBtn {
+    border-color: rgba(82, 196, 26, 0.45);
+
+    &:hover {
+      background: rgba(82, 196, 26, 0.18);
+    }
+  }
+
+  .hunkUndoBtn {
+    border-color: rgba(255, 77, 79, 0.4);
+
+    &:hover {
+      background: rgba(255, 77, 79, 0.16);
+    }
   }
 }

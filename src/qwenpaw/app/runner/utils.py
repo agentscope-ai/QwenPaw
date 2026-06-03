@@ -355,12 +355,28 @@ def agentscope_msg_to_message(
 
     results: List[Message] = []
 
+    user_tz_name = load_config().user_timezone or "UTC"
+    try:
+        user_tz = ZoneInfo(user_tz_name)
+    except (ZoneInfoNotFoundError, KeyError):
+        user_tz = timezone.utc
+
     for msg in msgs:
         role = msg.role or "assistant"
+
+        ts_value = msg.timestamp
+        if ts_value:
+            try:
+                dt_obj = datetime.strptime(ts_value, "%Y-%m-%d %H:%M:%S.%f")
+                ts_value = dt_obj.replace(tzinfo=user_tz).isoformat()
+            except ValueError:
+                pass
+
         metadata = {
             "original_id": msg.id,
             "original_name": msg.name,
             "metadata": msg.metadata,
+            "timestamp": ts_value,
         }
 
         if isinstance(msg.content, str):

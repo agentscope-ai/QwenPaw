@@ -31,6 +31,7 @@ from typing import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from qwenpaw.app.channels.base import ContentType, OutgoingContentPart
 
 
 # =============================================================================
@@ -2650,3 +2651,498 @@ class TestFeishuChannelExceptions:
             )
 
             assert result is None
+
+
+# =============================================================================
+# P0: Thread (Topic) Reply Support
+# =============================================================================
+
+
+class TestFeishuChannelThreadReply:
+    """Tests for thread/topic reply functionality.
+
+    Covers:
+    - _on_message extracts thread_id into meta
+    - user_id overridden to thread:{short_id} for topic messages
+    - _reply_in_thread method
+    - send_content_parts thread reply path (text, image, file)
+    - on_streaming_start skips thread messages
+    - _before_consume_process skips streaming card pre-creation for threads
+    """
+
+    # -------------------------------------------------------------------------
+    # _on_message: thread_id extraction and user_id override
+    # -------------------------------------------------------------------------
+
+    @pytest.fixture
+    def mock_thread_message_data(self):
+        """Create mock message data with thread_id."""
+        data = MagicMock()
+        data.event = MagicMock()
+        data.event.message = MagicMock()
+        data.event.message.message_id = "msg_thread_001"
+        data.event.message.chat_id = "oc_thread_group"
+        data.event.message.chat_type = "group"
+        data.event.message.message_type = "text"
+        data.event.message.content = '{"text": "Hello in thread"}'
+        data.event.message.thread_id = "omt_thread_root_abc123"
+        data.event.message.parent_id = ""
+        data.event.message.mentions = []
+        data.event.sender = MagicMock()
+        data.event.sender.sender_type = "user"
+        data.event.sender.sender_id = MagicMock()
+        data.event.sender.sender_id.open_id = "ou_user_in_thread"
+        data.event.sender.name = "Thread User"
+        return data
+
+    @pytest.fixture
+    def mock_reply_message_request(self):
+        """Patch ReplyMessageRequest and ReplyMessageRequestBody."""
+        mock_builder = MagicMock()
+        mock_request = MagicMock()
+        mock_builder.message_id.return_value = mock_builder
+        mock_builder.request_body.return_value = mock_builder
+        mock_builder.build.return_value = mock_request
+
+        mock_body_builder = MagicMock()
+        mock_body = MagicMock()
+        mock_body_builder.msg_type.return_value = mock_body_builder
+        mock_body_builder.content.return_value = mock_body_builder
+        mock_body_builder.reply_in_thread.return_value = mock_body_builder
+        mock_body_builder.uuid.return_value = mock_body_builder
+        mock_body_builder.build.return_value = mock_body
+
+        with (
+            patch(
+                "qwenpaw.app.channels.feishu.channel.ReplyMessageRequest",
+            ) as mock_request_class,
+            patch(
+                "qwenpaw.app.channels.feishu.channel.ReplyMessageRequestBody",
+            ) as mock_body_class,
+        ):
+            mock_request_class.builder.return_value = mock_builder
+            mock_body_class.builder.return_value = mock_body_builder
+            yield
+
+    @pytest.mark.asyncio
+    async def test_on_message_extracts_thread_id_to_meta(
+        self,
+        feishu_channel,
+        mock_thread_message_data,
+    ):
+        """Should extract thread_id into channel_meta."""
+        # Use a container to capture the enqueued native payload
+        captured = {}
+
+        def capture_enqueue(native):
+            captured["native"] = native
+
+        feishu_channel._enqueue = capture_enqueue
+
+        await feishu_channel._on_message(mock_thread_message_data)
+
+        assert "native" in captured
+        meta = captured["native"].get("meta", {})
+        assert meta.get("feishu_thread_id") == "omt_thread_root_abc123"
+
+    @pytest.mark.asyncio
+    async def test_on_message_no_thread_id_not_in_meta(
+        self,
+        feishu_channel,
+    ):
+        """Should not include thread_id in meta when not present."""
+        data = MagicMock()
+        data.event = MagicMock()
+        data.event.message = MagicMock()
+        data.event.message.message_id = "msg_no_thread"
+        data.event.message.chat_id = "oc_no_thread"
+        data.event.message.chat_type = "group"
+        data.event.message.message_type = "text"
+        data.event.message.content = '{"text": "Normal message"}'
+        data.event.message.thread_id = ""
+        data.event.message.mentions = []
+        data.event.sender = MagicMock()
+        data.event.sender.sender_type = "user"
+        data.event.sender.sender_id = MagicMock()
+        data.event.sender.sender_id.open_id = "ou_normal_user"
+        data.event.sender.name = "Normal User"
+
+        captured = {}
+
+        def capture_enqueue(native):
+            captured["native"] = native
+
+        feishu_channel._enqueue = capture_enqueue
+
+        await feishu_channel._on_message(data)
+
+        assert "native" in captured
+        meta = captured["native"].get("meta", {})
+        assert "feishu_thread_id" not in meta
+
+    @pytest.mark.asyncio
+    async def test_on_message_thread_overrides_user_id(
+        self,
+        feishu_channel,
+        mock_thread_message_data,
+    ):
+        """Should override user_id to thread:{short_id} for thread msgs."""
+        captured = {}
+
+        def capture_enqueue(native):
+            captured["native"] = native
+
+        feishu_channel._enqueue = capture_enqueue
+
+        await feishu_channel._on_message(mock_thread_message_data)
+
+        assert "native" in captured
+        native = captured["native"]
+        # user_id should be thread:{shortened_thread_id}
+        assert native["user_id"].startswith("thread:")
+        assert "abc123" in native["user_id"]
+
+    @pytest.mark.asyncio
+    async def test_on_message_thread_overrides_shared_mode(
+        self,
+        feishu_channel,
+        mock_thread_message_data,
+    ):
+        """Thread override should win over shared group mode."""
+        feishu_channel.group_session_mode = "shared"
+        captured = {}
+
+        def capture_enqueue(native):
+            captured["native"] = native
+
+        feishu_channel._enqueue = capture_enqueue
+
+        await feishu_channel._on_message(mock_thread_message_data)
+
+        assert "native" in captured
+        native = captured["native"]
+        # Must be thread:..., not group:...
+        assert native["user_id"].startswith("thread:")
+
+    # -------------------------------------------------------------------------
+    # _reply_in_thread method
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_reply_in_thread_success(
+        self,
+        feishu_channel,
+        mock_reply_message_request,
+    ):
+        """Should call reply API and return message_id."""
+        mock_resp = MagicMock()
+        mock_resp.success.return_value = True
+        mock_resp.data = MagicMock()
+        mock_resp.data.message_id = "reply_msg_001"
+
+        mock_client = MagicMock()
+        mock_client.im.v1.message.areply = AsyncMock(
+            return_value=mock_resp,
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._reply_in_thread(
+            "omt_root_123",
+            "post",
+            '{"zh_cn": {"content": []}}',
+        )
+
+        assert result == "reply_msg_001"
+        mock_client.im.v1.message.areply.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_reply_in_thread_no_client(self, feishu_channel):
+        """Should return None when client is not initialized."""
+        feishu_channel._client = None
+
+        result = await feishu_channel._reply_in_thread(
+            "omt_root_123",
+            "post",
+            '{"zh_cn": {"content": []}}',
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_reply_in_thread_empty_message_id(self, feishu_channel):
+        """Should return None when message_id is empty."""
+        feishu_channel._client = MagicMock()
+
+        result = await feishu_channel._reply_in_thread(
+            "",
+            "post",
+            '{"zh_cn": {"content": []}}',
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_reply_in_thread_sdk_failure(self, feishu_channel):
+        """Should return None when SDK reply fails."""
+        mock_resp = MagicMock()
+        mock_resp.success.return_value = False
+        mock_resp.code = 10003
+        mock_resp.msg = "Bad request"
+
+        mock_client = MagicMock()
+        mock_client.im.v1.message.areply = AsyncMock(
+            return_value=mock_resp,
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._reply_in_thread(
+            "omt_root_123",
+            "post",
+            '{"zh_cn": {"content": []}}',
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_reply_in_thread_exception(self, feishu_channel):
+        """Should handle exceptions gracefully and return None."""
+        mock_client = MagicMock()
+        mock_client.im.v1.message.areply = AsyncMock(
+            side_effect=Exception("Reply failed"),
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._reply_in_thread(
+            "omt_root_123",
+            "post",
+            '{"zh_cn": {"content": []}}',
+        )
+
+        assert result is None
+
+    # -------------------------------------------------------------------------
+    # send_content_parts: thread reply path
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_send_content_parts_thread_text(self, feishu_channel):
+        """Should use _reply_in_thread for text in thread mode."""
+        feishu_channel._reply_in_thread = AsyncMock(
+            return_value="thread_reply_id",
+        )
+
+        result = await feishu_channel.send_content_parts(
+            to_handle="feishu:sw:test_session",
+            parts=[
+                MagicMock(
+                    type=ContentType.TEXT,
+                    text="Hello in thread",
+                    spec=OutgoingContentPart,
+                ),
+            ],
+            meta={
+                "feishu_thread_id": "omt_thread_root",
+                "feishu_message_id": "msg_root_001",
+                "feishu_receive_id": "oc_group_123",
+                "feishu_receive_id_type": "chat_id",
+            },
+        )
+
+        assert result == "thread_reply_id"
+        feishu_channel._reply_in_thread.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_content_parts_thread_image(self, feishu_channel):
+        """Should upload image and reply in thread for image parts."""
+        feishu_channel._part_to_image_bytes = AsyncMock(
+            return_value=(b"fake_image_data", "test.png"),
+        )
+        feishu_channel._upload_image = AsyncMock(
+            return_value="img_key_thread",
+        )
+        feishu_channel._reply_in_thread = AsyncMock(
+            return_value="thread_img_reply",
+        )
+
+        part = MagicMock(spec=OutgoingContentPart)
+        part.type = ContentType.IMAGE
+        part.image_url = "data:image/png;base64,aGVsbG8="
+        part.filename = "test.png"
+
+        result = await feishu_channel.send_content_parts(
+            to_handle="feishu:sw:test_session",
+            parts=[part],
+            meta={
+                "feishu_thread_id": "omt_thread_root",
+                "feishu_message_id": "msg_root_001",
+                "feishu_receive_id": "oc_group_123",
+                "feishu_receive_id_type": "chat_id",
+            },
+        )
+
+        assert result == "thread_img_reply"
+        feishu_channel._upload_image.assert_called_once_with(
+            b"fake_image_data",
+            "test.png",
+        )
+        feishu_channel._reply_in_thread.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_content_parts_thread_file(self, feishu_channel):
+        """Should upload file and reply in thread for file parts."""
+        feishu_channel._part_to_file_path_or_url = AsyncMock(
+            return_value="/tmp/test_doc.pdf",
+        )
+        feishu_channel._upload_file = AsyncMock(
+            return_value="file_key_thread",
+        )
+        feishu_channel._reply_in_thread = AsyncMock(
+            return_value="thread_file_reply",
+        )
+
+        part = MagicMock(spec=OutgoingContentPart)
+        part.type = ContentType.FILE
+        part.file_url = "file:///tmp/test_doc.pdf"
+        part.filename = "test_doc.pdf"
+
+        result = await feishu_channel.send_content_parts(
+            to_handle="feishu:sw:test_session",
+            parts=[part],
+            meta={
+                "feishu_thread_id": "omt_thread_root",
+                "feishu_message_id": "msg_root_001",
+                "feishu_receive_id": "oc_group_123",
+                "feishu_receive_id_type": "chat_id",
+            },
+        )
+
+        assert result == "thread_file_reply"
+        feishu_channel._upload_file.assert_called_once()
+        feishu_channel._reply_in_thread.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_content_parts_thread_audio_file(self, feishu_channel):
+        """Should use audio msg_type for ogg/opus files in thread."""
+        feishu_channel._part_to_file_path_or_url = AsyncMock(
+            return_value="/tmp/audio.opus",
+        )
+        feishu_channel._upload_file = AsyncMock(
+            return_value="file_key_audio",
+        )
+        feishu_channel._reply_in_thread = AsyncMock(
+            return_value="thread_audio_reply",
+        )
+
+        part = MagicMock(spec=OutgoingContentPart)
+        part.type = ContentType.AUDIO
+        part.file_url = "file:///tmp/audio.opus"
+        part.filename = "audio.opus"
+
+        result = await feishu_channel.send_content_parts(
+            to_handle="feishu:sw:test_session",
+            parts=[part],
+            meta={
+                "feishu_thread_id": "omt_thread_root",
+                "feishu_message_id": "msg_root_001",
+                "feishu_receive_id": "oc_group_123",
+                "feishu_receive_id_type": "chat_id",
+            },
+        )
+
+        assert result == "thread_audio_reply"
+        feishu_channel._reply_in_thread.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_content_parts_no_thread_uses_normal_path(
+        self,
+        feishu_channel,
+    ):
+        """Without thread_id, normal send path should be used."""
+        feishu_channel._send_text = AsyncMock(return_value="normal_msg_id")
+
+        result = await feishu_channel.send_content_parts(
+            to_handle="feishu:sw:test_session",
+            parts=[
+                MagicMock(
+                    type=ContentType.TEXT,
+                    text="Normal message",
+                    spec=OutgoingContentPart,
+                ),
+            ],
+            meta={
+                "feishu_receive_id": "oc_group_123",
+                "feishu_receive_id_type": "chat_id",
+            },
+        )
+
+        assert result == "normal_msg_id"
+        feishu_channel._send_text.assert_called_once()
+
+    # -------------------------------------------------------------------------
+    # Streaming: skip for thread messages
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_on_streaming_start_skips_thread(self, feishu_channel):
+        """on_streaming_start should skip when feishu_thread_id is set."""
+        feishu_channel.streaming_enabled = True
+        feishu_channel._get_receive_for_send = AsyncMock(
+            return_value=("chat_id", "oc_test"),
+        )
+
+        await feishu_channel.on_streaming_start(
+            request=MagicMock(),
+            to_handle="feishu:sw:test",
+            event=MagicMock(),
+            send_meta={"feishu_thread_id": "omt_thread_root"},
+            stream_type="message",
+        )
+
+        feishu_channel._get_receive_for_send.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_on_streaming_start_proceeds_without_thread(
+        self,
+        feishu_channel,
+    ):
+        """Without thread_id, normal streaming start should proceed."""
+        feishu_channel.streaming_enabled = True
+        feishu_channel._get_receive_for_send = AsyncMock(
+            return_value=("chat_id", "oc_test"),
+        )
+        feishu_channel._create_streaming_card = AsyncMock(
+            return_value={"card_id": "card_001", "message_id": "msg_001"},
+        )
+
+        await feishu_channel.on_streaming_start(
+            request=MagicMock(),
+            to_handle="feishu:sw:test",
+            event=MagicMock(),
+            send_meta={},
+            stream_type="message",
+        )
+
+        feishu_channel._get_receive_for_send.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_before_consume_process_skips_streaming_for_thread(
+        self,
+        feishu_channel,
+    ):
+        """_before_consume_process should skip card pre-creation for thread."""
+        feishu_channel.streaming_enabled = True
+        feishu_channel._create_streaming_card = AsyncMock(
+            return_value={"card_id": "card_001"},
+        )
+
+        request = MagicMock()
+        request.session_id = "test_session"
+        request.channel_meta = {
+            "feishu_receive_id": "oc_test",
+            "feishu_receive_id_type": "chat_id",
+            "feishu_thread_id": "omt_thread_root",
+        }
+
+        await feishu_channel._before_consume_process(request)
+
+        feishu_channel._create_streaming_card.assert_not_called()

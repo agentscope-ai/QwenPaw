@@ -14,9 +14,9 @@
     "titleleft": "Your Personal",
     "titleright": "AI assistant",
     "slogan": "Works for you, grows with you",
-    "sub": "v1.1.5: QwenPaw custom LLMs, safety architecture, multi-agent collaboration,",
+    "sub": "{{version}}: QwenPaw custom LLMs, safety architecture, multi-agent collaboration,",
     "sub1": "and memory management — all upgraded, all yours.",
-    "releaseNote": "QwenPaw v1.1.5 is released",
+    "releaseNote": "QwenPaw {{version}} is released",
     "cta": "Read the docs",
     "quickStart": "Quick Start"
   },
@@ -297,7 +297,8 @@
     "demoVideos": {
       "skill": "/skills: On-demand agent skill invocation",
       "doctor": "QwenPaw Doctor: One-click comprehensive system diagnostics",
-      "missionMode": "QwenPaw Mission Mode: Autonomous execution for complex tasks"
+      "missionMode": "QwenPaw Mission Mode: Autonomous execution for complex tasks",
+      "autoContinue": "Auto-Continue for Text-Only Steps"
     },
     "textVersion": "View text documentation",
     "backToTop": "Back to top",
@@ -459,6 +460,7 @@
     "emptyTitle": "No downloads available yet",
     "emptyDesc": "Desktop builds are in progress. Please check back later.",
     "emptyCta": "View other installation methods",
+    "tabNavLabel": "Download categories",
     "desktopTitle": "Desktop Application",
     "desktopDesc": "Standalone desktop app with bundled Python environment and all dependencies. Double-click to run, no command line required.",
     "recommended": "Recommended",
@@ -486,8 +488,6 @@
     "helpSuffix": "for detailed setup instructions.",
     "pluginsTitle": "Plugins",
     "pluginsDesc": "Bundled and tool plugins discovered in the QwenPaw repository. Download a .zip package to install manually.",
-    "kindBundle": "Bundle",
-    "kindTool": "Tool",
     "downloadZip": "Download .zip"
   },
   "releaseNotes": {

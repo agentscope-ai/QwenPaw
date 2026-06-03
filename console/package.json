@@ -20,7 +20,7 @@
     "test:coverage": "NODE_OPTIONS=--max-old-space-size=4096 vitest run --coverage"
   },
   "dependencies": {
-    "@agentscope-ai/chat": "^1.1.64-beta.1779242866003",
+    "@agentscope-ai/chat": "^1.1.64-beta.1779961389231",
     "@agentscope-ai/design": "^1.0.14",
     "@agentscope-ai/icons": "^1.0.67",
     "@ant-design/icons": "^5.0.1",
@@ -31,6 +31,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@monaco-editor/react": "^4.7.0",
     "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
     "@types/react-window": "^1.8.8",
     "@vvo/tzdb": "^6.198.0",
     "ahooks": "^3.9.6",

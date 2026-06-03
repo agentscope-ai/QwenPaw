@@ -164,7 +164,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Current value of the rename input */
   const [editValue, setEditValue] = useState("");
 
-  /** Whether the session list is being fetched (default true because destroyOnClose re-mounts) */
+  /** Whether the session list is being fetched (default true because destroyOnHidden re-mounts) */
   const [listLoading, setListLoading] = useState(true);
 
   /** Height of the virtual list container, measured via ResizeObserver */
@@ -499,7 +499,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     <Drawer
       open={props.open}
       onClose={props.pinned ? undefined : props.onClose}
-      destroyOnClose={!props.pinned}
+      destroyOnHidden={!props.pinned}
       placement="right"
       width={360}
       closable={false}
@@ -575,13 +575,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           </div>
         ) : (
           <>
-            {/* Background loading — only show when content overflows the container,
-                so it's visible through unrendered gaps during fast scroll */}
-            {sortedSessions.length * ITEM_HEIGHT > listHeight && (
-              <div className={styles.virtualListBackground}>
-                <Spin size="small" />
-              </div>
-            )}
             <FixedSizeList
               height={listHeight}
               width="100%"

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=too-many-statements
 """Coding Project management endpoints.
 
 Allows users to set, clear, clone, create, and list coding projects
@@ -12,6 +13,7 @@ import asyncio
 import io
 import json
 import logging
+import sys
 import zipfile
 from pathlib import Path
 
@@ -22,6 +24,7 @@ from pydantic import BaseModel
 from ..agent_context import get_agent_for_request, get_coding_dir
 from ..utils import safe_project_dest
 from ...constant import CODING_PROJECT_SUBDIR
+from ...utils.command_runner import run_command_async, start_command_async
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,29 @@ router = APIRouter(prefix="/workspace/coding-project", tags=["coding-project"])
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _list_windows_drives_response() -> dict:
+    """Return a browse-dirs response listing drives."""
+    import ctypes
+
+    bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+    dirs: list[dict] = []
+    for i in range(26):
+        if bitmask & (1 << i):
+            letter = chr(ord("A") + i)
+            dirs.append(
+                {
+                    "name": f"{letter}:",
+                    "path": f"{letter}:\\",
+                },
+            )
+    return {
+        "current": "/",
+        "parent": None,
+        "dirs": dirs,
+        "selectable": False,
+    }
 
 
 def _projects_base(workspace_dir: Path) -> Path:
@@ -152,15 +178,12 @@ async def create_project(body: CreateProjectRequest, request: Request) -> dict:
 
     project_path = await asyncio.to_thread(_make_dir)
 
-    # git init
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        "init",
+    await run_command_async(
+        ["git", "init"],
         cwd=str(project_path),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        check=False,
+        timeout=None,
     )
-    await proc.communicate()
 
     # Set as active project
     await asyncio.to_thread(
@@ -220,24 +243,44 @@ async def clone_project(
         try:
             base.mkdir(parents=True, exist_ok=True)
 
-            proc = await asyncio.create_subprocess_exec(
-                "git",
-                "clone",
-                "--progress",
-                url,
-                str(target),
+            proc = await start_command_async(
+                ["git", "clone", "--progress", url, str(target)],
                 stdout=asyncio.subprocess.PIPE,
                 # git writes progress to stderr
                 stderr=asyncio.subprocess.STDOUT,
             )
 
-            # Stream output line-by-line
             assert proc.stdout is not None
-            async for raw_line in proc.stdout:
-                line = raw_line.decode("utf-8", errors="replace").rstrip()
-                if line:
-                    payload = json.dumps({"type": "log", "line": line})
-                    yield f"data: {payload}\n\n"
+            buf = ""  # raw read: \r progress arrives real-time
+            while True:
+                raw = await proc.stdout.read(4096)
+                if not raw:
+                    break
+                buf += raw.decode("utf-8", errors="replace")
+                # Split on \r or \n (or \r\n)
+                while True:
+                    idx = -1
+                    for sep in ("\r\n", "\r", "\n"):
+                        pos = buf.find(sep)
+                        if pos != -1 and (idx == -1 or pos < idx):
+                            idx = pos
+                            sep_len = len(sep)
+                    if idx == -1:
+                        break
+                    line = buf[:idx].strip()
+                    buf = buf[idx + sep_len :]
+                    if line:
+                        payload = json.dumps(
+                            {"type": "log", "line": line},
+                        )
+                        yield f"data: {payload}\n\n"
+            # Flush remaining buffer
+            remaining = buf.strip()
+            if remaining:
+                payload = json.dumps(
+                    {"type": "log", "line": remaining},
+                )
+                yield f"data: {payload}\n\n"
 
             rc = await proc.wait()
             if rc != 0:
@@ -419,6 +462,93 @@ async def upload_zip(
         str(project_path),
     )
     return {"path": str(project_path), "name": project_path.name}
+
+
+@router.get(
+    "/browse-dirs",
+    summary="Browse directories on the server for project selection",
+)
+async def browse_dirs(
+    path: str = Query(
+        default="~",
+        description="Directory to list (default: home)",
+    ),
+    show_hidden: bool = Query(
+        default=False,
+        description="Include hidden directories",
+    ),
+) -> dict:
+    """Return subdirectories at *path* for the file browser UI.
+
+    On Windows, ``"/"`` is treated as a virtual root that
+    lists all available drive letters (C:, D:, ...).
+    """
+    # Windows virtual root: list all drive letters
+    if sys.platform == "win32" and path in ("/", "\\"):
+        return await asyncio.to_thread(
+            _list_windows_drives_response,
+        )
+
+    target = await asyncio.to_thread(
+        lambda: Path(path).expanduser().resolve(),
+    )
+
+    if not target.exists():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Path does not exist: {target}",
+        )
+    if not target.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Not a directory: {target}",
+        )
+
+    def _scan() -> dict:
+        dirs: list[dict] = []
+        try:
+            for entry in sorted(target.iterdir()):
+                if not show_hidden and entry.name.startswith("."):
+                    continue
+                try:
+                    if entry.is_dir():
+                        dirs.append(
+                            {
+                                "name": entry.name,
+                                "path": str(entry),
+                            },
+                        )
+                except (PermissionError, OSError):
+                    continue
+        except PermissionError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Permission denied: {target}",
+            ) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Path does not exist: {target}",
+            ) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to list directory: {target}",
+            ) from exc
+        parent = target.parent
+        # On Windows drive root, parent points to
+        # the virtual drives listing.
+        if sys.platform == "win32" and parent == target:
+            parent_str: str | None = "/"
+        else:
+            parent_str = str(parent) if parent != target else None
+        return {
+            "current": str(target),
+            "parent": parent_str,
+            "dirs": dirs,
+        }
+
+    return await asyncio.to_thread(_scan)
 
 
 @router.get("/list", summary="List all coding projects for this agent")

@@ -219,7 +219,7 @@ export function AccessControlDrawer({
       title={t("channels.manageAccessControl")}
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
     >
       <Tabs
         activeKey={activeTab}
@@ -326,7 +326,7 @@ export function AccessControlDrawer({
           setAddModalOpen(false);
         }}
         okButtonProps={{ disabled: !newUserId.trim() }}
-        destroyOnClose
+        destroyOnHidden
       >
         <Space direction="vertical" style={{ width: "100%" }} size={16}>
           <div>

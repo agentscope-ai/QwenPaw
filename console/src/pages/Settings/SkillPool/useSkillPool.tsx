@@ -25,10 +25,10 @@ import {
   useConflictRenameModal,
 } from "../../Agent/Skills/components";
 import { useSkillFilter } from "../../Agent/Skills/useSkillFilter";
+import { useUploadLimitStore } from "../../../stores/uploadLimitStore";
 
 export type PoolMode = "broadcast" | "create" | "edit";
 
-const SKILL_POOL_ZIP_MAX_MB = 100;
 type BuiltinSkillLanguage = "en" | "zh";
 interface BuiltinImportSelection {
   skill_name: string;
@@ -813,10 +813,11 @@ export function useSkillPool() {
     }
 
     const sizeMB = file.size / (1024 * 1024);
-    if (sizeMB > SKILL_POOL_ZIP_MAX_MB) {
+    const uploadLimit = useUploadLimitStore.getState().uploadMaxSizeMb;
+    if (uploadLimit !== null && sizeMB > uploadLimit) {
       message.warning(
         t("skills.fileSizeExceeded", {
-          limit: SKILL_POOL_ZIP_MAX_MB,
+          limit: uploadLimit,
           size: sizeMB.toFixed(1),
         }),
       );

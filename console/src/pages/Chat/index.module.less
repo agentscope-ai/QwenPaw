@@ -82,15 +82,28 @@
   align-items: flex-start;
   gap: 12px;
   min-width: 0;
-  width: 100%;
+  width: min(520px, calc(100vw - 48px));
+  max-width: 100%;
   line-height: 1.4;
+}
+
+.suggestionLabelCompact {
+  width: auto;
 }
 
 .suggestionCommand {
   flex: 0 0 88px;
+  min-width: 0;
   color: #ff7f16;
   font-weight: 600;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestionLabelCompact .suggestionCommand {
+  flex-basis: auto;
+  max-width: min(320px, calc(100vw - 96px));
 }
 
 .suggestionDescription {
@@ -101,6 +114,19 @@
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+:global {
+  .qwenpaw-suggestion .qwenpaw-cascader-menu,
+  .qwenpaw-suggestion .ant-cascader-menu,
+  .ant-cascader-dropdown.qwenpaw-suggestion .qwenpaw-cascader-menu,
+  .ant-cascader-dropdown.qwenpaw-suggestion .ant-cascader-menu {
+    height: auto !important;
+    max-height: 210px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
 }
 
 :global(.dark-mode) {
@@ -119,6 +145,23 @@
   [class*="prompt-icon"],
   [class*="PromptIcon"] {
     color: #ff7f16 !important;
+  }
+}
+
+/* Message actions: hide by default on hover-capable devices, always visible on touch */
+@media (hover: hover) {
+  .chatMessagesArea :global {
+    [class*="bubble-footer"] {
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    [class*="bubble-end"]:hover [class*="bubble-footer"],
+    [class*="bubble-start"]:hover [class*="bubble-footer"],
+    [class*="bubble-footer"]:hover,
+    [class*="bubble-footer"]:focus-within {
+      opacity: 1;
+    }
   }
 }
 

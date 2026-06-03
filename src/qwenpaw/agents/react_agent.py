@@ -43,6 +43,7 @@ from .tools import (
     delegate_external_agent,
     chat_with_agent,
     check_agent_task,
+    spawn_subagent,
     submit_to_agent,
     desktop_screenshot,
     edit_file,
@@ -301,6 +302,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             "chat_with_agent": chat_with_agent,
             "submit_to_agent": submit_to_agent,
             "check_agent_task": check_agent_task,
+            "spawn_subagent": spawn_subagent,
             # Register only when the `make-skill` skill is enabled.
             **(
                 {"materialize_skill": materialize_skill}
@@ -728,10 +730,15 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
 
     # ------------------------------------------------------------------
     # Media-block fallback: strip unsupported media blocks (image, audio,
-    # video) from memory and retry when the model rejects them.
+    # video, file) from memory and retry when the model rejects them.
+    # Unlike model_factory._fixup_media_list (which converts file blocks
+    # to text placeholders so the user-facing message history stays
+    # readable), this fallback strips them entirely — its purpose is to
+    # make a previously-rejected request retryable, so leaving residue
+    # would defeat the point.
     # ------------------------------------------------------------------
 
-    _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
+    _MEDIA_BLOCK_TYPES = {"image", "audio", "video", "file"}
 
     # ------------------------------------------------------------------
     # Plan gate: block non-create_plan tools when /plan gate is active

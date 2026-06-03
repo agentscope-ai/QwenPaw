@@ -70,7 +70,7 @@ from .utils import (
     sender_display_string,
     short_session_id_from_full_id,
 )
-from .card_handler import FeishuCardHandler
+from .cards import FeishuCardHandler
 
 
 # Compatibility for setuptools>=82 where pkg_resources may be absent.
@@ -133,6 +133,8 @@ try:
         GetMessageRequest,
         GetMessageResourceRequest,
         P2ImMessageReceiveV1,
+        ReplyMessageRequest,
+        ReplyMessageRequestBody,
     )
     import lark_oapi.ws.client as _ws_mod
 
@@ -152,6 +154,8 @@ except ImportError:  # pragma: no cover - optional dependency may be missing
     GetMessageRequest = None  # type: ignore[assignment]
     GetMessageResourceRequest = None  # type: ignore[assignment]
     P2ImMessageReceiveV1 = None  # type: ignore[assignment]
+    ReplyMessageRequest = None  # type: ignore[assignment]
+    ReplyMessageRequestBody = None  # type: ignore[assignment]
 finally:
     if (
         _pkg_resources_shim is not None
@@ -886,6 +890,12 @@ class FeishuChannel(BaseChannel):
                 "feishu_sender_id": sender_id,
                 "is_group": is_group,
             }
+            # Extract thread_id for topic reply support.
+            thread_id = str(
+                getattr(message, "thread_id", "") or "",
+            ).strip()
+            if thread_id:
+                meta["feishu_thread_id"] = thread_id
             # Surface human-readable sender name to env_context.
             meta["user_name"] = nickname
             receive_id = chat_id if is_group else sender_id
@@ -910,6 +920,15 @@ class FeishuChannel(BaseChannel):
                 "content_parts": content_parts,
                 "meta": meta,
             }
+            # When message is in a topic thread, override user_id to the
+            # thread_id so all members in the same topic share one session
+            # (analogous to shared mode using group_id).
+            if thread_id:
+                thread_uid = (
+                    f"thread:{short_session_id_from_full_id(thread_id)}"
+                )
+                native["user_id"] = thread_uid
+                meta["feishu_sender_id"] = thread_uid
             logger.info(
                 "feishu recv from=%s chat=%s msg_id=%s type=%s text_len=%s",
                 sender_display[:40],
@@ -1532,6 +1551,60 @@ class FeishuChannel(BaseChannel):
             logger.exception("feishu _send_message failed")
             return None
 
+    async def _reply_in_thread(
+        self,
+        message_id: str,
+        msg_type: str,
+        content: str,
+    ) -> Optional[str]:
+        """Reply to a message in thread via lark reply API.
+
+        Uses reply_in_thread=True so the reply stays in the topic thread.
+        Returns the new message_id on success, None on failure.
+        """
+        if not self._client or not message_id:
+            return None
+        logger.info(
+            "feishu _reply_in_thread: msg_type=%s message_id=%s "
+            "content_len=%s",
+            msg_type,
+            message_id[:20],
+            len(content),
+        )
+        try:
+            req = (
+                ReplyMessageRequest.builder()
+                .message_id(message_id)
+                .request_body(
+                    ReplyMessageRequestBody.builder()
+                    .msg_type(msg_type)
+                    .content(content)
+                    .reply_in_thread(True)
+                    .uuid(str(_uuid.uuid4()))
+                    .build(),
+                )
+                .build()
+            )
+            resp = await self._client.im.v1.message.areply(req)
+            if not resp.success():
+                logger.warning(
+                    "feishu _reply_in_thread failed code=%s msg=%s",
+                    getattr(resp, "code", ""),
+                    getattr(resp, "msg", ""),
+                )
+                return None
+            msg_id = (
+                getattr(resp.data, "message_id", None) if resp.data else None
+            )
+            logger.info(
+                "feishu _reply_in_thread ok: msg_id=%s",
+                (msg_id or "")[:24],
+            )
+            return msg_id
+        except Exception:
+            logger.exception("feishu _reply_in_thread failed")
+            return None
+
     async def _send_text(
         self,
         receive_id_type: str,
@@ -1620,9 +1693,12 @@ class FeishuChannel(BaseChannel):
         receive_id_type: str,
         receive_id: str,
         part: OutgoingContentPart,
+        thread_msg_id: str = "",
     ) -> Optional[str]:
         """Upload image and send as msg_type=image (image_key) per API.
 
+        When *thread_msg_id* is provided, replies in thread instead of
+        sending a new message.
         Returns the message_id on success, None on failure.
         """
         logger.info(
@@ -1646,6 +1722,12 @@ class FeishuChannel(BaseChannel):
             image_key[:24] if image_key else "",
         )
         content = json.dumps({"image_key": image_key}, ensure_ascii=False)
+        if thread_msg_id:
+            return await self._reply_in_thread(
+                thread_msg_id,
+                "image",
+                content,
+            )
         return await self._send_message(
             receive_id_type,
             receive_id,
@@ -1716,9 +1798,12 @@ class FeishuChannel(BaseChannel):
         receive_id_type: str,
         receive_id: str,
         part: OutgoingContentPart,
+        thread_msg_id: str = "",
     ) -> Optional[str]:
         """Upload file and send file message (msg_type=file, file_key).
 
+        When *thread_msg_id* is provided, replies in thread instead of
+        sending a new message.
         Returns the message_id on success, None on failure.
         """
         logger.info(
@@ -1744,6 +1829,12 @@ class FeishuChannel(BaseChannel):
         content = json.dumps({"file_key": file_key}, ensure_ascii=False)
         ext = Path(path_or_url).suffix.lower().lstrip(".")
         msg_type = "audio" if ext in ("ogg", "opus") else "file"
+        if thread_msg_id:
+            return await self._reply_in_thread(
+                thread_msg_id,
+                msg_type,
+                content,
+            )
         return await self._send_message(
             receive_id_type,
             receive_id,
@@ -1891,12 +1982,31 @@ class FeishuChannel(BaseChannel):
         if prefix and body:
             body = prefix + "  " + body
         last_message_id: Optional[str] = None
+        # Determine if this is a thread reply.
+        # Thread replies use "post" format only — interactive
+        # cards are NOT supported because Feishu threads lack
+        # streaming (card update) capability. This means tables
+        # will render via post markdown rather than interactive
+        # card chunks (build_interactive_content_chunks is
+        # intentionally skipped).
+        thread_msg_id = ""
+        if meta and meta.get("feishu_thread_id"):
+            thread_msg_id = meta.get("feishu_message_id", "")
         if body:
-            last_message_id = await self._send_text(
-                receive_id_type,
-                receive_id,
-                body,
-            )
+            if thread_msg_id:
+                post = self._build_post_content(body, [])
+                content = json.dumps(post, ensure_ascii=False)
+                last_message_id = await self._reply_in_thread(
+                    thread_msg_id,
+                    "post",
+                    content,
+                )
+            else:
+                last_message_id = await self._send_text(
+                    receive_id_type,
+                    receive_id,
+                    body,
+                )
         for part in media_parts:
             pt = getattr(part, "type", None)
             if pt == ContentType.IMAGE:
@@ -1904,6 +2014,7 @@ class FeishuChannel(BaseChannel):
                     receive_id_type,
                     receive_id,
                     part,
+                    thread_msg_id=thread_msg_id,
                 )
                 logger.info(
                     "feishu send_content_parts: image sent ok=%s",
@@ -1920,6 +2031,7 @@ class FeishuChannel(BaseChannel):
                     receive_id_type,
                     receive_id,
                     part,
+                    thread_msg_id=thread_msg_id,
                 )
                 logger.info(
                     "feishu send_content_parts: file sent ok=%s type=%s",
@@ -2150,7 +2262,9 @@ class FeishuChannel(BaseChannel):
 
     def _is_card_event(self, event: Any) -> bool:
         """Check if the event matches a registered interactive card kind."""
-        meta = self._card_handler._extract_meta(event)
+        from .cards.context import extract_meta
+
+        meta = extract_meta(event)
         if meta is None:
             return False
         message_type = str(meta.get("message_type") or "")
@@ -2187,6 +2301,9 @@ class FeishuChannel(BaseChannel):
     ) -> None:
         """Create a new streaming card for this stream segment."""
         if not self.streaming_enabled:
+            return
+        # Thread replies do not support streaming; skip card creation.
+        if send_meta.get("feishu_thread_id"):
             return
         recv = await self._get_receive_for_send(to_handle, send_meta)
         if not recv:
@@ -2419,10 +2536,12 @@ class FeishuChannel(BaseChannel):
 
         # Pre-create streaming card for immediate feedback.
         # Skip card-action requests (e.g. /approval from buttons).
+        # Skip thread replies (streaming not supported in threads).
         if (
             self.streaming_enabled
             and receive_id
             and not meta.get("from_card_action")
+            and not meta.get("feishu_thread_id")
         ):
             try:
                 card_info = await self._create_streaming_card(

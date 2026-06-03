@@ -132,7 +132,9 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
           okText={t("common.delete")}
           cancelText={t("common.cancel")}
         >
-          <Button type="text" danger icon={<Trash2 size={16} />} size="small" />
+          <Button type="text" danger size="small">
+            <Trash2 size={14} />
+          </Button>
         </Popconfirm>
       ),
     },

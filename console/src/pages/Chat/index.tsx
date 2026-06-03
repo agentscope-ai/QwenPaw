@@ -15,10 +15,11 @@ import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import { chatApi } from "../../api/modules/chat";
 import { agentApi } from "../../api/modules/agent";
+import { skillApi } from "../../api/modules/skill";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
-import type { ProviderInfo, ModelInfo } from "../../api/types";
+import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
@@ -66,12 +67,13 @@ import {
   extractUserMessageText,
   extractTextFromMessage,
   setTextareaValue,
+  formatMessageTime,
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
 import { openExternalLink } from "../../utils/openExternalLink";
-
-const CHAT_ATTACHMENT_MAX_MB = 10;
+import { getLastEditorCopy } from "../Coding/lastEditorCopy";
+import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 
 interface SessionInfo {
   session_id?: string;
@@ -133,11 +135,17 @@ function payloadCompletesResponse(payload: unknown): boolean {
   return record.object === "response" && record.status === "completed";
 }
 
-function renderSuggestionLabel(command: string, description: string) {
+function renderSuggestionLabel(command: string, description?: string) {
   return (
-    <div className={styles.suggestionLabel}>
+    <div
+      className={`${styles.suggestionLabel} ${
+        description ? "" : styles.suggestionLabelCompact
+      }`}
+    >
       <span className={styles.suggestionCommand}>{command}</span>
-      <span className={styles.suggestionDescription}>{description}</span>
+      {description ? (
+        <span className={styles.suggestionDescription}>{description}</span>
+      ) : null}
     </div>
   );
 }
@@ -148,6 +156,12 @@ function renderSuggestionLabel(command: string, description: string) {
 
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
+
+function isSkillAvailableInConsole(skill: SkillSpec): boolean {
+  if (!skill.enabled) return false;
+  const channels = skill.channels?.length ? skill.channels : ["all"];
+  return channels.includes("all") || channels.includes(DEFAULT_CHANNEL);
+}
 
 // ---------------------------------------------------------------------------
 // Custom hooks
@@ -482,7 +496,14 @@ function useMessageHistoryNavigation(
 // Chat input draft persistence
 // ---------------------------------------------------------------------------
 
-const DRAFT_STORAGE_KEY = "qwenpaw_chat_input_draft";
+const DRAFT_STORAGE_KEY_PREFIX = "qwenpaw_chat_input_draft";
+let draftSuppressed = false;
+
+function getDraftStorageKey(agentId?: string): string {
+  return agentId
+    ? `${DRAFT_STORAGE_KEY_PREFIX}_${agentId}`
+    : DRAFT_STORAGE_KEY_PREFIX;
+}
 
 interface DraftState {
   value: string;
@@ -490,7 +511,9 @@ interface DraftState {
   selectionEnd: number;
 }
 
-function useChatInputDraft(isChatActive: () => boolean) {
+function useChatInputDraft(isChatActive: () => boolean, agentId?: string) {
+  const storageKey = getDraftStorageKey(agentId);
+
   useEffect(() => {
     if (!isChatActive()) return;
 
@@ -508,9 +531,9 @@ function useChatInputDraft(isChatActive: () => boolean) {
         selectionEnd: textarea.selectionEnd,
       };
       if (draft.value) {
-        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+        localStorage.setItem(storageKey, JSON.stringify(draft));
       } else {
-        localStorage.removeItem(DRAFT_STORAGE_KEY);
+        localStorage.removeItem(storageKey);
       }
     };
 
@@ -533,7 +556,7 @@ function useChatInputDraft(isChatActive: () => boolean) {
       const textarea = getTextarea();
       if (textarea) {
         clearInterval(restoreInterval);
-        const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+        const raw = localStorage.getItem(storageKey);
         if (raw) {
           try {
             const draft: DraftState = JSON.parse(raw);
@@ -560,13 +583,67 @@ function useChatInputDraft(isChatActive: () => boolean) {
       if (saveTimer) clearTimeout(saveTimer);
       document.removeEventListener("input", handleInput, true);
 
-      // Final save on unmount
-      const textarea = getTextarea();
-      if (textarea) {
-        saveDraft(textarea);
+      // Final save on unmount (skip if message was just sent)
+      if (!draftSuppressed) {
+        const textarea = getTextarea();
+        if (textarea) {
+          saveDraft(textarea);
+        }
       }
+      draftSuppressed = false;
     };
-  }, [isChatActive]);
+  }, [isChatActive, storageKey]);
+}
+
+/**
+ * When the user pastes into the chat textarea text that was just copied
+ * from the Coding-mode editor, swap the raw paste for the formatted
+ * `path:line[-line]` version (plus optional fenced code). Cmd/Ctrl+C in
+ * the editor stays as a plain-text copy for paste-anywhere; only Chat
+ * pastes get the editor-context format.
+ *
+ * Not gated by route: the Chat composer is also embedded in Coding
+ * mode (side-by-side with the editor), and that's the primary place
+ * users do an editor→chat copy. The handler is already selective (it
+ * checks the paste target is a sender textarea AND the pasted text
+ * matches the last editor copy), so a global listener is safe.
+ */
+function useChatPasteFromEditor() {
+  useEffect(() => {
+    // Anything older than this is treated as stale (different copy session).
+    const STALE_MS = 60_000;
+
+    const handlePaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target || target.tagName !== "TEXTAREA") return;
+      if (!target.closest('[class*="sender"]')) return;
+
+      const last = getLastEditorCopy();
+      if (!last) return;
+      if (Date.now() - last.ts > STALE_MS) return;
+
+      const pasted = e.clipboardData?.getData("text/plain");
+      if (pasted == null || pasted !== last.text) return;
+
+      e.preventDefault();
+      const textarea = target as HTMLTextAreaElement;
+      const start = textarea.selectionStart ?? textarea.value.length;
+      const end = textarea.selectionEnd ?? textarea.value.length;
+      const before = textarea.value.slice(0, start);
+      const after = textarea.value.slice(end);
+      const next = before + last.formatted + after;
+      setTextareaValue(textarea, next);
+      const caret = before.length + last.formatted.length;
+      requestAnimationFrame(() => {
+        textarea.selectionStart = textarea.selectionEnd = caret;
+      });
+    };
+
+    document.addEventListener("paste", handlePaste, true);
+    return () => {
+      document.removeEventListener("paste", handlePaste, true);
+    };
+  }, []);
 }
 
 function RuntimeLoadingBridge({
@@ -603,6 +680,12 @@ function RuntimeLoadingBridge({
   return null;
 }
 
+const timestampStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "var(--ant-color-text-quaternary)",
+  whiteSpace: "nowrap",
+};
+
 export default function ChatPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -632,6 +715,11 @@ export default function ChatPage() {
     Map<string, ApprovalMessageData>
   >(new Map());
   const [planEnabled, setPlanEnabled] = useState(false);
+  const [chatSkills, setChatSkills] = useState<SkillSpec[]>([]);
+  const consoleSkills = useMemo(
+    () => chatSkills.filter(isSkillAvailableInConsole),
+    [chatSkills],
+  );
   const [chatCommands, setChatCommands] = useState<string[]>([
     "clear",
     "compact",
@@ -642,6 +730,7 @@ export default function ChatPage() {
   const [availableCommands, setAvailableCommands] = useState<
     AvailableCommand[]
   >([]);
+
 
   useEffect(() => {
     let cancelled = false;
@@ -668,11 +757,66 @@ export default function ChatPage() {
     };
   }, [selectedAgent]);
 
+  useEffect(() => {
+    let cancelled = false;
+    skillApi
+      .listSkills(selectedAgent)
+      .then((skills) => {
+        if (cancelled) return;
+        const nextSkills = Array.isArray(skills) ? skills : [];
+        setChatSkills(nextSkills);
+      })
+      .catch((error) => {
+        console.warn("[ChatSkills] failed to load slash skills", {
+          selectedAgent,
+          error,
+        });
+        if (!cancelled) setChatSkills([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent]);
+
   const isChatActiveRef = useRef(false);
   isChatActiveRef.current =
     location.pathname === "/" || location.pathname.startsWith("/chat");
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || !isChatActive()) return;
+      const textarea = event.target;
+      if (!(textarea instanceof HTMLTextAreaElement)) return;
+      if (!textarea.closest('[class*="sender"]')) return;
+      if (
+        !textarea.value.startsWith("/") ||
+        /\s/.test(textarea.value.slice(1))
+      ) {
+        return;
+      }
+
+      const selectedItem =
+        document.querySelector(
+          '[role="menuitemcheckbox"][aria-checked="true"]',
+        ) || document.querySelector('[role="menuitem"][aria-current="true"]');
+      if (!(selectedItem instanceof HTMLElement)) return;
+
+      const selectedValue = selectedItem.getAttribute("data-path-key")?.trim();
+      if (!selectedValue) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      setTextareaValue(textarea, `/${selectedValue} `);
+      textarea.focus();
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [isChatActive]);
 
   // Consume approvals from Context and filter by current session.
   // Uses a serialized key to avoid creating a new Map (and triggering
@@ -852,7 +996,8 @@ export default function ChatPage() {
   }, []);
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
-  useChatInputDraft(isChatActive);
+  useChatInputDraft(isChatActive, selectedAgent);
+  useChatPasteFromEditor();
 
   const onFileCardClick = useCallback(
     (fileInfo: { name?: string; size?: number; url?: string }) => {
@@ -1124,16 +1269,15 @@ export default function ChatPage() {
           message.warning(t("chat.attachments.imageOnlyWarning"));
         }
         const sizeMb = file.size / 1024 / 1024;
-        const isWithinLimit = sizeMb < CHAT_ATTACHMENT_MAX_MB;
-
-        if (!isWithinLimit) {
+        const uploadLimit = useUploadLimitStore.getState().uploadMaxSizeMb;
+        if (uploadLimit !== null && sizeMb > uploadLimit) {
           message.error(
             t("chat.attachments.fileSizeExceeded", {
-              limit: CHAT_ATTACHMENT_MAX_MB,
+              limit: uploadLimit,
               size: sizeMb.toFixed(2),
             }),
           );
-          onError?.(new Error(`File size exceeds ${CHAT_ATTACHMENT_MAX_MB}MB`));
+          onError?.(new Error(`File size exceeds ${uploadLimit}MB`));
           return;
         }
 
@@ -1170,9 +1314,23 @@ export default function ChatPage() {
         description: t("chat.commands.plan.description", ""),
       });
     }
+    const reservedCommands = new Set(
+      commandSuggestions.map((item) => item.value.trim()),
+    );
+    const skillSuggestions: CommandSuggestion[] = consoleSkills
+      .filter((skill) => !reservedCommands.has(skill.name))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((skill) => ({
+        command: `/${skill.name}`,
+        value: skill.name,
+        description: "",
+      }));
+    const senderSuggestions = [...commandSuggestions, ...skillSuggestions];
 
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;
+      localStorage.removeItem(getDraftStorageKey(selectedAgent));
+      draftSuppressed = true;
       return true;
     };
 
@@ -1227,13 +1385,20 @@ export default function ChatPage() {
         attachments: {
           multiple: true,
           trigger: function (props: any) {
+            const uploadLimit = useUploadLimitStore.getState().uploadMaxSizeMb;
             const tooltipKey = multimodalCaps.supportsMultimodal
               ? multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
                 ? "chat.attachments.tooltipImageOnly"
                 : "chat.attachments.tooltip"
               : "chat.attachments.tooltipNoMultimodal";
+            const tooltipTitle =
+              uploadLimit !== null
+                ? `${t(tooltipKey)}, ${t("chat.attachments.fileSizeLimit", {
+                    limit: uploadLimit,
+                  })}`
+                : t(tooltipKey);
             return (
-              <Tooltip title={t(tooltipKey, { limit: CHAT_ATTACHMENT_MAX_MB })}>
+              <Tooltip title={tooltipTitle}>
                 <IconButton
                   disabled={props?.disabled}
                   icon={<SparkAttachmentLine />}
@@ -1245,7 +1410,7 @@ export default function ChatPage() {
           customRequest: handleFileUpload,
         },
         placeholder: t("chat.inputPlaceholder"),
-        suggestions: commandSuggestions.map((item) => ({
+        suggestions: senderSuggestions.map((item) => ({
           label: renderSuggestionLabel(item.command, item.description),
           value: item.value,
         })),
@@ -1316,8 +1481,48 @@ export default function ChatPage() {
               void copyResponse(data);
             },
           },
+          {
+            render: ({
+              data,
+            }: {
+              data: { data?: { created_at?: number } };
+            }) => {
+              return (
+                <span style={timestampStyle}>
+                  {formatMessageTime(data?.data?.created_at ?? 0)}
+                </span>
+              );
+            },
+          },
         ],
         replace: true,
+      },
+      requestActions: {
+        list: [
+          {
+            render: ({ data }: { data: { created_at?: number } }) => {
+              return (
+                <span style={timestampStyle}>
+                  {formatMessageTime(data?.created_at ?? 0)}
+                </span>
+              );
+            },
+          },
+          {
+            icon: <SparkCopyLine />,
+            onClick: ({ data }: { data: { input?: any[] } }) => {
+              const text = (data?.input || [])
+                .map(extractUserMessageText)
+                .join("\n")
+                .trim();
+              if (text) {
+                void copyText(text)
+                  .then(() => message.success(t("common.copied")))
+                  .catch(() => message.error(t("common.copyFailed")));
+              }
+            },
+          },
+        ],
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
   }, [
@@ -1332,6 +1537,8 @@ export default function ChatPage() {
     planEnabled,
     chatCommands,
     availableCommands,
+    consoleSkills,
+    selectedAgent,
     onFileCardClick,
     whisperChecked,
     whisperEnabled,

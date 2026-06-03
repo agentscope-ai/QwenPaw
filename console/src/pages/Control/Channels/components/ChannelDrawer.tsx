@@ -33,6 +33,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "qq",
   "mqtt",
   "xiaoyi",
+  "yuanbao",
 ];
 
 // Doc EN URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
@@ -55,6 +56,7 @@ const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
     "https://qwenpaw.agentscope.io/docs/channels/?lang=en#WeChat-Personal-iLink",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
+  yuanbao: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Yuanbao",
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=en#OneBot-v11-NapCat--QQ-full-protocol",
 };
@@ -76,6 +78,8 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
   wechat: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#微信个人iLink",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
+  yuanbao:
+    "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#腾讯元宝Yuanbao",
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#OneBot-v11NapCat--QQ-完整协议",
 };
@@ -1142,6 +1146,36 @@ export function ChannelDrawer({
           </>
         );
 
+      case "yuanbao":
+        return (
+          <>
+            <Form.Item
+              name="app_id"
+              label="App ID"
+              rules={[{ required: true, message: "Please input App ID" }]}
+            >
+              <Input placeholder="App ID from Yuanbao platform" />
+            </Form.Item>
+            <Form.Item
+              name="app_secret"
+              label="App Secret"
+              rules={[{ required: true, message: "Please input App Secret" }]}
+            >
+              <Input.Password placeholder="App Secret from Yuanbao platform" />
+            </Form.Item>
+            <Form.Item
+              name="api_domain"
+              label="API Domain"
+              tooltip="REST API domain for sign-token auth (default: bot.yuanbao.tencent.com)"
+            >
+              <Input placeholder="bot.yuanbao.tencent.com" />
+            </Form.Item>
+            <Form.Item name="media_dir" label={t("channels.wechatMediaDir")}>
+              <Input placeholder={defaultMediaDir} />
+            </Form.Item>
+          </>
+        );
+
       case "onebot":
         return (
           <>
@@ -1291,7 +1325,7 @@ export function ChannelDrawer({
       title={drawerTitle}
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
       footer={drawerFooter}
       key={activeKey} // Force remount when switching channels
     >

@@ -39,7 +39,7 @@ export function SessionDrawer({
       title={t("sessions.editSession")}
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
       footer={drawerFooter}
     >
       <Form form={form} layout="vertical" onFinish={onSubmit}>

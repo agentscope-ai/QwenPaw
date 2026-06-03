@@ -42,9 +42,12 @@ interface CodingTabsState {
   setTabContent: (agentId: string, path: string, content: string) => void;
   setTabDirty: (agentId: string, path: string, dirty: boolean) => void;
 
+  clearAgent: (agentId: string) => void;
+
   setDiff: (agentId: string, path: string, diff: PendingDiff) => void;
   removeDiff: (agentId: string, path: string) => void;
   updateDiffModified: (agentId: string, path: string, modified: string) => void;
+  updateDiffOriginal: (agentId: string, path: string, original: string) => void;
 }
 
 const omitKey = <T extends object>(obj: T, key: string): T => {
@@ -60,6 +63,13 @@ export const useCodingTabsStore = create<CodingTabsState>()(
       tabsByAgent: {},
       activeTabByAgent: {},
       diffsByAgent: {},
+
+      clearAgent: (agentId) =>
+        set((state) => ({
+          tabsByAgent: { ...state.tabsByAgent, [agentId]: [] },
+          activeTabByAgent: { ...state.activeTabByAgent, [agentId]: "" },
+          diffsByAgent: { ...state.diffsByAgent, [agentId]: {} },
+        })),
 
       openTab: (agentId, tab) =>
         set((state) => {
@@ -156,6 +166,22 @@ export const useCodingTabsStore = create<CodingTabsState>()(
               [agentId]: {
                 ...agentDiffs,
                 [path]: { ...existing, modified },
+              },
+            },
+          };
+        }),
+
+      updateDiffOriginal: (agentId, path, original) =>
+        set((state) => {
+          const agentDiffs = state.diffsByAgent[agentId] ?? {};
+          const existing = agentDiffs[path];
+          if (!existing) return state;
+          return {
+            diffsByAgent: {
+              ...state.diffsByAgent,
+              [agentId]: {
+                ...agentDiffs,
+                [path]: { ...existing, original },
               },
             },
           };

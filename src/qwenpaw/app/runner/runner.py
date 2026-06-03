@@ -351,6 +351,18 @@ class AgentRunner(Runner):
                 exc_info=True,
             )
 
+    async def stream_query(self, request, **kwargs):
+        """Override to set created_at to current time on response events."""
+        from datetime import datetime, timezone
+
+        created_at = int(
+            datetime.now(timezone.utc).timestamp(),
+        )
+        async for event in super().stream_query(request, **kwargs):
+            if getattr(event, "object", None) == "response":
+                event.created_at = created_at
+            yield event
+
     async def query_handler(
         self,
         msgs,
@@ -385,6 +397,8 @@ class AgentRunner(Runner):
             set_current_agent_id,
             set_current_session_id,
             set_current_root_session_id,
+            set_current_user_id,
+            set_current_channel,
         )
 
         set_current_agent_id(self.agent_id)
@@ -400,6 +414,8 @@ class AgentRunner(Runner):
             session_id = request.session_id
             user_id = request.user_id
             channel = getattr(request, "channel", DEFAULT_CHANNEL)
+            set_current_user_id(user_id)
+            set_current_channel(channel)
 
             logger.info(
                 "Handle agent query:\n%s",
@@ -444,6 +460,43 @@ class AgentRunner(Runner):
                 and getattr(_cm, "project_dir", None)
                 else None
             )
+
+            # Fork subagent: override project_dir with worktree path.
+            _payload_ctx = getattr(request, "request_context", None)
+            _fork_project = (
+                _payload_ctx.get("fork_project_dir", "")
+                if isinstance(_payload_ctx, dict)
+                else ""
+            )
+            if _fork_project:
+                _resolved_fork = Path(_fork_project).expanduser().resolve()
+                _project_base = (
+                    Path(
+                        _coding_project_dir
+                        or (
+                            str(self.workspace_dir)
+                            if self.workspace_dir
+                            else str(WORKING_DIR)
+                        ),
+                    )
+                    .expanduser()
+                    .resolve()
+                )
+                _allowed_base = _project_base / ".qwenpaw" / "worktrees"
+                try:
+                    _resolved_fork.relative_to(_allowed_base)
+                    _is_allowed = _resolved_fork.is_dir()
+                except ValueError:
+                    _is_allowed = False
+                if _is_allowed:
+                    _coding_project_dir = str(_resolved_fork)
+                else:
+                    logger.warning(
+                        "Rejected fork_project_dir outside "
+                        "allowed subtree: %s",
+                        _fork_project,
+                    )
+
             env_context = build_env_context(
                 session_id=session_id,
                 user_id=user_id,

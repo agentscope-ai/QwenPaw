@@ -29,6 +29,7 @@ from .frontend_plugin import router as frontend_plugin_router
 from .backup import router as backup_router
 from .chat_commands import router as chat_commands_router
 from .plan import router as plan_router
+from .fork import router as fork_router
 from .git import router as git_router
 from .coding_project import router as coding_project_router
 from .access_control import router as access_control_router
@@ -61,6 +62,7 @@ router.include_router(plugins_router)
 router.include_router(frontend_plugin_router)
 router.include_router(backup_router)
 router.include_router(plan_router)
+router.include_router(fork_router)
 router.include_router(git_router)
 router.include_router(coding_project_router)
 router.include_router(access_control_router)

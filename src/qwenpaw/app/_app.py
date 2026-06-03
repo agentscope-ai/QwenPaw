@@ -64,6 +64,7 @@ mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("application/javascript", ".mjs")
 mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("application/wasm", ".wasm")
+mimetypes.add_type("image/svg+xml", ".svg")
 
 # Load persisted env vars into os.environ at module import time
 # so they are available before the lifespan starts.

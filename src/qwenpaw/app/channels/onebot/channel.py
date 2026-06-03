@@ -108,6 +108,11 @@ class OneBotChannel(BaseChannel):
         # Bot self ID (populated on first meta_event/lifecycle)
         self._self_id: Optional[int] = None
 
+        # Watchdog for auto-restart
+        self._watchdog_task: Optional[asyncio.Task] = None
+        self._watchdog_interval: float = 10.0  # seconds
+        self._stopping: bool = False
+
     # ------------------------------------------------------------------
     # Factory methods
     # ------------------------------------------------------------------
@@ -222,6 +227,25 @@ class OneBotChannel(BaseChannel):
         if not self.enabled:
             logger.debug("onebot channel disabled")
             return
+        self._stopping = False
+        await self._start_ws_server()
+        self._watchdog_task = asyncio.create_task(self._watchdog_loop())
+
+    async def stop(self) -> None:
+        if not self.enabled:
+            return
+        self._stopping = True
+        if self._watchdog_task and not self._watchdog_task.done():
+            self._watchdog_task.cancel()
+            try:
+                await self._watchdog_task
+            except asyncio.CancelledError:
+                pass
+            self._watchdog_task = None
+        await self._stop_ws_server()
+
+    async def _start_ws_server(self) -> None:
+        """Create and start the aiohttp WebSocket server."""
         self._app = web.Application()
         self._app.router.add_get("/ws", self._handle_ws_connection)
         self._app.router.add_get("/ws/", self._handle_ws_connection)
@@ -239,17 +263,25 @@ class OneBotChannel(BaseChannel):
             self._ws_port,
         )
 
-    async def stop(self) -> None:
-        if not self.enabled:
-            return
+    async def _stop_ws_server(self) -> None:
+        """Tear down the WebSocket server and clean up connections."""
         for ws in list(self._connections):
-            await ws.close()
+            try:
+                await ws.close()
+            except Exception:
+                pass
         self._connections.clear()
         if self._site:
-            await self._site.stop()
+            try:
+                await self._site.stop()
+            except Exception:
+                pass
             self._site = None
         if self._runner:
-            await self._runner.cleanup()
+            try:
+                await self._runner.cleanup()
+            except Exception:
+                pass
             self._runner = None
         self._app = None
         # Cancel pending API futures
@@ -257,6 +289,66 @@ class OneBotChannel(BaseChannel):
             if not fut.done():
                 fut.cancel()
         self._pending_calls.clear()
+
+    async def _watchdog_loop(self) -> None:
+        """Periodically check server health; restart if not listening."""
+        while not self._stopping:
+            await asyncio.sleep(self._watchdog_interval)
+            if self._stopping:
+                break
+            if not await self._is_server_healthy():
+                logger.warning(
+                    "onebot: watchdog detected server not healthy, "
+                    "restarting...",
+                )
+                try:
+                    await self._stop_ws_server()
+                    await self._start_ws_server()
+                    logger.info("onebot: watchdog restarted server OK")
+                except Exception:
+                    logger.exception(
+                        "onebot: watchdog failed to restart server, "
+                        "will retry in %ss",
+                        self._watchdog_interval,
+                    )
+
+    def _get_listen_port(self) -> int:
+        """Return the actual port the server is listening on.
+
+        When ``ws_port=0`` the OS assigns a random port; we read it
+        from the site's underlying sockets.
+        """
+        if self._site is None:
+            return self._ws_port
+        server = getattr(self._site, "_server", None)
+        if server is not None:
+            for sock in server.sockets or []:
+                return sock.getsockname()[1]
+        return self._ws_port
+
+    async def _is_server_healthy(self) -> bool:
+        """Check if the WS server is actually accepting connections.
+
+        Returns True if the TCP port is reachable, False otherwise.
+        This catches cases where ``_site`` is not None but the
+        underlying socket has stopped accepting connections.
+        """
+        if self._site is None:
+            return False
+        probe_host = (
+            "127.0.0.1" if self._ws_host == "0.0.0.0" else self._ws_host
+        )
+        probe_port = self._get_listen_port()
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(probe_host, probe_port),
+                timeout=3.0,
+            )
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except (OSError, asyncio.TimeoutError):
+            return False
 
     # ------------------------------------------------------------------
     # WebSocket connection handling
