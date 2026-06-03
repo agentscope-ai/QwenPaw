@@ -255,7 +255,8 @@ class PluginApi:
         Args:
             name: Unique prompt section name, e.g. ``"datapaw.master"``.
             provider: Callable receiving the agent instance and returning text.
-            after: Host anchor or plugin section name this section follows.
+            after: Host anchor this section follows.
+                Valid: ``"workspace"``, ``"multimodal"``, ``"env_context"``.
             agent_id: Optional agent id filter; ``None`` applies to all agents.
         """
         if self._registry:

@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Tests for plugin-contributed system prompt sections."""
+"""Tests for PromptBuilder and plugin prompt section registration."""
 from __future__ import annotations
 
 from unittest.mock import patch
 
 import pytest
 
+from qwenpaw.agents.prompt_builder import PromptBuilder
 from qwenpaw.plugins.registry import PluginRegistry
 
 
 class _FakeAgent:
-    """Minimal stand-in providing only what build_prompt_sections reads."""
+    """Minimal stand-in providing only what providers may receive."""
 
     def __init__(self, *, agent_id: str = "datapaw") -> None:
         self._request_context = {"agent_id": agent_id}
@@ -27,72 +28,62 @@ def clean_prompt_sections():
         registry.unregister_plugin(plugin_id)
 
 
-def test_registry_orders_prompt_sections_linearly_after_host_anchor():
-    """Plugin sections under the same host anchor follow registration order."""
+def test_host_anchors_order_is_stable():
+    """HOST_ANCHORS tuple defines the canonical prompt order."""
+    assert PromptBuilder.HOST_ANCHORS == (
+        "workspace",
+        "multimodal",
+        "env_context",
+    )
+
+
+def test_builder_orders_sections_after_host_anchor():
+    """Plugin sections follow their declared host anchor."""
     registry = PluginRegistry()
     registry.register_prompt_section(
         plugin_id="test-a",
         name="plugin.master",
-        after="profile",
+        after="workspace",
         agent_id="datapaw",
         provider=lambda agent: "MASTER",
     )
     registry.register_prompt_section(
         plugin_id="test-a",
         name="plugin.env",
-        after="profile",
+        after="workspace",
         agent_id="datapaw",
         provider=lambda agent: "ENV",
     )
 
-    sections = registry.build_prompt_sections(
-        _FakeAgent(agent_id="datapaw"),
-        {
-            "workspace": "WORKSPACE",
-            "multimodal": "MULTIMODAL",
-            "env_context": "HOST_ENV",
-        },
-    )
-
-    assert [section.name for section in sections] == [
-        "workspace",
-        "plugin.master",
-        "plugin.env",
-        "multimodal",
-        "env_context",
-    ]
-    assert [section.content for section in sections] == [
-        "WORKSPACE",
-        "MASTER",
-        "ENV",
-        "MULTIMODAL",
-        "HOST_ENV",
-    ]
-
-
-def test_registry_rejects_plugin_section_after_anchor():
-    """after must reference host anchors, not plugin section names."""
-    registry = PluginRegistry()
-    registry.register_prompt_section(
-        plugin_id="test-a",
-        name="plugin.master",
-        after="profile",
+    builder = PromptBuilder(registry)
+    result = builder.build(
+        agent=_FakeAgent(),
         agent_id="datapaw",
-        provider=lambda agent: "MASTER",
+        workspace="WORKSPACE",
+        multimodal="MULTIMODAL",
+        env_context="HOST_ENV",
     )
 
+    assert result == (
+        "WORKSPACE\n\n" "MASTER\n\n" "ENV\n\n" "MULTIMODAL\n\n" "HOST_ENV"
+    )
+
+
+def test_registry_rejects_invalid_anchor():
+    """after must reference a valid host anchor."""
+    registry = PluginRegistry()
     with pytest.raises(ValueError, match="must reference a host anchor"):
         registry.register_prompt_section(
             plugin_id="test-a",
-            name="plugin.env",
-            after="plugin.master",
+            name="plugin.bad",
+            after="nonexistent",
             agent_id="datapaw",
-            provider=lambda agent: "ENV",
+            provider=lambda agent: "X",
         )
 
 
-def test_registry_filters_agent_id_and_unregisters_plugin_sections():
-    """agent_id limits sections and unregister_plugin removes them."""
+def test_builder_filters_by_agent_id():
+    """agent_id limits which sections appear in the prompt."""
     registry = PluginRegistry()
     registry.register_prompt_section(
         plugin_id="test-a",
@@ -109,28 +100,26 @@ def test_registry_filters_agent_id_and_unregisters_plugin_sections():
         provider=lambda agent: "ALL",
     )
 
-    other_sections = registry.build_prompt_sections(
-        _FakeAgent(agent_id="other"),
-        {"workspace": "WORKSPACE"},
+    builder = PromptBuilder(registry)
+
+    other = builder.build(
+        agent=_FakeAgent(agent_id="other"),
+        agent_id="other",
+        workspace="WORKSPACE",
     )
-    assert [section.content for section in other_sections] == [
-        "WORKSPACE",
-        "ALL",
-    ]
+    assert other == "WORKSPACE\n\nALL"
 
     registry.unregister_plugin("test-b")
-    datapaw_sections = registry.build_prompt_sections(
-        _FakeAgent(agent_id="datapaw"),
-        {"workspace": "WORKSPACE"},
+    datapaw = builder.build(
+        agent=_FakeAgent(),
+        agent_id="datapaw",
+        workspace="WORKSPACE",
     )
-    assert [section.content for section in datapaw_sections] == [
-        "WORKSPACE",
-        "DATAPAW",
-    ]
+    assert datapaw == "WORKSPACE\n\nDATAPAW"
 
 
-def test_registry_skips_empty_and_failed_prompt_providers():
-    """Bad or empty plugin sections should not break prompt assembly."""
+def test_builder_skips_empty_and_failed_providers():
+    """Bad or empty providers do not break prompt assembly."""
     registry = PluginRegistry()
     registry.register_prompt_section(
         plugin_id="test-a",
@@ -151,29 +140,14 @@ def test_registry_skips_empty_and_failed_prompt_providers():
         provider=_raise,
     )
 
-    with patch("qwenpaw.plugins.registry.logger.exception") as log_exception:
-        sections = registry.build_prompt_sections(
-            _FakeAgent(agent_id="datapaw"),
-            {"workspace": "WORKSPACE"},
+    with patch(
+        "qwenpaw.agents.prompt_builder.logger.exception",
+    ) as log_exc:
+        result = PromptBuilder(registry).build(
+            agent=_FakeAgent(),
+            agent_id="datapaw",
+            workspace="WORKSPACE",
         )
 
-    assert [section.content for section in sections] == ["WORKSPACE"]
-    log_exception.assert_called_once()
-
-
-def test_registry_skips_section_referencing_missing_anchor():
-    """Plugin section with missing anchor in host_sections is skipped."""
-    registry = PluginRegistry()
-    registry.register_prompt_section(
-        plugin_id="test-a",
-        name="plugin.extra",
-        after="env_context",
-        agent_id=None,
-        provider=lambda agent: "EXTRA",
-    )
-
-    sections = registry.build_prompt_sections(
-        _FakeAgent(agent_id="datapaw"),
-        {"workspace": "WORKSPACE"},
-    )
-    assert [s.content for s in sections] == ["WORKSPACE"]
+    assert result == "WORKSPACE"
+    log_exc.assert_called_once()
