@@ -87,6 +87,64 @@ def _validate_executable_path(executable_path: str) -> None:
         )
 
 
+def _browser_type_from_exe(exe_path: str) -> str:
+    """Infer browser type keyword from an executable path (lowercase)."""
+    if not exe_path:
+        return ""
+    name = Path(exe_path).name.lower()
+    for browser_type in (
+        "edge",
+        "chromium",
+        "chrome",
+        "brave",
+        "vivaldi",
+        "opera",
+        "firefox",
+        "360se",
+        "yandex",
+        "tor",
+    ):
+        if browser_type in name:
+            return browser_type
+    return ""
+
+
+def _workspace_dir_for_browser_state(state: dict) -> str:
+    """Return a usable workspace directory for browser profile storage."""
+    workspace_dir = state.get("workspace_dir")
+    if workspace_dir:
+        return str(workspace_dir)
+    current_workspace = get_current_workspace_dir()
+    if current_workspace:
+        return str(current_workspace)
+    return str(WORKING_DIR)
+
+
+def _resolve_user_data_dir(workspace_dir: str, exe_path: str) -> str:
+    """Return the user-data directory for *exe_path*.
+
+    * System-default browser  → ``{workspace}/browser/user_data``
+    * Non-default browser     → ``{workspace}/browser/user_data_{type}``
+
+    This prevents profile-format conflicts when switching between
+    browsers (e.g. Edge ↔ Chrome).
+    """
+    if not workspace_dir:
+        return ""
+    base = Path(workspace_dir) / "browser"
+    browser_type = _browser_type_from_exe(exe_path)
+    if not browser_type:
+        return str(base / "user_data")
+
+    _effective_kind, effective_exe = _resolve_chromium_launch_target()
+    effective_type = _browser_type_from_exe(effective_exe or "")
+
+    if not effective_type or browser_type == effective_type:
+        return str(base / "user_data")
+
+    return str(base / f"user_data_{browser_type}")
+
+
 def _resolve_output_path(path: str) -> str:
     """Resolve relative output paths under workspace_dir/browser/."""
     if Path(path).is_absolute():
@@ -461,6 +519,8 @@ def _sync_browser_launch(
         extra_args.append(f"--remote-debugging-port={cdp_port}")
 
     if exe:
+        ws_dir = _workspace_dir_for_browser_state(state)
+        state["user_data_dir"] = _resolve_user_data_dir(ws_dir, exe)
         user_data_dir = state["user_data_dir"]
         if user_data_dir:
             Path(user_data_dir).mkdir(parents=True, exist_ok=True)
@@ -536,7 +596,7 @@ def _find_free_local_port() -> int:
 
 async def _wait_for_cdp_ready(
     port: int,
-    timeout: float = 15.0,
+    timeout: float = _CDP_CONNECT_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     deadline = time.monotonic() + timeout
     last_error: Optional[Exception] = None
@@ -559,6 +619,7 @@ async def _start_managed_cdp_browser(
     ensure_pages: bool = False,
     browser_args: str = "",
     executable_path: str = "",
+    wait_time: float = 0,
 ) -> None:
     default_kind, exe = _resolve_chromium_launch_target()
     if executable_path:
@@ -575,6 +636,9 @@ async def _start_managed_cdp_browser(
             "but none was found.",
         )
 
+    ws_dir = _workspace_dir_for_browser_state(state)
+    state["user_data_dir"] = _resolve_user_data_dir(ws_dir, exe)
+
     chosen_cdp_port = cdp_port or _find_free_local_port()
     proc = _start_managed_chromium_process(
         executable_path=exe,
@@ -585,7 +649,12 @@ async def _start_managed_cdp_browser(
     )
     pw = None
     try:
-        await _wait_for_cdp_ready(chosen_cdp_port)
+        await _wait_for_cdp_ready(
+            chosen_cdp_port,
+            timeout=wait_time
+            if wait_time > 0
+            else _CDP_CONNECT_TIMEOUT_SECONDS,
+        )
         async_playwright = _ensure_playwright_async()
         pw = await async_playwright().start()
         browser = await pw.chromium.connect_over_cdp(
@@ -966,6 +1035,7 @@ async def _ensure_browser(
                     ensure_pages=True,
                     browser_args=state.get("_browser_args", ""),
                     executable_path=state.get("_executable_path", ""),
+                    wait_time=state.get("_wait_time", 0),
                 )
             except Exception:
                 await _action_start(
@@ -974,6 +1044,7 @@ async def _ensure_browser(
                     private_mode=True,
                     browser_args=state.get("_browser_args", ""),
                     executable_path=state.get("_executable_path", ""),
+                    wait_time=state.get("_wait_time", 0),
                 )
         state["_last_browser_error"] = None
         _touch_activity(state)
@@ -1015,6 +1086,7 @@ async def _action_start(
     private_mode: bool = False,
     browser_args: str = "",
     executable_path: str = "",
+    wait_time: float = 0,
 ) -> ToolResponse:
     _validate_executable_path(executable_path)
     # Check browser state based on mode
@@ -1093,6 +1165,7 @@ async def _action_start(
                 ensure_pages=True,
                 browser_args=browser_args,
                 executable_path=executable_path,
+                wait_time=wait_time,
             )
         elif _USE_SYNC_PLAYWRIGHT:
             loop = asyncio.get_event_loop()
@@ -1131,6 +1204,8 @@ async def _action_start(
 
             if exe:
                 # Use persistent context so cookies/storage survive browser restarts
+                ws_dir = _workspace_dir_for_browser_state(state)
+                state["user_data_dir"] = _resolve_user_data_dir(ws_dir, exe)
                 user_data_dir = state["user_data_dir"]
                 if user_data_dir:
                     Path(user_data_dir).mkdir(parents=True, exist_ok=True)
@@ -1192,6 +1267,7 @@ async def _action_start(
         # Store launch config for _ensure_browser fallback restarts
         state["_browser_args"] = browser_args
         state["_executable_path"] = executable_path
+        state["_wait_time"] = wait_time
         msg = (
             "Browser started (visible window)"
             if not state["headless"]
@@ -1221,12 +1297,18 @@ async def _action_start(
             json.dumps(result, ensure_ascii=False, indent=2),
         )
     except Exception as e:
+        user_data_dir = state.get("user_data_dir", "")
+        error_payload: dict[str, Any] = {
+            "ok": False,
+            "error": f"Browser start failed: {e!s}",
+        }
+        if user_data_dir:
+            error_payload["hint"] = (
+                "If this error is caused by incompatible browser profile data, "
+                f"try deleting the user data directory and retrying: {user_data_dir}"
+            )
         return _tool_response(
-            json.dumps(
-                {"ok": False, "error": f"Browser start failed: {e!s}"},
-                ensure_ascii=False,
-                indent=2,
-            ),
+            json.dumps(error_payload, ensure_ascii=False, indent=2),
         )
 
 
@@ -3966,7 +4048,11 @@ async def _action_list_cdp_targets(
     )
 
 
-async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
+async def _action_connect_cdp(
+    state: dict,
+    cdp_url: str,
+    wait_time: float = 0,
+) -> ToolResponse:
     """Connect Playwright to a running Chrome via CDP."""
     if not cdp_url:
         return _tool_response(
@@ -4012,7 +4098,9 @@ async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
         pw = await async_playwright().start()
         browser = await asyncio.wait_for(
             pw.chromium.connect_over_cdp(cdp_url),
-            timeout=_CDP_CONNECT_TIMEOUT_SECONDS,
+            timeout=wait_time
+            if wait_time > 0
+            else _CDP_CONNECT_TIMEOUT_SECONDS,
         )
         contexts = browser.contexts
         if contexts:
@@ -4055,6 +4143,9 @@ async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
             ),
         )
     except asyncio.TimeoutError:
+        actual_timeout = (
+            wait_time if wait_time > 0 else _CDP_CONNECT_TIMEOUT_SECONDS
+        )
         await _stop_playwright_instance(pw)
         return _tool_response(
             json.dumps(
@@ -4062,7 +4153,7 @@ async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
                     "ok": False,
                     "error": (
                         "CDP connect timed out after "
-                        f"{_CDP_CONNECT_TIMEOUT_SECONDS:g}s: {cdp_url}"
+                        f"{actual_timeout:g}s: {cdp_url}"
                     ),
                 },
                 ensure_ascii=False,
@@ -4332,9 +4423,10 @@ async def browser_use(  # pylint: disable=R0911,R0912
         index (int):
             Tab index for tabs select, zero-based. Used with action=tabs.
         wait_time (float):
-            Seconds to wait. Used with action=wait_for and as the download
-            event timeout for action=file_download. Defaults to 30 seconds for
-            file_download when omitted.
+            Seconds to wait. Used with action=wait_for, as the download
+            event timeout for action=file_download (defaults to 30s), and
+            as the CDP connection timeout for action=start and connect_cdp
+            (defaults to 30s). Increase for slower browser initialization.
         text_gone (str):
             Wait until this text disappears from page. Used with
             action=wait_for.
@@ -4420,11 +4512,14 @@ async def browser_use(  # pylint: disable=R0911,R0912
                 private_mode=private_mode,
                 browser_args=browser_args,
                 executable_path=executable_path,
+                wait_time=wait_time,
             )
         if action == "stop":
             return await _action_stop(state)
         if action == "connect_cdp":
-            return await _action_connect_cdp(state, cdp_url)
+            return await _action_connect_cdp(
+                state, cdp_url, wait_time=wait_time
+            )
         if action == "list_cdp_targets":
             return await _action_list_cdp_targets(port, port_min, port_max)
         if action == "open":
