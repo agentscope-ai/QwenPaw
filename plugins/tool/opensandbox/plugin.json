@@ -1,0 +1,134 @@
+{
+  "id": "opensandbox",
+  "name": "OpenSandbox",
+  "version": "0.1.0",
+  "type": "tool",
+  "description": "Run agent workloads inside OpenSandbox sandboxes",
+  "description_i18n": {
+    "zh-CN": "在 OpenSandbox 沙箱中执行 Agent 命令",
+    "en-US": "Run agent workloads inside OpenSandbox sandboxes"
+  },
+  "author": "QwenPaw Team",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "dependencies": ["opensandbox>=0.1.9"],
+  "min_version": "1.1.6",
+  "meta": {
+    "tools": [
+      {
+        "name": "execute_opensandbox_command",
+        "description": "Execute shell commands inside an OpenSandbox sandbox",
+        "icon": "terminal",
+        "requires_config": true,
+        "config_fields": [
+          {
+            "name": "domain",
+            "label": "OpenSandbox Domain",
+            "type": "text",
+            "required": true,
+            "default": "127.0.0.1:8080",
+            "help": "OpenSandbox server host and port, without protocol"
+          },
+          {
+            "name": "protocol",
+            "label": "Protocol",
+            "type": "select",
+            "required": false,
+            "default": "http",
+            "options": ["http", "https"]
+          },
+          {
+            "name": "api_key_env",
+            "label": "API Key Environment Variable",
+            "type": "text",
+            "required": false,
+            "default": "OPEN_SANDBOX_API_KEY",
+            "help": "Used when API Key is empty"
+          },
+          {
+            "name": "api_key",
+            "label": "API Key",
+            "type": "password",
+            "required": false,
+            "help": "Prefer api_key_env for local development"
+          },
+          {
+            "name": "image",
+            "label": "Sandbox Image",
+            "type": "text",
+            "required": false,
+            "default": "opensandbox/code-interpreter:v1.0.2"
+          },
+          {
+            "name": "entrypoint_json",
+            "label": "Entrypoint JSON",
+            "type": "textarea",
+            "required": false,
+            "default": "[\"/opt/opensandbox/code-interpreter.sh\"]",
+            "help": "JSON array passed to Sandbox.create(entrypoint=...)"
+          },
+          {
+            "name": "env_json",
+            "label": "Environment JSON",
+            "type": "textarea",
+            "required": false,
+            "default": "{\"PYTHON_VERSION\":\"3.11\"}",
+            "help": "JSON object passed to Sandbox.create(env=...)"
+          },
+          {
+            "name": "resource_json",
+            "label": "Resource JSON",
+            "type": "textarea",
+            "required": false,
+            "default": "{\"cpu\":\"500m\",\"memory\":\"512Mi\"}",
+            "help": "JSON object passed to Sandbox.create(resource=...)"
+          },
+          {
+            "name": "use_server_proxy",
+            "label": "Use Server Proxy",
+            "type": "boolean",
+            "required": false,
+            "default": false,
+            "help": "For local Windows Docker Desktop, false is usually more reliable"
+          },
+          {
+            "name": "request_timeout_seconds",
+            "label": "Request Timeout Seconds",
+            "type": "number",
+            "required": false,
+            "default": 60,
+            "min": 1,
+            "max": 600
+          },
+          {
+            "name": "ready_timeout_seconds",
+            "label": "Ready Timeout Seconds",
+            "type": "number",
+            "required": false,
+            "default": 120,
+            "min": 1,
+            "max": 600
+          },
+          {
+            "name": "sandbox_timeout_seconds",
+            "label": "Sandbox Timeout Seconds",
+            "type": "number",
+            "required": false,
+            "default": 300,
+            "min": 60,
+            "max": 86400
+          },
+          {
+            "name": "command_working_directory",
+            "label": "Command Working Directory",
+            "type": "text",
+            "required": false,
+            "default": "/workspace",
+            "help": "Default working directory inside the sandbox"
+          }
+        ]
+      }
+    ]
+  }
+}
