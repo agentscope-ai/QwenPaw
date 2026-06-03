@@ -11,103 +11,54 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryDistillToolPlugin:
-    """Memory Distillation Tool Plugin.
-
-    Registers consolidate_memory and distill_memory tools into the
-    Agent's toolkit. These tools help agents consolidate daily notes,
-    detect genuinely new information via title-diffing, and maintain
-    MEMORY.md efficiently.
-    """
+    """Memory Distillation Tool Plugin."""
 
     def register(self, api: PluginApi):
-        """Register the memory distillation tools.
-
-        Args:
-            api: PluginApi instance
-        """
+        """Register memory distillation tools via PluginApi."""
         logger.info("Registering Memory Distillation tools...")
 
-        api.register_startup_hook(
-            hook_name="register_memory_distill_tools",
-            callback=self._register_tools,
-            priority=50,
+        plugin_dir = os.path.dirname(os.path.abspath(__file__))
+        tool_path = os.path.join(plugin_dir, "memory_distill_tool.py")
+        spec = importlib.util.spec_from_file_location(
+            "memory_distill_tool",
+            tool_path,
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError(
+                f"Failed to load memory distill tool module from {tool_path}",
+            )
+        tool_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool_module)
+
+        api.register_tool(
+            "distill_memory",
+            tool_module.distill_memory,
+            description=(
+                "Distill daily notes into MEMORY.md using title-diffing to "
+                "find genuinely new information."
+            ),
+            icon="🧠",
+            enabled=False,
+        )
+        api.register_tool(
+            "consolidate_memory",
+            tool_module.consolidate_memory,
+            description=(
+                "Run the full memory consolidation pipeline: distill, "
+                "archive, clean, and audit."
+            ),
+            icon="🧠",
+            enabled=False,
+        )
+        api.register_tool(
+            "inspect_memory",
+            tool_module.inspect_memory,
+            description=(
+                "Inspect MEMORY.md and daily notes health, size, and recent "
+                "activity."
+            ),
+            icon="🔍",
+            enabled=False,
         )
 
         logger.info("✓ Memory Distillation tool plugin registered")
-
-    def _register_tools(self):
-        """Register the consolidate_memory and distill_memory tools."""
-        try:
-            plugin_dir = os.path.dirname(os.path.abspath(__file__))
-            tool_path = os.path.join(plugin_dir, "memory_distill_tool.py")
-
-            spec = importlib.util.spec_from_file_location(
-                "memory_distill_tool",
-                tool_path,
-            )
-            tool_module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(tool_module)
-
-            # Register all tools
-            import qwenpaw.agents.tools as tools_module
-
-            tool_functions = [
-                "consolidate_memory",
-                "distill_memory",
-                "inspect_memory",
-            ]
-
-            for func_name in tool_functions:
-                func = getattr(tool_module, func_name, None)
-                if func:
-                    setattr(tools_module, func_name, func)
-                    if func_name not in tools_module.__all__:
-                        tools_module.__all__.append(func_name)
-                    logger.info(f"✓ Registered tool function: {func_name}")
-
-            # Add tools to current agent's config
-            from qwenpaw.config.config import (
-                BuiltinToolConfig,
-                load_agent_config,
-                save_agent_config,
-            )
-            from qwenpaw.app.agent_context import get_current_agent_id
-
-            try:
-                agent_id = get_current_agent_id()
-                if not agent_id:
-                    return
-
-                agent_config = load_agent_config(agent_id)
-
-                if not agent_config.tools:
-                    from qwenpaw.config.config import ToolsConfig
-
-                    agent_config.tools = ToolsConfig()
-
-                for func_name in tool_functions:
-                    tool_cfg = BuiltinToolConfig(
-                        name=func_name,
-                        enabled=True,
-                    )
-                    existing_names = [
-                        t.name
-                        for t in (agent_config.tools.builtin_tools or [])
-                    ]
-                    if func_name not in existing_names:
-                        if agent_config.tools.builtin_tools is None:
-                            agent_config.tools.builtin_tools = []
-                        agent_config.tools.builtin_tools.append(tool_cfg)
-
-                save_agent_config(agent_id, agent_config)
-                logger.info(f"✓ Tools added to agent {agent_id} config")
-
-            except Exception as e:
-                logger.warning(
-                    f"Could not update agent config: {e}",
-                )
-
-        except Exception as e:
-            logger.error(
-                f"Failed to register memory distill tools: {e}",
-            )

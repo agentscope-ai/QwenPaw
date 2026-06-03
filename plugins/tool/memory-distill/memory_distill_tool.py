@@ -17,7 +17,6 @@ Key concepts:
 
 
 import logging
-import os
 import re
 import shutil
 from datetime import datetime, timedelta
@@ -32,7 +31,6 @@ logger = logging.getLogger(__name__)
 # Default paths & safe-list
 # ──────────────────────────────────────────────
 
-_DEFAULT_WORKING_DIR = os.getcwd()
 _KNOWN_TEMPLATE_TITLES = frozenset(
     {
         "persistent memory",
@@ -71,6 +69,30 @@ _SAFE_DIRS = frozenset(
         "cron-reports",
     },
 )
+
+
+def _resolve_working_dir(working_dir: str = "") -> Path:
+    """Resolve and validate working directory within workspace boundary."""
+    wd = Path(working_dir).expanduser() if working_dir else Path.cwd()
+    try:
+        wd = wd.resolve()
+    except FileNotFoundError:
+        wd = wd.absolute()
+
+    if not wd.exists() or not wd.is_dir():
+        raise ValueError(
+            f"working_dir does not exist or is not a directory: {wd}",
+        )
+
+    memory_dir = wd / "memory"
+    memory_file = wd / "MEMORY.md"
+    if not memory_dir.is_dir() and not memory_file.is_file():
+        raise ValueError(
+            "working_dir must be an agent workspace containing "
+            "memory/ or MEMORY.md",
+        )
+
+    return wd
 
 
 # ──────────────────────────────────────────────
@@ -115,7 +137,7 @@ def _daily_note_titles(daily_text: str) -> list[str]:
     return titles
 
 
-async def _classify_and_format(
+def _classify_and_format(
     title: str,
     content_snippet: str,
 ) -> str:
@@ -193,7 +215,10 @@ async def distill_memory(
     Returns:
         ToolResponse with a human-readable distillation report.
     """
-    wd = Path(working_dir or _DEFAULT_WORKING_DIR)
+    try:
+        wd = _resolve_working_dir(working_dir)
+    except ValueError as e:
+        return ToolResponse(content=[TextBlock(type="text", text=f"❌ {e}")])
     memory_file = wd / "MEMORY.md"
     memory_dir = wd / "memory"
 
@@ -231,10 +256,9 @@ async def distill_memory(
         for title in titles:
             title_lower = title.lower()
             # Skip if topic is already known
-            if any(
-                kw in title_lower or title_lower in known_topic
+            if title_lower in known_topics or any(
+                title_lower in known_topic or known_topic in title_lower
                 for known_topic in known_topics
-                for kw in [title_lower]
             ):
                 continue
             # Also skip vague/common titles
@@ -332,7 +356,10 @@ async def consolidate_memory(  # pylint: disable=too-many-statements
     Returns:
         ToolResponse with a full pipeline report.
     """
-    wd = Path(working_dir or _DEFAULT_WORKING_DIR)
+    try:
+        wd = _resolve_working_dir(working_dir)
+    except ValueError as e:
+        return ToolResponse(content=[TextBlock(type="text", text=f"❌ {e}")])
     archive_dir = wd / "archive"
     report: list[str] = [
         "🧠 **Memory Consolidation Pipeline**",
@@ -352,8 +379,14 @@ async def consolidate_memory(  # pylint: disable=too-many-statements
     )
     # Extract text from distill result
     for block in distill_result.content:
-        if block.type == "text":
-            report.append(block.text[:500])
+        block_type = (
+            block.get("type") if isinstance(block, dict) else block.type
+        )
+        block_text = (
+            block.get("text", "") if isinstance(block, dict) else block.text
+        )
+        if block_type == "text":
+            report.append(block_text[:500])
     report.append("")
 
     # ── Step 2: Archive ──
@@ -388,7 +421,6 @@ async def consolidate_memory(  # pylint: disable=too-many-statements
     # Safe files to clean: tool_results, screenshots, temp
     for pattern, _desc in [
         (wd / "tool_results" / "*.txt", "tool_results"),
-        (wd / "*.png", "screenshots"),
     ]:
         for fpath in wd.parent.glob(str(pattern.relative_to(wd.parent))):
             if fpath.is_file() and not dry_run:
@@ -447,7 +479,10 @@ async def inspect_memory(
     Returns:
         ToolResponse with memory health information.
     """
-    wd = Path(working_dir or _DEFAULT_WORKING_DIR)
+    try:
+        wd = _resolve_working_dir(working_dir)
+    except ValueError as e:
+        return ToolResponse(content=[TextBlock(type="text", text=f"❌ {e}")])
     memory_file = wd / "MEMORY.md"
     memory_dir = wd / "memory"
     lines: list[str] = [

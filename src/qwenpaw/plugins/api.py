@@ -173,6 +173,81 @@ class PluginApi:
                 f"'{handler.command_name}' (priority={priority_level})",
             )
 
+    def register_tool(
+        self,
+        tool_name: str,
+        tool_func: Callable,
+        *,
+        description: str = "",
+        icon: str = "🧩",
+        enabled: bool = False,
+        async_execution: bool = False,
+    ) -> None:
+        """Register a tool function for agent use.
+
+        This provides a first-class plugin API for tool plugins instead of
+        requiring each plugin to hand-roll importlib loading, setattr
+        injection, and agent-config mutation logic.
+        """
+        import qwenpaw.agents.tools as tools_module
+        from qwenpaw.app.agent_context import get_current_agent_id
+        from qwenpaw.config.config import (
+            BuiltinToolConfig,
+            ToolsConfig,
+            load_agent_config,
+            save_agent_config,
+        )
+
+        setattr(tools_module, tool_name, tool_func)
+        if tool_name not in tools_module.__all__:
+            tools_module.__all__.append(tool_name)
+
+        try:
+            agent_id = get_current_agent_id()
+            if not agent_id:
+                logger.warning(
+                    "No current agent ID found while registering tool '%s'",
+                    tool_name,
+                )
+                return
+
+            agent_config = load_agent_config(agent_id)
+            if not agent_config.tools:
+                agent_config.tools = ToolsConfig()
+
+            if tool_name not in agent_config.tools.builtin_tools:
+                agent_config.tools.builtin_tools[
+                    tool_name
+                ] = BuiltinToolConfig(
+                    name=tool_name,
+                    enabled=enabled,
+                    description=(
+                        f"{icon} {description}" if description else ""
+                    ),
+                    async_execution=async_execution,
+                )
+                save_agent_config(agent_id, agent_config)
+                logger.info(
+                    "Plugin '%s' registered tool '%s' for agent %s",
+                    self.plugin_id,
+                    tool_name,
+                    agent_id,
+                )
+            else:
+                logger.info(
+                    "Tool '%s' already exists in agent %s",
+                    tool_name,
+                    agent_id,
+                )
+        except Exception as e:
+            logger.error(
+                "Failed to persist tool '%s' config for plugin '%s': %s",
+                tool_name,
+                self.plugin_id,
+                e,
+                exc_info=True,
+            )
+
     @property
     def runtime(self):
         """Access runtime helper functions.
