@@ -370,10 +370,10 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
         )
         log_thread.start()
 
-        # 15s default lets cold-start endpoints (ACP getter, heartbeat)
-        # finish without hiding real deadlocks; 30s in coverage mode
-        # for tracer overhead.
-        http_timeout = 30.0 if _integration_coverage_requested() else 15.0
+        # 30s lets cold-start endpoints (ACP getter, heartbeat) and
+        # agent creation (workspace init) finish on slower runners
+        # (Windows CI ~50% slower) without hiding real deadlocks.
+        http_timeout = 30.0
         client = httpx.Client(timeout=http_timeout, trust_env=False)
 
         try:
