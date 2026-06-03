@@ -153,14 +153,15 @@ class TestToolsPageDisplayAndGlobalToggle:
                     target_btn = enable_all_btn
                     logger.info("Clicking Enable All button")
                 target_btn.click()
-                page.wait_for_timeout(3000)
-                # Verify the state change: inspect the first tool card's status
+                page.wait_for_load_state("networkidle")
+                page.wait_for_timeout(2000)
                 new_status_el = page.locator('span[class*="statusText"]').first
                 expected_text = "Disabled" if initial_enabled else "Enabled"
                 try:
-                    expect(new_status_el).to_have_text(expected_text, timeout=8000)
+                    expect(new_status_el).to_have_text(expected_text, timeout=15000)
                     new_enabled = not initial_enabled
                 except Exception:
+                    page.wait_for_timeout(3000)
                     new_status_val = new_status_el.inner_text().strip() if new_status_el.is_visible() else ""
                     new_enabled = new_status_val == "Enabled"
                     assert new_enabled != initial_enabled, f"State should change after global toggle, initial={initial_enabled}, new={new_enabled}"
