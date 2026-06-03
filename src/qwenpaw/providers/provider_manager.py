@@ -1009,7 +1009,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
 
     _instance = None
 
-    def __init__(self) -> None:
+    def __init__(self, lazy_init: bool = False) -> None:
         # Initialize provider manager, load providers from registry and store
         # any necessary state (e.g., cached models).
         self.builtin_providers: Dict[str, Provider] = {}
@@ -1020,14 +1020,42 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self.builtin_path = self.root_path / "builtin"
         self.custom_path = self.root_path / "custom"
         self.plugin_path = self.root_path / "plugin"  # Plugin provider configs
+        self._lazy_init_done = False
         self._prepare_disk_storage()
         self._init_builtins()
         try:
             self._migrate_legacy_providers()
         except Exception as e:
             logger.warning("Failed to migrate legacy providers: %s", e)
+
+        # If legacy migration created or restored the active model file,
+        # load it eagerly so consumers can access manager.active_model
+        # immediately after construction.
+        if self.active_model is None:
+            self.active_model = self.load_active_model()
+
+        # Lazy initialization: defer heavy I/O to background
+        if not lazy_init:
+            self._complete_initialization()
+
+    def _complete_initialization(self) -> None:
+        """Complete initialization: load storage and apply annotations.
+
+        This is called automatically during first access to custom/active
+        models or can be called explicitly in background startup phase.
+        """
+        if self._lazy_init_done:
+            return
+
+        logger.debug("ProviderManager: starting complete initialization...")
         self._init_from_storage()
         self._apply_default_annotations()
+        self._lazy_init_done = True
+
+    def ensure_initialized(self) -> None:
+        """Ensure lazy initialization is complete."""
+        self._complete_initialization()
+        logger.debug("ProviderManager: complete initialization done")
 
     def _prepare_disk_storage(self):
         """Prepare directory structure"""
@@ -1075,7 +1103,14 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider
 
+    def _ensure_initialized(self) -> None:
+        """Ensure lazy initialization is
+        complete before accessing custom providers."""
+        if not self._lazy_init_done:
+            self._complete_initialization()
+
     async def list_provider_info(self) -> List[ProviderInfo]:
+        self._ensure_initialized()
         tasks = [
             provider.get_info() for provider in self.builtin_providers.values()
         ]
@@ -1112,6 +1147,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     def get_provider(self, provider_id: str) -> Provider | None:
         # Return a provider instance by its ID. This will be used to create
         # chat model instances for the agent.
+        self._ensure_initialized()
         # Normalize provider ID for backward compatibility
         provider_id = self._normalize_provider_id(provider_id)
         # Check plugin providers first
@@ -1133,6 +1169,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
 
     def get_active_model(self) -> ModelSlotConfig | None:
         # Return the currently active provider/model configuration.
+        self._ensure_initialized()
         return self.active_model
 
     def update_provider(self, provider_id: str, config: Dict) -> bool:
@@ -1140,6 +1177,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         # This will be called when the user edits a provider's settings in the
         # UI. It should update the in-memory provider instance and persist the
         # changes to providers.json.
+        self._ensure_initialized()
         # Normalize provider ID for backward compatibility
         provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
@@ -1247,6 +1285,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     async def add_custom_provider(self, provider_data: ProviderInfo):
         # Add a new custom provider with the given data. This will update the
         # providers.json file and make the new provider available in the UI.
+        self._ensure_initialized()
         provider_payload = provider_data.model_dump()
         provider_payload["id"] = self._resolve_custom_provider_id(
             provider_data.id,
@@ -1265,6 +1304,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     def remove_custom_provider(self, provider_id: str) -> bool:
         # Remove a custom provider by its ID. This will update the
         # providers.json file and remove the provider from the UI.
+        self._ensure_initialized()
         if provider_id in self.custom_providers:
             del self.custom_providers[provider_id]
             provider_path = self.custom_path / f"{provider_id}.json"
@@ -1702,7 +1742,12 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             with open(active_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 return ModelSlotConfig.model_validate(data)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Failed to load active model from %s: %s",
+                active_path,
+                exc,
+            )
             return None
 
     def _migrate_copaw_config(self) -> None:
@@ -1760,7 +1805,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     # pylint: disable=too-many-branches
     def _migrate_legacy_providers(self):
         """Migrate from legacy providers.json format to the new structure."""
-        legacy_path = SECRET_DIR / "providers.json"
+        legacy_path = self.root_path.parent / "providers.json"
         if legacy_path.exists() and legacy_path.is_file():
             with open(legacy_path, "r", encoding="utf-8") as f:
                 legacy_data = json.load(f)
@@ -1769,7 +1814,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             active_model = legacy_data.get("active_llm", {})
             # Migrate built-in providers
             for provider_id, config in builtin_providers.items():
-                provider = self.get_provider(provider_id)
+                provider = self.builtin_providers.get(provider_id)
                 if not provider:
                     logger.warning(
                         "Legacy provider '%s' not found in"
@@ -1792,8 +1837,12 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 custom_provider = OpenAIProvider(
                     id=provider_id,
                     name=data.get("name", provider_id),
-                    base_url=data.get("base_url", ""),
+                    base_url=(
+                        data.get("base_url")
+                        or data.get("default_base_url", "")
+                    ),
                     api_key=data.get("api_key", ""),
+                    api_key_prefix=data.get("api_key_prefix", ""),
                     is_custom=True,
                 )
                 if "models" in data:
@@ -1908,11 +1957,9 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         registry = ExpectedCapabilityRegistry()
         for provider in self.builtin_providers.values():
             for model in provider.models:
-                # Already fully annotated (e.g. by a prior probe) → skip
                 if model.supports_multimodal is not None:
                     continue
 
-                # Static annotations present → compute derived flag only
                 if (
                     model.supports_image is not None
                     or model.supports_video is not None
@@ -2109,9 +2156,10 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
 
     @staticmethod
     def get_instance() -> "ProviderManager":
-        """Get the singleton instance of ProviderManager."""
+        """Get the singleton instance of ProviderManager
+        with lazy initialization."""
         if ProviderManager._instance is None:
-            ProviderManager._instance = ProviderManager()
+            ProviderManager._instance = ProviderManager(lazy_init=True)
         return ProviderManager._instance
 
     @staticmethod

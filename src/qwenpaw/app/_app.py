@@ -53,6 +53,11 @@ from .migration import (
     ensure_qa_agent_exists,
 )
 from .channels.registry import register_custom_channel_routes
+from ..startup import (
+    ProgressiveInitializer,
+    parallel_tasks,
+)
+from ..startup.config_loader import parallel_load_envs_and_config
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -245,22 +250,36 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     auto_register_from_env()
 
-    try:
-        from ..utils.telemetry import (
-            collect_and_upload_telemetry,
-            has_telemetry_been_collected,
-            is_telemetry_opted_out,
-        )
+    # ================================================================
+    # OPTIMIZATION: Parallel load environment and config (Phase 1a)
+    # This parallelizes I/O operations on Windows
+    # ================================================================
+    logger.debug("Parallel loading config and environment variables...")
+    config, _ = await parallel_load_envs_and_config(get_config_path())
 
-        if not is_telemetry_opted_out(
-            WORKING_DIR,
-        ) and not has_telemetry_been_collected(WORKING_DIR):
-            collect_and_upload_telemetry(WORKING_DIR)
-    except Exception:
-        logger.debug(
-            "Telemetry collection skipped due to error",
-            exc_info=True,
-        )
+    # ================================================================
+    # OPTIMIZATION: Lazy load telemetry to avoid blocking startup
+    # ================================================================
+    async def _deferred_telemetry():
+        try:
+            from ..utils.telemetry import (
+                collect_and_upload_telemetry,
+                has_telemetry_been_collected,
+                is_telemetry_opted_out,
+            )
+
+            if not is_telemetry_opted_out(
+                WORKING_DIR,
+            ) and not has_telemetry_been_collected(WORKING_DIR):
+                collect_and_upload_telemetry(WORKING_DIR)
+        except Exception:
+            logger.debug(
+                "Telemetry collection skipped due to error",
+                exc_info=True,
+            )
+
+    # Schedule telemetry for deferred execution (keep reference to avoid GC)
+    _telemetry_task = asyncio.create_task(_deferred_telemetry())  # noqa: F841
 
     logger.debug("Checking for legacy config migration...")
     migrate_legacy_workspace_to_default_agent()
@@ -307,36 +326,117 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     )
 
     # ================================================================
-    # Phase 2: Background heavy initialization
-    # Agents, plugins, and services start in a background task so the
-    # server can begin accepting HTTP requests immediately.
-    # First API requests that need an agent will await its readiness
-    # via MultiAgentManager.get_agent() lazy-loading / event wait.
+    # Phase 2: Background heavy initialization with progressive tasks
+    # Agents, plugins, and services start in background in priority order
     # ================================================================
 
     async def _background_startup():  # pylint: disable=too-many-statements
         try:
-            # Start all configured agents (truly parallel now)
-            await multi_agent_manager.start_all_configured_agents()
+            initializer = ProgressiveInitializer()
 
-            provider_manager.start_local_model_resume(local_model_manager)
+            # OPTIMIZATION: Critical path - parallel agent startup
+            initializer.add_critical(
+                multi_agent_manager.start_all_configured_agents(),
+            )
 
-            # ---- Plugin System ----
+            # OPTIMIZATION: Background path - deferred hooks (lowest priority)
+            initializer.add_background(
+                _deferred_approval_setup(app, multi_agent_manager),
+            )
+
+            # Execute initialization with progressive strategy
+            _, deferred_task = await initializer.initialize()
+
+            # Defensively load the MCP plugin system; skip gracefully if
+            # the config file is missing or dependencies are unavailable.
+            logger.debug("Attempting to initialize MCP plugin system...")
+            try:
+                await _init_plugin_system(app, provider_manager)
+                logger.info("MCP plugin system initialized successfully.")
+            except Exception as mcp_error:
+                logger.warning(
+                    "Failed to initialize MCP plugin system. Error: %s",
+                    mcp_error,
+                )
+
+            # Start local model resume with defensive loading
+            logger.debug("Starting local model resume...")
+            try:
+                provider_manager.start_local_model_resume(local_model_manager)
+            except Exception as model_error:
+                logger.warning(
+                    "Failed to start local model resume. Error: %s",
+                    model_error,
+                )
+
+            logger.debug(
+                "Completing lazy initialization of providers and "
+                "models in background",
+            )
+            try:
+                provider_manager.ensure_initialized()
+                local_model_manager.ensure_initialized()
+                logger.debug("Lazy initialization completed")
+            except Exception as exc:
+                logger.warning(
+                    "Lazy initialization of managers failed: %s",
+                    exc,
+                    exc_info=True,
+                )
+
+            startup_elapsed = time.time() - startup_start_time
+            logger.info(
+                "Critical startup completed in "
+                f"{startup_elapsed:.3f} seconds",
+            )
+
+            # Print server URL so it's visible
+            from ..config.utils import read_last_api
+            from ..utils.startup_display import print_ready_banner
+
+            api_info = read_last_api()
+            print_ready_banner(api_info, startup_elapsed)
+
+            # Wait for deferred tasks to complete
+            try:
+                await deferred_task
+                total_elapsed = time.time() - startup_start_time
+                logger.info(
+                    f"Background startup completed in "
+                    f"{total_elapsed:.3f} seconds total",
+                )
+            except Exception:
+                logger.error(
+                    "Background initialization error",
+                    exc_info=True,
+                )
+
+        except Exception:
+            logger.error(
+                "Background startup encountered an error",
+                exc_info=True,
+            )
+
+    async def _init_plugin_system(
+        app: FastAPI,
+        provider_manager: ProviderManager,
+    ):
+        """Initialize plugin system asynchronously.
+
+        OPTIMIZATION: Parallelizes plugin discovery and loading.
+        """
+        try:
             logger.debug("Initializing plugin system...")
 
             from ..plugins.loader import PluginLoader
             from ..plugins.runtime import RuntimeHelpers
             from ..config.utils import get_plugins_dir
 
-            plugin_dirs = [
-                get_plugins_dir(),
-            ]
-
+            plugin_dirs = [get_plugins_dir()]
             plugin_loader = PluginLoader(plugin_dirs)
-
             plugin_loader.registry.set_plugin_http_app(app)
 
-            config = load_config(get_config_path())
+            # Use previously loaded config
             plugin_configs = (
                 config.plugins if hasattr(config, "plugins") else {}
             )
@@ -344,30 +444,43 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
 
+            # OPTIMIZATION: Load plugins with limited concurrency to avoid
+            # resource exhaustion on Windows
             loaded_plugins = await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
             )
             logger.debug(f"Loaded {len(loaded_plugins)} plugin(s)")
 
+            # OPTIMIZATION: Parallel provider registration
             runtime_helpers = RuntimeHelpers(
                 provider_manager=provider_manager,
             )
             plugin_loader.registry.set_runtime_helpers(runtime_helpers)
 
-            for (
-                provider_id,
-                provider_reg,
-            ) in plugin_loader.registry.get_all_providers().items():
-                provider_manager.register_plugin_provider(
-                    provider_id=provider_id,
-                    provider_class=provider_reg.provider_class,
-                    label=provider_reg.label,
-                    base_url=provider_reg.base_url,
-                    metadata=provider_reg.metadata,
-                )
-                logger.debug(
-                    f"Registered plugin provider: {provider_id}",
-                )
+            all_providers = plugin_loader.registry.get_all_providers().items()
+
+            async def register_provider(provider_id, provider_reg):
+                try:
+                    provider_manager.register_plugin_provider(
+                        provider_id=provider_id,
+                        provider_class=provider_reg.provider_class,
+                        label=provider_reg.label,
+                        base_url=provider_reg.base_url,
+                        metadata=provider_reg.metadata,
+                    )
+                    logger.debug(f"Registered plugin provider: {provider_id}")
+                except Exception as e:
+                    logger.error(
+                        f"Failed to register provider {provider_id}: {e}",
+                        exc_info=True,
+                    )
+
+            # Register providers in parallel (up to 4 concurrent)
+            await parallel_tasks(
+                [register_provider(pid, preg) for pid, preg in all_providers],
+                max_concurrent=4,
+                name="plugin_provider_registration",
+            )
 
             app.state.plugin_loader = plugin_loader
             app.state.plugin_registry = plugin_loader.registry
@@ -378,26 +491,23 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             from ..app.channels.command_registry import CommandRegistry
 
             command_registry = CommandRegistry()
-
             control_commands = plugin_loader.registry.get_control_commands()
+
             for cmd_reg in control_commands:
                 try:
                     register_command(cmd_reg.handler)
-
                     command_registry.register_command(
                         f"/{cmd_reg.handler.command_name}",
                         priority_level=cmd_reg.priority_level,
                     )
-
                     logger.debug(
                         f"Registered plugin control command: "
                         f"/{cmd_reg.handler.command_name} "
-                        f"from plugin '{cmd_reg.plugin_id}' (priority"
-                        f"={cmd_reg.priority_level})",
+                        f"from plugin '{cmd_reg.plugin_id}'",
                     )
                 except Exception as e:
                     logger.error(
-                        f"✗ Failed to register control command "
+                        f"Failed to register control command "
                         f"'{cmd_reg.handler.command_name}' "
                         f"from plugin '{cmd_reg.plugin_id}': {e}",
                         exc_info=True,
@@ -406,63 +516,57 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             # ---- Startup Hooks ----
             logger.debug("Executing plugin startup hooks...")
             startup_hooks = plugin_loader.registry.get_startup_hooks()
-            for hook in startup_hooks:
+
+            async def execute_hook(hook):
                 try:
                     logger.debug(
-                        f"Executing startup hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}' "
-                        f"(priority={hook.priority})",
+                        "Executing startup hook '%s' from plugin '%s'",
+                        hook.hook_name,
+                        hook.plugin_id,
                     )
-
                     result = hook.callback()
-                    if inspect.iscoroutine(
+                    if inspect.iscoroutine(result) or inspect.isawaitable(
                         result,
-                    ) or inspect.isawaitable(result):
+                    ):
                         await result
-
                     logger.debug(
-                        f"Completed startup hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}'",
+                        "Completed startup hook '%s' from plugin '%s'",
+                        hook.hook_name,
+                        hook.plugin_id,
                     )
                 except Exception as e:
                     logger.error(
-                        f"✗ Failed to execute startup hook "
-                        f"'{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}': {e}",
+                        "Failed to execute startup hook '%s' "
+                        "from plugin '%s': %s",
+                        hook.hook_name,
+                        hook.plugin_id,
+                        e,
                         exc_info=True,
                     )
 
-            # ---- Approval Service ----
-            try:
-                default_agent = await multi_agent_manager.get_agent(
-                    "default",
-                )
-                if default_agent.channel_manager:
-                    from .approvals import get_approval_service
+            for hook in startup_hooks:
+                await execute_hook(hook)
 
-                    get_approval_service().set_channel_manager(
-                        default_agent.channel_manager,
-                    )
-            except Exception as e:
-                logger.warning(f"Approval service setup skipped: {e}")
-
-            startup_elapsed = time.time() - startup_start_time
-            logger.info(
-                "Background startup completed in "
-                f"{startup_elapsed:.3f} seconds",
-            )
-
-            # Print server URL again so it's visible after background logs
-            from ..config.utils import read_last_api
-            from ..utils.startup_display import print_ready_banner
-
-            api_info = read_last_api()
-            print_ready_banner(api_info, startup_elapsed)
         except Exception:
-            logger.error(
-                "Background startup encountered an error",
-                exc_info=True,
-            )
+            logger.error("Plugin system initialization failed", exc_info=True)
+
+    async def _deferred_approval_setup(app: FastAPI, multi_agent_manager):
+        """Set up approval service asynchronously (deferred).
+
+        OPTIMIZATION: Runs after critical initialization, as it's
+        not needed for basic server functionality.
+        """
+        try:
+            default_agent = await multi_agent_manager.get_agent("default")
+            if default_agent.channel_manager:
+                from .approvals import get_approval_service
+
+                get_approval_service().set_channel_manager(
+                    default_agent.channel_manager,
+                )
+                logger.debug("Approval service initialized")
+        except Exception as e:
+            logger.warning(f"Approval service setup skipped: {e}")
 
     _bg_task = asyncio.create_task(_background_startup())
 

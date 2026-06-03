@@ -55,12 +55,32 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         *,
         model_manager: ModelManager | None = None,
         llamacpp_backend: LlamaCppBackend | None = None,
+        lazy_init: bool = True,
     ) -> None:
         self._model_manager = model_manager or ModelManager()
         self._llamacpp_backend = llamacpp_backend or LlamaCppBackend()
         self._server_lifecycle_lock = asyncio.Lock()
         self._config_path = DEFAULT_LOCAL_PROVIDER_DIR / self.CONFIG_FILE_NAME
+        self._config: LocalModelConfig | None = None
+        self._lazy_init_done = False
+
+        # Lazy initialization: defer config loading to background
+        if not lazy_init:
+            self._complete_initialization()
+
+    def _complete_initialization(self) -> None:
+        """Complete initialization: load config from disk.
+
+        This is called automatically during first access to config
+        or can be called explicitly in background startup phase.
+        """
+        if self._lazy_init_done:
+            return
+
+        logger.debug("LocalModelManager: starting complete initialization...")
         self._config = self._load_config()
+        self._lazy_init_done = True
+        logger.debug("LocalModelManager: complete initialization done")
 
     def _load_config(self) -> LocalModelConfig:
         """Load persisted local runtime settings from disk."""
@@ -78,6 +98,15 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
                 exc,
             )
             return LocalModelConfig()
+
+    def _ensure_initialized(self) -> None:
+        """Ensure lazy initialization is complete before accessing config."""
+        if not self._lazy_init_done:
+            self._complete_initialization()
+
+    def ensure_initialized(self) -> None:
+        """Ensure lazy initialization is complete."""
+        self._ensure_initialized()
 
     @staticmethod
     def _write_config_file(
@@ -100,6 +129,8 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
 
     async def _save_config(self) -> None:
         """Persist local runtime settings to disk without blocking the loop."""
+        if self._config is None:
+            self._config = LocalModelConfig()
         await asyncio.to_thread(
             self._write_config_file,
             self._config_path,
@@ -108,16 +139,21 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
 
     def get_config(self) -> LocalModelConfig:
         """Return a defensive copy of the current local runtime settings."""
+        self._ensure_initialized()
+        if self._config is None:
+            return LocalModelConfig()
         return self._config.model_copy(deep=True)
 
     async def set_max_context_length(self, max_context_length: int) -> None:
         """Persist the max context length for future llama.cpp startups."""
+        self._ensure_initialized()
         async with self._server_lifecycle_lock:
             self._config.max_context_length = max_context_length
             await self._save_config()
 
     async def set_port(self, port: int | None) -> None:
         """Persist the llama.cpp server port for future startups."""
+        self._ensure_initialized()
         async with self._server_lifecycle_lock:
             self._config.port = port
             await self._save_config()
@@ -216,6 +252,7 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         model_id: str,
     ) -> LlamaCppServerSetupResult:
         """Start the llama.cpp server for the specified model."""
+        self._ensure_initialized()
         async with self._server_lifecycle_lock:
             return await self._llamacpp_backend.setup_server(
                 model_path=self._model_manager.get_model_dir(model_id),
@@ -235,9 +272,10 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
 
     @staticmethod
     def get_instance() -> LocalModelManager:
-        """Return the singleton LocalModelManager instance."""
+        """Return the singleton LocalModelManager
+        instance with lazy initialization."""
         # This is a simple module-level singleton pattern. In a more complex
         # application, you might want to use a dependency injection framework.
         if LocalModelManager._instance is None:
-            LocalModelManager._instance = LocalModelManager()
+            LocalModelManager._instance = LocalModelManager(lazy_init=True)
         return LocalModelManager._instance
