@@ -637,6 +637,21 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             )
         workspace_path = Path(workspace_dir)
 
+        # Build a dedicated toolkit for the dream agent so it stays
+        # isolated from self.summary_toolkit (which the summarize path
+        # shares). Decoupling avoids any future tool change on either
+        # side accidentally affecting the other.
+        from qwenpaw.agents.tools import (  # noqa: PLC0415
+            read_file,
+            write_file,
+            edit_file,
+        )
+
+        dream_toolkit = Toolkit()
+        dream_toolkit.register_tool_function(read_file)
+        dream_toolkit.register_tool_function(write_file)
+        dream_toolkit.register_tool_function(edit_file)
+        
         set_current_workspace_dir(workspace_path)
         pruning_cfg = light_ctx.tool_result_pruning_config
         recent_max_bytes = pruning_cfg.pruning_recent_msg_max_bytes
@@ -668,21 +683,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 logger.error(f"Failed to create MEMORY.md backup: {e}")
         else:
             logger.debug("No existing MEMORY.md file to backup")
-
-        # Build a dedicated toolkit for the dream agent so it stays
-        # isolated from self.summary_toolkit (which the summarize path
-        # shares). Decoupling avoids any future tool change on either
-        # side accidentally affecting the other.
-        from qwenpaw.agents.tools import (  # noqa: PLC0415
-            read_file,
-            write_file,
-            edit_file,
-        )
-
-        dream_toolkit = Toolkit()
-        dream_toolkit.register_tool_function(read_file)
-        dream_toolkit.register_tool_function(write_file)
-        dream_toolkit.register_tool_function(edit_file)
 
         dream_agent = ReActAgent(
             name="DreamOptimizer",
