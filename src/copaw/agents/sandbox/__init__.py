@@ -14,6 +14,7 @@ from .null_provider import NullSandboxProvider
 __all__ = [
     "SandboxProvider",
     "E2BSandboxProvider",
+    "E2BSandboxHandle",
     "AgentscopeSandboxProvider",
     "AgentscopeSandboxHandle",
     "NullSandboxProvider",
@@ -22,10 +23,12 @@ __all__ = [
 
 def __getattr__(name: str):
     """Lazy-load providers to avoid import-time circular issues."""
-    if name == "E2BSandboxProvider":
-        from .e2b_provider import E2BSandboxProvider
+    if name in ("E2BSandboxProvider", "E2BSandboxHandle"):
+        from .e2b_provider import E2BSandboxProvider, E2BSandboxHandle
 
-        return E2BSandboxProvider
+        if name == "E2BSandboxProvider":
+            return E2BSandboxProvider
+        return E2BSandboxHandle
     if name in ("AgentscopeSandboxProvider", "AgentscopeSandboxHandle"):
         from .agentscope_provider import (
             AgentscopeSandboxProvider,

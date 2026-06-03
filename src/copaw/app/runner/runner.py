@@ -73,6 +73,63 @@ class AgentRunner(Runner):
         self._chat_manager = None  # Store chat_manager reference
         self._mcp_manager = None  # MCP client manager for hot-reload
         self.memory_manager: MemoryManager | None = None
+        self._sandbox_provider = self._init_sandbox_provider()
+
+    @staticmethod
+    def _init_sandbox_provider():
+        """Initialize sandbox provider from COPAW_CONFIG_JSON env var."""
+        import os as _os
+
+        config_json = _os.environ.get("COPAW_CONFIG_JSON", "")
+        if not config_json:
+            from ...agents.sandbox import NullSandboxProvider
+
+            return NullSandboxProvider()
+        try:
+            config = json.loads(config_json)
+        except (json.JSONDecodeError, TypeError):
+            from ...agents.sandbox import NullSandboxProvider
+
+            return NullSandboxProvider()
+
+        sandbox_cfg = config.get("sandbox", {})
+        if not sandbox_cfg.get("enabled", False):
+            from ...agents.sandbox import NullSandboxProvider
+
+            return NullSandboxProvider()
+
+        template_id = sandbox_cfg.get("template_id", "e2b")
+        sandbox_type = sandbox_cfg.get("type", "e2b")
+
+        if sandbox_type == "agentscope":
+            from ...agents.sandbox import AgentscopeSandboxProvider
+
+            provider = AgentscopeSandboxProvider(
+                sandbox_manager_url=_os.environ.get(
+                    "SANDBOX_MANAGER_URL",
+                    _os.environ.get("E2B_SANDBOX_URL", ""),
+                ),
+                sandbox_manager_token=_os.environ.get(
+                    "SANDBOX_MANAGER_TOKEN",
+                    _os.environ.get("E2B_API_KEY", ""),
+                ),
+                sandbox_type=template_id,
+            )
+            logger.info(
+                "Sandbox provider initialized: AgentscopeSandboxProvider "
+                "(type=%s)",
+                template_id,
+            )
+        else:
+            from ...agents.sandbox import E2BSandboxProvider
+
+            provider = E2BSandboxProvider(template_id=template_id)
+            logger.info(
+                "Sandbox provider initialized: E2BSandboxProvider "
+                "(template=%s)",
+                template_id,
+            )
+        return provider
 
     def set_chat_manager(self, chat_manager):
         """Set chat manager for auto-registration.
@@ -274,6 +331,10 @@ class AgentRunner(Runner):
             # Load agent-specific configuration
             agent_config = load_agent_config(self.agent_id)
 
+            sandbox = await self._sandbox_provider.get_or_create(
+                session_id, user_id
+            )
+
             agent = CoPawAgent(
                 agent_config=agent_config,
                 env_context=env_context,
@@ -296,6 +357,7 @@ class AgentRunner(Runner):
                     ),
                 },
                 workspace_dir=self.workspace_dir,
+                sandbox=sandbox,
             )
             await agent.register_mcp_clients()
             agent.set_console_output_enabled(enabled=False)

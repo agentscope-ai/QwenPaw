@@ -178,7 +178,7 @@ class AgentscopeSandboxProvider:
                     },
                 },
                 headers=self._headers(),
-                timeout=60,
+                timeout=300,
             )
             resp.raise_for_status()
             data = resp.json()
