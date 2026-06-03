@@ -85,6 +85,11 @@ _ACP_REDUNDANT_COMMANDS = frozenset(
     {"model", "approval", "approve", "deny", "stop"},
 )
 
+# ``_meta`` key set on an ``agent_message_chunk`` to mark it as an error,
+# so ACP clients can render it distinctly (e.g. the paw TUI shows it in its
+# error style). Clients that ignore ``_meta`` still display the text.
+ACP_ERROR_META_KEY = "qwenpaw.error"
+
 
 PromptBlocks = list[
     TextContentBlock
@@ -190,6 +195,7 @@ def _msg_to_updates(  # pylint: disable=too-many-branches
                         tc_id,
                         str(tc.get("name") or "tool"),
                         status="in_progress",
+                        raw_input=tc.get("input"),
                     ),
                 )
         return updates
@@ -252,6 +258,7 @@ def _content_blocks_to_updates(
                         tc_id,
                         str(block_data.get("name") or "tool"),
                         status="in_progress",
+                        raw_input=block_data.get("input"),
                     ),
                 )
         elif block_type == "tool_result":
@@ -297,7 +304,7 @@ def _normalise_block(block: Any) -> tuple[str, dict[str, Any]]:
         return block.get("type", "text"), block
     btype = getattr(block, "type", "text") or "text"
     data: dict[str, Any] = {}
-    for attr in ("text", "thinking", "id", "name", "output"):
+    for attr in ("text", "thinking", "id", "name", "output", "input"):
         val = getattr(block, attr, None)
         if val is not None:
             data[attr] = val
@@ -848,14 +855,17 @@ class QwenPawACPAgent(Agent):
         """Send a prompt failure to the client as a visible message.
 
         ACP has no dedicated error update, so the message is delivered as
-        an ``agent_message_chunk`` prefixed with a clear error marker —
-        this renders in the transcript of any ACP client.
+        an ``agent_message_chunk`` tagged via ``_meta`` (see
+        ``ACP_ERROR_META_KEY``). Clients can render it distinctly; those
+        that ignore ``_meta`` still show the text in the transcript.
         """
         try:
             await self._conn.session_update(
                 session_id=session_id,
-                update=update_agent_message(
-                    text_block(f"\n\n⚠️ **Error:** {exc}"),
+                update=AgentMessageChunk(
+                    sessionUpdate="agent_message_chunk",
+                    content=text_block(f"Error: {exc}"),
+                    field_meta={ACP_ERROR_META_KEY: True},
                 ),
             )
         except Exception:  # pylint: disable=broad-except

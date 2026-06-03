@@ -11,6 +11,7 @@ import asyncio
 
 from qwenpaw.agents.acp.server import (
     _ACP_REDUNDANT_COMMANDS,
+    ACP_ERROR_META_KEY,
     QwenPawACPAgent,
 )
 
@@ -98,7 +99,8 @@ async def test_report_prompt_error_is_sent_to_client():
     assert conn.updates
     session_id, update = conn.updates[0]
     assert session_id == "sess-err"
-    # Delivered as a visible assistant message chunk with the error text.
+    # Delivered as a visible assistant message chunk with the error text...
     assert update.session_update == "agent_message_chunk"
-    assert "Error" in update.content.text
     assert "boom: invalid api key" in update.content.text
+    # ...tagged via _meta so clients can render it as an error.
+    assert update.field_meta == {ACP_ERROR_META_KEY: True}
