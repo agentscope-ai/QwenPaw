@@ -292,41 +292,18 @@ jobs:
         run: |
           .\scripts\install.ps1 -FromSource -SourceDir "$PWD"
 
-      - name: Verify CLI available (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Verify CLI, init, start server, and health check
         shell: bash
         run: |
-          export PATH="$HOME/.qwenpaw/bin:$PATH"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export PATH="$USERPROFILE/.qwenpaw/bin:$PATH"
+          else
+            export PATH="$HOME/.qwenpaw/bin:$PATH"
+          fi
           qwenpaw --version
-
-      - name: Verify CLI available (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $env:PATH = "$env:USERPROFILE\.qwenpaw\bin;$env:PATH"
-          qwenpaw --version
-
-      - name: Initialize and start server (Linux/macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          export PATH="$HOME/.qwenpaw/bin:$PATH"
           qwenpaw init --defaults --accept-security
           qwenpaw app --host 127.0.0.1 --port 8088 &
-          echo $! > /tmp/qwenpaw.pid
-
-      - name: Initialize and start server (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $env:PATH = "$env:USERPROFILE\.qwenpaw\bin;$env:PATH"
-          qwenpaw init --defaults --accept-security
-          $python = "$env:USERPROFILE\.qwenpaw\venv\Scripts\python.exe"
-          Start-Process -NoNewWindow -FilePath $python -ArgumentList "-m","qwenpaw.cli.main","app","--host","127.0.0.1","--port","8088"
-
-      - name: Wait for /api/version
-        shell: bash
-        run: |
+          echo $! > /tmp/qwenpaw.pid || true
           for i in $(seq 1 60); do
             if curl -sf http://127.0.0.1:8088/api/version; then
               echo ""
