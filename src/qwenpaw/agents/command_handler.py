@@ -21,6 +21,25 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# User-facing conversation commands and their summaries, used when
+# advertising commands to clients (e.g. the ACP
+# ``available_commands_update`` notification). This is intentionally a
+# subset of ``SYSTEM_COMMANDS`` — the omitted entries (``compact_str``,
+# ``summarize_status``, ``message``, ``dump_history``, ``load_history``,
+# ``proactive``) are internal/programmatic and not meant to be typed.
+# Descriptions mirror the console command palette copy
+# (``console/src/locales/en.json`` → ``chat.commands``) where they overlap,
+# so the same wording is shown across the web UI and ACP clients.
+SYSTEM_COMMAND_DESCRIPTIONS: dict[str, str] = {
+    "new": "Start a new conversation",
+    "clear": "Clear the conversation context",
+    "compact": (
+        "Compact the conversation context; optional instruction supported"
+    ),
+    "history": "Show the conversation history",
+    "plan": "Create a structured plan to decompose the task into subtasks",
+}
+
 
 def _fmt_tokens(n: int) -> str:
     """Format token count as e.g. '82.3k' or '450'."""

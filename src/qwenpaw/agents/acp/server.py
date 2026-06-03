@@ -36,6 +36,8 @@ from acp.schema import (
     AgentCapabilities,
     AgentMessageChunk,
     AudioContentBlock,
+    AvailableCommand,
+    AvailableCommandsUpdate,
     ClientCapabilities,
     CloseSessionResponse,
     EmbeddedResourceContentBlock,
@@ -67,8 +69,21 @@ from ...__version__ import __version__
 from ...constant import WORKING_DIR
 from ...config.config import ModelSlotConfig
 from ...providers.provider_manager import ProviderManager
+from ...agents.command_handler import SYSTEM_COMMAND_DESCRIPTIONS
+from ...agents.mission.handler import MISSION_COMMAND_DESCRIPTIONS
+from ...app.runner.control_commands import iter_commands
 
 logger = logging.getLogger(__name__)
+
+# Control commands that have a dedicated ACP affordance and would be
+# redundant (or confusing) as typed slash commands over ACP:
+#   /model    → session/set_model
+#   /approval, /approve, /deny → session/request_permission round-trip
+#   /stop     → session/cancel notification
+# They are handled natively and so are not advertised for autocompletion.
+_ACP_REDUNDANT_COMMANDS = frozenset(
+    {"model", "approval", "approve", "deny", "stop"},
+)
 
 
 PromptBlocks = list[
@@ -484,6 +499,9 @@ class QwenPawACPAgent(Agent):
             session_id,
             cwd,
         )
+        # Advertise slash commands after the response is sent, so the
+        # client has learned this session_id first.
+        asyncio.create_task(self._advertise_commands(session_id))
         return NewSessionResponse(
             session_id=session_id,
             config_options=self._build_config_options(session_id),
@@ -508,6 +526,7 @@ class QwenPawACPAgent(Agent):
             session_id,
             cwd,
         )
+        asyncio.create_task(self._advertise_commands(session_id))
         return LoadSessionResponse()
 
     async def prompt(  # pylint: disable=too-many-locals,unused-argument
@@ -790,6 +809,51 @@ class QwenPawACPAgent(Agent):
         if info is not None:
             return info.get("mode", self.MODE_DEFAULT)
         return self.MODE_DEFAULT
+
+    @staticmethod
+    def _build_available_commands() -> list[AvailableCommand]:
+        """Build the slash commands to advertise to the ACP client.
+
+        Combines the user-facing conversation commands with the registered
+        control commands, skipping those that have a dedicated ACP
+        affordance (see ``_ACP_REDUNDANT_COMMANDS``).
+        """
+        commands = [
+            AvailableCommand(name=name, description=desc)
+            for name, desc in {
+                **SYSTEM_COMMAND_DESCRIPTIONS,
+                **MISSION_COMMAND_DESCRIPTIONS,
+            }.items()
+        ]
+        for handler in iter_commands():
+            name = handler.command_name.lstrip("/")
+            if not name or name in _ACP_REDUNDANT_COMMANDS:
+                continue
+            commands.append(
+                AvailableCommand(
+                    name=name,
+                    description=handler.description,
+                ),
+            )
+        return commands
+
+    async def _advertise_commands(self, session_id: str) -> None:
+        """Send the ``available_commands_update`` for a session."""
+        try:
+            await self._conn.session_update(
+                session_id=session_id,
+                update=AvailableCommandsUpdate(
+                    sessionUpdate="available_commands_update",
+                    availableCommands=self._build_available_commands(),
+                ),
+            )
+        except Exception:  # pylint: disable=broad-except
+            # Advertising commands is best-effort; never fail a session
+            # because the notification could not be delivered.
+            logger.exception(
+                "ACP: failed to advertise available commands (session=%s)",
+                session_id,
+            )
 
     def _build_config_options(
         self,

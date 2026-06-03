@@ -1,0 +1,85 @@
+# -*- coding: utf-8 -*-
+"""Tests for the ACP agent advertising its slash commands.
+
+The ACP server sends an ``available_commands_update`` notification after a
+session is created so clients (e.g. the paw TUI) can offer autocompletion.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+from qwenpaw.agents.acp.server import (
+    _ACP_REDUNDANT_COMMANDS,
+    QwenPawACPAgent,
+)
+
+
+class _FakeConn:
+    """Records ``session_update`` calls made by the agent."""
+
+    def __init__(self) -> None:
+        self.updates: list[tuple[str, object]] = []
+
+    async def session_update(self, session_id: str, update: object) -> None:
+        self.updates.append((session_id, update))
+
+
+async def _drain() -> None:
+    """Let the fire-and-forget advertise task run to completion."""
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+
+def test_build_available_commands_set():
+    commands = QwenPawACPAgent._build_available_commands()
+    names = {c.name for c in commands}
+
+    # User-facing conversation + mission + skills commands are advertised.
+    assert {
+        "new",
+        "clear",
+        "compact",
+        "history",
+        "plan",
+        "mission",
+        "skills",
+    } <= names
+
+    # Commands with a dedicated ACP affordance are not advertised.
+    assert names.isdisjoint(_ACP_REDUNDANT_COMMANDS)
+
+    # Every advertised command carries a human-readable description.
+    assert all(c.description for c in commands)
+
+
+async def test_new_session_advertises_commands():
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _FakeConn()
+    agent.on_connect(conn)
+
+    response = await agent.new_session(cwd="/tmp")
+    await _drain()
+
+    assert conn.updates, "expected an available_commands_update notification"
+    session_id, update = conn.updates[0]
+    assert session_id == response.session_id
+    assert update.session_update == "available_commands_update"
+
+    names = {c.name for c in update.available_commands}
+    assert "mission" in names
+    assert "new" in names
+
+
+async def test_load_session_advertises_commands():
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _FakeConn()
+    agent.on_connect(conn)
+
+    await agent.load_session(cwd="/tmp", session_id="sess-123")
+    await _drain()
+
+    assert conn.updates
+    session_id, update = conn.updates[0]
+    assert session_id == "sess-123"
+    assert update.session_update == "available_commands_update"
