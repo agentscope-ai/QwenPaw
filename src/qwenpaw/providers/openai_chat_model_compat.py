@@ -328,9 +328,76 @@ def _sanitize_tool_schemas(
     return sanitized
 
 
+# Parameters accepted by OpenAI SDK's chat.completions.create().
+# Non-standard params (e.g. enable_search) are moved to extra_body.
+# API: https://developers.openai.com/api/reference/resources
+#      /chat/subresources/completions/methods/create
+# SDK: https://github.com/openai/openai-python
+#      ?tab=readme-ov-file#undocumented-request-params
+_OPENAI_CREATE_PARAMS = frozenset(
+    {
+        "messages",
+        "model",
+        "audio",
+        "frequency_penalty",
+        "function_call",
+        "functions",
+        "logit_bias",
+        "logprobs",
+        "max_completion_tokens",
+        "max_tokens",
+        "metadata",
+        "modalities",
+        "n",
+        "parallel_tool_calls",
+        "prediction",
+        "presence_penalty",
+        "prompt_cache_key",
+        "prompt_cache_retention",
+        "reasoning_effort",
+        "response_format",
+        "safety_identifier",
+        "seed",
+        "service_tier",
+        "stop",
+        "store",
+        "stream",
+        "stream_options",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_logprobs",
+        "top_p",
+        "user",
+        "verbosity",
+        "web_search_options",
+        "extra_headers",
+        "extra_query",
+        "extra_body",
+        "timeout",
+    },
+)
+
+
 class OpenAIChatModelCompat(OpenAIChatModel):
     """OpenAIChatModel with robust parsing for malformed tool-call chunks
     and transparent ``extra_content`` (Gemini thought_signature) relay."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self.generate_kwargs:
+            extra_body = self.generate_kwargs.pop("extra_body", None) or {}
+            non_standard = {
+                k: v
+                for k, v in list(self.generate_kwargs.items())
+                if k not in _OPENAI_CREATE_PARAMS
+            }
+            for k in non_standard:
+                del self.generate_kwargs[k]
+            if non_standard:
+                extra_body = {**extra_body, **non_standard}
+            if extra_body:
+                self.generate_kwargs["extra_body"] = extra_body
 
     def _format_tools_json_schemas(
         self,
