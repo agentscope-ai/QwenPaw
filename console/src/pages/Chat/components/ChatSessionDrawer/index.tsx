@@ -575,13 +575,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           </div>
         ) : (
           <>
-            {/* Background loading — only show when content overflows the container,
-                so it's visible through unrendered gaps during fast scroll */}
-            {sortedSessions.length * ITEM_HEIGHT > listHeight && (
-              <div className={styles.virtualListBackground}>
-                <Spin size="small" />
-              </div>
-            )}
             <FixedSizeList
               height={listHeight}
               width="100%"

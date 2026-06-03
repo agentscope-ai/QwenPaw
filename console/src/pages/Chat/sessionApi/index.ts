@@ -287,14 +287,13 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
 /** Returns true when id is a pure numeric local timestamp (not a backend UUID). */
 const isLocalTimestamp = (id: string): boolean => /^\d+$/.test(id);
 
-/** Detect if backend is still generating content for this chat. */
+/** Detect if backend is still generating content for this chat.
+ *  Only trust the explicit `status` field from the backend.
+ *  When status is missing (undefined) treat the chat as idle to avoid
+ *  false-positive reconnects that cause infinite loading (issue #4903).
+ */
 const isGenerating = (chatHistory: ChatHistory): boolean => {
-  if (chatHistory.status === "running") return true;
-  if (chatHistory.status === "idle") return false;
-  const msgs = chatHistory.messages || [];
-  if (msgs.length === 0) return false;
-  const last = msgs[msgs.length - 1];
-  return last.role === ROLE_USER;
+  return chatHistory.status === "running";
 };
 
 /**
@@ -643,7 +642,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         next.id = existing.id;
         next.realId = existing.realId;
       }
-      if (existing.generating !== undefined) {
+      // Only carry over generating=true from the old session when the
+      // backend hasn't explicitly reported the chat as idle.  Previously
+      // the flag was inherited unconditionally, so once set it could never
+      // be cleared — causing a permanent spinner in the session list
+      // (issue #4903).
+      if (existing.generating && sExt.status !== "idle") {
         next.generating = existing.generating;
       }
       return next as IAgentScopeRuntimeWebUISession;
