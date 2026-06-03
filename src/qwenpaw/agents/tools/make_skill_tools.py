@@ -136,6 +136,7 @@ def _tool_text_response(text: str) -> ToolResponse:
     return ToolResponse(content=[TextBlock(type="text", text=text)])
 
 
+# pylint: disable=too-many-return-statements,too-many-branches,too-many-locals
 async def materialize_skill(
     name: str,
     description: str,
@@ -262,3 +263,6 @@ async def materialize_skill(
         f"Visible via `/skills`; invoke with `/{skill_name}`."
         f"{verification}",
     )
+
+
+# pylint: enable=too-many-return-statements,too-many-branches,too-many-locals

@@ -29,49 +29,9 @@ metadata:
 `extra_files` 参数），它会跑安全扫描并原子写入 manifest。创建成功后，
 如需修改可以使用 `edit_file` 编辑已有文件。
 
-## 步骤 0. 选择执行方式、确定 focus、派生 skill 名
+## 步骤 0. 确定 focus、派生 skill 名
 
-### 0a. 选择执行方式
-
-询问用户希望以哪种方式执行 make-skill：
-
-> **在当前对话执行** 还是 **后台执行**？
->
-> - **当前对话**：在本轮对话中完成全部流程（提出计划 → 用户 approve →
->   撰写 SKILL.md → 持久化）。适合需要反复 refine、或对话本身就是 skill
->   来源的场景。
-> - **后台执行**：通过 `spawn_subagent(task=..., fork=True)` 将撰写和
->   持久化工作交给 subagent 在后台完成。subagent 继承当前对话的完整上下
->   文（能看到 THIS 会话的所有内容），执行完毕后返回结果摘要。适合对话
->   较长、不想阻塞当前交互的场景。
-
-**当前对话**模式：按下方步骤 0b–5 正常执行。
-
-**后台执行**模式：
-
-这一步你自己**不需要**调用 `materialize_skill` 或执行任何 skill 创建
-操作——只需组装 task 描述并提交给 subagent，由 subagent 完成全部后续
-工作。
-
-1. 直接将以下信息组装成 task 描述传给 subagent：
-   - focus 和派生的 `skill_name`
-   - 明确指令：「基于当前会话上下文，按 make-skill 步骤 1–5 完整执行：
-     自行规划、撰写 SKILL.md 正文、调用 materialize_skill 持久化、验证
-     batch 引用、试跑 batch。完成后报告结果。**注意：当前模式下无需调用
-     `create_plan`，无需等待用户 approve 计划，直接自行完成全部流程。**」
-2. 调用：
-   ```
-   spawn_subagent(
-       task="<上述 task 描述>。当前模式：无需调用 create_plan，跳过用户 approve，直接完成全部流程。",
-       fork=True,
-       background=True,
-   )
-   ```
-3. 告知用户已提交后台任务，可通过 `check_agent_task(task_id=...)` 查看
-   进度。subagent 完成后会在 workspace 中创建 skill，无需用户中途
-   approve。
-
-### 0b. 确定 focus
+### 0a. 确定 focus
 
 两种触发入口：
 
@@ -80,7 +40,7 @@ metadata:
   变成 skill」「make a skill from this」）。从用户想保存的对话主题里
   提炼一个简短 focus 短语。如果模糊，先问一句澄清。
 
-### 0c. 派生 skill 名
+### 0b. 派生 skill 名
 
 按**这条规则**从 focus 派生 skill 名：
 
@@ -162,6 +122,56 @@ cancel。`/plan` 模式的标准机制接管：
 `Subtask: …` / `Focus: …` 这种自定义字段，用标准化后的 `plan.name`，
 不要用 raw focus。本步骤只负责提出计划并等待用户确认，**不要**在此步
 调用 `materialize_skill`。
+
+### 选择执行方式
+
+用户 approve 后，询问执行方式（让出一轮 turn）：
+
+> 计划已 approve。Phase B（撰写与持久化）要**在当前对话继续执行**，
+> 还是**交给后台 subagent 执行**？
+>
+> - **当前对话**：在本轮对话中完成。适合需要反复 refine 的场景。
+> - **后台**：交给 subagent 完成，不阻塞当前对话。subagent 继承本会话
+>   完整上下文和已批准的计划。
+
+**让出 turn**，等用户回复后再继续。如果用户没有明确选择，默认使用
+当前对话模式。
+
+* **当前对话**模式：按下方步骤 2–5 正常执行。
+* **后台**模式：见下方「后台执行 Phase B」小节。
+
+**如果你当前已经是 subagent**（由主 agent 通过 `spawn_subagent`
+派生），跳过询问，直接执行步骤 2–4（主 agent 已完成 plan 收尾，
+subagent 无需调用任何 plan 相关工具）。
+
+### 后台执行 Phase B
+
+Phase A（步骤 0–1）已在前台完成，用户已经 approve 了计划。现在将
+Phase B 交给 subagent 执行。
+
+这一步你自己**不需要**调用 `materialize_skill` 或执行任何 skill 创建
+操作——只需组装 task 描述并提交给 subagent，由 subagent 完成全部后续
+工作。
+
+1. 将以下信息组装成 task 描述传给 subagent：
+   - 已 approve 的 `plan.name`（`skill_name`）和计划内容
+   - 明确指令：「基于当前会话上下文和已 approve 的计划，按 make-skill
+     步骤 2–4 完整执行：撰写 SKILL.md 正文、调用 materialize_skill
+     持久化、验证 batch 引用、试跑 batch。完成后报告结果。**无需调用
+     任何 plan 相关工具（`create_plan`、`finish_subtask`、
+     `finish_plan`），无需等待用户 approve，直接自行完成全部流程。**」
+2. 调用：
+   ```
+   spawn_subagent(
+       task="<上述 task 描述>。无需调用任何 plan 相关工具，直接完成全部流程。",
+       fork=True,
+       background=True,
+   )
+   ```
+3. 立即对唯一的 subtask 调 `finish_subtask`，再调 `finish_plan` with
+   `state="completed"` 收尾。不需要等 subagent 完成。
+4. 告知用户已提交后台任务，可通过 `check_agent_task(task_id=...)` 查看
+   进度。subagent 完成后会在 workspace 中创建 skill。
 
 ### Plan 工具不可用时的 fallback
 
@@ -320,7 +330,7 @@ batch 的补充参考（见 2c），不是主要执行指令。
 正文应以 batch 调用为主体，格式如下：
 
 ````markdown
-## 执行
+### 执行
 
 本 skill 附带了 batch JSON 文件 `scripts/<name>.json`。
 
@@ -341,7 +351,7 @@ run_tool_batch(
 )
 ```
 
-## Batch 参数
+### Batch 参数
 
 逐项说明 `args` 中的每个参数。凡是 batch JSON 中出现
 `${args.<name>}` 的变量，这里都必须列出，不能遗漏：
@@ -355,7 +365,7 @@ run_tool_batch(
 `args={}`，也不要省略 `args`**，否则 `${args.<name>}` 不会展开，可能被
 当作字面量文件名、URL 或命令参数使用。
 
-## Batch 失败处理
+### Batch 失败处理
 
 如果 `run_tool_batch` 执行失败（返回 `ok: false` 或中途报错），请：
 1. 先检查「Batch 参数」中列出的每个参数是否都已传入实际值，尤其不要
@@ -367,14 +377,14 @@ run_tool_batch(
    是否需要我用 edit_file 调整和优化这个 skill 的 batch 脚本，以便下次
    能正常运行？」
 
-## 分步参考
+### 分步参考
 
 以下是 batch 中每一步的详细说明，仅在需要调试或手动执行时参考：
 
 1. ...
 2. ...
 
-## 注意事项
+### 注意事项
 
 （此处放置 skill 特定的注意事项，如参数优化建议、数据格式要求等。）
 
@@ -397,7 +407,7 @@ action。只有当 batch 执行失败时，才参照「Batch 失败处理」中�
 * **用 `${args.<name>}` 参数化**所有因场景而变的值（文件路径、搜索关键
   词、URL 等）。固定不变的值直接写死。花括号语法是必须的，这样在
   shell 命令等混合内容字符串中不会产生歧义。
-* **SKILL.md 必须包含 `## Batch 参数` 小节**。该小节要逐项解释 batch
+* **SKILL.md 必须包含 `### Batch 参数` 小节**。该小节要逐项解释 batch
   JSON 中每个 `${args.<name>}`：含义、何时需要用户修改、默认/推荐值、
   以及一个可直接用于试跑的实际示例值。`run_tool_batch` 示例中的
   `args` 必须填这些实际示例值，不能写 `{}`、`null`、`<说明>` 或只写
@@ -535,9 +545,9 @@ ALWAYS use this exact template:
 
 不要重新调用 `materialize_skill`——skill 已经创建，直接编辑文件即可。
 
-**所有引用验证通过后**，进入 4f 试跑。
+**所有引用验证通过后**，进入 4b 试跑。
 
-### 4f. 试跑 batch（当包含 batch JSON 时）
+### 4b. 试跑 batch（当包含 batch JSON 时）
 
 引用验证通过后，尽量用示例参数实际跑一次 `run_tool_batch`，确认整条
 链路能跑通：
@@ -566,7 +576,7 @@ run_tool_batch(
 
 试跑通过后才能进入步骤 5。
 
-### 4b. 命名冲突（skill 名已存在）
+### 4c. 命名冲突（skill 名已存在）
 
 工具会返回冲突 skill 名 + 一个建议的改名。**自动恢复，不要再问用户。**
 
@@ -580,24 +590,50 @@ run_tool_batch(
    *「已存为 `cooking-v2`，因为 `cooking` 已被占用。如果想用回原名，
    可以删掉旧的再跑 `/make-skill`。」*
 
-### 4c. 格式错误
+### 4d. 格式错误
 
 修正 SKILL.md 内容（frontmatter 字段、正文章节等）再调一次。
 **`materialize_skill` 没成功前不要**调 `finish_subtask`。
 
-### 4d. 安全扫描拒绝
+### 4e. 安全扫描拒绝
 
 移除被 flag 的模式再重试。
 
-### 4e. 其他错误
+### 4f. 其他错误
 
 调整输入再重试，或如果不可恢复就 abandon 计划。
 
 ## 步骤 5. 收尾
 
-步骤 4a 引用验证通过、4f 试跑通过（或因环境限制跳过）、
+步骤 4a 引用验证通过、4b 试跑通过（或因环境限制跳过）、
 `materialize_skill` 返回成功后：
 
 1. 对唯一的 subtask 调 `finish_subtask`。
 2. 调 `finish_plan` with `state="completed"`。
 3. 告知用户：新 skill 已创建并启用，可通过 `/<skill_name>` 调用。
+
+---
+
+## 完整流程总结
+
+```
+步骤 0  确定 focus → 派生 skill_name
+         │
+步骤 1  create_plan → 让出 turn → 用户 approve/refine/cancel
+         │
+      选择执行方式 → 让出 turn → 用户选择前台/后台
+         │
+         ├─ 前台 ─────────────────────────────────────────┐
+         │                                                 │
+         │  步骤 2  撰写 SKILL.md 正文（batch 优先）       │
+         │  步骤 3  调用 materialize_skill 持久化          │
+         │  步骤 4  验证引用 → 试跑 batch → 处理错误       │
+         │  步骤 5  finish_subtask + finish_plan + 告知    │
+         │                                                 │
+         ├─ 后台 ─────────────────────────────────────────┐
+         │                                                 │
+         │  spawn_subagent(fork=True, background=True)     │
+         │  主 agent 立即 finish_subtask + finish_plan     │
+         │  subagent 执行步骤 2–4（无需 plan 工具）        │
+         └─────────────────────────────────────────────────┘
+```

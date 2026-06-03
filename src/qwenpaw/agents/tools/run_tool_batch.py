@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
 import re
@@ -99,8 +98,9 @@ def _response_payload(response: ToolResponse) -> dict[str, Any]:
     - Plain-text error prefixes (``Error:``, ``Command failed``).
     - Exceptions caught in ``_call_tool`` (already ``ok: False``).
 
-    The original content blocks are preserved under ``content`` so
-    that the final batch response can re-emit them.
+    The original content blocks are preserved under ``_raw_blocks``
+    (an internal key that avoids colliding with tool payloads that
+    contain their own ``content`` field).
     """
     text = _extract_text(response)
     content = list(response.content or [])
@@ -111,16 +111,16 @@ def _response_payload(response: ToolResponse) -> dict[str, Any]:
         if isinstance(payload, dict):
             if "ok" not in payload:
                 payload["ok"] = "error" not in payload
-            payload["content"] = content
+            payload["_raw_blocks"] = content
             return payload
-        return {"ok": True, "value": payload, "content": content}
+        return {"ok": True, "value": payload, "_raw_blocks": content}
     except (json.JSONDecodeError, TypeError):
         pass
 
     # Plain-text response — check for known error patterns.
     if _is_error_text(text):
-        return {"ok": False, "error": text, "content": content}
-    return {"ok": True, "text": text, "content": content}
+        return {"ok": False, "error": text, "_raw_blocks": content}
+    return {"ok": True, "text": text, "_raw_blocks": content}
 
 
 # --- Step-reference resolution --------------------------------------------
@@ -304,7 +304,12 @@ async def _call_tool(
     tool_name: str,
     arguments: dict[str, Any],
 ) -> ToolResponse:
-    """Call a registered tool function by name via the current Toolkit."""
+    """Call a registered tool function by name via the current Toolkit.
+
+    Uses ``Toolkit.call_tool_function`` so that ToolGuard interception,
+    preset kwargs, postprocess hooks, and group-activity checks all
+    apply — the same pipeline as a normal agent tool call.
+    """
     toolkit = get_current_toolkit()
     if toolkit is None:
         return _json_tool_response(
@@ -320,21 +325,23 @@ async def _call_tool(
             },
         )
 
-    tool_func = toolkit.tools[tool_name]
+    tool_call = {"name": tool_name, "input": arguments}
     try:
-        if inspect.iscoroutinefunction(tool_func.original_func):
-            result = await tool_func.original_func(**arguments)
-        else:
-            result = tool_func.original_func(**arguments)
+        response: ToolResponse | None = None
+        async for chunk in await toolkit.call_tool_function(tool_call):
+            response = chunk
+        if response is None:
+            return _json_tool_response(
+                {
+                    "ok": False,
+                    "error": f"Tool {tool_name} returned no response",
+                },
+            )
+        return response
     except Exception as exc:  # pylint: disable=broad-except
         return _json_tool_response(
             {"ok": False, "error": f"{type(exc).__name__}: {exc}"},
         )
-
-    if isinstance(result, ToolResponse):
-        return result
-    # Wrap unexpected return types.
-    return _json_tool_response({"ok": True, "value": str(result)})
 
 
 # --- Step execution loop --------------------------------------------------
@@ -353,7 +360,7 @@ async def _run_steps(  # pylint: disable=too-many-branches
     all_content_blocks: list[Any] = []
 
     for index, step in enumerate(actions):
-        # --- Validate step structure ---
+        # --- Validate step structure (always fatal) ---
         if not isinstance(step, dict):
             results.append(
                 {
@@ -362,9 +369,7 @@ async def _run_steps(  # pylint: disable=too-many-branches
                     "error": "step must be an object",
                 },
             )
-            if stop_on_error:
-                break
-            continue
+            break
 
         tool_name = str(
             step.get("tool_name") or step.get("tool") or "",
@@ -377,9 +382,7 @@ async def _run_steps(  # pylint: disable=too-many-branches
                     "error": "step must include tool_name",
                 },
             )
-            if stop_on_error:
-                break
-            continue
+            break
 
         # Prevent recursive batch calls.
         if tool_name == "run_tool_batch":
@@ -391,9 +394,7 @@ async def _run_steps(  # pylint: disable=too-many-branches
                     "error": "Recursive run_tool_batch is not allowed",
                 },
             )
-            if stop_on_error:
-                break
-            continue
+            break
 
         arguments = step.get("arguments") or step.get("args") or {}
         if not isinstance(arguments, dict):
@@ -405,9 +406,7 @@ async def _run_steps(  # pylint: disable=too-many-branches
                     "error": "arguments must be an object",
                 },
             )
-            if stop_on_error:
-                break
-            continue
+            break
 
         step_stop = step.get("stop_on_error", stop_on_error)
 
@@ -431,7 +430,7 @@ async def _run_steps(  # pylint: disable=too-many-branches
         response = await _call_tool(tool_name, arguments)
         result = _response_payload(response)
 
-        step_content = result.pop("content", [])
+        step_content = result.pop("_raw_blocks", [])
         all_content_blocks.extend(step_content)
 
         results.append(

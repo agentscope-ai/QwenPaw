@@ -30,54 +30,9 @@ Do **not** call `write_file` to create the SKILL.md or any auxiliary files
 the security scanner and writes the manifest atomically. After successful
 creation, use `edit_file` to modify existing files if needed.
 
-## Step 0. Choose execution mode, determine the focus, and derive a skill name
+## Step 0. Determine the focus and derive a skill name
 
-### 0a. Choose execution mode
-
-Ask the user which execution mode they prefer:
-
-> **Run in the current conversation** or **run in the background**?
->
-> - **Current conversation**: complete the full flow in this turn
->   (propose plan → user approves → write SKILL.md → persist). Best
->   when iterative refinement is needed or the conversation itself is
->   the skill source.
-> - **Background**: delegate the writing and persistence work to a
->   subagent via `spawn_subagent(task=..., fork=True)`. The subagent
->   inherits the full context of THIS conversation (it can see all
->   previous messages). Best when the conversation is long and you
->   don't want to block the current interaction.
-
-**Current conversation** mode: follow Steps 0b–5 below as normal.
-
-**Background** mode:
-
-In this step you do **not** need to call `materialize_skill` or perform
-any skill-creation work yourself — just assemble a task description and
-submit it to the subagent, which will handle everything.
-
-1. Assemble the following into a task description for the subagent:
-   - The focus and derived `skill_name`
-   - Clear instructions: "Based on the current session context, execute
-     make-skill Steps 1–5 in full: plan autonomously, write the
-     SKILL.md body, call materialize_skill to persist, verify batch
-     references, test-run the batch. Report the result when done.
-     **Note: in the current mode, do NOT call `create_plan`, skip
-     user approval of the plan, and complete the entire flow
-     autonomously.**"
-2. Call:
-   ```
-   spawn_subagent(
-       task="<task description above>. Current mode: do NOT call create_plan, skip user approve, complete all steps autonomously.",
-       fork=True,
-       background=True,
-   )
-   ```
-3. Inform the user the task has been submitted. They can check progress
-   via `check_agent_task(task_id=...)`. The subagent will create the
-   skill in the workspace without requiring user approval mid-process.
-
-### 0b. Determine the focus
+### 0a. Determine the focus
 
 Two invocation paths:
 
@@ -87,7 +42,7 @@ Two invocation paths:
   conversation topic the user wants to capture. If ambiguous, ask a
   one-line clarification first.
 
-### 0c. Derive the skill name
+### 0b. Derive the skill name
 
 Derive the skill name from focus with **this exact rule**:
 
@@ -179,6 +134,63 @@ fields like `Subtask: …` or `Focus: …` in the chat message. Use the
 normalised `plan.name`, not the raw focus. This step only proposes the
 plan and waits for user confirmation — do **not** call `materialize_skill`
 here.
+
+### Choose execution mode
+
+After the user approves, ask about execution mode (yield one turn):
+
+> Plan approved. Should Phase B (writing and persistence) **continue in
+> the current conversation** or **run in the background via subagent**?
+>
+> - **Current conversation**: complete Phase B in this turn. Best when
+>   iterative refinement is needed.
+> - **Background**: delegate Phase B to a subagent without blocking the
+>   current conversation. The subagent inherits this session's full
+>   context and the approved plan.
+
+**Yield the turn** and wait for the user's reply. If the user does not
+explicitly choose, default to current-conversation mode.
+
+* **Current conversation** mode: follow Steps 2–5 below as normal.
+* **Background** mode: see the "Background Phase B" section below.
+
+**If you are already a subagent** (spawned by the main agent via
+`spawn_subagent`), skip the question and execute Steps 2–4 directly
+(the main agent already handled plan closure; do not call any
+plan-related tools).
+
+### Background Phase B
+
+Phase A (Steps 0–1) is already complete in the foreground. The user has
+approved the plan. Now delegate Phase B to a subagent.
+
+In this step you do **not** need to call `materialize_skill` or perform
+any skill-creation work yourself — just assemble a task description and
+submit it to the subagent, which will handle everything.
+
+1. Assemble the following into a task description for the subagent:
+   - The approved `plan.name` (`skill_name`) and plan content
+   - Clear instructions: "Based on the current session context and the
+     approved plan, execute make-skill Steps 2–4 in full: write the
+     SKILL.md body, call materialize_skill to persist, verify batch
+     references, test-run the batch. Report the result when done.
+     **Do NOT call any plan-related tools (`create_plan`,
+     `finish_subtask`, `finish_plan`). Skip user approval and complete
+     all steps autonomously.**"
+2. Call:
+   ```
+   spawn_subagent(
+       task="<task description above>. Do NOT call any plan-related tools. Complete all steps autonomously.",
+       fork=True,
+       background=True,
+   )
+   ```
+3. Immediately call `finish_subtask` for the single subtask, then call
+   `finish_plan` with `state="completed"`. Do not wait for the subagent
+   to finish.
+4. Inform the user the task has been submitted. They can check progress
+   via `check_agent_task(task_id=...)`. The subagent will create the
+   skill in the workspace without requiring user approval mid-process.
 
 ### Plan-tools-unavailable fallback
 
@@ -355,7 +367,7 @@ much as possible.
 The body should lead with the batch call:
 
 ````markdown
-## Execution
+### Execution
 
 This skill ships with a batch JSON file `scripts/<name>.json`.
 
@@ -376,7 +388,7 @@ run_tool_batch(
 )
 ```
 
-## Batch Parameters
+### Batch Parameters
 
 Explain every parameter in `args`. Every variable used in the batch JSON
 as `${args.<name>}` must be listed here:
@@ -391,7 +403,7 @@ pass `args={}` and do not omit `args`** when the batch JSON contains
 `${args.<name>}` references; otherwise the placeholder may be used as a
 literal filename, URL, or command argument.
 
-## Batch failure handling
+### Batch failure handling
 
 If `run_tool_batch` fails (returns `ok: false` or errors mid-way):
 1. First verify every parameter listed in "Batch Parameters" was passed
@@ -406,7 +418,7 @@ If `run_tool_batch` fails (returns `ok: false` or errors mid-way):
    edit_file to adjust and optimise this skill's batch script so it
    works correctly next time?"
 
-## Step-by-step reference
+### Step-by-step reference
 
 The following details each batch step, for debugging or manual execution
 only:
@@ -414,7 +426,7 @@ only:
 1. ...
 2. ...
 
-## Notes
+### Notes
 
 (Place skill-specific notes here, such as parameter optimisation tips,
 data format requirements, etc.)
@@ -445,7 +457,7 @@ batch execution fails.
   that are always the same. The brace-delimited syntax is required so
   placeholders are unambiguous inside mixed-content strings like shell
   commands.
-* **The SKILL.md body must include a `## Batch Parameters` section**.
+* **The SKILL.md body must include a `### Batch Parameters` section**.
   That section must explain every `${args.<name>}` used in the batch
   JSON: meaning, when the user should change it, default/recommended
   value, and one concrete sample value that can be used for a test run.
@@ -608,9 +620,9 @@ If any field reference is incorrect:
 Do not call `materialize_skill` again — the skill is already created,
 just edit the files in place.
 
-**All references must pass verification** before proceeding to 4f.
+**All references must pass verification** before proceeding to 4b.
 
-### 4f. Test-run the batch (when batch JSON is included)
+### 4b. Test-run the batch (when batch JSON is included)
 
 After reference verification passes, try running the batch once with sample
 arguments to confirm the entire chain works end-to-end:
@@ -642,7 +654,7 @@ expansion.
 Only proceed to Step 5 after the test run passes (or is explicitly skipped
 due to environment constraints).
 
-### 4b. Conflict (skill name already taken)
+### 4c. Conflict (skill name already taken)
 
 The tool returns the conflicting name and a suggested rename. **Recover
 automatically; don't gate this on a user question.**
@@ -658,24 +670,24 @@ automatically; don't gate this on a user question.**
    `cooking` was already in your workspace. Delete the old one and re-run
    if you want the original name back."*
 
-### 4c. Format error
+### 4d. Format error
 
 Fix the SKILL.md content (frontmatter fields, body sections, etc.) and
 call `materialize_skill` again. Do NOT call `finish_subtask` until it
 returns success.
 
-### 4d. Security-scan rejection
+### 4e. Security-scan rejection
 
 Remove the flagged patterns from the body and retry.
 
-### 4e. Other errors
+### 4f. Other errors
 
 Adjust inputs and retry, or abandon the plan if the failure is not
 recoverable.
 
 ## Step 5. Finish
 
-Once Step 4a reference verification and 4f test-run pass (or test-run is
+Once Step 4a reference verification and 4b test-run pass (or test-run is
 skipped due to environment constraints), and `materialize_skill` returns
 success:
 
@@ -683,3 +695,29 @@ success:
 2. Call `finish_plan` with `state="completed"`.
 3. Tell the user the new skill is created and enabled, and they can
    invoke it via `/<skill_name>`.
+
+---
+
+## Complete flow summary
+
+```
+Step 0   Determine focus → derive skill_name
+          │
+Step 1   create_plan → yield turn → user approves/refines/cancels
+          │
+       Choose execution mode → yield turn → user picks foreground/background
+          │
+          ├─ Foreground ──────────────────────────────────────┐
+          │                                                    │
+          │  Step 2  Write SKILL.md body (batch-first)         │
+          │  Step 3  Call materialize_skill to persist          │
+          │  Step 4  Verify refs → test-run batch → handle err │
+          │  Step 5  finish_subtask + finish_plan + inform     │
+          │                                                    │
+          ├─ Background ──────────────────────────────────────┐
+          │                                                    │
+          │  spawn_subagent(fork=True, background=True)        │
+          │  Main agent immediately finish_subtask+finish_plan │
+          │  Subagent executes Steps 2–4 (no plan tools)       │
+          └────────────────────────────────────────────────────┘
+```
