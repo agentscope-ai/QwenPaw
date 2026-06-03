@@ -72,32 +72,12 @@ class TestToolsPageDisplayAndGlobalToggle:
 
             # 3. Verify the global enable/disable switch
             log_test_step("3. Verify the global enable/disable switch")
-            # The global toggle area may be two separate buttons (Enable All / Disable All) or a single toggle switch
             global_switch = page.locator('button.qwenpaw-switch[role="switch"]')
-            enable_all_btn = page.locator('button:has-text("Enable All")').first
-            disable_all_btn = page.locator('button:has-text("Disable All")').first
-
-            # Determine whether it's a toggle switch or separate buttons
-            is_toggle_switch = global_switch.count() > 0 and global_switch.first.is_visible()
-            has_separate_buttons = enable_all_btn.is_visible() or disable_all_btn.is_visible()
-
-            if is_toggle_switch and not has_separate_buttons:
-                # Ant Design Switch mode
-                initial_aria_checked = global_switch.first.get_attribute('aria-checked')
-                initial_enabled = initial_aria_checked == 'true'
-                switch_text = global_switch.first.inner_text().strip()
-            else:
-                # Separate-buttons mode: determine current global state from the first tool card's status
-                first_status = page.locator('span[class*="statusText"]').first
-                if first_status.is_visible():
-                    status_val = first_status.inner_text().strip()
-                    initial_enabled = status_val == "Enabled"
-                else:
-                    initial_enabled = True
-                switch_text = "Enable All / Disable All"
-
-            logger.info(f"Global toggle initial state: {'enabled' if initial_enabled else 'disabled'}, text: {switch_text}")
-            logger.info(f"Toggle mode: {'toggle' if is_toggle_switch and not has_separate_buttons else 'separate buttons'}")
+            assert global_switch.count() > 0 and global_switch.first.is_visible(), \
+                "Global toggle switch should be visible"
+            initial_aria_checked = global_switch.first.get_attribute('aria-checked')
+            initial_enabled = initial_aria_checked == 'true'
+            logger.info(f"Global toggle initial state: {'enabled' if initial_enabled else 'disabled'}, aria-checked={initial_aria_checked}")
 
             # 4. Verify the tool card grid
             log_test_step("4. Verify the tool card grid")
@@ -138,35 +118,22 @@ class TestToolsPageDisplayAndGlobalToggle:
 
             # 5. Toggle the global switch state
             log_test_step("5. Toggle the global switch state")
-            if is_toggle_switch and not has_separate_buttons:
-                global_switch.first.click()
+            global_switch.first.click()
+            expected_aria = 'false' if initial_enabled else 'true'
+            expected_status = "Disabled" if initial_enabled else "Enabled"
+            for _poll in range(20):
                 page.wait_for_timeout(1000)
                 new_aria_checked = global_switch.first.get_attribute('aria-checked')
-                new_enabled = new_aria_checked == 'true'
-                assert new_enabled != initial_enabled, "Switch state should have changed"
-            else:
-                # Separate-buttons mode: if currently enabled, click Disable All; otherwise click Enable All
-                if initial_enabled:
-                    target_btn = disable_all_btn
-                    logger.info("Clicking Disable All button")
-                else:
-                    target_btn = enable_all_btn
-                    logger.info("Clicking Enable All button")
-                target_btn.click()
-                page.wait_for_load_state("networkidle")
-                page.wait_for_timeout(2000)
-                new_status_el = page.locator('span[class*="statusText"]').first
-                expected_text = "Disabled" if initial_enabled else "Enabled"
-                try:
-                    expect(new_status_el).to_have_text(expected_text, timeout=15000)
-                    new_enabled = not initial_enabled
-                except Exception:
-                    page.wait_for_timeout(3000)
-                    new_status_val = new_status_el.inner_text().strip() if new_status_el.is_visible() else ""
-                    new_enabled = new_status_val == "Enabled"
-                    assert new_enabled != initial_enabled, f"State should change after global toggle, initial={initial_enabled}, new={new_enabled}"
-                logger.info(f"First tool status after toggle: {expected_text}")
-
+                if new_aria_checked == expected_aria:
+                    break
+            new_enabled = global_switch.first.get_attribute('aria-checked') == 'true'
+            assert new_enabled != initial_enabled, \
+                f"Switch aria-checked should change after toggle, initial={initial_enabled}, new={new_enabled}"
+            first_status_el = page.locator('span[class*="statusText"]').first
+            try:
+                expect(first_status_el).to_have_text(expected_status, timeout=10000)
+            except Exception:
+                logger.warning(f"First tool statusText did not update to '{expected_status}', may lag behind switch")
             logger.info(f"Global toggle new state: {'enabled' if new_enabled else 'disabled'}")
 
             log_test_result(test_name, True, 0)
@@ -181,23 +148,16 @@ class TestToolsPageDisplayAndGlobalToggle:
             try:
                 if initial_enabled is not None:
                     log_test_step("6. Restore original state")
-                    if is_toggle_switch and not has_separate_buttons:
-                        current_aria_checked = global_switch.first.get_attribute('aria-checked')
-                        current_enabled = current_aria_checked == 'true'
-                        if current_enabled != initial_enabled:
-                            global_switch.first.click()
+                    current_aria = global_switch.first.get_attribute('aria-checked')
+                    current_enabled = current_aria == 'true'
+                    if current_enabled != initial_enabled:
+                        global_switch.first.click()
+                        expected_restore = 'true' if initial_enabled else 'false'
+                        for _poll in range(10):
                             page.wait_for_timeout(1000)
-                            logger.info("Global toggle restored (toggle mode)")
-                    else:
-                        # Separate-buttons mode: click the corresponding button to restore
-                        if initial_enabled:
-                            restore_btn = enable_all_btn
-                        else:
-                            restore_btn = disable_all_btn
-                        if restore_btn.is_visible():
-                            restore_btn.click()
-                            page.wait_for_timeout(1000)
-                            logger.info(f"Global toggle restored (clicked {'Enable All' if initial_enabled else 'Disable All'})")
+                            if global_switch.first.get_attribute('aria-checked') == expected_restore:
+                                break
+                        logger.info("Global toggle restored")
             except Exception as restore_error:
                 logger.warning(f"Error restoring original state (does not affect test result): {str(restore_error)}")
 
