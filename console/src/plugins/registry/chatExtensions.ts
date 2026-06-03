@@ -57,20 +57,62 @@ interface ListEntry<T> {
 
 /** Public read shape consumed by ChatPage hooks (one winner per scalar field). */
 export interface ChatScalarSnapshot {
-  "welcome.greeting"?: { pluginId: string; value: ChatScalarValues["welcome.greeting"] };
-  "welcome.description"?: { pluginId: string; value: ChatScalarValues["welcome.description"] };
-  "welcome.avatar"?: { pluginId: string; value: ChatScalarValues["welcome.avatar"] };
-  "welcome.nick"?: { pluginId: string; value: ChatScalarValues["welcome.nick"] };
-  "welcome.prompts"?: { pluginId: string; value: ChatScalarValues["welcome.prompts"] };
-  "welcome.render"?: { pluginId: string; value: ChatScalarValues["welcome.render"] };
-  "header.leftTitle"?: { pluginId: string; value: ChatScalarValues["header.leftTitle"] };
-  "header.leftLogo"?: { pluginId: string; value: ChatScalarValues["header.leftLogo"] };
-  "header.leftHeader.render"?: { pluginId: string; value: ChatScalarValues["header.leftHeader.render"] };
-  "theme.colorPrimary"?: { pluginId: string; value: ChatScalarValues["theme.colorPrimary"] };
-  "sender.placeholder"?: { pluginId: string; value: ChatScalarValues["sender.placeholder"] };
-  "sender.disclaimer"?: { pluginId: string; value: ChatScalarValues["sender.disclaimer"] };
-  "request.render"?: { pluginId: string; value: ChatScalarValues["request.render"] };
-  "response.render"?: { pluginId: string; value: ChatScalarValues["response.render"] };
+  "welcome.greeting"?: {
+    pluginId: string;
+    value: ChatScalarValues["welcome.greeting"];
+  };
+  "welcome.description"?: {
+    pluginId: string;
+    value: ChatScalarValues["welcome.description"];
+  };
+  "welcome.avatar"?: {
+    pluginId: string;
+    value: ChatScalarValues["welcome.avatar"];
+  };
+  "welcome.nick"?: {
+    pluginId: string;
+    value: ChatScalarValues["welcome.nick"];
+  };
+  "welcome.prompts"?: {
+    pluginId: string;
+    value: ChatScalarValues["welcome.prompts"];
+  };
+  "welcome.render"?: {
+    pluginId: string;
+    value: ChatScalarValues["welcome.render"];
+  };
+  "header.leftTitle"?: {
+    pluginId: string;
+    value: ChatScalarValues["header.leftTitle"];
+  };
+  "header.leftLogo"?: {
+    pluginId: string;
+    value: ChatScalarValues["header.leftLogo"];
+  };
+  "header.leftHeader.render"?: {
+    pluginId: string;
+    value: ChatScalarValues["header.leftHeader.render"];
+  };
+  "theme.colorPrimary"?: {
+    pluginId: string;
+    value: ChatScalarValues["theme.colorPrimary"];
+  };
+  "sender.placeholder"?: {
+    pluginId: string;
+    value: ChatScalarValues["sender.placeholder"];
+  };
+  "sender.disclaimer"?: {
+    pluginId: string;
+    value: ChatScalarValues["sender.disclaimer"];
+  };
+  "request.render"?: {
+    pluginId: string;
+    value: ChatScalarValues["request.render"];
+  };
+  "response.render"?: {
+    pluginId: string;
+    value: ChatScalarValues["response.render"];
+  };
 }
 
 export interface ChatListSnapshot {
@@ -93,7 +135,10 @@ export interface ChatListSnapshot {
 
 class ChatExtensionsRegistry {
   // Each scalar field: a stack; top entry is the winner.
-  private scalarStacks = new Map<ChatScalarField, ScalarEntry<ChatScalarField>[]>();
+  private scalarStacks = new Map<
+    ChatScalarField,
+    ScalarEntry<ChatScalarField>[]
+  >();
   // Each list field: append-only array.
   private listMaps: ChatListSnapshot = {
     "header.rightHeader": [],
@@ -162,7 +207,9 @@ class ChatExtensionsRegistry {
         if (disposed) return;
         disposed = true;
         const cur = (this.scalarStacks.get(field) ?? []) as ScalarEntry<F>[];
-        const idx = cur.findIndex((e) => e.registrationId === entry.registrationId);
+        const idx = cur.findIndex(
+          (e) => e.registrationId === entry.registrationId,
+        );
         if (idx < 0) return;
         cur.splice(idx, 1);
         this.scalarStacks.set(field, cur as ScalarEntry<ChatScalarField>[]);
@@ -188,19 +235,34 @@ class ChatExtensionsRegistry {
     return this.addToList("sender.prefix", pluginId, item);
   }
 
-  addSenderSuggestions(pluginId: string, item: ChatSuggestionsItem): Disposable {
+  addSenderSuggestions(
+    pluginId: string,
+    item: ChatSuggestionsItem,
+  ): Disposable {
     return this.addToList("sender.suggestions", pluginId, item);
   }
 
   addAction(pluginId: string, spec: ChatActionSpec): Disposable {
-    return this.addToList("actions", pluginId, { id: spec.id, pluginId, item: spec });
+    return this.addToList("actions", pluginId, {
+      id: spec.id,
+      pluginId,
+      item: spec,
+    });
   }
 
   addRequestAction(pluginId: string, spec: ChatActionSpec): Disposable {
-    return this.addToList("requestActions", pluginId, { id: spec.id, pluginId, item: spec });
+    return this.addToList("requestActions", pluginId, {
+      id: spec.id,
+      pluginId,
+      item: spec,
+    });
   }
 
-  addToolRender(pluginId: string, toolName: string, render: ChatToolRendererItem["render"]): Disposable {
+  addToolRender(
+    pluginId: string,
+    toolName: string,
+    render: ChatToolRendererItem["render"],
+  ): Disposable {
     return this.addToList("customToolRender", pluginId, {
       id: `${pluginId}:${toolName}`,
       toolName,
@@ -208,7 +270,11 @@ class ChatExtensionsRegistry {
     });
   }
 
-  addCard(pluginId: string, cardName: string, render: ChatCardItem["render"]): Disposable {
+  addCard(
+    pluginId: string,
+    cardName: string,
+    render: ChatCardItem["render"],
+  ): Disposable {
     return this.addToList("cards", pluginId, {
       id: `${pluginId}:${cardName}`,
       cardName,
@@ -251,7 +317,12 @@ class ChatExtensionsRegistry {
   ): Disposable {
     const registrationId = this.nextId();
     const registeredAt = Date.now();
-    const entry: ListEntry<typeof item> = { registrationId, pluginId, item, registeredAt };
+    const entry: ListEntry<typeof item> = {
+      registrationId,
+      pluginId,
+      item,
+      registeredAt,
+    };
     (this.listMaps[field] as ListEntry<typeof item>[]).push(entry);
 
     auditStore.record({
@@ -303,7 +374,9 @@ class ChatExtensionsRegistry {
       const arr = this.listMaps[field] as ListEntry<unknown>[];
       const filtered = arr.filter((e) => e.pluginId !== pluginId);
       if (filtered.length !== arr.length) {
-        (this.listMaps as unknown as Record<string, ListEntry<unknown>[]>)[field] = filtered;
+        (this.listMaps as unknown as Record<string, ListEntry<unknown>[]>)[
+          field
+        ] = filtered;
         mutated = true;
       }
     }
@@ -340,7 +413,8 @@ class ChatExtensionsRegistry {
   __resetForTests(): void {
     this.scalarStacks.clear();
     for (const f of Object.keys(this.listMaps) as ChatListField[]) {
-      (this.listMaps as unknown as Record<string, ListEntry<unknown>[]>)[f] = [];
+      (this.listMaps as unknown as Record<string, ListEntry<unknown>[]>)[f] =
+        [];
     }
     this.rebuildScalarSnapshot();
     for (const f of Object.keys(this.listMaps) as ChatListField[]) {

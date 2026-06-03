@@ -12,13 +12,17 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import { pluginSystem } from "./hostExternals";
 import { loadAllPlugins } from "./usePluginLoader";
 import type { PluginRouteDeclaration } from "./hostExternals";
-import { routeRegistry, subscribe as registrySubscribe } from "./registry/store";
+import {
+  routeRegistry,
+  subscribe as registrySubscribe,
+} from "./registry/store";
 
 /** Derive the legacy PluginRouteDeclaration[] shape from routeRegistry. */
 function derivePluginRoutes(): PluginRouteDeclaration[] {
   // Include both legacy (registerRoutes shim) routes and any new route.add
   // registrations from a plugin source. Built-in `core.*` routes are excluded.
-  return routeRegistry.snapshot()
+  return routeRegistry
+    .snapshot()
     .filter((r) => r.source !== "core")
     .map((r) => ({
       path: r.path,

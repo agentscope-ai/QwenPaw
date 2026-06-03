@@ -48,9 +48,7 @@ describe("slotRegistry.fill", () => {
       id: "hidden",
       visible: () => false,
     });
-    expect(slotRegistry.snapshot("x").map((e) => e.opts.id)).toEqual([
-      "shown",
-    ]);
+    expect(slotRegistry.snapshot("x").map((e) => e.opts.id)).toEqual(["shown"]);
   });
 
   it("dispose removes only the targeted fill", () => {
@@ -108,9 +106,6 @@ describe("slotRegistry.snapshotAll", () => {
     slotRegistry.fill("p1", "a", () => null, { id: "1" });
     slotRegistry.replace("p2", "b", () => null, { id: "2" });
     const all = slotRegistry.snapshotAll();
-    expect(all.map((s) => `${s.name}:${s.id}`).sort()).toEqual([
-      "a:1",
-      "b:2",
-    ]);
+    expect(all.map((s) => `${s.name}:${s.id}`).sort()).toEqual(["a:1", "b:2"]);
   });
 });

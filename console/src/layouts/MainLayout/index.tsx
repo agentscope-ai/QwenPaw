@@ -65,11 +65,7 @@ export default function MainLayout() {
               >
                 <Routes>
                   {routes.map((r) => (
-                    <Route
-                      key={r.id}
-                      path={r.path}
-                      element={<r.Component />}
-                    />
+                    <Route key={r.id} path={r.path} element={<r.Component />} />
                   ))}
                 </Routes>
               </Suspense>

@@ -45,9 +45,7 @@ import { hostFetch } from "./fetch";
 // Plugin-facing API surface
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type WelcomeRenderValue =
-  | WelcomeRenderFn
-  | React.ReactNode;
+export type WelcomeRenderValue = WelcomeRenderFn | React.ReactNode;
 
 interface WelcomePartial {
   greeting?: ChatScalarValues["welcome.greeting"];

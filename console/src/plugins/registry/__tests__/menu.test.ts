@@ -150,9 +150,9 @@ describe("menuRegistry locations", () => {
     expect(
       menuRegistry.snapshot("primary.agentScoped").map((i) => i.id),
     ).toEqual(["a"]);
-    expect(
-      menuRegistry.snapshot("primary.settings").map((i) => i.id),
-    ).toEqual(["s"]);
+    expect(menuRegistry.snapshot("primary.settings").map((i) => i.id)).toEqual([
+      "s",
+    ]);
   });
 });
 

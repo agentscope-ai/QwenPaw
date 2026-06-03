@@ -1,13 +1,4 @@
-import {
-  Layout,
-  Menu,
-  Button,
-  Modal,
-  Input,
-  Form,
-  Tooltip,
-  Badge,
-} from "antd";
+import { Layout, Menu, Button, Modal, Input, Form, Tooltip, Badge } from "antd";
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -27,10 +18,7 @@ import api from "../api";
 import { useCodingMode } from "../stores/codingModeStore";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
-import {
-  useMenuItems,
-  useRoutes,
-} from "../plugins/registry/hooks";
+import { useMenuItems, useRoutes } from "../plugins/registry/hooks";
 import { Slot } from "../plugins/registry/Slot";
 import {
   deriveOpenKeys,
@@ -279,7 +267,8 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
   const siderWidth = collapsed ? (isMobile ? 56 : 72) : 240;
   // Sticky chat is active when on /chat* or /coding routes.
-  const isChatActive = selectedKey === "core.chat" || selectedKey === "core.coding";
+  const isChatActive =
+    selectedKey === "core.chat" || selectedKey === "core.coding";
   // `renderIcon` retained for tree-shaking awareness.
   void renderIcon;
 
@@ -294,7 +283,9 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         <nav className={styles.collapsedNav}>
           {collapsedNavItems.map((item) => {
             const isActive =
-              item.key === "core.chat" ? isChatActive : selectedKey === item.key;
+              item.key === "core.chat"
+                ? isChatActive
+                : selectedKey === item.key;
             return (
               <Tooltip
                 key={item.key}

@@ -291,9 +291,7 @@ function topoSort(items: MenuItem[]): MenuItem[] {
   }
   // Cycle? Append remaining by order as fallback.
   if (out.length < items.length) {
-    const remaining = items
-      .filter((i) => !out.includes(i))
-      .sort(byOrder);
+    const remaining = items.filter((i) => !out.includes(i)).sort(byOrder);
     out.push(...remaining);
   }
   return out;
@@ -651,8 +649,7 @@ class SlotRegistryImpl {
       kind: kind === "replace" ? "slot.replace" : "slot.fill",
       targetId: name,
       pluginId: source,
-      supersededPluginId:
-        kind === "replace" ? priorReplace?.source : undefined,
+      supersededPluginId: kind === "replace" ? priorReplace?.source : undefined,
       detail: opts.id,
       timestamp: entry.registeredAt,
     });

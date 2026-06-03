@@ -18,9 +18,13 @@ function subscribe(cb: () => void): () => void {
 }
 
 export function useChatScalarSnapshot(): ChatScalarSnapshot {
-  return useSyncExternalStore(subscribe, () => chatExtensions.getScalarSnapshot());
+  return useSyncExternalStore(subscribe, () =>
+    chatExtensions.getScalarSnapshot(),
+  );
 }
 
 export function useChatListSnapshot(): ChatListSnapshot {
-  return useSyncExternalStore(subscribe, () => chatExtensions.getListSnapshot());
+  return useSyncExternalStore(subscribe, () =>
+    chatExtensions.getListSnapshot(),
+  );
 }

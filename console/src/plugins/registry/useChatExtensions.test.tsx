@@ -27,7 +27,9 @@ function Probe() {
   return (
     <div>
       <span data-testid="greeting">
-        {String(resolveLocalized(scalar["welcome.greeting"]?.value, "en") ?? "")}
+        {String(
+          resolveLocalized(scalar["welcome.greeting"]?.value, "en") ?? "",
+        )}
       </span>
       <span data-testid="nick">
         {String(resolveLocalized(scalar["welcome.nick"]?.value, "en") ?? "")}
@@ -35,9 +37,7 @@ function Probe() {
       <span data-testid="rightHeader-count">
         {String(lists["header.rightHeader"].length)}
       </span>
-      <span data-testid="actions-count">
-        {String(lists.actions.length)}
-      </span>
+      <span data-testid="actions-count">{String(lists.actions.length)}</span>
     </div>
   );
 }

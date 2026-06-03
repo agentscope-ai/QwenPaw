@@ -23,12 +23,12 @@ describe("<Slot kind='fill'>", () => {
   });
 
   it("renders children then plugin fills in order", () => {
-    slotRegistry.fill("p1", "x", () => (
-      <span data-testid="p1">P1</span>
-    ), { order: 100 });
-    slotRegistry.fill("p2", "x", () => (
-      <span data-testid="p2">P2</span>
-    ), { order: 200 });
+    slotRegistry.fill("p1", "x", () => <span data-testid="p1">P1</span>, {
+      order: 100,
+    });
+    slotRegistry.fill("p2", "x", () => <span data-testid="p2">P2</span>, {
+      order: 200,
+    });
     const { getByTestId, container } = render(
       <Slot name="x" kind="fill">
         <span data-testid="default">D</span>
@@ -64,9 +64,7 @@ describe("<Slot kind='replace'>", () => {
   });
 
   it("plugin replace overrides children", () => {
-    slotRegistry.replace("p1", "x", () => (
-      <span data-testid="plugin">P</span>
-    ));
+    slotRegistry.replace("p1", "x", () => <span data-testid="plugin">P</span>);
     const { getByTestId, queryByTestId } = render(
       <Slot name="x" kind="replace">
         <span data-testid="default">D</span>

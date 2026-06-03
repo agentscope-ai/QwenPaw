@@ -51,9 +51,8 @@ import { menuRegistry } from "../../plugins/registry/store";
 import type { MenuItem } from "../../plugins/registry/types";
 
 /** Translate a nav key. Falls back to defaultValue when i18n hasn't loaded. */
-const navLabel =
-  (key: string, defaultValue?: string) => (): string =>
-    i18next.t(key, defaultValue ?? key);
+const navLabel = (key: string, defaultValue?: string) => (): string =>
+  i18next.t(key, defaultValue ?? key);
 
 export const BUILTIN_MENU: MenuItem[] = [
   // ── Agent-scoped (Sidebar Menu #1) ───────────────────────────────────────

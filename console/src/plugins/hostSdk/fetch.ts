@@ -8,7 +8,10 @@
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 
-export async function hostFetch(path: string, init?: RequestInit): Promise<Response> {
+export async function hostFetch(
+  path: string,
+  init?: RequestInit,
+): Promise<Response> {
   const headers: Record<string, string> = {
     ...buildAuthHeaders(),
     ...((init?.headers as Record<string, string>) ?? {}),

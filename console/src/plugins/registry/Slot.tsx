@@ -23,9 +23,8 @@ interface SlotProps {
 }
 
 export function Slot({ name, kind, children }: SlotProps) {
-  const entries = useSyncExternalStore(
-    subscribe,
-    () => slotRegistry.snapshot(name),
+  const entries = useSyncExternalStore(subscribe, () =>
+    slotRegistry.snapshot(name),
   );
 
   if (kind === "replace") {

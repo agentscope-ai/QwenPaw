@@ -98,8 +98,16 @@ export const BUILTIN_ROUTES: Route[] = [
   { id: "core.workspace", path: "/workspace", component: WorkspacePage },
   { id: "core.agents", path: "/agents", component: AgentsPage },
   { id: "core.models", path: "/models", component: ModelsPage },
-  { id: "core.environments", path: "/environments", component: EnvironmentsPage },
-  { id: "core.agent-config", path: "/agent-config", component: AgentConfigPage },
+  {
+    id: "core.environments",
+    path: "/environments",
+    component: EnvironmentsPage,
+  },
+  {
+    id: "core.agent-config",
+    path: "/agent-config",
+    component: AgentConfigPage,
+  },
   { id: "core.security", path: "/security", component: SecurityPage },
   { id: "core.token-usage", path: "/token-usage", component: TokenUsagePage },
   { id: "core.agent-stats", path: "/agent-stats", component: AgentStatsPage },

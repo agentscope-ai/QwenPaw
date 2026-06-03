@@ -42,10 +42,7 @@ import {
   resolveLocalized,
   type WelcomeRenderProps,
 } from "../../plugins/registry/types";
-import {
-  ChatScalar,
-  ChatList,
-} from "../../plugins/registry/slotKeys";
+import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
 
 interface ApprovalMessageData {
@@ -1369,7 +1366,11 @@ export default function ChatPage() {
       wrapActionSpec(e.pluginId, ChatList.requestActions, e.item.item),
     );
 
-    const wrapToolFC = (pluginId: string, toolName: string, FC: React.FC<any>) => {
+    const wrapToolFC = (
+      pluginId: string,
+      toolName: string,
+      FC: React.FC<any>,
+    ) => {
       const Wrapped: React.FC<any> = (props) => (
         <PluginSlotBoundary
           slot={`customToolRender:${toolName}`}
@@ -1416,11 +1417,13 @@ export default function ChatPage() {
         >
           {extLeftHeaderRender}
         </PluginSlotBoundary>
-      ) : {
-        ...defaultConfig.theme.leftHeader,
-        ...(extLeftTitle !== undefined ? { title: extLeftTitle } : {}),
-        ...(extLeftLogo !== undefined ? { logo: extLeftLogo } : {}),
-      };
+      ) : (
+        {
+          ...defaultConfig.theme.leftHeader,
+          ...(extLeftTitle !== undefined ? { title: extLeftTitle } : {}),
+          ...(extLeftLogo !== undefined ? { logo: extLeftLogo } : {}),
+        }
+      );
 
     return {
       ...i18nConfig,

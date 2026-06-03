@@ -22,10 +22,7 @@ export interface FlatMenuEntry {
 }
 
 /** Treat MenuItem.icon (Component or Node) as ReactNode with a given size. */
-export function renderIcon(
-  icon: MenuItem["icon"],
-  size: number,
-): ReactNode {
+export function renderIcon(icon: MenuItem["icon"], size: number): ReactNode {
   if (icon == null) return null;
   if (isValidElement(icon)) return icon;
   // Component-like: plain function components AND React-internal wrappers
@@ -89,9 +86,7 @@ export function toAntdItems(
     .map((rawItem) => {
       const i = rawItem as ItemWithChildren;
       const baseLabel = collapsed ? null : resolveLabel(i.label);
-      const decorated = decorateLabel
-        ? decorateLabel(i, baseLabel)
-        : baseLabel;
+      const decorated = decorateLabel ? decorateLabel(i, baseLabel) : baseLabel;
       const node: NonNullable<MenuProps["items"]>[number] = {
         key: i.id,
         label: decorated,

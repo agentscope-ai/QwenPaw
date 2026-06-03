@@ -163,7 +163,9 @@ export interface SlotOpts {
  * in some scenarios without having to re-implement the default itself.
  * Plugins that always replace can ignore the parameter.
  */
-export type SlotRenderer = (defaultContent?: React.ReactNode) => React.ReactNode;
+export type SlotRenderer = (
+  defaultContent?: React.ReactNode,
+) => React.ReactNode;
 
 export interface SlotInfo {
   name: SlotName;

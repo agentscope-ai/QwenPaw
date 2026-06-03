@@ -22,36 +22,45 @@ describe("chatExtensions.setScalar", () => {
   it("later writer wins and audit captures the supersede", () => {
     chatExtensions.setScalar("p1", "welcome.greeting", "Hi P1");
     chatExtensions.setScalar("p2", "welcome.greeting", "Hi P2");
-    expect(chatExtensions.getScalarSnapshot()["welcome.greeting"]?.pluginId).toBe(
-      "p2",
-    );
+    expect(
+      chatExtensions.getScalarSnapshot()["welcome.greeting"]?.pluginId,
+    ).toBe("p2");
     const records = auditStore.overrides();
-    expect(records.some((r) => r.kind === "chat.scalar.superseded" && r.pluginId === "p1" && r.supersededPluginId === "p2")).toBe(true);
+    expect(
+      records.some(
+        (r) =>
+          r.kind === "chat.scalar.superseded" &&
+          r.pluginId === "p1" &&
+          r.supersededPluginId === "p2",
+      ),
+    ).toBe(true);
   });
 
   it("disposing the winner falls back to the prior entry (LIFO)", () => {
     chatExtensions.setScalar("p1", "welcome.greeting", "Hi P1");
     const d2 = chatExtensions.setScalar("p2", "welcome.greeting", "Hi P2");
     d2.dispose();
-    expect(chatExtensions.getScalarSnapshot()["welcome.greeting"]?.pluginId).toBe(
-      "p1",
-    );
+    expect(
+      chatExtensions.getScalarSnapshot()["welcome.greeting"]?.pluginId,
+    ).toBe("p1");
   });
 
   it("disposing a non-winner does not affect the current winner", () => {
     const d1 = chatExtensions.setScalar("p1", "welcome.greeting", "Hi P1");
     chatExtensions.setScalar("p2", "welcome.greeting", "Hi P2");
     d1.dispose();
-    expect(chatExtensions.getScalarSnapshot()["welcome.greeting"]?.pluginId).toBe(
-      "p2",
-    );
+    expect(
+      chatExtensions.getScalarSnapshot()["welcome.greeting"]?.pluginId,
+    ).toBe("p2");
   });
 
   it("idempotent dispose() — second call is a no-op", () => {
     const d = chatExtensions.setScalar("p1", "welcome.greeting", "Hi");
     d.dispose();
     d.dispose();
-    expect(chatExtensions.getScalarSnapshot()["welcome.greeting"]).toBeUndefined();
+    expect(
+      chatExtensions.getScalarSnapshot()["welcome.greeting"],
+    ).toBeUndefined();
   });
 });
 

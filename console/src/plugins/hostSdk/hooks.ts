@@ -45,5 +45,8 @@ export function getSelectedAgentId(): string {
 
 export function getCurrentSessionId(): string | null {
   if (typeof window === "undefined") return null;
-  return (window as unknown as { currentSessionId?: string }).currentSessionId ?? null;
+  return (
+    (window as unknown as { currentSessionId?: string }).currentSessionId ??
+    null
+  );
 }

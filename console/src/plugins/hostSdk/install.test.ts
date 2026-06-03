@@ -63,7 +63,9 @@ describe("window.QwenPaw.chat.welcome", () => {
   it("render(fn) keeps the fn as-is", () => {
     const fn = () => null as never;
     window.QwenPaw.chat!.welcome.render("p1", fn);
-    expect(chatExtensions.getScalarSnapshot()["welcome.render"]?.value).toBe(fn);
+    expect(chatExtensions.getScalarSnapshot()["welcome.render"]?.value).toBe(
+      fn,
+    );
   });
 });
 
@@ -187,9 +189,9 @@ describe("window.QwenPaw.chat.request / response", () => {
     window.QwenPaw.chat!.response.prepend("p1", () => null, { id: "a" });
     window.QwenPaw.chat!.response.prepend("p2", () => null, { id: "b" });
     expect(
-      chatExtensions.getListSnapshot()["response.prepend"].map(
-        (e) => e.pluginId,
-      ),
+      chatExtensions
+        .getListSnapshot()
+        ["response.prepend"].map((e) => e.pluginId),
     ).toEqual(["p1", "p2"]);
   });
 

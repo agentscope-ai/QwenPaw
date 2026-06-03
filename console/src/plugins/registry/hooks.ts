@@ -9,10 +9,7 @@ import { menuRegistry, routeRegistry, slotRegistry, subscribe } from "./store";
 import type { MenuItem, MenuLocation, SlotName } from "./types";
 
 export function useMenuItems(location: MenuLocation): MenuItem[] {
-  return useSyncExternalStore(
-    subscribe,
-    () => menuRegistry.snapshot(location),
-  );
+  return useSyncExternalStore(subscribe, () => menuRegistry.snapshot(location));
 }
 
 export function useAllMenuItems(): MenuItem[] {

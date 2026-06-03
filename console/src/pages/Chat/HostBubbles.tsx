@@ -27,7 +27,8 @@ import VendorResponseCardOriginal from "@agentscope-ai/chat/lib/AgentScopeRuntim
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const VendorRequestCard = VendorRequestCardOriginal as React.ComponentType<any>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const VendorResponseCard = VendorResponseCardOriginal as React.ComponentType<any>;
+const VendorResponseCard =
+  VendorResponseCardOriginal as React.ComponentType<any>;
 import {
   useChatScalarSnapshot,
   useChatListSnapshot,
