@@ -10,7 +10,6 @@
   },
   "author": "QwenPaw Team",
   "entry": {
-    "backend": "plugin.py",
     "frontend": "frontend/dist/index.js"
   },
   "dependencies": [],

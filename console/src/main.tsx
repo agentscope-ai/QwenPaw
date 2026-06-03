@@ -3,7 +3,7 @@ import App from "./App.tsx";
 import "./i18n";
 import { installHostExternals } from "./plugins/hostExternals";
 import { installHostSdk } from "./plugins/hostSdk/install";
-import { registerHostModulesEager } from "./plugins/dynamicModuleRegistry";
+import { registerHostModulesDynamic } from "./plugins/dynamicModuleRegistry";
 // Bare side-effect imports: each file self-registers its data into
 // menuRegistry / routeRegistry so consumers' first render sees them.
 import "./layouts/registry/builtinMenu";
@@ -17,9 +17,12 @@ installHostExternals();
 // window.QwenPaw.host with hooks + fetch, attach window.QwenPaw.audit.
 installHostSdk();
 
-// Dynamic module registration - no generated files needed!
-// Automatically discovers all modules in src/pages at build time
-registerHostModulesEager();
+// Dynamic module registration — fire-and-forget. Pages register into
+// `moduleRegistry` as they are lazy-loaded; this background pass pre-warms
+// the registry so `window.QwenPaw.modules.<page>` is populated soon after
+// startup without blocking the first paint (eager mode used to synchronously
+// pull all 233 page modules + transitive deps into the main thread).
+void registerHostModulesDynamic();
 
 if (typeof window !== "undefined") {
   const originalError = console.error;

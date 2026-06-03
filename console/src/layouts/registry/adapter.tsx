@@ -28,11 +28,21 @@ export function renderIcon(
 ): ReactNode {
   if (icon == null) return null;
   if (isValidElement(icon)) return icon;
-  if (typeof icon === "function") {
+  // Component-like: plain function components AND React-internal wrappers
+  // (forwardRef / memo / lazy — these are OBJECTS carrying a `$$typeof`
+  // symbol, NOT functions; lucide-react + most Spark icons are forwardRef).
+  // Anything with `$$typeof` is safe to pass to React.createElement as the
+  // first argument.
+  if (
+    typeof icon === "function" ||
+    (typeof icon === "object" &&
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (icon as any).$$typeof !== undefined)
+  ) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return createElement(icon as React.ComponentType<any>, { size });
   }
-  // string / number / array / etc. — wrap in span at right size
+  // Primitive ReactNode (string emoji, number, etc.) — wrap in span at right size.
   const style: CSSProperties = { fontSize: size };
   return <span style={style}>{icon as ReactNode}</span>;
 }
