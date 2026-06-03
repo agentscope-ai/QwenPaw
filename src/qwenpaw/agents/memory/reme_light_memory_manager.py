@@ -33,7 +33,7 @@ from ...constant import EnvVarLoader
 logger = logging.getLogger(__name__)
 
 _REME_STORE_VERSION = "v1"
-_EXPECTED_REME_VERSION = "0.3.1.8"
+_EXPECTED_REME_VERSION = "0.3.1.9"
 # Maximum number of tokens from query splitting
 MAX_QUERY_TOKENS = 50
 
