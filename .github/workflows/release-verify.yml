@@ -171,8 +171,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
+    env:
+      ACR_REGISTRY: agentscope-registry.ap-southeast-1.cr.aliyuncs.com
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Log in to Aliyun ACR (when credentials available)
+        if: env.ACR_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_REGISTRY }}
+          username: ${{ secrets.ALIYUN_ACR_USERNAME }}
+          password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+        env:
+          ACR_USERNAME: ${{ secrets.ALIYUN_ACR_USERNAME }}
 
       - name: Build Docker image (amd64 only)
         run: |

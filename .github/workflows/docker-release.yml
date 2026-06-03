@@ -30,6 +30,7 @@ jobs:
     uses: ./.github/workflows/release-verify.yml
     with:
       verify_docker: true
+    secrets: inherit
 
   # ── Stage 2: Build multi-arch and push ─────────────────────────────────────
   build-and-push:
