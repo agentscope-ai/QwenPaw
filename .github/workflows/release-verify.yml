@@ -296,16 +296,15 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
-            # install.ps1 creates qwenpaw.cmd / qwenpaw.ps1 — bash needs .cmd
-            export PATH="$USERPROFILE/.qwenpaw/bin:$PATH"
-            shopt -s expand_aliases
-            alias qwenpaw='qwenpaw.cmd'
+            # install.ps1 creates qwenpaw.cmd; call via venv python directly
+            QWENPAW="$USERPROFILE/.qwenpaw/venv/Scripts/python.exe -m qwenpaw.cli.main"
           else
             export PATH="$HOME/.qwenpaw/bin:$PATH"
+            QWENPAW="qwenpaw"
           fi
-          qwenpaw --version
-          qwenpaw init --defaults --accept-security
-          qwenpaw app --host 127.0.0.1 --port 8088 &
+          $QWENPAW --version
+          $QWENPAW init --defaults --accept-security
+          $QWENPAW app --host 127.0.0.1 --port 8088 &
           echo $! > /tmp/qwenpaw.pid || true
           for i in $(seq 1 60); do
             if curl -sf http://127.0.0.1:8088/api/version; then
