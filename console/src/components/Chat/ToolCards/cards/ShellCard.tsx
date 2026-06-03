@@ -29,12 +29,16 @@ const ShellCard: React.FC<ShellCardProps> = ({ content }) => {
       title={command || content.name}
       content={content}
     >
-      {command && (
-        <DefaultBlock title="Command" content={command} />
-      )}
+      {command && <DefaultBlock title="Command" content={command} />}
       {resultText && (
         <div className={styles.toolCallResultMd}>
-          <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+          <pre
+            style={{
+              margin: 0,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-all",
+            }}
+          >
             {resultText}
           </pre>
         </div>

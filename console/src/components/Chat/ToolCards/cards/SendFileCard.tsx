@@ -18,9 +18,7 @@ const SendFileCard: React.FC<SendFileCardProps> = ({
   const params = content.params || {};
   const filePath = (params.file_path || "") as string;
   const file = shortFileName(filePath);
-  const title = file
-    ? t("tool.sendFile", { file })
-    : t("tool.sendFileDefault");
+  const title = file ? t("tool.sendFile", { file }) : t("tool.sendFileDefault");
 
   const media = getMediaInfo(content);
 

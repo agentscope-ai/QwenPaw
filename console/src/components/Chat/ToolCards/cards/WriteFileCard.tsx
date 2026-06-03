@@ -44,9 +44,7 @@ const WriteFileCard: React.FC<WriteFileCardProps> = ({
     >
       {writtenContent && (
         <div className={styles.toolCallResultMd}>
-          <Markdown
-            content={`\`\`\`${lang}\n${writtenContent}\n\`\`\``}
-          />
+          <Markdown content={`\`\`\`${lang}\n${writtenContent}\n\`\`\``} />
         </div>
       )}
     </ToolCardShell>

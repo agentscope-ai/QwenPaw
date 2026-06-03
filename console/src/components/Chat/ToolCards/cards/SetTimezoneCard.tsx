@@ -21,8 +21,7 @@ const SetTimezoneCard: React.FC<SetTimezoneCardProps> = ({
 
   const inlineResult = (() => {
     if (content.status !== "done" || !content.result) return null;
-    const result =
-      typeof content.result === "string" ? content.result : "";
+    const result = typeof content.result === "string" ? content.result : "";
     if (!result) return null;
     return result.length > 60 ? result.slice(0, 60) + "…" : result;
   })();

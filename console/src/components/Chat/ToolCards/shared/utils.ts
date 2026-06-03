@@ -291,7 +291,10 @@ export function formatAgentList(raw: string, t: TFunction): string {
     if (!Array.isArray(agents) || agents.length === 0) return raw;
 
     const rows = agents.map((agent) => {
-      const name = (agent.name || agent.display_name || agent.id || "") as string;
+      const name = (agent.name ||
+        agent.display_name ||
+        agent.id ||
+        "") as string;
       const id = (agent.id || agent.agent_id || "") as string;
       const desc = (agent.description || "") as string;
       const status = (agent.status || "") as string;

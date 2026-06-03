@@ -44,9 +44,7 @@ const AppendFileCard: React.FC<AppendFileCardProps> = ({
     >
       {appendedContent && (
         <div className={styles.toolCallResultMd}>
-          <Markdown
-            content={`\`\`\`${lang}\n${appendedContent}\n\`\`\``}
-          />
+          <Markdown content={`\`\`\`${lang}\n${appendedContent}\n\`\`\``} />
         </div>
       )}
     </ToolCardShell>

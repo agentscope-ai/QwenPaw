@@ -19,12 +19,9 @@ const ReadFileCard: React.FC<ReadFileCardProps> = ({
   const { t } = useTranslation();
   const params = content.params || {};
   const file = shortFileName((params.file_path || params.path || "") as string);
-  const title = file
-    ? t("tool.readFile", { file })
-    : t("tool.readFileDefault");
+  const title = file ? t("tool.readFile", { file }) : t("tool.readFileDefault");
 
-  const resultText =
-    typeof content.result === "string" ? content.result : "";
+  const resultText = typeof content.result === "string" ? content.result : "";
   const lineCount = countLines(content.result);
   const lang = getFileLanguage(content);
 
@@ -48,9 +45,7 @@ const ReadFileCard: React.FC<ReadFileCardProps> = ({
           {lang === "markdown" ? (
             <Markdown content={resultText} />
           ) : (
-            <Markdown
-              content={`\`\`\`${lang}\n${resultText}\n\`\`\``}
-            />
+            <Markdown content={`\`\`\`${lang}\n${resultText}\n\`\`\``} />
           )}
         </div>
       )}

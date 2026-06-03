@@ -18,9 +18,7 @@ const EditFileCard: React.FC<EditFileCardProps> = ({
   const { t } = useTranslation();
   const params = content.params || {};
   const file = shortFileName((params.file_path || params.path || "") as string);
-  const title = file
-    ? t("tool.editFile", { file })
-    : t("tool.editFileDefault");
+  const title = file ? t("tool.editFile", { file }) : t("tool.editFileDefault");
 
   const oldText = (params.old_text as string) || "";
   const newText = (params.new_text as string) || "";

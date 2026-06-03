@@ -23,7 +23,10 @@ export { default as ViewImageCard } from "./ViewImageCard";
 export { default as ViewVideoCard } from "./ViewVideoCard";
 export { default as DesktopScreenshotCard } from "./DesktopScreenshotCard";
 export { default as SendFileCard } from "./SendFileCard";
-export { default as BrowserUseCard, BROWSER_TOOL_NAMES } from "./BrowserUseCard";
+export {
+  default as BrowserUseCard,
+  BROWSER_TOOL_NAMES,
+} from "./BrowserUseCard";
 export { default as GetCurrentTimeCard } from "./GetCurrentTimeCard";
 export { default as SetTimezoneCard } from "./SetTimezoneCard";
 export { default as TokenUsageCard } from "./TokenUsageCard";

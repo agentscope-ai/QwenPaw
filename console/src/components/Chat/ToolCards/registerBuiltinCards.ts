@@ -29,7 +29,9 @@ export function registerBuiltinCards(): void {
 
   const v1AdaptedCards = adaptRegistryForV1(BUILTIN_CARD_REGISTRY);
   console.info(
-    `[builtin-tool-cards] Registering ${Object.keys(v1AdaptedCards).length} tool cards:`,
+    `[builtin-tool-cards] Registering ${
+      Object.keys(v1AdaptedCards).length
+    } tool cards:`,
     Object.keys(v1AdaptedCards).join(", "),
   );
   pluginSystem.addToolRenderers(PLUGIN_ID, v1AdaptedCards);

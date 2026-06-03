@@ -44,7 +44,9 @@ function parseV1Props(v1Props: Record<string, unknown>): {
 } {
   // v1Props = { data: { content: [...], status: ... } }
   const data = (v1Props?.data ?? v1Props) as Record<string, unknown>;
-  const contentArray = data?.content as Array<Record<string, unknown>> | undefined;
+  const contentArray = data?.content as
+    | Array<Record<string, unknown>>
+    | undefined;
 
   // content[0].data = tool call info (name, arguments)
   const callItem = contentArray?.[0];
@@ -79,7 +81,11 @@ function parseV1Props(v1Props: Record<string, unknown>): {
   const rawStatus = (data.status as string) || "";
   if (rawStatus === "completed") {
     status = "done";
-  } else if (rawStatus === "failed" || rawStatus === "rejected" || rawStatus === "canceled") {
+  } else if (
+    rawStatus === "failed" ||
+    rawStatus === "rejected" ||
+    rawStatus === "canceled"
+  ) {
     status = "error";
   }
   // "in_progress" and "created" map to "calling"
@@ -124,7 +130,9 @@ export function adaptCardForV1(
     return <CardComponent content={content} isStreaming={isStreaming} />;
   };
 
-  V1WrappedCard.displayName = `V1(${CardComponent.displayName || CardComponent.name || "Card"})`;
+  V1WrappedCard.displayName = `V1(${
+    CardComponent.displayName || CardComponent.name || "Card"
+  })`;
   return V1WrappedCard;
 }
 

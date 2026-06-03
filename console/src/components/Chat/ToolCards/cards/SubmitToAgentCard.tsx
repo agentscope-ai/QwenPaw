@@ -27,8 +27,7 @@ const SubmitToAgentCard: React.FC<SubmitToAgentCardProps> = ({
 
   const inlineResult = (() => {
     if (content.status !== "done" || !content.result) return null;
-    const result =
-      typeof content.result === "string" ? content.result : "";
+    const result = typeof content.result === "string" ? content.result : "";
     if (!result) return null;
     const match = result.match(/\[TASK_ID:\s*(.+?)\]/);
     return match

@@ -25,9 +25,7 @@ const MemorySearchCard: React.FC<MemorySearchCardProps> = ({
     : t("tool.memorySearchDefault");
 
   const rawResult = stringifyResult(content.result);
-  const formattedResult = rawResult
-    ? formatMemorySearch(rawResult, t)
-    : "";
+  const formattedResult = rawResult ? formatMemorySearch(rawResult, t) : "";
 
   return (
     <ToolCardShell
