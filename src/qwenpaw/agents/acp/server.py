@@ -130,6 +130,7 @@ class _StreamTracker:
         self._prev_text: str = ""
         self._prev_thinking: str = ""
         self._seen_tool_ids: set[str] = set()
+        self._tool_inputs: dict[str, Any] = {}
 
     def delta_text(self, cumulative: str) -> str:
         """Return only the new portion of the text."""
@@ -154,6 +155,22 @@ class _StreamTracker:
         if tool_id in self._seen_tool_ids:
             return False
         self._seen_tool_ids.add(tool_id)
+        return True
+
+    def tool_input_changed(self, tool_id: str, raw_input: Any) -> bool:
+        """Return True when *raw_input* is non-empty and differs from the
+        last value recorded for *tool_id*, recording the new value.
+
+        Tool-call arguments stream in, so the first sighting of a call
+        often carries empty/partial input; this lets the caller emit an
+        ``update`` once the populated arguments arrive (the initial
+        ``start`` would otherwise pin an empty ``rawInput``).
+        """
+        if not raw_input:
+            return False
+        if self._tool_inputs.get(tool_id) == raw_input:
+            return False
+        self._tool_inputs[tool_id] = raw_input
         return True
 
 
@@ -189,14 +206,24 @@ def _msg_to_updates(  # pylint: disable=too-many-branches
             if not isinstance(tc, dict):
                 continue
             tc_id = str(tc.get("id") or uuid4().hex[:8])
+            inp = tc.get("input")
             if not tracker or tracker.is_new_tool_call(tc_id):
                 updates.append(
                     start_tool_call(
                         tc_id,
                         str(tc.get("name") or "tool"),
                         status="in_progress",
-                        raw_input=tc.get("input"),
+                        raw_input=inp,
                     ),
+                )
+                if tracker:
+                    # Record what we sent so a later, fuller input is
+                    # recognised as a change (see tool_input_changed).
+                    tracker.tool_input_changed(tc_id, inp)
+            elif tracker and tracker.tool_input_changed(tc_id, inp):
+                # Arguments finished streaming after the start event.
+                updates.append(
+                    update_tool_call(tc_id, raw_input=inp),
                 )
         return updates
 
@@ -252,14 +279,21 @@ def _content_blocks_to_updates(
             _emit_text(block_data, tracker, updates)
         elif block_type == "tool_use":
             tc_id = str(block_data.get("id") or uuid4().hex[:8])
+            inp = block_data.get("input")
             if not tracker or tracker.is_new_tool_call(tc_id):
                 updates.append(
                     start_tool_call(
                         tc_id,
                         str(block_data.get("name") or "tool"),
                         status="in_progress",
-                        raw_input=block_data.get("input"),
+                        raw_input=inp,
                     ),
+                )
+                if tracker:
+                    tracker.tool_input_changed(tc_id, inp)
+            elif tracker and tracker.tool_input_changed(tc_id, inp):
+                updates.append(
+                    update_tool_call(tc_id, raw_input=inp),
                 )
         elif block_type == "tool_result":
             updates.append(
