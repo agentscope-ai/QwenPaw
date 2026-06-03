@@ -2,7 +2,7 @@
 name: cron
 description: Use this skill only for scheduled or recurring tasks. Manage jobs with qwenpaw cron list/create/get/state/pause/resume/delete/run, and always pass --agent-id explicitly.
 metadata:
-  builtin_skill_version: "1.5"
+  builtin_skill_version: "1.6"
   qwenpaw:
     emoji: "⏰"
 ---
@@ -96,6 +96,23 @@ Two schedule modes are supported:
   - end datetime: `--repeat-end-type until --repeat-until <ISO8601>`
   - no end: `--repeat-end-type never`
 
+### Timeout Settings
+
+Default timeout is 120 seconds (2 minutes). For longer agent tasks, you **must** explicitly set a larger timeout to prevent premature cancellation:
+
+```bash
+--timeout 600   # 10 minutes
+--timeout 3600   # 1 hour
+```
+
+**Core Rules**:
+1. If the agent task involves web search, code execution, or multi-step tool calls, set `--timeout 600` or higher
+2. **Timeout must be less than the scheduling interval** to prevent overlap (a new run firing while the previous one is still executing). Examples:
+   - Every 15 minutes: `--timeout` should not exceed 900 seconds
+   - Every 10 minutes: `--timeout` recommend no more than 80% of interval (i.e. 480 seconds)
+   - Daily: `--timeout` can be larger, no special restriction needed
+3. For frequent tasks (interval ≤ 10 minutes), follow **timeout ≤ 80% of interval**; for infrequent tasks (hourly or above), set based on actual needs
+
 ### Minimum Information Required Before Creating
 - `--type`
 - `--name`
@@ -107,6 +124,7 @@ Two schedule modes are supported:
 - `--target-session`
 - `--text`
 - `--agent-id`
+- `--timeout` (for agent-type tasks, set an appropriate timeout based on expected execution time)
 
 If any of this information is missing, confirm with the user before creating the task.
 
@@ -137,7 +155,8 @@ qwenpaw cron create \
   --channel dingtalk \
   --target-user "CHANGEME" \
   --target-session "CHANGEME" \
-  --text "What are my pending tasks?"
+  --text "What are my pending tasks?" \
+  --timeout 600
 ```
 
 ```bash

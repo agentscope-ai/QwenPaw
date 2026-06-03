@@ -10,6 +10,8 @@ export interface ChannelQrcodeConfig {
   successCredentialKey: string;
   /** Polling interval in milliseconds (default: 2000) */
   pollInterval?: number;
+  /** Extra query parameters to pass to the QR code API (e.g. domain) */
+  params?: Record<string, string>;
   /** Called when authorization succeeds with the credentials map */
   onSuccess: (credentials: Record<string, string>) => void;
   /** Called when QR code fetch fails or polling detects expiry */
@@ -38,6 +40,7 @@ export function useChannelQrcode(
     successStatus,
     successCredentialKey,
     pollInterval = 2000,
+    params,
     onSuccess,
     onError,
   } = config;
@@ -64,7 +67,7 @@ export function useChannelQrcode(
     reset();
     setLoading(true);
     try {
-      const data = await api.getChannelQrcode(channel);
+      const data = await api.getChannelQrcode(channel, params);
       if (!data.qrcode_img) {
         onError("fetch");
         return;
@@ -78,6 +81,7 @@ export function useChannelQrcode(
             const result = await api.getChannelQrcodeStatus(
               channel,
               data.poll_token,
+              params,
             );
             if (
               result.status === successStatus &&
@@ -111,6 +115,7 @@ export function useChannelQrcode(
     successStatus,
     successCredentialKey,
     pollInterval,
+    params,
     onSuccess,
     onError,
     reset,

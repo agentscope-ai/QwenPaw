@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import io
 import zipfile
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import patch
 
@@ -20,6 +21,7 @@ from qwenpaw.backup._utils._mount_swap import (
     STATE_TMP_FILE_NAME,
 )
 from qwenpaw.backup._utils import _mount_swap
+from qwenpaw.backup._utils import safe_swap as safe_swap_module
 from qwenpaw.backup._utils.safe_swap import (
     cleanup_stale_restore_artifacts,
     cleanup_startup_restore_artifacts,
@@ -299,6 +301,9 @@ def test_startup_cleanup_recovers_all_restore_targets(
     with patch(
         "qwenpaw.backup._utils.safe_swap._startup_restore_targets",
         return_value=targets,
+    ), patch(
+        "qwenpaw.backup._utils.safe_swap.restore_process_lock",
+        return_value=nullcontext(),
     ):
         cleanup_startup_restore_artifacts()
 
@@ -337,3 +342,28 @@ def test_reserved_restore_names_are_not_extracted(
     }
     for reserved_name in RESERVED_NAMES:
         assert not (tmp_dst / reserved_name).exists()
+
+
+def test_find_busy_restore_paths_reports_specific_child(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "workspace"
+    busy = root / "browser"
+    nested = busy / "user_data"
+    ok = root / "files"
+    nested.mkdir(parents=True)
+    ok.mkdir(parents=True)
+
+    def fake_assert_directory_renamable(path: Path) -> None:
+        if path in {root, busy}:
+            raise PermissionError("locked")
+
+    monkeypatch.setattr(safe_swap_module.os, "name", "nt")
+    monkeypatch.setattr(
+        safe_swap_module,
+        "assert_directory_renamable",
+        fake_assert_directory_renamable,
+    )
+
+    assert safe_swap_module.find_busy_restore_paths(root) == [busy]

@@ -11,6 +11,7 @@ import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { Alert, ConfigProvider } from "antd";
 import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
+import { useEffect } from "react";
 import type { FormInstance } from "antd";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import { QrcodeAuthBlock } from "./QrcodeAuthBlock";
@@ -29,6 +30,10 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "wechat",
   "imessage",
   "onebot",
+  "qq",
+  "mqtt",
+  "xiaoyi",
+  "yuanbao",
 ];
 
 // Doc EN URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
@@ -51,6 +56,7 @@ const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
     "https://qwenpaw.agentscope.io/docs/channels/?lang=en#WeChat-Personal-iLink",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
+  yuanbao: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Yuanbao",
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=en#OneBot-v11-NapCat--QQ-full-protocol",
 };
@@ -72,6 +78,8 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
   wechat: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#微信个人iLink",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
+  yuanbao:
+    "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#腾讯元宝Yuanbao",
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#OneBot-v11NapCat--QQ-完整协议",
 };
@@ -118,36 +126,39 @@ export function ChannelDrawer({
   const currentLang = i18n.language?.startsWith("zh") ? "zh" : "en";
   const label = activeKey ? getChannelLabel(activeKey, t) : activeLabel;
   const { message } = useAppMessage();
+  const matrixAuthMethod = Form.useWatch("auth_method", form);
+  const isMatrixPasswordAuth = matrixAuthMethod === "password";
+  const feishuDomain = (Form.useWatch("domain", form) as string) || "feishu";
+
+  // Parent calls form.setFieldsValue() before the Form mounts, which wins over
+  // initialValues. Re-apply auth_method after open so the dropdown is correct.
+  useEffect(() => {
+    if (!open || activeKey !== "matrix") return;
+    const pw = initialValues?.password;
+    if (typeof pw === "string" && pw.trim().length > 0) {
+      form.setFieldsValue({ auth_method: "password" });
+    }
+  }, [open, activeKey, initialValues, form]);
 
   // ── Access control fields (shared across multiple channels) ──────────────
 
   const renderAccessControlFields = () => (
     <>
       <Form.Item
-        name="dm_policy"
-        label={t("channels.dmPolicy")}
-        tooltip={t("channels.dmPolicyTooltip")}
-        initialValue="open"
+        name="access_control_dm"
+        label={t("channels.accessControlDm")}
+        valuePropName="checked"
+        tooltip={t("channels.accessControlDmTooltip")}
       >
-        <Select
-          options={[
-            { value: "open", label: t("channels.policyOpen") },
-            { value: "allowlist", label: t("channels.policyAllowlist") },
-          ]}
-        />
+        <Switch />
       </Form.Item>
       <Form.Item
-        name="group_policy"
-        label={t("channels.groupPolicy")}
-        tooltip={t("channels.groupPolicyTooltip")}
-        initialValue="open"
+        name="access_control_group"
+        label={t("channels.accessControlGroup")}
+        valuePropName="checked"
+        tooltip={t("channels.accessControlGroupTooltip")}
       >
-        <Select
-          options={[
-            { value: "open", label: t("channels.policyOpen") },
-            { value: "allowlist", label: t("channels.policyAllowlist") },
-          ]}
-        />
+        <Switch />
       </Form.Item>
       <Form.Item
         name="require_mention"
@@ -156,18 +167,6 @@ export function ChannelDrawer({
         tooltip={t("channels.requireMentionTooltip")}
       >
         <Switch />
-      </Form.Item>
-      <Form.Item
-        name="allow_from"
-        label={t("channels.allowFrom")}
-        tooltip={t("channels.allowFromTooltip")}
-        initialValue={[]}
-      >
-        <Select
-          mode="tags"
-          placeholder={t("channels.allowFromPlaceholder")}
-          tokenSeparators={[","]}
-        />
       </Form.Item>
     </>
   );
@@ -189,16 +188,80 @@ export function ChannelDrawer({
             <Form.Item
               name="user_id"
               label="User ID"
-              rules={[{ required: true }]}
+              tooltip="Accepts a full MXID (e.g. @bot:matrix.org) or just the localpart (e.g. bot)."
+              rules={[{ required: true, message: "Please enter User ID" }]}
             >
               <Input placeholder="@bot:matrix.org" />
             </Form.Item>
             <Form.Item
+              name="auth_method"
+              label="Auth Method"
+              initialValue="token"
+            >
+              <Select
+                options={[
+                  { value: "token", label: "Token" },
+                  { value: "password", label: "Password" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
               name="access_token"
               label="Access Token"
-              rules={[{ required: true }]}
+              rules={[
+                {
+                  required: !isMatrixPasswordAuth,
+                  message: "Please enter access token",
+                },
+              ]}
+              hidden={isMatrixPasswordAuth}
             >
               <Input.Password placeholder="syt_..." />
+            </Form.Item>
+            <Form.Item
+              name="password"
+              label="Password"
+              rules={[
+                {
+                  required: isMatrixPasswordAuth,
+                  message: "Please enter password",
+                },
+              ]}
+              hidden={!isMatrixPasswordAuth}
+            >
+              <Input.Password placeholder="Account password for login" />
+            </Form.Item>
+            <Form.Item
+              name="encryption"
+              label="Enable End-to-End Encryption"
+              tooltip="After enabling, you must verify the device in a Matrix client (e.g. Element). E2EE requires manually installing matrix-nio[e2e] (pip install matrix-nio[e2e])."
+              valuePropName="checked"
+              hidden={!isMatrixPasswordAuth}
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              name="device_name"
+              label="Device Name"
+              tooltip="A stable device identity for the Matrix client. Defaults to 'qwenpaw-worker' if left empty."
+            >
+              <Input placeholder="qwenpaw-worker" />
+            </Form.Item>
+            <Form.Item
+              name="dm_disabled"
+              label={t("channels.dmDisabled")}
+              valuePropName="checked"
+              tooltip={t("channels.dmDisabledTooltip")}
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              name="group_disabled"
+              label={t("channels.groupDisabled")}
+              valuePropName="checked"
+              tooltip={t("channels.groupDisabledTooltip")}
+            >
+              <Switch />
             </Form.Item>
           </>
         );
@@ -416,6 +479,7 @@ export function ChannelDrawer({
               successStatus="success"
               successCredentialKey="app_id"
               pollInterval={2000}
+              params={{ domain: feishuDomain }}
               onSuccess={(credentials) => {
                 form.setFieldsValue({
                   app_id: credentials.app_id,
@@ -1082,6 +1146,36 @@ export function ChannelDrawer({
           </>
         );
 
+      case "yuanbao":
+        return (
+          <>
+            <Form.Item
+              name="app_id"
+              label="App ID"
+              rules={[{ required: true, message: "Please input App ID" }]}
+            >
+              <Input placeholder="App ID from Yuanbao platform" />
+            </Form.Item>
+            <Form.Item
+              name="app_secret"
+              label="App Secret"
+              rules={[{ required: true, message: "Please input App Secret" }]}
+            >
+              <Input.Password placeholder="App Secret from Yuanbao platform" />
+            </Form.Item>
+            <Form.Item
+              name="api_domain"
+              label="API Domain"
+              tooltip="REST API domain for sign-token auth (default: bot.yuanbao.tencent.com)"
+            >
+              <Input placeholder="bot.yuanbao.tencent.com" />
+            </Form.Item>
+            <Form.Item name="media_dir" label={t("channels.wechatMediaDir")}>
+              <Input placeholder={defaultMediaDir} />
+            </Form.Item>
+          </>
+        );
+
       case "onebot":
         return (
           <>
@@ -1231,7 +1325,7 @@ export function ChannelDrawer({
       title={drawerTitle}
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
       footer={drawerFooter}
       key={activeKey} // Force remount when switching channels
     >
@@ -1240,7 +1334,18 @@ export function ChannelDrawer({
           form={form}
           layout="vertical"
           initialValues={initialValues}
-          onFinish={onSubmit}
+          onFinish={(values: Record<string, unknown>) => {
+            if (activeKey !== "matrix") {
+              onSubmit(values);
+              return;
+            }
+            const { auth_method, ...rest } = values;
+            if (auth_method === "password") {
+              onSubmit({ ...rest, access_token: "" });
+            } else {
+              onSubmit({ ...rest, password: "", encryption: false });
+            }
+          }}
         >
           <Form.Item
             name="enabled"
@@ -1277,11 +1382,21 @@ export function ChannelDrawer({
             </>
           )}
 
-          {(activeKey === "wecom" || activeKey === "telegram") && (
+          {(activeKey === "wecom" ||
+            activeKey === "telegram" ||
+            activeKey === "dingtalk" ||
+            activeKey === "feishu") && (
             <Form.Item
               name="streaming_enabled"
               label={t("channels.streamingEnabled")}
               valuePropName="checked"
+              tooltip={
+                activeKey === "dingtalk"
+                  ? t("channels.streamingEnabledDingtalkHint")
+                  : activeKey === "feishu"
+                  ? t("channels.streamingEnabledFeishuHint")
+                  : undefined
+              }
             >
               <Switch />
             </Form.Item>

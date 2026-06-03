@@ -15,3 +15,5 @@ export { DiscordIcon } from "./DiscordIcon";
 export { NoteIcon } from "./NoteIcon";
 export { PathIcon } from "./PathIcon";
 export { WChatIcon } from "./WChatIcon";
+export { DouyinIcon } from "./DouyinIcon";
+export { DingTalkIcon } from "./DingTalkIcon";

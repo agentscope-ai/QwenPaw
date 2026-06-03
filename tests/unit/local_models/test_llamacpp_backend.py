@@ -884,6 +884,8 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
         "supports_image": False,
         "supports_video": False,
         "probe_source": "probed",
+        "max_input_length": 131072,
+        "max_tokens": 8192,
         "generate_kwargs": {},
     }
     assert downloader.get_server_status() == {
@@ -1032,6 +1034,8 @@ async def test_setup_server_passes_mmproj_argument(
         "supports_image": True,
         "supports_video": False,
         "probe_source": "probed",
+        "max_input_length": 131072,
+        "max_tokens": 8192,
         "generate_kwargs": {},
     }
 

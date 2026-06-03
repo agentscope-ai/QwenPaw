@@ -2,7 +2,8 @@
 """Top-level restore orchestration used by the HTTP router.
 
 Separating orchestration from the core restore logic keeps the router thin
-and makes the stop-agent → restore → restart-agent flow independently testable.
+and makes the stop-agent -> restore -> restart-agent flow independently
+testable.
 """
 from __future__ import annotations
 
@@ -11,8 +12,9 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from ._ops.storage import get_backup
-from ._ops.restore import restore
-from .models import RestoreBackupRequest
+from ._ops.restore import preflight_restore, restore
+from .models import BackupMeta, RestoreBackupRequest
+from ..config.utils import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +48,11 @@ async def execute_restore(
     req: RestoreBackupRequest,
     *,
     stop_agent_fn: Callable[[str], Awaitable[bool]] | None = None,
+    stop_browsers_fn: Callable[[list[str]], Awaitable[None]] | None = None,
     preload_agent_fn: Callable[[str], Awaitable[bool]] | None = None,
     list_running_agent_ids_fn: Callable[[], list[str]] | None = None,
-) -> None:
-    """Orchestrate a restore: stop agents → restore files → restart agents.
+) -> BackupMeta:
+    """Orchestrate a restore: stop agents -> restore files -> restart agents.
 
     Parameters
     ----------
@@ -60,6 +63,12 @@ async def execute_restore(
     stop_agent_fn:
         Async callable that stops a single agent by ID.  ``None`` when no
         ``MultiAgentManager`` is available (e.g. tests).
+    stop_browsers_fn:
+        Async callable that closes QwenPaw-managed browser instances for the
+        supplied workspace directories before those directories are restored.
+        Browser profiles live inside workspaces and can keep Windows directory
+        renames from succeeding. ``None`` when browser management is
+        unavailable.
     preload_agent_fn:
         Async callable that preloads a single agent by ID after restore.
         ``None`` when no ``MultiAgentManager`` is available.
@@ -81,6 +90,12 @@ async def execute_restore(
     detail = await get_backup(backup_id)
     if detail is None:
         raise FileNotFoundError(f"Backup not found: {backup_id}")
+
+    # Trust/signature validation must happen before stopping workspaces.  The
+    # legacy trust prompt is a validation step; stopping and background
+    # reloading agents before the user confirms can race the second restore
+    # attempt on Windows and leave workspace directories temporarily locked.
+    await asyncio.to_thread(preflight_restore, backup_id, req)
 
     if req.include_agents:
         req_agent_set = set(req.agent_ids)
@@ -123,12 +138,17 @@ async def execute_restore(
             logger.info("Stopping agent '%s' before restore", agent_id)
             await stop_agent_fn(agent_id)
 
+    if affected_agents and stop_browsers_fn is not None:
+        logger.info("Stopping managed browsers before workspace restore")
+        await stop_browsers_fn(_workspace_dirs_for_agents(agents_to_stop))
+
     try:
-        await restore(backup_id, req)
+        meta = await restore(backup_id, req)
         logger.info(
             "execute_restore finished successfully: backup_id=%s",
             backup_id,
         )
+        return meta
     except Exception:
         logger.exception(
             "execute_restore failed for backup_id=%s",
@@ -144,3 +164,24 @@ async def execute_restore(
                 agents_to_stop,
             )
             _preload_agents_background(preload_agent_fn, agents_to_stop)
+
+
+def _workspace_dirs_for_agents(agent_ids: list[str]) -> list[str]:
+    """Return configured workspace directories for *agent_ids*.
+
+    Browser state is keyed by workspace directory, not by backup ID.  The
+    restore orchestrator resolves the paths before the config on disk may be
+    replaced so browser cleanup can stay scoped to the affected workspaces.
+    """
+    config = load_config()
+    workspace_dirs: list[str] = []
+    seen: set[str] = set()
+    for agent_id in agent_ids:
+        ref = config.agents.profiles.get(agent_id)
+        if ref is None or not ref.workspace_dir:
+            continue
+        if ref.workspace_dir in seen:
+            continue
+        seen.add(ref.workspace_dir)
+        workspace_dirs.append(ref.workspace_dir)
+    return workspace_dirs

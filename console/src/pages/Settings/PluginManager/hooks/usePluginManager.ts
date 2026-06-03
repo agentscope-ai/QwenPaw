@@ -33,6 +33,7 @@ export function usePluginManager() {
             await uninstallPlugin(plugin.id);
             message.success(t("pluginManager.uninstallSuccess"));
             refresh();
+            setTimeout(() => window.location.reload(), 800);
           } catch (err) {
             const msg =
               err instanceof Error

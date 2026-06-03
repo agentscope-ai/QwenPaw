@@ -696,6 +696,172 @@ cp -r ~/.qwenpaw/workspaces ~/backups/workspaces-$(date +%Y%m%d)
 
 ---
 
+## 第三部分：子 Agent 派发（spawn_subagent）
+
+> 本功能在 **v1.1.10** 中引入。
+
+除了与**不同 workspace 的其他 Agent** 协作（`chat_with_agent`），QwenPaw 还支持在**当前项目内**派发临时子任务。
+
+### 三种协作模式对比
+
+| 模式                         | 工作区                    | 历史上下文         | 适用场景                         |
+| ---------------------------- | ------------------------- | ------------------ | -------------------------------- |
+| `chat_with_agent`            | 目标 Agent 独立 workspace | 无（只传 text）    | 调用专长 Agent（QA、代码审查等） |
+| `spawn_subagent(fork=False)` | 与当前 Agent 相同的项目   | 无（空白 session） | 干净独立子任务                   |
+| `spawn_subagent(fork=True)`  | 取决于环境（见下方）      | 继承完整对话历史   | 需要背景的侧任务，且可能改文件   |
+
+### 核心特性
+
+- **临时性（Ephemeral）**：子 Agent 不可恢复。每次调用创建一个新 session，完成后即丢弃。
+- **同一 Agent**：子 Agent 使用相同的 Agent 配置（persona、tools），只是在独立 session 中运行。
+- **无需额外配置**：`fork=True` 始终可用，无论是否开启 Coding Mode。
+
+### fork=True 在不同环境下的行为
+
+| 环境                                       | 行为                                                                                                |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| 开启 Coding Mode + project_dir 是 git 仓库 | 在 `<project_dir>/.qwenpaw/worktrees/` 下创建 **git worktree**，子 Agent 在隔离的 worktree 中工作   |
+| 未开启 Coding Mode + workspace 是 git 仓库 | 在 `<workspace_dir>/.qwenpaw/worktrees/` 下创建 **git worktree**，子 Agent 在隔离的 worktree 中工作 |
+| 没有可用的 git 仓库                        | **原地 fork**：继承对话上下文，在与 parent 相同的目录中工作。无文件隔离                             |
+
+`fork=True` 的核心保证是**对话上下文继承**。Git worktree 隔离是项目为 git 仓库时的自动附加能力。
+
+### 何时使用 spawn_subagent？
+
+**使用 `spawn_subagent(fork=False)`（推荐，最常用）**：
+
+- 子任务需要读写**当前项目的文件**
+- 子任务相对独立，**不需要当前对话的背景**
+
+```
+"分析 src/core 下所有 API 端点并生成清单"
+"运行测试套件并汇总失败原因"
+"扫描整个代码库的安全漏洞"
+```
+
+**使用 `spawn_subagent(fork=True)`**：
+
+- 子任务**需要完整对话背景**（如基于刚才讨论的内容）
+- 子任务**会改动文件**，但不希望影响当前工作区（需要 git 仓库）
+- 子任务需要对话背景但**不改动文件**（任何环境都可用）
+
+```
+"基于我们刚才的讨论，为解析器模块补充单元测试"
+"试试另一个实现思路，做成独立分支方便比较"
+"把我们讨论的内容整理成一份规格文档"
+```
+
+**使用 `chat_with_agent`（跨 Agent）**：
+
+- 需要调用有特定专长的其他 Agent（QA Agent、代码审查 Agent 等）
+
+### 调用方式
+
+#### 前台同步（等待结果）
+
+```
+用户：分析 src/core 下的性能瓶颈
+
+Agent 内部执行：
+spawn_subagent(task="分析 src/core 下的性能瓶颈并给出报告")
+→ 返回: [SESSION: sub-ab12]
+         分析结果详情...
+```
+
+#### 后台异步（立即返回，稍后查询）
+
+```
+spawn_subagent(
+    task="扫描整个代码库安全漏洞",
+    background=True,
+)
+→ 返回: [TASK_ID: task-cd34]
+         [SESSION: sub-ef56]
+         任务已提交，用 check_agent_task(task_id="task-cd34") 查询进度
+```
+
+#### fork=True + git 仓库 — 继承历史，隔离 worktree
+
+```
+spawn_subagent(
+    task="基于我们刚才的讨论，为 parser 模块写单元测试",
+    fork=True,
+)
+→ [SESSION: sub-gh78]
+   测试代码已写入...
+   [FORK_BRANCH: fork/ab12ef34]
+   有文件改动，请手动合并分支。
+
+# 如果子任务完成后没有改动文件 → worktree 自动清理
+```
+
+#### fork=True + 非 git 仓库 — 原地继承上下文
+
+```
+spawn_subagent(
+    task="基于我们之前的讨论，起草 API 规格文档",
+    fork=True,
+)
+→ [SESSION: sub-ij90]
+   API 规格文档已起草...
+
+# 无 worktree 创建 — 子 Agent 继承上下文后原地工作
+```
+
+### .worktreeinclude — 自动复制配置文件
+
+当 git worktree 被创建时，被 `.gitignore` 忽略的文件（如 `.env`）不会被包含。
+
+在项目根目录创建 `.worktreeinclude` 文件，列出需要复制到 worktree 的文件：
+
+```
+# .worktreeinclude
+.env
+.env.local
+config/local.json
+```
+
+QwenPaw 在创建 worktree 时会自动将这些文件复制过去，确保子任务能正常运行。
+
+> 注意：`.worktreeinclude` 仅在 git worktree 被创建时生效。
+
+### 常见问题
+
+**Q：spawn_subagent 和 chat_with_agent 可以同时用吗？**
+
+可以。两者互不冲突：
+
+- `spawn_subagent` 在当前项目内执行文件操作类子任务（同 Agent，临时 session）
+- `chat_with_agent` 调用其他专长 Agent
+
+**Q：fork=True 需要开启 Coding Mode 吗？**
+
+不需要。`fork=True` 始终可用：
+
+- 有 git 仓库时（无论是 Coding Mode 的 project_dir 还是 workspace）：获得 worktree 隔离 + 上下文继承
+- 没有 git 仓库时：仅获得上下文继承（原地工作，无文件隔离）
+
+**Q：worktree 会自动清理吗？**
+
+- **有文件改动**：保留，返回 `[FORK_BRANCH]` 分支名。需手动合并后执行 `git worktree remove` 清理
+- **无文件改动**：自动清理
+- **无 git 仓库**：不创建 worktree，无需清理
+
+**Q：background=True 时的 worktree 怎么处理？**
+
+后台模式下不自动清理，需手动检查：
+
+```bash
+git worktree list
+git worktree remove .qwenpaw/worktrees/<id>
+```
+
+**Q：可以恢复子 Agent 的 session 吗？**
+
+不可以。子 Agent 设计为临时性的。如需多轮交互，请使用 `chat_with_agent` 并指定 `session_id`。
+
+---
+
 ## 相关页面
 
 - [CLI 命令](./cli) - 命令行工具详细说明

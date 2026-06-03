@@ -263,6 +263,7 @@
     "acpServer": "Integracao ACP",
     "memory": "Memoria",
     "memoryEvolvingAndProactive": "Memoria Evolutiva e Proativa",
+    "codingMode": "Modo Coding",
     "context": "Contexto",
     "commands": "Comandos magicos",
     "plan": "Modo plano",
@@ -471,7 +472,12 @@
     "helpTitle": "Precisa de Ajuda?",
     "helpPrefix": "Veja o",
     "helpLink": "guia de instalacao",
-    "helpSuffix": "para instrucoes detalhadas."
+    "helpSuffix": "para instrucoes detalhadas.",
+    "pluginsTitle": "Plugins",
+    "pluginsDesc": "Plugins Bundle e Tool descobertos no repositorio QwenPaw. Baixe o pacote .zip para instalar manualmente.",
+    "kindBundle": "Bundle",
+    "kindTool": "Tool",
+    "downloadZip": "Baixar .zip"
   },
   "releaseNotes": {
     "title": "Notas de Lancamento",

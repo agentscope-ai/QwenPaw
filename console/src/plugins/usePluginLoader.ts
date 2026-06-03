@@ -29,7 +29,7 @@ interface PluginInfo {
  * to a full URL using the same base that all other API calls use.
  */
 function resolveUrl(pluginId: string, apiPath: string): string {
-  return getApiUrl(`plugins/${pluginId}/files/${apiPath}`);
+  return getApiUrl(`frontend_plugin/${pluginId}/files/${apiPath}`);
 }
 
 /**
@@ -79,7 +79,7 @@ export async function loadAllPlugins(): Promise<{
     const token = getApiToken();
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(getApiUrl("/plugins"), { headers });
+    const res = await fetch(getApiUrl("/frontend_plugin"), { headers });
     if (!res.ok) {
       console.warn(`[PluginLoader] /api/plugins returned ${res.status}`);
       return { loaded: 0, failed: [] };

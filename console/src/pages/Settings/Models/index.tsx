@@ -1,4 +1,10 @@
-import { useCallback, useMemo, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Button, Input } from "@agentscope-ai/design";
 import { PlusOutlined, SearchOutlined, SyncOutlined } from "@ant-design/icons";
 import { useProviders } from "./useProviders";
@@ -7,10 +13,13 @@ import {
   ProviderCard,
   CustomProviderModal,
   ModelsSection,
+  ProviderConfigModal,
+  ModelManageModal,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import { useTranslation } from "react-i18next";
 import type { ProviderInfo } from "../../../api/types/provider";
+import { getIsConfigured } from "./utils";
 import styles from "./index.module.less";
 
 /* ------------------------------------------------------------------ */
@@ -23,9 +32,45 @@ function ModelsPage() {
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Shared Modal state — only one instance each instead of N per card
+  const [configModalProvider, setConfigModalProvider] =
+    useState<ProviderInfo | null>(null);
+  const [modelsModalProvider, setModelsModalProvider] =
+    useState<ProviderInfo | null>(null);
+
   const refreshProvidersSilently = useCallback(() => {
     void fetchAll(false);
   }, [fetchAll]);
+
+  // Keep modal provider states in sync with the latest providers data
+  useEffect(() => {
+    if (modelsModalProvider) {
+      const fresh = providers.find((p) => p.id === modelsModalProvider.id);
+      if (fresh && fresh !== modelsModalProvider) {
+        setModelsModalProvider(fresh);
+      }
+    }
+  }, [providers, modelsModalProvider]);
+
+  useEffect(() => {
+    if (configModalProvider) {
+      const fresh = providers.find((p) => p.id === configModalProvider.id);
+      if (fresh && fresh !== configModalProvider) {
+        setConfigModalProvider(fresh);
+      }
+    }
+  }, [providers, configModalProvider]);
+
+  const handleOpenConfig = useCallback((provider: ProviderInfo) => {
+    setConfigModalProvider(provider);
+  }, []);
+
+  const handleOpenModels = useCallback((provider: ProviderInfo) => {
+    setModelsModalProvider(provider);
+  }, []);
+
+  // P1: Defer search filtering to avoid blocking input responsiveness
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const { regularProviders, localProviders } = useMemo(() => {
     const regular: ProviderInfo[] = [];
@@ -36,26 +81,12 @@ function ModelsPage() {
     }
 
     // Sort providers: custom/available first, then configured, then the rest.
-    // This mirrors the isConfigured logic in RemoteProviderCard.
     const sortPriority = (provider: ProviderInfo): number => {
-      let isConfigured = false;
-      if (provider.id === "qwenpaw-local") {
-        isConfigured = true;
-      } else if (provider.is_custom && provider.base_url) {
-        isConfigured = true;
-      } else if (provider.require_api_key === false) {
-        isConfigured = true;
-      } else if (provider.require_api_key && provider.api_key) {
-        isConfigured = true;
-      }
-
+      const isConfigured = getIsConfigured(provider);
       const hasModels =
         provider.models.length + provider.extra_models.length > 0;
       const isAvailable = isConfigured && hasModels;
 
-      // Lower number = higher priority (shown first)
-      // Available providers (configured + has models) always come first,
-      // then custom providers, then configured-only, then unconfigured.
       if (isAvailable && provider.is_custom) return 0;
       if (isAvailable) return 1;
       if (provider.is_custom) return 2;
@@ -66,7 +97,7 @@ function ModelsPage() {
     regular.sort((a, b) => sortPriority(a) - sortPriority(b));
 
     // Fuzzy search filter: match provider name (case-insensitive)
-    const query = searchQuery.trim().toLowerCase();
+    const query = deferredSearchQuery.trim().toLowerCase();
     if (!query) {
       return { regularProviders: regular, localProviders: local };
     }
@@ -76,7 +107,7 @@ function ModelsPage() {
       ),
       localProviders: local.filter((p) => p.name.toLowerCase().includes(query)),
     };
-  }, [providers, searchQuery]);
+  }, [providers, deferredSearchQuery]);
 
   const renderProviderCards = (list: ProviderInfo[]) =>
     list.map((provider) => (
@@ -85,6 +116,8 @@ function ModelsPage() {
         provider={provider}
         activeModels={activeModels}
         onSaved={refreshProvidersSilently}
+        onOpenConfig={handleOpenConfig}
+        onOpenModels={handleOpenModels}
       />
     ));
 
@@ -169,6 +202,25 @@ function ModelsPage() {
               onClose={() => setAddProviderOpen(false)}
               onSaved={fetchAll}
             />
+
+            {/* Shared Modal instances — one each for the entire page */}
+            {configModalProvider && (
+              <ProviderConfigModal
+                provider={configModalProvider}
+                activeModels={activeModels}
+                open={!!configModalProvider}
+                onClose={() => setConfigModalProvider(null)}
+                onSaved={refreshProvidersSilently}
+              />
+            )}
+            {modelsModalProvider && (
+              <ModelManageModal
+                provider={modelsModalProvider}
+                open={!!modelsModalProvider}
+                onClose={() => setModelsModalProvider(null)}
+                onSaved={refreshProvidersSilently}
+              />
+            )}
           </div>
         </>
       )}

@@ -31,6 +31,7 @@ from .store import (
     get_skill_pool_dir,
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
+    is_ignored_skill_entry,
     is_pool_builtin_entry,
     mutate_json,
     normalize_skill_manifest_entry,
@@ -216,6 +217,8 @@ def _iter_packaged_builtin_dirs() -> Iterator[Path]:
     if not builtin_dir.exists():
         return
     for skill_dir in sorted(builtin_dir.iterdir()):
+        if is_ignored_skill_entry(skill_dir.name):
+            continue
         if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
             yield skill_dir
 
@@ -893,7 +896,9 @@ def reconcile_pool_manifest() -> dict[str, Any]:
         discovered = {
             path.name: path
             for path in pool_dir.iterdir()
-            if path.is_dir() and (path / "SKILL.md").exists()
+            if not is_ignored_skill_entry(path.name)
+            and path.is_dir()
+            and (path / "SKILL.md").exists()
         }
 
         for skill_name, skill_dir in sorted(discovered.items()):
@@ -940,6 +945,9 @@ def reconcile_pool_manifest() -> dict[str, Any]:
                     new_entry["config"] = config
                 if existing_tags is not None:
                     new_entry["tags"] = existing_tags
+                existing_installed_from = existing.get("installed_from")
+                if existing_installed_from:
+                    new_entry["installed_from"] = existing_installed_from
                 skills[skill_name] = new_entry
             except Exception:
                 logger.warning(
@@ -994,7 +1002,9 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         discovered = {
             path.name: path
             for path in workspace_skills_dir.iterdir()
-            if path.is_dir() and (path / "SKILL.md").exists()
+            if not is_ignored_skill_entry(path.name)
+            and path.is_dir()
+            and (path / "SKILL.md").exists()
         }
 
         for skill_name, skill_dir in sorted(discovered.items()):
@@ -1043,6 +1053,9 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
                 existing_tags = existing.get("tags")
                 if existing_tags is not None:
                     next_entry["tags"] = existing_tags
+                existing_installed_from = existing.get("installed_from")
+                if existing_installed_from:
+                    next_entry["installed_from"] = existing_installed_from
                 skills[skill_name] = next_entry
                 skills[skill_name].pop("sync_to_hub", None)
                 skills[skill_name].pop("sync_to_pool", None)

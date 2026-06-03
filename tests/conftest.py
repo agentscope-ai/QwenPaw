@@ -19,6 +19,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from qwenpaw.providers import provider_manager as _provider_manager_module
+
 # =============================================================================
 # Third-Party Library Mocks
 # =============================================================================
@@ -428,3 +430,27 @@ def pytest_collection_modifyitems(
         #   - s_module: ["utils/tokenizer", "security/tool_guard"]
         #   - c_module: ["channels/dingtalk", "channels/feishu"]
         # This allows module classification to evolve without code changes.
+
+
+# =============================================================================
+# Provider Isolation
+# =============================================================================
+
+
+@pytest.fixture(autouse=True)
+def isolated_secret_dir(monkeypatch, tmp_path):
+    """Isolate all tests from real disk provider data.
+
+    ProviderManager._init_from_storage reads persisted configs and mutates
+    global provider singletons (e.g. base_url when freeze_url=False).
+    This fixture ensures every test uses a clean temporary directory and
+    a fresh ProviderManager singleton.
+    """
+    secret_dir = tmp_path / ".qwenpaw.secret"
+    monkeypatch.setattr(_provider_manager_module, "SECRET_DIR", secret_dir)
+    monkeypatch.setattr(
+        _provider_manager_module.ProviderManager,
+        "_instance",
+        None,
+    )
+    return secret_dir

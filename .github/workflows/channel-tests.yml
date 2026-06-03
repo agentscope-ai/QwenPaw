@@ -24,11 +24,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  spam-gate:
+    name: PR Spam Gate
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/pr-spam-gate.yml
+    with:
+      author: ${{ github.event.pull_request.user.login }}
+
   # ===========================================================================
   # Phase 1: Detect Changed Files and Determine Test Scope
   ############################################################################
   detect-changes:
     name: Detect Changes
+    needs: [spam-gate]
+    if: |
+      always() &&
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
     runs-on: ubuntu-latest
     outputs:
       base_changed: ${{ steps.check-base.outputs.changed }}

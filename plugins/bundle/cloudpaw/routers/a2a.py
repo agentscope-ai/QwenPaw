@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -301,3 +302,98 @@ async def refresh_agent(request: Request, alias: str) -> AgentEntryResponse:
         return _build_entry_response(reg, None, error=str(exc))
 
     return _build_entry_response(reg, card_info)
+
+
+# ------------------------------------------------------------------
+# Direct A2A call endpoint (REST + SSE)
+# ------------------------------------------------------------------
+
+
+class A2ACallRequest(BaseModel):
+    message: str = Field(..., description="Message to send to remote agent")
+    agent_alias: str = Field("", description="Alias of registered agent")
+    agent_url: str = Field("", description="Direct URL of remote agent")
+    context_id: str = Field(
+        "",
+        description="Session context ID for multi-turn",
+    )
+
+
+@router.post(
+    "/call",
+    summary="Direct A2A call with SSE streaming support",
+)
+async def direct_call(request: Request, body: A2ACallRequest) -> dict:
+    """Initiate a direct A2A call to a remote agent.
+
+    While this endpoint processes the call, the frontend can subscribe
+    to GET /a2a/call/stream for real-time progress via SSE.
+    """
+    from modules.a2a.call_stream import get_stream
+    from qwenpaw.app.agent_context import set_current_agent_id
+
+    if get_stream() is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="An A2A call is already in progress",
+        )
+
+    agent_id = request.headers.get("X-Agent-Id")
+    if not agent_id:
+        from qwenpaw.config.utils import load_config
+
+        agent_id = load_config().agents.active_agent or "default"
+    set_current_agent_id(agent_id)
+
+    from tools.a2a_call import a2a_call
+
+    tool_resp = await a2a_call(
+        message=body.message,
+        agent_alias=body.agent_alias,
+        agent_url=body.agent_url,
+        context_id=body.context_id,
+    )
+
+    result: dict = {}
+    for block in tool_resp.content:
+        if block.get("type") == "text":
+            try:
+                result = json.loads(block["text"])
+            except (json.JSONDecodeError, TypeError):
+                result = {"response_text": block["text"]}
+    return result
+
+
+# ------------------------------------------------------------------
+# SSE stream for real-time a2a_call progress
+# ------------------------------------------------------------------
+
+
+@router.get(
+    "/call/stream",
+    summary="SSE stream for active a2a_call",
+)
+async def stream_call(request: Request):
+    """Server-Sent Events stream that relays a2a_call progress to the browser.
+
+    The frontend subscribes to this endpoint while a tool call is in
+    progress.  Each event is a JSON object with keys:
+        response_text, task_state, event_count  — progress update
+        done: true                               — call finished
+    """
+    from modules.a2a.call_stream import read_stream_sse
+
+    async def event_generator():
+        async for chunk in read_stream_sse():
+            if await request.is_disconnected():
+                break
+            yield chunk
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )

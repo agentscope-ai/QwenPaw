@@ -22,6 +22,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -52,6 +53,9 @@ logger = logging.getLogger(__name__)
 
 # Max dedup set size
 _WECHAT_PROCESSED_IDS_MAX = 2000
+
+# Time window (seconds) for content-based dedup (same user + same text)
+_TEXT_DEDUP_TTL = 30.0
 
 # Default token file path
 _DEFAULT_TOKEN_FILE = WORKING_DIR / "wechat_bot_token"
@@ -87,6 +91,8 @@ class WeChatChannel(BaseChannel):
         deny_message: str = "",
         message_merge_enabled: bool = False,
         message_merge_delay_ms: int = 0,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
@@ -98,6 +104,8 @@ class WeChatChannel(BaseChannel):
             group_policy=group_policy,
             allow_from=allow_from,
             deny_message=deny_message,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self.bot_token = bot_token
@@ -134,8 +142,10 @@ class WeChatChannel(BaseChannel):
         self._client: Optional[ILinkClient] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._poll_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._poll_task: Optional[asyncio.Task] = None
         self._poll_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self._loop_accepting = threading.Event()  # cleared on stop
 
         # Cursor for long-polling (get_updates_buf)
         self._cursor: str = ""
@@ -143,6 +153,9 @@ class WeChatChannel(BaseChannel):
         # Message dedup (context_token or derived id)
         self._processed_ids: OrderedDict[str, None] = OrderedDict()
         self._processed_ids_lock = threading.Lock()
+
+        # Content-based dedup: {user_id:content_hash -> timestamp}
+        self._text_dedup: OrderedDict[str, float] = OrderedDict()
 
         # Cache last context_token per user for proactive sends
         self._user_context_tokens: Dict[str, str] = {}
@@ -159,6 +172,45 @@ class WeChatChannel(BaseChannel):
             Callable[[], None],
         ] = {}  # user_id -> stop function
         self._typing_stop_lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    # Thread-safe helpers
+    # ------------------------------------------------------------------
+
+    def _dispatch_to_main_loop(
+        self,
+        coro: Any,
+        *,
+        description: str = "",
+    ) -> bool:
+        """Safely dispatch a coroutine to the main event loop from poll thread.
+
+        Returns True if successfully dispatched, False if loop is unavailable.
+        Prevents RuntimeError when the main loop has already stopped.
+        If dispatch fails, the coroutine is closed to suppress
+        'coroutine was never awaited' warnings.
+        """
+        if not self._loop_accepting.is_set():
+            logger.debug(
+                "wechat: skipping dispatch (loop not accepting): %s",
+                description,
+            )
+            coro.close()
+            return False
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            coro.close()
+            return False
+        try:
+            asyncio.run_coroutine_threadsafe(coro, loop)
+            return True
+        except RuntimeError:
+            logger.debug(
+                "wechat: dispatch failed (loop stopped): %s",
+                description,
+            )
+            coro.close()
+            return False
 
     # ------------------------------------------------------------------
     # Factory methods
@@ -230,6 +282,12 @@ class WeChatChannel(BaseChannel):
                 0,
             )
             or 0,
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -396,6 +454,26 @@ class WeChatChannel(BaseChannel):
                 self._processed_ids.popitem(last=False)
         return False
 
+    def _is_text_duplicate(self, from_user_id: str, text: str) -> bool:
+        """Content-based dedup within a short time window.
+
+        Catches duplicates that slip past ``_is_duplicate`` when the iLink
+        API delivers the same message across two polls with different
+        ``context_token`` / ``msg_id`` values.
+        """
+        content_hash = hashlib.md5(text.encode()).hexdigest()[:16]
+        key = f"{from_user_id}:{content_hash}"
+        now = time.time()
+        with self._processed_ids_lock:
+            prev_time = self._text_dedup.get(key)
+            if prev_time is not None and now - prev_time < _TEXT_DEDUP_TTL:
+                return True
+            self._text_dedup[key] = now
+            # Evict old entries to bound memory
+            while len(self._text_dedup) > _WECHAT_PROCESSED_IDS_MAX:
+                self._text_dedup.popitem(last=False)
+        return False
+
     # ------------------------------------------------------------------
     # QR code login
     # ------------------------------------------------------------------
@@ -454,10 +532,15 @@ class WeChatChannel(BaseChannel):
         asyncio.set_event_loop(poll_loop)
         self._poll_loop = poll_loop
         try:
-            poll_loop.run_until_complete(self._poll_loop_async())
+            # Wrap in a task so stop() can cancel it gracefully
+            self._poll_task = poll_loop.create_task(self._poll_loop_async())
+            poll_loop.run_until_complete(self._poll_task)
+        except asyncio.CancelledError:
+            logger.info("wechat: poll task cancelled (graceful stop)")
         except Exception:
             logger.exception("wechat: poll thread failed")
         finally:
+            self._poll_task = None
             try:
                 pending = asyncio.all_tasks(poll_loop)
                 for task in pending:
@@ -481,6 +564,11 @@ class WeChatChannel(BaseChannel):
         )
         await client.start()
         cursor = self._cursor
+
+        # Circuit breaker: exponential backoff on consecutive failures
+        consecutive_failures = 0
+        max_backoff_seconds = 120  # cap at 2 minutes
+
         try:
             while not self._stop_event.is_set():
                 try:
@@ -493,6 +581,10 @@ class WeChatChannel(BaseChannel):
                     msgs: List[Dict[str, Any]] = data.get("msgs") or []
                     for msg in msgs:
                         await self._on_message(msg, client)
+
+                    # Reset circuit breaker on any successful poll
+                    consecutive_failures = 0
+
                     # ret=-1 is normal long-poll timeout (no new messages)
                     if ret != 0 and not msgs:
                         if ret == -1:
@@ -510,9 +602,18 @@ class WeChatChannel(BaseChannel):
                 except asyncio.CancelledError:
                     break
                 except Exception:
-                    logger.exception("wechat poll error, retry in 5s")
+                    consecutive_failures += 1
+                    backoff = min(
+                        5 * (2 ** (consecutive_failures - 1)),
+                        max_backoff_seconds,
+                    )
+                    logger.exception(
+                        "wechat poll error (%d consecutive), retry in %ds",
+                        consecutive_failures,
+                        backoff,
+                    )
                     if not self._stop_event.is_set():
-                        await asyncio.sleep(5)
+                        await asyncio.sleep(backoff)
         finally:
             await client.stop()
 
@@ -545,6 +646,22 @@ class WeChatChannel(BaseChannel):
                 logger.debug(
                     "wechat: duplicate message skipped: %s",
                     dedup_key[:40],
+                )
+                return
+
+            # Content-based dedup: catch duplicates that arrive with
+            # different context_token / msg_id across separate polls.
+            raw_text = "".join(
+                (item.get("text_item") or {}).get("text", "")
+                for item in (msg.get("item_list") or [])
+                if item.get("type", 0) == 1
+            ).strip()
+            if raw_text and self._is_text_duplicate(from_user_id, raw_text):
+                logger.debug(
+                    "wechat: content-duplicate message skipped: "
+                    "user=%s text_len=%d",
+                    from_user_id[:12],
+                    len(raw_text),
                 )
                 return
 
@@ -735,26 +852,6 @@ class WeChatChannel(BaseChannel):
                 "is_group": is_group,
             }
 
-            allowed, error_msg = self._check_allowlist(from_user_id, is_group)
-            if not allowed:
-                logger.info(
-                    "wechat allowlist blocked: sender=%s is_group=%s",
-                    from_user_id,
-                    is_group,
-                )
-                if error_msg and context_token:
-                    if self._loop:
-                        asyncio.run_coroutine_threadsafe(
-                            self._send_text_direct(
-                                from_user_id,
-                                error_msg,
-                                context_token,
-                                client,
-                            ),
-                            self._loop,
-                        )
-                return
-
             # Save latest context_token for proactive sends (heartbeat/cron)
             if from_user_id and context_token:
                 self._user_context_tokens[from_user_id] = context_token
@@ -781,11 +878,10 @@ class WeChatChannel(BaseChannel):
                     with self._typing_stop_lock:
                         self._typing_stop_funcs[from_user_id] = stop_func
 
-                if self._loop and self._loop.is_running():
-                    asyncio.run_coroutine_threadsafe(
-                        _start_typing_on_receive(),
-                        self._loop,
-                    )
+                self._dispatch_to_main_loop(
+                    _start_typing_on_receive(),
+                    description="start typing indicator",
+                )
 
             session_id = self.resolve_session_id(from_user_id, meta)
             native = {
@@ -990,26 +1086,51 @@ class WeChatChannel(BaseChannel):
         text: str,
         context_token: str,
         client: Optional[ILinkClient] = None,
+        api_initiated: bool = False,
+        send_meta: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Send text using the shared ILinkClient (or create a temp one)."""
+        """Send text using the shared ILinkClient (or create a temp one).
+
+        Args:
+            api_initiated: If True, raise ChannelError on send failure.
+                Used by /api/messages/send to provide accurate error feedback.
+            send_meta: If provided, used to track context_token invalidation.
+                When ret=-2, sets send_meta["_wechat_token_invalid"] = True
+                so subsequent sends in the same request are skipped.
+        """
         _client = client or self._client
         if not _client or not to_user_id or not text:
             return
         try:
             resp = await _client.send_text(to_user_id, text, context_token)
-            if isinstance(resp, dict):
-                ret = resp.get("ret", 0)
-                errcode = resp.get("errcode", 0)
-                if ret != 0 or errcode != 0:
-                    logger.warning(
-                        "wechat send_text rejected: "
-                        "ret=%s errcode=%s to_user_id=%s",
-                        ret,
-                        errcode,
-                        to_user_id,
-                    )
         except Exception:
             logger.exception("wechat _send_text_direct failed")
+            if api_initiated:
+                raise
+            return
+        if isinstance(resp, dict):
+            ret = resp.get("ret", 0)
+            errcode = resp.get("errcode", 0)
+            if ret != 0 or errcode != 0:
+                logger.warning(
+                    "wechat send_text rejected: "
+                    "ret=%s errcode=%s to_user_id=%s",
+                    ret,
+                    errcode,
+                    to_user_id,
+                )
+                if api_initiated:
+                    raise ChannelError(
+                        channel_name="wechat",
+                        message=(
+                            f"iLink API rejected: ret={ret} "
+                            f"errcode={errcode} response={resp}"
+                        ),
+                    )
+                # ret=-2 means context_token is invalid/consumed;
+                # mark meta so subsequent sends in this request are skipped.
+                if ret == -2 and send_meta is not None:
+                    send_meta["_wechat_token_invalid"] = True
 
     async def _send_media_file(
         self,
@@ -1017,6 +1138,7 @@ class WeChatChannel(BaseChannel):
         context_token: str,
         file_path: str,
         content_type: ContentType,
+        send_meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Send a media file (image/file/video) to WeChat.
 
@@ -1025,6 +1147,7 @@ class WeChatChannel(BaseChannel):
             context_token: Context token from inbound message.
             file_path: Local path to the media file.
             content_type: Type of media (IMAGE/FILE/VIDEO).
+            send_meta: If provided, used to track context_token invalidation.
         """
         if not self._client or not to_user_id or not context_token:
             logger.warning(
@@ -1046,22 +1169,23 @@ class WeChatChannel(BaseChannel):
                 return
 
             # Send based on content type
+            resp: Optional[Dict[str, Any]] = None
             if content_type == ContentType.IMAGE:
-                await self._client.send_image(
+                resp = await self._client.send_image(
                     to_user_id,
                     str(path_obj),
                     context_token,
                 )
             elif content_type == ContentType.FILE:
                 filename = path_obj.name
-                await self._client.send_file(
+                resp = await self._client.send_file(
                     to_user_id,
                     str(path_obj),
                     filename,
                     context_token,
                 )
             elif content_type == ContentType.VIDEO:
-                await self._client.send_video(
+                resp = await self._client.send_video(
                     to_user_id,
                     str(path_obj),
                     context_token,
@@ -1071,6 +1195,23 @@ class WeChatChannel(BaseChannel):
                     "wechat _send_media_file: unsupported content type: %s",
                     content_type,
                 )
+                return
+
+            # Check response for errors (same logic as _send_text_direct)
+            if isinstance(resp, dict):
+                ret = resp.get("ret", 0)
+                errcode = resp.get("errcode", 0)
+                if ret != 0 or errcode != 0:
+                    logger.warning(
+                        "wechat send_media rejected: "
+                        "ret=%s errcode=%s to_user_id=%s type=%s",
+                        ret,
+                        errcode,
+                        to_user_id,
+                        content_type,
+                    )
+                    if ret == -2 and send_meta is not None:
+                        send_meta["_wechat_token_invalid"] = True
         except Exception:
             logger.exception(
                 "wechat _send_media_file failed type=%s path=%s",
@@ -1231,6 +1372,10 @@ class WeChatChannel(BaseChannel):
         text_parts: List[str] = []
 
         for p in parts:
+            # Skip all sends once context_token is marked invalid
+            if m.get("_wechat_token_invalid"):
+                break
+
             t = getattr(p, "type", None) or (
                 p.get("type") if isinstance(p, dict) else None
             )
@@ -1255,6 +1400,7 @@ class WeChatChannel(BaseChannel):
                         context_token,
                         image_url,
                         ContentType.IMAGE,
+                        send_meta=m,
                     )
             elif t == ContentType.FILE:
                 # Send file
@@ -1267,6 +1413,7 @@ class WeChatChannel(BaseChannel):
                         context_token,
                         file_url,
                         ContentType.FILE,
+                        send_meta=m,
                     )
             elif t == ContentType.VIDEO:
                 # Send video
@@ -1279,6 +1426,7 @@ class WeChatChannel(BaseChannel):
                         context_token,
                         video_url,
                         ContentType.VIDEO,
+                        send_meta=m,
                     )
             elif t == ContentType.AUDIO:
                 # Send audio as file (WeChat has no dedicated audio send)
@@ -1291,17 +1439,27 @@ class WeChatChannel(BaseChannel):
                         context_token,
                         audio_url,
                         ContentType.FILE,
+                        send_meta=m,
                     )
 
         body = "\n".join(text_parts).strip()
         if prefix and body:
             body = prefix + "  " + body
 
-        if not body:
+        if not body or m.get("_wechat_token_invalid"):
             return
 
+        api_send = bool(m.get("_api_send"))
         for chunk in split_text(body):
-            await self._send_text_direct(to_user_id, chunk, context_token)
+            if m.get("_wechat_token_invalid"):
+                return
+            await self._send_text_direct(
+                to_user_id,
+                chunk,
+                context_token,
+                api_initiated=api_send,
+                send_meta=m,
+            )
 
     async def _on_process_completed(
         self,
@@ -1360,8 +1518,16 @@ class WeChatChannel(BaseChannel):
         body = (prefix + "  " + text) if prefix and text else text
         if not body or not to_user_id:
             return
+        send_state: Dict[str, Any] = {}
         for chunk in split_text(body):
-            await self._send_text_direct(to_user_id, chunk, context_token)
+            if send_state.get("_wechat_token_invalid"):
+                return
+            await self._send_text_direct(
+                to_user_id,
+                chunk,
+                context_token,
+                send_meta=send_state,
+            )
 
     # ------------------------------------------------------------------
     # Typing Indicator
@@ -1381,8 +1547,6 @@ class WeChatChannel(BaseChannel):
         Returns:
             Typing ticket string (empty if failed)
         """
-        import time
-
         now = time.time()
         cache_ttl = 24 * 3600  # 24 hours
 
@@ -1614,6 +1778,7 @@ class WeChatChannel(BaseChannel):
 
         self._loop = asyncio.get_running_loop()
         self._stop_event.clear()
+        self._loop_accepting.set()  # main loop is ready to accept tasks
 
         # Launch background long-poll thread
         self._poll_thread = threading.Thread(
@@ -1630,10 +1795,13 @@ class WeChatChannel(BaseChannel):
     async def stop(self) -> None:
         if not self.enabled:
             return
+        # Signal poll thread to stop accepting new work BEFORE stopping loop
+        self._loop_accepting.clear()
         self._stop_event.set()
-        if self._poll_loop is not None:
+        # Cancel the poll task gracefully instead of brute-force stopping loop
+        if self._poll_loop is not None and self._poll_task is not None:
             try:
-                self._poll_loop.call_soon_threadsafe(self._poll_loop.stop)
+                self._poll_loop.call_soon_threadsafe(self._poll_task.cancel)
             except Exception:
                 pass
         if self._poll_thread:

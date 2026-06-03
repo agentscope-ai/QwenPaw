@@ -57,6 +57,12 @@
     background: var(--color-fill-tertiary, rgba(43, 18, 0, 0.03));
   }
 
+  &.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
   // Reserve right-side padding for the edit input in editing mode
   &.editing {
     .content {

@@ -115,6 +115,7 @@ export function useInstallModal(onSuccess: () => void) {
       setInstallOpen(false);
       setLocalSel(null);
       onSuccess();
+      setTimeout(() => window.location.reload(), 800);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : t("pluginManager.installFailed");
@@ -139,6 +140,7 @@ export function useInstallModal(onSuccess: () => void) {
       setInstallOpen(false);
       form.resetFields();
       onSuccess();
+      setTimeout(() => window.location.reload(), 800);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : t("pluginManager.installFailed");

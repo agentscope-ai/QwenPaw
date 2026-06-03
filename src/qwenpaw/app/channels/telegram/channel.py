@@ -307,6 +307,8 @@ class TelegramChannel(BaseChannel):
         deny_message: str = "",
         require_mention: bool = False,
         streaming_enabled: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
@@ -320,6 +322,8 @@ class TelegramChannel(BaseChannel):
             deny_message=deny_message,
             require_mention=require_mention,
             streaming_enabled=streaming_enabled,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self._bot_token = bot_token
@@ -427,28 +431,6 @@ class TelegramChannel(BaseChannel):
             )
             sender_id = str(getattr(user, "id", "")) if user else chat_id
             is_group = meta.get("is_group", False)
-
-            allowed, error_msg = self._check_allowlist(
-                sender_id,
-                is_group,
-            )
-            if not allowed:
-                logger.info(
-                    "telegram allowlist blocked: sender=%s is_group=%s",
-                    sender_id,
-                    is_group,
-                )
-                try:
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=error_msg,
-                    )
-                except Exception:
-                    logger.debug(
-                        "telegram reject failed chat_id=%s",
-                        chat_id,
-                    )
-                return
 
             if not self._check_group_mention(is_group, meta):
                 return
@@ -634,6 +616,12 @@ class TelegramChannel(BaseChannel):
             deny_message=c.get("deny_message") or "",
             require_mention=c.get("require_mention", False),
             streaming_enabled=bool(c.get("streaming_enabled", False)),
+            access_control_dm=bool(
+                c.get("access_control_dm", False),
+            ),
+            access_control_group=bool(
+                c.get("access_control_group", False),
+            ),
         )
 
     def _chunk_text(self, text: str) -> list[str]:

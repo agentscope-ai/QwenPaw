@@ -1,0 +1,151 @@
+# Pack repo plugins (bundle/tool) and publish to the download CDN (OSS).
+# Runs on any published GitHub Release (including prereleases), same as Desktop OSS upload; also manually via Actions tab.
+
+name: QwenPaw Plugins Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      upload_to_oss:
+        description: "Upload to OSS"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: plugins-release
+  cancel-in-progress: false
+
+jobs:
+  upload-oss:
+    runs-on: ubuntu-latest
+    # Run on: 1) any published release (including prerelease), or 2) manual with upload_to_oss.
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Pack plugins and build index
+        run: |
+          python scripts/pack/generate_plugin_metadata.py \
+            --plugins-root plugins \
+            --dist dist/plugins \
+            --metadata-out dist/plugins/index.json \
+            --cdn-prefix /files/plugins
+
+      - name: Install ossutil
+        run: |
+          wget -q https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil-v1.7.18-linux-amd64.zip
+          unzip -q ossutil-v1.7.18-linux-amd64.zip
+          chmod +x ossutil-v1.7.18-linux-amd64/ossutil64
+          sudo mv ossutil-v1.7.18-linux-amd64/ossutil64 /usr/local/bin/ossutil
+          ossutil --version
+
+      - name: Configure ossutil
+        run: |
+          ossutil config -e ${{ secrets.OSS_ENDPOINT }} \
+            -i ${{ secrets.OSS_ACCESS_KEY_ID }} \
+            -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} \
+            -L CH
+
+      - name: Sync plugin zips to OSS (long-cache, immutable)
+        run: |
+          shopt -s nullglob
+          for kind in bundle tool; do
+            while IFS= read -r -d '' f; do
+              rel="${f#dist/plugins/}"
+              echo "Uploading $f -> files/plugins/${rel}"
+              ossutil cp "$f" \
+                "oss://qwenpaw-download/files/plugins/${rel}" \
+                --acl public-read \
+                --force \
+                --meta "Cache-Control:public, max-age=31536000, immutable"
+            done < <(find "dist/plugins/${kind}" -type f -name '*.zip' -print0 2>/dev/null || true)
+          done
+          # Remove zips that no longer exist locally so deletions propagate.
+          for kind in bundle tool; do
+            kind_root="dist/plugins/${kind}"
+            # Drop legacy flat zips at {kind}/ (pre per-plugin directory layout).
+            remote_flat=$(ossutil ls "oss://qwenpaw-download/files/plugins/${kind}/" -s 2>/dev/null \
+              | grep -E "^oss://qwenpaw-download/files/plugins/${kind}/[^/]+\.zip$" \
+              | sed 's|.*/||' \
+              | sort -u || true)
+            for name in $remote_flat; do
+              echo "Removing legacy flat OSS object: ${kind}/${name}"
+              ossutil rm \
+                "oss://qwenpaw-download/files/plugins/${kind}/${name}" \
+                --force
+            done
+            for plugin_dir in "$kind_root"/*/; do
+              [ -d "$plugin_dir" ] || continue
+              plugin_id=$(basename "$plugin_dir")
+              local_names=$(find "$plugin_dir" -maxdepth 1 -type f -name '*.zip' -exec basename {} \; 2>/dev/null | sort || true)
+              remote_names=$(ossutil ls "oss://qwenpaw-download/files/plugins/${kind}/${plugin_id}/" -s 2>/dev/null \
+                | grep -E "^oss://qwenpaw-download/files/plugins/${kind}/${plugin_id}/[^/]+\.zip$" \
+                | sed 's|.*/||' \
+                | sort -u || true)
+              for name in $remote_names; do
+                if ! echo "$local_names" | grep -qx "$name"; then
+                  echo "Removing stale OSS object: ${kind}/${plugin_id}/${name}"
+                  ossutil rm \
+                    "oss://qwenpaw-download/files/plugins/${kind}/${plugin_id}/${name}" \
+                    --force
+                fi
+              done
+            done
+          done
+
+      - name: Upload plugins index (short-cache)
+        run: |
+          ossutil cp dist/plugins/index.json \
+            "oss://qwenpaw-download/metadata/plugins/index.json" \
+            --acl public-read \
+            --force \
+            --meta "Cache-Control:public, max-age=60, must-revalidate"
+
+      - name: Patch main metadata index to advertise plugins product
+        run: |
+          ossutil cp "oss://qwenpaw-download/metadata/index.json" \
+            main-index.json 2>/dev/null || cat > main-index.json << 'EOF'
+          {
+            "version": "1.0",
+            "updated_at": "",
+            "products": {}
+          }
+          EOF
+
+          python3 << 'PYTHON'
+          import json
+          from datetime import datetime, timezone
+
+          with open("main-index.json", "r", encoding="utf-8") as f:
+              index = json.load(f)
+
+          index.setdefault("products", {})
+          index["products"]["plugins"] = {
+              "name": {"zh-CN": "插件", "en-US": "Plugins"},
+              "index_url": "/metadata/plugins/index.json",
+          }
+          index["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+          with open("main-index.json", "w", encoding="utf-8") as f:
+              json.dump(index, f, indent=2, ensure_ascii=False)
+          PYTHON
+
+          ossutil cp main-index.json \
+            "oss://qwenpaw-download/metadata/index.json" \
+            --acl public-read \
+            --force \
+            --meta "Cache-Control:public, max-age=60, must-revalidate"
+
+      - name: Summary
+        run: |
+          echo "Plugins published. Index:"
+          cat dist/plugins/index.json | python3 -m json.tool | head -40 || true

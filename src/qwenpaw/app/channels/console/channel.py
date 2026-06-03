@@ -238,7 +238,8 @@ class ConsoleChannel(BaseChannel):
                 if url:
                     return FileContent(
                         type=ContentType.FILE,
-                        filename=getattr(part, "filename", None) or url,
+                        filename=getattr(part, "filename", None)
+                        or Path(url).name,
                         file_url=url,
                     )
             elif content_type == ContentType.TEXT:
@@ -553,7 +554,11 @@ class ConsoleChannel(BaseChannel):
             f"{prefix}{text}\n",
         )
         sid = (meta or {}).get("session_id")
-        if sid and text.strip():
+        if (
+            sid
+            and text.strip()
+            and not (meta or {}).get("suppress_console_push")
+        ):
             await push_store_append(sid, text.strip())
 
     async def send_content_parts(
@@ -567,7 +572,7 @@ class ConsoleChannel(BaseChannel):
         """
         self._print_parts(parts)
         sid = (meta or {}).get("session_id")
-        if sid:
+        if sid and not (meta or {}).get("suppress_console_push"):
             body = self._parts_to_text(parts, meta)
             if body.strip():
                 await push_store_append(sid, body.strip())

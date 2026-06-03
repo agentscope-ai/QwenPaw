@@ -1,13 +1,19 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import {
+  DownloadCancelledError,
+  downloadFileFromUrl,
+} from "../../utils/downloadFileFromUrl";
 import type {
   BackupMeta,
+  BackupTrustMode,
   BackupDetail,
   BackupProgressEvent,
   BackupConflictResponse,
   CreateBackupRequest,
   RestoreBackupRequest,
+  RestoreBackupResponse,
   DeleteBackupsResponse,
 } from "../types/backup";
 
@@ -58,7 +64,7 @@ export const backupApi = {
   },
 
   restoreBackup: (id: string, data: RestoreBackupRequest) =>
-    request<void>(`/backups/${id}/restore`, {
+    request<RestoreBackupResponse>(`/backups/${id}/restore`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
@@ -72,34 +78,28 @@ export const backupApi = {
   exportBackup: async (id: string, name: string) => {
     const url = getApiUrl(`/backups/${id}/export`);
 
-    // In pywebview desktop, <a>.click() downloads are silently ignored.
-    // Use the native save dialog exposed via the pywebview bridge instead.
-    const pywebview = (window as any).pywebview;
-    if (pywebview?.api?.save_file) {
-      // save_file needs a full URL; construct one from location + api path.
-      const fullUrl = url.startsWith("http")
-        ? url
-        : `${window.location.origin}${url}`;
-      const saved = await pywebview.api.save_file(fullUrl, `${name}.zip`);
-      // False means the user cancelled the OS save dialog — not an error.
-      if (!saved) return;
-      return;
+    try {
+      await downloadFileFromUrl(url, `${name}.zip`, {
+        headers: buildAuthHeaders(),
+        errorMessage: "Export failed",
+      });
+    } catch (error) {
+      if (error instanceof DownloadCancelledError) {
+        return;
+      }
+      throw error;
     }
-
-    // Fallback for regular browsers: trigger download via invisible <a>
-    const res = await fetch(url, { headers: buildAuthHeaders() });
-    if (!res.ok) throw new Error("Export failed");
-    const blob = await res.blob();
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${name}.zip`;
-    a.click();
-    URL.revokeObjectURL(a.href);
   },
 
-  importBackup: async (file: File): Promise<BackupMeta> => {
+  importBackup: async (
+    file: File,
+    options: { trustMode?: BackupTrustMode } = {},
+  ): Promise<BackupMeta> => {
     const formData = new FormData();
     formData.append("file", file);
+    if (options.trustMode) {
+      formData.append("trust_mode", options.trustMode);
+    }
     const url = getApiUrl("/backups/import");
     const res = await fetch(url, {
       method: "POST",

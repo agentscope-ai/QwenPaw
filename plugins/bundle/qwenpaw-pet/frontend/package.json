@@ -1,0 +1,17 @@
+{
+  "name": "qwenpaw-pet-plugin-ui",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "vite build",
+    "format": "tsc --noEmit && prettier --write --cache .",
+    "format:check": "tsc --noEmit && prettier --check ."
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@vitejs/plugin-react": "^4.3.1",
+    "prettier": "3.0.0",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2"
+  }
+}

@@ -30,7 +30,7 @@ export function MagazineStackViewer({
       footer={null}
       width={1100}
       title={`${harvest.name} · History`}
-      destroyOnClose
+      destroyOnHidden
     >
       <div className={styles.viewerContainer}>
         <div className={styles.mainArea}>

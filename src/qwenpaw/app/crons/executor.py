@@ -34,6 +34,10 @@ class CronExecutor:
         target_session_id = job.dispatch.target.session_id
         target_channel = job.dispatch.channel
         dispatch_meta: Dict[str, Any] = dict(job.dispatch.meta or {})
+        if job.task_type == "agent":
+            # Agent cron replies still print to the console channel, but
+            # should not raise frontend push bubbles (Inbox remains opt-in).
+            dispatch_meta["suppress_console_push"] = True
         logger.info(
             "cron execute: job_id=%s channel=%s task_type=%s "
             "target_user_id=%s target_session_id=%s",
@@ -88,18 +92,28 @@ class CronExecutor:
 
         req["channel"] = target_channel
         req["user_id"] = target_user_id or "cron"
+        raw_context = req.get("request_context")
+        request_context = (
+            dict(raw_context) if isinstance(raw_context, dict) else {}
+        )
+        request_context["source"] = "cron"
+        request_context["cron_job_id"] = job.id or ""
+        req["request_context"] = request_context
 
         # Determine session_id based on share_session
         share_session = job.runtime.share_session
         if share_session:
             req["session_id"] = target_session_id or f"cron:{job.id}"
         else:
+            # Use job.id (not run_id) so all runs of this job accumulate in the
+            # same dedicated session, giving users a complete history.
             req["session_id"] = (
                 f"{target_session_id}:cron:{job.id}"
                 if target_session_id
                 else f"cron:{job.id}"
             )
-        run_id = str(uuid.uuid4())
+            req["session_source"] = "cron"
+
         delivery_error: str | None = None
         baseline_messages = await read_session_messages(
             runner=self._runner,
@@ -108,6 +122,8 @@ class CronExecutor:
             channel=target_channel,
         )
         baseline_count = len(baseline_messages)
+
+        run_id = str(uuid.uuid4())
         await create_trace(
             run_id,
             meta={

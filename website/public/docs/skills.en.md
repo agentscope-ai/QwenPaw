@@ -281,6 +281,30 @@ This skill is used for…
 Manually placed skills are detected on the next manifest reconcile and added
 to `skill.json` as **disabled**. Enable them in the Console or CLI.
 
+### 6. Create from current session via /make-skill (Beta)
+
+When you've just walked through a workflow in chat: tried tools, hit
+errors, found a working approach.
+Turn that session into a skill:
+
+```
+/make-skill cooking
+```
+
+You'll see a short plan card with the proposed skill name and step
+outline. Approve, refine, or cancel in natural language. After approval
+the agent writes the skill based on the conversation and saves it to
+your workspace, **enabled by default**.
+
+`<focus>` becomes the skill name; internal spaces collapse to `-`
+(e.g. `view image debug` → `view-image-debug`). Other characters
+(Chinese, case, digits) are kept as-is.
+
+`/make-skill` is itself a built-in skill — make sure it's enabled in
+your workspace via `/skills` before invoking.
+
+---
+
 Common workspace operations:
 
 - **Enable / disable:** Turn a skill on or off without changing its files.
@@ -290,6 +314,31 @@ Common workspace operations:
   other workspaces.
 - **Edit channel scope / config:** Adjust where the skill applies and what
   runtime config it receives in this workspace.
+
+---
+
+## Skill Market
+
+Search and install skills from multiple marketplaces in one place — open
+**Settings → Skill Market** in the Console. This is the search-driven alternative to the per-URL **Import from URL** flow above.
+
+Three providers ship out of the box:
+
+- **ClawHub** — public, always enabled.
+- **ModelScope** — public, always enabled.
+- **Aliyun** — requires credentials in **Settings → Environments**;
+  without them the provider chip is disabled and the tooltip explains why.
+
+How it works:
+
+- Search runs in parallel across enabled providers; a failure on one provider surfaces as a banner while results from the others still render.
+- Each card has a target picker: **Pool** (shared) or **Workspace** (current agent).
+- Installs run through a queue (one at a time) with retry and cancel; name conflicts surface as a failed item with the server message — rename the existing workspace skill and retry the install.
+
+After install, every skill remembers its origin in an `installed_from` field, shown in the skill drawer as **Installed from**. Values include `clawhub`,
+`modelscope`, `aliyun`, `skills-sh`, `lobehub`, `skillsmp`, `github`, `url`, `zip`. Skills with no recorded origin (built-ins, hand-created, legacy entries) display an empty value.
+
+The per-URL **Import from URL** flow above remains the way to pull from sources not covered by these search providers (skills.sh, lobehub.com, github.com, etc.).
 
 ---
 

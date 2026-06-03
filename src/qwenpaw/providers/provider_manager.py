@@ -84,6 +84,23 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
     ),
 ]
 
+MIMO_TOKENPLAN_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="mimo-v2.5-pro",
+        name="MiMo V2.5 Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="mimo-v2.5",
+        name="MiMo V2.5",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+]
+
 ALIYUN_TOKENPLAN_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="qwen3.6-plus",
@@ -301,20 +318,60 @@ OPENAI_MODELS: List[ModelInfo] = [
 
 OPENCODE_MODELS: List[ModelInfo] = [
     ModelInfo(
-        id="big-pickle",
-        name="Big Pickle",
+        id="glm-5.1",
+        name="GLM-5.1",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
-        is_free=True,
     ),
     ModelInfo(
-        id="nemotron-3-super-free",
-        name="Nemotron 3 Super Free",
+        id="glm-5",
+        name="GLM-5",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
-        is_free=True,
+    ),
+    ModelInfo(
+        id="kimi-k2.5",
+        name="Kimi K2.5",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="kimi-k2.6",
+        name="Kimi K2.6",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="minimax-m2.5",
+        name="MiniMax-M2.5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="minimax-m2.7",
+        name="MiniMax-M2.7",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3.6-plus",
+        name="Qwen3.6 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3.5-plus",
+        name="Qwen3.5 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
     ),
 ]
 
@@ -807,8 +864,13 @@ PROVIDER_OPENCODE = OpenAIProvider(
     base_url="https://opencode.ai/zen/v1",
     api_key_prefix="",
     models=OPENCODE_MODELS,
-    freeze_url=True,
-    require_api_key=False,
+    meta={
+        "base_url_options": [
+            {"label": "OpenCode", "value": "https://opencode.ai/zen/v1"},
+            {"label": "OpenCode Go", "value": "https://opencode.ai/zen/go/v1"},
+        ],
+    },
+    freeze_url=False,
 )
 
 PROVIDER_AZURE_OPENAI = OpenAIProvider(
@@ -874,7 +936,7 @@ PROVIDER_ANTHROPIC = AnthropicProvider(
     api_key_prefix="sk-ant-",
     models=ANTHROPIC_MODELS,
     chat_model="AnthropicChatModel",
-    freeze_url=True,
+    freeze_url=False,
 )
 
 PROVIDER_GEMINI = GeminiProvider(
@@ -957,6 +1019,15 @@ PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
     support_model_discovery=False,
 )
 
+PROVIDER_MIMO_TOKENPLAN = OpenAIProvider(
+    id="mimo-tokenplan",
+    name="Xiaomi MiMo Token Plan",
+    base_url="https://token-plan-cn.xiaomimimo.com/v1",
+    api_key_prefix="",
+    models=MIMO_TOKENPLAN_MODELS,
+    freeze_url=True,
+)
+
 
 class ProviderManager:  # pylint: disable=too-many-public-methods
     """A manager class to handle all providers,
@@ -1026,6 +1097,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_SILICONFLOW_INTL)
         self._add_builtin(PROVIDER_VOLCENGINE_CN)
         self._add_builtin(PROVIDER_VOLCENGINE_CN_CODINGPLAN)
+        self._add_builtin(PROVIDER_MIMO_TOKENPLAN)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider
@@ -1501,6 +1573,35 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         except OSError:
             pass
 
+    def save_provider_config(
+        self,
+        provider_id: str,
+        provider: Provider | None = None,
+    ) -> None:
+        """Persist the current in-memory provider state to disk.
+
+        Args:
+            provider_id: The provider to save.
+            provider: Optional pre-resolved provider instance. When
+                supplied, this instance is saved directly — important
+                for plugin providers where ``get_provider`` returns a
+                fresh copy each time.
+        """
+        if provider is None:
+            provider = self.get_provider(provider_id)
+        if provider is None:
+            return
+        is_plugin = provider_id in self.plugin_providers
+        if is_plugin:
+            provider_info = ProviderInfo(**provider.model_dump())
+            self.plugin_providers[provider_id]["info"] = provider_info
+            self._save_plugin_provider(provider)
+        else:
+            self._save_provider(
+                provider,
+                is_builtin=provider_id in self.builtin_providers,
+            )
+
     def load_provider(
         self,
         provider_id: str,
@@ -1756,6 +1857,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     def _init_from_storage(self):
         """Initialize all providers and active model from disk storage."""
         # Load built-in providers
+        # pylint: disable=too-many-nested-blocks
         for builtin in self.builtin_providers.values():
             provider = self.load_provider(builtin.id, is_builtin=True)
             if provider:
@@ -1763,6 +1865,10 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if not builtin.freeze_url:
                     builtin.base_url = provider.base_url
                 builtin.api_key = provider.api_key
+                if provider.auth_mode != "api_key":
+                    builtin.auth_mode = provider.auth_mode
+                if provider.custom_headers:
+                    builtin.custom_headers = provider.custom_headers
                 builtin_model_ids = {m.id for m in builtin.models}
                 builtin.extra_models = [
                     m
@@ -1770,26 +1876,39 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     if m.id not in builtin_model_ids
                 ]
                 builtin.generate_kwargs.update(provider.generate_kwargs)
-                # Restore per-model generate_kwargs for built-in models.
+                # Restore per-model config for built-in models.
                 # Collect from both stored built-in models and promoted
                 # extra_models (models that were user-added but are now
                 # part of the built-in list).
-                stored_model_kwargs: dict = {}
+                stored_model_config: dict = {}
                 for m in provider.models:
-                    if m.generate_kwargs:
-                        stored_model_kwargs[m.id] = m.generate_kwargs
+                    stored_model_config[m.id] = {
+                        "generate_kwargs": m.generate_kwargs,
+                        "max_tokens": m.max_tokens,
+                        "max_input_length": m.max_input_length,
+                    }
                 for m in provider.extra_models:
-                    if m.id in builtin_model_ids and m.generate_kwargs:
-                        stored_model_kwargs.setdefault(
+                    if m.id in builtin_model_ids:
+                        stored_model_config.setdefault(
                             m.id,
-                            m.generate_kwargs,
+                            {
+                                "generate_kwargs": m.generate_kwargs,
+                                "max_tokens": m.max_tokens,
+                                "max_input_length": m.max_input_length,
+                            },
                         )
-                if stored_model_kwargs:
+                if stored_model_config:
                     for model in builtin.models:
-                        if model.id in stored_model_kwargs:
-                            model.generate_kwargs = stored_model_kwargs[
-                                model.id
-                            ]
+                        cfg = stored_model_config.get(model.id)
+                        if cfg:
+                            if cfg["generate_kwargs"]:
+                                model.generate_kwargs = cfg["generate_kwargs"]
+                            if cfg["max_tokens"] is not None:
+                                model.max_tokens = cfg["max_tokens"]
+                            if cfg["max_input_length"] is not None:
+                                model.max_input_length = cfg[
+                                    "max_input_length"
+                                ]
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)

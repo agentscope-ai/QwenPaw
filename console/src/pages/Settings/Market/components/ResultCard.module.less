@@ -1,0 +1,135 @@
+.skillCard {
+  min-height: 220px;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-radius: var(--border-radius, 12px);
+  background: var(--color-bg-base, #ffffff);
+  border: 1px solid var(--color-border-secondary, #eae8e7);
+  box-sizing: border-box;
+  transition: all 0.2s ease-in-out;
+  position: relative;
+  overflow: hidden;
+
+  :global {
+    .ant-card-body {
+      padding: 0 !important;
+    }
+
+    .qwenpaw-spark-card-wrapper {
+      padding: 16px !important;
+    }
+  }
+
+  &:hover {
+    border-color: var(--color-border, #d9d9d9);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+}
+
+.cardTopRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.sourceBadge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  background-color: rgba(239, 240, 243, 0.9);
+  color: #8e8c99;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  white-space: nowrap;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: nowrap;
+}
+
+.skillTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(20, 20, 19, 0.88);
+  line-height: 22px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.descriptionText {
+  border-radius: 4px;
+  background: rgba(43, 18, 0, 0.02);
+  box-sizing: border-box;
+  border: 1px solid #f3f1f0;
+  padding: 4px 8px;
+  line-height: 20px;
+  margin: 0;
+  font-size: 13px;
+  color: rgba(20, 20, 19, 0.65);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.cardFooter {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #fff;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.installButton {
+  margin-left: auto;
+}
+
+/* ─── Dark mode ──────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .skillCard {
+    &:hover {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+  }
+
+  .sourceBadge {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.6);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .skillTitle {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .descriptionText {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .cardFooter {
+    background: #2a2a2a;
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+}

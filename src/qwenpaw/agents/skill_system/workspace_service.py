@@ -24,6 +24,7 @@ from .store import (
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
     import_skill_dir,
+    is_ignored_skill_entry,
     mutate_json,
     normalize_skill_dir_name,
     read_skill_from_dir,
@@ -35,6 +36,53 @@ from .store import (
     validate_skill_content,
     write_skill_to_dir,
 )
+
+
+def _register_workspace_skill_entry(
+    payload: dict[str, Any],
+    skill_name: str,
+    skill_dir: Path,
+    *,
+    enable: bool = False,
+    installed_from: str = "",
+    config: dict[str, Any] | None = None,
+    source: str | None = None,
+) -> None:
+    """Upsert a workspace skill entry — single source of truth for shape."""
+    payload.setdefault("skills", {})
+    entry = payload["skills"].get(skill_name) or {}
+    # Explicit *source* wins (e.g. /make-skill stamps "agent"); otherwise
+    # fall back to existing entry / builtin lookup / "customized" default.
+    if source is not None:
+        resolved_source = source
+    elif "source" in entry:
+        resolved_source = entry["source"]
+    elif skill_name in get_packaged_builtin_versions():
+        resolved_source = "builtin"
+    else:
+        resolved_source = "customized"
+    metadata = build_skill_metadata(
+        skill_name,
+        skill_dir,
+        source=resolved_source,
+        protected=False,
+    )
+    payload["skills"][skill_name] = {
+        "enabled": bool(entry.get("enabled", enable)),
+        "channels": entry.get("channels") or ["all"],
+        "source": metadata["source"],
+        "installed_from": (
+            installed_from or str(entry.get("installed_from", "") or "")
+        ),
+        "config": (
+            dict(config)
+            if config is not None
+            else dict(entry.get("config") or {})
+        ),
+        "metadata": metadata,
+        "requirements": metadata["requirements"],
+        "updated_at": metadata["updated_at"],
+    }
 
 
 class SkillService:
@@ -103,6 +151,8 @@ class SkillService:
         extra_files: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
         enable: bool = False,
+        installed_from: str = "",
+        source: str | None = None,
     ) -> str | None:
         validate_skill_content(content)
         skill_name = normalize_skill_dir_name(name)
@@ -124,33 +174,15 @@ class SkillService:
             copy_skill_dir(staged_dir, skill_dir)
 
         def _update(payload: dict[str, Any]) -> None:
-            payload.setdefault("skills", {})
-            entry = payload["skills"].get(skill_name) or {}
-            if "source" in entry:
-                source = entry["source"]
-            elif skill_name in get_packaged_builtin_versions():
-                source = "builtin"
-            else:
-                source = "customized"
-            metadata = build_skill_metadata(
+            _register_workspace_skill_entry(
+                payload,
                 skill_name,
                 skill_dir,
+                enable=enable,
+                installed_from=installed_from,
+                config=config,
                 source=source,
-                protected=False,
             )
-            payload["skills"][skill_name] = {
-                "enabled": bool(entry.get("enabled", enable)),
-                "channels": entry.get("channels") or ["all"],
-                "source": metadata["source"],
-                "config": (
-                    dict(config)
-                    if config is not None
-                    else dict(entry.get("config") or {})
-                ),
-                "metadata": metadata,
-                "requirements": metadata["requirements"],
-                "updated_at": metadata["updated_at"],
-            }
 
         try:
             mutate_json(
@@ -204,11 +236,12 @@ class SkillService:
         overwrite: bool = False,
     ) -> dict[str, Any]:
         """Edit-in-place or rename-save a workspace skill."""
+        validate_skill_content(content)
         try:
             skill_name = normalize_skill_dir_name(skill_name)
-            final_name = normalize_skill_dir_name(target_name or skill_name)
         except SkillsError:
             return {"success": False, "reason": "not_found"}
+        final_name = normalize_skill_dir_name(target_name or skill_name)
         manifest = self._read_manifest()
         old_entry = manifest.get("skills", {}).get(skill_name)
         if old_entry is None:
@@ -226,7 +259,11 @@ class SkillService:
         target_dir = safe_skill_dir(skill_root, final_name)
         if target_dir.exists() and not overwrite:
             existing = (
-                {p.name for p in skill_root.iterdir() if p.is_dir()}
+                {
+                    p.name
+                    for p in skill_root.iterdir()
+                    if p.is_dir() and not is_ignored_skill_entry(p.name)
+                }
                 if skill_root.exists()
                 else set()
             )
@@ -310,6 +347,9 @@ class SkillService:
                 "enabled": bool(current_entry.get("enabled", False)),
                 "channels": current_entry.get("channels") or ["all"],
                 "source": metadata["source"],
+                "installed_from": str(
+                    current_entry.get("installed_from", "") or "",
+                ),
                 "config": new_config,
                 "metadata": metadata,
                 "requirements": metadata["requirements"],
@@ -373,6 +413,9 @@ class SkillService:
                 "enabled": bool(current_entry.get("enabled", False)),
                 "channels": current_entry.get("channels") or old_channels,
                 "source": metadata["source"],
+                "installed_from": str(
+                    current_entry.get("installed_from", "") or "",
+                ),
                 "config": old_config,
                 "metadata": metadata,
                 "requirements": metadata["requirements"],
@@ -428,7 +471,11 @@ class SkillService:
                 for d, n in found
             ]
             existing_on_disk = (
-                {p.name for p in skill_root.iterdir() if p.is_dir()}
+                {
+                    p.name
+                    for p in skill_root.iterdir()
+                    if p.is_dir() and not is_ignored_skill_entry(p.name)
+                }
                 if skill_root.exists()
                 else set()
             )
@@ -436,6 +483,9 @@ class SkillService:
             planned: list[tuple[Path, str]] = []
             seen_names: set[str] = set()
             for skill_dir, skill_name in found:
+                validate_skill_content(
+                    (skill_dir / "SKILL.md").read_text(encoding="utf-8"),
+                )
                 scan_skill_dir_or_raise(skill_dir, skill_name)
                 if skill_name in seen_names:
                     conflicts.append(
@@ -474,6 +524,20 @@ class SkillService:
 
             if imported:
                 reconcile_workspace_manifest(self.workspace_dir)
+
+                def _mark_imported_entries(payload: dict[str, Any]) -> None:
+                    skills = payload.setdefault("skills", {})
+                    for name in imported:
+                        entry = skills.get(name)
+                        if entry is not None:
+                            entry["installed_from"] = "zip"
+
+                mutate_json(
+                    get_workspace_skill_manifest_path(self.workspace_dir),
+                    default_workspace_manifest(),
+                    _mark_imported_entries,
+                )
+
                 if enable:
                     for skill_name in imported:
                         self.enable_skill(skill_name)

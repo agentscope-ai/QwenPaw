@@ -23,7 +23,7 @@ from .prompts import (
 from ..model_factory import create_model_and_formatter
 from ..utils import get_token_counter
 from ...config import load_config
-from ...config.config import load_agent_config
+from ...config.config import load_agent_config, get_model_max_input_length
 from ...config.context import (
     set_current_workspace_dir,
     set_current_recent_max_bytes,
@@ -406,7 +406,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             as_token_counter=get_token_counter(agent_config),
             toolkit=self.summary_toolkit,
             language=agent_config.language,
-            max_input_length=agent_config.running.max_input_length,
+            max_input_length=get_model_max_input_length(agent_config),
             compact_ratio=cc.compact_threshold_ratio,
             timezone=load_config().user_timezone or None,
             add_thinking_block=cc.compact_with_thinking_block,

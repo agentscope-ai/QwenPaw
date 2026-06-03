@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from agentscope_runtime.engine.schemas.exception import ConfigurationException
 
 from .manager import CronManager
 from .models import (
@@ -106,7 +107,10 @@ async def create_job(
     # server generates id; ignore client-provided spec.id
     job_id = str(uuid.uuid4())
     created = spec.model_copy(update={"id": job_id})
-    await mgr.create_or_replace_job(created)
+    try:
+        await mgr.create_or_replace_job(created)
+    except (ConfigurationException, ValueError) as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     return created
 
 
@@ -120,7 +124,10 @@ async def replace_job(
         spec.id = job_id
     elif spec.id != job_id:
         raise HTTPException(status_code=400, detail="job_id mismatch")
-    await mgr.create_or_replace_job(spec)
+    try:
+        await mgr.create_or_replace_job(spec)
+    except (ConfigurationException, ValueError) as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     return spec
 
 

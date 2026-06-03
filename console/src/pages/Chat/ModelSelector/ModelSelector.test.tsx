@@ -52,6 +52,8 @@ const mockProvider = {
       supports_image: false,
       supports_video: false,
       generate_kwargs: {},
+      max_tokens: 8192,
+      max_input_length: 32768,
     },
     {
       id: "gpt-3.5-turbo",
@@ -60,6 +62,8 @@ const mockProvider = {
       supports_image: false,
       supports_video: false,
       generate_kwargs: {},
+      max_tokens: 4096,
+      max_input_length: 16384,
     },
   ],
   extra_models: [],

@@ -258,6 +258,7 @@ class TestTokenUsageModels:
         assert summary.total_prompt_tokens == 0
         assert summary.total_completion_tokens == 0
         assert summary.total_calls == 0
+        assert summary.by_model == {}
         assert summary.by_date == {}
 
     def test_summary_with_data(self):
@@ -266,6 +267,15 @@ class TestTokenUsageModels:
             total_prompt_tokens=500,
             total_completion_tokens=250,
             total_calls=10,
+            by_model={
+                "openai:gpt-4": TokenUsageByModel(
+                    provider_id="openai",
+                    model="gpt-4",
+                    prompt_tokens=500,
+                    completion_tokens=250,
+                    call_count=10,
+                ),
+            },
             by_date={
                 "2026-04-24": TokenUsageStats(
                     prompt_tokens=500,
@@ -275,6 +285,8 @@ class TestTokenUsageModels:
             },
         )
         assert summary.total_prompt_tokens == 500
+        assert len(summary.by_model) == 1
+        assert summary.by_model["openai:gpt-4"].model == "gpt-4"
         assert len(summary.by_date) == 1
 
     def test_token_usage_by_model(self):

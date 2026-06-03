@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { SaveOutlined } from "@ant-design/icons";
 import { Select, Button, Card } from "@agentscope-ai/design";
 import type { ModelSlotRequest } from "../../../../../api/types";
@@ -29,7 +29,7 @@ interface ModelsSectionProps {
   onSaved: () => void;
 }
 
-export function ModelsSection({
+export const ModelsSection = React.memo(function ModelsSection({
   providers,
   activeModels,
   onSaved,
@@ -189,4 +189,4 @@ export function ModelsSection({
       <p className={styles.slotDescription}>{t("models.llmDescription")}</p>
     </Card>
   );
-}
+});

@@ -224,30 +224,6 @@ export function ReactAgentCard({
       />
 
       <Form.Item
-        label={t("agentConfig.maxContextLength")}
-        name="max_input_length"
-        rules={[
-          {
-            required: true,
-            message: t("agentConfig.maxContextLengthRequired"),
-          },
-          {
-            type: "number",
-            min: 1000,
-            message: t("agentConfig.maxContextLengthMin"),
-          },
-        ]}
-        tooltip={t("agentConfig.maxContextLengthTooltip")}
-      >
-        <InputNumber
-          style={{ width: "100%" }}
-          min={1000}
-          step={1024}
-          placeholder={t("agentConfig.maxContextLengthPlaceholder")}
-        />
-      </Form.Item>
-
-      <Form.Item
         label={t("agentConfig.planMode", "Plan Mode")}
         tooltip={t(
           "agentConfig.planModeTooltip",

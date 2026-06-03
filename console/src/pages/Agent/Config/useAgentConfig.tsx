@@ -62,7 +62,6 @@ export function useAgentConfig() {
         llm_rate_limit_pause: config.llm_rate_limit_pause,
         llm_rate_limit_jitter: config.llm_rate_limit_jitter,
         llm_acquire_timeout: config.llm_acquire_timeout,
-        max_input_length: config.max_input_length,
         history_max_length: config.history_max_length,
         context_manager_backend: contextBackend,
         light_context_config: config.light_context_config,

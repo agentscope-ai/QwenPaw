@@ -24,6 +24,8 @@ from ...config.context import (
     get_current_workspace_dir,
 )
 
+DESKTOP_APP_ENV = "QWENPAW_DESKTOP_APP"
+
 
 def _kill_process_tree_win32(pid: int) -> None:
     """Kill a process and all its descendants on Windows via taskkill.
@@ -40,6 +42,14 @@ def _kill_process_tree_win32(pid: int) -> None:
         )
     except Exception:
         pass
+
+
+def _windows_shell_creationflags() -> int:
+    """Return Windows process flags for shell commands."""
+    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    if os.environ.get(DESKTOP_APP_ENV):
+        flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return flags
 
 
 def _collapse_newlines_outside_quotes(cmd: str) -> str:
@@ -295,7 +305,7 @@ def _execute_subprocess_sync(
             text=False,
             cwd=cwd,
             env=env,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            creationflags=_windows_shell_creationflags(),
         )
 
         # Parent copies are no longer needed — the child inherited its own
@@ -361,6 +371,10 @@ async def execute_shell_command(
 ) -> ToolResponse:
     """Execute a shell command and return its output.
 
+    Each call runs in a fresh subprocess — `cd`, `export`, `source`,
+    etc. do NOT persist. Pass `cwd=` or chain in one call
+    (`cd /repo && pytest`).
+
     IMPORTANT: Check the 'Default Shell' field to
     determine which shell is active, and generate commands using the
     appropriate syntax (e.g. bash vs PowerShell vs cmd.exe).
@@ -373,7 +387,7 @@ async def execute_shell_command(
             Default is 60.0 seconds.
         cwd (`Optional[Path]`, defaults to `None`):
             The working directory for the command execution.
-            If None, defaults to WORKING_DIR.
+            If None, defaults to the agent workspace.
 
     Returns:
         `ToolResponse`:

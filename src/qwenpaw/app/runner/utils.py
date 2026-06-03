@@ -37,6 +37,7 @@ def build_env_context(
     working_dir: Optional[str] = None,
     add_hint: bool = True,
     default_shell: Optional[str] = None,
+    project_dir: Optional[str] = None,
 ) -> str:
     """
     Build environment context with current request context prepended.
@@ -52,6 +53,11 @@ def build_env_context(
         default_shell: Shell executable used by execute_shell_command.
             When provided, included in the context so the LLM can
             generate syntax appropriate for that shell.
+        project_dir: When set (Coding Mode), the agent's "Working
+            directory" line is replaced with an explicit
+            "Project directory" + "Agent workspace (internal)" pair
+            so the LLM stops treating the workspace as home.
+
     Returns:
         Formatted environment context string
     """
@@ -81,7 +87,17 @@ def build_env_context(
     if default_shell:
         parts.append(f"- Default Shell: {default_shell}")
 
-    if working_dir is not None:
+    if project_dir:
+        parts.append(
+            f"- Project directory (Coding Mode — operate here): "
+            f"{project_dir}",
+        )
+        if working_dir is not None and str(working_dir) != str(project_dir):
+            parts.append(
+                f"- Agent workspace (internal — do NOT touch unless "
+                f"the user explicitly asks): {working_dir}",
+            )
+    elif working_dir is not None:
         parts.append(f"- Working directory: {working_dir}")
     parts.append(
         f"- Current date: {now.strftime('%Y-%m-%d')} "
@@ -339,12 +355,28 @@ def agentscope_msg_to_message(
 
     results: List[Message] = []
 
+    user_tz_name = load_config().user_timezone or "UTC"
+    try:
+        user_tz = ZoneInfo(user_tz_name)
+    except (ZoneInfoNotFoundError, KeyError):
+        user_tz = timezone.utc
+
     for msg in msgs:
         role = msg.role or "assistant"
+
+        ts_value = msg.timestamp
+        if ts_value:
+            try:
+                dt_obj = datetime.strptime(ts_value, "%Y-%m-%d %H:%M:%S.%f")
+                ts_value = dt_obj.replace(tzinfo=user_tz).isoformat()
+            except ValueError:
+                pass
+
         metadata = {
             "original_id": msg.id,
             "original_name": msg.name,
             "metadata": msg.metadata,
+            "timestamp": ts_value,
         }
 
         if isinstance(msg.content, str):

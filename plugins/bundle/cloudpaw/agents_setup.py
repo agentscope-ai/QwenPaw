@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from .constants import (
+    BUILTIN_EXECUTOR_AGENT_ID,
     BUILTIN_ORCHESTRATION_AGENT_ID,
+    BUILTIN_VERIFIER_AGENT_ID,
     PLUGIN_DIR,
     _AGENT_SPECS,
 )
@@ -123,63 +125,52 @@ def _build_acp_config(spec: dict[str, Any]) -> Any:
 
 
 def _inject_llm_env(env: dict[str, str]) -> None:
-    """Inject the current QwenPaw LLM provider configuration into env.
+    """Inject LLM config for iac-code.
 
-    If the user has not explicitly set IAC_CODE_PROVIDER / IAC_CODE_API_KEY,
-    we read the active LLM configuration from the QwenPaw provider manager
-    and pass it through so iac-code uses the same model backend.
+    For iac-code >= 0.1.2: write llm_source: qwenpaw to settings.yml
+    so iac-code reads config directly from QwenPaw.
+
+    For older versions: inject IAC_CODE_* environment variables.
     """
     import os
 
     if os.environ.get("IAC_CODE_PROVIDER") or env.get("IAC_CODE_PROVIDER"):
         return
 
-    try:
-        from qwenpaw.providers.provider_manager import ProviderManager
+    _write_qwenpaw_mode_to_settings()
+    return
 
-        pm = ProviderManager()
-        active_slot = pm.get_active_model()
-        if active_slot is None:
-            return
 
-        provider_id = active_slot.provider_id or ""
-        model = active_slot.model or ""
-        if not provider_id:
-            return
+def _write_qwenpaw_mode_to_settings() -> None:
+    """Write llm_source: qwenpaw to ~/.iac-code/settings.yml."""
+    import yaml
 
-        provider = pm.get_provider(provider_id)
-        api_key = getattr(provider, "api_key", "") or "" if provider else ""
-        base_url = getattr(provider, "base_url", "") or "" if provider else ""
+    settings_path = Path.home() / ".iac-code" / "settings.yml"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
 
-        _PROVIDER_MAP = {
-            "dashscope": "DashScope",
-            "aliyun-codingplan": "DashScopeTokenPlan",
-            "aliyun-codingplan-intl": "DashScopeTokenPlan",
-            "openai": "OpenAI",
-            "anthropic": "Anthropic",
-            "deepseek": "DeepSeek",
-        }
-        iac_provider = _PROVIDER_MAP.get(
-            provider_id.lower(),
-            "OpenAPICompatible",
-        )
+    # Load existing settings
+    if settings_path.exists():
+        try:
+            with open(settings_path, "r", encoding="utf-8") as f:
+                settings = yaml.safe_load(f) or {}
+        except Exception:
+            settings = {}
+    else:
+        settings = {}
 
-        if iac_provider:
-            env.setdefault("IAC_CODE_PROVIDER", iac_provider)
-        if api_key:
-            env.setdefault("IAC_CODE_API_KEY", api_key)
-        if model:
-            env.setdefault("IAC_CODE_MODEL", model)
-        if base_url and iac_provider == "OpenAPICompatible":
-            env.setdefault("IAC_CODE_BASE_URL", base_url)
-
-        logger.info(
-            "Injected LLM config for iac-code: provider=%s, model=%s",
-            iac_provider,
-            model,
-        )
-    except Exception as exc:
-        logger.debug("Failed to inject LLM config for iac-code: %s", exc)
+    # Write llm_source: qwenpaw
+    if settings.get("llm_source") != "qwenpaw":
+        settings["llm_source"] = "qwenpaw"
+        try:
+            with open(settings_path, "w", encoding="utf-8") as f:
+                yaml.dump(
+                    settings,
+                    f,
+                    default_flow_style=False,
+                    allow_unicode=True,
+                )
+        except Exception as exc:
+            logger.warning("Failed to write iac-code settings.yml: %s", exc)
 
 
 def ensure_builtin_agents() -> None:
@@ -340,6 +331,150 @@ def _seed_persona_md_files(
                     shutil.copy2(src, dst)
     except (ImportError, Exception) as e:
         logger.debug("Generic MD copy skipped: %s", e)
+
+
+def uninstall_agents() -> None:
+    """Uninstall all CloudPaw agents and related resources.
+
+    Removes agent profiles, workspaces, plugin skills from the pool,
+    and environment variables that were provisioned by CloudPaw.
+    """
+    _uninstall_agent_profiles()
+    _uninstall_plugin_skills()
+    _uninstall_cloudpaw_env_vars()
+
+
+def _uninstall_agent_profiles() -> None:
+    """Remove CloudPaw agent profiles and their workspaces."""
+    agent_ids = [
+        BUILTIN_ORCHESTRATION_AGENT_ID,
+        BUILTIN_EXECUTOR_AGENT_ID,
+        BUILTIN_VERIFIER_AGENT_ID,
+    ]
+
+    try:
+        from qwenpaw.config.utils import load_config, save_config
+    except ImportError:
+        logger.warning("Cannot import config modules; agent uninstall skipped")
+        return
+
+    config = load_config()
+    changed = False
+
+    for agent_id in agent_ids:
+        if agent_id in config.agents.profiles:
+            ref = config.agents.profiles[agent_id]
+            ws_dir = Path(ref.workspace_dir).expanduser().resolve()
+            del config.agents.profiles[agent_id]
+            changed = True
+            logger.info("Removed agent profile: %s", agent_id)
+
+            if ws_dir.exists():
+                try:
+                    shutil.rmtree(ws_dir)
+                    logger.info("Deleted workspace: %s", ws_dir)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to delete workspace %s: %s",
+                        ws_dir,
+                        exc,
+                    )
+        else:
+            logger.debug("Agent %s not in profiles, skipping", agent_id)
+
+    if config.agents.active_agent in agent_ids:
+        config.agents.active_agent = "default"
+        changed = True
+        logger.info("Reset active_agent to 'default'")
+
+    if changed:
+        try:
+            save_config(config)
+            logger.info("Saved updated agent config")
+        except Exception as exc:
+            logger.warning("Failed to save config after uninstall: %s", exc)
+
+
+def _uninstall_plugin_skills() -> None:
+    """Remove CloudPaw skills from the shared skill pool."""
+    from .constants import _PLUGIN_SKILLS
+
+    try:
+        from qwenpaw.agents.skill_system import (
+            get_skill_pool_dir,
+            ensure_skill_pool_initialized,
+        )
+    except ImportError:
+        logger.warning("Cannot import skill_system; skill uninstall skipped")
+        return
+
+    try:
+        ensure_skill_pool_initialized()
+    except Exception as exc:
+        logger.warning("Skill pool init failed: %s", exc)
+
+    pool_dir = get_skill_pool_dir()
+    manifest_path = pool_dir / "skill.json"
+
+    for skill_name in _PLUGIN_SKILLS:
+        skill_dir = pool_dir / skill_name
+        if skill_dir.exists():
+            try:
+                shutil.rmtree(skill_dir)
+                logger.info("Deleted skill from pool: %s", skill_name)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to delete skill %s: %s",
+                    skill_name,
+                    exc,
+                )
+
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            skills = manifest.get("skills", {})
+            changed = False
+            for skill_name in _PLUGIN_SKILLS:
+                if skill_name in skills:
+                    if skills[skill_name].get("source") == "plugin:cloudpaw":
+                        del skills[skill_name]
+                        changed = True
+
+            if changed:
+                manifest_path.write_text(
+                    json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+                logger.info("Updated skill pool manifest")
+        except Exception as exc:
+            logger.warning("Failed to update skill pool manifest: %s", exc)
+
+
+def _uninstall_cloudpaw_env_vars() -> None:
+    """Remove CloudPaw-provisioned environment variables from envs.json."""
+    from .plugin import _DEFAULT_ENV_KEYS
+
+    try:
+        from qwenpaw.envs import load_envs, save_envs
+    except ImportError:
+        logger.warning("Cannot import qwenpaw.envs; env uninstall skipped")
+        return
+
+    envs = load_envs()
+    changed = False
+
+    for key in _DEFAULT_ENV_KEYS:
+        if key in envs:
+            del envs[key]
+            changed = True
+            logger.info("Removed env var: %s", key)
+
+    if changed:
+        try:
+            save_envs(envs)
+            logger.info("Saved updated envs.json")
+        except Exception as exc:
+            logger.warning("Failed to save envs.json after uninstall: %s", exc)
 
 
 def _install_workspace_skills(

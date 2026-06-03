@@ -1,0 +1,72 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "QwenPaw Desktop",
+  "identifier": "io.agentscope.qwenpaw.desktop",
+  "build": {
+    "frontendDist": "../dist-tauri",
+    "devUrl": "http://localhost:5173/tauri.html",
+    "beforeDevCommand": "vite --mode tauri",
+    "beforeBuildCommand": "npm run build:tauri-bootstrap"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "title": "QwenPaw Desktop",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "connect-src": "'self' http://127.0.0.1:* ws://127.0.0.1:* ipc: http://ipc.localhost",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src": "'self' https://fonts.gstatic.com",
+        "img-src": "'self' asset: http://asset.localhost blob: data: https:"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "nsis"],
+    "icon": [
+      "../../scripts/pack/assets/icon.icns",
+      "../../scripts/pack/assets/icon.ico"
+    ],
+    "resources": ["binaries/qwenpaw-backend"],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installerIcon": "../../scripts/pack/assets/icon.ico",
+        "uninstallerIcon": "../../scripts/pack/assets/icon.ico",
+        "installerHooks": "nsis-hooks.nsh",
+        "languages": [
+          "English",
+          "SimpChinese",
+          "Indonesian",
+          "Japanese",
+          "Russian",
+          "PortugueseBR"
+        ],
+        "customLanguageFiles": {
+          "English": "nsis-languages/English.nsh",
+          "SimpChinese": "nsis-languages/SimpChinese.nsh",
+          "Indonesian": "nsis-languages/Indonesian.nsh",
+          "Japanese": "nsis-languages/Japanese.nsh",
+          "Russian": "nsis-languages/Russian.nsh",
+          "PortugueseBR": "nsis-languages/PortugueseBR.nsh"
+        },
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}

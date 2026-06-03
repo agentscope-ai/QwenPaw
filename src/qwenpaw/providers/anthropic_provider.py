@@ -6,8 +6,9 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, List
+from typing import Any, Dict, List
 
+import httpx
 from agentscope.model import ChatModelBase
 import anthropic
 
@@ -33,13 +34,69 @@ TOKEN_PLAN_BASE_URL = (
 )
 
 
+class _StripApiKeyTransport(httpx.AsyncHTTPTransport):
+    """Async transport that removes the x-api-key header from every request.
+
+    Used when auth_mode='auth_token' to avoid sending both x-api-key and
+    Authorization headers simultaneously, which some proxies reject.
+
+    The request is reconstructed with ``extensions`` preserved so that
+    per-request configuration such as timeouts and SSE hints set by the
+    Anthropic SDK are not lost.
+    """
+
+    async def handle_async_request(
+        self,
+        request: httpx.Request,
+    ) -> httpx.Response:
+        filtered = [
+            (k, v)
+            for k, v in request.headers.items()
+            if k.lower() != "x-api-key"
+        ]
+        new_request = httpx.Request(
+            method=request.method,
+            url=request.url,
+            headers=filtered,
+            content=request.content,
+            extensions=request.extensions,
+        )
+        return await super().handle_async_request(new_request)
+
+
 class AnthropicProvider(Provider):
     """Provider implementation for Anthropic API."""
 
+    # Cached AsyncClient for auth_token mode; re-created when auth_mode
+    # changes so that the transport is always consistent with the current
+    # provider config.
+    _strip_http_client: httpx.AsyncClient | None = None
+
+    def _build_default_headers(self) -> Dict[str, str]:
+        return dict(self.custom_headers) if self.custom_headers else {}
+
+    def _get_strip_http_client(self) -> httpx.AsyncClient:
+        """Return a cached AsyncClient backed by _StripApiKeyTransport."""
+        if self._strip_http_client is None:
+            self._strip_http_client = httpx.AsyncClient(
+                transport=_StripApiKeyTransport(),
+            )
+        return self._strip_http_client
+
     def _client(self, timeout: float = 5) -> anthropic.AsyncAnthropic:
+        default_headers = self._build_default_headers()
+        if self.auth_mode == "auth_token":
+            return anthropic.AsyncAnthropic(
+                auth_token=self.api_key,
+                base_url=self.base_url,
+                default_headers=default_headers,
+                http_client=self._get_strip_http_client(),
+                timeout=timeout,
+            )
         return anthropic.AsyncAnthropic(
             api_key=self.api_key,
             base_url=self.base_url,
+            default_headers=default_headers,
             timeout=timeout,
         )
 
@@ -73,18 +130,56 @@ class AnthropicProvider(Provider):
         return deduped
 
     async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
-        """Check if Anthropic provider is reachable."""
+        """Check if Anthropic provider is reachable.
+
+        First tries models.list(); if that endpoint is not supported by the
+        proxy (e.g. returns 404/405) falls back to a minimal messages.create
+        call so that custom proxies that only expose the messages API still
+        pass the connection test.
+        """
+        client = self._client(timeout=timeout)
         try:
-            client = self._client(timeout=timeout)
             await client.models.list()
             return True, ""
-        except anthropic.APIError:
-            return False, "Anthropic API error"
+        except anthropic.APIStatusError as e:
+            # Some proxies don't implement the models endpoint (404/405).
+            # Fall back to a lightweight messages probe instead.
+            if e.status_code in (404, 405):
+                return await self._check_connection_via_messages(client)
+            return False, f"Anthropic API error: {e}"
+        except anthropic.APIError as e:
+            # Network / auth errors from models.list – report directly
+            return False, f"Anthropic API error: {e}"
         except Exception:
             return (
                 False,
                 f"Unknown exception when connecting to `{self.base_url}`",
             )
+
+    async def _check_connection_via_messages(
+        self,
+        client: anthropic.AsyncAnthropic,
+    ) -> tuple[bool, str]:
+        """Fallback: check reachability via messages.create."""
+        model = self.models[0].id if self.models else "claude-opus-4-5"
+        try:
+            await client.messages.create(
+                model=model,
+                max_tokens=1,
+                messages=[{"role": "user", "content": "ping"}],
+            )
+            return True, ""
+        except anthropic.APIStatusError as e:
+            # 400/404/422: server is reachable and auth is accepted –
+            # the model may simply not exist on this proxy, which is fine
+            # for a connection check.
+            if e.status_code in (400, 404, 422):
+                return True, ""
+            return False, f"Anthropic API error: {e}"
+        except anthropic.APIError as e:
+            return False, f"Anthropic API error: {e}"
+        except Exception as e:
+            return False, f"Unknown exception: {e}"
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch available models."""
@@ -137,43 +232,43 @@ class AnthropicProvider(Provider):
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.model import AnthropicChatModel
 
-        client_kwargs = {"base_url": self.base_url}
+        client_kwargs: Dict[str, Any] = {"base_url": self.base_url}
+
+        # Start with any user-defined custom headers
+        merged_headers: Dict[str, str] = self._build_default_headers()
+
         if self.base_url in DASHSCOPE_BASE_URLS:
-            client_kwargs["default_headers"] = {
-                "x-dashscope-agentapp": json.dumps(
-                    {
-                        "agentType": "QwenPaw",
-                        "deployType": "UnKnown",
-                        "moduleCode": "model",
-                        "agentCode": "UnKnown",
-                    },
-                    ensure_ascii=False,
-                ),
-            }
-        elif self.base_url == CODING_DASHSCOPE_BASE_URL:
-            client_kwargs["default_headers"] = {
-                "X-DashScope-Cdpl": json.dumps(
-                    {
-                        "agentType": "QwenPaw",
-                        "deployType": "UnKnown",
-                        "moduleCode": "model",
-                        "agentCode": "UnKnown",
-                    },
-                    ensure_ascii=False,
-                ),
-            }
-        elif self.base_url == TOKEN_PLAN_BASE_URL:
-            client_kwargs["default_headers"] = {
-                "X-DashScope-Cdpl": json.dumps(
-                    {
-                        "agentType": "QwenPaw",
-                        "deployType": "UnKnown",
-                        "moduleCode": "model",
-                        "agentCode": "UnKnown",
-                    },
-                    ensure_ascii=False,
-                ),
-            }
+            merged_headers["x-dashscope-agentapp"] = json.dumps(
+                {
+                    "agentType": "QwenPaw",
+                    "deployType": "UnKnown",
+                    "moduleCode": "model",
+                    "agentCode": "UnKnown",
+                },
+                ensure_ascii=False,
+            )
+        elif self.base_url in (CODING_DASHSCOPE_BASE_URL, TOKEN_PLAN_BASE_URL):
+            merged_headers["X-DashScope-Cdpl"] = json.dumps(
+                {
+                    "agentType": "QwenPaw",
+                    "deployType": "UnKnown",
+                    "moduleCode": "model",
+                    "agentCode": "UnKnown",
+                },
+                ensure_ascii=False,
+            )
+
+        if merged_headers:
+            client_kwargs["default_headers"] = merged_headers
+
+        if self.auth_mode == "auth_token":
+            client_kwargs["http_client"] = httpx.AsyncClient(
+                transport=_StripApiKeyTransport(),
+            )
+            client_kwargs["auth_token"] = self.api_key
+            api_key_arg = None
+        else:
+            api_key_arg = self.api_key
 
         effective_generate_kwargs = self.get_effective_generate_kwargs(
             model_id,
@@ -184,7 +279,7 @@ class AnthropicProvider(Provider):
             model_name=model_id,
             max_tokens=max_tokens,
             stream=True,
-            api_key=self.api_key,
+            api_key=api_key_arg,
             stream_tool_parsing=False,
             client_kwargs=client_kwargs,
             generate_kwargs=effective_generate_kwargs,

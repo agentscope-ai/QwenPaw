@@ -2,7 +2,9 @@
 """Shared constants and path helpers used across backup sub-modules."""
 from __future__ import annotations
 
+import json
 import re
+import zipfile
 from pathlib import Path
 
 from ...constant import BACKUP_DIR
@@ -35,3 +37,36 @@ def validate_backup_id(backup_id: str) -> None:
 
 def zip_path(backup_id: str) -> Path:
     return BACKUP_DIR / f"{backup_id}.zip"
+
+
+def find_zip_path(backup_id: str) -> Path | None:
+    """Return the stored zip path for *backup_id*, regardless of filename.
+
+    Imported backups are stored as ``{backup_id}.zip``, but users may also
+    copy older archives into the backup directory under arbitrary filenames.
+    The list endpoint already discovers those files by reading ``meta.json``;
+    this helper keeps detail/export/restore/delete on the same lookup rule.
+    """
+    try:
+        validate_backup_id(backup_id)
+    except ValueError:
+        return None
+    canonical = zip_path(backup_id)
+    if canonical.is_file():
+        return canonical
+    if not BACKUP_DIR.is_dir():
+        return None
+
+    for path in sorted(BACKUP_DIR.iterdir(), key=lambda item: item.name):
+        if path == canonical or not (path.is_file() and path.suffix == ".zip"):
+            continue
+        try:
+            with zipfile.ZipFile(path, "r") as zf:
+                if META_FILE not in zf.namelist():
+                    continue
+                meta = json.loads(zf.read(META_FILE).decode("utf-8"))
+        except Exception:
+            continue
+        if meta.get("id") == backup_id:
+            return path
+    return None

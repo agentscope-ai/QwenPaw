@@ -55,16 +55,20 @@ _PUBLIC_PATHS: frozenset[str] = frozenset(
         "/api/auth/register",
         "/api/version",
         "/api/settings/language",
-        "/api/plugins",
+        "/api/settings/upload-limit",
+        "/api/frontend_plugin",
     },
 )
 
 # Prefixes that do NOT require authentication (static assets)
+# /api/frontend_plugin/ is safe: only read-only GET handlers are registered
+# under that prefix (list + static file serving).  All write operations
+# remain under /api/plugins/ which requires authentication.
 _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/assets/",
     "/logo.png",
     "/qwenpaw-symbol.svg",
-    "/api/plugins/",  # plugin JS bundles served to unauthenticated login page
+    "/api/frontend_plugin/",
 )
 
 
@@ -564,6 +568,17 @@ def revoke_all_tokens() -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _resolve_client_ip(request: Request) -> str:
+    """Return the real client IP, respecting reverse-proxy headers."""
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    real_ip = request.headers.get("x-real-ip", "")
+    if real_ip:
+        return real_ip.strip()
+    return request.client.host if request.client else ""
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     """Middleware that checks Bearer token on protected routes."""
 
@@ -620,7 +635,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Check if client host is in allow_no_auth_hosts whitelist
         from ..config import load_config
 
-        client_host = request.client.host if request.client else ""
+        client_host = _resolve_client_ip(request)
         config = load_config()
         allowed_hosts = config.security.allow_no_auth_hosts
         return client_host in allowed_hosts

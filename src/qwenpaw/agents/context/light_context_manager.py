@@ -30,7 +30,7 @@ from ..model_factory import create_model_and_formatter
 from ..tools.utils import truncate_text_output, DEFAULT_MAX_BYTES
 from ..utils import get_token_counter
 from ..utils.estimate_token_counter import EstimatedTokenCounter
-from ...config.config import load_agent_config
+from ...config.config import load_agent_config, get_model_max_input_length
 from ...constant import TRUNCATION_NOTICE_MARKER
 
 if TYPE_CHECKING:
@@ -39,9 +39,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_AUTOMATION_MEMORY_SKIP_SOURCES = {"cron", "heartbeat"}
+
+
 def _fmt_tokens(n: int) -> str:
     """Format token count as e.g. '82.3k' or '450'."""
     return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+
+
+def _request_context_source(agent: Any) -> str:
+    """Return normalized source tag from an agent request context."""
+    request_context = getattr(agent, "_request_context", {}) or {}
+    if not isinstance(request_context, dict):
+        return ""
+    return str(request_context.get("source") or "").strip().lower()
+
+
+def _should_skip_automation_memory(agent: Any) -> bool:
+    """Return True when the request is non-user automation."""
+    return _request_context_source(agent) in _AUTOMATION_MEMORY_SKIP_SOURCES
 
 
 @context_registry.register("light")
@@ -620,6 +636,7 @@ class LightContextManager(BaseContextManager):
         agent_config = load_agent_config(self.agent_id)
         running_config = agent_config.running
         ccc = running_config.light_context_config.context_compact_config
+        max_input_length = get_model_max_input_length(agent_config)
 
         model, formatter = create_model_and_formatter(self.agent_id)
 
@@ -631,7 +648,7 @@ class LightContextManager(BaseContextManager):
             as_llm_formatter=formatter,
             as_token_counter=get_token_counter(agent_config),
             language=agent_config.language,
-            max_input_length=running_config.max_input_length,
+            max_input_length=max_input_length,
             compact_ratio=ccc.compact_threshold_ratio,
             add_thinking_block=ccc.compact_with_thinking_block,
         )
@@ -723,6 +740,7 @@ class LightContextManager(BaseContextManager):
             agent_config = load_agent_config(self.agent_id)
             running_config = agent_config.running
             token_counter = get_token_counter(agent_config)
+            max_input_length = get_model_max_input_length(agent_config)
 
             memory = agent.memory
             system_prompt = agent.sys_prompt
@@ -739,10 +757,10 @@ class LightContextManager(BaseContextManager):
 
             ccc = running_config.light_context_config.context_compact_config
             context_compact_threshold = int(
-                running_config.max_input_length * ccc.compact_threshold_ratio,
+                max_input_length * ccc.compact_threshold_ratio,
             )
             context_compact_reserve = int(
-                running_config.max_input_length * ccc.reserve_threshold_ratio,
+                max_input_length * ccc.reserve_threshold_ratio,
             )
             left_compact_threshold = (
                 context_compact_threshold - str_token_count
@@ -777,7 +795,7 @@ class LightContextManager(BaseContextManager):
                 return None
 
             # Build context status info for printing
-            max_len = running_config.max_input_length
+            max_len = max_input_length
             total_msgs = len(messages)
             compact_count = len(messages_to_compact)
             keep_count = len(messages_to_keep)
@@ -806,7 +824,7 @@ class LightContextManager(BaseContextManager):
                     as_llm_formatter=agent.formatter,
                     as_token_counter=token_counter,
                     language=agent_config.language,
-                    max_input_length=running_config.max_input_length,
+                    max_input_length=max_input_length,
                     compact_ratio=ccc.compact_threshold_ratio,
                     add_thinking_block=ccc.compact_with_thinking_block,
                 )
@@ -920,7 +938,9 @@ class LightContextManager(BaseContextManager):
             )
             logger.info(f"Marked {updated_count} messages as compacted")
 
-            if messages_to_compact:
+            if messages_to_compact and not _should_skip_automation_memory(
+                agent,
+            ):
                 await memory_manager.summarize_when_compact(
                     messages=messages_to_compact,
                 )
@@ -987,7 +1007,7 @@ class LightContextManager(BaseContextManager):
             memory = agent.memory
             all_messages = [msg for msg, _ in memory.content]
 
-            if all_messages:
+            if all_messages and not _should_skip_automation_memory(agent):
                 await memory_manager.auto_memory(
                     all_messages=all_messages,
                 )

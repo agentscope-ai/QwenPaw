@@ -655,6 +655,13 @@ def _fix_image_mime_types(messages: list[dict]) -> None:
 
 _MEDIA_BLOCK_TYPES = ("image", "audio", "video")
 
+# Block types that the upstream agentscope OpenAI / Gemini formatters
+# silently drop. We track them here so we can predict which assistant
+# messages will be dropped before alignment in FileBlockSupportFormatter.
+# Keep this in sync with the `else: logger.warning("Unsupported block
+# type ...")` branch in agentscope's _openai_formatter.
+_FORMATTER_SKIPPED_TYPES = frozenset({"thinking", "file"})
+
 
 def _fixup_media_list(items: list) -> None:
     """Normalize media blocks in a list in-place.
@@ -662,6 +669,10 @@ def _fixup_media_list(items: list) -> None:
     - Strips ``file://`` prefixes from source URLs.
     - Replaces media blocks whose local file no longer exists with
       a text placeholder so the downstream formatter won't throw.
+    - Converts ``file`` blocks to text placeholders, since neither the
+      OpenAI nor the Anthropic top-level formatters accept ``file``
+      blocks (the upstream OpenAI formatter silently drops them, which
+      can drop the whole message if nothing else survives).
     - Recurses into ``tool_result`` output lists.
     """
     for i, block in enumerate(items):
@@ -694,6 +705,30 @@ def _fixup_media_list(items: list) -> None:
                         f" — file deleted from disk]"
                     ),
                 }
+        elif btype == "file":
+            source = block.get("source") or {}
+            file_url = (
+                source.get("url", "") if isinstance(source, dict) else ""
+            )
+            readable_path = (
+                _file_url_to_path(file_url)
+                if isinstance(file_url, str) and file_url.startswith("file://")
+                else file_url
+            )
+            filename = (
+                block.get("filename")
+                or block.get("name")
+                or (readable_path.rsplit("/", 1)[-1] if readable_path else "")
+                or "file"
+            )
+            items[i] = {
+                "type": "text",
+                "text": (
+                    f"File '{filename}' is available at: {readable_path}"
+                    if readable_path
+                    else f"File '{filename}'"
+                ),
+            }
         elif btype == "tool_result":
             output = block.get("output")
             if isinstance(output, list):
@@ -828,12 +863,19 @@ def _create_file_block_support_formatter(
                 for m in (
                     msg for msg in normalized_msgs if msg.role == "assistant"
                 ):
-                    is_thinking_only = (
+                    # A message is dropped by the base formatter when every
+                    # block is one the formatter skips (currently "thinking"
+                    # and "file" — see _FORMATTER_SKIPPED_TYPES). Predicting
+                    # this lets us align reasoning_content correctly.
+                    is_dropped_by_formatter = (
                         isinstance(m.content, list)
                         and m.content
-                        and all(b.get("type") == "thinking" for b in m.content)
+                        and all(
+                            b.get("type") in _FORMATTER_SKIPPED_TYPES
+                            for b in m.content
+                        )
                     )
-                    if not is_thinking_only:
+                    if not is_dropped_by_formatter:
                         aligned_reasoning.append(
                             reasoning_contents.get(id(m)),
                         )
@@ -843,10 +885,21 @@ def _create_file_block_support_formatter(
                 ]
 
                 if len(aligned_reasoning) != len(out_assistant):
+                    # A mismatch means a message was dropped by the base
+                    # formatter that our predictor did not anticipate
+                    # (likely a new block type that should be added to
+                    # _FORMATTER_SKIPPED_TYPES). Index-based alignment past
+                    # the drop point would attribute every subsequent
+                    # message's reasoning to the wrong response — actively
+                    # misleading. Skip injection for this turn only and
+                    # warn loudly so the gap can be closed at the source.
                     logger.warning(
                         "Assistant message count mismatch after formatting "
                         "(%d expected survivors, %d actual). "
-                        "Skipping reasoning_content injection.",
+                        "Skipping reasoning_content injection for this turn. "
+                        "A block type is likely being dropped by the base "
+                        "formatter without being listed in "
+                        "_FORMATTER_SKIPPED_TYPES — please investigate.",
                         len(aligned_reasoning),
                         len(out_assistant),
                     )

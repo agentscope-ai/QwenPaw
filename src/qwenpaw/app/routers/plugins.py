@@ -478,6 +478,21 @@ async def list_plugins(request: Request):
     return result
 
 
+@router.get(
+    "/catalog",
+    summary="Official plugin catalog",
+    description=(
+        "Proxy the download CDN plugin manifest for in-app browsing. "
+        "Marks plugins already installed under the working directory."
+    ),
+)
+async def get_plugin_catalog():
+    """Return official plugins from OSS metadata (server-side fetch)."""
+    from ...plugins.download_catalog import fetch_plugin_catalog_async
+
+    return await fetch_plugin_catalog_async()
+
+
 class InstallPluginRequest(BaseModel):
     """Request body for installing a plugin from a path or URL."""
 

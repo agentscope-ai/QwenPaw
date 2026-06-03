@@ -43,7 +43,7 @@ export const mcpApi = {
    * Toggle MCP client enabled status
    */
   toggleMCPClient: (clientKey: string) =>
-    request<MCPClientInfo>(`/mcp/${encodeURIComponent(clientKey)}/toggle`, {
+    request<MCPClientInfo>(`/mcp/toggle/${encodeURIComponent(clientKey)}`, {
       method: "PATCH",
     }),
 
@@ -59,7 +59,7 @@ export const mcpApi = {
    * List tools from a connected MCP server
    */
   listMCPTools: (clientKey: string) =>
-    request<MCPToolInfo[]>(`/mcp/${encodeURIComponent(clientKey)}/tools`),
+    request<MCPToolInfo[]>(`/mcp/tools/${encodeURIComponent(clientKey)}`),
 
   /**
    * Start an OAuth 2.1 PKCE flow for a remote MCP client.
@@ -67,7 +67,7 @@ export const mcpApi = {
    */
   startOAuth: (clientKey: string, body: MCPOAuthStartRequest) =>
     request<MCPOAuthStartResponse>(
-      `/mcp/${encodeURIComponent(clientKey)}/oauth/start`,
+      `/mcp/oauth/start/${encodeURIComponent(clientKey)}`,
       {
         method: "POST",
         body: JSON.stringify(body),
@@ -79,7 +79,7 @@ export const mcpApi = {
    */
   getOAuthStatus: (clientKey: string) =>
     request<MCPOAuthStatusResponse>(
-      `/mcp/${encodeURIComponent(clientKey)}/oauth/status`,
+      `/mcp/oauth/status/${encodeURIComponent(clientKey)}`,
     ),
 
   /**
@@ -87,7 +87,7 @@ export const mcpApi = {
    */
   revokeOAuth: (clientKey: string) =>
     request<{ message: string }>(
-      `/mcp/${encodeURIComponent(clientKey)}/oauth`,
+      `/mcp/oauth/${encodeURIComponent(clientKey)}`,
       { method: "DELETE" },
     ),
 };

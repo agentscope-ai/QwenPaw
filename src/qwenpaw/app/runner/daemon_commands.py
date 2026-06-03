@@ -104,18 +104,36 @@ def run_daemon_status(context: DaemonContext) -> str:
     try:
         cfg = context.load_config_fn()
         parts.append("- Config loaded: yes")
-        # Support both AgentProfileConfig (has 'running' directly)
-        # and Config (has 'agents.running')
-        if hasattr(cfg, "running"):
-            max_in = getattr(cfg.running, "max_input_length", "N/A")
-            parts.append(f"- Max input length: {max_in}")
-        elif getattr(cfg, "agents", None) and getattr(
-            cfg.agents,
-            "running",
-            None,
-        ):
-            max_in = getattr(cfg.agents.running, "max_input_length", "N/A")
-            parts.append(f"- Max input length: {max_in}")
+        # max_input_length lives on ModelInfo; read it from the active
+        # model when an agent_id is available, otherwise fall back to
+        # the legacy running config field.
+        max_in: object = "N/A"
+        agent_id = getattr(context, "agent_id", None)
+        if agent_id:
+            try:
+                from ...config.config import (
+                    get_model_max_input_length,
+                    load_agent_config,
+                )
+
+                agent_cfg = load_agent_config(agent_id)
+                max_in = get_model_max_input_length(agent_cfg)
+            except Exception:
+                pass
+        if max_in == "N/A":
+            if hasattr(cfg, "running"):
+                max_in = getattr(cfg.running, "max_input_length", "N/A")
+            elif getattr(cfg, "agents", None) and getattr(
+                cfg.agents,
+                "running",
+                None,
+            ):
+                max_in = getattr(
+                    cfg.agents.running,
+                    "max_input_length",
+                    "N/A",
+                )
+        parts.append(f"- Max input length: {max_in}")
     except Exception as e:
         parts.append(f"- Config loaded: no ({e})")
 

@@ -25,6 +25,37 @@ _AK_CONSOLE_URL = "https://ram.console.aliyun.com/manage/ak"
 _IAC_CODE_SETTINGS_PATH = Path.home() / ".iac-code" / "settings.yml"
 
 
+def _parse_iac_settings(content: str) -> bool:
+    """Parse iac-code settings and check for activeProvider and model."""
+    has_provider = False
+    has_model = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("activeProvider:"):
+            val = stripped.split(":", 1)[1].strip()
+            if val:
+                has_provider = True
+        if stripped.startswith("model:"):
+            val = stripped.split(":", 1)[1].strip()
+            if val:
+                has_model = True
+    return has_provider and has_model
+
+
+def _check_iac_model_configured() -> bool:
+    """Check if iac-code model is configured."""
+    try:
+        if not _IAC_CODE_SETTINGS_PATH.exists():
+            return False
+        content = _IAC_CODE_SETTINGS_PATH.read_text(encoding="utf-8")
+        # If llm_source is qwenpaw, iac-code uses QwenPaw's model config
+        if "llm_source: qwenpaw" in content:
+            return True
+        return _parse_iac_settings(content)
+    except Exception:
+        return False
+
+
 def _check_environment_ready() -> (  # pylint: disable=too-many-branches
     str | None
 ):
@@ -72,26 +103,7 @@ def _check_environment_ready() -> (  # pylint: disable=too-many-branches
         )
 
     # 4. iac-code model configured?
-    iac_model_ok = False
-    try:
-        if _IAC_CODE_SETTINGS_PATH.exists():
-            content = _IAC_CODE_SETTINGS_PATH.read_text(encoding="utf-8")
-            has_provider = False
-            has_model = False
-            for line in content.splitlines():
-                stripped = line.strip()
-                if stripped.startswith("activeProvider:"):
-                    val = stripped.split(":", 1)[1].strip()
-                    if val:
-                        has_provider = True
-                if stripped.startswith("model:"):
-                    val = stripped.split(":", 1)[1].strip()
-                    if val:
-                        has_model = True
-            iac_model_ok = has_provider and has_model
-    except Exception:
-        pass
-    if not iac_model_ok:
+    if not _check_iac_model_configured():
         issues.append(
             "❌ iac-code 模型未配置\n"
             "   配置方式:\n"
@@ -377,10 +389,12 @@ def setup_tool_and_prompt_hooks() -> (  # pylint: disable=too-many-statements
     _original_create_toolkit = QwenPawAgent._create_toolkit
     _original_build_sys_prompt = QwenPawAgent._build_sys_prompt
 
-    def _patched_create_toolkit(self, namesake_strategy="skip"):
+    def _patched_create_toolkit(self, *args, **kwargs):
+        namesake_strategy = kwargs.get("namesake_strategy", "skip")
         toolkit = _original_create_toolkit(
             self,
-            namesake_strategy=namesake_strategy,
+            *args,
+            **kwargs,
         )
 
         agent_id = (
@@ -500,6 +514,105 @@ def setup_tool_and_prompt_hooks() -> (  # pylint: disable=too-many-statements
     logger.info(
         "Patched QwenPawAgent with cloudpaw tools, prompt hooks, "
         "and interrupt",
+    )
+
+    _setup_a2a_query_rewrite()
+
+
+def _setup_a2a_query_rewrite() -> None:
+    """Intercept ``/a2a <name> <msg>`` via query_handler patch.
+
+    When a user types ``/a2a <agent_name> <message>``, the patch rewrites the
+    user message into a natural-language instruction that tells the LLM to call
+    the ``a2a_call`` tool with the specified alias and message.  Because the
+    rewritten text no longer starts with ``/``, it bypasses the control-command
+    path and flows through the normal agent query pipeline, giving the LLM full
+    control over the remote A2A call (including streaming tool output).
+
+    ``/a2a`` without arguments is left untouched so the control-command handler
+    can list registered agents as before.
+    """
+    try:
+        from qwenpaw.app.runner.runner import AgentRunner
+        from qwenpaw.app.runner.command_dispatch import _get_last_user_text
+    except ImportError as exc:
+        logger.warning(
+            "Cannot import AgentRunner; /a2a query rewrite skipped: %s",
+            exc,
+        )
+        return
+
+    _original_query_handler = AgentRunner.query_handler
+
+    async def _patched_query_handler(self, msgs, request=None, **kwargs):
+        query = _get_last_user_text(msgs)
+        if query and query.strip().startswith("/a2a "):
+            rewritten = _try_rewrite_a2a_query(
+                query.strip(),
+                self.workspace_dir,
+            )
+            if rewritten is not None:
+                AgentRunner._rewrite_last_message_text(msgs, rewritten)
+                logger.info(
+                    "[CloudPaw] /a2a query rewritten for agent processing",
+                )
+
+        async for item in _original_query_handler(
+            self,
+            msgs,
+            request,
+            **kwargs,
+        ):
+            yield item
+
+    AgentRunner.query_handler = _patched_query_handler
+    logger.info(
+        "[CloudPaw] Patched AgentRunner.query_handler for /a2a rewrite",
+    )
+
+
+def _try_rewrite_a2a_query(  # pylint: disable=too-many-return-statements
+    query: str,
+    workspace_dir: Path | None,
+) -> str | None:
+    """Parse ``/a2a <agent_name> <message>`` and return a rewritten prompt.
+
+    Returns ``None`` if the query cannot be rewritten (missing workspace,
+    unknown alias, bad syntax), in which case the control-command path will
+    handle it and show an appropriate error or listing.
+    """
+    import json as _json
+
+    rest = query[len("/a2a") :].strip()
+    if not rest:
+        return None
+
+    parts = rest.split(None, 1)
+    if len(parts) < 2:
+        return None
+
+    agent_name, message = parts[0].strip(), parts[1].strip()
+    if not message or workspace_dir is None:
+        return None
+
+    config_path = workspace_dir / "a2a_config.json"
+    if not config_path.exists():
+        return None
+
+    try:
+        data = _json.loads(config_path.read_text(encoding="utf-8"))
+        agents_cfg = data.get("agents", {})
+    except (_json.JSONDecodeError, OSError):
+        return None
+
+    if agent_name not in agents_cfg:
+        return None
+
+    return (
+        f"请使用 a2a_call 工具调用远程 A2A Agent。\n"
+        f'调用参数：agent_alias="{agent_name}"，'
+        f'message="{message}"\n\n'
+        f"请直接调用 a2a_call 工具完成此任务，不需要做其他额外操作。"
     )
 
 

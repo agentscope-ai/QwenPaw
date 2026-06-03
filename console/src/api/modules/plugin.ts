@@ -45,6 +45,31 @@ export interface PluginStatus {
   version?: string;
 }
 
+/** Entry from ``GET /api/plugins/catalog`` (official CDN manifest). */
+export interface OfficialPluginCatalogEntry {
+  id: string;
+  plugin_id: string;
+  name: string;
+  description: string;
+  /** Locale-keyed descriptions, e.g. { "zh-CN": "...", "en-US": "..." } */
+  description_i18n?: Record<string, string>;
+  version: string;
+  author: string;
+  kind: string;
+  size: string;
+  sha256: string;
+  install_url: string;
+  installed: boolean;
+  installed_version?: string;
+  upgrade_available: boolean;
+}
+
+export interface OfficialPluginCatalog {
+  updated_at: string | null;
+  plugins: OfficialPluginCatalogEntry[];
+  error?: string | null;
+}
+
 /**
  * Fetch the list of loaded plugins from the backend.
  */
@@ -64,8 +89,24 @@ export async function fetchPlugins(): Promise<PluginInfo[]> {
 /**
  * Install a plugin from a local path or HTTP(S) URL via hot-reload.
  */
+export async function fetchPluginCatalog(): Promise<OfficialPluginCatalog> {
+  const response = await fetch(getApiUrl("/plugins/catalog"), {
+    headers: buildAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(
+      body.detail ?? `Failed to load plugin catalog (${response.status})`,
+    );
+  }
+
+  return response.json();
+}
+
 export async function installPlugin(
   source: string,
+  options?: { force?: boolean },
 ): Promise<InstallPluginResult> {
   const response = await fetch(getApiUrl("/plugins/install"), {
     method: "POST",
@@ -73,7 +114,7 @@ export async function installPlugin(
       ...buildAuthHeaders(),
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ source }),
+    body: JSON.stringify({ source, force: options?.force ?? false }),
   });
 
   if (!response.ok) {

@@ -14,6 +14,10 @@
   font-size: 13px;
 }
 
+.trustBanner {
+  margin-bottom: 16px;
+}
+
 .workspaceDirSection {
   margin-bottom: 16px;
 }
@@ -45,7 +49,17 @@
   margin-bottom: 16px;
 }
 
+.strategySection {
+  margin-bottom: 16px;
+}
+
 .restoreModeLabel {
+  margin-bottom: 8px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.strategyLabel {
   margin-bottom: 8px;
   font-weight: 600;
   font-size: 13px;
@@ -104,4 +118,24 @@
 .restoreWarningList {
   margin: 0;
   padding-left: 18px;
+}
+
+.restoreErrorMessage {
+  max-width: min(520px, 70vw);
+}
+
+.lockedPathList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.lockedPath {
+  color: var(--ant-color-text);
+  font-family: var(--ant-font-family-code);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-all;
 }

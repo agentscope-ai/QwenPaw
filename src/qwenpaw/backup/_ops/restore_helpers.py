@@ -2,9 +2,12 @@
 """Pure-function helpers for restore operations.
 
 These functions are free of ``self`` so they can be unit-tested in isolation.
+They hold restore-specific config and workspace decisions so the large restore
+operation remains mostly file staging and commit orchestration.
 """
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -14,11 +17,42 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .._utils.constants import PREFIX_SECRETS, PREFIX_WORKSPACES
+from ..models import BackupMeta, RestoreBackupRequest
 from ...constant import BACKUP_DIR, SECRET_DIR, WORKING_DIR
 
 logger = logging.getLogger(__name__)
 
 _MASTER_KEY = ".master_key"
+# Foreign and legacy backups may contain config from another installation.
+# Preserve local auth/allow-list policy and MCP wiring by default so trusting
+# an archive does not silently replace the controls needed to manage it.
+LOCAL_PROTECTED_CONFIG_KEYS: tuple[str, ...] = ("security", "mcp")
+
+
+def resolve_preserve_flag(
+    req: RestoreBackupRequest,
+    meta: BackupMeta,
+) -> bool:
+    """Resolve whether local critical config keys should be preserved.
+
+    The UI may send an explicit choice. If it does not, backups imported after
+    explicit legacy/foreign trust default to preservation because their config
+    came from outside this installation.
+    """
+    if req.preserve_local_protected_config is not None:
+        return req.preserve_local_protected_config
+    return meta.accepted_via_trust is True
+
+
+def overlay_local_keys(backup_cfg: dict, current_cfg: dict) -> dict:
+    """Return backup config with local protected config keys overlaid."""
+    merged = copy.deepcopy(backup_cfg)
+    for key in LOCAL_PROTECTED_CONFIG_KEYS:
+        if key in current_cfg:
+            merged[key] = copy.deepcopy(current_cfg[key])
+        else:
+            merged.pop(key, None)
+    return merged
 
 
 def collect_workspace_agents_from_zip(zf: zipfile.ZipFile) -> set[str]:

@@ -1,0 +1,65 @@
+name: PR Spam Gate
+
+# Reusable workflow: checks if a PR author has more than 10 open PRs in this repo.
+# Uses the Search API with per_page=1 to read total_count directly — no pagination needed.
+# Called by other workflows to skip expensive jobs when a PR is auto-closed for spam.
+
+on:
+  workflow_call:
+    inputs:
+      author:
+        description: "GitHub login of the PR author"
+        required: true
+        type: string
+    outputs:
+      blocked:
+        description: "'true' if the author has >10 open PRs and should be blocked, 'false' otherwise"
+        value: ${{ jobs.gate.outputs.blocked }}
+
+jobs:
+  gate:
+    name: Check Open PR Count
+    runs-on: ubuntu-latest
+    outputs:
+      blocked: ${{ steps.check.outputs.blocked }}
+    steps:
+      - name: Count author's open PRs in this repo
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const author = '${{ inputs.author }}';
+
+            // Bypass for repo maintainers and admins.
+            try {
+              const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: author,
+              });
+              if (['admin', 'maintain'].includes(perm.permission)) {
+                console.log(`@${author} is a repo ${perm.permission} — bypassing spam gate`);
+                core.setOutput('blocked', 'false');
+                return;
+              }
+            } catch (permErr) {
+              // 404 = not a collaborator, proceed with the check.
+              if (permErr.status !== 404) {
+                console.log(`Permission check warning: ${permErr.message} — proceeding with spam check`);
+              }
+            }
+
+            try {
+              // per_page=1 is enough — we only need total_count, not the actual items.
+              const { data } = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${context.repo.owner}/${context.repo.repo} type:pr is:open author:${author}`,
+                per_page: 1,
+              });
+              const count = data.total_count;
+              console.log(`@${author} has ${count} open PR(s) in this repo`);
+              core.setOutput('blocked', count > 10 ? 'true' : 'false');
+            } catch (err) {
+              // On API error (e.g. rate-limit), fail open — don't block legitimate contributors.
+              console.log(`Gate check failed for @${author}: ${err.message} — allowing through`);
+              core.setOutput('blocked', 'false');
+            }

@@ -96,6 +96,7 @@ const COMMANDS = {
     `docker run -p 127.0.0.1:8088:8088 \\
   -v qwenpaw-data:/app/working \\
   -v qwenpaw-secrets:/app/working.secret \\
+  -v qwenpaw-backups:/app/working.backups \\
   ${DOCKER_IMAGE}`,
   ],
 } as const;

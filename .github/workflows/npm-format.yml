@@ -3,8 +3,19 @@ name: NPM Format (website & console)
 on: [push, pull_request]
 
 jobs:
+  spam-gate:
+    name: PR Spam Gate
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/pr-spam-gate.yml
+    with:
+      author: ${{ github.event.pull_request.user.login }}
+
   website:
     name: website format check
+    needs: [spam-gate]
+    if: |
+      always() &&
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -32,6 +43,10 @@ jobs:
 
   console:
     name: console format check
+    needs: [spam-gate]
+    if: |
+      always() &&
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
     runs-on: ubuntu-latest
     defaults:
       run:

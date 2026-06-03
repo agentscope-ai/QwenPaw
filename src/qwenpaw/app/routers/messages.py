@@ -153,12 +153,15 @@ async def send_message(
 
     # Send the message via channel manager
     try:
+        meta: dict = {"_api_send": True}
+        if x_agent_id:
+            meta["agent_id"] = x_agent_id
         await channel_manager.send_text(
             channel=request.channel,
             user_id=request.target_user,
             session_id=request.target_session,
             text=request.text,
-            meta={"agent_id": x_agent_id} if x_agent_id else None,
+            meta=meta,
         )
 
         return SendMessageResponse(

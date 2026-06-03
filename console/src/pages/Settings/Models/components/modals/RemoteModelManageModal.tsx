@@ -3,6 +3,7 @@ import {
   Button,
   Form,
   Input,
+  InputNumber,
   Modal,
   Tag,
   Tooltip,
@@ -61,6 +62,13 @@ function ModelConfigEditor({
   const { message } = useAppMessage();
   const [saving, setSaving] = useState(false);
 
+  const [maxTokens, setMaxTokens] = useState<number | null>(
+    model.max_tokens ?? 8192,
+  );
+  const [maxInputLength, setMaxInputLength] = useState<number | null>(
+    model.max_input_length ?? 131072,
+  );
+
   const initialText = useMemo(
     () =>
       model.generate_kwargs && Object.keys(model.generate_kwargs).length > 0
@@ -74,16 +82,28 @@ function ModelConfigEditor({
 
   useEffect(() => {
     setText(initialText);
+    setMaxTokens(model.max_tokens ?? 8192);
+    setMaxInputLength(model.max_input_length ?? 131072);
     setDirty(false);
-  }, [initialText]);
+  }, [initialText, model.max_tokens, model.max_input_length]);
 
-  const handleChange = useCallback(
-    (val: string) => {
-      setText(val);
-      setDirty(val !== initialText);
-    },
-    [initialText],
-  );
+  const effectiveMaxTokens = maxTokens ?? 8192;
+  const effectiveMaxInputLength = maxInputLength ?? 131072;
+
+  const handleChange = useCallback((val: string) => {
+    setText(val);
+    setDirty(true);
+  }, []);
+
+  const handleMaxTokensChange = useCallback((val: number | null) => {
+    setMaxTokens(val);
+    setDirty(true);
+  }, []);
+
+  const handleMaxInputLengthChange = useCallback((val: number | null) => {
+    setMaxInputLength(val);
+    setDirty(true);
+  }, []);
 
   const handleSave = async () => {
     const trimmed = text.trim();
@@ -105,6 +125,8 @@ function ModelConfigEditor({
     setSaving(true);
     try {
       await api.configureModel(providerId, model.id, {
+        max_tokens: effectiveMaxTokens,
+        max_input_length: effectiveMaxInputLength,
         generate_kwargs: parsed,
       });
       message.success(t("models.modelConfigSaved", { name: model.name }));
@@ -122,8 +144,63 @@ function ModelConfigEditor({
     }
   };
 
+  const labelStyle: React.CSSProperties = {
+    fontSize: 13,
+    color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+    marginBottom: 4,
+  };
+
   return (
     <div style={{ padding: "8px 0 4px" }}>
+      <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
+        <div style={{ flex: 1 }}>
+          <div style={labelStyle}>
+            {t("models.maxTokensLabel", "Max Tokens")}
+          </div>
+          <InputNumber
+            style={{ width: "100%" }}
+            min={1}
+            step={1024}
+            value={maxTokens}
+            placeholder="8192"
+            onChange={handleMaxTokensChange}
+          />
+          <div
+            style={{
+              fontSize: 11,
+              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+              marginTop: 2,
+            }}
+          >
+            {t("models.maxTokensHint", "每次响应的最大输出 token 数")}
+          </div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={labelStyle}>
+            {t("models.maxInputLengthLabel", "Max Context Length")}
+          </div>
+          <InputNumber
+            style={{ width: "100%" }}
+            min={1000}
+            step={1024}
+            value={maxInputLength}
+            placeholder="131072"
+            onChange={handleMaxInputLengthChange}
+          />
+          <div
+            style={{
+              fontSize: 11,
+              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+              marginTop: 2,
+            }}
+          >
+            {t(
+              "models.maxInputLengthHint",
+              "模型上下文窗口大小，控制上下文压缩阈值（≥1000）",
+            )}
+          </div>
+        </div>
+      </div>
       <div
         style={{
           fontSize: 12,
@@ -136,7 +213,7 @@ function ModelConfigEditor({
       <JsonConfigEditor
         value={text}
         onChange={handleChange}
-        placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  },\n  "max_tokens": 2048\n}`}
+        placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  }\n}`}
       />
       <div
         style={{

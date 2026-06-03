@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Type
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Type
 from pydantic import BaseModel, Field
 from pydantic import ConfigDict
 
@@ -43,6 +43,18 @@ class ModelInfo(BaseModel):
     is_free: bool = Field(
         default=False,
         description="Whether this model is free to use (e.g., no API cost)",
+    )
+    max_tokens: int = Field(
+        default=8192,
+        ge=1,
+        description="Maximum number of tokens the model can generate per "
+        "response. Merged into generate_kwargs unless explicitly overridden.",
+    )
+    max_input_length: int = Field(
+        default=128 * 1024,
+        ge=1000,
+        description="Maximum input context window size (tokens). "
+        "Controls when context compaction is triggered.",
     )
     generate_kwargs: Dict[str, Any] = Field(
         default_factory=dict,
@@ -137,6 +149,18 @@ class ProviderInfo(BaseModel):
         default_factory=dict,
         description="Generation parameters for agentscope chat models.",
     )
+    custom_headers: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Custom HTTP headers to include in every API request.",
+    )
+    auth_mode: Literal["api_key", "auth_token"] = Field(
+        default="api_key",
+        description=(
+            "Authentication mode: 'api_key' sends x-api-key header, "
+            "'auth_token' sends Authorization: Bearer header. "
+            "Only applies to Anthropic-compatible providers."
+        ),
+    )
     meta: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional metadata for the provider "
@@ -224,6 +248,19 @@ class Provider(ProviderInfo, ABC):
             and isinstance(config["generate_kwargs"], dict)
         ):
             self.generate_kwargs = config["generate_kwargs"]
+        if (
+            "custom_headers" in config
+            and config["custom_headers"] is not None
+            and isinstance(config["custom_headers"], dict)
+        ):
+            self.custom_headers = {
+                str(k): str(v) for k, v in config["custom_headers"].items()
+            }
+        if "auth_mode" in config and config["auth_mode"] in (
+            "api_key",
+            "auth_token",
+        ):
+            self.auth_mode = config["auth_mode"]
         if "extra_models" in config and config["extra_models"] is not None:
             # Always go through model_validate with dict data to
             # avoid class-identity issues from dual module loading.
@@ -274,18 +311,24 @@ class Provider(ProviderInfo, ABC):
 
     def get_effective_generate_kwargs(self, model_id: str) -> Dict[str, Any]:
         """Return merged generate_kwargs: provider-level as base, model-level
-        overrides on top (deep merge for nested dicts).
+        overrides on top (deep merge for nested dicts).  The model's
+        ``max_tokens`` is injected unless already present in kwargs.
 
         Always returns a new dict so callers never mutate provider state.
         """
         for model in self.models + self.extra_models:
             if model.id == model_id:
-                if model.generate_kwargs:
-                    return self._deep_merge(
+                result = (
+                    self._deep_merge(
                         self.generate_kwargs,
                         model.generate_kwargs,
                     )
-                break
+                    if model.generate_kwargs
+                    else dict(self.generate_kwargs)
+                )
+                if "max_tokens" not in result:
+                    result["max_tokens"] = model.max_tokens
+                return result
         return dict(self.generate_kwargs)
 
     def update_model_config(
@@ -302,6 +345,13 @@ class Provider(ProviderInfo, ABC):
                     and isinstance(config["generate_kwargs"], dict)
                 ):
                     model.generate_kwargs = config["generate_kwargs"]
+                if "max_tokens" in config and config["max_tokens"] is not None:
+                    model.max_tokens = int(config["max_tokens"])
+                if (
+                    "max_input_length" in config
+                    and config["max_input_length"] is not None
+                ):
+                    model.max_input_length = int(config["max_input_length"])
                 return True
         return False
 
@@ -310,6 +360,13 @@ class Provider(ProviderInfo, ABC):
         return any(
             model.id == model_id for model in self.models + self.extra_models
         )
+
+    def get_model_info(self, model_id: str) -> ModelInfo | None:
+        """Return the ModelInfo for *model_id*, or None."""
+        for model in self.models + self.extra_models:
+            if model.id == model_id:
+                return model
+        return None
 
     @abstractmethod
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
@@ -369,5 +426,7 @@ class Provider(ProviderInfo, ABC):
             freeze_url=self.freeze_url,
             require_api_key=self.require_api_key,
             generate_kwargs=self.generate_kwargs,
+            custom_headers=self.custom_headers,
+            auth_mode=self.auth_mode,
             meta=self.meta or {},
         )

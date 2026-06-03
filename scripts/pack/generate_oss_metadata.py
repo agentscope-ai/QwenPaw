@@ -62,6 +62,14 @@ def generate_metadata(
     file_id = f"{product}-{platform}-{version}"
 
     platform_names = {
+        "win-tauri": {
+            "zh-CN": "Windows Tauri",
+            "en-US": "for Windows (Tauri)",
+        },
+        "mac-tauri": {
+            "zh-CN": "macOS Tauri",
+            "en-US": "for macOS (Tauri)",
+        },
         "win": {"zh-CN": "Windows 版", "en-US": "for Windows"},
         "mac": {"zh-CN": "macOS 版", "en-US": "for macOS"},
         "linux": {"zh-CN": "Linux 版", "en-US": "for Linux"},

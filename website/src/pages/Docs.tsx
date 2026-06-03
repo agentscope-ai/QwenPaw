@@ -23,6 +23,7 @@ import { MermaidBlock } from "@/components/MermaidBlock";
 import { DocSearch } from "@/components/DocSearch";
 import { DocSearchResults } from "@/components/DocSearchResults";
 import { ImageZoom } from "@/components/ImageZoom";
+import { FeatureDemoGallery } from "@/components/FeatureDemoGallery";
 /* Code block theme: defined in index.css for high contrast */
 
 function CodeBlockWithCopy({ children }: { children: React.ReactNode }) {
@@ -158,6 +159,7 @@ const DOC_GROUPS: DocGroup[] = [
       { slug: "intro", titleKey: "docs.intro" },
       { slug: "quickstart", titleKey: "docs.quickstart" },
       { slug: "desktop", titleKey: "docs.desktop" },
+      { slug: "functiondemo", titleKey: "docs.demo" },
     ],
   },
   {
@@ -174,6 +176,7 @@ const DOC_GROUPS: DocGroup[] = [
         slug: "memory-evolving-and-proactive",
         titleKey: "docs.memoryEvolvingAndProactive",
       },
+      { slug: "coding-mode", titleKey: "docs.codingMode" },
     ],
   },
   {
@@ -421,6 +424,10 @@ export default function Docs() {
       navigate("/docs/intro", { replace: true });
       return;
     }
+    if (activeSlug === "functiondemo") {
+      setContent("");
+      return;
+    }
     let cancelled = false;
     const langSuffix = lang === "zh" ? "zh" : "en";
     const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "") || "";
@@ -594,7 +601,7 @@ export default function Docs() {
                   <Menu size={20} />
                 </button>
                 <div className="min-w-0 text-base">
-                  {mobileBreadcrumb.parent ? (
+                  {mobileBreadcrumb.parent && (
                     <>
                       <span className="align-middle text-(--text-muted)">
                         {mobileBreadcrumb.parent}
@@ -604,7 +611,7 @@ export default function Docs() {
                         className="mx-1 inline align-middle text-(--text-muted)"
                       />
                     </>
-                  ) : null}
+                  )}
                   <span className="align-middle font-semibold text-(--text)">
                     {mobileBreadcrumb.current}
                   </span>
@@ -616,9 +623,15 @@ export default function Docs() {
             ) : (
               <>
                 <article className="docs-content">
-                  {activeSlug === "faq" ? (
+                  {activeSlug === "functiondemo" && (
                     <>
-                      {faqData.intro ? (
+                      <h1>{t("docs.demoTitle")}</h1>
+                      <FeatureDemoGallery />
+                    </>
+                  )}
+                  {activeSlug === "faq" && (
+                    <>
+                      {faqData.intro && (
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
                           rehypePlugins={[rehypeRaw, rehypeHighlight]}
@@ -655,7 +668,7 @@ export default function Docs() {
                         >
                           {faqData.intro}
                         </ReactMarkdown>
-                      ) : null}
+                      )}
                       <div className="mt-4">
                         {faqData.items.map((item, idx) => {
                           const opened = openFaqSet.has(idx);
@@ -688,7 +701,7 @@ export default function Docs() {
                                   ].join(" ")}
                                 />
                               </button>
-                              {opened ? (
+                              {opened && (
                                 <div className="docs-faq-answer border-t border-border px-4 pb-2 pt-3 *:first:mt-0 *:last:mb-0">
                                   <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
@@ -708,13 +721,14 @@ export default function Docs() {
                                     {item.answer}
                                   </ReactMarkdown>
                                 </div>
-                              ) : null}
+                              )}
                             </section>
                           );
                         })}
                       </div>
                     </>
-                  ) : (
+                  )}
+                  {activeSlug !== "faq" && activeSlug !== "functiondemo" && (
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       rehypePlugins={[rehypeRaw, rehypeHighlight]}
@@ -820,7 +834,7 @@ export default function Docs() {
                     </ReactMarkdown>
                   )}
 
-                  {!isSearchPage && (prevDoc || nextDoc) ? (
+                  {(prevDoc || nextDoc) && (
                     <div className="mt-10 px-4 py-8 md:px-6">
                       <div className="flex items-center justify-between gap-4">
                         {prevDoc ? (
@@ -842,7 +856,7 @@ export default function Docs() {
                           <span />
                         )}
 
-                        {nextDoc ? (
+                        {nextDoc && (
                           <Link
                             to={`/docs/${nextDoc.slug}`}
                             className="group inline-flex min-w-0 items-center justify-end gap-2 text-sm font-semibold text-(--color-text) no-underline hover:!text-(--color-primary) hover:no-underline"
@@ -857,10 +871,10 @@ export default function Docs() {
                               aria-hidden
                             />
                           </Link>
-                        ) : null}
+                        )}
                       </div>
                     </div>
-                  ) : null}
+                  )}
                 </article>
               </>
             )}

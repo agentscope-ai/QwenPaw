@@ -13,6 +13,7 @@ import {
   CONTEXT_MANAGER_BACKEND_MAPPINGS,
   MEMORY_MANAGER_BACKEND_MAPPINGS,
 } from "@/constants/backendMappings";
+import api from "@/api";
 import styles from "./index.module.less";
 
 function AgentConfigPage() {
@@ -36,11 +37,31 @@ function AgentConfigPage() {
   } = useAgentConfig();
 
   const llmRetryEnabled = Form.useWatch("llm_retry_enabled", form) ?? true;
-  const maxInputLength = Form.useWatch("max_input_length", form) ?? 0;
   const contextBackend =
     Form.useWatch("context_manager_backend", form) || "light";
   const memoryBackend =
     Form.useWatch("memory_manager_backend", form) || "remelight";
+
+  const [maxInputLength, setMaxInputLength] = useState(131072);
+  useEffect(() => {
+    api
+      .getActiveModels({ scope: "effective" })
+      .then((info) => {
+        if (info.active_llm) {
+          return api.listProviders().then((providers) => {
+            for (const p of providers) {
+              const all = [...(p.models ?? []), ...(p.extra_models ?? [])];
+              const m = all.find((m) => m.id === info.active_llm?.model);
+              if (m?.max_input_length) {
+                setMaxInputLength(m.max_input_length);
+                return;
+              }
+            }
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const dynamicTabs = useMemo(() => {
     const baseTabs = [

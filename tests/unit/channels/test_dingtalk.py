@@ -906,13 +906,19 @@ class TestDingTalkResolveSession:
         assert result == "dingtalk:user456"
 
     def test_to_handle_from_target_formats_correctly(self, dingtalk_channel):
-        """to_handle_from_target should format handle with session_id."""
+        """to_handle_from_target should include user_id prefix for DM."""
         result = dingtalk_channel.to_handle_from_target(
             user_id="user123",
             session_id="sess_abc",
         )
+        assert result == "dingtalk:sw:user123_sess_abc"
 
-        assert result == "dingtalk:sw:sess_abc"
+        # Without user_id, falls back to suffix-only key (group chat)
+        result_no_user = dingtalk_channel.to_handle_from_target(
+            user_id="",
+            session_id="sess_abc",
+        )
+        assert result_no_user == "dingtalk:sw:sess_abc"
 
     def test_route_from_handle_sw(self, dingtalk_channel):
         """_route_from_handle should parse 'dingtalk:sw:' format."""
@@ -1111,17 +1117,6 @@ class TestDingTalkGetSessionWebhook:
 
         assert result == "http://meta.webhook"
 
-    def test_get_session_webhook_from_incoming_message(self, dingtalk_channel):
-        """Should get webhook from incoming_message object."""
-        mock_msg = MagicMock()
-        mock_msg.sessionWebhook = "http://msg.webhook"
-
-        result = dingtalk_channel._get_session_webhook(
-            {"incoming_message": mock_msg},
-        )
-
-        assert result == "http://msg.webhook"
-
     def test_get_session_webhook_none_meta(self, dingtalk_channel):
         """Should handle None meta."""
         result = dingtalk_channel._get_session_webhook(None)
@@ -1166,40 +1161,6 @@ class TestDingTalkBuildAgentRequest:
 # =============================================================================
 # P2: Reply Sync Methods
 # =============================================================================
-
-
-class TestDingTalkReplySync:
-    """Tests for _reply_sync and _reply_sync_batch methods."""
-
-    def test_reply_sync_sets_future_result(self, dingtalk_channel):
-        """Should set future result."""
-        loop = asyncio.new_event_loop()
-        future = loop.create_future()
-        meta = {"reply_loop": loop, "reply_future": future}
-
-        dingtalk_channel._reply_sync(meta, "reply text")
-
-        # Need to run loop to process callback
-        loop.run_until_complete(asyncio.sleep(0.01))
-
-        assert future.done()
-        assert future.result() == "reply text"
-        loop.close()
-
-    def test_safe_set_future_result_handles_done_future(
-        self,
-        dingtalk_channel,
-    ):
-        """Should not error when future is already done."""
-        loop = asyncio.new_event_loop()
-        future = loop.create_future()
-        future.set_result("already set")
-
-        # Should not raise
-        dingtalk_channel._safe_set_future_result(future, "new result")
-
-        assert future.result() == "already set"
-        loop.close()
 
 
 # =============================================================================
@@ -1492,35 +1453,6 @@ class TestDingTalkAICardStore:
 # =============================================================================
 
 
-class TestDingTalkAckEarly:
-    """Tests for _ack_early method."""
-
-    def test_ack_early_sets_future(self, dingtalk_channel):
-        """Should set future result for streaming paths."""
-        from qwenpaw.app.channels.dingtalk.constants import SENT_VIA_WEBHOOK
-
-        loop = asyncio.new_event_loop()
-        future1 = loop.create_future()
-        future2 = loop.create_future()
-
-        meta = {
-            "_reply_futures_list": [
-                (loop, future1),
-                (loop, future2),
-            ],
-        }
-
-        dingtalk_channel._ack_early(meta, SENT_VIA_WEBHOOK)
-
-        loop.run_until_complete(asyncio.sleep(0.01))
-
-        assert future1.done()
-        assert future2.done()
-        assert future1.result() == SENT_VIA_WEBHOOK
-        assert future2.result() == SENT_VIA_WEBHOOK
-        loop.close()
-
-
 # =============================================================================
 # Additional Edge Case Tests
 # =============================================================================
@@ -1642,15 +1574,16 @@ class TestDingTalkSendContentParts:
         """Empty parts list should not send anything."""
         with patch.object(
             dingtalk_channel,
-            "_reply_sync",
-        ) as mock_reply:
+            "send",
+            new_callable=AsyncMock,
+        ) as mock_send:
             await dingtalk_channel.send_content_parts(
                 to_handle="user123",
                 parts=[],
                 meta={},
             )
 
-            mock_reply.assert_not_called()
+            mock_send.assert_not_called()
 
     async def test_send_content_parts_with_file(
         self,
@@ -1836,6 +1769,109 @@ class TestDingTalkCallbackHandler:
         handler._emit_native_threadsafe({"test": "data"})
 
         assert handler._main_loop.call_soon_threadsafe.called
+
+    def test_handler_require_mention_flag(self, mock_download_fetcher):
+        """Handler should store require_mention flag."""
+        from qwenpaw.app.channels.dingtalk.handler import (
+            DingTalkChannelHandler,
+        )
+
+        loop = asyncio.new_event_loop()
+        handler = DingTalkChannelHandler(
+            main_loop=loop,
+            enqueue_callback=MagicMock(),
+            bot_prefix="[Test] ",
+            download_url_fetcher=mock_download_fetcher,
+            require_mention=True,
+        )
+        assert handler._require_mention is True
+        loop.close()
+
+
+@pytest.mark.asyncio
+class TestDingTalkConsumeErrorHandling:
+    """Tests for _on_consume_error hook."""
+
+    async def test_on_consume_error_sends_emoji_and_message(
+        self,
+        dingtalk_channel,
+    ):
+        """Should recall thinking, send error emoji and text."""
+        dingtalk_channel._robot_sdk = MagicMock()
+        dingtalk_channel._get_access_token = AsyncMock(
+            return_value="token_123",
+        )
+
+        with (
+            patch.object(
+                dingtalk_channel,
+                "_send_emotion",
+                new_callable=AsyncMock,
+            ) as mock_emotion,
+            patch.object(
+                dingtalk_channel,
+                "_send_via_session_webhook",
+                new_callable=AsyncMock,
+            ) as mock_webhook,
+        ):
+            request = MagicMock()
+            request.channel_meta = {
+                "message_id": "msg_123",
+                "conversation_id": "cid_123",
+                "session_webhook": "http://webhook.url",
+            }
+
+            await dingtalk_channel._on_consume_error(
+                request,
+                "dingtalk:sw:test",
+                "Something went wrong",
+            )
+
+            # Should recall thinking and send error emoji
+            assert mock_emotion.call_count == 2
+            assert mock_emotion.call_args_list[0][0] == (
+                "msg_123",
+                "cid_123",
+                "🤔Thinking",
+            )
+            assert mock_emotion.call_args_list[1][0] == (
+                "msg_123",
+                "cid_123",
+                "☹️Error",
+            )
+            # Should send error text via webhook
+            mock_webhook.assert_called_once()
+
+    async def test_on_consume_error_releases_dedup(
+        self,
+        dingtalk_channel,
+    ):
+        """_on_consume_error should release message IDs for dedup."""
+        with (
+            patch.object(
+                dingtalk_channel,
+                "_send_emotion",
+                new_callable=AsyncMock,
+            ),
+            patch.object(
+                dingtalk_channel,
+                "_release_message_ids",
+            ) as mock_release,
+        ):
+            request = MagicMock()
+            request.channel_meta = {
+                "message_id": "msg_123",
+                "conversation_id": "cid_123",
+                "_message_ids": ["msg_123", "msg_456"],
+            }
+
+            await dingtalk_channel._on_consume_error(
+                request,
+                "dingtalk:sw:test",
+                "Error",
+            )
+
+            mock_release.assert_called_once_with(["msg_123", "msg_456"])
 
 
 # =============================================================================
@@ -2076,39 +2112,6 @@ class TestDingTalkAICardMethods:
 
         assert result is True
 
-    async def test_finish_ai_card_success(
-        self,
-        dingtalk_channel,
-    ):
-        """Successfully finish AI card."""
-        from qwenpaw.app.channels.dingtalk.ai_card import (
-            ActiveAICard,
-            PROCESSING,
-        )
-
-        dingtalk_channel.message_type = "card"
-        dingtalk_channel.card_template_key = "content"
-        dingtalk_channel._card_sdk = _make_card_sdk()
-
-        async with dingtalk_channel._active_cards_lock:
-            dingtalk_channel._active_cards["cid_test"] = ActiveAICard(
-                card_instance_id="card_test_123",
-                access_token="token_123",
-                conversation_id="cid_test",
-                account_id="user123",
-                store_path="/tmp",
-                created_at=int(time.time() * 1000),
-                last_updated=0,
-                state=PROCESSING,
-            )
-
-        result = await dingtalk_channel._finish_ai_card(
-            conversation_id="cid_test",
-            final_content="Final text",
-        )
-
-        assert result is True
-
     async def test_recover_active_cards(
         self,
         dingtalk_channel,
@@ -2167,24 +2170,6 @@ class TestDingTalkAICardMethods:
         result = dingtalk_channel._build_ai_card_initial_text()
 
         assert result.startswith("[Bot] ")
-
-    def test_merge_ai_card_text(self, dingtalk_channel):
-        """Merge AI card text properly."""
-        # Empty current
-        result = dingtalk_channel._merge_ai_card_text("", "new text")
-        assert result == "new text"
-
-        # Empty incoming
-        result = dingtalk_channel._merge_ai_card_text("current", "")
-        assert result == "current"
-
-        # Duplicate
-        result = dingtalk_channel._merge_ai_card_text("current text", "text")
-        assert result == "current text"
-
-        # Normal merge
-        result = dingtalk_channel._merge_ai_card_text("line1", "line2")
-        assert result == "line1\nline2"
 
 
 # =============================================================================
@@ -2545,77 +2530,32 @@ class TestDingTalkRequestProcessing:
     # Note: allowlist blocking flow is tested via _check_allowlist unit tests
     # Integration test with _run_process_loop requires complex async mock setup
 
-    async def test_run_process_loop_group_mention_required(
+    async def test_before_consume_process_sends_thinking_emoji(
         self,
         dingtalk_channel,
     ):
-        """Group message without mention should be ignored."""
-        dingtalk_channel.require_mention = True
+        """_before_consume_process should send thinking emoji."""
+        from unittest.mock import MagicMock
 
-        from agentscope_runtime.engine.schemas.agent_schemas import (
-            AgentRequest,
-            Message,
-            TextContent,
-        )
-
-        request = AgentRequest(
-            user_id="user123",
-            channel="dingtalk",
-            input=[
-                Message(
-                    role="user",
-                    type="message",
-                    content=[TextContent(type="text", text="Hello")],
-                ),
-            ],
-            channel_meta={
-                "session_webhook": "http://webhook.url",
-                "conversation_id": "cid_test",
-            },
-        )
+        request = MagicMock()
+        request.channel_meta = {
+            "message_id": "msg_123",
+            "conversation_id": "cid_456",
+        }
+        request.session_id = None
 
         with patch.object(
             dingtalk_channel,
-            "_check_group_mention",
-            return_value=False,
-        ) as mock_check:
-            await dingtalk_channel._run_process_loop(
-                request,
-                to_handle="dingtalk:user123",
-                send_meta={"is_group": True, "bot_mentioned": False},
+            "_send_emotion",
+            new_callable=AsyncMock,
+        ) as mock_emotion:
+            await dingtalk_channel._before_consume_process(request)
+
+            mock_emotion.assert_called_once_with(
+                "msg_123",
+                "cid_456",
+                "🤔Thinking",
             )
-
-            mock_check.assert_called_once()
-
-    async def test_run_process_loop_exception_handling(
-        self,
-        dingtalk_channel,
-    ):
-        """Exception in process loop should be handled."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
-            AgentRequest,
-            Message,
-        )
-
-        request = MagicMock(spec=AgentRequest)
-        request.user_id = "user123"
-        request.channel = "dingtalk"
-        request.channel_meta = {}
-        request.input = [MagicMock(spec=Message)]
-
-        # Patch _process_one_request to raise exception
-        # (rather than _process which is an async generator)
-        with patch.object(
-            dingtalk_channel,
-            "_process_one_request",
-            side_effect=RuntimeError("Test error"),
-        ):
-            with pytest.raises(RuntimeError):
-                await dingtalk_channel._run_process_loop(
-                    request,
-                    to_handle="dingtalk:user123",
-                    send_meta={},
-                )
 
 
 # =============================================================================
@@ -2670,10 +2610,10 @@ class TestDingTalkSendMethodsExtended:
             "expired_time": 9999999999999,
         }
 
-        # Current request has reply_future but no webhook
+        # Current request has conversation_id but no webhook
         result = await dingtalk_channel._get_session_webhook_for_send(
             to_handle="dingtalk:sw:testkey",
-            meta={"reply_future": MagicMock()},
+            meta={"conversation_id": "cid_test"},
         )
 
         assert result is None
@@ -3105,30 +3045,6 @@ class TestDingTalkMergeNative:
         # Should use webhook from newest (last) item
         assert result["session_webhook"] == "http://webhook2.url"
 
-    def test_merge_native_extracts_reply_futures(self, dingtalk_channel):
-        """Extract reply futures from items."""
-        loop = asyncio.new_event_loop()
-        future = loop.create_future()
-
-        items = [
-            {
-                "channel_id": "dingtalk",
-                "sender_id": "user1",
-                "content_parts": [],
-                "meta": {
-                    "reply_loop": loop,
-                    "reply_future": future,
-                },
-            },
-        ]
-
-        result = dingtalk_channel._merge_native(items)
-
-        assert "_reply_futures_list" in result["meta"]
-        assert len(result["meta"]["_reply_futures_list"]) == 1
-
-        loop.close()
-
     def test_merge_native_extracts_message_ids(self, dingtalk_channel):
         """Extract message IDs from items."""
         items = [
@@ -3221,28 +3137,26 @@ class TestDingTalkLoadSessionWebhookEntry:
 class TestDingTalkAdditionalCoverage:
     """Additional tests to reach 60% coverage."""
 
-    def test_check_allowlist_empty(self, dingtalk_channel):
-        """Check allowlist when empty allows all."""
-        dingtalk_channel.allow_from = set()
+    def test_access_control_disabled_allows_all(self, dingtalk_channel):
+        """Access control disabled allows all users."""
+        dingtalk_channel.access_control_dm = False
+        dingtalk_channel.access_control_group = False
 
-        allowed, _ = dingtalk_channel._check_allowlist("any_user", False)
-        assert allowed is True
+        assert dingtalk_channel.access_control_enabled is False
 
-    def test_check_allowlist_blocked(self, dingtalk_channel):
-        """Check blocked user in allowlist."""
-        dingtalk_channel.allow_from = {"user1", "user2"}
-        dingtalk_channel.dm_policy = "allowlist"
+    def test_access_control_dm_enabled(self, dingtalk_channel):
+        """Access control dm enabled makes access_control_enabled True."""
+        dingtalk_channel.access_control_dm = True
+        dingtalk_channel.access_control_group = False
 
-        allowed, msg = dingtalk_channel._check_allowlist("other_user", False)
-        assert allowed is False
-        assert "not authorized" in msg
+        assert dingtalk_channel.access_control_enabled is True
 
-    def test_check_allowlist_allowed(self, dingtalk_channel):
-        """Check allowed user in allowlist."""
-        dingtalk_channel.allow_from = {"user1", "user2"}
+    def test_access_control_group_enabled(self, dingtalk_channel):
+        """Access control group enabled makes access_control_enabled True."""
+        dingtalk_channel.access_control_dm = False
+        dingtalk_channel.access_control_group = True
 
-        allowed, _ = dingtalk_channel._check_allowlist("user1", False)
-        assert allowed is True
+        assert dingtalk_channel.access_control_enabled is True
 
     def test_check_group_mention_not_required(self, dingtalk_channel):
         """Check group mention when not required."""

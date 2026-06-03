@@ -52,6 +52,10 @@ class TokenUsageSummary(BaseModel):
     total_prompt_tokens: int = Field(0, ge=0)
     total_completion_tokens: int = Field(0, ge=0)
     total_calls: int = Field(0, ge=0)
+    by_model: dict[str, TokenUsageByModel] = Field(
+        default_factory=dict,
+        description="Per model (provider:model key) aggregation",
+    )
     by_date: dict[str, TokenUsageStats] = Field(
         default_factory=dict,
         description="Per date (YYYY-MM-DD) - all models combined",
@@ -206,6 +210,7 @@ class TokenUsageManager:
         total_prompt = 0
         total_completion = 0
         total_calls = 0
+        by_model_raw: dict[str, dict] = {}
         by_date_raw: dict[str, dict] = {}
 
         for r in records:
@@ -216,6 +221,25 @@ class TokenUsageManager:
             total_completion += ct
             total_calls += calls
 
+            # Aggregate by model
+            model_key = (
+                f"{r.provider_id}:{r.model}" if r.provider_id else r.model
+            )
+            bm = by_model_raw.setdefault(
+                model_key,
+                {
+                    "provider_id": r.provider_id,
+                    "model": r.model,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "call_count": 0,
+                },
+            )
+            bm["prompt_tokens"] += pt
+            bm["completion_tokens"] += ct
+            bm["call_count"] += calls
+
+            # Aggregate by date
             bd = by_date_raw.setdefault(
                 r.date,
                 {"prompt_tokens": 0, "completion_tokens": 0, "call_count": 0},
@@ -228,6 +252,10 @@ class TokenUsageManager:
             total_prompt_tokens=total_prompt,
             total_completion_tokens=total_completion,
             total_calls=total_calls,
+            by_model={
+                k: TokenUsageByModel.model_validate(v)
+                for k, v in sorted(by_model_raw.items())
+            },
             by_date={
                 k: TokenUsageStats.model_validate(v)
                 for k, v in sorted(by_date_raw.items())

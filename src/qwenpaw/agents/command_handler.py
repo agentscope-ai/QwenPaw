@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
 
-from ..config.config import load_agent_config
+from ..config.config import load_agent_config, get_model_max_input_length
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 from ..exceptions import SystemCommandException
 
@@ -165,10 +165,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
             extra_instruction=extra_instruction,
         )
 
+        agent_config = self._get_agent_config()
+        max_len = get_model_max_input_length(agent_config)
+
         if not result.get("success"):
             reason = result.get("reason", "unknown")
             before = result.get("before_tokens", 0)
-            max_len = self._get_agent_config().running.max_input_length
             before_pct = (
                 f"{before / max_len * 100:.0f}%" if max_len > 0 else "N/A"
             )
@@ -187,7 +189,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
         await self.memory.update_compressed_summary(compact_content)
         before = result.get("before_tokens", 0)
         after = result.get("after_tokens", 0)
-        max_len = self._get_agent_config().running.max_input_length
         await self.memory.clear_content()
         before_pct = f"{before / max_len * 100:.0f}%" if max_len > 0 else "N/A"
         after_pct = f"{after / max_len * 100:.0f}%" if max_len > 0 else "N/A"
@@ -275,7 +276,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         agent_config = self._get_agent_config()
         running_config = agent_config.running
         history_str = await self.memory.get_history_str(
-            max_input_length=running_config.max_input_length,
+            max_input_length=get_model_max_input_length(agent_config),
         )
 
         # Truncate if too long

@@ -36,12 +36,14 @@ from .skill_system import (
     get_workspace_skills_dir,
     resolve_effective_skills,
 )
+from .coding_mode_mixin import CodingModeMixin
 from .tool_guard_mixin import ToolGuardMixin
 from .tools import (
     browser_use,
     delegate_external_agent,
     chat_with_agent,
     check_agent_task,
+    spawn_subagent,
     submit_to_agent,
     desktop_screenshot,
     edit_file,
@@ -51,6 +53,7 @@ from .tools import (
     glob_search,
     grep_search,
     list_agents,
+    materialize_skill,
     read_file,
     send_file_to_user,
     set_user_timezone,
@@ -77,7 +80,7 @@ logger = logging.getLogger(__name__)
 NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
 
 
-class QwenPawAgent(ToolGuardMixin, ReActAgent):
+class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
     """QwenPaw Agent with integrated tools, skills, and memory management.
 
     This agent extends ReActAgent with:
@@ -87,14 +90,13 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
     - Bootstrap guidance for first-time setup
     - System command handling (/compact, /new, etc.)
     - Tool-guard security interception (via ToolGuardMixin)
+    - Coding Mode features: Inline Diff (via CodingModeMixin)
 
     MRO note
     ~~~~~~~~
-    ``ToolGuardMixin`` overrides ``_acting`` and ``_reasoning`` via
-    Python's MRO: QwenPawAgent → ToolGuardMixin → ReActAgent.  If you
-    add a ``_acting`` or ``_reasoning`` override in this class, you
-    **must** call ``super()._acting(...)`` / ``super()._reasoning(...)``
-    so the guard interception remains active.
+    MRO: QwenPawAgent → CodingModeMixin → ToolGuardMixin → ReActAgent.
+    Each ``_acting`` override **must** call ``super()._acting(...)`` so
+    the full chain stays active.
     """
 
     def __init__(
@@ -143,11 +145,27 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         running_config = agent_config.running
         self._language = agent_config.language
 
+        # Resolve effective skills once and share across toolkit /
+        # skill registration.
+        workspace_dir = self._workspace_dir or WORKING_DIR
+        ensure_skills_initialized(workspace_dir)
+        channel_name = self._request_context.get("channel", "console")
+        try:
+            effective_skills = resolve_effective_skills(
+                workspace_dir,
+                channel_name,
+            )
+        except Exception:  # pylint: disable=broad-except
+            effective_skills = []
+
         # Initialize toolkit with built-in tools
-        toolkit = self._create_toolkit(namesake_strategy=namesake_strategy)
+        toolkit = self._create_toolkit(
+            namesake_strategy=namesake_strategy,
+            effective_skills=effective_skills,
+        )
 
         # Load and register skills
-        self._register_skills(toolkit)
+        self._register_skills(toolkit, effective_skills=effective_skills)
 
         # Initialize memory_manager and context_manager for use
         # in _build_sys_prompt
@@ -214,9 +232,10 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         # Register hooks
         self._register_hooks()
 
-    def _create_toolkit(
+    def _create_toolkit(  # pylint: disable=too-many-branches
         self,
         namesake_strategy: NamesakeStrategy = "skip",
+        effective_skills: list[str] | None = None,
     ) -> Toolkit:
         """Create and populate toolkit with built-in tools.
 
@@ -224,10 +243,13 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             namesake_strategy: Strategy to handle namesake tool functions.
                 Options: "override", "skip", "raise", "rename"
                 (default: "skip")
+            effective_skills: Skills enabled for this workspace + channel,
+                used to gate skill-specific tools.
 
         Returns:
             Configured toolkit instance
         """
+        effective_skills = effective_skills or []
         toolkit = Toolkit()
 
         # Check which tools are enabled from agent config
@@ -280,6 +302,13 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             "chat_with_agent": chat_with_agent,
             "submit_to_agent": submit_to_agent,
             "check_agent_task": check_agent_task,
+            "spawn_subagent": spawn_subagent,
+            # Register only when the `make-skill` skill is enabled.
+            **(
+                {"materialize_skill": materialize_skill}
+                if "make-skill" in effective_skills
+                else {}
+            ),
         }
 
         # Track hardcoded built-in tools for backward compatibility
@@ -368,29 +397,32 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                     f"Failed to register task management tools: {e}",
                 )
 
+        # Coding Mode tools (lsp, ast_search) — only registered when
+        # coding_mode.enabled is True and the underlying CLI / language
+        # server is reachable.  See CodingModeMixin.
+        try:
+            self._register_coding_mode_tools(
+                toolkit,
+                namesake_strategy=namesake_strategy,
+            )
+        except Exception as e:  # pylint: disable=broad-except
+            logger.warning(f"Failed to register Coding Mode tools: {e}")
+
         return toolkit
 
-    def _register_skills(self, toolkit: Toolkit) -> None:
+    def _register_skills(
+        self,
+        toolkit: Toolkit,
+        effective_skills: list[str],
+    ) -> None:
         """Load and register skills from workspace directory.
-
-        Uses the registry-backed skill resolver to determine effective
-        skills for the current channel.
 
         Args:
             toolkit: Toolkit to register skills to
+            effective_skills: Resolved skill names for the current
+                workspace + channel.
         """
         workspace_dir = self._workspace_dir or WORKING_DIR
-
-        ensure_skills_initialized(workspace_dir)
-
-        request_context = getattr(self, "_request_context", {})
-        channel_name = request_context.get("channel", "console")
-
-        effective_skills = resolve_effective_skills(
-            workspace_dir,
-            channel_name,
-        )
-
         working_skills_dir = get_workspace_skills_dir(Path(workspace_dir))
 
         for skill_name in effective_skills:
@@ -698,10 +730,15 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
     # ------------------------------------------------------------------
     # Media-block fallback: strip unsupported media blocks (image, audio,
-    # video) from memory and retry when the model rejects them.
+    # video, file) from memory and retry when the model rejects them.
+    # Unlike model_factory._fixup_media_list (which converts file blocks
+    # to text placeholders so the user-facing message history stays
+    # readable), this fallback strips them entirely — its purpose is to
+    # make a previously-rejected request retryable, so leaving residue
+    # would defeat the point.
     # ------------------------------------------------------------------
 
-    _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
+    _MEDIA_BLOCK_TYPES = {"image", "audio", "video", "file"}
 
     # ------------------------------------------------------------------
     # Plan gate: block non-create_plan tools when /plan gate is active
@@ -1381,11 +1418,15 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         from ..config.context import (
             set_current_workspace_dir,
             set_current_recent_max_bytes,
+            set_current_session_id,
             set_current_shell_command_timeout,
             set_current_shell_command_executable,
         )
 
         set_current_workspace_dir(self._workspace_dir)
+        set_current_session_id(
+            self._request_context.get("session_id") or None,
+        )
         light_ctx = self._agent_config.running.light_context_config
         pruning_config = light_ctx.tool_result_pruning_config
         set_current_recent_max_bytes(

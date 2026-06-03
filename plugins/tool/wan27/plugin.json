@@ -3,6 +3,10 @@
   "name": "Wan 2.7 Video Generation Tool",
   "version": "1.0.0",
   "description": "Generate videos using Alibaba Wan 2.7 models (text-to-video, image-to-video, reference-to-video)",
+  "description_i18n": {
+    "zh-CN": "使用阿里云 Wan 2.7 模型生成视频（文生视频、图生视频、参考生视频）",
+    "en-US": "Generate videos using Alibaba Wan 2.7 models (text-to-video, image-to-video, reference-to-video)"
+  },
   "author": "QwenPaw Team",
   "entry": {
     "backend": "wan27.py"

@@ -62,8 +62,19 @@ vi.mock("@/api/modules/chat", () => ({
 }));
 
 vi.mock("../../sessionApi", () => ({
-  default: { getSessionList: mockGetSessionList },
+  default: {
+    getSessionList: mockGetSessionList,
+    isSessionSwitching: false,
+    preloadSession: vi.fn().mockResolvedValue({ session: {}, realId: null }),
+    finishSessionSwitch: vi.fn(),
+    lastNavigatedChatId: null,
+  },
 }));
+
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual("react-router-dom");
+  return { ...actual, useNavigate: () => vi.fn() };
+});
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k }),
@@ -142,6 +153,24 @@ vi.mock("../ChatSessionItem", () => ({
 
 vi.mock("../../../../Control/Channels/components", () => ({
   getChannelLabel: () => undefined,
+  ChannelIcon: ({ channelKey }: { channelKey: string }) => (
+    <span data-testid="channel-icon">{channelKey}</span>
+  ),
+}));
+
+vi.mock("@agentscope-ai/icons", () => ({
+  SparkOperateRightLine: () => (
+    <span data-icon="SparkOperateRightLine">icon</span>
+  ),
+  SparkLockLine: () => <span data-testid="icon">lock</span>,
+  SparkLockFill: () => <span data-testid="icon">lock-fill</span>,
+}));
+
+vi.mock("../../../../components/ContextMenu", () => ({
+  ContextMenu: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  useContextMenu: () => ({ show: vi.fn(), hide: vi.fn() }),
 }));
 
 const defaultProps = { open: true, onClose: vi.fn() };

@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 
 from ._utils.meta import generate_backup_id
 
+BackupTrustMode = Literal["legacy", "foreign"]
+
 
 class BackupScope(BaseModel):
     include_agents: bool = Field(
@@ -52,6 +54,17 @@ class BackupMeta(BaseModel):
     system_info: dict = Field(
         default_factory=dict,
         description="System information (OS, Python version, etc.)",
+    )
+    signature: Optional[str] = Field(
+        default=None,
+        description="Backup HMAC signature in '<scheme>:<hex>' format",
+    )
+    accepted_via_trust: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Trust state marker: None=legacy/unknown, False=local signed, "
+            "True=accepted after explicit legacy/foreign trust."
+        ),
     )
 
 
@@ -106,6 +119,22 @@ class RestoreBackupRequest(BaseModel):
             "ghost entries when include_agents is False."
         ),
     )
+    preserve_local_protected_config: Optional[bool] = Field(
+        default=None,
+        description=(
+            "When None, preserve local critical settings for explicitly "
+            "trusted legacy/foreign backups and fully restore local signed "
+            "backups."
+        ),
+    )
+    trust_mode: Optional[BackupTrustMode] = Field(
+        default=None,
+        description=(
+            "Explicit trust action for backups that are not locally signed: "
+            "'legacy' for unsigned legacy backups, 'foreign' for backups "
+            "signed by another instance."
+        ),
+    )
 
 
 class DeleteBackupsRequest(BaseModel):
@@ -130,3 +159,18 @@ class BackupConflictError(Exception):
     def __init__(self, existing_meta: BackupMeta) -> None:
         self.existing_meta = existing_meta
         super().__init__(f"backup_conflict: {existing_meta.id}")
+
+
+class BackupValidationError(ValueError):
+    """Raised for user-actionable backup validation failures."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        details: dict[str, object] | None = None,
+    ) -> None:
+        self.code = code
+        self.message = message
+        self.details = details or {}
+        super().__init__(message)

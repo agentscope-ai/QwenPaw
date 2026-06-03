@@ -3,7 +3,14 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { QwenpawMascot } from "@/components/QwenpawMascot";
-import { GitHubIcon, XIcon, DiscordIcon, WChatIcon } from "./Icon";
+import {
+  GitHubIcon,
+  XIcon,
+  DiscordIcon,
+  WChatIcon,
+  DouyinIcon,
+  DingTalkIcon,
+} from "./Icon";
 
 const AGENTSCOPE_ORG = "https://github.com/agentscope-ai";
 const AGENTSCOPE_REPO = "https://github.com/agentscope-ai/agentscope";
@@ -48,18 +55,7 @@ const socialLinks: SocialLink[] = [
   {
     href: "https://qr.dingtalk.com/action/joingroup?code=v1,k1,1k7GcVwa5PzZWRaWyBA5OFImW0zNNx1Gj9RkjnuKVGY=&_dt_no_comment=1&origin=1",
     ariaLabel: "footer.social.dingtalk",
-    icon: (
-      <img
-        height={20}
-        width={20}
-        src="https://img.alicdn.com/imgextra/i1/O1CN01w5mzV01tFtE37wkJI_!!6000000005873-2-tps-48-48.png"
-        className="block h-6 w-6"
-        style={{
-          filter:
-            "sepia(100%) hue-rotate(330deg) saturate(300%) brightness(90%)",
-        }}
-      />
-    ),
+    icon: <DingTalkIcon size={20} className="block" />,
     qrCode:
       "https://img.alicdn.com/imgextra/i4/O1CN013QPmS61pLbhbhg281_!!6000000005344-2-tps-228-229.png",
   },
@@ -83,6 +79,13 @@ const socialLinks: SocialLink[] = [
     icon: <WChatIcon size={20} className="block" />,
     qrCode:
       "https://img.alicdn.com/imgextra/i4/O1CN01WKxBaC1IgmhnDODyc_!!6000000000923-2-tps-626-628.png",
+  },
+  {
+    href: "https://v.douyin.com/CaSqLYepUfk/ 5@0.com :2pm",
+    ariaLabel: "footer.social.douyin",
+    icon: <DouyinIcon size={20} className="block" />,
+    qrCode:
+      "https://img.alicdn.com/imgextra/i4/O1CN01Kqgflj1oD4inPqJQ8_!!6000000005190-2-tps-400-400.png",
   },
 ];
 

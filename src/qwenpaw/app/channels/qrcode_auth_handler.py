@@ -410,7 +410,18 @@ class FeishuQRCodeAuthHandler(QRCodeAuthHandler):
     """
 
     async def _get_domain(self, request: Request) -> str:
-        """Determine if using Feishu (China) or Lark (International) domain."""
+        """Determine if using Feishu (China) or Lark (International) domain.
+
+        Prefers the ``domain`` query parameter (passed by the frontend at QR
+        code time) over the saved agent config, because the config may not have
+        been persisted yet when the user clicks "获取飞书二维码".
+        """
+        # 1. Check query parameter first
+        qp_domain = request.query_params.get("domain", "")
+        if qp_domain in ("feishu", "lark"):
+            return qp_domain
+
+        # 2. Fallback to saved agent config
         try:
             from ..agent_context import get_agent_for_request
 

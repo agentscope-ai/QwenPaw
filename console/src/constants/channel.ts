@@ -13,6 +13,7 @@ export const CHANNELS = {
   sip: "sip",
   wecom: "wecom",
   xiaoyi: "xiaoyi",
+  yuanbao: "yuanbao",
 };
 
 export const CHANNEL_COLORS: Record<string, string> = {
@@ -30,4 +31,5 @@ export const CHANNEL_COLORS: Record<string, string> = {
   sip: "cyan",
   wecom: "olive",
   xiaoyi: "cyan",
+  yuanbao: "lime",
 };

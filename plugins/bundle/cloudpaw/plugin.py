@@ -20,6 +20,7 @@ import platform
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -180,19 +181,20 @@ def _register_a2a_command() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _get_aliyun_cli_url() -> str | None:
-    """Return the download URL for aliyun CLI based on OS and architecture."""
+_INSTALL_PS1_PATH = (
+    Path(__file__).parent / "scripts" / "Install-CLI-Windows.ps1"
+)
+
+
+def _get_aliyun_cli_tgz_url() -> str | None:
+    """Return the tgz download URL for aliyun CLI (manual fallback)."""
     system = platform.system()
     machine = platform.machine().lower()
 
     if system == "Darwin":
-        if machine in ("arm64", "aarch64"):
-            return (
-                "https://aliyuncli.alicdn.com/"
-                "aliyun-cli-darwin-arm64-latest-amd64.tgz"
-            )
         return (
-            "https://aliyuncli.alicdn.com/aliyun-cli-darwin-latest-amd64.tgz"
+            "https://aliyuncli.alicdn.com/"
+            "aliyun-cli-macosx-latest-universal.tgz"
         )
     elif system == "Linux":
         if machine in ("aarch64", "arm64"):
@@ -204,12 +206,64 @@ def _get_aliyun_cli_url() -> str | None:
     return None
 
 
-def _install_aliyun_cli_blocking() -> bool:
-    """Download and install aliyun CLI. Returns True on success."""
-    url = _get_aliyun_cli_url()
+# -- Installation strategies (tried in priority order per platform) ----------
+
+
+def _install_via_bash_script() -> bool:
+    """Install via the official install.sh one-liner (macOS & Linux)."""
+    if platform.system() not in ("Darwin", "Linux"):
+        return False
+    try:
+        logger.info("Installing aliyun CLI via official install.sh script")
+        subprocess.run(
+            [
+                "/bin/bash",
+                "-c",
+                "$(curl -fsSL https://aliyuncli.alicdn.com/install.sh)",
+            ],
+            check=True,
+            timeout=180,
+        )
+        if shutil.which("aliyun") is not None:
+            logger.info("aliyun CLI installed via official bash script")
+            return True
+        logger.warning("install.sh finished but aliyun not found on PATH")
+        return False
+    except Exception as exc:
+        logger.warning("Official install.sh failed: %s", exc)
+        return False
+
+
+def _install_via_homebrew() -> bool:
+    """Install via Homebrew (macOS only)."""
+    if platform.system() != "Darwin":
+        return False
+    if shutil.which("brew") is None:
+        logger.info("Homebrew not available, skipping brew install")
+        return False
+    try:
+        logger.info("Installing aliyun CLI via Homebrew")
+        subprocess.run(
+            ["brew", "install", "aliyun-cli"],
+            check=True,
+            timeout=300,
+        )
+        if shutil.which("aliyun") is not None:
+            logger.info("aliyun CLI installed via Homebrew")
+            return True
+        logger.warning("brew install succeeded but aliyun not found on PATH")
+        return False
+    except Exception as exc:
+        logger.warning("Homebrew install failed: %s", exc)
+        return False
+
+
+def _install_via_tgz() -> bool:
+    """Download tgz and install manually (macOS / Linux fallback)."""
+    url = _get_aliyun_cli_tgz_url()
     if url is None:
         logger.warning(
-            "Unsupported platform for auto-install: %s/%s",
+            "Unsupported platform for tgz install: %s/%s",
             platform.system(),
             platform.machine(),
         )
@@ -217,15 +271,15 @@ def _install_aliyun_cli_blocking() -> bool:
 
     tmp_dir = tempfile.mkdtemp()
     try:
-        tgz_path = os.path.join(tmp_dir, "aliyun-cli.tgz")
+        archive_path = os.path.join(tmp_dir, "aliyun-cli.tgz")
         logger.info("Downloading aliyun CLI from %s", url)
         subprocess.run(
-            ["curl", "-fsSL", url, "-o", tgz_path],
+            ["curl", "-fsSL", url, "-o", archive_path],
             check=True,
             timeout=120,
         )
         subprocess.run(
-            ["tar", "-xzf", tgz_path, "-C", tmp_dir],
+            ["tar", "-xzf", archive_path, "-C", tmp_dir],
             check=True,
             timeout=30,
         )
@@ -250,10 +304,82 @@ def _install_aliyun_cli_blocking() -> bool:
         logger.info("aliyun CLI installed to %s", dest)
         return True
     except Exception as exc:
-        logger.warning("Failed to install aliyun CLI: %s", exc)
+        logger.warning("Failed to install aliyun CLI via tgz: %s", exc)
         return False
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _install_via_powershell() -> bool:
+    """Install on Windows using the official PowerShell script."""
+    if platform.system() != "Windows":
+        return False
+
+    try:
+        logger.info("Installing aliyun CLI via PowerShell script")
+        subprocess.run(
+            [
+                "powershell.exe",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(_INSTALL_PS1_PATH),
+            ],
+            check=True,
+            timeout=180,
+        )
+
+        install_dir = os.path.join(
+            os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+            "AliyunCLI",
+        )
+        aliyun_exe = os.path.join(install_dir, "aliyun.exe")
+        if os.path.isfile(aliyun_exe):
+            current_path = os.environ.get("PATH", "")
+            if install_dir not in current_path:
+                os.environ["PATH"] = current_path + os.pathsep + install_dir
+            logger.info("aliyun CLI installed to %s", aliyun_exe)
+            return True
+
+        if shutil.which("aliyun") is not None:
+            logger.info("aliyun CLI installed via PowerShell script")
+            return True
+
+        logger.warning("PowerShell script finished but aliyun not found")
+        return False
+    except Exception as exc:
+        logger.warning("PowerShell install failed: %s", exc)
+        return False
+
+
+def _install_aliyun_cli_blocking() -> bool:
+    """Download and install aliyun CLI. Returns True on success.
+
+    Installation priority per platform:
+      macOS : bash script → Homebrew → tgz
+      Linux : bash script → tgz
+      Windows : PowerShell script
+    """
+    system = platform.system()
+
+    if system == "Windows":
+        return _install_via_powershell()
+
+    strategies: list[tuple[str, Callable[[], bool]]] = [
+        ("bash script", _install_via_bash_script),
+    ]
+    if system == "Darwin":
+        strategies.append(("Homebrew", _install_via_homebrew))
+    strategies.append(("tgz", _install_via_tgz))
+
+    for name, fn in strategies:
+        logger.info("Trying aliyun CLI install via %s...", name)
+        if fn():
+            return True
+        logger.info("Install via %s did not succeed, trying next...", name)
+
+    logger.warning("All aliyun CLI installation methods failed")
+    return False
 
 
 async def _ensure_aliyun_cli() -> None:
@@ -282,6 +408,51 @@ async def _ensure_aliyun_cli() -> None:
             "aliyun CLI auto-install failed. Install manually: "
             "https://help.aliyun.com/zh/cli/",
         )
+
+
+# ---------------------------------------------------------------------------
+# Plugin loader monkeypatch for uninstall cleanup
+# ---------------------------------------------------------------------------
+
+
+def _patch_plugin_loader_unload() -> None:
+    """Monkeypatch PluginLoader.unload_plugin to clean up CloudPaw agents
+    when the plugin is uninstalled.
+    """
+    try:
+        from qwenpaw.plugins.loader import PluginLoader
+    except ImportError:
+        logger.warning(
+            "Cannot import PluginLoader; uninstall patch skipped",
+        )
+        return
+
+    _original_unload_plugin = PluginLoader.unload_plugin
+
+    async def _patched_unload_plugin(
+        self,
+        plugin_id: str,
+        delete_files: bool = False,
+    ) -> None:
+        if plugin_id == "cloudpaw":
+            logger.info(
+                "[CloudPaw] Uninstall detected, cleaning up agents...",
+            )
+            try:
+                from .agents_setup import uninstall_agents
+
+                uninstall_agents()
+                logger.info("[CloudPaw] Agent cleanup completed")
+            except Exception as exc:
+                logger.warning(
+                    "[CloudPaw] Agent cleanup failed: %s",
+                    exc,
+                )
+
+        return await _original_unload_plugin(self, plugin_id, delete_files)
+
+    PluginLoader.unload_plugin = _patched_unload_plugin
+    logger.info("[CloudPaw] Patched PluginLoader.unload_plugin")
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +522,11 @@ class CloudPawPlugin:
 
         logger.info("[CloudPaw] Checking aliyun CLI availability...")
         await _ensure_aliyun_cli()
+
+        logger.info(
+            "[CloudPaw] Patching plugin loader for uninstall cleanup...",
+        )
+        _patch_plugin_loader_unload()
 
         logger.info("CloudPaw plugin startup complete")
 

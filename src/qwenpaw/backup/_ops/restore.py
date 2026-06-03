@@ -15,17 +15,20 @@ from .._utils.constants import (
     PREFIX_SECRETS,
     PREFIX_SKILL_POOL,
     PREFIX_WORKSPACES,
-    zip_path,
+    find_zip_path,
 )
 from .._utils.meta import read_meta_from_zip
 from .._utils.safe_swap import (
+    assert_directory_renamable,
     cleanup_stale_restore_artifacts,
     commit_tmp,
     discard_tmp,
     extract_to_tmp,
+    find_busy_restore_paths,
     restore_process_lock,
 )
-from ..models import BackupMeta, RestoreBackupRequest
+from .._utils.signing import resolve_signature_action, sign_trusted_backup
+from ..models import BackupMeta, BackupValidationError, RestoreBackupRequest
 from ...config.config import AgentProfileRef
 from ...config.utils import load_config, save_config
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
@@ -33,6 +36,8 @@ from ...security.secret_store import reload_master_key_from_disk
 from .restore_helpers import (
     collect_workspace_agents_from_zip,
     handle_master_key_conflict,
+    overlay_local_keys,
+    resolve_preserve_flag,
     resolve_workspace_dst,
     rewrite_agent_workspace_dir,
 )
@@ -47,10 +52,38 @@ _SUPPORTED_BACKUP_VERSIONS = {"1"}
 _RESTORE_LOCK = asyncio.Lock()
 
 
-async def restore(backup_id: str, req: RestoreBackupRequest) -> None:
-    """Restore a backup to the workspace."""
+async def restore(backup_id: str, req: RestoreBackupRequest) -> BackupMeta:
+    """Restore a backup to the workspace.
+
+    The async lock serializes in-process restore requests; the process lock
+    in ``_restore_sync`` protects the actual filesystem swap section.
+    """
     async with _RESTORE_LOCK:
-        await asyncio.to_thread(_restore_sync, backup_id, req)
+        return await asyncio.to_thread(_restore_sync, backup_id, req)
+
+
+def preflight_restore(backup_id: str, req: RestoreBackupRequest) -> BackupMeta:
+    """Validate restore trust and version before stopping running agents.
+
+    This performs no writes.  An unsigned legacy backup without explicit trust
+    fails here, so the HTTP orchestration can show the trust prompt without
+    stopping and immediately restarting the affected workspaces.
+    """
+    zp = find_zip_path(backup_id)
+    if zp is None:
+        raise FileNotFoundError(f"Backup not found: {backup_id}")
+
+    with zipfile.ZipFile(zp, "r") as zf:
+        meta = _read_meta_or_missing(zf, backup_id)
+        resolve_signature_action(
+            zf,
+            meta,
+            backup_id,
+            trust_mode=req.trust_mode,
+            operation="Restoring",
+        )
+        _validate_version(meta)
+        return meta
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +98,16 @@ def _validate_version(meta: BackupMeta) -> None:
             f"Unsupported backup version: {meta.version!r}. "
             f"Supported versions: {sorted(_SUPPORTED_BACKUP_VERSIONS)}",
         )
+
+
+def _read_meta_or_missing(
+    zf: zipfile.ZipFile,
+    backup_id: str,
+) -> BackupMeta:
+    meta_json = read_meta_from_zip(zf)
+    if meta_json is None:
+        raise FileNotFoundError(f"Backup not found: {backup_id}")
+    return BackupMeta.model_validate_json(meta_json)
 
 
 def _zip_has_prefix(zf: zipfile.ZipFile, prefix: str) -> bool:
@@ -111,7 +154,7 @@ def _plan_agent_destinations(
     seen_paths: dict[
         Path,
         str,
-    ] = {}  # resolved path → first aid that claimed it
+    ] = {}  # resolved path to first aid that claimed it
 
     for aid in agent_ids:
         if aid not in ws_agents:
@@ -258,9 +301,86 @@ def _stage_agents(
             new_aids.append(aid)
 
 
+def _restore_directory_targets(
+    zf: zipfile.ZipFile,
+    req: RestoreBackupRequest,
+    agent_ids: list[str],
+    ws_agents: set[str],
+    planned_dst_map: dict[str, tuple[Path, bool]],
+) -> list[Path]:
+    """Return existing directories that a restore would replace.
+
+    The list mirrors the staging rules, so we only probe targets that will
+    actually be committed.  New agent workspaces may not exist yet; the probe
+    helper ignores missing paths.
+    """
+    targets: list[Path] = []
+    if req.include_secrets and _zip_has_prefix(zf, PREFIX_SECRETS):
+        targets.append(SECRET_DIR)
+    if req.include_skill_pool and _zip_has_prefix(zf, PREFIX_SKILL_POOL):
+        from ...agents.skill_system.store import get_skill_pool_dir
+
+        targets.append(get_skill_pool_dir())
+    if req.include_agents:
+        for aid in agent_ids:
+            if aid not in ws_agents:
+                continue
+            prefix = f"{PREFIX_WORKSPACES}{aid}/"
+            if _zip_has_prefix(zf, prefix):
+                targets.append(planned_dst_map[aid][0])
+    return _dedupe_restore_targets(targets)
+
+
+def _dedupe_restore_targets(targets: list[Path]) -> list[Path]:
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for target in targets:
+        try:
+            key = str(target.resolve())
+        except OSError:
+            key = str(target.absolute())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(target)
+    return deduped
+
+
+def _assert_restore_targets_available(targets: list[Path]) -> None:
+    """Raise a user-actionable error if a restore target is still busy."""
+    busy_paths: list[Path] = []
+    first_error: OSError | None = None
+    for target in targets:
+        try:
+            assert_directory_renamable(target)
+        except OSError as exc:
+            if first_error is None:
+                first_error = exc
+            locked = find_busy_restore_paths(target)
+            busy_paths.extend(locked or [target])
+            logger.warning(
+                "Restore target is still in use and cannot be renamed: %s",
+                target,
+                exc_info=True,
+            )
+    if busy_paths:
+        locked_paths = [
+            str(path) for path in _dedupe_restore_targets(busy_paths)
+        ]
+        raise BackupValidationError(
+            "restore_target_busy",
+            "Restore target is still in use after closing managed "
+            "browsers and stopping agents. Close any browser or external "
+            "process using the locked directories, then retry. If the "
+            "directories remain locked, restart the system and try again.",
+            {"locked_paths": locked_paths},
+        ) from first_error
+
+
 def _stage_all(
     zf: zipfile.ZipFile,
     req: RestoreBackupRequest,
+    meta: BackupMeta,
     agent_ids: list[str],
     ws_agents: set[str],
     planned_dst_map: dict[str, tuple[Path, bool]],
@@ -282,7 +402,7 @@ def _stage_all(
     new_aids: list[str] = []
 
     try:
-        staged_config_tmp = _stage_global_config(zf, req, restore_aids)
+        staged_config_tmp = _stage_global_config(zf, req, meta, restore_aids)
         if req.include_secrets:
             _stage_secrets(zf, staged_dirs)
         if req.include_skill_pool:
@@ -358,21 +478,48 @@ def _commit_and_finalize(
     _apply_workspace_paths_and_save(config, dst_map, backup_id)
 
 
-def _restore_sync(backup_id: str, req: RestoreBackupRequest) -> None:
+def _restore_sync(backup_id: str, req: RestoreBackupRequest) -> BackupMeta:
     with restore_process_lock():
-        _restore_sync_locked(backup_id, req)
+        return _restore_sync_locked(backup_id, req)
 
 
-def _restore_sync_locked(backup_id: str, req: RestoreBackupRequest) -> None:
-    zp = zip_path(backup_id)
-    if not zp.is_file():
+def _restore_sync_locked(
+    backup_id: str,
+    req: RestoreBackupRequest,
+) -> BackupMeta:
+    """Restore after both async and process-level restore locks are held."""
+    zp = find_zip_path(backup_id)
+    if zp is None:
         raise FileNotFoundError(f"Backup not found: {backup_id}")
 
     with zipfile.ZipFile(zp, "r") as zf:
-        meta_json = read_meta_from_zip(zf)
-        if meta_json is None:
-            raise FileNotFoundError(f"Backup not found: {backup_id}")
-        meta = BackupMeta.model_validate_json(meta_json)
+        meta = _read_meta_or_missing(zf, backup_id)
+        # Legacy/foreign backups are usable only after explicit user trust.
+        # If trust is accepted, sign the archive locally before any file
+        # writes so the restore below verifies the same bytes it will apply.
+        signature_action = resolve_signature_action(
+            zf,
+            meta,
+            backup_id,
+            trust_mode=req.trust_mode,
+            operation="Restoring",
+        )
+        _validate_version(meta)
+
+    if signature_action == "sign_trusted":
+        meta = sign_trusted_backup(zp, meta)
+
+    with zipfile.ZipFile(zp, "r") as zf:
+        meta = _read_meta_or_missing(zf, backup_id)
+        # Re-open after trust signing and verify the archive that will
+        # actually be restored, including its newly written meta.json.
+        resolve_signature_action(
+            zf,
+            meta,
+            backup_id,
+            trust_mode=None,
+            operation="Restoring",
+        )
         _validate_version(meta)
 
         logger.info(
@@ -400,9 +547,19 @@ def _restore_sync_locked(backup_id: str, req: RestoreBackupRequest) -> None:
             config_before,
             req,
         )
+        _assert_restore_targets_available(
+            _restore_directory_targets(
+                zf,
+                req,
+                agent_ids,
+                ws_agents,
+                planned_dst_map,
+            ),
+        )
         staged_dirs, staged_config_tmp, dst_map, new_aids = _stage_all(
             zf,
             req,
+            meta,
             agent_ids,
             ws_agents,
             planned_dst_map,
@@ -416,6 +573,7 @@ def _restore_sync_locked(backup_id: str, req: RestoreBackupRequest) -> None:
         new_aids,
         backup_id,
     )
+    return meta
 
 
 def _merge_profiles_into(
@@ -468,6 +626,7 @@ def _merge_profiles_into(
 def _stage_global_config(
     zf: zipfile.ZipFile,
     req: RestoreBackupRequest,
+    meta: BackupMeta,
     restore_aids: set[str],
 ) -> Path | None:
     """Stage global config.json from the zip to a sibling .tmp file.
@@ -497,7 +656,8 @@ def _stage_global_config(
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".tmp")
     try:
-        if req.mode == "full":
+        preserve = resolve_preserve_flag(req, meta)
+        if req.mode == "full" and not preserve:
             # Full restore: copy backup bytes verbatim (agents.profiles
             # will be exactly what the backup contained).
             with zf.open(PREFIX_CONFIG) as src, open(tmp, "wb") as out:
@@ -510,21 +670,33 @@ def _stage_global_config(
             # Custom restore: merge – backup wins on all top-level keys, but
             # agents.profiles is rebuilt from local state, only applying
             # backup profiles for agents in restore_aids.
+            # Full+preserve also uses this JSON path so local keys can
+            # override the backup content before commit.
             backup_cfg = json.loads(zf.read(PREFIX_CONFIG))
             try:
                 with open(dest, "r", encoding="utf-8") as f:
                     current_cfg = json.load(f)
             except (OSError, ValueError):
                 current_cfg = {}
-            merged = _merge_profiles_into(
-                backup_cfg,
-                current_cfg,
-                restore_aids,
-            )
+            if req.mode == "full":
+                merged = backup_cfg
+            else:
+                merged = _merge_profiles_into(
+                    backup_cfg,
+                    current_cfg,
+                    restore_aids,
+                )
+            if preserve:
+                # Preserve local security/MCP after the mode-specific merge so
+                # the local controls win over any trusted foreign config.
+                merged = overlay_local_keys(merged, current_cfg)
             with open(tmp, "w", encoding="utf-8") as out:
                 json.dump(merged, out, indent=2, ensure_ascii=False)
             logger.debug(
-                "Staged global config (custom merge, restore_aids=%s) to %s",
+                "Staged global config (mode=%s, preserve=%s, "
+                "restore_aids=%s) to %s",
+                req.mode,
+                preserve,
                 sorted(restore_aids),
                 tmp,
             )

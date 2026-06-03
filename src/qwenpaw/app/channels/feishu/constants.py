@@ -30,3 +30,12 @@ FEISHU_WS_BACKOFF_FACTOR = 2
 # If no data (including pong) received for this many seconds, force reconnect.
 # SDK pings every ~120s, so 240s ≈ 2 missed cycles.
 FEISHU_WS_RECV_TIMEOUT = 240
+
+# ---- CardKit streaming card constants ----
+
+# Minimum interval (seconds) between streaming update API calls.
+# CardKit allows 10 QPS per card entity; we use a conservative interval.
+FEISHU_STREAM_MIN_INTERVAL_S = 0.15
+
+# Element ID for the markdown component inside the streaming card.
+FEISHU_STREAM_ELEMENT_ID = "streaming_content"

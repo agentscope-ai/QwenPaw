@@ -1,0 +1,18 @@
+# Build output
+dist/
+build/
+
+# Dependencies
+node_modules/
+
+# Lockfiles
+package-lock.json
+
+# Cache
+.cache/
+*.cache
+
+# Misc
+coverage/
+.vscode/
+.idea/

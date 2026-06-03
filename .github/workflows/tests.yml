@@ -19,6 +19,14 @@ on:
       - '.github/workflows/tests.yml'
   workflow_dispatch:
 
+# Coverage data is collected on a single matrix entry per test class
+# (ubuntu-latest + python 3.10, historically the fastest combination)
+# instead of being re-run from scratch in coverage-report. The data files
+# (.coverage.unit / .coverage.contract / .coverage.integration plus their
+# cobertura xml) are uploaded as short-lived artifacts and consumed by the
+# coverage-report job, which only combines and renders — it does not run
+# pytest itself anymore.
+
 jobs:
   approval-gate:
     name: Maintainer Approval
@@ -82,10 +90,119 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,full]"
 
-      - name: Run all unit tests
+      - name: Run unit tests
+        shell: bash
+        env:
+          COVERAGE_FILE: .coverage.unit
+        run: |
+          # Coverage is collected only on the ubuntu/py3.10 entry so the
+          # data file can be uploaded for coverage-report. Other matrix
+          # entries only verify cross-platform compatibility.
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
+             [ "${{ matrix.python-version }}" = "3.10" ]; then
+            pytest tests/unit -v \
+              --cov=src/qwenpaw \
+              --cov-report=xml:coverage.unit.xml \
+              --cov-fail-under=0
+          else
+            pytest tests/unit -v
+          fi
+
+      - name: Upload unit coverage data
+        if: |
+          matrix.os == 'ubuntu-latest' &&
+          matrix.python-version == '3.10'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data-unit
+          path: |
+            .coverage.unit
+            coverage.unit.xml
+          retention-days: 1
+          include-hidden-files: true
+
+  contract-tests:
+    name: Contract Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
+    needs: approval-gate
+    if: |
+      always() &&
+      needs.approval-gate.result == 'success'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+        os: [ubuntu-latest]
+        include:
+          - os: macos-latest
+            python-version: "3.10"
+          - os: windows-latest
+            python-version: "3.10"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js (for console build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: console/package-lock.json
+
+      - name: Build console frontend
+        shell: bash
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+        run: |
+          cd console && npm ci && npm run build
+
+      - name: Copy console build into package
         shell: bash
         run: |
-          pytest tests/unit -v
+          rm -rf src/qwenpaw/console/*
+          mkdir -p src/qwenpaw/console
+          cp -R console/dist/* src/qwenpaw/console/
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,full]"
+
+      - name: Run contract tests
+        shell: bash
+        env:
+          COVERAGE_FILE: .coverage.contract
+        run: |
+          # Same conditional-coverage pattern as unit-tests.
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
+             [ "${{ matrix.python-version }}" = "3.10" ]; then
+            pytest tests/contract -v \
+              --cov=src/qwenpaw \
+              --cov-report=xml:coverage.contract.xml \
+              --cov-fail-under=0
+          else
+            pytest tests/contract -v
+          fi
+
+      - name: Upload contract coverage data
+        if: |
+          matrix.os == 'ubuntu-latest' &&
+          matrix.python-version == '3.10'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data-contract
+          path: |
+            .coverage.contract
+            coverage.contract.xml
+          retention-days: 1
+          include-hidden-files: true
 
   integrated-tests:
     name: Integrated Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
@@ -151,15 +268,66 @@ jobs:
             echo "has_tests=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run integrated tests
+      - name: Determine pytest marker expression
+        id: marker
         if: steps.check-integrated.outputs.has_tests == 'true'
         shell: bash
         run: |
-          pytest tests/integration -v
+          # PR gate -> p0 only (fast feedback)
+          # push / workflow_dispatch -> p0 + p1 (full pre-merge gate)
+          # nightly full sweep lives in full-tests-nightly.yml
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            EXPR="integration and p0"
+          else
+            EXPR="integration and (p0 or p1)"
+          fi
+          echo "expr=$EXPR" >> "$GITHUB_OUTPUT"
+          echo "Selected marker expression: $EXPR"
+
+      - name: Run integrated tests
+        if: steps.check-integrated.outputs.has_tests == 'true'
+        shell: bash
+        env:
+          # Subprocess coverage on the ubuntu/py3.10 entry only. conftest.py
+          # treats empty / missing as off, so the other matrix entries do
+          # not pay the tracer overhead.
+          QWENPAW_INTEGRATION_COVERAGE: ${{ (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10') && '1' || '' }}
+        run: |
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
+             [ "${{ matrix.python-version }}" = "3.10" ]; then
+            # Subprocess coverage entry. Parent process must not carry
+            # --cov, hence --no-cov here.
+            pytest tests/integration -v --no-cov \
+              -m "${{ steps.marker.outputs.expr }}"
+            cp .integration_coverage/integration_subproc \
+              .coverage.integration
+            # `coverage xml` honours fail_under and exits 2 when below;
+            # tolerate that — the combined value is what matters.
+            coverage xml --data-file=.coverage.integration \
+              -o coverage.integration.xml || [ "$?" -eq 2 ]
+          else
+            pytest tests/integration -v \
+              -m "${{ steps.marker.outputs.expr }}"
+          fi
+
+      - name: Upload integration coverage data
+        if: |
+          steps.check-integrated.outputs.has_tests == 'true' &&
+          matrix.os == 'ubuntu-latest' &&
+          matrix.python-version == '3.10'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data-integration
+          path: |
+            .coverage.integration
+            coverage.integration.xml
+            htmlcov-integration/
+          retention-days: 1
+          include-hidden-files: true
 
   coverage-report:
     name: Coverage Report
-    needs: approval-gate
+    needs: [approval-gate, unit-tests, contract-tests, integrated-tests]
     if: |
       always() &&
       needs.approval-gate.result == 'success'
@@ -171,62 +339,136 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js (for console build)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: console/package-lock.json
-
-      - name: Build console frontend
-        shell: bash
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-        run: |
-          cd console && npm ci && npm run build
-
-      - name: Copy console build into package
-        shell: bash
-        run: |
-          rm -rf src/qwenpaw/console/*
-          mkdir -p src/qwenpaw/console
-          cp -R console/dist/* src/qwenpaw/console/
-
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: 'pip'
 
-      - name: Install dependencies
+      - name: Install coverage tool
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,full]"
+          # Only the coverage tool is needed for combine / report; no need
+          # to install the full project (the per-tier .coverage data files
+          # arrive via download-artifact below).
+          pip install coverage
 
-      - name: Run all tests with coverage
+      - name: Download coverage data artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-data-*
+          merge-multiple: true
+
+      - name: Inspect downloaded coverage data
         shell: bash
         run: |
-          pytest tests/ \
-            -v \
-            --cov=src/qwenpaw \
-            --cov-report=xml \
-            --cov-report=term-missing \
-            --cov-report=html
+          ls -la .coverage* coverage.*.xml htmlcov-integration 2>&1 | head -30 || true
 
-      - name: Generate coverage comment on PR
+      - name: Combine all coverage data
+        shell: bash
+        run: |
+          coverage combine \
+            .coverage.unit .coverage.contract .coverage.integration
+          # Tolerate fail-under (exit 2): combined number is what matters
+          # and reflected in the summary regardless.
+          coverage xml -o coverage.combined.xml || [ "$?" -eq 2 ]
+          coverage html -d htmlcov-combined || [ "$?" -eq 2 ]
+          echo "Combined coverage report:"
+          coverage report --skip-covered --fail-under=0
+
+      - name: Build coverage summary table
+        id: cov_summary
+        shell: bash
+        run: |
+          # Best-effort number per tier; missing/malformed data => "n/a".
+          set +e
+
+          # Read line-rate from cobertura xml directly to avoid the
+          # coverage source-filter mismatch that would otherwise produce
+          # "No data to report" on the per-tier data files.
+          get_pct() {
+            python3 -c 'import sys, xml.etree.ElementTree as ET; print(round(float(ET.parse(sys.argv[1]).getroot().attrib.get("line-rate", "0")) * 100))' "$1" 2>/dev/null || echo "n/a"
+          }
+          UNIT=$(get_pct coverage.unit.xml)
+          CONTRACT=$(get_pct coverage.contract.xml)
+          INTEGRATION=$(get_pct coverage.integration.xml)
+          COMBINED=$(get_pct coverage.combined.xml)
+          echo "UNIT=${UNIT:-n/a}"
+          echo "CONTRACT=${CONTRACT:-n/a}"
+          echo "INTEGRATION=${INTEGRATION:-n/a}"
+          echo "COMBINED=${COMBINED:-n/a}"
+
+          {
+            echo "## 📊 Coverage report"
+            echo ""
+            echo "| Test category | Coverage |"
+            echo "|---|---|"
+            echo "| Unit        | ${UNIT:-n/a}% |"
+            echo "| Contract    | ${CONTRACT:-n/a}% |"
+            echo "| Integration | ${INTEGRATION:-n/a}% |"
+            echo "| **Combined** | **${COMBINED:-n/a}%** |"
+            echo ""
+            echo "> Combined = \`coverage combine\` of unit + contract + integration (subprocess mode)."
+            echo "> HTML reports under workflow artifact \`coverage-reports\` (\`htmlcov-combined\` / \`htmlcov-integration\`)."
+            echo "> Coverage is collected only on the ubuntu/py3.10 matrix entry; other matrix entries verify cross-platform compatibility without the tracer overhead."
+          } > coverage_summary.md
+
+          cat coverage_summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Sticky coverage PR comment
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: orgoro/coverage@v3.2
+        uses: actions/github-script@v7
         with:
-          coverageFile: coverage.xml
-          token: ${{ github.token }}
-          thresholdAll: 0.0
-          thresholdNew: 0.0
-          thresholdModified: 0.0
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('coverage_summary.md', 'utf8');
+            const marker = '<!-- qwenpaw-coverage-summary -->';
+            const finalBody = `${marker}\n${body}`;
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+              },
+            );
+            const existing = comments.find(
+              (c) => c.body && c.body.includes(marker),
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: finalBody,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: finalBody,
+              });
+            }
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            coverage.unit.xml
+            coverage.contract.xml
+            coverage.integration.xml
+            coverage.combined.xml
+            htmlcov-combined/
+            htmlcov-integration/
+          retention-days: 7
 
   test-summary:
     name: Test Summary
-    needs: [approval-gate, unit-tests, integrated-tests, coverage-report]
+    needs: [approval-gate, unit-tests, contract-tests, integrated-tests, coverage-report]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -235,6 +477,7 @@ jobs:
         run: |
           echo "Approval gate: ${{ needs.approval-gate.result }}"
           echo "Unit tests: ${{ needs.unit-tests.result }}"
+          echo "Contract tests: ${{ needs.contract-tests.result }}"
           echo "Integrated tests: ${{ needs.integrated-tests.result }}"
 
           if [ "${{ needs.approval-gate.result }}" != "success" ]; then
@@ -243,6 +486,7 @@ jobs:
           fi
 
           if [ "${{ needs.unit-tests.result }}" = "failure" ] || \
+             [ "${{ needs.contract-tests.result }}" = "failure" ] || \
              [ "${{ needs.integrated-tests.result }}" = "failure" ]; then
             echo "❌ Some tests failed"
             exit 1

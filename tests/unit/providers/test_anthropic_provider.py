@@ -135,7 +135,7 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
     ok, msg = await provider.check_connection(timeout=1.0)
 
     assert ok is False
-    assert msg == "Anthropic API error"
+    assert msg == "Anthropic API error: boom"
 
 
 async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
