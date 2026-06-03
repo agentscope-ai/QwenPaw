@@ -731,7 +731,6 @@ export default function ChatPage() {
     AvailableCommand[]
   >([]);
 
-
   useEffect(() => {
     let cancelled = false;
     planApi
