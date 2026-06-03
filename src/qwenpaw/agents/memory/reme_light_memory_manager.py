@@ -669,12 +669,27 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         else:
             logger.debug("No existing MEMORY.md file to backup")
 
+        # Build a dedicated toolkit for the dream agent so it stays
+        # isolated from self.summary_toolkit (which the summarize path
+        # shares). Decoupling avoids any future tool change on either
+        # side accidentally affecting the other.
+        from qwenpaw.agents.tools import (  # noqa: PLC0415
+            read_file,
+            write_file,
+            edit_file,
+        )
+
+        dream_toolkit = Toolkit()
+        dream_toolkit.register_tool_function(read_file)
+        dream_toolkit.register_tool_function(write_file)
+        dream_toolkit.register_tool_function(edit_file)
+
         dream_agent = ReActAgent(
             name="DreamOptimizer",
             model=chat_model,
             sys_prompt="You are a Dream Memory Organizer specialized"
             " in optimizing long-term memory files.",
-            toolkit=self.summary_toolkit,
+            toolkit=dream_toolkit,
             formatter=formatter,
         )
         dream_agent.set_console_output_enabled(False)
