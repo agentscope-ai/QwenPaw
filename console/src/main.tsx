@@ -3,7 +3,7 @@ import App from "./App.tsx";
 import "./i18n";
 import { installHostExternals } from "./plugins/hostExternals";
 import { registerHostModulesEager } from "./plugins/dynamicModuleRegistry";
-import { registerBuiltinCards } from "./components/Chat/ToolCards/registerBuiltinCards";
+// import { registerBuiltinCards } from "./components/Chat/ToolCards/registerBuiltinCards";
 
 // Expose host dependencies (React, antd, etc.) on window
 // so that plugin UI modules can use them without bundling their own copies.
@@ -11,7 +11,7 @@ installHostExternals();
 
 // Register built-in tool card renderers into the PluginSystem
 // so ChatV1 (@agentscope-ai/chat) picks them up via customToolRenderConfig.
-registerBuiltinCards();
+// registerBuiltinCards()
 
 // Dynamic module registration - no generated files needed!
 // Automatically discovers all modules in src/pages at build time

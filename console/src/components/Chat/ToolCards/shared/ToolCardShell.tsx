@@ -7,7 +7,7 @@
 
 import React from "react";
 import { useTranslation } from "react-i18next";
-import type { ToolCallContent, ToolCallStatus } from "./types";
+import type { ToolCallContent } from "./types";
 import styles from "./toolCards.module.less";
 
 export interface ToolCardShellProps {

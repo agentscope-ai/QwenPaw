@@ -28,7 +28,6 @@ const ShellCard: React.FC<ShellCardProps> = ({ content }) => {
       icon={<CodeOutlined />}
       title={command || content.name}
       content={content}
-      defaultOpen={!!resultText}
     >
       {command && (
         <DefaultBlock title="Command" content={command} />
