@@ -84,6 +84,7 @@ def _coerce_source(
 # ---------------------------------------------------------------------------
 
 
+# pylint: disable=too-many-return-statements
 def _coerce_block(block: Any) -> Any:
     """Map a stored content block dict to a 2.0 block instance.
 
@@ -115,6 +116,14 @@ def _coerce_block(block: Any) -> Any:
             name=block.get("name", ""),
             input=input_str,
         )
+    if btype == "tool_result":
+        output = block.get("output")
+        # TODO: handle ``state`` field on tool_result blocks.
+        if isinstance(output, list):
+            new_block = dict(block)
+            new_block["output"] = [_coerce_block(b) for b in output]
+            return new_block
+        return block
     return block
 
 
