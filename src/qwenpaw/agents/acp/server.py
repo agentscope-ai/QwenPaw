@@ -850,6 +850,9 @@ class QwenPawACPAgent(Agent):
                 "inputTokens": raw.get("prompt_tokens", 0),
                 "outputTokens": raw.get("completion_tokens", 0),
                 "totalTokens": raw.get("total_tokens", 0),
+                # The model that produced this call, so clients can show it
+                # (the session is bound late, e.g. via a global fallback).
+                "model": raw.get("model_name") or "",
             },
         }
 
