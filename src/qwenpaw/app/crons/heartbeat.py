@@ -216,6 +216,7 @@ async def run_heartbeat_once(
         "session_id": "main",
         "user_id": "main",
         "channel": DEFAULT_CHANNEL,
+        "request_context": {"source": "heartbeat"},
     }
 
     # Get last_dispatch from agent config if agent_id provided
