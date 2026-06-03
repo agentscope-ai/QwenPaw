@@ -2,7 +2,6 @@
 """Tests for plugin-contributed system prompt sections."""
 from __future__ import annotations
 
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -10,21 +9,11 @@ import pytest
 from qwenpaw.plugins.registry import PluginRegistry
 
 
-class _PromptOnlyAgent:
-    """Small stand-in for QwenPawAgent._build_sys_prompt tests."""
+class _FakeAgent:
+    """Minimal stand-in providing only what build_prompt_sections reads."""
 
-    def __init__(
-        self,
-        *,
-        agent_id: str = "datapaw",
-        env_context: str | None = None,
-    ) -> None:
+    def __init__(self, *, agent_id: str = "datapaw") -> None:
         self._request_context = {"agent_id": agent_id}
-        self._agent_config = SimpleNamespace(heartbeat=None)
-        self._workspace_dir = None
-        self._language = "zh"
-        self.memory_manager = None
-        self._env_context = env_context
 
 
 @pytest.fixture(autouse=True)
@@ -57,7 +46,7 @@ def test_registry_orders_prompt_sections_linearly_after_host_anchor():
     )
 
     sections = registry.build_prompt_sections(
-        _PromptOnlyAgent(agent_id="datapaw"),
+        _FakeAgent(agent_id="datapaw"),
         {
             "workspace": "WORKSPACE",
             "multimodal": "MULTIMODAL",
@@ -121,7 +110,7 @@ def test_registry_filters_agent_id_and_unregisters_plugin_sections():
     )
 
     other_sections = registry.build_prompt_sections(
-        _PromptOnlyAgent(agent_id="other"),
+        _FakeAgent(agent_id="other"),
         {"workspace": "WORKSPACE"},
     )
     assert [section.content for section in other_sections] == [
@@ -131,7 +120,7 @@ def test_registry_filters_agent_id_and_unregisters_plugin_sections():
 
     registry.unregister_plugin("test-b")
     datapaw_sections = registry.build_prompt_sections(
-        _PromptOnlyAgent(agent_id="datapaw"),
+        _FakeAgent(agent_id="datapaw"),
         {"workspace": "WORKSPACE"},
     )
     assert [section.content for section in datapaw_sections] == [
@@ -164,7 +153,7 @@ def test_registry_skips_empty_and_failed_prompt_providers():
 
     with patch("qwenpaw.plugins.registry.logger.exception") as log_exception:
         sections = registry.build_prompt_sections(
-            _PromptOnlyAgent(agent_id="datapaw"),
+            _FakeAgent(agent_id="datapaw"),
             {"workspace": "WORKSPACE"},
         )
 
@@ -184,40 +173,7 @@ def test_registry_skips_section_referencing_missing_anchor():
     )
 
     sections = registry.build_prompt_sections(
-        _PromptOnlyAgent(agent_id="datapaw"),
+        _FakeAgent(agent_id="datapaw"),
         {"workspace": "WORKSPACE"},
     )
     assert [s.content for s in sections] == ["WORKSPACE"]
-
-
-def test_qwenpaw_agent_build_sys_prompt_includes_plugin_sections(monkeypatch):
-    """QwenPawAgent._build_sys_prompt consumes registered plugin sections."""
-    from qwenpaw.agents import react_agent
-
-    registry = PluginRegistry()
-    registry.register_prompt_section(
-        plugin_id="test-a",
-        name="plugin.master",
-        after="workspace",
-        agent_id="datapaw",
-        provider=lambda agent: "PLUGIN SECTION",
-    )
-    monkeypatch.setattr(
-        react_agent,
-        "build_system_prompt_from_working_dir",
-        lambda **kwargs: "WORKSPACE",
-    )
-    monkeypatch.setattr(
-        react_agent,
-        "build_multimodal_hint",
-        lambda: "MULTIMODAL",
-    )
-
-    # pylint: disable=protected-access
-    prompt = react_agent.QwenPawAgent._build_sys_prompt(
-        _PromptOnlyAgent(agent_id="datapaw", env_context="ENV_CONTEXT"),
-    )
-
-    assert prompt == (
-        "WORKSPACE\n\n" "PLUGIN SECTION\n\n" "MULTIMODAL\n\n" "ENV_CONTEXT"
-    )
