@@ -120,26 +120,28 @@ def _workspace_dir_for_browser_state(state: dict) -> str:
     return str(WORKING_DIR)
 
 
-def _resolve_user_data_dir(workspace_dir: str, exe_path: str) -> str:
-    """Return the user-data directory for *exe_path*.
+def _resolve_user_data_dir(
+    workspace_dir: str,
+    exe_path: str,
+    explicit_executable_path: bool = False,
+) -> str:
+    """Return the user-data directory for a browser launch.
 
-    * System-default browser  → ``{workspace}/browser/user_data``
-    * Non-default browser     → ``{workspace}/browser/user_data_{type}``
+    * No explicit executable_path → ``{workspace}/browser/user_data``
+    * Explicit executable_path    → ``{workspace}/browser/user_data_{type}``
 
-    This prevents profile-format conflicts when switching between
-    browsers (e.g. Edge ↔ Chrome).
+    Keeping the implicit/default launch on the legacy directory preserves
+    existing users' cookies and sessions. Explicit browser paths get isolated
+    profiles to avoid profile-format conflicts when switching browsers.
     """
     if not workspace_dir:
         return ""
     base = Path(workspace_dir) / "browser"
-    browser_type = _browser_type_from_exe(exe_path)
-    if not browser_type:
+    if not explicit_executable_path:
         return str(base / "user_data")
 
-    _effective_kind, effective_exe = _resolve_chromium_launch_target()
-    effective_type = _browser_type_from_exe(effective_exe or "")
-
-    if not effective_type or browser_type == effective_type:
+    browser_type = _browser_type_from_exe(exe_path)
+    if not browser_type:
         return str(base / "user_data")
 
     return str(base / f"user_data_{browser_type}")
@@ -520,7 +522,11 @@ def _sync_browser_launch(
 
     if exe:
         ws_dir = _workspace_dir_for_browser_state(state)
-        state["user_data_dir"] = _resolve_user_data_dir(ws_dir, exe)
+        state["user_data_dir"] = _resolve_user_data_dir(
+            ws_dir,
+            exe,
+            explicit_executable_path=bool(executable_path),
+        )
         user_data_dir = state["user_data_dir"]
         if user_data_dir:
             Path(user_data_dir).mkdir(parents=True, exist_ok=True)
@@ -637,7 +643,11 @@ async def _start_managed_cdp_browser(
         )
 
     ws_dir = _workspace_dir_for_browser_state(state)
-    state["user_data_dir"] = _resolve_user_data_dir(ws_dir, exe)
+    state["user_data_dir"] = _resolve_user_data_dir(
+        ws_dir,
+        exe,
+        explicit_executable_path=bool(executable_path),
+    )
 
     chosen_cdp_port = cdp_port or _find_free_local_port()
     proc = _start_managed_chromium_process(
@@ -1205,7 +1215,11 @@ async def _action_start(
             if exe:
                 # Use persistent context so cookies/storage survive browser restarts
                 ws_dir = _workspace_dir_for_browser_state(state)
-                state["user_data_dir"] = _resolve_user_data_dir(ws_dir, exe)
+                state["user_data_dir"] = _resolve_user_data_dir(
+                    ws_dir,
+                    exe,
+                    explicit_executable_path=bool(executable_path),
+                )
                 user_data_dir = state["user_data_dir"]
                 if user_data_dir:
                     Path(user_data_dir).mkdir(parents=True, exist_ok=True)
@@ -4518,7 +4532,9 @@ async def browser_use(  # pylint: disable=R0911,R0912
             return await _action_stop(state)
         if action == "connect_cdp":
             return await _action_connect_cdp(
-                state, cdp_url, wait_time=wait_time
+                state,
+                cdp_url,
+                wait_time=wait_time,
             )
         if action == "list_cdp_targets":
             return await _action_list_cdp_targets(port, port_min, port_max)
