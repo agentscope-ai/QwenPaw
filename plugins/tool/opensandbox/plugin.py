@@ -89,7 +89,10 @@ def _install_plugin_skills() -> None:
 
 
 def _sync_plugin_skills_to_agents() -> None:
-    """Copy bundled skills into existing agent workspaces, disabled by default."""
+    """Copy bundled skills into existing agent workspaces.
+
+    Newly synced skills are disabled by default.
+    """
     try:
         from qwenpaw.agents.skill_system import SkillPoolService, SkillService
         from qwenpaw.agents.skill_system.store import get_workspace_skills_dir
@@ -111,7 +114,9 @@ def _sync_plugin_skills_to_agents() -> None:
                 continue
 
             for skill_name in _PLUGIN_SKILLS:
-                skill_dir = get_workspace_skills_dir(workspace_dir) / skill_name
+                skill_dir = (
+                    get_workspace_skills_dir(workspace_dir) / skill_name
+                )
                 already_present = skill_dir.exists()
                 result = pool_service.download_to_workspace(
                     skill_name,

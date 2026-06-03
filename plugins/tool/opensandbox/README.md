@@ -90,7 +90,7 @@ max_sandbox_timeout_seconds = 86400
 api_key = "your-api-key"
 ```
 
-本地开发建议设置非空 `api_key`。后续 QwenPaw 插件配置里的 `api_key` 或 `OPEN_SANDBOX_API_KEY` 必须和这里一致。
+本地开发建议设置非空 `api_key`。后续 QwenPaw 插件配置里的 `api_key` 或 `OPEN_SANDBOX_API_KEY` 必须和这里一致。如果你的 OpenSandbox server 没有配置 `api_key`，插件里的 `api_key` 和 `OPEN_SANDBOX_API_KEY` 可以保持为空。
 
 ### 5. 启动 OpenSandbox server
 
