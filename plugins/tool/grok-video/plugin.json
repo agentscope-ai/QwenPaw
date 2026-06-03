@@ -1,0 +1,64 @@
+{
+  "id": "grok-video-tool",
+  "name": "Grok Video Tool",
+  "version": "2.0.0",
+  "type": "tool",
+  "description": "Generate short videos with xAI Grok Imagine (text-to-video and image-to-video).",
+  "author": "QwenPaw",
+  "entry": {
+    "backend": "grok_video.py"
+  },
+  "dependencies": ["httpx>=0.24.0"],
+  "min_version": "1.1.7",
+  "meta": {
+    "tools": [
+      {
+        "name": "generate_video_grok",
+        "description": "Generate a short video from a text prompt (or text + reference image) using xAI Grok Imagine. Generation typically takes 30-90 seconds; the tool blocks until the video is ready and returns a local file path.",
+        "icon": "🎬",
+        "requires_config": false,
+        "config_fields": [
+          {
+            "name": "api_key",
+            "label": "xAI API Key (optional)",
+            "type": "password",
+            "required": false,
+            "placeholder": "xai-...",
+            "help": "Leave empty to use the xAI OAuth login written by `qwenpaw xai login`."
+          },
+          {
+            "name": "model",
+            "label": "Model",
+            "type": "text",
+            "required": false,
+            "placeholder": "grok-imagine-video",
+            "help": "xAI video model id. Default: grok-imagine-video."
+          },
+          {
+            "name": "default_duration",
+            "label": "Default duration (seconds)",
+            "type": "number",
+            "required": false,
+            "placeholder": "5",
+            "min": 1,
+            "max": 15,
+            "help": "Default clip length in seconds when the caller omits it."
+          },
+          {
+            "name": "poll_timeout",
+            "label": "Poll timeout (seconds)",
+            "type": "number",
+            "required": false,
+            "placeholder": "600",
+            "min": 60,
+            "max": 900,
+            "help": "How long to wait for the video job to finish before giving up. xAI Grok Imagine routinely takes 4-8 minutes."
+          }
+        ]
+      }
+    ],
+    "api_key_url": "https://console.x.ai/team/default/api-keys",
+    "api_key_hint": "Optional — if not set, the tool uses your xAI OAuth login (run `qwenpaw xai login`). Get an API key from console.x.ai if you prefer.",
+    "model_url": "https://docs.x.ai/docs/models"
+  }
+}

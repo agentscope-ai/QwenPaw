@@ -1,0 +1,96 @@
+{
+  "id": "grok-image-tool",
+  "name": "Grok Image Tool",
+  "version": "2.0.0",
+  "type": "tool",
+  "description": "Generate and edit images using xAI Grok Imagine (Aurora). Two tools: generate_image_grok (text-to-image) and edit_image_grok (image-to-image / multi-image edit).",
+  "author": "QwenPaw",
+  "entry": {
+    "backend": "grok_image.py"
+  },
+  "dependencies": ["httpx>=0.24.0"],
+  "min_version": "1.1.7",
+  "meta": {
+    "tools": [
+      {
+        "name": "generate_image_grok",
+        "description": "Generate a new image from a text prompt using xAI Grok Imagine (Aurora). Text-to-image only — to edit an existing image, use edit_image_grok instead.",
+        "icon": "🎨",
+        "requires_config": false,
+        "config_fields": [
+          {
+            "name": "api_key",
+            "label": "xAI API Key (optional)",
+            "type": "password",
+            "required": false,
+            "placeholder": "xai-...",
+            "help": "Leave empty to use the xAI OAuth login written by `qwenpaw xai login`. Falls back to XAI_API_KEY env var."
+          },
+          {
+            "name": "model",
+            "label": "Model",
+            "type": "text",
+            "required": false,
+            "placeholder": "grok-imagine-image-quality",
+            "help": "xAI image model id. Default: grok-imagine-image-quality. Use grok-imagine-image for the cheaper/faster tier."
+          },
+          {
+            "name": "resolution",
+            "label": "Default resolution",
+            "type": "text",
+            "required": false,
+            "placeholder": "1k",
+            "help": "1k or 2k (2k costs more, available on Premium+ accounts)."
+          },
+          {
+            "name": "timeout",
+            "label": "Request Timeout (seconds)",
+            "type": "number",
+            "required": false,
+            "placeholder": "120",
+            "min": 30,
+            "max": 600,
+            "help": "HTTP request timeout in seconds (default: 120)."
+          }
+        ]
+      },
+      {
+        "name": "edit_image_grok",
+        "description": "Edit an existing image (image-to-image) or compose from multiple references (multi-image edit) using xAI Grok Imagine. Source images accept http(s) URL or data:image/...;base64,... URI.",
+        "icon": "🖼️",
+        "requires_config": false,
+        "config_fields": [
+          {
+            "name": "api_key",
+            "label": "xAI API Key (optional)",
+            "type": "password",
+            "required": false,
+            "placeholder": "xai-...",
+            "help": "Leave empty to use the xAI OAuth login written by `qwenpaw xai login`. Falls back to XAI_API_KEY env var."
+          },
+          {
+            "name": "model",
+            "label": "Model",
+            "type": "text",
+            "required": false,
+            "placeholder": "grok-imagine-image-quality",
+            "help": "xAI image model id. Default: grok-imagine-image-quality."
+          },
+          {
+            "name": "timeout",
+            "label": "Request Timeout (seconds)",
+            "type": "number",
+            "required": false,
+            "placeholder": "120",
+            "min": 30,
+            "max": 600,
+            "help": "HTTP request timeout in seconds (default: 120)."
+          }
+        ]
+      }
+    ],
+    "api_key_url": "https://console.x.ai/team/default/api-keys",
+    "api_key_hint": "Optional — if not set, the tools use your xAI OAuth login (run `qwenpaw xai login`). Get an API key from console.x.ai if you prefer.",
+    "model_url": "https://docs.x.ai/docs/models"
+  }
+}
