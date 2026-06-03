@@ -174,9 +174,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Build Docker image (amd64 only)
         run: |
           BUILD_ARGS=""
@@ -186,10 +183,8 @@ jobs:
           if [ -n "${{ inputs.docker_uv_image }}" ]; then
             BUILD_ARGS="$BUILD_ARGS --build-arg UV_IMAGE=${{ inputs.docker_uv_image }}"
           fi
-          docker buildx build \
-            --platform linux/amd64 \
+          docker build \
             -f deploy/Dockerfile \
-            --load \
             -t qwenpaw-verify:test \
             $BUILD_ARGS \
             .
@@ -313,7 +308,8 @@ jobs:
         run: |
           $env:PATH = "$env:USERPROFILE\.qwenpaw\bin;$env:PATH"
           qwenpaw init --defaults --accept-security
-          Start-Process -NoNewWindow -FilePath "qwenpaw" -ArgumentList "app","--host","127.0.0.1","--port","8088"
+          $python = "$env:USERPROFILE\.qwenpaw\venv\Scripts\python.exe"
+          Start-Process -NoNewWindow -FilePath $python -ArgumentList "-m","qwenpaw.cli.main","app","--host","127.0.0.1","--port","8088"
 
       - name: Wait for /api/version
         shell: bash
