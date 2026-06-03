@@ -37,16 +37,14 @@ def test_build_available_commands_set():
     commands = QwenPawACPAgent._build_available_commands()
     names = {c.name for c in commands}
 
-    # User-facing conversation + mission + skills commands are advertised.
-    assert {
-        "new",
-        "clear",
-        "compact",
-        "history",
-        "plan",
-        "mission",
-        "skills",
-    } <= names
+    # Exactly the curated subset is advertised: the user-facing conversation
+    # commands plus mission and skills. Everything else (history, plan, the
+    # ACP-redundant control commands, etc.) is intentionally not advertised.
+    assert names == {"new", "clear", "compact", "mission", "skills"}
+
+    # Previously-advertised commands that are now hidden from the palette.
+    assert "history" not in names
+    assert "plan" not in names
 
     # Commands with a dedicated ACP affordance are not advertised.
     assert names.isdisjoint(_ACP_REDUNDANT_COMMANDS)

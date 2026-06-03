@@ -241,15 +241,7 @@ def _msg_to_updates(  # pylint: disable=too-many-branches
                 update_tool_call(
                     str(tr.get("id") or uuid4().hex[:8]),
                     status="completed",
-                    content=[
-                        tool_content(
-                            text_block(
-                                _extract_tool_output(
-                                    tr.get("output", ""),
-                                ),
-                            ),
-                        ),
-                    ],
+                    content=_tool_result_content(tr.get("output", "")),
                 ),
             )
         return updates
@@ -305,15 +297,9 @@ def _content_blocks_to_updates(
                 update_tool_call(
                     str(block_data.get("id") or uuid4().hex[:8]),
                     status="completed",
-                    content=[
-                        tool_content(
-                            text_block(
-                                _extract_tool_output(
-                                    block_data.get("output", ""),
-                                ),
-                            ),
-                        ),
-                    ],
+                    content=_tool_result_content(
+                        block_data.get("output", ""),
+                    ),
                 ),
             )
 
@@ -322,7 +308,11 @@ def _extract_tool_output(output: Any) -> str:
     """Extract plain text from a tool output value.
 
     The output may be a string, a list of content blocks, or another
-    structure — normalise everything to a flat string.
+    structure — normalise everything to a flat string. File/media blocks
+    (image/audio/video/file with a URL source, e.g. from
+    ``send_file_to_user``) are rendered as a readable ``filename`` line
+    rather than a raw dict repr; the URL itself travels as a separate
+    ``resource_link`` content block (see ``_tool_result_content``).
     """
     if isinstance(output, str):
         return output
@@ -330,11 +320,81 @@ def _extract_tool_output(output: Any) -> str:
         parts = []
         for item in output:
             if isinstance(item, dict):
-                parts.append(item.get("text", str(item)))
+                if "text" in item:
+                    parts.append(item.get("text") or "")
+                    continue
+                media = _media_block_url(item)
+                if media is not None:
+                    _url, name, _mime = media
+                    parts.append(f"📎 {name}")
+                    continue
+                parts.append(str(item))
             else:
                 parts.append(str(item))
-        return "\n".join(parts)
+        return "\n".join(p for p in parts if p)
     return str(output)
+
+
+def _media_block_url(
+    item: Any,
+) -> tuple[str, str, str | None] | None:
+    """Return ``(url, name, mime_type)`` for an image/audio/video/file block
+    that carries a URL source, else ``None``.
+
+    Handles both dict blocks (e.g. agentscope ``ImageBlock``/``FileBlock``)
+    and attribute-style objects.
+    """
+    if isinstance(item, dict):
+        btype = item.get("type")
+        source = item.get("source")
+        name = item.get("filename") or item.get("name")
+        mime = item.get("mime_type") or item.get("mimeType")
+    else:
+        btype = getattr(item, "type", None)
+        source = getattr(item, "source", None)
+        name = getattr(item, "filename", None) or getattr(item, "name", None)
+        mime = getattr(item, "mime_type", None)
+    if btype not in ("image", "audio", "video", "file"):
+        return None
+    if isinstance(source, dict):
+        url = source.get("url")
+    else:
+        url = getattr(source, "url", None)
+    if not url or not isinstance(url, str):
+        return None
+    if not name:
+        name = url.rstrip("/").rsplit("/", 1)[-1] or url
+    return url, name, mime
+
+
+def _tool_result_content(output: Any) -> list[Any]:
+    """Build the ACP tool-call ``content`` for a completed tool result.
+
+    Always includes the flattened text; additionally appends a
+    ``resource_link`` block for every file/media block in the output so ACP
+    clients (e.g. the paw TUI) can offer a clickable link to the file the
+    agent sent via ``send_file_to_user``.
+    """
+    contents: list[Any] = [
+        tool_content(text_block(_extract_tool_output(output))),
+    ]
+    if isinstance(output, list):
+        for item in output:
+            media = _media_block_url(item)
+            if media is None:
+                continue
+            url, name, mime = media
+            contents.append(
+                tool_content(
+                    ResourceContentBlock(
+                        type="resource_link",
+                        uri=url,
+                        name=name,
+                        mime_type=mime,
+                    ),
+                ),
+            )
+    return contents
 
 
 def _normalise_block(block: Any) -> tuple[str, dict[str, Any]]:

@@ -23,21 +23,22 @@ logger = logging.getLogger(__name__)
 
 # User-facing conversation commands and their summaries, used when
 # advertising commands to clients (e.g. the ACP
-# ``available_commands_update`` notification). This is intentionally a
-# subset of ``SYSTEM_COMMANDS`` — the omitted entries (``compact_str``,
+# ``available_commands_update`` notification). Intentionally a small,
+# curated subset of ``SYSTEM_COMMANDS`` — only the conversation commands
+# meant to be typed by users are advertised (``/new``, ``/clear``,
+# ``/compact``). The rest (``history``, ``plan``, ``compact_str``,
 # ``summarize_status``, ``message``, ``dump_history``, ``load_history``,
-# ``proactive``) are internal/programmatic and not meant to be typed.
-# Descriptions mirror the console command palette copy
-# (``console/src/locales/en.json`` → ``chat.commands``) where they overlap,
-# so the same wording is shown across the web UI and ACP clients.
+# ``proactive``) are still handled if typed but are not advertised, to keep
+# the ACP command palette focused. Descriptions mirror the console command
+# palette copy (``console/src/locales/en.json`` → ``chat.commands``) where
+# they overlap, so the same wording is shown across the web UI and ACP
+# clients.
 SYSTEM_COMMAND_DESCRIPTIONS: dict[str, str] = {
     "new": "Start a new conversation",
     "clear": "Clear the conversation context",
     "compact": (
         "Compact the conversation context; optional instruction supported"
     ),
-    "history": "Show the conversation history",
-    "plan": "Create a structured plan to decompose the task into subtasks",
 }
 
 
