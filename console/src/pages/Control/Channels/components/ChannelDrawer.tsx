@@ -562,8 +562,6 @@ export function ChannelDrawer({
               onError={(type) => {
                 if (type === "expired") {
                   message.warning(t("channels.qqQrcodeExpired"));
-                } else if (type === "fail") {
-                  message.error(t("channels.qqQrcodeFailed"));
                 } else {
                   message.error(t("channels.qqQrcodeFailed"));
                 }

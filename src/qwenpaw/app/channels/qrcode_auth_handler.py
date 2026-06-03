@@ -652,62 +652,15 @@ def _decode_poll_token(token: str) -> Tuple[str, str]:
 
 
 class QQQRCodeAuthHandler(QRCodeAuthHandler):
+    """QR code auth handler for QQ bot authorization via Portal bind task."""
+
     _PORTAL_HOST: str = os.getenv("QQ_PORTAL_HOST", "q.qq.com")
     _CREATE_PATH: str = "/lite/create_bind_task"
     _POLL_PATH: str = "/lite/poll_bind_result"
     _FRONTEND_PATH: str = "/qqbot/openclaw/connect.html"
-    _AAD_USE_TASK_ID: bool = os.getenv("QQ_AAD_USE_TASK_ID", "") == "1"
-
-    def _handle_completed(
-        self,
-        data: dict,
-        task_id: str,
-        aes_key: str,
-    ) -> PollResult:
-        raw_appid = data.get("bot_appid")
-        encrypted_secret = data.get("bot_encrypt_secret", "")
-        if not raw_appid or not encrypted_secret:
-            logger.error(
-                "QQ poll completed but missing appid/secret task_id=%s",
-                task_id,
-            )
-            return PollResult(
-                status="fail",
-                credentials={"fail_reason": "Missing app_id or secret"},
-            )
-
-        bot_appid = str(raw_appid)
-        aad = task_id.encode() if self._AAD_USE_TASK_ID else None
-        try:
-            client_secret = _decrypt_secret(
-                encrypted_secret,
-                aes_key,
-                associated_data=aad,
-            )
-        except Exception:
-            logger.exception(
-                "Failed to decrypt QQ secret for task_id=%s",
-                task_id,
-            )
-            return PollResult(
-                status="fail",
-                credentials={"fail_reason": "Secret decryption failed"},
-            )
-
-        user_openid = str(data.get("user_openid", ""))
-        logger.info("QQ QR login succeeded task_id=%s", task_id)
-        return PollResult(
-            status="success",
-            credentials={
-                "app_id": bot_appid,
-                "client_secret": client_secret,
-                "user_openid": user_openid,
-            },
-        )
 
     async def fetch_qrcode(self, request: Request) -> QRCodeResult:
         import httpx
-        import json
         from urllib.parse import urlencode
 
         aes_key = _generate_bind_key()
@@ -722,29 +675,16 @@ class QQQRCodeAuthHandler(QRCodeAuthHandler):
                 )
                 resp.raise_for_status()
                 data = resp.json()
-        except httpx.HTTPError as exc:
-            logger.exception("QQ create_bind_task HTTP request failed")
+        except Exception as exc:
             raise HTTPException(
                 status_code=502,
-                detail="QQ create_bind_task failed",
-            ) from exc
-        except (json.JSONDecodeError, Exception) as exc:
-            logger.exception("QQ create_bind_task invalid response")
-            raise HTTPException(
-                status_code=502,
-                detail="QQ returned invalid response",
+                detail=f"QQ create_bind_task failed: {exc}",
             ) from exc
 
         if data.get("retcode") != 0:
-            msg = data.get("msg", "unknown error")
-            logger.error(
-                "QQ create_bind_task retcode=%s msg=%s",
-                data.get("retcode"),
-                msg,
-            )
             raise HTTPException(
                 status_code=502,
-                detail="QQ create_bind_task error",
+                detail=f"QQ create_bind_task error: {data.get('msg', '')}",
             )
 
         task_id = data.get("data", {}).get("task_id")
@@ -755,25 +695,18 @@ class QQQRCodeAuthHandler(QRCodeAuthHandler):
             )
 
         params = urlencode(
-            {
-                "task_id": task_id,
-                "_wv": "2",
-                "source": PROJECT_NAME,
-            },
+            {"task_id": task_id, "_wv": "2", "source": PROJECT_NAME},
         )
         scan_url = f"https://{self._PORTAL_HOST}{self._FRONTEND_PATH}?{params}"
         poll_token = _encode_poll_token(task_id, aes_key)
-        logger.info("QQ QR session created task_id=%s", task_id)
         return QRCodeResult(scan_url=scan_url, poll_token=poll_token)
 
     async def poll_status(self, token: str, request: Request) -> PollResult:
         import httpx
-        import json
 
         try:
             task_id, aes_key = _decode_poll_token(token)
         except ValueError as exc:
-            logger.warning("QQ poll: invalid token – %s", exc)
             raise HTTPException(
                 status_code=400,
                 detail="Invalid poll token",
@@ -790,71 +723,50 @@ class QQQRCodeAuthHandler(QRCodeAuthHandler):
                 )
                 resp.raise_for_status()
                 data = resp.json()
-        except httpx.HTTPStatusError as exc:
-            if 400 <= exc.response.status_code < 500:
-                logger.error(
-                    "QQ poll client error %d for task_id=%s",
-                    exc.response.status_code,
-                    task_id,
-                )
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid request to QQ Portal",
-                ) from exc
-            logger.exception("QQ poll server error for task_id=%s", task_id)
+        except Exception as exc:
             raise HTTPException(
                 status_code=502,
-                detail="QQ poll_bind_result failed",
-            ) from exc
-        except httpx.HTTPError as exc:
-            logger.exception("QQ poll network error for task_id=%s", task_id)
-            raise HTTPException(
-                status_code=502,
-                detail="QQ poll_bind_result failed",
-            ) from exc
-        except (json.JSONDecodeError, Exception) as exc:
-            logger.exception("QQ poll invalid JSON for task_id=%s", task_id)
-            raise HTTPException(
-                status_code=502,
-                detail="QQ returned invalid response",
+                detail=f"QQ poll_bind_result failed: {exc}",
             ) from exc
 
         retcode = data.get("retcode")
         if retcode != 0:
-            msg = data.get("msg", "unknown")
-            logger.warning(
-                "QQ poll task_id=%s retcode=%s msg=%s",
-                task_id,
-                retcode,
-                msg,
-            )
             return PollResult(
                 status="fail",
-                credentials={"fail_reason": f"retcode={retcode}: {msg}"},
+                credentials={"fail_reason": data.get("msg", "unknown")},
             )
 
-        d = data.get("data", {})
-        status = d.get("status", -1)
+        result_data = data.get("data", {})
+        status = result_data.get("status", -1)
 
         if status == 2:
-            return self._handle_completed(d, task_id, aes_key)
-
-        if status == 3:
-            logger.info("QQ QR task_id=%s expired on portal", task_id)
-            return PollResult(status="expired", credentials={})
-
-        if status not in (0, 1):
-            logger.error(
-                "QQ poll unexpected status=%s for task_id=%s",
-                status,
-                task_id,
-            )
+            # Completed – decrypt secret
+            raw_appid = result_data.get("bot_appid")
+            encrypted_secret = result_data.get("bot_encrypt_secret", "")
+            if not raw_appid or not encrypted_secret:
+                return PollResult(
+                    status="fail",
+                    credentials={"fail_reason": "Missing app_id or secret"},
+                )
+            try:
+                client_secret = _decrypt_secret(encrypted_secret, aes_key)
+            except Exception:
+                return PollResult(
+                    status="fail",
+                    credentials={"fail_reason": "Secret decryption failed"},
+                )
             return PollResult(
-                status="fail",
-                credentials={"fail_reason": f"Unknown status {status}"},
+                status="success",
+                credentials={
+                    "app_id": str(raw_appid),
+                    "client_secret": client_secret,
+                    "user_openid": str(result_data.get("user_openid", "")),
+                },
             )
-
-        return PollResult(status="waiting", credentials={})
+        elif status == 3:
+            return PollResult(status="expired", credentials={})
+        else:
+            return PollResult(status="waiting", credentials={})
 
 
 # ---------------------------------------------------------------------------
