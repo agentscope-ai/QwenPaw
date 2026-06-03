@@ -28,7 +28,6 @@ class StopCommandHandler(BaseControlCommandHandler):
     """
 
     command_name = "/stop"
-    description = "Stop the current task"
 
     async def handle(self, context: ControlContext) -> str:
         """Handle /stop command.

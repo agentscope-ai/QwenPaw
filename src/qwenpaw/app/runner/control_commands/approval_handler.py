@@ -33,7 +33,6 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
     """
 
     command_name = "/approval"
-    description = "Manage pending tool approvals (list/approve/deny)"
 
     async def handle(self, context: ControlContext) -> str:
         """Handle /approval command with various actions.
@@ -296,7 +295,6 @@ class ApproveCommandHandler(BaseControlCommandHandler):
     """
 
     command_name = "/approve"
-    description = "Approve a pending tool execution"
 
     def __init__(self):
         """Initialize with shared approval handler."""
@@ -333,7 +331,6 @@ class DenyCommandHandler(BaseControlCommandHandler):
     """
 
     command_name = "/deny"
-    description = "Deny a pending tool execution"
 
     def __init__(self):
         """Initialize with shared approval handler."""
