@@ -24,6 +24,12 @@ import {
   type QwenPawSlotNamespace,
 } from "./registry/sdk";
 import { menuRegistry, routeRegistry } from "./registry/store";
+import type {
+  HostAgentInfo,
+  HostSessionInfo,
+  HostThemeMode,
+  QwenPawChatNamespace,
+} from "./types/qwenpaw";
 
 declare const VITE_API_BASE_URL: string;
 
@@ -40,6 +46,14 @@ export interface HostExternals {
   apiBaseUrl: string;
   getApiUrl: typeof getApiUrl;
   getApiToken: typeof getApiToken;
+  // ── Hooks + helpers attached later by installHostSdk() ─────────────────────
+  useTheme?: () => HostThemeMode;
+  useLocale?: () => string;
+  useSelectedAgent?: () => HostAgentInfo;
+  useCurrentSession?: () => HostSessionInfo | null;
+  getSelectedAgentId?: () => string;
+  getCurrentSessionId?: () => string | null;
+  fetch?: (path: string, init?: RequestInit) => Promise<Response>;
 }
 
 export interface PluginRouteDeclaration {
@@ -154,7 +168,9 @@ export interface WindowNamespace {
   route?: QwenPawRouteNamespace;
   /** Console-wide plugin Slot API (header.left, sider.bottom, …). */
   slot?: QwenPawSlotNamespace;
-  /** Override audit log (debug). */
+  /** Chat-surface customization API. Attached by installHostSdk(). */
+  chat?: QwenPawChatNamespace;
+  /** Override audit log (debug). Attached by installHostExternals(). */
   audit?: QwenPawAuditNamespace;
 }
 
