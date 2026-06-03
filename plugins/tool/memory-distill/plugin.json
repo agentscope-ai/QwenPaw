@@ -1,0 +1,52 @@
+{
+  "id": "memory-distill-tool",
+  "name": "Memory Distillation Tool",
+  "version": "1.0.0",
+  "description": "Advanced memory consolidation for agent daily notes. Features title-diffing distillation (~92% noise reduction), incremental MEMORY.md updates, and three-tier memory classification.",
+  "author": "QwenPaw Community",
+  "entry": {
+    "backend": "memory_distill_plugin.py"
+  },
+  "dependencies": [],
+  "min_version": "1.1.6",
+  "meta": {
+    "tools": [
+      {
+        "name": "distill_memory",
+        "description": "Distill daily notes into MEMORY.md using title-diffing to find genuinely new information.",
+        "icon": "🧠"
+      },
+      {
+        "name": "consolidate_memory",
+        "description": "Run the full memory consolidation pipeline: distill, archive, clean, and audit.",
+        "icon": "🧠"
+      },
+      {
+        "name": "inspect_memory",
+        "description": "Inspect MEMORY.md and daily notes health, size, and recent activity.",
+        "icon": "🔍"
+      }
+    ],
+    "requires_config": false,
+    "config_fields": [
+      {
+        "name": "working_dir",
+        "label": "Working Directory",
+        "type": "text",
+        "required": false,
+        "placeholder": "agent working directory",
+        "help": "Override agent working directory (leave empty to use default)"
+      },
+      {
+        "name": "default_days",
+        "label": "Default Lookback Days",
+        "type": "number",
+        "required": false,
+        "placeholder": "15",
+        "min": 1,
+        "max": 90,
+        "help": "Default number of days to scan for consolidation (default: 15)"
+      }
+    ]
+  }
+}
