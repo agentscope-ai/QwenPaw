@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """CLI command: run QwenPaw app on a free port in a native webview window."""
+
 # pylint:disable=too-many-branches,too-many-statements,consider-using-with
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ import threading
 import time
 import traceback
 import webbrowser
+from collections.abc import Mapping
 
 import click
 
@@ -35,7 +37,12 @@ class WebViewAPI:
             return
         webbrowser.open(url)
 
-    def save_file(self, url: str, filename: str) -> bool:
+    def save_file(
+        self,
+        url: str,
+        filename: str,
+        headers: Mapping[str, str] | None = None,
+    ) -> bool:
         """Download a file from *url* and save it via a native save dialog.
 
         Shows the OS "Save As" dialog so the user can pick a destination,
@@ -46,6 +53,7 @@ class WebViewAPI:
         Args:
             url: Full HTTP(S) URL of the file to download.
             filename: Default filename shown in the save dialog.
+            headers: Optional request headers supplied by the web console.
 
         Returns:
             True if the file was saved successfully, False if the user
@@ -74,8 +82,17 @@ class WebViewAPI:
 
             dest_path = result if isinstance(result, str) else result[0]
 
+            request = urllib.request.Request(
+                url,
+                headers={
+                    str(key): str(value)
+                    for key, value in (headers or {}).items()
+                    if value is not None
+                },
+            )
+
             # Download from the local backend and write to chosen path
-            with urllib.request.urlopen(url) as response:
+            with urllib.request.urlopen(request) as response:
                 with open(dest_path, "wb") as f:
                     shutil.copyfileobj(response, f)
 
