@@ -4370,10 +4370,13 @@ async def browser_use(  # pylint: disable=R0911,R0912
             action=click.
         page_x (int):
             Page viewport X coordinate in pixels for action=click. Used only
-            when neither ref nor selector is provided.
+            when neither ref nor selector is provided. Designed for
+            Canvas/WebGL UIs where no DOM sub-elements exist — coordinates
+            can be estimated from screenshots or computed via
+            action=evaluate for pixel-precise targeting.
         page_y (int):
-            Page viewport Y coordinate in pixels for action=click. Used only
-            when neither ref nor selector is provided.
+            Page viewport Y coordinate in pixels for action=click. See
+            page_x for usage guidance.
             Coordinate click uses page.mouse.click; it supports button and
             double_click but not modifiers_json.
         start_ref (str):
