@@ -136,6 +136,117 @@ function ResponseFooter() {
   );
 }
 
+// Best-effort: walk the response payload and sum the length of every
+// string value found. Vendor's ChatResponseData has no fixed shape, so
+// counting all strings is the simplest demo. Skips obvious metadata keys
+// (id/role/type/created_at/status/timestamps) to avoid inflating the
+// number with non-content fields. Treats codepoints as characters so
+// emoji and CJK count as 1 each rather than UTF-16 surrogate pairs.
+const METADATA_KEYS = new Set([
+  "id",
+  "role",
+  "type",
+  "status",
+  "session_id",
+  "created_at",
+  "updated_at",
+  "timestamp",
+]);
+function countResponseChars(data: unknown): number {
+  let total = 0;
+  const visit = (v: unknown) => {
+    if (typeof v === "string") {
+      // Iterating a string with for...of yields codepoints, not UTF-16
+      // code units, so 🎉 counts as 1 and 中 counts as 1.
+      for (const _ of v) total += 1;
+      return;
+    }
+    if (Array.isArray(v)) {
+      v.forEach(visit);
+      return;
+    }
+    if (v && typeof v === "object") {
+      for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+        if (METADATA_KEYS.has(k)) continue;
+        visit(val);
+      }
+    }
+  };
+  visit(data);
+  return total;
+}
+
+function CharCountBadge({ data }: { data: unknown }) {
+  const count = React.useMemo(() => countResponseChars(data), [data]);
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        marginTop: 4,
+        padding: "2px 8px",
+        background: "#f0fdf4",
+        color: "#15803d",
+        fontSize: 11,
+        border: "1px solid #bbf7d0",
+        borderRadius: 999,
+      }}
+    >
+      <span>📝</span>
+      <span>
+        本回复约 <b>{count}</b> 字
+      </span>
+    </div>
+  );
+}
+
+function DatapawSubPage({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div style={{ padding: 24 }}>
+      <Card
+        title={
+          <span>
+            {title} <Tag color="blue">Datapaw demo</Tag>
+          </span>
+        }
+      >
+        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <p>{description}</p>
+          <p style={{ color: "#888", fontSize: 12 }}>
+            This page is a placeholder rendered by
+            <code> QwenPaw.route.add("{PLUGIN_ID}", ...)</code>.
+          </p>
+        </Space>
+      </Card>
+    </div>
+  );
+}
+
+function DataConnectionPage() {
+  return (
+    <DatapawSubPage
+      title="🔌 Data Connection"
+      description="Configure external data sources, credentials, and freshness policies for the Datapaw runtime."
+    />
+  );
+}
+
+function SemanticWeavingPage() {
+  return (
+    <DatapawSubPage
+      title="🧬 Semantic Weaving"
+      description="Design semantic links between datasets — joins, denormalizations, and embedding stitches that Datapaw uses to answer analytic questions."
+    />
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Registrations — run at module load (synchronous, before any host render)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,11 +262,52 @@ window.QwenPaw.menu?.add(PLUGIN_ID, {
   order: 15, // between core.workspace (10) and core.skills (20)
 });
 
+// 1b. "Datapaw" parent group sitting ABOVE Control (control-group order=20).
+//     Two children: Data Connection + Semantic Weaving.
+window.QwenPaw.menu?.add(PLUGIN_ID, {
+  id: "demo.datapaw-group",
+  location: "primary.agentScoped",
+  label: "Datapaw",
+  icon: "📊",
+  isGroup: true,
+  order: 15, // inbox=10, datapaw=15, control-group=20, agent-group=30
+});
+window.QwenPaw.menu?.add(PLUGIN_ID, {
+  id: "demo.datapaw.data-connection",
+  location: "primary.agentScoped",
+  parentId: "demo.datapaw-group",
+  label: "Data Connection",
+  icon: "🔌",
+  route: "demo.datapaw.data-connection",
+  order: 10,
+});
+window.QwenPaw.menu?.add(PLUGIN_ID, {
+  id: "demo.datapaw.semantic-weaving",
+  location: "primary.agentScoped",
+  parentId: "demo.datapaw-group",
+  label: "Semantic Weaving",
+  icon: "🧬",
+  route: "demo.datapaw.semantic-weaving",
+  order: 20,
+});
+
 // 2. /demo route
 window.QwenPaw.route?.add(PLUGIN_ID, {
   id: "demo.home",
   path: "/demo",
   component: DemoPage,
+});
+
+// 2b. Datapaw sub-pages
+window.QwenPaw.route?.add(PLUGIN_ID, {
+  id: "demo.datapaw.data-connection",
+  path: "/demo/datapaw/data-connection",
+  component: DataConnectionPage,
+});
+window.QwenPaw.route?.add(PLUGIN_ID, {
+  id: "demo.datapaw.semantic-weaving",
+  path: "/demo/datapaw/semantic-weaving",
+  component: SemanticWeavingPage,
 });
 
 // 3. Wrap /chat (core.chat) with a thin banner — exercises route.wrap onion
@@ -214,6 +366,14 @@ window.QwenPaw.chat?.response.append(
   { id: "demo.response.footer" },
 );
 
+// 8b. chat.response.append: char-count badge BELOW every AI bubble.
+//     Order > demo.response.footer so the badge sits beneath the banner.
+window.QwenPaw.chat?.response.append(
+  PLUGIN_ID,
+  (ctx: { data: unknown; isLast?: boolean }) => <CharCountBadge data={ctx.data} />,
+  { id: "demo.response.charcount", order: 10 },
+);
+
 // 9. chat.request.render: wrap user bubble — exercises render+fallback
 window.QwenPaw.chat?.request.render(
   PLUGIN_ID,
@@ -234,5 +394,5 @@ window.QwenPaw.chat?.request.render(
 );
 
 console.info(
-  `[plugin:${PLUGIN_ID}] registered 9 extensions: menu / route / route.wrap / slot.fill / chat.welcome / chat.rightHeader / chat.actions / chat.response.append / chat.request.render`,
+  `[plugin:${PLUGIN_ID}] registered 14 extensions: menu×4 (demo.home + Datapaw group + 2 children) / route×3 (/demo + 2 Datapaw subpages) / route.wrap / slot.fill / chat.welcome / chat.rightHeader / chat.actions / chat.response.append×2 (banner + char-count) / chat.request.render`,
 );

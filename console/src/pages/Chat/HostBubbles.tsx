@@ -15,10 +15,19 @@
  * package's top-level exports. If the SDK reorganizes its internal paths,
  * update the two import statements below.
  */
+import React from "react";
 // eslint-disable-next-line import/no-unresolved
-import VendorRequestCard from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
+import VendorRequestCardOriginal from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
 // eslint-disable-next-line import/no-unresolved
-import VendorResponseCard from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Card";
+import VendorResponseCardOriginal from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Card";
+// Vendor `.d.ts` doesn't yet describe the contentPrepend/contentAppend
+// slots we added in the patched .js (Response/Card.js + Request/Card.js).
+// Loosen the prop type so TS doesn't reject the passthrough; runtime
+// behaviour is unchanged.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const VendorRequestCard = VendorRequestCardOriginal as React.ComponentType<any>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const VendorResponseCard = VendorResponseCardOriginal as React.ComponentType<any>;
 import {
   useChatScalarSnapshot,
   useChatListSnapshot,
@@ -48,45 +57,57 @@ export function HostRequestCard(props: { data: ChatRequestData }) {
   const prependList = sortByOrder(extLists[ChatList.requestPrepend]);
   const appendList = sortByOrder(extLists[ChatList.requestAppend]);
 
+  // prepend/append routed through vendor's contentPrepend/contentAppend
+  // slot so actions stay last. Mirrors HostResponseCard.
+  const contentPrepend =
+    prependList.length === 0 ? null : (
+      <>
+        {prependList.map((e) => (
+          <PluginSlotBoundary
+            key={e.item.id}
+            slot={ChatList.requestPrepend}
+            pluginId={e.pluginId}
+          >
+            {e.item.render({ data: props.data })}
+          </PluginSlotBoundary>
+        ))}
+      </>
+    );
+  const contentAppend =
+    appendList.length === 0 ? null : (
+      <>
+        {appendList.map((e) => (
+          <PluginSlotBoundary
+            key={e.item.id}
+            slot={ChatList.requestAppend}
+            pluginId={e.pluginId}
+          >
+            {e.item.render({ data: props.data })}
+          </PluginSlotBoundary>
+        ))}
+      </>
+    );
+
   const fallback = () => (
-    <VendorRequestCard data={props.data as AnyCardProps} />
+    <VendorRequestCard
+      data={props.data as AnyCardProps}
+      contentPrepend={contentPrepend as AnyCardProps}
+      contentAppend={contentAppend as AnyCardProps}
+    />
   );
 
-  const main = renderFn ? (
-    <PluginSlotBoundary
-      slot={ChatScalar.requestRender}
-      pluginId={renderEntry!.pluginId}
-      fallback={fallback()}
-    >
-      {renderFn({ data: props.data, fallback })}
-    </PluginSlotBoundary>
-  ) : (
-    fallback()
-  );
-
-  return (
-    <>
-      {prependList.map((e) => (
-        <PluginSlotBoundary
-          key={e.item.id}
-          slot={ChatList.requestPrepend}
-          pluginId={e.pluginId}
-        >
-          {e.item.render({ data: props.data })}
-        </PluginSlotBoundary>
-      ))}
-      {main}
-      {appendList.map((e) => (
-        <PluginSlotBoundary
-          key={e.item.id}
-          slot={ChatList.requestAppend}
-          pluginId={e.pluginId}
-        >
-          {e.item.render({ data: props.data })}
-        </PluginSlotBoundary>
-      ))}
-    </>
-  );
+  if (renderFn) {
+    return (
+      <PluginSlotBoundary
+        slot={ChatScalar.requestRender}
+        pluginId={renderEntry!.pluginId}
+        fallback={fallback()}
+      >
+        {renderFn({ data: props.data, fallback })}
+      </PluginSlotBoundary>
+    );
+  }
+  return fallback();
 }
 
 export function HostResponseCard(props: {
@@ -101,50 +122,62 @@ export function HostResponseCard(props: {
   const prependList = sortByOrder(extLists[ChatList.responsePrepend]);
   const appendList = sortByOrder(extLists[ChatList.responseAppend]);
 
+  // prepend/append are routed through vendor's contentPrepend/contentAppend
+  // slot so they land BETWEEN messages and Actions — actions always last.
+  // Vendor change: see Response/Card.js DefaultResponseRender, which now
+  // reads props.contentPrepend / props.contentAppend.
+  const contentPrepend =
+    prependList.length === 0 ? null : (
+      <>
+        {prependList.map((e) => (
+          <PluginSlotBoundary
+            key={e.item.id}
+            slot={ChatList.responsePrepend}
+            pluginId={e.pluginId}
+          >
+            {e.item.render({ data: props.data, isLast: props.isLast })}
+          </PluginSlotBoundary>
+        ))}
+      </>
+    );
+  const contentAppend =
+    appendList.length === 0 ? null : (
+      <>
+        {appendList.map((e) => (
+          <PluginSlotBoundary
+            key={e.item.id}
+            slot={ChatList.responseAppend}
+            pluginId={e.pluginId}
+          >
+            {e.item.render({ data: props.data, isLast: props.isLast })}
+          </PluginSlotBoundary>
+        ))}
+      </>
+    );
+
   const fallback = () => (
     <VendorResponseCard
       data={props.data as AnyCardProps}
       isLast={props.isLast}
+      contentPrepend={contentPrepend as AnyCardProps}
+      contentAppend={contentAppend as AnyCardProps}
     />
   );
 
-  const main = renderFn ? (
-    <PluginSlotBoundary
-      slot={ChatScalar.responseRender}
-      pluginId={renderEntry!.pluginId}
-      fallback={fallback()}
-    >
-      {renderFn({
-        data: props.data,
-        isLast: props.isLast,
-        fallback,
-      })}
-    </PluginSlotBoundary>
-  ) : (
-    fallback()
-  );
-
-  return (
-    <>
-      {prependList.map((e) => (
-        <PluginSlotBoundary
-          key={e.item.id}
-          slot={ChatList.responsePrepend}
-          pluginId={e.pluginId}
-        >
-          {e.item.render({ data: props.data, isLast: props.isLast })}
-        </PluginSlotBoundary>
-      ))}
-      {main}
-      {appendList.map((e) => (
-        <PluginSlotBoundary
-          key={e.item.id}
-          slot={ChatList.responseAppend}
-          pluginId={e.pluginId}
-        >
-          {e.item.render({ data: props.data, isLast: props.isLast })}
-        </PluginSlotBoundary>
-      ))}
-    </>
-  );
+  if (renderFn) {
+    return (
+      <PluginSlotBoundary
+        slot={ChatScalar.responseRender}
+        pluginId={renderEntry!.pluginId}
+        fallback={fallback()}
+      >
+        {renderFn({
+          data: props.data,
+          isLast: props.isLast,
+          fallback,
+        })}
+      </PluginSlotBoundary>
+    );
+  }
+  return fallback();
 }

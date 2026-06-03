@@ -31,9 +31,19 @@ export function Slot({ name, kind, children }: SlotProps) {
   if (kind === "replace") {
     const replaceEntry = entries.find((e) => e.kind === "replace");
     if (!replaceEntry) return <>{children}</>;
+    // Pass `children` (host default) into the plugin render so an
+    // agent-/route-aware plugin can `return defaultContent` to opt out
+    // of replacement on a per-render basis — mirrors fallback() in
+    // chat.{request,response}.render.
+    //
+    // Also fall back to children when the render itself yields null/
+    // undefined (e.g. a plugin that returns null instead of taking the
+    // defaultContent path). Either way the slot still paints.
+    const rendered = replaceEntry.render(children);
+    if (rendered == null) return <>{children}</>;
     return (
       <SlotErrorBoundary slot={name} pluginId={replaceEntry.source}>
-        {replaceEntry.render()}
+        {rendered}
       </SlotErrorBoundary>
     );
   }

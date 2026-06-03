@@ -156,7 +156,14 @@ export interface SlotOpts {
   after?: string;
 }
 
-export type SlotRenderer = () => React.ReactNode;
+/**
+ * Slot render function. Receives the host's default content for this slot
+ * (i.e. the `children` passed to the <Slot> JSX element) so a
+ * conditional plugin can `return defaultContent` to opt out of replacement
+ * in some scenarios without having to re-implement the default itself.
+ * Plugins that always replace can ignore the parameter.
+ */
+export type SlotRenderer = (defaultContent?: React.ReactNode) => React.ReactNode;
 
 export interface SlotInfo {
   name: SlotName;
