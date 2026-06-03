@@ -9,9 +9,13 @@ no skills in the workspace directory.
 from __future__ import annotations
 
 import logging
+import os
 import pytest
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_PROVIDER = os.getenv("QWENPAW_MODEL_PROVIDER", "dashscope")
+_DEFAULT_MODEL = os.getenv("QWENPAW_DEFAULT_MODEL", "qwen3.6-plus")
 
 _SEED_SKILL_NAME = "_e2e_seed_skill"
 _SEED_SKILL_CONTENT = """\
@@ -22,6 +26,63 @@ description: Auto-created by E2E framework for testing.
 
 Placeholder skill for E2E tests.
 """
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_default_model(api_context):
+    """Configure provider API key and set a global default model when QWENPAW_MODEL_KEY is set."""
+    model_key = os.getenv("QWENPAW_MODEL_KEY")
+    if not model_key:
+        logger.info("QWENPAW_MODEL_KEY not set, skipping model setup")
+        yield
+        return
+
+    provider = _DEFAULT_PROVIDER
+    model = _DEFAULT_MODEL
+
+    try:
+        resp = api_context.put(
+            f"/api/models/{provider}/config",
+            data={"api_key": model_key},
+        )
+        if resp.ok:
+            logger.info(f"Provider '{provider}' configured with API key")
+        else:
+            logger.warning(f"Provider config returned {resp.status}: {resp.text()}")
+    except Exception as exc:
+        logger.warning(f"Provider config failed: {exc}")
+
+    try:
+        resp = api_context.put(
+            "/api/models/active",
+            data={"provider_id": provider, "model": model, "scope": "global"},
+        )
+        if resp.ok:
+            logger.info(f"Global model set to {provider}/{model}")
+        elif resp.status == 400 and "MODEL_NOT_FOUND" in resp.text():
+            logger.info(f"Model '{model}' not in built-in list, adding as extra model")
+            add_resp = api_context.post(
+                f"/api/models/{provider}/models",
+                data={"id": model, "name": model},
+            )
+            if add_resp.ok:
+                logger.info(f"Extra model '{model}' added to {provider}")
+                resp = api_context.put(
+                    "/api/models/active",
+                    data={"provider_id": provider, "model": model, "scope": "global"},
+                )
+                if resp.ok:
+                    logger.info(f"Global model set to {provider}/{model}")
+                else:
+                    logger.warning(f"Set active model returned {resp.status}: {resp.text()}")
+            else:
+                logger.warning(f"Add extra model returned {add_resp.status}: {add_resp.text()}")
+        else:
+            logger.warning(f"Set active model returned {resp.status}: {resp.text()}")
+    except Exception as exc:
+        logger.warning(f"Set active model failed: {exc}")
+
+    yield
 
 
 @pytest.fixture(scope="session", autouse=True)
