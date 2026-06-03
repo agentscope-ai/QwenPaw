@@ -314,6 +314,7 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     env["QWENPAW_SECRET_DIR"] = str(secret_dir)
     env["QWENPAW_BACKUP_DIR"] = str(backups_dir)
     env["QWENPAW_AUTH_ENABLED"] = "false"
+    env["QWENPAW_UPLOAD_MAX_SIZE_MB"] = "10"
     env["NO_PROXY"] = "*"
     env["PYTHONUNBUFFERED"] = "1"
     # Force UTF-8 stdio in the subprocess so non-ASCII log lines (e.g.
