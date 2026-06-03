@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 _DEFAULT_PROVIDER = os.getenv("QWENPAW_MODEL_PROVIDER", "dashscope")
 _DEFAULT_MODEL = os.getenv("QWENPAW_DEFAULT_MODEL", "qwen3.6-plus")
 
+_SEED_FILE_NAME = "_e2e_test_note.md"
+_SEED_FILE_CONTENT = "# E2E Test Note\n\nThis file was created by the E2E test framework.\n"
+
 _SEED_SKILL_NAME = "_e2e_seed_skill"
 _SEED_SKILL_CONTENT = """\
 ---
@@ -83,6 +86,42 @@ def setup_default_model(api_context):
         logger.warning(f"Set active model failed: {exc}")
 
     yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def seed_workspace_file(api_context):
+    """Ensure at least one workspace file exists so file list/edit/toggle tests pass."""
+    try:
+        resp = api_context.get("/api/workspace/files")
+        if resp.ok and len(resp.json()) > 0:
+            logger.info("Workspace files already present, skipping seed")
+            yield
+            return
+    except Exception as exc:
+        logger.warning(f"Workspace files check failed ({exc}), attempting seed anyway")
+
+    created = False
+    try:
+        resp = api_context.put(
+            f"/api/workspace/files/{_SEED_FILE_NAME}",
+            data={"content": _SEED_FILE_CONTENT},
+        )
+        if resp.ok:
+            logger.info(f"Seed workspace file '{_SEED_FILE_NAME}' created")
+            created = True
+        else:
+            logger.warning(f"Seed file creation returned {resp.status}: {resp.text()}")
+    except Exception as exc:
+        logger.warning(f"Seed file creation failed: {exc}")
+
+    yield
+
+    if created:
+        try:
+            api_context.delete(f"/api/workspace/files/{_SEED_FILE_NAME}")
+            logger.info(f"Seed workspace file '{_SEED_FILE_NAME}' cleaned up")
+        except Exception:
+            pass
 
 
 @pytest.fixture(scope="session", autouse=True)
