@@ -1,0 +1,324 @@
+# Reusable verification gate: install the built artefacts, boot the server,
+# and hit /api/version before any publish step runs.
+# Called by publish-pypi.yml, docker-release.yml, and fork-verify.yml.
+
+name: Release Verification
+
+on:
+  workflow_call:
+    inputs:
+      verify_pip:
+        description: "Run pip-install-from-wheel verification"
+        type: boolean
+        default: false
+      verify_docker:
+        description: "Run Docker build + health-check verification"
+        type: boolean
+        default: false
+      verify_script_install:
+        description: "Run install-script (install.sh / install.ps1) verification"
+        type: boolean
+        default: false
+      docker_node_image:
+        description: "Override Dockerfile NODE_IMAGE build-arg (for fork without ACR access)"
+        type: string
+        default: ""
+      docker_uv_image:
+        description: "Override Dockerfile UV_IMAGE build-arg (for fork without ACR access)"
+        type: string
+        default: ""
+
+jobs:
+  # ── pip install wheel ──────────────────────────────────────────────────────
+  verify-pip:
+    if: inputs.verify_pip
+    name: Verify pip install - py${{ matrix.python-version }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+        os: [ubuntu-latest]
+        include:
+          - os: macos-latest
+            python-version: "3.10"
+          - os: windows-latest
+            python-version: "3.10"
+
+    steps:
+      - name: Download wheel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: qwenpaw-wheel
+          path: dist
+
+      - name: Download version file
+        uses: actions/download-artifact@v4
+        with:
+          name: qwenpaw-version
+          path: version-meta
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install wheel in clean venv
+        shell: bash
+        run: |
+          python -m venv .verify-venv
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            source .verify-venv/Scripts/activate
+          else
+            source .verify-venv/bin/activate
+          fi
+          pip install --upgrade pip
+          pip install dist/*.whl
+
+      - name: Read expected version
+        id: expected
+        shell: bash
+        run: |
+          ver=$(python -c "
+          import re, pathlib
+          text = pathlib.Path('version-meta/__version__.py').read_text()
+          print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', text).group(1))
+          ")
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+
+      - name: Verify CLI version
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            source .verify-venv/Scripts/activate
+          else
+            source .verify-venv/bin/activate
+          fi
+          actual=$(qwenpaw --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.]*' | head -1)
+          expected="${{ steps.expected.outputs.version }}"
+          echo "Expected: $expected"
+          echo "Actual:   $actual"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::Version mismatch: expected=$expected actual=$actual"
+            exit 1
+          fi
+
+      - name: Verify Python import
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            source .verify-venv/Scripts/activate
+          else
+            source .verify-venv/bin/activate
+          fi
+          python -c "from qwenpaw.cli.main import cli; print('import OK')"
+
+      - name: Initialize and start server
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            source .verify-venv/Scripts/activate
+          else
+            source .verify-venv/bin/activate
+          fi
+          qwenpaw init --defaults --accept-security
+          qwenpaw app --host 127.0.0.1 --port 8088 &
+          echo $! > /tmp/qwenpaw.pid || true
+
+      - name: Wait for /api/version
+        shell: bash
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8088/api/version; then
+              echo ""
+              echo "Server is up after ~$((i*2))s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Server did not respond within 120s"
+          exit 1
+
+      - name: Verify server version
+        shell: bash
+        run: |
+          response=$(curl -sf http://127.0.0.1:8088/api/version)
+          server_ver=$(echo "$response" | python -c "import sys,json; print(json.load(sys.stdin)['version'])")
+          expected="${{ steps.expected.outputs.version }}"
+          echo "Server version: $server_ver"
+          if [ "$server_ver" != "$expected" ]; then
+            echo "::error::Server version mismatch: expected=$expected server=$server_ver"
+            exit 1
+          fi
+
+      - name: Stop server
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/qwenpaw.pid ]; then
+            kill "$(cat /tmp/qwenpaw.pid)" 2>/dev/null || true
+          fi
+          # Also kill by port in case PID file was not written
+          if [ "$RUNNER_OS" = "Linux" ] || [ "$RUNNER_OS" = "macOS" ]; then
+            lsof -ti:8088 | xargs kill 2>/dev/null || true
+          fi
+
+  # ── Docker build + health check ────────────────────────────────────────────
+  verify-docker:
+    if: inputs.verify_docker
+    name: Verify Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (amd64 only)
+        run: |
+          BUILD_ARGS=""
+          if [ -n "${{ inputs.docker_node_image }}" ]; then
+            BUILD_ARGS="$BUILD_ARGS --build-arg NODE_IMAGE=${{ inputs.docker_node_image }}"
+          fi
+          if [ -n "${{ inputs.docker_uv_image }}" ]; then
+            BUILD_ARGS="$BUILD_ARGS --build-arg UV_IMAGE=${{ inputs.docker_uv_image }}"
+          fi
+          docker buildx build \
+            --platform linux/amd64 \
+            -f deploy/Dockerfile \
+            --load \
+            -t qwenpaw-verify:test \
+            $BUILD_ARGS \
+            .
+
+      - name: Start container
+        run: |
+          docker run -d \
+            --name qwenpaw-test \
+            -p 8088:8088 \
+            qwenpaw-verify:test
+
+      - name: Wait for /api/version
+        run: |
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:8088/api/version; then
+              echo ""
+              echo "Container is up after ~$((i*2))s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Container did not respond within 180s"
+          docker logs qwenpaw-test
+          exit 1
+
+      - name: Verify container version
+        run: |
+          response=$(curl -sf http://127.0.0.1:8088/api/version)
+          echo "Response: $response"
+          version=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])")
+          echo "Docker container version: $version"
+          if [ -z "$version" ]; then
+            echo "::error::Empty version in /api/version response"
+            exit 1
+          fi
+
+      - name: Show container logs
+        if: always()
+        run: docker logs qwenpaw-test 2>&1 | tail -50
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f qwenpaw-test 2>/dev/null || true
+
+  # ── Script install (install.sh / install.ps1) ──────────────────────────────
+  verify-script-install:
+    if: inputs.verify_script_install
+    name: Verify script install - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: macos-latest
+          - os: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js (for console build during from-source install)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Build console frontend
+        shell: bash
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+        run: |
+          cd console && npm ci && npm run build
+
+      - name: Copy console build into package
+        shell: bash
+        run: |
+          rm -rf src/qwenpaw/console/*
+          mkdir -p src/qwenpaw/console
+          cp -R console/dist/* src/qwenpaw/console/
+
+      - name: Run install script (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          bash scripts/install.sh --from-source "$(pwd)"
+
+      - name: Run install script (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          .\scripts\install.ps1 -FromSource -SourceDir "$PWD"
+
+      - name: Verify CLI available
+        shell: bash
+        run: |
+          export PATH="$HOME/.qwenpaw/bin:$PATH"
+          qwenpaw --version
+
+      - name: Initialize and start server
+        shell: bash
+        run: |
+          export PATH="$HOME/.qwenpaw/bin:$PATH"
+          qwenpaw init --defaults --accept-security
+          qwenpaw app --host 127.0.0.1 --port 8088 &
+          echo $! > /tmp/qwenpaw.pid || true
+
+      - name: Wait for /api/version
+        shell: bash
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8088/api/version; then
+              echo ""
+              echo "Server is up after ~$((i*2))s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Server did not respond within 120s"
+          exit 1
+
+      - name: Stop server
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/qwenpaw.pid ]; then
+            kill "$(cat /tmp/qwenpaw.pid)" 2>/dev/null || true
+          fi
+          if [ "$RUNNER_OS" = "Linux" ] || [ "$RUNNER_OS" = "macOS" ]; then
+            lsof -ti:8088 | xargs kill 2>/dev/null || true
+          fi
