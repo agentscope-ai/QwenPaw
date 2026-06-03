@@ -73,7 +73,7 @@ jobs:
           else
             source .verify-venv/bin/activate
           fi
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install dist/*.whl
 
       - name: Read expected version
@@ -284,19 +284,36 @@ jobs:
         run: |
           .\scripts\install.ps1 -FromSource -SourceDir "$PWD"
 
-      - name: Verify CLI available
+      - name: Verify CLI available (Linux/macOS)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           export PATH="$HOME/.qwenpaw/bin:$PATH"
           qwenpaw --version
 
-      - name: Initialize and start server
+      - name: Verify CLI available (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:USERPROFILE\.qwenpaw\bin;$env:PATH"
+          qwenpaw --version
+
+      - name: Initialize and start server (Linux/macOS)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           export PATH="$HOME/.qwenpaw/bin:$PATH"
           qwenpaw init --defaults --accept-security
           qwenpaw app --host 127.0.0.1 --port 8088 &
-          echo $! > /tmp/qwenpaw.pid || true
+          echo $! > /tmp/qwenpaw.pid
+
+      - name: Initialize and start server (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:USERPROFILE\.qwenpaw\bin;$env:PATH"
+          qwenpaw init --defaults --accept-security
+          Start-Process -NoNewWindow -FilePath "qwenpaw" -ArgumentList "app","--host","127.0.0.1","--port","8088"
 
       - name: Wait for /api/version
         shell: bash
@@ -321,4 +338,7 @@ jobs:
           fi
           if [ "$RUNNER_OS" = "Linux" ] || [ "$RUNNER_OS" = "macOS" ]; then
             lsof -ti:8088 | xargs kill 2>/dev/null || true
+          fi
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            taskkill //F //IM python.exe 2>/dev/null || true
           fi
