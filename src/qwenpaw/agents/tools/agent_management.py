@@ -130,7 +130,7 @@ def ensure_agent_identity_prefix(
 
 
 def parse_agent_sse_line(line: str) -> Optional[Dict[str, Any]]:
-    """Parse a single SSE line emitted by /agent/process."""
+    """Parse a single SSE line emitted by /console/chat."""
     stripped = line.strip()
     if stripped.startswith("data: "):
         try:
@@ -269,7 +269,7 @@ def stream_agent_chat(
     with create_agent_api_client(base_url, default_timeout=timeout) as client:
         with client.stream(
             "POST",
-            "/agent/process",
+            "/console/chat",
             json=request_payload,
             headers=_request_headers(to_agent),
             timeout=timeout,
@@ -294,7 +294,7 @@ def collect_final_agent_chat_response(
     with create_agent_api_client(base_url) as client:
         with client.stream(
             "POST",
-            "/agent/process",
+            "/console/chat",
             json=request_payload,
             headers=_request_headers(to_agent),
             timeout=timeout,
@@ -321,7 +321,7 @@ def submit_agent_chat_task(
         payload["timeout"] = task_timeout
     with create_agent_api_client(base_url) as client:
         response = client.post(
-            "/agent/process/task",
+            "/console/chat/task",
             json=payload,
             headers=_request_headers(to_agent),
             timeout=timeout,
@@ -339,7 +339,7 @@ def get_agent_chat_task_status(
     """Get the current status for a background inter-agent chat task."""
     with create_agent_api_client(base_url) as client:
         response = client.get(
-            f"/agent/process/task/{task_id}",
+            f"/console/chat/task/{task_id}",
             headers=_request_headers(to_agent),
             timeout=timeout,
         )

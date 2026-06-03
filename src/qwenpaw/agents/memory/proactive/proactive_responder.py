@@ -283,7 +283,7 @@ async def send_proactive_message_via_http(
 
     try:
         async with aiohttp.ClientSession() as session:
-            url = f"{api_base_url.rstrip('/')}/agent/process"
+            url = f"{api_base_url.rstrip('/')}/console/chat"
             async with session.post(
                 url,
                 json=request_payload,

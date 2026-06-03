@@ -163,23 +163,53 @@ class Runner:
         # consumers that run *before* the middleware chain (e.g. agent
         # factory resolving config paths).
         from ..config.context import set_current_workspace_dir
-        from ..app.agent_context import set_current_agent_id
+        from ..app.agent_context import (
+            set_current_agent_id,
+            set_current_session_id,
+            set_current_root_session_id,
+        )
 
         if workspace_dir is not None:
             set_current_workspace_dir(workspace_dir)
         set_current_agent_id(getattr(self, "agent_id", None) or "default")
+        set_current_session_id(session_id or "")
 
         # Build the per-request context that tools (GuardedFunctionTool)
         # will use for approval routing.
         agent_id_for_ctx = getattr(self, "agent_id", None) or ""
+
+        # Propagate root_session_id from parent agent (inter-agent calls).
+        # If the request carries one, honour it; otherwise this session
+        # is the root.
+        payload_root_session = getattr(request, "root_session_id", "") or ""
+        root_session_id = (
+            payload_root_session
+            if payload_root_session
+            else (session_id or "")
+        )
+        set_current_root_session_id(root_session_id)
+
         request_context: dict[str, str] = {
             "session_id": session_id or "",
             "user_id": request.user_id or "",
             "channel": getattr(request, "channel", None) or "",
             "agent_id": agent_id_for_ctx,
-            "root_session_id": session_id or "",
+            "root_session_id": root_session_id,
             "root_agent_id": agent_id_for_ctx,
         }
+
+        # Propagate sender display name from channel_meta (IM nickname).
+        _channel_meta = getattr(request, "channel_meta", None)
+        if not isinstance(_channel_meta, dict):
+            _channel_meta = {}
+        _user_name = _channel_meta.get("user_name")
+        if _user_name:
+            request_context["user_name"] = _user_name
+
+        # Merge extra context from request payload (inter-agent calls).
+        _payload_ctx = getattr(request, "request_context", None)
+        if isinstance(_payload_ctx, dict):
+            request_context.update(_payload_ctx)
 
         logger.info(
             "stream_query: enter session=%s workspace=%s input_len=%s",
@@ -245,6 +275,8 @@ class Runner:
                 workspace_dir=workspace_dir,
                 mcp_clients=mcp_clients or None,
                 request_context=request_context,
+                memory_manager=getattr(self, "memory_manager", None),
+                context_manager=getattr(self, "context_manager", None),
             )
 
             # Load persisted session state (conversation history).
@@ -738,7 +770,9 @@ class Runner:
                 from ..app.approvals import get_approval_service
 
                 svc = get_approval_service()
-                await svc.cancel_all_pending_by_root_session(session_id)
+                await svc.cancel_all_pending_by_root_session(
+                    request_context.get("root_session_id", session_id),
+                )
             except Exception:
                 logger.debug(
                     "stream_query: approval cleanup failed",

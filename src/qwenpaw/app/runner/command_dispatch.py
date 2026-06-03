@@ -117,7 +117,14 @@ async def _handle_control(
     """Handle control commands. Returns response text or None."""
     workspace = getattr(runner, "_workspace", None)
     if workspace is None:
-        return None
+        logger.error(
+            "control command but workspace not set: %s",
+            query[:50],
+        )
+        return (
+            "**Error**\n\n"
+            "Control command unavailable (workspace not initialized)"
+        )
 
     channel_mgr = getattr(workspace, "channel_manager", None)
     channel = None

@@ -18,6 +18,8 @@ def build_agent(
     workspace_dir: Any = None,
     mcp_clients: list | None = None,
     request_context: dict[str, str] | None = None,
+    memory_manager: Any = None,
+    context_manager: Any = None,
 ) -> Any:
     """Construct a fully-wired :class:`QwenPawAgent` for one request.
 
@@ -46,21 +48,55 @@ def build_agent(
         )
 
     ctx_working_dir = str(workspace_dir) if workspace_dir else str(WORKING_DIR)
-    context_manager = LightContextManager(
-        working_dir=ctx_working_dir,
-        agent_id=resolved_agent_id,
-    )
+    if context_manager is None:
+        context_manager = LightContextManager(
+            working_dir=ctx_working_dir,
+            agent_id=resolved_agent_id,
+        )
 
     ctx = dict(request_context or {})
     ctx.setdefault("session_id", session_id)
     ctx.setdefault("agent_id", resolved_agent_id)
     ctx.setdefault("channel", "console")
 
+    # Build environment context (time, session, working dir, OS, etc.)
+    # so the agent's system prompt includes runtime awareness.
+    import os
+    import sys
+    from ..app.runner.utils import build_env_context
+
+    _cm = getattr(agent_config, "coding_mode", None)
+    _project_dir = (
+        _cm.project_dir if _cm and getattr(_cm, "project_dir", None) else None
+    )
+
+    _configured_shell = getattr(
+        getattr(agent_config, "running", None),
+        "shell_command_executable",
+        None,
+    )
+    _default_shell = (
+        _configured_shell
+        or os.environ.get("SHELL")
+        or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
+    )
+
+    env_context = build_env_context(
+        session_id=session_id,
+        user_id=ctx.get("user_id"),
+        user_name=ctx.get("user_name"),
+        channel=ctx.get("channel"),
+        working_dir=ctx_working_dir,
+        default_shell=_default_shell,
+        project_dir=_project_dir,
+    )
+
     agent = QwenPawAgent(
         agent_config=agent_config,
+        env_context=env_context,
         workspace_dir=workspace_dir,
         request_context=ctx,
-        memory_manager=None,
+        memory_manager=memory_manager,
         context_manager=context_manager,
         mcp_clients=mcp_clients,
     )

@@ -2,7 +2,7 @@
 """Tests for GitHub issue #3275:
 
 Background tasks dispatched via ``--background`` (i.e. submitted through the
-AgentApp ``/api/agent/process/task`` endpoint) were unexpectedly cancelled when
+``/api/console/chat/task`` endpoint) were unexpectedly cancelled when
 an agent workspace underwent a reload.
 
 Root cause
@@ -170,7 +170,7 @@ def _make_agent_app_active_tasks() -> dict[str, dict]:
     """Return an ``active_tasks`` dict with one in-flight background task.
 
     This mirrors what ``AgentApp`` / ``TaskEngineMixin`` would hold when a
-    background task was submitted via ``POST /api/agent/process/task``.
+    background task was submitted via ``POST /api/console/chat/task``.
     """
     return {
         "task-bg-001": {

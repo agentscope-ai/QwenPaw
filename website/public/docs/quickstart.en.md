@@ -286,11 +286,11 @@ to learn about:
 ## Verify installation (optional)
 
 After the server starts, you can call the Agent API via HTTP to confirm the
-environment is working. The endpoint is **POST** `/api/agent/process`, with
+environment is working. The endpoint is **POST** `/api/console/chat`, with
 JSON body and SSE streaming support. Single-turn example:
 
 ```bash
-curl -N -X POST "http://localhost:8088/api/agent/process" \
+curl -N -X POST "http://localhost:8088/api/console/chat" \
   -H "Content-Type: application/json" \
   -d '{"input":[{"role":"user","content":[{"type":"text","text":"Hello"}]}],"session_id":"session123"}'
 ```

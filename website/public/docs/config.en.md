@@ -705,7 +705,7 @@ Recommended to configure in `agent.json` under `running.reme_light_memory_config
 - Agent personality is defined by Markdown files in the workspace directory. See [Agent Persona](./persona) for details.
 - LLM providers are globally configured via `qwenpaw init` or the Console.
 - Config changes are **auto-reloaded** without restart (polled every 2 seconds).
-- Call the Agent API: **POST** `/api/agent/process` with `X-Agent-Id` header, JSON body, SSE streaming; see [Quick start — Verify install](./quickstart#verify-install-optional) for examples.
+- Call the Agent API: **POST** `/api/console/chat` with JSON body, SSE streaming; see [Quick start — Verify install](./quickstart#verify-install-optional) for examples.
 
 ---
 
