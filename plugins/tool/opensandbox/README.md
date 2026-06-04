@@ -1,16 +1,24 @@
 # OpenSandbox 插件
 
-OpenSandbox 插件让 QwenPaw Agent 可以在 OpenSandbox 沙箱中执行命令。当前 MVP 提供一个工具：
+OpenSandbox 插件让 QwenPaw Agent 可以在 OpenSandbox 沙箱中执行命令。插件包含两部分能力：
 
-```text
-execute_opensandbox_command
-```
+- `execute_opensandbox_command` 工具：负责把 shell 命令转发到 OpenSandbox sandbox 中执行。
+- `opensandbox` skill：负责告诉 Agent 什么时候应该使用 OpenSandbox，什么时候应该继续使用本地能力。
 
-这个插件采用零核心改动方案：OpenSandbox SDK 依赖写在插件自己的 `requirements.txt` 中，不放进 QwenPaw 主项目的 `pyproject.toml`。
+这个插件采用插件隔离方案：OpenSandbox SDK 依赖写在插件自己的 `requirements.txt` 中，不放进 QwenPaw 主项目的 `pyproject.toml`。
 
 ## 前置条件
 
-本插件只负责把 QwenPaw 的工具调用转发到 OpenSandbox。OpenSandbox server、容器运行时和镜像需要先在本机准备好。
+本插件只负责把 QwenPaw 的工具调用转发到 OpenSandbox。OpenSandbox server、容器 runtime 和镜像需要先在本机准备好。
+
+Windows 本地准备 OpenSandbox server 有两种常见方法：
+
+- Docker Desktop / Docker Engine：适合可以正常使用 Docker 的 Windows 环境。
+- WSL2 + k3s：适合无法使用 Docker，或希望通过 Kubernetes runtime 运行 OpenSandbox 的环境。
+
+两种方法的完整步骤都整理在 [opensandbox_in_windows.md](./opensandbox_in_windows.md)。完成其中一种方法后，再回到本文继续安装插件、启用 skill 和配置工具。
+
+详细设计和后续演进计划见 [DESIGN.md](./DESIGN.md)。
 
 官方文档：
 
@@ -20,115 +28,6 @@ execute_opensandbox_command
 - OpenSandbox server README: https://github.com/alibaba/OpenSandbox/blob/main/server/README.md
 - Docker Desktop Windows 安装文档: https://docs.docker.com/desktop/setup/install/windows-install/
 - uv 安装文档: https://docs.astral.sh/uv/getting-started/installation/
-
-### 1. 安装容器运行时
-
-OpenSandbox 本地 Docker runtime 需要可用的 Docker 环境。Windows 推荐使用 Docker Desktop，并启用 WSL2 backend。
-
-Docker Desktop 安装后，在 PowerShell 验证：
-
-```powershell
-docker version
-docker run --rm hello-world
-```
-
-如果你使用 Podman Desktop，需要确保 OpenSandbox server 所在进程可以通过 Docker-compatible API 访问 Podman，例如正确配置 `DOCKER_HOST`。当前 README 的默认路径按 Docker Desktop 编写，Podman 属于可选替代方案。
-
-### 2. 安装 uv
-
-OpenSandbox 官方示例使用 `uvx opensandbox-server` 启动 server。Windows 可用下面任一方式安装 `uv`：
-
-```powershell
-winget install --id=astral-sh.uv -e
-```
-
-或使用官方安装脚本：
-
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-验证：
-
-```powershell
-uv --version
-uvx --version
-```
-
-### 3. 确认 opensandbox-server 可用
-
-使用 `uvx` 时不需要提前把 `opensandbox-server` 安装到 QwenPaw 环境里，`uvx` 会按需下载并运行：
-
-```powershell
-uvx opensandbox-server --help
-```
-
-如果你希望把 server 安装到当前 Python 环境，也可以执行：
-
-```powershell
-uv pip install opensandbox-server
-opensandbox-server --help
-```
-
-注意：`opensandbox-server` 是本地沙箱控制面服务；本插件里的 `opensandbox>=0.1.9` 是 QwenPaw 调用 server 的 Python SDK，两者都需要，但安装位置可以不同。
-
-### 4. 初始化 OpenSandbox server 配置
-
-生成 Docker runtime 示例配置：
-
-```powershell
-uvx opensandbox-server init-config "$env:USERPROFILE\.sandbox.toml" --example docker
-```
-
-编辑 `C:\Users\<你的用户名>\.sandbox.toml`，至少确认这些字段：
-
-```toml
-[server]
-host = "127.0.0.1"
-port = 8080
-max_sandbox_timeout_seconds = 86400
-api_key = "your-api-key"
-```
-
-本地开发建议设置非空 `api_key`。后续 QwenPaw 插件配置里的 `api_key` 或 `OPEN_SANDBOX_API_KEY` 必须和这里一致。如果你的 OpenSandbox server 没有配置 `api_key`，插件里的 `api_key` 和 `OPEN_SANDBOX_API_KEY` 可以保持为空。
-
-### 5. 启动 OpenSandbox server
-
-在单独的 PowerShell 窗口启动：
-
-```powershell
-uvx opensandbox-server
-```
-
-正常启动后应看到类似：
-
-```text
-Uvicorn running on http://127.0.0.1:8080
-```
-
-健康检查：
-
-```powershell
-curl.exe http://127.0.0.1:8080/health
-```
-
-如果配置了 `api_key`，根路径 `/` 返回 `401` 是正常的，说明鉴权已经开启。后续 SDK/插件会使用 API key 访问。
-
-### 6. 预拉取 Code Interpreter 镜像
-
-插件默认使用：
-
-```text
-opensandbox/code-interpreter:v1.0.2
-```
-
-建议先手动拉取，避免 Agent 第一次执行命令时等待镜像下载：
-
-```powershell
-docker pull opensandbox/code-interpreter:v1.0.2
-```
-
-如果你换成其他镜像，需要同步修改插件工具配置里的 `image`、`entrypoint_json` 和相关环境变量。
 
 ## 安装插件
 
@@ -197,6 +96,8 @@ sandbox_timeout_seconds: 300
 command_working_directory: /workspace
 ```
 
+如果 OpenSandbox server 运行在 WSL2 + k3s 中，通常建议把 `use_server_proxy` 设置为 `true`；如果使用本机 Docker Desktop，通常保持 `false`。
+
 如果使用环境变量保存 API key，请确保 QwenPaw 后端进程能读到：
 
 ```powershell
@@ -226,7 +127,7 @@ opensandbox
 - 遇到不可信脚本、一次性依赖安装实验、Linux 环境验证时，优先使用 `execute_opensandbox_command`。
 - 用户明确要求“使用沙箱”“不要在本机执行”“run in OpenSandbox”时，使用 OpenSandbox。
 - 需要访问宿主机项目文件、Windows 路径、本地凭证、浏览器会话或 GUI 时，不默认使用 OpenSandbox。
-- 当前 MVP 没有宿主目录自动挂载或同步，所以涉及项目源码的 build/test/edit 任务不应直接放进 sandbox。
+- 当前版本没有宿主目录自动挂载或同步，所以涉及项目源码的 build/test/edit 任务不应直接放进 sandbox。
 
 ## 启用工具
 
@@ -267,17 +168,17 @@ Hello from OpenSandbox
 
 ## 当前限制
 
-- MVP 每次工具调用都会创建一个新的 sandbox，命令之间不保留状态。
+- 当前版本每次工具调用都会创建一个新的 sandbox，命令之间不保留状态。
 - 宿主机 Windows 路径不会自动挂载到 sandbox。
 - `cwd` 如果是 Windows 路径，会被忽略并回退到 `/workspace`。
 - 当前工具名不是 `execute_shell_command`，而是 `execute_opensandbox_command`。
-- 如果需要透明替换内置 shell 工具，请参考 [DESIGN.md](./DESIGN.md) 中的“少量核心改动插件方案”。
+- 如果需要透明替换内置 shell 工具，请参考 [DESIGN.md](./DESIGN.md) 中的“Shell 透明接管”方案。
 
 ## 常见问题
 
 ### 仍然在 Windows 上执行命令
 
-检查本地 `execute_shell_command` 是否已经禁用。零核心方案不会覆盖内置 shell 工具，需要手动禁用本地 shell，并启用 `execute_opensandbox_command`。
+检查本地 `execute_shell_command` 是否已经禁用。插件工具方案不会覆盖内置 shell 工具，需要手动禁用本地 shell，并启用 `execute_opensandbox_command`。
 
 ### 提示 API key 未配置
 
@@ -294,6 +195,7 @@ Hello from OpenSandbox
 - 确认 Docker/Podman 后端可用
 - 将 `ready_timeout_seconds` 调大到 `120` 或更高
 - 本地 Windows Docker Desktop 场景下，优先使用 `use_server_proxy=false`
+- WSL2 + k3s 场景下，优先使用 `use_server_proxy=true`
 
 ### `python` 命令不存在
 
