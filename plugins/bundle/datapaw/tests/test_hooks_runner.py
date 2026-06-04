@@ -8,14 +8,14 @@ from unittest.mock import MagicMock, patch
 
 def test_smart_factory_routes_datapaw_to_adapter():
     """factory(request_context={agent_id: 'datapaw'}) → DataPawAgent."""
-    from hooks import _SmartAgentFactory
+    from plugin_datapaw.hooks import _SmartAgentFactory
 
     fake_qwen = MagicMock(name="QwenPawAgent")
     fake_dp_agent = MagicMock(name="DataPawAgent")
     factory = _SmartAgentFactory(fake_qwen)
 
     with patch(
-        "hooks._import_data_paw_agent",
+        "plugin_datapaw.hooks._import_data_paw_agent",
         return_value=lambda *a, **kw: fake_dp_agent,
     ):
         result = factory(
@@ -29,7 +29,7 @@ def test_smart_factory_routes_datapaw_to_adapter():
 
 def test_smart_factory_routes_other_to_qwenpaw():
     """factory(request_context={agent_id: 'other'}) → QwenPawAgent."""
-    from hooks import _SmartAgentFactory
+    from plugin_datapaw.hooks import _SmartAgentFactory
 
     fake_qwen = MagicMock(name="QwenPawAgent")
     factory = _SmartAgentFactory(fake_qwen)
@@ -44,7 +44,7 @@ def test_smart_factory_routes_other_to_qwenpaw():
 
 def test_smart_factory_handles_missing_request_context():
     """factory(no request_context) → falls back to QwenPawAgent."""
-    from hooks import _SmartAgentFactory
+    from plugin_datapaw.hooks import _SmartAgentFactory
 
     fake_qwen = MagicMock(name="QwenPawAgent")
     factory = _SmartAgentFactory(fake_qwen)
@@ -61,7 +61,7 @@ def test_factory_accepts_main_runner_kwargs_without_typeerror():
 
     Reproduces the runtime crash: TypeError on `enable_memory_manager`.
     """
-    from hooks import _SmartAgentFactory
+    from plugin_datapaw.hooks import _SmartAgentFactory
 
     fake_qwen = MagicMock(name="QwenPawAgent")
     factory = _SmartAgentFactory(fake_qwen)
@@ -132,7 +132,7 @@ def test_setup_runner_hooks_swaps_qwenpaw_and_wraps_query_handler():
         orig_query_handler,
     ) = _build_fake_runner_module()
 
-    from hooks import setup_runner_hooks
+    from plugin_datapaw.hooks import setup_runner_hooks
 
     setup_runner_hooks(_runner_module=fake_runner_module)
 
@@ -152,7 +152,7 @@ def test_setup_runner_hooks_idempotent():
     """Idempotent: re-invoking must not stack patches."""
     fake_runner_module, FakeAgentRunner, _orig = _build_fake_runner_module()
 
-    from hooks import setup_runner_hooks
+    from plugin_datapaw.hooks import setup_runner_hooks
 
     setup_runner_hooks(_runner_module=fake_runner_module)
     first_factory = fake_runner_module.QwenPawAgent

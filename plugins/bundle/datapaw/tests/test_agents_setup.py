@@ -15,21 +15,21 @@ def _fake_config(profiles=None, language="zh"):
 
 def test_ensure_builtin_agents_writes_profile_when_missing(tmp_path):
     """First-run: profile absent → create workspace, seed persona, save."""
-    from agents_setup import ensure_builtin_agents
+    from plugin_datapaw.agents_setup import ensure_builtin_agents
 
     fake_cfg = _fake_config(profiles={})
 
     saved = []
     seeded = []
 
-    with patch("agents_setup.load_config", return_value=fake_cfg), patch(
-        "agents_setup.save_config",
+    with patch("plugin_datapaw.agents_setup.load_config", return_value=fake_cfg), patch(
+        "plugin_datapaw.agents_setup.save_config",
         side_effect=saved.append,
-    ), patch("agents_setup.save_agent_config") as save_agent, patch(
-        "agents_setup._seed_persona_md_files",
+    ), patch("plugin_datapaw.agents_setup.save_agent_config") as save_agent, patch(
+        "plugin_datapaw.agents_setup._seed_persona_md_files",
         side_effect=lambda d, language: seeded.append((d, language)),
     ), patch(
-        "agents_setup.WORKING_DIR",
+        "plugin_datapaw.agents_setup.WORKING_DIR",
         tmp_path,
     ):
         ensure_builtin_agents()
@@ -53,7 +53,7 @@ def test_ensure_builtin_agents_writes_profile_when_missing(tmp_path):
 
 def test_ensure_builtin_agents_idempotent(tmp_path):
     """Existing profile must not trigger another save_config write."""
-    from agents_setup import ensure_builtin_agents
+    from plugin_datapaw.agents_setup import ensure_builtin_agents
     from qwenpaw.config.config import AgentProfileRef
 
     ws_dir = (tmp_path / "workspaces" / "datapaw").resolve()
@@ -68,14 +68,14 @@ def test_ensure_builtin_agents_idempotent(tmp_path):
         },
     )
 
-    with patch("agents_setup.load_config", return_value=fake_cfg), patch(
-        "agents_setup.save_config",
+    with patch("plugin_datapaw.agents_setup.load_config", return_value=fake_cfg), patch(
+        "plugin_datapaw.agents_setup.save_config",
     ) as save_config, patch(
-        "agents_setup.save_agent_config",
+        "plugin_datapaw.agents_setup.save_agent_config",
     ) as save_agent, patch(
-        "agents_setup._seed_persona_md_files",
+        "plugin_datapaw.agents_setup._seed_persona_md_files",
     ), patch(
-        "agents_setup.WORKING_DIR",
+        "plugin_datapaw.agents_setup.WORKING_DIR",
         tmp_path,
     ):
         ensure_builtin_agents()
@@ -93,7 +93,7 @@ def test_ensure_builtin_agents_idempotent(tmp_path):
 
 def test_seed_persona_md_files_copies_zh(tmp_path):
     """zh default: both SOUL.md and PROFILE.md copied into the workspace."""
-    from agents_setup import _seed_persona_md_files
+    from plugin_datapaw.agents_setup import _seed_persona_md_files
 
     _seed_persona_md_files(tmp_path, language="zh")
 
@@ -104,7 +104,7 @@ def test_seed_persona_md_files_copies_zh(tmp_path):
 
 def test_seed_persona_md_files_copies_en(tmp_path):
     """en path: copy the English version."""
-    from agents_setup import _seed_persona_md_files
+    from plugin_datapaw.agents_setup import _seed_persona_md_files
 
     _seed_persona_md_files(tmp_path, language="en")
 
@@ -116,7 +116,7 @@ def test_seed_persona_md_files_copies_en(tmp_path):
 
 def test_seed_persona_md_files_unknown_language_falls_back_to_zh(tmp_path):
     """Unknown language → fall back to zh."""
-    from agents_setup import _seed_persona_md_files
+    from plugin_datapaw.agents_setup import _seed_persona_md_files
 
     _seed_persona_md_files(tmp_path, language="ja")
 
@@ -131,7 +131,7 @@ def test_seed_persona_md_files_unknown_language_falls_back_to_zh(tmp_path):
 
 def test_uninstall_builtin_agents_removes_profile_and_workspace(tmp_path):
     """Uninstall: drop datapaw profile and rmtree the workspace dir."""
-    from agents_setup import uninstall_builtin_agents
+    from plugin_datapaw.agents_setup import uninstall_builtin_agents
     from qwenpaw.config.config import AgentProfileRef
 
     ws_dir = tmp_path / "workspaces" / "datapaw"
@@ -149,8 +149,8 @@ def test_uninstall_builtin_agents_removes_profile_and_workspace(tmp_path):
     )
     fake_cfg.agents.active_agent = "default"
 
-    with patch("agents_setup.load_config", return_value=fake_cfg), patch(
-        "agents_setup.save_config",
+    with patch("plugin_datapaw.agents_setup.load_config", return_value=fake_cfg), patch(
+        "plugin_datapaw.agents_setup.save_config",
     ) as save_config_mock:
         uninstall_builtin_agents()
 
@@ -161,7 +161,7 @@ def test_uninstall_builtin_agents_removes_profile_and_workspace(tmp_path):
 
 def test_uninstall_builtin_agents_resets_active_agent_when_datapaw(tmp_path):
     """If active_agent points to datapaw, uninstall resets it to default."""
-    from agents_setup import uninstall_builtin_agents
+    from plugin_datapaw.agents_setup import uninstall_builtin_agents
     from qwenpaw.config.config import AgentProfileRef
 
     ws_dir = tmp_path / "workspaces" / "datapaw"
@@ -177,8 +177,8 @@ def test_uninstall_builtin_agents_resets_active_agent_when_datapaw(tmp_path):
     )
     fake_cfg.agents.active_agent = "datapaw"
 
-    with patch("agents_setup.load_config", return_value=fake_cfg), patch(
-        "agents_setup.save_config",
+    with patch("plugin_datapaw.agents_setup.load_config", return_value=fake_cfg), patch(
+        "plugin_datapaw.agents_setup.save_config",
     ):
         uninstall_builtin_agents()
 
@@ -187,12 +187,12 @@ def test_uninstall_builtin_agents_resets_active_agent_when_datapaw(tmp_path):
 
 def test_uninstall_builtin_agents_noop_when_not_installed(tmp_path):
     """No profile present → silently return."""
-    from agents_setup import uninstall_builtin_agents
+    from plugin_datapaw.agents_setup import uninstall_builtin_agents
 
     fake_cfg = _fake_config(profiles={})
 
-    with patch("agents_setup.load_config", return_value=fake_cfg), patch(
-        "agents_setup.save_config",
+    with patch("plugin_datapaw.agents_setup.load_config", return_value=fake_cfg), patch(
+        "plugin_datapaw.agents_setup.save_config",
     ) as save_config_mock:
         uninstall_builtin_agents()
 
@@ -206,7 +206,7 @@ def test_uninstall_builtin_agents_noop_when_not_installed(tmp_path):
 
 def test_install_plugin_skills_copies_skills_into_workspace(tmp_path):
     """All plugin-bundled skill dirs land under workspace/skills/."""
-    from agents_setup import _install_plugin_skills
+    from plugin_datapaw.agents_setup import _install_plugin_skills
 
     _install_plugin_skills(tmp_path)
 
@@ -219,7 +219,7 @@ def test_install_plugin_skills_copies_skills_into_workspace(tmp_path):
 
 def test_install_plugin_skills_writes_enabled_manifest(tmp_path):
     """In skill.json, plugin skills get enabled=True + source set."""
-    from agents_setup import _install_plugin_skills
+    from plugin_datapaw.agents_setup import _install_plugin_skills
 
     _install_plugin_skills(tmp_path)
 
@@ -245,7 +245,7 @@ def test_install_plugin_skills_writes_enabled_manifest(tmp_path):
 
 def test_install_plugin_skills_idempotent(tmp_path):
     """Repeated calls must not produce duplicates or flip enabled."""
-    from agents_setup import _install_plugin_skills
+    from plugin_datapaw.agents_setup import _install_plugin_skills
     import json as _json
 
     _install_plugin_skills(tmp_path)
@@ -269,7 +269,7 @@ def test_install_plugin_skills_idempotent(tmp_path):
 
 def test_install_plugin_skills_preserves_user_customized_skills(tmp_path):
     """User-installed customized skills must stay untouched on install."""
-    from agents_setup import _install_plugin_skills
+    from plugin_datapaw.agents_setup import _install_plugin_skills
     import json as _json
 
     # Install once so the manifest file exists.

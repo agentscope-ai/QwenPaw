@@ -5,7 +5,7 @@ import asyncio
 
 
 def test_dag_broadcaster_push_drops_full_queue():
-    from core.orchestration.dag_store import DAGBroadcaster
+    from plugin_datapaw.core.orchestration.dag_store import DAGBroadcaster
 
     sid = "s-broadcast"
     queue = DAGBroadcaster.subscribe(sid, maxsize=1)
@@ -20,7 +20,7 @@ def test_dag_broadcaster_push_drops_full_queue():
 
 
 def test_dag_store_write_fans_out_before_persist(tmp_path):
-    from core.orchestration.dag_store import DAGStore
+    from plugin_datapaw.core.orchestration.dag_store import DAGStore
 
     store = DAGStore(tmp_path, user_id="default")
     seen = []
@@ -47,10 +47,10 @@ def test_dag_store_write_fans_out_before_persist(tmp_path):
 
 
 def test_runtime_state_notify_writes_dag_store(tmp_path):
-    from core.orchestration.dag_store import DAGStore
-    from core.orchestration.state import RuntimeStateManager
-    from core.orchestration.task_graph import TaskGraph, TaskNode
-    from core.orchestration.events import TaskEventType
+    from plugin_datapaw.core.orchestration.dag_store import DAGStore
+    from plugin_datapaw.core.orchestration.state import RuntimeStateManager
+    from plugin_datapaw.core.orchestration.task_graph import TaskGraph, TaskNode
+    from plugin_datapaw.core.orchestration.events import TaskEventType
 
     state = RuntimeStateManager()
     state.configure_dag_store(
@@ -79,8 +79,8 @@ def test_runtime_state_notify_writes_dag_store(tmp_path):
 
 
 def test_tasks_persist_pn_writes_dag_store(tmp_path):
-    from core.orchestration.dag_store import DAGStore
-    from core.routers.tasks import _PnContext, _persist_pn
+    from plugin_datapaw.core.orchestration.dag_store import DAGStore
+    from plugin_datapaw.core.routers.tasks import _PnContext, _persist_pn
 
     ctx = _PnContext(
         session=object(),
@@ -99,7 +99,7 @@ def test_tasks_persist_pn_writes_dag_store(tmp_path):
 
 
 def test_format_sse_includes_event_id_and_task_status_event():
-    from core.orchestration.dag_store import format_sse
+    from plugin_datapaw.core.orchestration.dag_store import format_sse
 
     frame = format_sse({"sequence_number": 7, "current_plan": {"id": "g1"}})
 

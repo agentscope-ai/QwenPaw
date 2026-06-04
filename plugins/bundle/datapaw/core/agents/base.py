@@ -26,10 +26,10 @@ from typing import Any, List, Literal, Optional, TYPE_CHECKING, Type
 from agentscope.message import Msg
 from pydantic import BaseModel
 
-from core.i18n import tr
-from core.orchestration import RuntimeStateManager
-from core.path_context import PathContext, default_artifacts_root
-from core.sse_metadata import NODE_ROUTING_METADATA_KEYS
+from ..i18n import tr
+from ..orchestration import RuntimeStateManager
+from ..path_context import PathContext, default_artifacts_root
+from ..sse_metadata import NODE_ROUTING_METADATA_KEYS
 from qwenpaw.agents.react_agent import NamesakeStrategy, QwenPawAgent
 from qwenpaw.agents.skill_system.store import get_workspace_skills_dir
 

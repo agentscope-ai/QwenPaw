@@ -20,10 +20,10 @@ def test_patch_plugin_loader_unload_runs_uninstall_for_datapaw():
     calls: list = []
 
     with patch(
-        "hooks.uninstall_builtin_agents",
+        "plugin_datapaw.hooks.uninstall_builtin_agents",
         side_effect=lambda: calls.append("uninstall"),
     ):
-        from hooks import patch_plugin_loader_unload
+        from plugin_datapaw.hooks import patch_plugin_loader_unload
 
         patch_plugin_loader_unload(_loader_module=fake_module)
 
@@ -40,10 +40,10 @@ def test_patch_plugin_loader_unload_skips_for_other_plugins():
     calls: list = []
 
     with patch(
-        "hooks.uninstall_builtin_agents",
+        "plugin_datapaw.hooks.uninstall_builtin_agents",
         side_effect=lambda: calls.append("uninstall"),
     ):
-        from hooks import patch_plugin_loader_unload
+        from plugin_datapaw.hooks import patch_plugin_loader_unload
 
         patch_plugin_loader_unload(_loader_module=fake_module)
 
@@ -57,7 +57,7 @@ def test_patch_plugin_loader_unload_skips_for_other_plugins():
 
 def test_patch_plugin_loader_unload_idempotent():
     fake_module, FakeLoader = _build_fake_loader_module()
-    from hooks import patch_plugin_loader_unload
+    from plugin_datapaw.hooks import patch_plugin_loader_unload
 
     patch_plugin_loader_unload(_loader_module=fake_module)
     first = FakeLoader.unload_plugin
@@ -72,8 +72,8 @@ def test_patch_plugin_loader_unload_swallows_uninstall_errors():
     def _boom():
         raise RuntimeError("simulated failure")
 
-    with patch("hooks.uninstall_builtin_agents", side_effect=_boom):
-        from hooks import patch_plugin_loader_unload
+    with patch("plugin_datapaw.hooks.uninstall_builtin_agents", side_effect=_boom):
+        from plugin_datapaw.hooks import patch_plugin_loader_unload
 
         patch_plugin_loader_unload(_loader_module=fake_module)
 

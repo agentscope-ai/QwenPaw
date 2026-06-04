@@ -23,7 +23,7 @@ import shutil
 import time
 from pathlib import Path
 
-from core.i18n import tr
+from .core.i18n import tr
 from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentProfileRef,
@@ -39,21 +39,7 @@ from qwenpaw.config.utils import (
 )
 from qwenpaw.constant import WORKING_DIR
 
-# Sibling-module imports last because the conditional ``if/else`` block
-# is a non-import statement and would otherwise force all following
-# imports into ``wrong-import-position``. Conditional pattern: relative
-# when host's PluginLoader sets ``__package__ = "plugin_datapaw"``,
-# absolute when imported via the sys.path-based test conftest. Required
-# so the plugin can co-exist with other plugins (e.g. cloudpaw) that
-# ship a top-level ``constants`` module of their own.
-if __package__:
-    # pylint: disable-next=relative-beyond-top-level
-    from .constants import BUILTIN_DATAPAW_AGENT_ID, PLUGIN_DIR
-else:
-    from constants import (  # type: ignore[no-redef]
-        BUILTIN_DATAPAW_AGENT_ID,
-        PLUGIN_DIR,
-    )
+from .constants import BUILTIN_DATAPAW_AGENT_ID, PLUGIN_DIR
 
 logger = logging.getLogger(__name__)
 

@@ -29,21 +29,8 @@ import json
 import logging
 from typing import Any
 
-# See ``agents_setup.py`` for rationale — co-existence with other plugins
-# that ship a top-level ``constants`` module of their own. The pylint
-# disable is needed because pylint can't see host's PluginLoader setting
-# ``__package__`` on this module at runtime.
-if __package__:
-    # pylint: disable-next=relative-beyond-top-level
-    from .constants import BUILTIN_DATAPAW_AGENT_ID
-else:
-    from constants import BUILTIN_DATAPAW_AGENT_ID  # type: ignore[no-redef]
-
-# Imported after the conditional block above so plugin-dir sys.path
-# injection (in constants.py) is in effect; ``core`` is a datapaw-only
-# subpackage and does not clash with other plugins' top-level names.
-# pylint: disable-next=wrong-import-position
-from core.sse_metadata import NODE_ROUTING_METADATA_KEYS
+from .constants import BUILTIN_DATAPAW_AGENT_ID
+from .core.sse_metadata import NODE_ROUTING_METADATA_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +96,7 @@ class _SmartAgentFactory:
 
 
 def _import_data_paw_agent():
-    from core.agents.base import DataPawAgent
+    from .core.agents.base import DataPawAgent
 
     return DataPawAgent
 
@@ -144,7 +131,7 @@ def _build_datapaw_agent(*args, **kwargs):
 
     if runner is not None and session_id:
         try:
-            from core.orchestration.dag_store import DAGStore
+            from .core.orchestration.dag_store import DAGStore
 
             notebook.configure_dag_store(
                 DAGStore.from_session(
@@ -475,19 +462,10 @@ def setup_channel_sse_hook(_channel_cls=None) -> None:
 def uninstall_builtin_agents() -> None:
     """Re-export for unload path mock-friendliness.
 
-    Tests `patch("hooks.uninstall_builtin_agents", ...)` to intercept
-    uninstall behaviour without touching agents_setup directly.
+    Tests `patch("plugin_datapaw.hooks.uninstall_builtin_agents", ...)`
+    to intercept uninstall behaviour without touching agents_setup directly.
     """
-    # Conditional import: relative when loaded by host's PluginLoader,
-    # absolute when imported via tests' sys.path-based conftest. See the
-    # equivalent comment at the top of this module for rationale.
-    if __package__:
-        # pylint: disable-next=relative-beyond-top-level
-        from .agents_setup import uninstall_builtin_agents as _u
-    else:
-        from agents_setup import (  # type: ignore[no-redef]
-            uninstall_builtin_agents as _u,
-        )
+    from .agents_setup import uninstall_builtin_agents as _u
 
     return _u()
 

@@ -14,14 +14,14 @@ import asyncio
 
 
 def test_extract_datapaw_metadata_returns_graph_id_and_node_id():
-    from hooks import _extract_datapaw_metadata
+    from plugin_datapaw.hooks import _extract_datapaw_metadata
 
     out = _extract_datapaw_metadata({"graph_id": "g1", "node_id": "n1"})
     assert out == {"graph_id": "g1", "node_id": "n1"}
 
 
 def test_extract_datapaw_metadata_accepts_nested_metadata_shape():
-    from hooks import _extract_datapaw_metadata
+    from plugin_datapaw.hooks import _extract_datapaw_metadata
 
     out = _extract_datapaw_metadata(
         {"metadata": {"graph_id": "g1", "node_id": "n1", "extra": "ignored"}},
@@ -30,14 +30,14 @@ def test_extract_datapaw_metadata_accepts_nested_metadata_shape():
 
 
 def test_extract_datapaw_metadata_returns_empty_when_no_keys():
-    from hooks import _extract_datapaw_metadata
+    from plugin_datapaw.hooks import _extract_datapaw_metadata
 
     assert _extract_datapaw_metadata({}) == {}
     assert _extract_datapaw_metadata({"unrelated": 1}) == {}
 
 
 def test_extract_datapaw_metadata_handles_partial_keys():
-    from hooks import _extract_datapaw_metadata
+    from plugin_datapaw.hooks import _extract_datapaw_metadata
 
     out = _extract_datapaw_metadata({"graph_id": "g1"})
     assert out == {"graph_id": "g1"}
@@ -45,7 +45,7 @@ def test_extract_datapaw_metadata_handles_partial_keys():
 
 
 def test_extract_datapaw_metadata_handles_non_dict_input():
-    from hooks import _extract_datapaw_metadata
+    from plugin_datapaw.hooks import _extract_datapaw_metadata
 
     assert _extract_datapaw_metadata(None) == {}
     assert _extract_datapaw_metadata("string") == {}
@@ -58,7 +58,7 @@ def test_extract_datapaw_metadata_handles_non_dict_input():
 
 
 def test_format_task_event_with_model_dump_json():
-    from hooks import _format_task_event_as_sse
+    from plugin_datapaw.hooks import _format_task_event_as_sse
 
     class FakeEvent:
         def model_dump_json(self):
@@ -69,7 +69,7 @@ def test_format_task_event_with_model_dump_json():
 
 
 def test_format_task_event_fallback_for_plain_object():
-    from hooks import _format_task_event_as_sse
+    from plugin_datapaw.hooks import _format_task_event_as_sse
 
     out = _format_task_event_as_sse("hello")
     assert out.startswith("data: ")
@@ -84,7 +84,7 @@ def test_format_task_event_fallback_for_plain_object():
 
 def test_wrapped_stream_one_drains_datapaw_queue_between_frames():
     """Wrap stream_one async generator; queue events get yielded."""
-    from hooks import _wrap_stream_one
+    from plugin_datapaw.hooks import _wrap_stream_one
 
     queue = asyncio.Queue()
 
@@ -135,7 +135,7 @@ def test_wrapped_stream_one_drains_datapaw_queue_between_frames():
 
 def test_wrapped_stream_one_passthrough_when_no_queue():
     """If request has no _datapaw_sse_queue, behave as a pure passthrough."""
-    from hooks import _wrap_stream_one
+    from plugin_datapaw.hooks import _wrap_stream_one
 
     request = object()  # no queue attached
 
@@ -154,7 +154,7 @@ def test_wrapped_stream_one_passthrough_when_no_queue():
 
 def test_wrapped_stream_one_native_content_parts_does_not_warn(caplog):
     """Native content_parts path doesn't log obsolete DAG warning."""
-    from hooks import _wrap_stream_one
+    from plugin_datapaw.hooks import _wrap_stream_one
 
     payload = {"content_parts": []}
 
@@ -178,7 +178,7 @@ def test_wrapped_stream_one_native_content_parts_does_not_warn(caplog):
 
 
 def test_setup_channel_sse_hook_patches_stream_one_and_adds_static_method():
-    from hooks import setup_channel_sse_hook
+    from plugin_datapaw.hooks import setup_channel_sse_hook
 
     async def orig(self, payload):
         if False:
@@ -198,7 +198,7 @@ def test_setup_channel_sse_hook_patches_stream_one_and_adds_static_method():
 
 
 def test_setup_channel_sse_hook_idempotent():
-    from hooks import setup_channel_sse_hook
+    from plugin_datapaw.hooks import setup_channel_sse_hook
 
     async def orig(self, payload):
         if False:
