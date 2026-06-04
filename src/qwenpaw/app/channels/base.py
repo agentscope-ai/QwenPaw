@@ -179,22 +179,18 @@ class BaseChannel(ABC):
         return isinstance(payload, dict) and "content_parts" in payload
 
     def get_debounce_key(self, payload: Any) -> str:
-        """Key for queue routing and time-debounce grouping.
-
-        Same session-scoped logic as before, but appends ``sender_id``
-        so that messages from different users in the same group chat
-        are never routed to the same queue or merged together.
+        """
+        Key for time debounce (same key = same conversation).
+        Delegates to ``resolve_session_id`` so every channel gets
+        session-scoped isolation automatically.
         """
         if isinstance(payload, dict):
             sender_id = payload.get("sender_id") or ""
             meta = payload.get("meta") or {}
-            base_key = payload.get("session_id") or self.resolve_session_id(
+            return payload.get("session_id") or self.resolve_session_id(
                 sender_id,
                 meta,
             )
-            if sender_id:
-                return f"{base_key}:{sender_id}"
-            return base_key
         return getattr(payload, "session_id", "") or ""
 
     def merge_native_items(self, items: List[Any]) -> Any:

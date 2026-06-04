@@ -228,12 +228,31 @@ class ChannelManager:
         ch: BaseChannel,
         payload: Any,
     ) -> str:
-        """Extract session_id from payload for queue routing.
+        """Extract normalized session_id from payload.
 
-        Delegates to ``ch.get_debounce_key`` which appends
-        ``sender_id`` for per-user queue isolation (prevents
-        cross-user message merging in group chats).
+        Args:
+            ch: Channel instance
+            payload: Native dict or AgentRequest
+
+        Returns:
+            Normalized session_id (e.g. "console:user1")
+
+        Note:
+            Uses same logic as ch.get_debounce_key for consistency
         """
+        # Check if payload already has normalized session_id
+        # (e.g. from batch merge or previous processing)
+        if isinstance(payload, dict):
+            existing_sid = payload.get("session_id")
+            if existing_sid:
+                return existing_sid
+
+        if hasattr(payload, "session_id"):
+            existing_sid = payload.session_id
+            if existing_sid:
+                return existing_sid
+
+        # Use channel's debounce key (delegates to resolve_session_id)
         return ch.get_debounce_key(payload)
 
     def _enqueue_one(self, channel_id: str, payload: Any) -> None:
