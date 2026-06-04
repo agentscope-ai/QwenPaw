@@ -33,6 +33,7 @@ If the **user explicitly asks a specific agent to participate/assist/answer**, y
 3. **Check agents before invoking -- do not guess IDs**
 4. **When context continuation is needed, you must pass `--session-id`**
 5. **Do not call back the source agent**
+6. **If you start a background subagent with the built-in `spawn_subagent(background=True)`, prefer `wait_subagent_events(task_ids=[...])` for results; do not run frequent `check_agent_task` polling loops**
 
 ---
 
@@ -144,6 +145,22 @@ qwenpaw agents chat \
 6. Wait a reasonable time (30-60 seconds) before querying status
 7. Use --background --task-id to query results
 ```
+
+For tool-level `spawn_subagent(background=True)`, the background subagent sends
+completion, failure, cancellation, or timeout events back to the current parent
+session. After recording the returned task_id, use:
+
+```python
+wait_subagent_events(task_ids=["<task_id>"])
+```
+
+Multiple background subagents can be waited on together:
+
+```python
+wait_subagent_events(task_ids=["<task_id_1>", "<task_id_2>"])
+```
+
+Use `check_agent_task` only as a manual fallback when events are unavailable.
 
 ---
 

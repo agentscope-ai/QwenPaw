@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 from .base import BaseControlCommandHandler, ControlContext
+from ..subagent_cancel import cancel_linked_subagents
 
 logger = logging.getLogger(__name__)
 
@@ -56,11 +57,20 @@ class StopCommandHandler(BaseControlCommandHandler):
             channel_id,
         )
 
+        cancelled_subagents = await cancel_linked_subagents(target_session_id)
+
         if chat_id is None:
             logger.warning(
                 f"/stop: No active chat found for "
                 f"session={target_session_id[:30]} channel={channel_id}",
             )
+            if cancelled_subagents:
+                return (
+                    f"**Task Stopped**\n\n"
+                    f"Session `{target_session_id[:40]}`: "
+                    f"{cancelled_subagents} linked subagent task(s) "
+                    f"cancelled."
+                )
             return (
                 f"**No Active Task**\n\n"
                 f"No running task found for session "
@@ -75,9 +85,10 @@ class StopCommandHandler(BaseControlCommandHandler):
             20,
         )
 
-        if stopped or cleared > 0:
+        if stopped or cleared > 0 or cancelled_subagents > 0:
             logger.info(
                 f"/stop: stopped={stopped} cleared={cleared} "
+                f"cancelled_subagents={cancelled_subagents} "
                 f"chat_id={chat_id} session={target_session_id[:30]}",
             )
             status_parts = []
@@ -85,6 +96,10 @@ class StopCommandHandler(BaseControlCommandHandler):
                 status_parts.append("running task stopped")
             if cleared > 0:
                 status_parts.append(f"{cleared} queued message(s) cleared")
+            if cancelled_subagents > 0:
+                status_parts.append(
+                    f"{cancelled_subagents} linked subagent task(s) cancelled",
+                )
             status_text = " and ".join(status_parts)
             return (
                 f"**Task Stopped**\n\n"

@@ -27,6 +27,7 @@ from .agent_management import (
     chat_with_agent,
     submit_to_agent,
     check_agent_task,
+    wait_subagent_events,
     spawn_subagent,
 )
 from .delegate_external_agent import delegate_external_agent
@@ -59,5 +60,6 @@ __all__ = [
     "chat_with_agent",
     "submit_to_agent",
     "check_agent_task",
+    "wait_subagent_events",
     "spawn_subagent",
 ]
