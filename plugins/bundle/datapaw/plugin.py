@@ -17,8 +17,13 @@ class DataPawPlugin:
             priority=50,
         )
         api.register_shutdown_hook(
-            hook_name="datapaw_cleanup",
+            hook_name="datapaw_shutdown",
             callback=self._on_shutdown,
+            priority=50,
+        )
+        api.register_uninstall_hook(
+            hook_name="datapaw_uninstall",
+            callback=self._on_uninstall,
             priority=50,
         )
 
@@ -34,22 +39,20 @@ class DataPawPlugin:
         logger.info("DataPaw plugin starting up")
 
         from .agents_setup import ensure_builtin_agents
-        from .hooks import (
-            patch_plugin_loader_unload,
-            setup_channel_sse_hook,
-            setup_runner_hooks,
-        )
+        from .hooks import setup_channel_sse_hook, setup_runner_hooks
 
         ensure_builtin_agents()
         setup_runner_hooks()
         setup_channel_sse_hook()
-        patch_plugin_loader_unload()
 
         logger.info("DataPaw plugin startup complete")
 
+    def _on_uninstall(self, plugin_id: str, delete_files: bool = False):
+        from .agents_setup import uninstall_builtin_agents
+
+        uninstall_builtin_agents()
+
     async def _on_shutdown(self):
-        # PluginLoader uninstall handles profile/workspace cleanup; nothing
-        # to do at lifespan-end teardown beyond logging.
         logger.info("DataPaw plugin shutting down")
 
 

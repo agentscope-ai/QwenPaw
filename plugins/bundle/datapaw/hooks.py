@@ -6,20 +6,17 @@
 # operates in that regime; per-site disables would be noise.
 """Monkey-patches the DataPaw plugin applies to host runtime.
 
-Three patches, all installed from ``plugin._on_startup``:
+Two patches, installed from ``plugin._on_startup``:
 
 1. ``setup_runner_hooks`` — replaces ``qwenpaw.app.runner.runner.QwenPawAgent``
    with a smart factory that returns ``DataPawAgent`` when
    ``request_context["agent_id"] == "datapaw"``, plus a thin wrapper around
    ``AgentRunner.query_handler`` that stashes ``request`` / ``runner`` in
    contextvars so the adapter can wire ``DAGStore`` and the SSE queue after
-   agent construction. **No copy of host's 500-line query_handler is
-   required** — the integration uses two small mechanisms instead.
+   agent construction.
 2. ``setup_channel_sse_hook`` — replaces ``ConsoleChannel.stream_one`` so the
    DAG ``TaskEvent`` queue attached to ``request._datapaw_sse_queue`` gets
-   drained into SSE frames alongside the regular message stream (Phase 8).
-3. ``patch_plugin_loader_unload`` — wraps ``PluginLoader.unload_plugin`` so
-   uninstalling the plugin runs ``uninstall_builtin_agents`` (Phase 9).
+   drained into SSE frames alongside the regular message stream.
 """
 from __future__ import annotations
 
@@ -35,16 +32,6 @@ from .core.sse_metadata import NODE_ROUTING_METADATA_KEYS
 logger = logging.getLogger(__name__)
 
 
-# Single source of truth for the attribute names this module sets on
-# patched targets to mark "DataPaw has already patched this; do not
-# install again." Keep this list in sync with the actual ``setattr``
-# sites — at the time of writing they are:
-#
-#   * ``runner_module.QwenPawAgent`` (the smart factory instance) ─►
-#     attribute ``_datapaw_factory``
-#   * ``AgentRunner.query_handler``  / ``ConsoleChannel.stream_one`` /
-#     ``PluginLoader.unload_plugin``  (wrapper functions) ─►
-#     attribute ``_datapaw_patched``
 _PATCH_MARKER_ATTRS = ("_datapaw_factory", "_datapaw_patched")
 
 
@@ -452,54 +439,3 @@ def setup_channel_sse_hook(_channel_cls=None) -> None:
     _channel_cls._extract_datapaw_metadata = staticmethod(
         _extract_datapaw_metadata,
     )
-
-
-# ---------------------------------------------------------------------------
-# PluginLoader.unload_plugin patch
-# ---------------------------------------------------------------------------
-
-
-def uninstall_builtin_agents() -> None:
-    """Re-export for unload path mock-friendliness.
-
-    Tests `patch("plugin_datapaw.hooks.uninstall_builtin_agents", ...)`
-    to intercept uninstall behaviour without touching agents_setup directly.
-    """
-    from .agents_setup import uninstall_builtin_agents as _u
-
-    return _u()
-
-
-def patch_plugin_loader_unload(_loader_module=None) -> None:
-    """Wrap ``PluginLoader.unload_plugin`` so plugin uninstall cleans up.
-
-    For ``plugin_id=="datapaw"``, run ``uninstall_builtin_agents`` first,
-    then defer to the host's original ``unload_plugin``. Other plugins are
-    unaffected. Idempotent.
-
-    The optional ``_loader_module`` argument is for unit tests.
-    """
-    if _loader_module is None:
-        from importlib import import_module
-
-        _loader_module = import_module("qwenpaw.plugins.loader")
-
-    PluginLoader = _loader_module.PluginLoader
-    orig = PluginLoader.unload_plugin
-    if getattr(orig, "_datapaw_patched", False):
-        return  # idempotent
-
-    async def _patched_unload(self, plugin_id, delete_files=False):
-        if plugin_id == "datapaw":
-            try:
-                uninstall_builtin_agents()
-            except Exception:  # pylint: disable=broad-except
-                logger.warning(
-                    "DataPaw uninstall_builtin_agents failed; continuing with"
-                    " host PluginLoader.unload_plugin",
-                    exc_info=True,
-                )
-        return await orig(self, plugin_id, delete_files)
-
-    _patched_unload._datapaw_patched = True  # type: ignore[attr-defined]
-    PluginLoader.unload_plugin = _patched_unload
