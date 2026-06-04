@@ -437,49 +437,6 @@ class DataPawAgent(QwenPawAgent):
                     exc_info=True,
                 )
 
-    # --- System-prompt assembly (override) ---------------------------------
-
-    def _analysis_environment_hint(self) -> str:
-        """DataPaw env hint describing the host workspace paths."""
-        workspace_dir = getattr(self, "_workspace_dir", None)
-        artifacts_root = self._artifact_base_dir(workspace_dir)
-        return tr("env.hint", self._lang, root=artifacts_root)
-
-    def _build_sys_prompt(self) -> str:
-        """Assemble the system prompt in four layers:
-        1. host three-piece set (``AGENTS.md`` / ``SOUL.md`` / ``PROFILE.md``)
-        2. plugin ``MASTER.md`` (DataPaw runtime section)
-        3. host workspace env hint (paths & shell rules)
-        4. ``_env_context`` if set
-        """
-        parts: list[str] = []
-
-        try:
-            base = super()._build_sys_prompt()
-        except Exception:  # pylint: disable=broad-except
-            logger.warning(
-                "DataPawAgent: super()._build_sys_prompt() failed; "
-                "falling back to MASTER-only prompt",
-                exc_info=True,
-            )
-            base = ""
-        if base:
-            parts.append(base)
-
-        master = _read_master_md(self._lang)
-        if master:
-            parts.append(master)
-
-        parts.append(self._analysis_environment_hint())
-
-        sys_prompt = "\n\n".join(p for p in parts if p)
-
-        env_ctx = getattr(self, "_env_context", None)
-        if env_ctx:
-            sys_prompt = sys_prompt + "\n\n" + env_ctx
-
-        return sys_prompt
-
     # --- reply (light override) --------------------------------------------
 
     async def reply(

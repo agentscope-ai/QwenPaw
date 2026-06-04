@@ -42,6 +42,19 @@ class DataPawPlugin:
             channels=["all"],
         )
 
+        api.register_prompt_section(
+            name="datapaw.master",
+            after="workspace",
+            agent_id="datapaw",
+            provider=self._provide_master_md,
+        )
+        api.register_prompt_section(
+            name="datapaw.env_hint",
+            after="workspace",
+            agent_id="datapaw",
+            provider=self._provide_env_hint,
+        )
+
     async def _on_startup(self):
         logger.info("DataPaw plugin starting up")
 
@@ -53,6 +66,23 @@ class DataPawPlugin:
         setup_channel_sse_hook()
 
         logger.info("DataPaw plugin startup complete")
+
+    @staticmethod
+    def _provide_master_md(agent) -> str:
+        from .core.agents.base import _read_master_md
+
+        lang = getattr(agent, "_lang", "zh")
+        return _read_master_md(lang)
+
+    @staticmethod
+    def _provide_env_hint(agent) -> str:
+        from .core.i18n import tr
+        from .core.path_context import default_artifacts_root
+
+        workspace_dir = getattr(agent, "_workspace_dir", None)
+        artifacts_root = default_artifacts_root(workspace_dir)
+        lang = getattr(agent, "_lang", "zh")
+        return tr("env.hint", lang, root=artifacts_root)
 
     def _on_uninstall(self, plugin_id: str, delete_files: bool = False):
         from .agents_setup import uninstall_builtin_agents
