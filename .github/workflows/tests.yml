@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
 
 # Coverage data is collected on a single matrix entry per test class
-# (ubuntu-latest + python 3.10, historically the fastest combination)
+# (ubuntu-latest + python 3.13 for lower tracer overhead)
 # instead of being re-run from scratch in coverage-report. The data files
 # (.coverage.unit / .coverage.contract / .coverage.integration plus their
 # cobertura xml) are uploaded as short-lived artifacts and consumed by the
@@ -95,11 +95,11 @@ jobs:
         env:
           COVERAGE_FILE: .coverage.unit
         run: |
-          # Coverage is collected only on the ubuntu/py3.10 entry so the
+          # Coverage is collected only on the ubuntu/py3.13 entry so the
           # data file can be uploaded for coverage-report. Other matrix
           # entries only verify cross-platform compatibility.
           if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
-             [ "${{ matrix.python-version }}" = "3.10" ]; then
+             [ "${{ matrix.python-version }}" = "3.13" ]; then
             pytest tests/unit -v \
               --cov=src/qwenpaw \
               --cov-report=xml:coverage.unit.xml \
@@ -111,7 +111,7 @@ jobs:
       - name: Upload unit coverage data
         if: |
           matrix.os == 'ubuntu-latest' &&
-          matrix.python-version == '3.10'
+          matrix.python-version == '3.13'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-data-unit
@@ -182,7 +182,7 @@ jobs:
         run: |
           # Same conditional-coverage pattern as unit-tests.
           if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
-             [ "${{ matrix.python-version }}" = "3.10" ]; then
+             [ "${{ matrix.python-version }}" = "3.13" ]; then
             pytest tests/contract -v \
               --cov=src/qwenpaw \
               --cov-report=xml:coverage.contract.xml \
@@ -194,7 +194,7 @@ jobs:
       - name: Upload contract coverage data
         if: |
           matrix.os == 'ubuntu-latest' &&
-          matrix.python-version == '3.10'
+          matrix.python-version == '3.13'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-data-contract
@@ -288,13 +288,13 @@ jobs:
         if: steps.check-integrated.outputs.has_tests == 'true'
         shell: bash
         env:
-          # Subprocess coverage on the ubuntu/py3.10 entry only. conftest.py
+          # Subprocess coverage on the ubuntu/py3.13 entry only. conftest.py
           # treats empty / missing as off, so the other matrix entries do
           # not pay the tracer overhead.
-          QWENPAW_INTEGRATION_COVERAGE: ${{ (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10') && '1' || '' }}
+          QWENPAW_INTEGRATION_COVERAGE: ${{ (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13') && '1' || '' }}
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
-             [ "${{ matrix.python-version }}" = "3.10" ]; then
+             [ "${{ matrix.python-version }}" = "3.13" ]; then
             # Subprocess coverage entry. Parent process must not carry
             # --cov, hence --no-cov here.
             pytest tests/integration -v --no-cov \
@@ -314,7 +314,7 @@ jobs:
         if: |
           steps.check-integrated.outputs.has_tests == 'true' &&
           matrix.os == 'ubuntu-latest' &&
-          matrix.python-version == '3.10'
+          matrix.python-version == '3.13'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-data-integration
@@ -411,7 +411,7 @@ jobs:
             echo ""
             echo "> Combined = \`coverage combine\` of unit + contract + integration (subprocess mode)."
             echo "> HTML reports under workflow artifact \`coverage-reports\` (\`htmlcov-combined\` / \`htmlcov-integration\`)."
-            echo "> Coverage is collected only on the ubuntu/py3.10 matrix entry; other matrix entries verify cross-platform compatibility without the tracer overhead."
+            echo "> Coverage is collected only on the ubuntu/py3.13 matrix entry; other matrix entries verify cross-platform compatibility without the tracer overhead."
           } > coverage_summary.md
 
           cat coverage_summary.md >> "$GITHUB_STEP_SUMMARY"

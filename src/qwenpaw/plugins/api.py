@@ -322,6 +322,38 @@ class PluginApi:
                 f"'{handler.command_name}' (priority={priority_level})",
             )
 
+    def register_prompt_section(
+        self,
+        name: str,
+        provider: Callable[[Any], str],
+        *,
+        after: str = "workspace",
+        agent_id: Optional[str] = None,
+    ) -> None:
+        """Register a system-prompt section provider.
+
+        Args:
+            name: Unique prompt section name, e.g. ``"datapaw.master"``.
+            provider: Callable receiving the agent instance and returning text.
+            after: Host anchor this section follows.
+                Valid: ``"workspace"``, ``"multimodal"``, ``"env_context"``.
+            agent_id: Optional agent id filter; ``None`` applies to all agents.
+        """
+        if self._registry:
+            self._registry.register_prompt_section(
+                plugin_id=self.plugin_id,
+                name=name,
+                after=after,
+                agent_id=agent_id,
+                provider=provider,
+            )
+            logger.info(
+                "Plugin '%s' registered prompt section '%s' after '%s'",
+                self.plugin_id,
+                name,
+                after,
+            )
+
     @property
     def runtime(self):
         """Access runtime helper functions.
