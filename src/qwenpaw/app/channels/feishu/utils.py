@@ -222,6 +222,12 @@ def _extract_structured_text(
         parts.append(title.strip())
 
     blocks = data.get(blocks_key) or []
+    # CardKit v2 cards nest elements under "body" (body.elements),
+    # fall back to body-nested key when top-level is empty.
+    if not blocks:
+        body = data.get("body")
+        if isinstance(body, dict):
+            blocks = body.get(blocks_key) or []
     if isinstance(blocks, list):
         _collect_text_parts(blocks, parts)
 

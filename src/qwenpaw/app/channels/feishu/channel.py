@@ -178,8 +178,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Mapping from msg_type to human-readable label used in [quoted ...] text.
-_QUOTED_LABEL: Dict[str, str] = {
+# Mapping from msg_type to human-readable label, used in error hints
+# (e.g. "[video: download failed]") and quoted-message prefixes
+# (e.g. "[quoted message: ...]").  Single source of truth — do NOT
+# duplicate this mapping elsewhere.
+_MSG_TYPE_LABEL: Dict[str, str] = {
     "text": "message",
     "post": "message",
     "image": "image",
@@ -728,24 +731,37 @@ class FeishuChannel(BaseChannel):
             text_parts: List[str] = []
 
             # ---- shared message content parsing ----
-            parsed_text, parsed_content = await self._parse_message_content(
+            (
+                main_text,
+                error_hints,
+                parsed_content,
+            ) = await self._parse_message_content(
                 msg_type,
                 content_raw,
                 message_id,
             )
-            # Strip bot mention keys from text items (text type only).
-            if msg_type == "text" and bot_mention_keys and parsed_text:
+            # Strip bot mention keys from main text (text type only).
+            if msg_type == "text" and bot_mention_keys and main_text:
                 for key in bot_mention_keys:
-                    parsed_text[0] = parsed_text[0].replace(key, "")
-                parsed_text[0] = parsed_text[0].strip()
-                if not parsed_text[0]:
-                    parsed_text.pop(0)
+                    main_text = main_text.replace(key, "")
+                main_text = main_text.strip() or None
 
-            # Text items are already formatted (main text bare,
-            # error/fallback in brackets).
-            text_parts.extend(parsed_text)
+            if main_text:
+                text_parts.append(main_text)
+            text_parts.extend(error_hints)
             content_parts.extend(parsed_content)
+            # Fallback: if nothing was extracted, add a type-label
+            # placeholder so the message is not silently dropped.
+            if not main_text and not error_hints and not parsed_content:
+                text_parts.append(f"[{msg_type}]")
 
+            # Handle quoted (replied-to) message if present.
+            # Feishu provides two IDs for reply chains:
+            #   - parent_id: the message this one directly replies to
+            #   - root_id:   the root of the entire reply tree
+            # We use parent_id because the user's intent is to reference
+            # the message they directly replied to, not the root of the
+            # thread.  Both IDs are identical when replying to the root.
             parent_id = str(
                 getattr(message, "parent_id", "") or "",
             ).strip()
@@ -946,21 +962,14 @@ class FeishuChannel(BaseChannel):
         msg_type: str,
         content_raw: str,
         message_id: str,
-    ) -> Tuple[List[str], List[Any]]:
-        """Parse message content into (text_items, content_parts).
+    ) -> Tuple[Optional[str], List[str], List[Any]]:
+        """Parse message content into structured components.
 
         Shared parsing engine used by both ``_on_message`` (inbound) and
         ``_process_quoted_message`` (quoted reply).  Unifies the
         previously duplicated type-dispatch branches for text / post /
         image / file / media / audio / interactive, including media
         download via SDK.
-
-        **Text item format convention:**
-        * Main extracted text is returned **bare** (no brackets, no
-          prefix), e.g. ``"Hello"``.
-        * Error / fallback messages are returned **wrapped in brackets**,
-          e.g. ``"[image: download failed]"``.  This lets callers
-          distinguish main text from error text and format accordingly.
 
         Args:
             msg_type: Message type -- text, post, image, file, media,
@@ -969,50 +978,57 @@ class FeishuChannel(BaseChannel):
             message_id: Message ID used for media resource downloads.
 
         Returns:
-            ``(text_items, content_parts)`` where *text_items* is a
-            list of strings and *content_parts* is a list of
-            ``ImageContent`` / ``FileContent`` / ``AudioContent`` objects.
+            A 3-tuple ``(main_text, error_hints, content_parts)``:
+
+            * **main_text** -- Extracted human-readable text from the
+              message body, or *None* when the message carries no text
+              (e.g. a bare image).
+            * **error_hints** -- Bracket-wrapped diagnostic strings
+              produced when a media download or key extraction fails,
+              e.g. ``"[image: download failed]"``.
+            * **content_parts** -- Rich content objects
+              (``ImageContent`` / ``FileContent`` / ``AudioContent``).
         """
-        text_items: List[str] = []
-        content_items: List[Any] = []
+        main_text: Optional[str] = None
+        error_hints: List[str] = []
+        content_parts: List[Any] = []
+        label = _MSG_TYPE_LABEL.get(msg_type, msg_type)
 
         if msg_type == "text":
             text = extract_json_key(content_raw, "text")
             if text and text.strip():
-                text_items.append(text.strip())
+                main_text = text.strip()
 
         elif msg_type == "post":
-            text = extract_post_text(content_raw)
-            if text:
-                text_items.append(text)
+            main_text = extract_post_text(content_raw) or None
             for img_key in extract_post_image_keys(content_raw):
                 url_or_path = await self._download_image_resource(
                     message_id,
                     img_key,
                 )
                 if url_or_path:
-                    content_items.append(
+                    content_parts.append(
                         ImageContent(
                             type=ContentType.IMAGE,
                             image_url=url_or_path,
                         ),
                     )
                 else:
-                    text_items.append("[image: download failed]")
+                    error_hints.append("[image: download failed]")
             for file_key in extract_post_media_file_keys(content_raw):
                 url_or_path = await self._download_file_resource(
                     message_id,
                     file_key,
                 )
                 if url_or_path:
-                    content_items.append(
+                    content_parts.append(
                         FileContent(
                             type=ContentType.FILE,
                             file_url=url_or_path,
                         ),
                     )
                 else:
-                    text_items.append("[media: download failed]")
+                    error_hints.append("[media: download failed]")
 
         elif msg_type == "image":
             image_key = extract_json_key(
@@ -1028,16 +1044,16 @@ class FeishuChannel(BaseChannel):
                     image_key,
                 )
                 if url_or_path:
-                    content_items.append(
+                    content_parts.append(
                         ImageContent(
                             type=ContentType.IMAGE,
                             image_url=url_or_path,
                         ),
                     )
                 else:
-                    text_items.append("[image: download failed]")
+                    error_hints.append("[image: download failed]")
             else:
-                text_items.append("[image: missing key]")
+                error_hints.append("[image: missing key]")
 
         elif msg_type in ("file", "media", "audio"):
             file_key = extract_json_key(
@@ -1055,9 +1071,7 @@ class FeishuChannel(BaseChannel):
                 "media": "video.mp4",
                 "audio": "audio.opus",
             }
-            label_map = {"file": "file", "media": "video", "audio": "audio"}
             hint = file_name or hint_map.get(msg_type, "file.bin")
-            label = label_map.get(msg_type, msg_type)
             if file_key:
                 url_or_path = await self._download_file_resource(
                     message_id,
@@ -1066,35 +1080,31 @@ class FeishuChannel(BaseChannel):
                 )
                 if url_or_path:
                     if msg_type == "audio":
-                        content_items.append(
+                        content_parts.append(
                             AudioContent(
                                 type=ContentType.AUDIO,
                                 data=url_or_path,
                             ),
                         )
                     else:
-                        content_items.append(
+                        content_parts.append(
                             FileContent(
                                 type=ContentType.FILE,
                                 file_url=url_or_path,
                             ),
                         )
                 else:
-                    text_items.append(f"[{label}: download failed]")
+                    error_hints.append(f"[{label}: download failed]")
             else:
-                text_items.append(f"[{label}: missing key]")
+                error_hints.append(f"[{label}: missing key]")
 
         elif msg_type == "interactive":
-            text = extract_interactive_text(content_raw)
-            if text:
-                text_items.append(text)
-            else:
-                text_items.append("[interactive]")
+            main_text = extract_interactive_text(content_raw) or None
 
-        else:
-            text_items.append(f"[{msg_type}]")
+        # Unknown type — no main_text, no content_parts; callers will
+        # see all-empty and can decide how to surface it.
 
-        return text_items, content_items
+        return main_text, error_hints, content_parts
 
     async def _fetch_quoted_message_content(
         self,
@@ -1172,35 +1182,32 @@ class FeishuChannel(BaseChannel):
         )
 
         # Delegate to shared parsing engine.
-        parsed_text, parsed_content = await self._parse_message_content(
+        (
+            main_text,
+            error_hints,
+            parsed_content,
+        ) = await self._parse_message_content(
             quoted_msg_type,
             quoted_content,
             parent_id,
         )
 
-        label = _QUOTED_LABEL.get(quoted_msg_type, quoted_msg_type)
+        label = _MSG_TYPE_LABEL.get(quoted_msg_type, quoted_msg_type)
 
-        if parsed_text:
-            main_text = parsed_text[0]
-            if main_text.startswith("["):
-                # Bracketed fallback/error.  If it is just the type name
-                # (e.g. "[interactive]") use the label; otherwise
-                # preserve the embedded message.
-                if main_text == f"[{quoted_msg_type}]":
-                    text_parts.insert(0, f"[quoted {label}]")
-                else:
-                    text_parts.insert(0, f"[quoted {main_text[1:]}")
-            else:
-                text_parts.insert(0, f"[quoted {label}: {main_text}]")
-            for err in parsed_text[1:]:
-                if err.startswith("["):
-                    text_parts.insert(0, f"[quoted {err[1:]}")
-                else:
-                    text_parts.insert(0, f"[quoted {err}]")
-        elif parsed_content:
-            pass
+        # Build quoted prefix lines in order, then prepend as a block.
+        quoted_lines: List[str] = []
+        if main_text:
+            quoted_lines.append(f"[quoted {label}: {main_text}]")
         else:
-            text_parts.insert(0, f"[quoted {label}]")
+            quoted_lines.append(f"[quoted {label}]")
+        for hint in error_hints:
+            quoted_lines.append(
+                f"[quoted {hint[1:]}"
+                if hint.startswith("[")
+                else f"[quoted {hint}]",
+            )
+        # Prepend all quoted lines before existing text_parts.
+        text_parts[:0] = quoted_lines
 
         content_parts.extend(parsed_content)
 

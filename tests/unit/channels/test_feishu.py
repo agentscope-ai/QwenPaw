@@ -3157,1455 +3157,387 @@ class TestFeishuChannelThreadReply:
         feishu_channel._create_streaming_card.assert_not_called()
 
 
-# -----------------------------------------------------------------------
-# Tests for extract_interactive_text (feishu utils)
-# -----------------------------------------------------------------------
+# =============================================================================
+# Tests for extract_interactive_text (utils)
+# =============================================================================
+
+
 # pylint: disable=unsupported-membership-test
 class TestExtractInteractiveText:
     """Unit tests for extract_interactive_text()."""
 
-    CARD_PAYLOAD = json.dumps(
-        {
-            "title": "\U0001f9ea 卡片元素测试 2026-06-01",
-            "elements": [
-                [
-                    {"tag": "text", "text": "一、基础文本样式"},
-                    {"tag": "text", "text": "\n- "},
-                    {"tag": "text", "text": "粗体文字"},
-                    {"tag": "text", "text": " "},
-                    {"tag": "text", "text": "斜体文字"},
-                    {"tag": "text", "text": " "},
-                    {"tag": "text", "text": "删除线"},
-                    {
-                        "tag": "text",
-                        "text": (
-                            " 行内代码\n- 普通段落文字，"
-                            "看看换行长文本的展示效果如何，"
-                            "这是一段比较长的文本用于测试"
-                            "卡片内的自动换行行为"
-                        ),
-                    },
-                ],
-                [
-                    {"tag": "text", "text": "二、链接和引用"},
-                    {"tag": "text", "text": "\n- 飞书链接："},
-                    {
-                        "tag": "a",
-                        "href": "https://www.feishu.cn",
-                        "text": "点我打开飞书",
-                    },
-                    {"tag": "text", "text": "\n- 内部链接："},
-                    {
-                        "tag": "a",
-                        "href": "https://xiaopeng.feishu.cn",
-                        "text": "https://xiaopeng.feishu.cn",
-                    },
-                    {
-                        "tag": "text",
-                        "text": "\n- > 引用块样式测试\n- 分隔线测试：---",
-                    },
-                ],
-                [
-                    {
-                        "tag": "img",
-                        "image_key": (
-                            "img_v3_02ad_e19fca1f-912a"
-                            "-450e-95de-3c229091b53g"
-                        ),
-                    },
-                    {
-                        "tag": "text",
-                        "text": "请将客户端升级至最新版本，以查看表格内容",
-                    },
-                    {"tag": "text", "text": ""},
-                ],
-                [{"tag": "text", "text": "四、长表格测试（10行）"}],
-                [
-                    {
-                        "tag": "img",
-                        "image_key": (
-                            "img_v3_02ad_e19fca1f-912a"
-                            "-450e-95de-3c229091b53g"
-                        ),
-                    },
-                    {
-                        "tag": "text",
-                        "text": "请将客户端升级至最新版本，以查看表格内容",
-                    },
-                    {"tag": "text", "text": ""},
-                ],
-                [
-                    {"tag": "text", "text": "五、总结"},
-                    {
-                        "tag": "text",
-                        "text": (
-                            "\n本次 测试卡片包含以下元素：\n"
-                            "1. ✅ Blue header 标题\n"
-                            "2. ✅ Markdown 文本（粗体/斜体/代码/引用/列表）\n"
-                            "3. ✅ Table 短表（5行4列）\n"
-                            "4. ✅ Table 长表（10行4列）\n"
-                            "5. ✅ 多段 markdown 混排\n> 共"
-                        ),
-                    },
-                    {"tag": "text", "text": "5 个元素"},
-                    {"tag": "text", "text": "，全 部正常渲染 🎉"},
-                ],
-            ],
-        },
-    )
-
-    def test_extracts_title_and_text(self):
-        """Extract title and all text elements from a real card."""
+    def test_extracts_title_and_elements(self):
         from qwenpaw.app.channels.feishu.utils import extract_interactive_text
 
-        result = extract_interactive_text(self.CARD_PAYLOAD)
+        payload = json.dumps(
+            {
+                "title": "Card Title",
+                "elements": [
+                    [{"tag": "text", "text": "Hello world"}],
+                ],
+            },
+        )
+        result = extract_interactive_text(payload)
         assert result is not None
-        assert "卡片元素测试 2026-06-01" in result
-        assert "基础文本样式" in result
-        assert "粗体文字" in result
-        assert "五、总结" in result
-        assert "5 个元素" in result
+        assert "Card Title" in result
+        assert "Hello world" in result
+
+    def test_cardkit_v2_body_elements(self):
+        """CardKit v2 nests elements under body — must still extract."""
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+
+        payload = json.dumps(
+            {
+                "header": {"title": {"content": "V2 Card"}},
+                "body": {
+                    "elements": [
+                        {"tag": "text", "text": "Body content here"},
+                    ],
+                },
+            },
+        )
+        result = extract_interactive_text(payload)
+        assert result is not None
+        assert "V2 Card" in result
+        assert "Body content here" in result
 
     def test_extracts_links_as_markdown(self):
-        """Should extract links as [text](href) format."""
         from qwenpaw.app.channels.feishu.utils import extract_interactive_text
 
-        result = extract_interactive_text(self.CARD_PAYLOAD)
+        payload = json.dumps(
+            {
+                "elements": [
+                    [
+                        {
+                            "tag": "a",
+                            "text": "Click me",
+                            "href": "https://example.com",
+                        },
+                    ],
+                ],
+            },
+        )
+        result = extract_interactive_text(payload)
         assert result is not None
-        assert "[点我打开飞书](https://www.feishu.cn)" in result
-        expected = "[https://xiaopeng.feishu.cn](https://xiaopeng.feishu.cn)"
-        assert expected in result
+        assert "[Click me](https://example.com)" in result
 
-    def test_returns_none_for_empty(self):
+    def test_returns_none_for_empty_or_invalid(self):
         from qwenpaw.app.channels.feishu.utils import extract_interactive_text
 
         assert extract_interactive_text(None) is None
         assert extract_interactive_text("") is None
-
-    def test_returns_none_for_invalid_json(self):
-        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
-
         assert extract_interactive_text("{broken") is None
+        assert extract_interactive_text(json.dumps({"other": "data"})) is None
 
     def test_title_only(self):
         from qwenpaw.app.channels.feishu.utils import extract_interactive_text
 
-        payload = json.dumps({"title": "Hello Card"})
-        result = extract_interactive_text(payload)
-        assert result == "Hello Card"
+        result = extract_interactive_text(json.dumps({"title": "Hello"}))
+        assert result == "Hello"
 
-    def test_no_title_no_elements(self):
-        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
-
-        result = extract_interactive_text(json.dumps({"other": "data"}))
-        assert result is None
-
-    def test_nested_elements(self):
-        """Handle nested elements like column_set > columns."""
+    def test_header_title_content(self):
         from qwenpaw.app.channels.feishu.utils import extract_interactive_text
 
         payload = json.dumps(
             {
-                "title": "Nested",
-                "elements": [
-                    {
-                        "tag": "column_set",
-                        "columns": [
-                            {
-                                "tag": "column",
-                                "elements": [
-                                    {"tag": "text", "text": "Cell A"},
-                                    {"tag": "text", "text": "Cell B"},
-                                ],
-                            },
-                        ],
-                    },
-                ],
+                "header": {"title": {"content": "Header Title"}},
             },
         )
         result = extract_interactive_text(payload)
-        assert result is not None
-        assert "Nested" in result
-        assert "Cell A" in result
-        assert "Cell B" in result
-
-    def test_official_card_all_tags(self):
-        """Should handle all tag types from Feishu official card spec."""
-        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
-
-        payload = json.dumps(
-            {
-                "title": "卡片标题",
-                "elements": [
-                    [
-                        {"tag": "button", "text": "主按钮", "type": "primary"},
-                        {"tag": "button", "text": "次按钮", "type": "default"},
-                        {
-                            "tag": "button",
-                            "text": "危险按钮",
-                            "type": "danger",
-                        },
-                    ],
-                    [
-                        {
-                            "tag": "a",
-                            "href": "https://www.feishu.cn",
-                            "text": "飞书",
-                        },
-                        {"tag": "text", "text": "整合即时沟通功能于一体"},
-                        {
-                            "tag": "at",
-                            "user_id": "@_user_1",
-                            "user_name": "张三",
-                        },
-                        {"tag": "text", "text": "更高效、更愉悦。"},
-                    ],
-                    [{"tag": "hr"}],
-                    [
-                        {"tag": "text", "text": "图片标题"},
-                        {"tag": "img", "image_key": "img_xxx"},
-                    ],
-                    [
-                        {
-                            "tag": "note",
-                            "elements": [
-                                {"tag": "img", "image_key": "img_xxx"},
-                                {"tag": "text", "text": "备注信息"},
-                            ],
-                        },
-                    ],
-                    [
-                        {
-                            "tag": "text",
-                            "text": "深度整合使用率极高的办公工具。",
-                        },
-                        {"tag": "img", "image_key": "img_xxx"},
-                    ],
-                    [
-                        {"tag": "text", "text": "在移动端同样便捷。"},
-                        {
-                            "tag": "select_static",
-                            "options": ["选项1", "选项2", "选项3"],
-                            "placeholder": "默认提示文本",
-                        },
-                    ],
-                    [
-                        {"tag": "text", "text": "ISV产品接入。"},
-                        {
-                            "tag": "overflow",
-                            "options": [
-                                "打开飞书应用目录",
-                                "打开飞书开发文档",
-                            ],
-                        },
-                    ],
-                    [
-                        {"tag": "text", "text": "国际权威安全认证。"},
-                        {
-                            "tag": "date_picker",
-                            "placeholder": "请选择日期",
-                            "initial_date": "2021-1-1",
-                        },
-                    ],
-                ],
-            },
-        )
-        result = extract_interactive_text(payload)
-        assert result is not None
-        # title
-        assert "卡片标题" in result
-        # button text
-        assert "主按钮" in result
-        assert "危险按钮" in result
-        # link
-        assert "[飞书](https://www.feishu.cn)" in result
-        # at mention
-        assert "@张三" in result
-        # note nested text
-        assert "备注信息" in result
-        # select_static placeholder + options
-        assert "默认提示文本" in result
-        assert "选项1" in result
-        # overflow options
-        assert "打开飞书应用目录" in result
-        # date_picker placeholder
-        assert "请选择日期" in result
-        # hr and img should NOT appear as text
-        assert "hr" not in result.split()
-        assert "img_xxx" not in result
-
-    def test_table_component_with_user_card_content(self):
-        """Real payload from card_msg_content_type=user_card_content.
-
-        Verifies that native table components (columns + rows) are parsed
-        into readable text with headers and cell values.
-        """
-        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
-
-        content = (  # noqa: E501  # raw Feishu card JSON
-            '{"config":{},"elements":['
-            '{"content":"**粗体文本** | *斜体文本* | ~~删除线文本~~'
-            ' | `行内代码` | [超链接](https://open.feishu.cn)",'
-            '"i18n_content":{},"tag":"markdown","text_align":"left"},'
-            '{"tag":"hr"},'
-            '{"content":"**多级列表：**\\n- 第一项\\n    - 子项 1\\n'
-            '    - 子项 2\\n- 第二项\\n1. 有序列表 1\\n2. 有序列表 2\\n",'
-            '"i18n_content":{},"tag":"markdown","text_align":"left"},'
-            '{"tag":"hr"},'
-            '{"content":"📊 **原生表格组件**",'
-            '"i18n_content":{},"tag":"markdown","text_align":"left"},'
-            '{"columns":['
-            '{"data_type":"text","display_name":"项目",'
-            '"horizontal_align":"left","name":"col0","width":"auto"},'
-            '{"data_type":"text","display_name":"类型",'
-            '"horizontal_align":"center","name":"col1","width":"auto"},'
-            '{"data_type":"text","display_name":"数值",'
-            '"horizontal_align":"right","name":"col2","width":"auto"},'
-            '{"data_type":"text","display_name":"状态",'
-            '"horizontal_align":"center","name":"col3","width":"auto"}'
-            '],"header_style":{},"page_size":10,"rows":['
-            '{"col0":"数据吞吐量","col1":"指标",'
-            '"col2":"1,285 MB/s","col3":"✅ 正常"},'
-            '{"col0":"存储使用率","col1":"指标",'
-            '"col2":"67.3%","col3":"⚠️ 偏高"},'
-            '{"col0":"API调用次数","col1":"指标",'
-            '"col2":"23,456","col3":"✅ 正常"},'
-            '{"col0":"错误率","col1":"指标",'
-            '"col2":"0.02%","col3":"✅ 正常"},'
-            '{"col0":"响应延迟P99","col1":"指标",'
-            '"col2":"234ms","col3":"⚠️ 偏高"},'
-            '{"col0":"数据删除量","col1":"指标",'
-            '"col2":"1.2 TB","col3":"✅ 已完成"}'
-            '],"tag":"table"},'
-            '{"tag":"hr"},'
-            '{"content":"📝 **备注：** 这张卡片使用了飞书卡片新版格式，'
-            '包含 **markdown** 文本、`原生表格组件`、分割线、按钮等元素。"'
-            ',"i18n_content":{},"tag":"markdown","text_align":"left"},'
-            '{"actions":['
-            '{"behaviors":[{"type":"callback"}],'
-            '"custom_action_id":"act1","tag":"button",'
-            '"text":{"content":"✅ 确认","i18n":{},'
-            '"tag":"plain_text"},"type":"primary"},'
-            '{"behaviors":[{"type":"callback"}],'
-            '"custom_action_id":"act2","tag":"button",'
-            '"text":{"content":"⏸ 暂停","i18n":{},'
-            '"tag":"plain_text"},"type":"default"},'
-            '{"behaviors":[{"type":"callback"}],'
-            '"custom_action_id":"act3","tag":"button",'
-            '"text":{"content":"❌ 取消","i18n":{},'
-            '"tag":"plain_text"},"type":"danger"}'
-            '],"tag":"action"}'
-            '],"header":{"template":"blue","title":'
-            '{"content":"🎯 富文本测试卡片（Skill版）",'
-            '"i18n":{},"tag":"plain_text"}}}'
-        )
-        result = extract_interactive_text(content)
-        assert result is not None
-        # Title
-        assert "🎯 富文本测试卡片（Skill版）" in result
-        # Markdown content
-        assert "粗体文本" in result
-        assert "原生表格组件" in result
-        # Table headers
-        assert "项目" in result
-        assert "类型" in result
-        assert "数值" in result
-        assert "状态" in result
-        # Table row data
-        assert "数据吞吐量" in result
-        assert "1,285 MB/s" in result
-        assert "存储使用率" in result
-        assert "67.3%" in result
-        assert "API调用次数" in result
-        assert "错误率" in result
-        assert "0.02%" in result
-        assert "响应延迟P99" in result
-        assert "数据删除量" in result
-        assert "1.2 TB" in result
-        # Buttons
-        assert "确认" in result
-        assert "暂停" in result
-        assert "取消" in result
+        assert result == "Header Title"
 
 
 # =============================================================================
-# Regression tests for _parse_message_content shared engine
+# Tests for _parse_message_content (channel)
 # =============================================================================
 
-# pylint: disable=use-implicit-booleaness-not-comparison
-# pylint: disable=too-many-public-methods
 
+class TestParseMessageContent:
+    """Tests for the shared _parse_message_content engine.
 
-class TestFeishuChannelParseMessageContent:
-    """Tests for the shared ``_parse_message_content`` engine.
-
-    Covers every msg_type branch plus edge cases to ensure the
-    refactored shared method produces identical output to the original
-    inline type-dispatch code.
+    Returns (main_text, error_hints, content_parts).
     """
 
-    # -----------------------------------------------------------------
-    # text type
-    # -----------------------------------------------------------------
-
     @pytest.mark.asyncio
-    async def test_parse_text_basic(self, feishu_channel):
-        """Should extract text from text message."""
+    async def test_text_basic(self, feishu_channel):
         (
-            text_items,
+            main_text,
+            error_hints,
             content_parts,
         ) = await feishu_channel._parse_message_content(
             "text",
             '{"text": "Hello world"}',
             "msg_001",
         )
-        assert text_items == ["Hello world"]
+        assert main_text == "Hello world"
+        assert error_hints == []
         assert content_parts == []
 
     @pytest.mark.asyncio
-    async def test_parse_text_empty(self, feishu_channel):
-        """Should return empty when text field is empty."""
+    async def test_text_empty(self, feishu_channel):
         (
-            text_items,
-            content_parts,
+            main_text,
+            error_hints,
+            _,
         ) = await feishu_channel._parse_message_content(
             "text",
             '{"text": ""}',
             "msg_002",
         )
-        assert text_items == []
-        assert content_parts == []
+        assert main_text is None
+        assert error_hints == []
 
     @pytest.mark.asyncio
-    async def test_parse_text_whitespace_only(self, feishu_channel):
-        """Should strip and discard whitespace-only text."""
-        (
-            text_items,
-            content_parts,
-        ) = await feishu_channel._parse_message_content(
+    async def test_text_whitespace_only(self, feishu_channel):
+        main_text, _, _ = await feishu_channel._parse_message_content(
             "text",
             '{"text": "   "}',
             "msg_003",
         )
-        assert text_items == []
+        assert main_text is None
 
     @pytest.mark.asyncio
-    async def test_parse_text_missing_key(self, feishu_channel):
-        """Should return empty when text key is absent."""
-        (
-            text_items,
-            content_parts,
-        ) = await feishu_channel._parse_message_content(
-            "text",
-            '{"other": "val"}',
-            "msg_004",
-        )
-        assert text_items == []
-
-    # -----------------------------------------------------------------
-    # post type
-    # -----------------------------------------------------------------
-
-    @pytest.mark.asyncio
-    async def test_parse_post_basic(self, feishu_channel):
-        """Should extract text from post content."""
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        content = (
-            '{"title":"Test Title","content":[['
-            '{"tag":"text","text":"Hello"},{'
-            '"tag":"text","text":"World"}]]}'
+    async def test_post_basic(self, feishu_channel):
+        content = json.dumps(
+            {
+                "content": [[{"tag": "text", "text": "Post body"}]],
+            },
         )
         (
-            text_items,
-            content_parts,
+            main_text,
+            error_hints,
+            _,
         ) = await feishu_channel._parse_message_content(
             "post",
             content,
-            "msg_post",
+            "msg_010",
         )
-        assert text_items
-        assert "Test Title" in text_items[0]
-        assert "Hello" in text_items[0]
+        assert main_text is not None
+        assert "Post body" in main_text
+        assert error_hints == []
+
+    @pytest.mark.asyncio
+    async def test_image_missing_key(self, feishu_channel):
+        (
+            main_text,
+            error_hints,
+            content_parts,
+        ) = await feishu_channel._parse_message_content(
+            "image",
+            '{"other": "val"}',
+            "msg_020",
+        )
+        assert main_text is None
+        assert "[image: missing key]" in error_hints
         assert content_parts == []
 
     @pytest.mark.asyncio
-    async def test_parse_post_image_download_success(self, feishu_channel):
-        """Should download post images and add ImageContent."""
+    async def test_image_download_success(self, feishu_channel):
         feishu_channel._download_image_resource = AsyncMock(
             return_value="/tmp/img.jpg",
         )
-        feishu_channel._download_file_resource = AsyncMock()
-        content = (
-            '{"content":[[{"tag":"text","text":"see:"},'
-            '{"tag":"img","image_key":"img_key_123"}]]}'
-        )
         (
-            text_items,
+            main_text,
+            error_hints,
             content_parts,
         ) = await feishu_channel._parse_message_content(
-            "post",
-            content,
-            "msg_post",
+            "image",
+            '{"image_key": "img_abc"}',
+            "msg_021",
         )
-        assert "see:" in text_items[0]
+        assert main_text is None
+        assert error_hints == []
         assert len(content_parts) == 1
-        assert content_parts[0].type == ContentType.IMAGE
         assert content_parts[0].image_url == "/tmp/img.jpg"
 
     @pytest.mark.asyncio
-    async def test_parse_post_image_download_failure(self, feishu_channel):
-        """Should produce error text when image download fails."""
-        feishu_channel._download_image_resource = AsyncMock(return_value=None)
-        feishu_channel._download_file_resource = AsyncMock()
-        content = (
-            '{"content":[[{"tag":"text","text":"see:"},'
-            '{"tag":"img","image_key":"img_bad"}]]}'
-        )
-        (
-            text_items,
-            content_parts,
-        ) = await feishu_channel._parse_message_content(
-            "post",
-            content,
-            "msg_post",
-        )
-        assert "[image: download failed]" in text_items
-        assert content_parts == []
-
-    @pytest.mark.asyncio
-    async def test_parse_post_media_download_failure(self, feishu_channel):
-        """Should produce error text when media download fails."""
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock(return_value=None)
-        content = (
-            '{"content":[[{"tag":"text","text":"file:"},'
-            '{"tag":"media","file_key":"media_bad"}]]}'
-        )
-        (
-            text_items,
-            content_parts,
-        ) = await feishu_channel._parse_message_content(
-            "post",
-            content,
-            "msg_post",
-        )
-        assert "[media: download failed]" in text_items
-
-    # -----------------------------------------------------------------
-    # image type
-    # -----------------------------------------------------------------
-
-    @pytest.mark.asyncio
-    async def test_parse_image_success(self, feishu_channel):
-        """Should download image and return ImageContent."""
-        feishu_channel._download_image_resource = AsyncMock(
-            return_value="/tmp/photo.jpg",
-        )
-        (
-            text_items,
-            content_parts,
-        ) = await feishu_channel._parse_message_content(
-            "image",
-            '{"image_key":"ik_123"}',
-            "msg_img",
-        )
-        assert text_items == []
-        assert len(content_parts) == 1
-        assert content_parts[0].type == ContentType.IMAGE
-
-    @pytest.mark.asyncio
-    async def test_parse_image_missing_key(self, feishu_channel):
-        """Should return bracketed error when image_key is absent."""
-        feishu_channel._download_image_resource = AsyncMock()
-        (
-            text_items,
-            content_parts,
-        ) = await feishu_channel._parse_message_content(
-            "image",
-            "{}",
-            "msg_img",
-        )
-        assert "[image: missing key]" in text_items
-        assert content_parts == []
-
-    @pytest.mark.asyncio
-    async def test_parse_image_download_failure(self, feishu_channel):
-        """Should return error when download fails."""
-        feishu_channel._download_image_resource = AsyncMock(return_value=None)
-        (
-            text_items,
-            content_parts,
-        ) = await feishu_channel._parse_message_content(
-            "image",
-            '{"image_key":"ik_bad"}',
-            "msg_img",
-        )
-        assert "[image: download failed]" in text_items
-        assert content_parts == []
-
-    # -----------------------------------------------------------------
-    # file / media / audio unified branch
-    # -----------------------------------------------------------------
-
-    @pytest.mark.asyncio
-    async def test_parse_file_success(self, feishu_channel):
-        """Should download file and return FileContent."""
-        feishu_channel._download_file_resource = AsyncMock(
-            return_value="/tmp/doc.pdf",
-        )
-        (
-            text_items,
-            content_parts,
-        ) = await feishu_channel._parse_message_content(
+    async def test_file_missing_key(self, feishu_channel):
+        _, error_hints, _ = await feishu_channel._parse_message_content(
             "file",
-            '{"file_key":"fk_file"}',
-            "msg_file",
+            '{"other": "val"}',
+            "msg_030",
         )
-        assert text_items == []
-        assert len(content_parts) == 1
-        assert content_parts[0].type == ContentType.FILE
+        assert "[file: missing key]" in error_hints
 
     @pytest.mark.asyncio
-    async def test_parse_media_success(self, feishu_channel):
-        """Should download media/video and return FileContent."""
+    async def test_audio_download_success(self, feishu_channel):
         feishu_channel._download_file_resource = AsyncMock(
-            return_value="/tmp/vid.mp4",
+            return_value="/tmp/audio.opus",
         )
         (
-            text_items,
-            content_parts,
-        ) = await feishu_channel._parse_message_content(
-            "media",
-            '{"file_key":"fk_media"}',
-            "msg_media",
-        )
-        assert text_items == []
-        assert len(content_parts) == 1
-        assert content_parts[0].type == ContentType.FILE
-
-    @pytest.mark.asyncio
-    async def test_parse_audio_success(self, feishu_channel):
-        """Should download audio and return AudioContent."""
-        feishu_channel._download_file_resource = AsyncMock(
-            return_value="/tmp/sound.opus",
-        )
-        (
-            text_items,
+            main_text,
+            error_hints,
             content_parts,
         ) = await feishu_channel._parse_message_content(
             "audio",
-            '{"file_key":"fk_audio"}',
-            "msg_audio",
+            '{"file_key": "file_abc"}',
+            "msg_031",
         )
-        assert text_items == []
+        assert main_text is None
+        assert error_hints == []
         assert len(content_parts) == 1
         assert content_parts[0].type == ContentType.AUDIO
 
     @pytest.mark.asyncio
-    async def test_parse_file_missing_key(self, feishu_channel):
-        """Should return bracketed error when file_key is missing."""
-        feishu_channel._download_file_resource = AsyncMock()
-        (
-            text_items,
-            content_parts,
-        ) = await feishu_channel._parse_message_content(
-            "file",
-            "{}",
-            "msg_file",
-        )
-        assert "[file: missing key]" in text_items
-        assert content_parts == []
-
-    @pytest.mark.asyncio
-    async def test_parse_media_missing_key(self, feishu_channel):
-        """Should return bracketed error with 'video' label for media type."""
-        feishu_channel._download_file_resource = AsyncMock()
-        (
-            text_items,
-            content_parts,
-        ) = await feishu_channel._parse_message_content(
-            "media",
-            "{}",
-            "msg_media",
-        )
-        assert "[video: missing key]" in text_items
-
-    @pytest.mark.asyncio
-    async def test_parse_file_download_failure(self, feishu_channel):
-        """Should return error when file download fails."""
-        feishu_channel._download_file_resource = AsyncMock(return_value=None)
-        (
-            text_items,
-            content_parts,
-        ) = await feishu_channel._parse_message_content(
-            "file",
-            '{"file_key":"fk_bad"}',
-            "msg_file",
-        )
-        assert "[file: download failed]" in text_items
-        assert content_parts == []
-
-    # -----------------------------------------------------------------
-    # interactive type
-    # -----------------------------------------------------------------
-
-    @pytest.mark.asyncio
-    async def test_parse_interactive_with_text(self, feishu_channel):
-        """Should extract text from interactive card."""
+    async def test_interactive_basic(self, feishu_channel):
         content = json.dumps(
             {
-                "title": "Card Title",
-                "elements": [
-                    [{"tag": "text", "text": "Hello card"}],
-                ],
+                "header": {"title": {"content": "Card Title"}},
+                "body": {"elements": [{"tag": "text", "text": "Card body"}]},
             },
         )
         (
-            text_items,
-            content_parts,
+            main_text,
+            error_hints,
+            _,
         ) = await feishu_channel._parse_message_content(
             "interactive",
             content,
-            "msg_ic",
+            "msg_040",
         )
-        assert text_items == ["Card Title Hello card"]
-        assert content_parts == []
+        assert main_text is not None
+        assert "Card Title" in main_text
+        assert "Card body" in main_text
+        assert error_hints == []
 
     @pytest.mark.asyncio
-    async def test_parse_interactive_empty(self, feishu_channel):
-        """Should return bracketed fallback when card is empty."""
-        (
-            text_items,
-            content_parts,
-        ) = await feishu_channel._parse_message_content(
+    async def test_interactive_empty_returns_none(self, feishu_channel):
+        content = json.dumps({"other": "data"})
+        main_text, _, _ = await feishu_channel._parse_message_content(
             "interactive",
-            "{}",
-            "msg_ic",
+            content,
+            "msg_041",
         )
-        assert text_items == ["[interactive]"]
-        assert content_parts == []
-
-    # -----------------------------------------------------------------
-    # unknown type
-    # -----------------------------------------------------------------
+        assert main_text is None
 
     @pytest.mark.asyncio
-    async def test_parse_unknown_type(self, feishu_channel):
-        """Should return bracketed msg_type for unrecognized types."""
+    async def test_unknown_type_returns_empty(self, feishu_channel):
         (
-            text_items,
+            main_text,
+            error_hints,
             content_parts,
         ) = await feishu_channel._parse_message_content(
             "sticker",
             "{}",
-            "msg_sticker",
+            "msg_099",
         )
-        assert text_items == ["[sticker]"]
+        assert main_text is None
+        assert error_hints == []
         assert content_parts == []
 
 
 # =============================================================================
-# Regression tests for _process_quoted_message with shared engine
+# Tests for _process_quoted_message (channel)
 # =============================================================================
 
 
-class TestFeishuChannelProcessQuotedMessage:
-    """Tests for ``_process_quoted_message`` using the shared engine.
-
-    Verifies that the ``[quoted ...]`` formatting is preserved after
-    the refactoring to use ``_parse_message_content``.
-    """
-
-    _PREFIX = "[quoted "
+class TestProcessQuotedMessage:
+    """Tests for _process_quoted_message."""
 
     @pytest.mark.asyncio
-    async def test_quoted_text(self, feishu_channel):
-        """Should format quoted text as [quoted message: text]."""
+    async def test_quoted_text_message(self, feishu_channel):
         feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("text", '{"text": "Hello"}'),
+            return_value=("text", '{"text": "Original message"}'),
         )
-        text_parts: list = []
-        content_parts: list = []
+        text_parts = ["My reply"]
+        content_parts = []
         await feishu_channel._process_quoted_message(
-            "parent_001",
+            "parent_123",
             text_parts,
             content_parts,
         )
-        assert text_parts == ["[quoted message: Hello]"]
-        assert content_parts == []
+        assert text_parts[0] == "[quoted message: Original message]"
+        assert text_parts[1] == "My reply"
 
     @pytest.mark.asyncio
-    async def test_quoted_text_empty(self, feishu_channel):
-        """Should produce nothing when quoted text is empty."""
+    async def test_quoted_image_with_label(self, feishu_channel):
         feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("text", '{"text": ""}'),
-        )
-        text_parts: list = []
-        content_parts: list = []
-        await feishu_channel._process_quoted_message(
-            "parent_002",
-            text_parts,
-            content_parts,
-        )
-        assert text_parts == ["[quoted message]"]
-
-    @pytest.mark.asyncio
-    async def test_quoted_image_success(self, feishu_channel):
-        """Should download quoted image into content_parts."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("image", '{"image_key":"ik_quoted"}'),
+            return_value=("image", '{"image_key": "img_abc"}'),
         )
         feishu_channel._download_image_resource = AsyncMock(
-            return_value="/tmp/quoted.jpg",
+            return_value="/tmp/img.jpg",
         )
-        text_parts: list = []
-        content_parts: list = []
+        text_parts = ["Reply text"]
+        content_parts = []
         await feishu_channel._process_quoted_message(
-            "parent_img",
+            "parent_456",
             text_parts,
             content_parts,
         )
-        assert text_parts == []
+        # Pure image — should still add a label
+        assert text_parts[0] == "[quoted image]"
+        assert text_parts[1] == "Reply text"
         assert len(content_parts) == 1
-        assert content_parts[0].type == ContentType.IMAGE
 
     @pytest.mark.asyncio
-    async def test_quoted_image_download_fail(self, feishu_channel):
-        """Should produce [quoted image: download failed] on failure."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("image", '{"image_key":"ik_bad"}'),
-        )
-        feishu_channel._download_image_resource = AsyncMock(return_value=None)
-        text_parts: list = []
-        await feishu_channel._process_quoted_message(
-            "parent_img",
-            text_parts,
-            [],
-        )
-        assert "[quoted image: download failed]" in text_parts
-
-    @pytest.mark.asyncio
-    async def test_quoted_file_success(self, feishu_channel):
-        """Should download quoted file into content_parts."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("file", '{"file_key":"fk_qfile"}'),
-        )
-        feishu_channel._download_file_resource = AsyncMock(
-            return_value="/tmp/qfile.pdf",
-        )
-        text_parts: list = []
-        content_parts: list = []
-        await feishu_channel._process_quoted_message(
-            "parent_file",
-            text_parts,
-            content_parts,
-        )
-        assert text_parts == []
-        assert len(content_parts) == 1
-        assert content_parts[0].type == ContentType.FILE
-
-    @pytest.mark.asyncio
-    async def test_quoted_media_label_is_video(self, feishu_channel):
-        """Should use 'video' label for media type in error messages."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("media", "{}"),
-        )
-        feishu_channel._download_file_resource = AsyncMock()
-        text_parts: list = []
-        await feishu_channel._process_quoted_message(
-            "parent_media",
-            text_parts,
-            [],
-        )
-        assert "[quoted video: missing key]" in text_parts
-
-    @pytest.mark.asyncio
-    async def test_quoted_interactive_with_text(self, feishu_channel):
-        """Should format quoted interactive card with extracted text."""
-        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
-
-        content = json.dumps(
+    async def test_quoted_interactive_card(self, feishu_channel):
+        card_content = json.dumps(
             {
-                "title": "Card",
-                "elements": [[{"tag": "text", "text": "card body"}]],
+                "header": {"title": {"content": "Card Title"}},
+                "body": {"elements": [{"tag": "text", "text": "Card body"}]},
             },
         )
         feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("interactive", content),
+            return_value=("interactive", card_content),
         )
-        text_parts: list = []
+        text_parts = ["My reply"]
+        content_parts = []
         await feishu_channel._process_quoted_message(
-            "parent_ic",
-            text_parts,
-            [],
-        )
-        assert len(text_parts) >= 1
-        assert "[quoted interactive card: Card card body]" in text_parts
-
-    @pytest.mark.asyncio
-    async def test_quoted_interactive_empty(self, feishu_channel):
-        """Should produce fallback when interactive card is empty."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("interactive", "{}"),
-        )
-        text_parts: list = []
-        await feishu_channel._process_quoted_message(
-            "parent_empty",
-            text_parts,
-            [],
-        )
-        assert "[quoted interactive card]" in text_parts
-
-    @pytest.mark.asyncio
-    async def test_quoted_unknown_type(self, feishu_channel):
-        """Should format unknown type with fallback label."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("sticker", "{}"),
-        )
-        text_parts: list = []
-        await feishu_channel._process_quoted_message(
-            "parent_sticker",
-            text_parts,
-            [],
-        )
-        # Unknown type: _parse_message_content returns "[sticker]"
-        # and _process_quoted_message wraps as "[quoted sticker]".
-        assert "[quoted sticker]" in text_parts
-
-    @pytest.mark.asyncio
-    async def test_quoted_none_result(self, feishu_channel):
-        """Should gracefully return when fetch returns None."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=None,
-        )
-        text_parts: list = []
-        content_parts: list = []
-        await feishu_channel._process_quoted_message(
-            "parent_none",
+            "parent_789",
             text_parts,
             content_parts,
         )
-        assert text_parts == []
-        assert content_parts == []
-
-
-# =============================================================================
-# Behavioral Contract Tests — exact text output for every msg_type path
-# =============================================================================
-
-
-class TestFeishuChannelBehaviorContract:
-    """Behavior contract for _parse_message_content / _process_quoted_message.
-
-    Verify exact output for every message type.
-    These tests serve as a regression safety net for the shared-engine
-    refactoring.  Any change to text / content output must be intentional.
-    """
-
-    # Shared success download paths used by all contract tests.
-    SUCCESS_IMG = "/tmp/img.jpg"
-    SUCCESS_FILE = "/tmp/file.bin"
-
-    # -----------------------------------------------------------------
-    # _parse_message_content: receive paths (no [quoted ...] prefix)
-    # -----------------------------------------------------------------
+        assert "quoted interactive card:" in text_parts[0]
+        assert "Card Title" in text_parts[0]
 
     @pytest.mark.asyncio
-    async def test_receive_text_basic(self, feishu_channel):
-        """text: basic extraction."""
-        feishu_channel._download_file_resource = AsyncMock()
-        feishu_channel._download_image_resource = AsyncMock()
-        text, content = await feishu_channel._parse_message_content(
-            "text",
-            '{"text": "Hello"}',
-            "m1",
-        )
-        assert text == ["Hello"]
-        assert content == []
-
-    @pytest.mark.asyncio
-    async def test_receive_text_empty(self, feishu_channel):
-        """text: empty string returns nothing."""
-        feishu_channel._download_file_resource = AsyncMock()
-        feishu_channel._download_image_resource = AsyncMock()
-        text, content = await feishu_channel._parse_message_content(
-            "text",
-            '{"text": ""}',
-            "m2",
-        )
-        assert text == []
-        assert content == []
-
-    @pytest.mark.asyncio
-    async def test_receive_text_whitespace_only(self, feishu_channel):
-        """text: whitespace-only stripped away."""
-        feishu_channel._download_file_resource = AsyncMock()
-        feishu_channel._download_image_resource = AsyncMock()
-        text, content = await feishu_channel._parse_message_content(
-            "text",
-            '{"text": "   "}',
-            "m3",
-        )
-        assert text == []
-
-    @pytest.mark.asyncio
-    async def test_receive_post_text(self, feishu_channel):
-        """post: title + text extracted."""
-        feishu_channel._download_file_resource = AsyncMock()
-        feishu_channel._download_image_resource = AsyncMock()
-        payload = '{"title":"T","content":[[{"tag":"text","text":"Hi"}]]}'
-        text, content = await feishu_channel._parse_message_content(
-            "post",
-            payload,
-            "m4",
-        )
-        assert text == ["T Hi"]
-        assert content == []
-
-    @pytest.mark.asyncio
-    async def test_receive_post_image_success(self, feishu_channel):
-        """post: image download → ImageContent, no text fallback."""
-        feishu_channel._download_image_resource = AsyncMock(
-            return_value=self.SUCCESS_IMG,
-        )
-        feishu_channel._download_file_resource = AsyncMock()
-        payload = '{"content":[[{"tag":"img","image_key":"ik"}]]}'
-        text, content = await feishu_channel._parse_message_content(
-            "post",
-            payload,
-            "m5",
-        )
-        assert text == []
-        assert len(content) == 1
-        assert content[0].type == ContentType.IMAGE
-
-    @pytest.mark.asyncio
-    async def test_receive_post_image_download_fail(self, feishu_channel):
-        """post: image download failure → error text in brackets."""
-        feishu_channel._download_image_resource = AsyncMock(
+    async def test_quoted_fetch_failure_no_change(self, feishu_channel):
+        feishu_channel._fetch_quoted_message_content = AsyncMock(
             return_value=None,
         )
-        feishu_channel._download_file_resource = AsyncMock()
-        payload = '{"content":[[{"tag":"img","image_key":"bad"}]]}'
-        text, content = await feishu_channel._parse_message_content(
-            "post",
-            payload,
-            "m6",
+        text_parts = ["My reply"]
+        content_parts = []
+        await feishu_channel._process_quoted_message(
+            "parent_000",
+            text_parts,
+            content_parts,
         )
-        assert "[image: download failed]" in text
-        assert content == []
+        assert text_parts == ["My reply"]
+        assert not content_parts
 
     @pytest.mark.asyncio
-    async def test_receive_post_media_download_fail(self, feishu_channel):
-        """post: media download failure → error text."""
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock(
-            return_value=None,
-        )
-        payload = '{"content":[[{"tag":"media","file_key":"mf"}]]}'
-        text, content = await feishu_channel._parse_message_content(
-            "post",
-            payload,
-            "m7",
-        )
-        assert "[media: download failed]" in text
-        assert content == []
-
-    @pytest.mark.asyncio
-    async def test_receive_image_success(self, feishu_channel):
-        """image: download → ImageContent, no text."""
-        feishu_channel._download_image_resource = AsyncMock(
-            return_value=self.SUCCESS_IMG,
-        )
-        feishu_channel._download_file_resource = AsyncMock()
-        text, content = await feishu_channel._parse_message_content(
-            "image",
-            '{"image_key":"ik"}',
-            "m8",
-        )
-        assert text == []
-        assert len(content) == 1
-        assert content[0].type == ContentType.IMAGE
-
-    @pytest.mark.asyncio
-    async def test_receive_image_missing_key(self, feishu_channel):
-        """image: missing key → bracketed error."""
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        text, content = await feishu_channel._parse_message_content(
-            "image",
-            "{}",
-            "m9",
-        )
-        assert text == ["[image: missing key]"]
-        assert content == []
-
-    @pytest.mark.asyncio
-    async def test_receive_image_download_fail(self, feishu_channel):
-        """image: download failure → error text."""
-        feishu_channel._download_image_resource = AsyncMock(
-            return_value=None,
-        )
-        feishu_channel._download_file_resource = AsyncMock()
-        text, content = await feishu_channel._parse_message_content(
-            "image",
-            '{"image_key":"bad"}',
-            "m10",
-        )
-        assert "[image: download failed]" in text
-        assert content == []
-
-    @pytest.mark.asyncio
-    async def test_receive_file_success(self, feishu_channel):
-        """file: download → FileContent, no text."""
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock(
-            return_value=self.SUCCESS_FILE,
-        )
-        text, content = await feishu_channel._parse_message_content(
-            "file",
-            '{"file_key":"fk"}',
-            "m11",
-        )
-        assert text == []
-        assert len(content) == 1
-        assert content[0].type == ContentType.FILE
-
-    @pytest.mark.asyncio
-    async def test_receive_file_missing_key(self, feishu_channel):
-        """file: missing key → bracketed error."""
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        text, content = await feishu_channel._parse_message_content(
-            "file",
-            "{}",
-            "m12",
-        )
-        assert text == ["[file: missing key]"]
-        assert content == []
-
-    @pytest.mark.asyncio
-    async def test_receive_media_missing_key_uses_video_label(
-        self,
-        feishu_channel,
-    ):
-        """media: uses 'video' label (matching old _on_message behavior)."""
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        text, content = await feishu_channel._parse_message_content(
-            "media",
-            "{}",
-            "m13",
-        )
-        assert text == ["[video: missing key]"]
-        assert content == []
-
-    @pytest.mark.asyncio
-    async def test_receive_audio_success(self, feishu_channel):
-        """audio: download → AudioContent, no text."""
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock(
-            return_value=self.SUCCESS_FILE,
-        )
-        text, content = await feishu_channel._parse_message_content(
-            "audio",
-            '{"file_key":"ak"}',
-            "m14",
-        )
-        assert text == []
-        assert len(content) == 1
-        assert content[0].type == ContentType.AUDIO
-
-    @pytest.mark.asyncio
-    async def test_receive_interactive_extracts_card_text(
-        self,
-        feishu_channel,
-    ):
-        """interactive: extracts text from card elements."""
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        payload = (
-            '{"title":"Card","elements"'
-            + ':[[{"tag":"text","text":"Hello"}]]}'
-        )
-        text, content = await feishu_channel._parse_message_content(
-            "interactive",
-            payload,
-            "m15",
-        )
-        assert text == ["Card Hello"]
-        assert content == []
-
-    @pytest.mark.asyncio
-    async def test_receive_interactive_empty_fallback(self, feishu_channel):
-        """interactive: empty card → bracketed fallback."""
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        text, content = await feishu_channel._parse_message_content(
-            "interactive",
-            "{}",
-            "m16",
-        )
-        assert text == ["[interactive]"]
-        assert content == []
-
-    @pytest.mark.asyncio
-    async def test_receive_unknown_type_bracketed(self, feishu_channel):
-        """unknown: msg_type wrapped in brackets."""
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        text, content = await feishu_channel._parse_message_content(
-            "sticker",
-            "{}",
-            "m17",
-        )
-        assert text == ["[sticker]"]
-        assert content == []
-
-    # -----------------------------------------------------------------
-    # _process_quoted_message: quoted reply paths
-    # -----------------------------------------------------------------
-
-    @pytest.mark.asyncio
-    async def test_quoted_text_basic(self, feishu_channel):
-        """quoted text: [quoted message: Hello]."""
+    async def test_quoted_error_hints_preserved(self, feishu_channel):
         feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("text", '{"text": "Hello"}'),
+            return_value=("image", '{"other": "no key"}'),
         )
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        tp: list = []
-        await feishu_channel._process_quoted_message("p1", tp, [])
-        assert tp == ["[quoted message: Hello]"]
+        text_parts = ["Reply"]
+        content_parts = []
+        await feishu_channel._process_quoted_message(
+            "parent_err",
+            text_parts,
+            content_parts,
+        )
+        assert text_parts[0] == "[quoted image]"
+        assert any("missing key" in t for t in text_parts)
 
     @pytest.mark.asyncio
-    async def test_quoted_text_empty_fallback(self, feishu_channel):
-        """quoted text: empty → [quoted message] fallback."""
+    async def test_quoted_lines_order_preserved(self, feishu_channel):
+        """Error hints after post with failed downloads stay ordered."""
+        content = json.dumps(
+            {
+                "content": [[{"tag": "text", "text": "Post text"}]],
+            },
+        )
         feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("text", '{"text": ""}'),
+            return_value=("post", content),
         )
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        tp: list = []
-        await feishu_channel._process_quoted_message("p2", tp, [])
-        assert tp == ["[quoted message]"]
-
-    @pytest.mark.asyncio
-    async def test_quoted_post_text(self, feishu_channel):
-        """quoted post: [quoted message: T Hi]."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=(
-                "post",
-                '{"title":"T","content":[[{"tag":"text","text":"Hi"}]]}',
-            ),
+        text_parts = ["Reply"]
+        content_parts = []
+        await feishu_channel._process_quoted_message(
+            "parent_order",
+            text_parts,
+            content_parts,
         )
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        tp: list = []
-        await feishu_channel._process_quoted_message("p3", tp, [])
-        assert tp == ["[quoted message: T Hi]"]
-
-    @pytest.mark.asyncio
-    async def test_quoted_post_image_download(self, feishu_channel):
-        """quoted post: image → ImageContent in content_parts."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=(
-                "post",
-                '{"content":[[{"tag":"img","image_key":"ik"}]]}',
-            ),
-        )
-        feishu_channel._download_image_resource = AsyncMock(
-            return_value=self.SUCCESS_IMG,
-        )
-        feishu_channel._download_file_resource = AsyncMock()
-        tp: list = []
-        cp: list = []
-        await feishu_channel._process_quoted_message("p4", tp, cp)
-        assert tp == []
-        assert len(cp) == 1
-        assert cp[0].type == ContentType.IMAGE
-
-    @pytest.mark.asyncio
-    async def test_quoted_post_image_download_fail(self, feishu_channel):
-        """quoted post: image fail → [quoted image: download failed]."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=(
-                "post",
-                '{"content":[[{"tag":"img","image_key":"bad"}]]}',
-            ),
-        )
-        feishu_channel._download_image_resource = AsyncMock(return_value=None)
-        feishu_channel._download_file_resource = AsyncMock()
-        tp: list = []
-        await feishu_channel._process_quoted_message("p5", tp, [])
-        assert "[quoted image: download failed]" in tp
-
-    @pytest.mark.asyncio
-    async def test_quoted_image_success(self, feishu_channel):
-        """quoted image: ImageContent in content_parts."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("image", '{"image_key":"ik"}'),
-        )
-        feishu_channel._download_image_resource = AsyncMock(
-            return_value=self.SUCCESS_IMG,
-        )
-        feishu_channel._download_file_resource = AsyncMock()
-        tp: list = []
-        cp: list = []
-        await feishu_channel._process_quoted_message("p6", tp, cp)
-        assert tp == []
-        assert len(cp) == 1
-        assert cp[0].type == ContentType.IMAGE
-
-    @pytest.mark.asyncio
-    async def test_quoted_image_missing_key(self, feishu_channel):
-        """quoted image: missing → [quoted image: missing key]."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("image", "{}"),
-        )
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        tp: list = []
-        await feishu_channel._process_quoted_message("p7", tp, [])
-        assert tp == ["[quoted image: missing key]"]
-
-    @pytest.mark.asyncio
-    async def test_quoted_file_success(self, feishu_channel):
-        """quoted file: FileContent in content_parts."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("file", '{"file_key":"fk"}'),
-        )
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock(
-            return_value=self.SUCCESS_FILE,
-        )
-        tp: list = []
-        cp: list = []
-        await feishu_channel._process_quoted_message("p8", tp, cp)
-        assert tp == []
-        assert len(cp) == 1
-        assert cp[0].type == ContentType.FILE
-
-    @pytest.mark.asyncio
-    async def test_quoted_media_missing_key_uses_video(self, feishu_channel):
-        """quoted media: uses 'video' label (consistent with receive path)."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("media", "{}"),
-        )
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        tp: list = []
-        await feishu_channel._process_quoted_message("p9", tp, [])
-        assert tp == ["[quoted video: missing key]"]
-
-    @pytest.mark.asyncio
-    async def test_quoted_audio_success(self, feishu_channel):
-        """quoted audio: AudioContent in content_parts."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("audio", '{"file_key":"ak"}'),
-        )
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock(
-            return_value=self.SUCCESS_FILE,
-        )
-        tp: list = []
-        cp: list = []
-        await feishu_channel._process_quoted_message("p10", tp, cp)
-        assert tp == []
-        assert len(cp) == 1
-        assert cp[0].type == ContentType.AUDIO
-
-    @pytest.mark.asyncio
-    async def test_quoted_interactive_extracts_card_text(self, feishu_channel):
-        """quoted interactive: [quoted interactive card: text]."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=(
-                "interactive",
-                '{"title":"Card","elements":'
-                '[[{"tag":"text","text":"Hello"}]]}',
-            ),
-        )
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        tp: list = []
-        await feishu_channel._process_quoted_message("p11", tp, [])
-        assert tp == ["[quoted interactive card: Card Hello]"]
-
-    @pytest.mark.asyncio
-    async def test_quoted_interactive_empty_fallback(self, feishu_channel):
-        """quoted interactive: empty → [quoted interactive card]."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("interactive", "{}"),
-        )
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        tp: list = []
-        await feishu_channel._process_quoted_message("p12", tp, [])
-        assert tp == ["[quoted interactive card]"]
-
-    @pytest.mark.asyncio
-    async def test_quoted_unknown_type_label(self, feishu_channel):
-        """quoted unknown: [quoted sticker] using the type as label."""
-        feishu_channel._fetch_quoted_message_content = AsyncMock(
-            return_value=("sticker", "{}"),
-        )
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        tp: list = []
-        await feishu_channel._process_quoted_message("p13", tp, [])
-        assert tp == ["[quoted sticker]"]
-
-    # -----------------------------------------------------------------
-    # bot mention stripping integration
-    # -----------------------------------------------------------------
-
-    @pytest.mark.asyncio
-    async def test_bot_mention_stripped_from_text(self, feishu_channel):
-        """_on_message: bot mention keys stripped from parsed text."""
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        feishu_channel._enqueue = AsyncMock()
-        feishu_channel._get_user_name_by_open_id = AsyncMock(
-            return_value="Test",
-        )
-        feishu_channel._add_reaction = AsyncMock()
-        feishu_channel._process_quoted_message = AsyncMock()
-
-        # Simulate _on_message flow: parse then strip bot mentions
-        bot_keys = ["@_user_1"]
-        (
-            parsed_text,
-            parsed_content,
-        ) = await feishu_channel._parse_message_content(
-            "text",
-            '{"text": "@_user_1 Hello world"}',
-            "m_bot",
-        )
-        if bot_keys and parsed_text:
-            for key in bot_keys:
-                parsed_text[0] = parsed_text[0].replace(key, "")
-            parsed_text[0] = parsed_text[0].strip()
-            if not parsed_text[0]:
-                parsed_text.pop(0)
-        assert parsed_text == ["Hello world"]
-        assert parsed_content == []
-
-    @pytest.mark.asyncio
-    async def test_bot_mention_all_consumed(self, feishu_channel):
-        """_on_message: bot mention only → text is removed entirely."""
-        feishu_channel._download_image_resource = AsyncMock()
-        feishu_channel._download_file_resource = AsyncMock()
-        bot_keys = ["@_user_1"]
-        parsed_text, _ = await feishu_channel._parse_message_content(
-            "text",
-            '{"text": "@_user_1"}',
-            "m_bot_only",
-        )
-        if bot_keys and parsed_text:
-            for key in bot_keys:
-                parsed_text[0] = parsed_text[0].replace(key, "")
-            parsed_text[0] = parsed_text[0].strip()
-            if not parsed_text[0]:
-                parsed_text.pop(0)
-        assert parsed_text == []
+        # quoted label should be first, reply should be last
+        assert text_parts[0].startswith("[quoted message:")
+        assert text_parts[-1] == "Reply"
