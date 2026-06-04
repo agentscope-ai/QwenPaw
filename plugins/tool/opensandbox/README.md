@@ -98,6 +98,8 @@ command_working_directory: /workspace
 
 如果 OpenSandbox server 运行在 WSL2 + k3s 中，通常建议把 `use_server_proxy` 设置为 `true`；如果使用本机 Docker Desktop，通常保持 `false`。
 
+如果要把 WSL2 + k3s 中的 `opensandbox-server` 开放给其他机器上的远程 Agent，工具配置里的 `domain` 不能继续使用 `127.0.0.1:8080`，需要改成 Windows 宿主机的局域网 IP，例如 `192.168.1.20:8080`。同时需要把 `opensandbox-server` 监听地址设为 `0.0.0.0`，并在 Windows 侧配置防火墙和 WSL2 端口转发；完整步骤见 [opensandbox_in_windows.md](./opensandbox_in_windows.md) 的“开放给远程 Agent 访问”。
+
 如果使用环境变量保存 API key，请确保 QwenPaw 后端进程能读到：
 
 ```powershell

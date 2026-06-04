@@ -662,6 +662,146 @@ $env:OPEN_SANDBOX_API_KEY = "<your-api-key>"
 echo ok && pwd && date
 ```
 
+### 开放给远程 Agent 访问
+
+如果本机访问 `http://127.0.0.1:8080/health` 正常，但其他机器上的 Agent 访问不了，通常需要同时确认三件事：
+
+- `opensandbox-server` 监听在 `0.0.0.0:8080`，而不是只监听 `127.0.0.1:8080`
+- Windows 防火墙允许 TCP `8080`
+- WSL2 默认 NAT 网络需要 Windows 端口转发到 WSL2 IP
+
+先确认 `~/.sandbox.toml`：
+
+```toml
+[server]
+host = "0.0.0.0"
+port = 8080
+api_key = "<your-api-key>"
+```
+
+修改后重启服务：
+
+```bash
+sudo systemctl restart opensandbox-server
+systemctl status opensandbox-server --no-pager
+ss -lntp | grep ':8080'
+```
+
+`ss` 输出里应该看到 `0.0.0.0:8080`。如果仍然是 `127.0.0.1:8080`，远程机器一定无法直接访问。
+
+然后在管理员 PowerShell 中添加 Windows 到 WSL2 的端口转发：
+
+```powershell
+$WslDistro = "Ubuntu-26.04"
+$WslIp = (wsl -d $WslDistro -- hostname -I).Trim().Split()[0]
+
+netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=8080
+netsh interface portproxy add v4tov4 `
+  listenaddress=0.0.0.0 listenport=8080 `
+  connectaddress=$WslIp connectport=8080
+
+New-NetFirewallRule `
+  -DisplayName "OpenSandbox Server 8080" `
+  -Direction Inbound `
+  -Action Allow `
+  -Protocol TCP `
+  -LocalPort 8080
+```
+
+检查转发规则：
+
+```powershell
+netsh interface portproxy show all
+```
+
+如果规则已经添加但仍然访问不了，按下面顺序定位是哪一层断了。
+
+先确认 `$WslIp` 不是空值：
+
+```powershell
+$WslIp
+wsl -d Ubuntu-26.04 -- hostname -I
+```
+
+再确认 Windows 能直接访问 WSL2 中的 server：
+
+```powershell
+curl.exe "http://${WslIp}:8080/health"
+```
+
+如果这里不通，通常是 `opensandbox-server` 没有监听 `0.0.0.0`，或 WSL2 内服务没有正常运行。回到 WSL2 中检查：
+
+```bash
+curl http://127.0.0.1:8080/health
+ss -lntp | grep ':8080'
+systemctl status opensandbox-server --no-pager
+```
+
+如果 `http://${WslIp}:8080/health` 能通，再确认 Windows 宿主机的局域网 IP 能访问：
+
+```powershell
+$WinIp = (Get-NetIPAddress -AddressFamily IPv4 |
+  Where-Object {
+    $_.IPAddress -notlike "127.*" -and
+    $_.IPAddress -notlike "169.254.*" -and
+    $_.InterfaceAlias -notlike "vEthernet*"
+  } |
+  Select-Object -First 1 -ExpandProperty IPAddress)
+
+curl.exe "http://${WinIp}:8080/health"
+```
+
+如果 `$WslIp` 能通但 `$WinIp` 不通，检查 Windows 的 IP Helper 服务、portproxy 和防火墙：
+
+```powershell
+Get-Service iphlpsvc
+netsh interface portproxy show all
+Get-NetFirewallRule -DisplayName "OpenSandbox Server 8080" |
+  Get-NetFirewallPortFilter
+```
+
+必要时重建规则：
+
+```powershell
+netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=8080
+netsh interface portproxy add v4tov4 `
+  listenaddress=0.0.0.0 listenport=8080 `
+  connectaddress=$WslIp connectport=8080
+```
+
+最后从远程机器访问：
+
+```bash
+curl http://<windows-lan-ip>:8080/health
+```
+
+如果 Windows 本机用 `$WinIp` 能访问，但远程机器不能访问，多半是远程机器与 Windows 不在同一网段、路由不可达，或 Windows 防火墙/安全软件拦截了入站连接。
+
+远程 Agent 需要访问 Windows 宿主机的局域网 IP，而不是 `127.0.0.1`。在 Windows PowerShell 查看宿主机 IP：
+
+```powershell
+ipconfig
+```
+
+假设 Windows 宿主机 IP 是 `192.168.1.20`，远程 Agent 的 OpenSandbox 工具配置应改成：
+
+```text
+domain: 192.168.1.20:8080
+protocol: http
+api_key: <your-api-key>
+use_server_proxy: true
+```
+
+远程机器也可以先用健康检查验证：
+
+```bash
+curl http://192.168.1.20:8080/health
+```
+
+WSL2 的 IP 可能会在 `wsl --shutdown`、Windows 重启或网络变化后改变。如果转发突然失效，重新执行上面的 `$WslIp` 和 `netsh interface portproxy add` 命令即可。
+
+如果只是给局域网内可信 Agent 调试，`listenaddress=0.0.0.0` 最方便；如果机器在不可信网络中，建议把 `listenaddress` 改成 Windows 的固定内网 IP，并且一定要设置非空 `api_key`。
+
 ## 11. 导出和导入调试好的 WSL
 
 在原 Windows 机器 PowerShell 中执行：
