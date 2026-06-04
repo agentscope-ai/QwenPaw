@@ -27,12 +27,19 @@ class DataPawPlugin:
             priority=50,
         )
 
+        from .constants import PLUGIN_DIR
         from .core.routers import tasks_router
 
         api.register_http_router(
             tasks_router,
             prefix="/tasks",  # final URL: /api/tasks/...
             tags=["datapaw-tasks"],
+        )
+
+        api.register_skill_provider(
+            skills_dir=PLUGIN_DIR / "skills",
+            enabled_by_default=True,
+            channels=["all"],
         )
 
     async def _on_startup(self):
