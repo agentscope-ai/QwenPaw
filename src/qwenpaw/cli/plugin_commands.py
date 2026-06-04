@@ -18,6 +18,10 @@ from typing import Optional
 
 import click
 
+from qwenpaw.plugins.validation import (
+    validate_plugin_module as _validate_plugin_module,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -607,30 +611,7 @@ def install(source: str, force: bool):
     try:
         backend_entry = manifest.get("entry", {}).get("backend")
         if backend_entry:
-            backend_path = source_path / backend_entry
-            if not backend_path.exists():
-                raise FileNotFoundError(
-                    f"Backend entry point not found: {backend_entry}",
-                )
-
-            import importlib.util
-
-            spec = importlib.util.spec_from_file_location(
-                f"_plugin_validation_{plugin_id}",
-                backend_path,
-            )
-            if spec and spec.loader:
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-
-                has_plugin_class = hasattr(module, "Plugin")
-                has_plugin_instance = hasattr(module, "plugin")
-
-                if not (has_plugin_class or has_plugin_instance):
-                    raise AttributeError(
-                        "Plugin module must export a 'Plugin' class "
-                        "or 'plugin' instance",
-                    )
+            _validate_plugin_module(plugin_id, source_path, backend_entry)
 
         click.echo("Plugin validation successful")
     except Exception as e:
@@ -891,13 +872,7 @@ def validate(path: str):
         entry = manifest.get("entry", {})
         backend_entry = entry.get("backend")
         if backend_entry:
-            backend_path = plugin_path / backend_entry
-            if not backend_path.exists():
-                click.echo(
-                    f"❌ Backend entry not found: {backend_entry}",
-                    err=True,
-                )
-                return
+            _validate_plugin_module(manifest["id"], plugin_path, backend_entry)
 
         frontend_entry = entry.get("frontend")
         if frontend_entry:
@@ -915,4 +890,4 @@ def validate(path: str):
     except json.JSONDecodeError as e:
         click.echo(f"❌ Invalid JSON in plugin.json: {e}", err=True)
     except Exception as e:
-        click.echo(f"❌ Validation error: {e}", err=True)
+        click.echo(f"❌ Validation failed: {e}", err=True)

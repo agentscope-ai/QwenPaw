@@ -124,6 +124,16 @@ class MultiAgentManager:
                 f"Workspace created and started: {agent_id} "
                 f"({elapsed:.3f}s)",
             )
+
+            # Fire workspace_created hooks so plugins can provision
+            # skills / config into the newly created workspace.
+            await self._fire_workspace_created_hooks(
+                {
+                    "agent_id": agent_id,
+                    "workspace_dir": str(agent_ref.workspace_dir),
+                },
+            )
+
             return instance
         except Exception as e:
             logger.error(f"Failed to start workspace {agent_id}: {e}")
@@ -134,6 +144,45 @@ class MultiAgentManager:
             async with self._lock:
                 self._pending_starts.pop(agent_id, None)
             event.set()
+
+    @staticmethod
+    async def _fire_workspace_created_hooks(workspace_info: dict) -> None:
+        """Invoke all registered workspace_created hooks.
+
+        Supports both sync and async callbacks:
+        - Async callbacks are awaited directly.
+        - Sync callbacks are offloaded to a thread via
+          ``asyncio.to_thread`` so they never block the event loop.
+
+        Errors in individual hooks are logged but do not prevent
+        subsequent hooks from running.
+
+        Args:
+            workspace_info: Dict with at least ``agent_id`` and
+                ``workspace_dir`` keys.
+        """
+        try:
+            from ..plugins.registry import PluginRegistry
+
+            hooks = PluginRegistry().get_workspace_created_hooks()
+        except Exception:
+            # Plugin system not initialised yet — nothing to do.
+            return
+
+        for hook in hooks:
+            try:
+                callback = hook.callback
+                if asyncio.iscoroutinefunction(callback):
+                    await callback(workspace_info)
+                else:
+                    await asyncio.to_thread(callback, workspace_info)
+            except Exception as exc:
+                logger.error(
+                    f"Error in workspace_created hook "
+                    f"'{hook.hook_name}' for plugin "
+                    f"'{hook.plugin_id}': {exc}",
+                    exc_info=True,
+                )
 
     async def _graceful_stop_old_instance(
         self,
