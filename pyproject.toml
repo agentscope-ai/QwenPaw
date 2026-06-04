@@ -20,7 +20,7 @@ dependencies = [
     "playwright>=1.49.0",
     "questionary>=2.1.1",
     "mss>=9.0.0",
-    "reme-ai==0.3.1.8",
+    "reme-ai==0.3.1.10",
     "transformers>=4.30.0",
     "python-dotenv>=1.0.0",
     "python-socks>=2.5.3",
@@ -45,9 +45,19 @@ dependencies = [
     "huggingface_hub>=0.20.0",
     "pillow>=10.0.0",
     "agent-client-protocol>=0.9.0",
+    "psutil>=6.0.0",
     "openai>=2.0.0,<=2.33.0",
     # anyio 4.13.0: _deliver_cancellation busy-loop / getpid storm (QwenPaw#2632)
     "anyio>=4.0.0,<4.13.0",
+    "watchfiles>=0.22",
+    "orjson>=3.9",
+    # Coding Mode — Python LSP server bundled as a zero-config fallback
+    # so the `lsp` tool always works for .py files (see PROPOSAL §3.4).
+    "python-lsp-server[all]>=1.10",
+    # Coding Mode — multi-language AST pattern matcher used by ast_search.
+    # Pure-Python wrapper around a prebuilt Rust binary; PyPI distributes
+    # wheels for all three OSes.
+    "ast-grep-cli>=0.20",
 ]
 
 [tool.setuptools.dynamic]
@@ -67,6 +77,7 @@ include-package-data = true
     "security/tool_guard/rules/**",
     "security/skill_scanner/rules/**",
     "security/skill_scanner/data/**",
+    "app/channels/yuanbao/proto/*.json",
     "docs/*.md",
 ]
 

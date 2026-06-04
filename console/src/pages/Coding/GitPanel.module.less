@@ -1,0 +1,449 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+// ---- Branch bar -----------------------------------------------------------
+.branchBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  flex-shrink: 0;
+}
+
+.branchIcon {
+  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  flex-shrink: 0;
+}
+
+.branchSelect {
+  flex: 1;
+  min-width: 0;
+
+  :global(.ant-select-selector) {
+    font-size: 12px !important;
+  }
+}
+
+.syncTag {
+  font-size: 11px;
+  padding: 0 4px;
+  line-height: 18px;
+}
+
+// ---- Tabs ----------------------------------------------------------------
+.tabs {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+
+  :global(.ant-tabs-nav) {
+    margin-bottom: 0;
+    padding: 0 8px;
+  }
+
+  :global(.ant-tabs-content-holder) {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  :global(.ant-tabs-tabpane) {
+    height: 100%;
+  }
+}
+
+// ---- Sections ------------------------------------------------------------
+.changesPane {
+  padding: 4px 0 8px;
+  overflow-y: auto;
+}
+
+.section {
+  margin-bottom: 4px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 10px;
+  font-weight: 600;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+// ---- File row ------------------------------------------------------------
+.showMoreBtn {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+  text-align: center;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+  cursor: pointer;
+  margin-top: 2px;
+
+  &:hover {
+    color: var(--primary-color, #1677ff);
+    background: var(--primary-bg, rgba(22, 119, 255, 0.04));
+  }
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.1s;
+
+  &:hover {
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.04));
+
+    .fileActions {
+      opacity: 1;
+    }
+  }
+}
+
+.statusBadge {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+}
+
+.fileName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-primary, rgba(0, 0, 0, 0.88));
+}
+
+.fileActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+// ---- Commit box ----------------------------------------------------------
+.commitBox {
+  padding: 8px 10px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+  flex-shrink: 0;
+}
+
+.commitInput {
+  font-size: 12px;
+  resize: none;
+}
+
+// ---- Log -----------------------------------------------------------------
+.logPane {
+  padding: 4px 0;
+}
+
+.logEntry {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.04));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  &:hover {
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.03));
+
+    .logActions {
+      opacity: 1;
+    }
+  }
+}
+
+.logEntryTop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.logActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.logHash {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  color: var(--primary-color, #1677ff);
+  flex-shrink: 0;
+}
+
+.logMsg {
+  font-size: 12px;
+  color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.logMeta {
+  font-size: 11px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+  padding-left: 2px;
+}
+
+// ---- Shared utilities ----------------------------------------------------
+.iconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 3px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  padding: 0;
+  transition:
+    background 0.1s,
+    color 0.1s;
+  flex-shrink: 0;
+
+  &:hover {
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.06));
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  }
+}
+
+.newBranchOption {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  cursor: pointer;
+  color: var(--primary-color, #1677ff);
+  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  font-size: 12px;
+
+  &:hover {
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.04));
+  }
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--primary-color, #1677ff);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+.empty {
+  padding: 12px 10px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.25));
+  font-size: 12px;
+  text-align: center;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+// ---- Unified diff viewer -------------------------------------------------
+.diffViewer {
+  margin: 0;
+  padding: 8px 0;
+  height: 60vh;
+  overflow: auto;
+  background: var(--bg-secondary, #fafafa);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+
+  > div {
+    padding: 0 12px;
+    min-height: 18px;
+  }
+}
+
+.diffAdd {
+  background: rgba(76, 175, 80, 0.12);
+  color: #2e7d32;
+}
+
+.diffDel {
+  background: rgba(244, 67, 54, 0.12);
+  color: #c62828;
+}
+
+.diffHunk {
+  color: var(--primary-color, #1677ff);
+  background: var(--item-hover-bg, rgba(0, 0, 0, 0.03));
+}
+
+.diffMeta {
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.45));
+}
+
+.diffCtx {
+  color: var(--text-primary, rgba(0, 0, 0, 0.85));
+}
+
+.diffEmpty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+  font-size: 13px;
+}
+
+// ---- Dark mode -----------------------------------------------------------
+:global(.dark-mode) {
+  .branchBar {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .branchIcon {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .sectionHeader {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .showMoreBtn {
+    color: rgba(255, 255, 255, 0.45);
+    border-top-color: rgba(255, 255, 255, 0.08);
+
+    &:hover {
+      color: #4da3ff;
+      background: rgba(22, 119, 255, 0.1);
+    }
+  }
+
+  .fileRow:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .fileName,
+  .logMsg {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .commitBox {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .logEntry {
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+  }
+
+  .logHash,
+  .newBranchOption,
+  .diffHunk {
+    color: #4da3ff;
+  }
+
+  .logMeta,
+  .diffMeta,
+  .diffEmpty {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .iconBtn {
+    color: rgba(255, 255, 255, 0.55);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .newBranchOption {
+    border-top-color: rgba(255, 255, 255, 0.08);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
+  }
+
+  .badge {
+    background: #4da3ff;
+  }
+
+  .empty {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .diffViewer {
+    background: #1a1a1a;
+  }
+
+  .diffAdd {
+    background: rgba(82, 196, 26, 0.18);
+    color: #95de64;
+  }
+
+  .diffDel {
+    background: rgba(255, 77, 79, 0.18);
+    color: #ff7875;
+  }
+
+  .diffHunk {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .diffCtx {
+    color: rgba(255, 255, 255, 0.85);
+  }
+}

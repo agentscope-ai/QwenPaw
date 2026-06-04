@@ -133,7 +133,7 @@ export function JobDrawer({
       title={editingJob ? t("cronJobs.editJob") : t("cronJobs.createJob")}
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
       footer={
         <div className={styles.formActions}>
           <Button onClick={onClose}>{t("common.cancel")}</Button>

@@ -84,6 +84,23 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
     ),
 ]
 
+MIMO_TOKENPLAN_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="mimo-v2.5-pro",
+        name="MiMo V2.5 Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="mimo-v2.5",
+        name="MiMo V2.5",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+]
+
 ALIYUN_TOKENPLAN_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="qwen3.6-plus",
@@ -301,22 +318,6 @@ OPENAI_MODELS: List[ModelInfo] = [
 
 OPENCODE_MODELS: List[ModelInfo] = [
     ModelInfo(
-        id="big-pickle",
-        name="Big Pickle",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="nemotron-3-super-free",
-        name="Nemotron 3 Super Free",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
         id="glm-5.1",
         name="GLM-5.1",
         supports_image=False,
@@ -345,29 +346,15 @@ OPENCODE_MODELS: List[ModelInfo] = [
         probe_source="documentation",
     ),
     ModelInfo(
-        id="deepseek-v4-pro",
-        name="DeepSeek V4 Pro",
+        id="minimax-m2.5",
+        name="MiniMax-M2.5",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
     ),
     ModelInfo(
-        id="deepseek-v4-flash",
-        name="DeepSeek V4 Flash",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="mimo-v2.5",
-        name="MiMo-V2.5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="mimo-v2.5-pro",
-        name="MiMo-V2.5-Pro",
+        id="minimax-m2.7",
+        name="MiniMax-M2.7",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
@@ -884,7 +871,6 @@ PROVIDER_OPENCODE = OpenAIProvider(
         ],
     },
     freeze_url=False,
-    require_api_key=False,
 )
 
 PROVIDER_AZURE_OPENAI = OpenAIProvider(
@@ -1033,6 +1019,15 @@ PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
     support_model_discovery=False,
 )
 
+PROVIDER_MIMO_TOKENPLAN = OpenAIProvider(
+    id="mimo-tokenplan",
+    name="Xiaomi MiMo Token Plan",
+    base_url="https://token-plan-cn.xiaomimimo.com/v1",
+    api_key_prefix="",
+    models=MIMO_TOKENPLAN_MODELS,
+    freeze_url=True,
+)
+
 
 class ProviderManager:  # pylint: disable=too-many-public-methods
     """A manager class to handle all providers,
@@ -1102,6 +1097,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_SILICONFLOW_INTL)
         self._add_builtin(PROVIDER_VOLCENGINE_CN)
         self._add_builtin(PROVIDER_VOLCENGINE_CN_CODINGPLAN)
+        self._add_builtin(PROVIDER_MIMO_TOKENPLAN)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider

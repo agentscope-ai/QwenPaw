@@ -14,6 +14,9 @@ import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from importlib.metadata import distributions as _all_distributions
+from packaging.requirements import Requirement
+
 from .architecture import PluginManifest, PluginRecord
 from .api import PluginApi
 from .registry import PluginRegistry
@@ -86,6 +89,93 @@ class PluginLoader:
             data = json.load(f)
         return PluginManifest.from_dict(data)
 
+    @staticmethod
+    def _check_dependencies_satisfied(
+        requirements_file: Path,
+    ) -> List[str]:
+        """Check which dependencies from requirements.txt are missing.
+
+        Uses ``importlib.metadata`` to inspect installed packages and
+        ``packaging.requirements`` to parse version specifiers.
+
+        Args:
+            requirements_file: Path to requirements.txt
+
+        Returns:
+            List of unsatisfied requirement strings (empty if all met).
+        """
+        if not requirements_file.exists():
+            return []
+
+        installed_packages: Dict[str, str] = {}
+        for dist in _all_distributions():
+            name = dist.metadata["Name"]
+            if name:
+                installed_packages[name.lower()] = dist.metadata["Version"]
+
+        missing: List[str] = []
+        for line in requirements_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or line.startswith("-"):
+                continue
+            try:
+                req = Requirement(line)
+            except Exception:
+                continue
+            installed_version = installed_packages.get(
+                req.name.lower().replace("-", "-"),
+            )
+            # Also check with underscores (pip normalizes both ways)
+            if installed_version is None:
+                installed_version = installed_packages.get(
+                    req.name.lower().replace("-", "_"),
+                )
+            if installed_version is None:
+                installed_version = installed_packages.get(
+                    req.name.lower().replace("_", "-"),
+                )
+            if installed_version is None:
+                missing.append(line)
+                continue
+            if req.specifier and not req.specifier.contains(
+                installed_version,
+            ):
+                missing.append(line)
+
+        return missing
+
+    async def _ensure_dependencies_installed(
+        self,
+        source_path: Path,
+        plugin_id: str,
+    ) -> None:
+        """Check and install missing dependencies for a plugin.
+
+        Inspects ``requirements.txt`` in the plugin directory; if any
+        packages are missing or version-incompatible, installs them via
+        pip/uv before the plugin module is imported.
+
+        Args:
+            source_path: Plugin directory containing requirements.txt
+            plugin_id: Plugin identifier (for log messages)
+        """
+        requirements_file = source_path / "requirements.txt"
+        missing_deps = self._check_dependencies_satisfied(requirements_file)
+        if not missing_deps:
+            return
+        logger.info(
+            "Plugin '%s' has %d unsatisfied dependency(ies): %s. "
+            "Installing...",
+            plugin_id,
+            len(missing_deps),
+            ", ".join(missing_deps),
+        )
+        await asyncio.to_thread(
+            self._install_requirements,
+            requirements_file,
+            plugin_id,
+        )
+
     async def load_plugin(
         self,
         manifest: PluginManifest,
@@ -112,6 +202,9 @@ class PluginLoader:
         if plugin_id in self._loaded_plugins:
             logger.warning(f"Plugin '{plugin_id}' already loaded")
             return self._loaded_plugins[plugin_id]
+
+        # Ensure plugin dependencies are installed before loading
+        await self._ensure_dependencies_installed(source_path, plugin_id)
 
         # Load backend module (if declared and exists)
         backend_entry = manifest.entry.backend

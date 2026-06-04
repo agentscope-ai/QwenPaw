@@ -19,9 +19,16 @@ from qwenpaw.providers.provider import (
 class OpenRouterProvider(Provider):
     """OpenRouter provider with required HTTP-Referer and X-Title headers."""
 
+    _OPENROUTER_CATEGORIES = (
+        "cli-agent,cloud-agent,programming-app,"
+        "creative-writing,writing-assistant,"
+        "general-chat,personal-agent"
+    )
+
     _DEFAULT_HEADERS = {
         "HTTP-Referer": "https://qwenpaw.agentscope.io/",
-        "X-Title": "QwenPaw",
+        "X-OpenRouter-Title": "QwenPaw",
+        "X-OpenRouter-Categories": _OPENROUTER_CATEGORIES,
         "User-Agent": "QwenPaw/1.1",
     }
 

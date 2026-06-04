@@ -16,7 +16,13 @@ from agentscope.message import Msg
 from ...constant import MEDIA_UNSUPPORTED_PLACEHOLDER
 from .tool_message_utils import _sanitize_tool_messages
 
-_MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
+# Block types stripped from copied messages during request-time normalization
+# when the target model cannot accept them. ``file`` is included so the
+# OpenAI/Anthropic strip path matches the model-rejection fallback in
+# QwenPawAgent. Note: model_factory._fixup_media_list converts ``file``
+# blocks to text placeholders rather than stripping them — that path
+# preserves user-facing history; this one prepares retryable requests.
+_MEDIA_BLOCK_TYPES = {"image", "audio", "video", "file"}
 
 # Fields that are provider-specific and should not leak across families.
 # Gemini: extra_content carries thought_signature.
@@ -61,6 +67,28 @@ def _clean_provider_specific_fields(
                 continue
             for field in strip_fields:
                 block.pop(field, None)
+
+
+def _strip_unsigned_thinking_for_anthropic(msgs: list[Msg]) -> None:
+    """Drop thinking blocks that lack a non-empty ``signature``.
+
+    Anthropic requires ``thinking.signature`` on every thinking block in the
+    request. Blocks carried over from other providers (OpenAI/Qwen reasoning,
+    Gemini thoughts, etc.) have no signature and would 400 the request. Native
+    Claude thinking blocks always carry one, so they survive untouched.
+    """
+    for msg in msgs:
+        if not isinstance(msg.content, list):
+            continue
+        msg.content = [
+            block
+            for block in msg.content
+            if not (
+                isinstance(block, dict)
+                and block.get("type") == "thinking"
+                and not block.get("signature")
+            )
+        ]
 
 
 def _clone_msg(msg: Msg) -> Msg:
@@ -150,6 +178,8 @@ def normalize_messages_for_model_request(
     # the repair has had its chance.
     normalized = _sanitize_tool_messages(normalized)
     _clean_provider_specific_fields(normalized, target_family)
+    if target_family == "anthropic":
+        _strip_unsigned_thinking_for_anthropic(normalized)
     if not supports_multimodal:
         _strip_media_blocks_in_place(normalized)
     return normalized

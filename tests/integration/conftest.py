@@ -216,6 +216,11 @@ class AppServer:
     client: httpx.Client
     logs: list[str]
     log_thread: threading.Thread
+    # Working directory of the subprocess (= QWENPAW_WORKING_DIR). Tests that
+    # need to seed file-backed stores (inbox_events.json, cron jobs_history/,
+    # backups, etc.) write directly under this path. The subprocess re-reads
+    # these files on each HTTP request, so no restart is needed after seeding.
+    working_dir: Path
 
     @property
     def base_url(self) -> str:
@@ -309,6 +314,7 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     env["QWENPAW_SECRET_DIR"] = str(secret_dir)
     env["QWENPAW_BACKUP_DIR"] = str(backups_dir)
     env["QWENPAW_AUTH_ENABLED"] = "false"
+    env["QWENPAW_UPLOAD_MAX_SIZE_MB"] = "10"
     env["NO_PROXY"] = "*"
     env["PYTHONUNBUFFERED"] = "1"
     # Force UTF-8 stdio in the subprocess so non-ASCII log lines (e.g.
@@ -364,10 +370,10 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
         )
         log_thread.start()
 
-        # 15s default lets cold-start endpoints (ACP getter, heartbeat)
-        # finish without hiding real deadlocks; 30s in coverage mode
-        # for tracer overhead.
-        http_timeout = 30.0 if _integration_coverage_requested() else 15.0
+        # 30s lets cold-start endpoints (ACP getter, heartbeat) and
+        # agent creation (workspace init) finish on slower runners
+        # (Windows CI ~50% slower) without hiding real deadlocks.
+        http_timeout = 30.0
         client = httpx.Client(timeout=http_timeout, trust_env=False)
 
         try:
@@ -403,6 +409,7 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
                 client=client,
                 logs=logs,
                 log_thread=log_thread,
+                working_dir=working_dir,
             )
         finally:
             client.close()

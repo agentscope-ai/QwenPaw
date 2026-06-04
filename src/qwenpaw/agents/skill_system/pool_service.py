@@ -27,6 +27,7 @@ from .store import (
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
     import_skill_dir,
+    is_ignored_skill_entry,
     mutate_json,
     normalize_skill_dir_name,
     read_json,
@@ -246,7 +247,11 @@ class SkillPoolService:
                 set(
                     manifest.get("skills", {}).keys(),
                 )
-                | {p.name for p in pool_dir.iterdir() if p.is_dir()}
+                | {
+                    p.name
+                    for p in pool_dir.iterdir()
+                    if p.is_dir() and not is_ignored_skill_entry(p.name)
+                }
                 if pool_dir.exists()
                 else set(
                     manifest.get("skills", {}).keys(),
@@ -836,6 +841,7 @@ class SkillPoolService:
 
         def _update(payload: dict[str, Any]) -> None:
             payload.setdefault("skills", {})
+            prior = payload["skills"].get(final_name) or {}
             metadata = build_skill_metadata(
                 final_name,
                 target_dir,
@@ -845,11 +851,13 @@ class SkillPoolService:
                 protected=False,
             )
             ws_entry: dict[str, Any] = {
-                "enabled": True,
-                "channels": ["all"],
+                "enabled": bool(prior.get("enabled", True)),
+                "channels": prior.get("channels") or ["all"],
                 "source": metadata["source"],
                 "installed_from": pool_installed_from,
-                "config": pool_config,
+                "config": prior["config"]
+                if "config" in prior
+                else pool_config,
                 "metadata": metadata,
                 "requirements": metadata["requirements"],
                 "updated_at": metadata["updated_at"],
@@ -859,7 +867,10 @@ class SkillPoolService:
             )
             if entry.get("source") == "builtin" and pool_lang:
                 ws_entry["builtin_language"] = pool_lang
-            if pool_tags is not None:
+            prior_tags = prior.get("tags")
+            if prior_tags is not None:
+                ws_entry["tags"] = prior_tags
+            elif pool_tags is not None:
                 ws_entry["tags"] = pool_tags
             payload["skills"][final_name] = ws_entry
 

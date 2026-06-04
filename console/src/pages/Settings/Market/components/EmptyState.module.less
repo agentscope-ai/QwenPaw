@@ -1,0 +1,25 @@
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 80px 24px;
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.icon {
+  font-size: 40px;
+  opacity: 0.6;
+}
+
+.text {
+  font-size: 14px;
+}
+
+/* ─── Dark mode ──────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .emptyState {
+    color: rgba(255, 255, 255, 0.45);
+  }
+}

@@ -1,6 +1,20 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderWithProviders } from "@/test/common_setup";
 
+// Mock react-window to avoid import errors in mocked ChatSessionDrawer
+vi.mock("react-window", () => ({
+  FixedSizeList: ({ children, itemData, itemCount }: any) => {
+    const Row = children;
+    return (
+      <>
+        {Array.from({ length: itemCount }, (_, i) => (
+          <Row key={i} index={i} style={{}} data={itemData} />
+        ))}
+      </>
+    );
+  },
+}));
+
 vi.mock("../../ChatSearchPanel", () => ({ default: () => null }));
 vi.mock("../../ChatSessionDrawer", () => ({ default: () => null }));
 

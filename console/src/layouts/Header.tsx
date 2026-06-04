@@ -2,10 +2,12 @@ import { Layout, Space, Badge, Spin, Tooltip, Dropdown } from "antd";
 import type { MenuProps } from "antd";
 import LanguageSwitcher from "../components/LanguageSwitcher/index";
 import ThemeToggleButton from "../components/ThemeToggleButton";
+import CodingModeToggle from "../components/CodingModeToggle";
 import { useTranslation } from "react-i18next";
 import { Button, Modal } from "@agentscope-ai/design";
 import styles from "./index.module.less";
 import api from "../api";
+import { openExternalLink } from "../utils/openExternalLink";
 import {
   GITHUB_URL,
   getDocsUrl,
@@ -151,14 +153,7 @@ export default function Header() {
   };
 
   const handleNavClick = (url: string) => {
-    if (url) {
-      const pywebview = (window as any).pywebview;
-      if (pywebview?.api) {
-        pywebview.api.open_external_link(url);
-      } else {
-        window.open(url, "_blank");
-      }
-    }
+    openExternalLink(url);
   };
 
   return (
@@ -236,6 +231,8 @@ export default function Header() {
               {t("header.github")}
             </Button>
           </Tooltip>
+          <div className={styles.headerDivider} />
+          <CodingModeToggle />
           <div className={styles.headerDivider} />
           <LanguageSwitcher />
           <ThemeToggleButton />

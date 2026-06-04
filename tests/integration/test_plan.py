@@ -95,7 +95,7 @@ def test_agent_scoped_plan_config_put_get_roundtrip(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p1
+@pytest.mark.p0
 def test_plan_config_put_get_roundtrip(app_server) -> None:
     """Test purpose:
     - Verify global plan config supports update and readback.

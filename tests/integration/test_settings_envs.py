@@ -76,7 +76,7 @@ def test_settings_language_reject_invalid(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p1
+@pytest.mark.p0
 def test_envs_put_get_roundtrip(app_server) -> None:
     """Test purpose:
     - Verify batch env writes can be fully read back.

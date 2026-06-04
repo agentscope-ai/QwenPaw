@@ -1,0 +1,302 @@
+// ---------------------------------------------------------------------------
+// FilePreview styles
+// ---------------------------------------------------------------------------
+
+// ---- Image ----------------------------------------------------------------
+
+.imageWrap {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--layout-body-background, #f0f2f5);
+  padding: 24px;
+  overflow: auto;
+}
+
+.image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+}
+
+// ---- PDF ------------------------------------------------------------------
+
+.pdfEmbed {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+// ---- Markdown -------------------------------------------------------------
+
+.markdownWrap {
+  height: 100%;
+  overflow-y: auto;
+  padding: 24px 32px;
+  color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  font-size: 14px;
+  line-height: 1.75;
+
+  // GFM styles
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: 600;
+    margin: 1.2em 0 0.5em;
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  }
+  h1 {
+    font-size: 1.75em;
+    border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+    padding-bottom: 0.3em;
+  }
+  h2 {
+    font-size: 1.4em;
+    border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+    padding-bottom: 0.25em;
+  }
+  h3 {
+    font-size: 1.15em;
+  }
+
+  p {
+    margin: 0.6em 0;
+  }
+
+  a {
+    color: var(--primary-color, #1677ff);
+    text-decoration: none;
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  ul,
+  ol {
+    padding-left: 1.5em;
+    margin: 0.5em 0;
+  }
+  li {
+    margin: 0.2em 0;
+  }
+
+  blockquote {
+    margin: 0.75em 0;
+    padding: 0.4em 1em;
+    border-left: 3px solid var(--primary-color, #1677ff);
+    background: var(--primary-bg, rgba(22, 119, 255, 0.04));
+    color: var(--text-secondary, rgba(0, 0, 0, 0.65));
+  }
+
+  code {
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 0.875em;
+    background: var(--code-bg, rgba(0, 0, 0, 0.05));
+    padding: 0.15em 0.35em;
+    border-radius: 3px;
+  }
+
+  pre {
+    background: var(--code-bg, rgba(0, 0, 0, 0.05));
+    border-radius: 6px;
+    padding: 1em;
+    overflow-x: auto;
+    margin: 0.75em 0;
+
+    code {
+      background: none;
+      padding: 0;
+      font-size: 0.85em;
+    }
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0.75em 0;
+    font-size: 0.9em;
+
+    th,
+    td {
+      border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+      padding: 6px 12px;
+      text-align: left;
+    }
+
+    th {
+      background: var(--table-header-bg, rgba(0, 0, 0, 0.03));
+      font-weight: 600;
+    }
+
+    tr:nth-child(even) {
+      background: var(--table-row-hover, rgba(0, 0, 0, 0.02));
+    }
+  }
+
+  img {
+    max-width: 100%;
+    border-radius: 4px;
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+    margin: 1.5em 0;
+  }
+}
+
+// ---- CSV ------------------------------------------------------------------
+
+.csvWrap {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.csvNote {
+  font-size: 11px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  background: var(--warning-bg, rgba(250, 173, 20, 0.08));
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+  flex-shrink: 0;
+}
+
+.csvScroll {
+  flex: 1;
+  overflow: auto;
+}
+
+.csvTable {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  width: max-content;
+  min-width: 100%;
+
+  th,
+  td {
+    border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+    padding: 5px 10px;
+    white-space: nowrap;
+    text-align: left;
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  th {
+    background: var(--table-header-bg, rgba(0, 0, 0, 0.04));
+    font-weight: 600;
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  tr:nth-child(even) td {
+    background: var(--table-row-hover, rgba(0, 0, 0, 0.015));
+  }
+
+  tr:hover td {
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.04));
+  }
+}
+
+// ---- Dark mode -----------------------------------------------------------
+:global(.dark-mode) {
+  .imageWrap {
+    background: #141414;
+  }
+
+  .markdownWrap {
+    color: rgba(255, 255, 255, 0.85);
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    h1 {
+      border-bottom-color: rgba(255, 255, 255, 0.12);
+    }
+
+    h2 {
+      border-bottom-color: rgba(255, 255, 255, 0.08);
+    }
+
+    a {
+      color: #4da3ff;
+    }
+
+    blockquote {
+      border-left-color: #4da3ff;
+      background: rgba(22, 119, 255, 0.08);
+      color: rgba(255, 255, 255, 0.65);
+    }
+
+    code {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    pre {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    table {
+      th,
+      td {
+        border-color: rgba(255, 255, 255, 0.12);
+      }
+
+      th {
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      tr:nth-child(even) {
+        background: rgba(255, 255, 255, 0.03);
+      }
+    }
+
+    hr {
+      border-top-color: rgba(255, 255, 255, 0.12);
+    }
+  }
+
+  .csvNote {
+    color: rgba(255, 255, 255, 0.55);
+    background: rgba(250, 173, 20, 0.15);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .csvTable {
+    th,
+    td {
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    th {
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    tr:nth-child(even) td {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.06);
+    }
+  }
+}

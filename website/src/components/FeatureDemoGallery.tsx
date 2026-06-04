@@ -56,6 +56,17 @@ const DEFAULT_DEMO_VIDEOS: DemoVideoConfig[] = [
     docsLinkEnUrl:
       "https://qwenpaw.agentscope.io/docs/commands#Mission-Mode---Autonomous-Execution-for-Complex-Tasks",
   },
+  {
+    key: "auto-continue",
+    zhUrl:
+      "https://cloud.video.taobao.com/vod/J6A1yjzzFbkHZnadSNMw10rYmvMar_1_zb_VA49jBu8.mp4",
+    enUrl:
+      "https://cloud.video.taobao.com/vod/MqGCwH4FZwe8lnTBkWKxUZPXQAc-cj2hMxKELq6bRxs.mp4",
+    titleKey: "docs.demoVideos.autoContinue",
+    docsLinkUrl:
+      "https://qwenpaw.agentscope.io/docs/console#%E8%BF%90%E8%A1%8C%E9%85%8D%E7%BD%AE",
+    docsLinkEnUrl: "https://qwenpaw.agentscope.io/docs/console#Configuration",
+  },
 ];
 
 export function FeatureDemoGallery({ videos }: FeatureDemoGalleryProps) {

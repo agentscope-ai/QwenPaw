@@ -549,7 +549,7 @@ function PetControlPage() {
             onCancel: () => {
               if (!importing) setImportOpen(false);
             },
-            destroyOnClose: true,
+            destroyOnHidden: true,
           },
           React.createElement(
             Space,

@@ -2,7 +2,7 @@
 # pylint:disable=too-many-nested-blocks
 """Central plugin registry."""
 
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Set, Type
 from dataclasses import dataclass, field
 import logging
 
@@ -92,6 +92,17 @@ class HttpRouterRegistration:
     routes: List[Any]
 
 
+@dataclass
+class PromptSectionRegistration:
+    """System-prompt section contributed by a plugin."""
+
+    plugin_id: str
+    name: str
+    after: str
+    agent_id: Optional[str]
+    provider: Callable[[Any], str]
+
+
 class PluginRegistry:  # pylint:disable=too-many-public-methods
     """Central plugin registry (Singleton).
 
@@ -126,6 +137,8 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._plugin_http_app: Optional[Any] = None
         self._http_router_registrations: List[HttpRouterRegistration] = []
         self._http_prefix_to_plugin: Dict[str, str] = {}
+        self._prompt_sections: List[PromptSectionRegistration] = []
+        self._prompt_section_names: Set[str] = set()
 
         self._initialized = True
 
@@ -482,6 +495,66 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._workspace_created_hooks.copy()
 
+    def register_prompt_section(
+        self,
+        plugin_id: str,
+        name: str,
+        after: str,
+        agent_id: Optional[str],
+        provider: Callable[[Any], str],
+    ) -> None:
+        """Register a plugin-contributed system prompt section.
+
+        Args:
+            plugin_id: Owning plugin identifier.
+            name: Unique section name.
+            after: Host anchor this section follows.
+            agent_id: Optional agent id filter; ``None`` applies globally.
+            provider: Callable receiving the agent and returning section text.
+
+        Raises:
+            ValueError: If *name* has already been registered or *after*
+                does not reference a host prompt anchor.
+        """
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise ValueError("Prompt section name must not be empty")
+
+        if normalized_name in self._prompt_section_names:
+            raise ValueError(
+                f"Prompt section '{normalized_name}' is already registered",
+            )
+
+        normalized_after = after.strip() or "workspace"
+        from ..agents.prompt_builder import PromptBuilder
+
+        if normalized_after not in PromptBuilder.HOST_ANCHORS:
+            msg = (
+                f"Prompt section after='{after}'"
+                " must reference a host anchor"
+            )
+            raise ValueError(msg)
+
+        registration = PromptSectionRegistration(
+            plugin_id=plugin_id,
+            name=normalized_name,
+            after=normalized_after,
+            agent_id=agent_id,
+            provider=provider,
+        )
+        self._prompt_sections.append(registration)
+        self._prompt_section_names.add(normalized_name)
+        logger.info(
+            "Registered prompt section '%s' from plugin '%s' after '%s'",
+            registration.name,
+            plugin_id,
+            normalized_after,
+        )
+
+    def get_prompt_sections(self) -> List[PromptSectionRegistration]:
+        """Return a copy of registered prompt sections."""
+        return list(self._prompt_sections)
+
     def register_control_command(
         self,
         plugin_id: str,
@@ -591,6 +664,13 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         ]
         self._control_commands = [
             c for c in self._control_commands if c.plugin_id != plugin_id
+        ]
+        removed_names = {
+            s.name for s in self._prompt_sections if s.plugin_id == plugin_id
+        }
+        self._prompt_section_names -= removed_names
+        self._prompt_sections = [
+            s for s in self._prompt_sections if s.plugin_id != plugin_id
         ]
         logger.info(
             f"Unregistered all entries for plugin '{plugin_id}'",
