@@ -129,15 +129,25 @@ def test_seed_persona_md_files_unknown_language_falls_back_to_zh(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_uninstall_builtin_agents_removes_profile_and_workspace(tmp_path):
-    """Uninstall: drop datapaw profile and rmtree the workspace dir."""
+def test_uninstall_builtin_agents_removes_artifacts_preserves_history(tmp_path):
+    """Uninstall: remove plugin artifacts but keep sessions/artifacts/dag."""
     from plugin_datapaw.agents_setup import uninstall_builtin_agents
     from qwenpaw.config.config import AgentProfileRef
 
     ws_dir = tmp_path / "workspaces" / "datapaw"
     ws_dir.mkdir(parents=True)
-    (ws_dir / "marker").write_text("x", encoding="utf-8")
     (ws_dir / "agent.json").write_text("{}", encoding="utf-8")
+    (ws_dir / "SOUL.md").write_text("soul", encoding="utf-8")
+    skills_dir = ws_dir / "skills" / "bi-anomaly-detection"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text("skill", encoding="utf-8")
+    # User data directories that must survive
+    sessions_dir = ws_dir / "sessions"
+    sessions_dir.mkdir()
+    (sessions_dir / "s1.json").write_text("{}", encoding="utf-8")
+    artifacts_dir = ws_dir / "artifacts"
+    artifacts_dir.mkdir()
+    (artifacts_dir / "chart.png").write_text("img", encoding="utf-8")
 
     fake_cfg = _fake_config(
         profiles={
@@ -154,9 +164,15 @@ def test_uninstall_builtin_agents_removes_profile_and_workspace(tmp_path):
     ) as save_config_mock:
         uninstall_builtin_agents()
 
-    assert "datapaw" not in fake_cfg.agents.profiles, "profile was not removed"
+    assert "datapaw" not in fake_cfg.agents.profiles
     save_config_mock.assert_called_once_with(fake_cfg)
-    assert not ws_dir.exists(), "workspace dir was not removed"
+    # Plugin artifacts removed
+    assert not (ws_dir / "agent.json").exists()
+    assert not (ws_dir / "SOUL.md").exists()
+    assert not (ws_dir / "skills").exists()
+    # User data preserved
+    assert (sessions_dir / "s1.json").exists()
+    assert (artifacts_dir / "chart.png").exists()
 
 
 def test_uninstall_builtin_agents_resets_active_agent_when_datapaw(tmp_path):

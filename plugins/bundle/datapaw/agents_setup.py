@@ -110,13 +110,14 @@ def _seed_persona_md_files(ws_dir: Path, language: str = "zh") -> None:
             shutil.copy2(src, dst)
 
 
-def uninstall_builtin_agents() -> None:
-    """Remove DataPaw builtin agent profile and its workspace.
+_WORKSPACE_PRESERVE_DIRS = {"sessions", "artifacts"}
 
-    ``agent.json`` lives inside the workspace dir, so it goes away with the
-    ``rmtree``; host has no separate ``delete_agent_config`` helper. If the
-    user's ``active_agent`` happened to be ``datapaw``, it is reset to
-    ``default`` so host doesn't end up pointing at a missing agent.
+
+def uninstall_builtin_agents() -> None:
+    """Remove DataPaw agent profile and workspace plugin artifacts.
+
+    Preserves user data directories (sessions, artifacts, dag) that
+    contain conversation history and generated files.
     """
     config = load_config()
     profile = config.agents.profiles.pop(BUILTIN_DATAPAW_AGENT_ID, None)
@@ -129,5 +130,12 @@ def uninstall_builtin_agents() -> None:
         config.agents.active_agent = "default"
     save_config(config)
     ws = Path(profile.workspace_dir)
-    if ws.exists():
-        shutil.rmtree(ws, ignore_errors=True)
+    if not ws.exists():
+        return
+    for item in ws.iterdir():
+        if item.name in _WORKSPACE_PRESERVE_DIRS:
+            continue
+        if item.is_dir():
+            shutil.rmtree(item, ignore_errors=True)
+        else:
+            item.unlink(missing_ok=True)
