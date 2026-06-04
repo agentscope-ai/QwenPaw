@@ -29,8 +29,10 @@ const resources = {
 
 i18n.use(initReactI18next).init({
   resources,
-  lng: localStorage.getItem("language") || "en",
+  lng: localStorage.getItem("language") || navigator.language || "en",
   fallbackLng: "en",
+  supportedLngs: Object.keys(resources),
+  nonExplicitSupportedLngs: true,
   interpolation: {
     escapeValue: false,
   },
