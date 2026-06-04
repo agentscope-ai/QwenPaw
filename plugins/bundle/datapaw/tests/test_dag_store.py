@@ -49,7 +49,10 @@ def test_dag_store_write_fans_out_before_persist(tmp_path):
 def test_runtime_state_notify_writes_dag_store(tmp_path):
     from plugin_datapaw.core.orchestration.dag_store import DAGStore
     from plugin_datapaw.core.orchestration.state import RuntimeStateManager
-    from plugin_datapaw.core.orchestration.task_graph import TaskGraph, TaskNode
+    from plugin_datapaw.core.orchestration.task_graph import (
+        TaskGraph,
+        TaskNode,
+    )
     from plugin_datapaw.core.orchestration.events import TaskEventType
 
     state = RuntimeStateManager()

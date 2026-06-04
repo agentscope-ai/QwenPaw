@@ -18,7 +18,6 @@ import logging
 import shutil
 from pathlib import Path
 
-from .core.i18n import tr
 from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentProfileRef,
@@ -35,6 +34,7 @@ from qwenpaw.config.utils import (
 from qwenpaw.constant import WORKING_DIR
 
 from .constants import BUILTIN_DATAPAW_AGENT_ID, PLUGIN_DIR
+from .core.i18n import tr
 
 logger = logging.getLogger(__name__)
 

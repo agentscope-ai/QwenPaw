@@ -84,7 +84,7 @@ class DataPawPlugin:
         lang = getattr(agent, "_lang", "zh")
         return tr("env.hint", lang, root=artifacts_root)
 
-    def _on_uninstall(self, plugin_id: str, delete_files: bool = False):
+    def _on_uninstall(self, **_kwargs):
         from .agents_setup import uninstall_builtin_agents
 
         uninstall_builtin_agents()

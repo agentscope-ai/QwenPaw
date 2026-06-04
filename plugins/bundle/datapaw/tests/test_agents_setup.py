@@ -22,10 +22,15 @@ def test_ensure_builtin_agents_writes_profile_when_missing(tmp_path):
     saved = []
     seeded = []
 
-    with patch("plugin_datapaw.agents_setup.load_config", return_value=fake_cfg), patch(
+    with patch(
+        "plugin_datapaw.agents_setup.load_config",
+        return_value=fake_cfg,
+    ), patch(
         "plugin_datapaw.agents_setup.save_config",
         side_effect=saved.append,
-    ), patch("plugin_datapaw.agents_setup.save_agent_config") as save_agent, patch(
+    ), patch(
+        "plugin_datapaw.agents_setup.save_agent_config",
+    ) as save_agent, patch(
         "plugin_datapaw.agents_setup._seed_persona_md_files",
         side_effect=lambda d, language: seeded.append((d, language)),
     ), patch(
@@ -68,7 +73,10 @@ def test_ensure_builtin_agents_idempotent(tmp_path):
         },
     )
 
-    with patch("plugin_datapaw.agents_setup.load_config", return_value=fake_cfg), patch(
+    with patch(
+        "plugin_datapaw.agents_setup.load_config",
+        return_value=fake_cfg,
+    ), patch(
         "plugin_datapaw.agents_setup.save_config",
     ) as save_config, patch(
         "plugin_datapaw.agents_setup.save_agent_config",
@@ -129,7 +137,9 @@ def test_seed_persona_md_files_unknown_language_falls_back_to_zh(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_uninstall_builtin_agents_removes_artifacts_preserves_history(tmp_path):
+def test_uninstall_builtin_agents_removes_artifacts_preserves_history(
+    tmp_path,
+):
     """Uninstall: remove plugin artifacts but keep sessions/artifacts/dag."""
     from plugin_datapaw.agents_setup import uninstall_builtin_agents
     from qwenpaw.config.config import AgentProfileRef
@@ -159,7 +169,10 @@ def test_uninstall_builtin_agents_removes_artifacts_preserves_history(tmp_path):
     )
     fake_cfg.agents.active_agent = "default"
 
-    with patch("plugin_datapaw.agents_setup.load_config", return_value=fake_cfg), patch(
+    with patch(
+        "plugin_datapaw.agents_setup.load_config",
+        return_value=fake_cfg,
+    ), patch(
         "plugin_datapaw.agents_setup.save_config",
     ) as save_config_mock:
         uninstall_builtin_agents()
@@ -193,7 +206,10 @@ def test_uninstall_builtin_agents_resets_active_agent_when_datapaw(tmp_path):
     )
     fake_cfg.agents.active_agent = "datapaw"
 
-    with patch("plugin_datapaw.agents_setup.load_config", return_value=fake_cfg), patch(
+    with patch(
+        "plugin_datapaw.agents_setup.load_config",
+        return_value=fake_cfg,
+    ), patch(
         "plugin_datapaw.agents_setup.save_config",
     ):
         uninstall_builtin_agents()
@@ -207,7 +223,10 @@ def test_uninstall_builtin_agents_noop_when_not_installed(tmp_path):
 
     fake_cfg = _fake_config(profiles={})
 
-    with patch("plugin_datapaw.agents_setup.load_config", return_value=fake_cfg), patch(
+    with patch(
+        "plugin_datapaw.agents_setup.load_config",
+        return_value=fake_cfg,
+    ), patch(
         "plugin_datapaw.agents_setup.save_config",
     ) as save_config_mock:
         uninstall_builtin_agents()
