@@ -291,6 +291,8 @@ def _media_source_key(block: dict) -> str | None:
     usable source URL is present.
     """
     source = block.get("source", {})
+    if not isinstance(source, dict):
+        source = {"type": "url", "url": str(source) if source else ""}
     if source.get("type") == "base64":
         return None
     url = source.get("url", "")
@@ -322,6 +324,8 @@ def _format_anthropic_output_items(
             # convert file blocks to a readable text placeholder so the
             # conversation history stays intact without triggering a 400 error.
             source = item.get("source", {})
+            if not isinstance(source, dict):
+                source = {"type": "url", "url": str(source) if source else ""}
             file_url = source.get("url", "")
             filename = (
                 item.get("filename")

@@ -243,6 +243,8 @@ class FeishuConfig(BaseChannelConfig):
     domain: 'feishu' for China, 'lark' for international.
     streaming_enabled: enable CardKit streaming card updates for real-time
     typewriter-style text output.
+    share_session_in_group: if True, all group members share one session;
+    if False (default), each member gets an independent session.
     """
 
     app_id: str = ""
@@ -252,6 +254,7 @@ class FeishuConfig(BaseChannelConfig):
     media_dir: Optional[str] = None
     domain: Literal["feishu", "lark"] = "feishu"
     streaming_enabled: bool = False
+    share_session_in_group: bool = False
 
 
 class QQConfig(BaseChannelConfig):

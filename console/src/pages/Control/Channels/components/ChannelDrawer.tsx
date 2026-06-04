@@ -518,6 +518,14 @@ export function ChannelDrawer({
             <Form.Item name="media_dir" label={t("channels.wechatMediaDir")}>
               <Input placeholder={defaultMediaDir} />
             </Form.Item>
+            <Form.Item
+              name="share_session_in_group"
+              label={t("channels.shareSessionInGroup")}
+              valuePropName="checked"
+              tooltip={t("channels.shareSessionInGroupTooltip")}
+            >
+              <Switch />
+            </Form.Item>
           </>
         );
 
@@ -983,9 +991,9 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item
               name="share_session_in_group"
-              label={t("channels.onebotShareSessionInGroup")}
+              label={t("channels.shareSessionInGroup")}
               valuePropName="checked"
-              tooltip={t("channels.onebotShareSessionInGroupTooltip")}
+              tooltip={t("channels.shareSessionInGroupTooltip")}
             >
               <Switch />
             </Form.Item>
@@ -1211,9 +1219,9 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item
               name="share_session_in_group"
-              label={t("channels.onebotShareSessionInGroup")}
+              label={t("channels.shareSessionInGroup")}
               valuePropName="checked"
-              tooltip={t("channels.onebotShareSessionInGroupTooltip")}
+              tooltip={t("channels.shareSessionInGroupTooltip")}
             >
               <Switch />
             </Form.Item>

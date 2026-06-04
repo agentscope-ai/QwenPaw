@@ -118,6 +118,8 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._providers: Dict[str, ProviderRegistration] = {}
         self._startup_hooks: List[HookRegistration] = []
         self._shutdown_hooks: List[HookRegistration] = []
+        self._uninstall_hooks: List[HookRegistration] = []
+        self._workspace_created_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
@@ -396,6 +398,90 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._shutdown_hooks.copy()
 
+    def register_uninstall_hook(
+        self,
+        plugin_id: str,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+    ):
+        """Register an uninstall hook.
+
+        Unlike shutdown hooks (which run on every app shutdown),
+        uninstall hooks run only when a plugin is explicitly unloaded
+        or removed.  Use these for cleanup that should happen once on
+        uninstall — e.g. removing workspace skills, clearing manifest
+        entries, or undoing monkey-patches.
+
+        Args:
+            plugin_id: Plugin identifier
+            hook_name: Hook name
+            callback: Callback function (sync or async).
+                Receives keyword arguments:
+                ``plugin_id``, ``delete_files`` (bool).
+            priority: Priority (lower = earlier execution)
+        """
+        hook = HookRegistration(
+            plugin_id=plugin_id,
+            hook_name=hook_name,
+            callback=callback,
+            priority=priority,
+        )
+        self._uninstall_hooks.append(hook)
+        self._uninstall_hooks.sort(key=lambda h: h.priority)
+        logger.info(
+            f"Registered uninstall hook '{hook_name}' from plugin "
+            f"'{plugin_id}' (priority={priority})",
+        )
+
+    def get_uninstall_hooks(self) -> List[HookRegistration]:
+        """Get all uninstall hooks sorted by priority.
+
+        Returns:
+            List of HookRegistration
+        """
+        return self._uninstall_hooks.copy()
+
+    def register_workspace_created_hook(
+        self,
+        plugin_id: str,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+    ):
+        """Register a hook that fires when a new workspace is created.
+
+        The callback receives a single ``workspace_info`` dict with at
+        least ``agent_id`` and ``workspace_dir`` keys.
+
+        Args:
+            plugin_id: Plugin identifier
+            hook_name: Hook name
+            callback: Sync or async callback function.
+                Signature: ``(workspace_info: dict) -> None``
+            priority: Priority (lower = earlier execution)
+        """
+        hook = HookRegistration(
+            plugin_id=plugin_id,
+            hook_name=hook_name,
+            callback=callback,
+            priority=priority,
+        )
+        self._workspace_created_hooks.append(hook)
+        self._workspace_created_hooks.sort(key=lambda h: h.priority)
+        logger.info(
+            f"Registered workspace_created hook '{hook_name}' from plugin "
+            f"'{plugin_id}' (priority={priority})",
+        )
+
+    def get_workspace_created_hooks(self) -> List[HookRegistration]:
+        """Get all workspace-created hooks sorted by priority.
+
+        Returns:
+            List of HookRegistration
+        """
+        return self._workspace_created_hooks.copy()
+
     def register_control_command(
         self,
         plugin_id: str,
@@ -494,6 +580,14 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         ]
         self._shutdown_hooks = [
             h for h in self._shutdown_hooks if h.plugin_id != plugin_id
+        ]
+        self._uninstall_hooks = [
+            h for h in self._uninstall_hooks if h.plugin_id != plugin_id
+        ]
+        self._workspace_created_hooks = [
+            h
+            for h in self._workspace_created_hooks
+            if h.plugin_id != plugin_id
         ]
         self._control_commands = [
             c for c in self._control_commands if c.plugin_id != plugin_id

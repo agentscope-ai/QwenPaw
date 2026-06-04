@@ -409,7 +409,13 @@ class BaseChannel(ABC):
             deny_msg = self._acl_msg("blocked")
         else:
             first_message = self._extract_query_from_payload(payload)
-            store.add_pending(channel_key, sender_id, first_message)
+            username = meta.get("user_name") or ""
+            store.add_pending(
+                channel_key,
+                sender_id,
+                first_message,
+                username=username,
+            )
             deny_msg = self._acl_msg("pending", sender_id=sender_id)
 
         # ── Send deny message back via the channel's own send() ─────────
