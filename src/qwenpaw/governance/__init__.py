@@ -18,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import os
 from enum import Enum
 from typing import Any
 
@@ -86,12 +87,19 @@ class ResourceGovernor:
         Phase 1: 固定配置 — 只允许读写 workspace_dir + /tmp。
         Phase 2: 根据 policy allow 规则动态编译路径白名单。
         """
+        home = os.path.expanduser("~")
         return SandboxConfig(
             mode=detect_platform_mode(),
             workspace_dir=self._workspace_dir,
             mounts=[
-                MountSpec(path=self._workspace_dir, writable=True),
-                MountSpec(path="/tmp", writable=True),
+                MountSpec(path=self._workspace_dir, writable=True, executable=True),
+                MountSpec(path="/tmp", writable=True, executable=False),
+            ],
+            allow_read_all=True,
+            deny_paths=[
+                os.path.join(home, ".ssh"),
+                os.path.join(home, ".gnupg"),
+                os.path.join(home, ".aws", "credentials"),
             ],
             network_allow=["*"],  # Phase 1: 暂不限网络
             timeout_seconds=30,

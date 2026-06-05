@@ -29,7 +29,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from .config import ExecutionResult, MountSpec, SandboxConfig, SandboxMode
+from .config import ExecutionResult, MountSpec, PortRule, SandboxConfig, SandboxMode
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,7 @@ class MacOSSandbox(LocalSandbox):
             '  (sysctl-name-prefix "machdep.cpu.")',
             ")",
         ]
-
+    
         # Network
         lines.append("")
         lines.append("; Network")
@@ -136,7 +136,7 @@ class MacOSSandbox(LocalSandbox):
             domains = [d for d in config.network_allow if d != "*"]
             if domains:
                 lines.append(
-                    f"; The following domains are in allowedDomains but not enforced:"
+                    "; The following domains are in allowedDomains but not enforced:"
                 )
                 for d in domains:
                     lines.append(f";   - {d}")
@@ -147,21 +147,30 @@ class MacOSSandbox(LocalSandbox):
             lines.append("(allow network*)")
         else:
             lines.append("(deny network*)")
-
+    
         # File read paths
         lines.append("")
         lines.append("; File read")
-        # Always allow reading everything by default (like Cursor approach)
-        # then deny specific sensitive paths
-        lines.append("(allow file-read*)")
-        # Deny sensitive paths
-        home = os.path.expanduser("~")
-        sensitive = [os.path.join(home, ".ssh")]
-        for p in sensitive:
-            if os.path.exists(p):
+        if config.allow_read_all:
+            # deny-list mode: allow reading everything, then deny specific paths
+            lines.append("(allow file-read*)")
+        else:
+            # allow-list mode: only allow reading declared mounts
+            for mount in config.mounts:
+                lines.append(f"(allow file-read*")
+                lines.append(f'  (subpath "{mount.path}"))')
+    
+        # Deny sensitive paths (read + write)
+        if config.deny_paths:
+            lines.append("")
+            lines.append("; Denied sensitive paths")
+            for p in config.deny_paths:
+                expanded = os.path.expanduser(p)
                 lines.append(f"(deny file-read*")
-                lines.append(f'  (subpath "{p}"))')
-
+                lines.append(f'  (subpath "{expanded}"))')
+                lines.append(f"(deny file-write*")
+                lines.append(f'  (subpath "{expanded}"))')
+    
         # File write paths (whitelist)
         lines.append("")
         lines.append("; File write")
@@ -170,13 +179,48 @@ class MacOSSandbox(LocalSandbox):
         for p in write_always:
             lines.append(f"(allow file-write*")
             lines.append(f'  (subpath "{p}"))')
-
+    
         # Workspace and explicit mounts
         for mount in config.mounts:
             if mount.writable:
                 lines.append(f"(allow file-write*")
                 lines.append(f'  (subpath "{mount.path}"))')
-
+    
+        # Executable control
+        non_exec_mounts = [m for m in config.mounts if not m.executable]
+        if non_exec_mounts:
+            lines.append("")
+            lines.append("; Deny execution in specific paths")
+            for mount in non_exec_mounts:
+                lines.append(f"(deny process-exec*")
+                lines.append(f'  (subpath "{mount.path}"))')
+    
+        # Platform hints: extra seatbelt rules
+        extra_rules = config.platform_hints.get("seatbelt_extra_rules")
+        if extra_rules:
+            lines.append("")
+            lines.append("; Platform hints: extra rules")
+            lines.append(extra_rules)
+    
+        # Log warnings for unsupported features on macOS
+        if config.max_processes is not None:
+            logger.warning(
+                "MacOSSandbox: max_processes=%d is not supported by "
+                "Seatbelt; ignoring.",
+                config.max_processes,
+            )
+        if config.max_memory_mb is not None:
+            logger.warning(
+                "MacOSSandbox: max_memory_mb=%d is not supported by "
+                "Seatbelt; ignoring.",
+                config.max_memory_mb,
+            )
+        if config.network_ports:
+            logger.warning(
+                "MacOSSandbox: network_ports (port-level filtering) is not "
+                "supported by Seatbelt; ignoring.",
+            )
+    
         return "\n".join(lines)
 
     async def execute(self, cmd: str, cwd: Optional[str] = None) -> ExecutionResult:

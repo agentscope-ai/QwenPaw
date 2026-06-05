@@ -22,6 +22,7 @@ Usage:
 from .config import (
     ExecutionResult,
     MountSpec,
+    PortRule,
     SandboxConfig,
     SandboxMode,
     detect_platform_mode,
@@ -39,6 +40,7 @@ __all__ = [
     "MacOSSandbox",
     "MountSpec",
     "NoneSandbox",
+    "PortRule",
     "SandboxConfig",
     "SandboxMode",
     "create_sandbox",
