@@ -40,6 +40,7 @@ from ...agents.utils.file_handling import (
 )
 from ...config.config import load_agent_config
 from ...constant import WORKING_DIR
+from ..rollback.service import SnapshotService
 
 if TYPE_CHECKING:
     from ...agents.memory import BaseMemoryManager
@@ -107,6 +108,8 @@ async def _stream_printing_messages_interruptible(
 
 
 class AgentRunner(Runner):
+    _workspace_run_locks: dict[str, asyncio.Lock] = {}
+
     def __init__(
         self,
         agent_id: str = "default",
@@ -165,6 +168,61 @@ class AgentRunner(Runner):
             workspace: Workspace instance
         """
         self._workspace = workspace
+
+    def _get_workspace_run_lock(self) -> asyncio.Lock:
+        """Return the per-workspace execution lock."""
+        workspace_key = str(
+            (self.workspace_dir if self.workspace_dir else WORKING_DIR)
+            .expanduser()
+            .resolve(),
+        )
+        lock = self._workspace_run_locks.get(workspace_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._workspace_run_locks[workspace_key] = lock
+        return lock
+
+    async def _capture_before_hash(
+        self,
+        snapshot_svc: SnapshotService,
+    ) -> str | None:
+        """Best-effort pre-run snapshot capture."""
+        try:
+            return await snapshot_svc.track()
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "Rollback: failed to capture pre-run snapshot",
+                exc_info=True,
+            )
+            return None
+
+    async def _record_rollback_if_changed(
+        self,
+        snapshot_svc: SnapshotService,
+        session_id: str,
+        before_hash: str | None,
+    ) -> None:
+        """Persist rollback history without masking agent failures."""
+        if not before_hash:
+            return
+
+        try:
+            entry = await snapshot_svc.record_history_if_changed(
+                session_id=session_id,
+                before_hash=before_hash,
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "Rollback: failed to persist workspace history",
+                exc_info=True,
+            )
+            return
+
+        if entry is not None:
+            logger.info(
+                "Rollback: Saved workspace state (changed %s files)",
+                len(entry.files),
+            )
 
     @staticmethod
     def _parse_skill_query(
@@ -409,6 +467,10 @@ class AgentRunner(Runner):
         agent = None
         chat = None
         session_state_loaded = False
+        before_hash: str | None = None
+        snapshot_svc = SnapshotService(
+            self.workspace_dir if self.workspace_dir else WORKING_DIR,
+        )
         _cron_memory_snapshot = None
         try:
             session_id = request.session_id
@@ -873,44 +935,55 @@ class AgentRunner(Runner):
             # in the session state.
             agent.rebuild_sys_prompt()
 
-            # --- Execution: Mission Mode (phased) or standard -----
-            if mission_info is not None:
-                from ...agents.mission.mission_runner import (
-                    run_mission_phase1,
-                    run_mission_phase2,
-                )
+            async with self._get_workspace_run_lock():
+                before_hash = await self._capture_before_hash(snapshot_svc)
+                try:
+                    # --- Execution: Mission Mode (phased) or standard -----
+                    if mission_info is not None:
+                        from ...agents.mission.mission_runner import (
+                            run_mission_phase1,
+                            run_mission_phase2,
+                        )
 
-                phase = mission_info["mission_phase"]
-                loop_dir = Path(mission_info["loop_dir"])
-                max_iters = mission_info.get(
-                    "max_iterations",
-                    20,
-                )
+                        phase = mission_info["mission_phase"]
+                        loop_dir = Path(mission_info["loop_dir"])
+                        max_iters = mission_info.get(
+                            "max_iterations",
+                            20,
+                        )
 
-                if phase == 1:
-                    async for msg, last in run_mission_phase1(
-                        agent=agent,
-                        msgs=msgs,
-                        loop_dir=loop_dir,
-                        max_iterations=max_iters,
-                        agent_id=self.agent_id,
-                    ):
-                        yield msg, last
-                else:
-                    async for msg, last in run_mission_phase2(
-                        agent=agent,
-                        msgs=msgs,
-                        loop_dir=loop_dir,
-                        max_iterations=max_iters,
-                        agent_id=self.agent_id,
-                    ):
-                        yield msg, last
-            else:
-                async for msg, last in _stream_printing_messages_interruptible(
-                    agents=[agent],
-                    coroutine_task=agent(msgs),
-                ):
-                    yield msg, last
+                        if phase == 1:
+                            async for msg, last in run_mission_phase1(
+                                agent=agent,
+                                msgs=msgs,
+                                loop_dir=loop_dir,
+                                max_iterations=max_iters,
+                                agent_id=self.agent_id,
+                            ):
+                                yield msg, last
+                        else:
+                            async for msg, last in run_mission_phase2(
+                                agent=agent,
+                                msgs=msgs,
+                                loop_dir=loop_dir,
+                                max_iterations=max_iters,
+                                agent_id=self.agent_id,
+                            ):
+                                yield msg, last
+                    else:
+                        async for msg, last in (
+                            _stream_printing_messages_interruptible(
+                                agents=[agent],
+                                coroutine_task=agent(msgs),
+                            )
+                        ):
+                            yield msg, last
+                finally:
+                    await self._record_rollback_if_changed(
+                        snapshot_svc=snapshot_svc,
+                        session_id=session_id,
+                        before_hash=before_hash,
+                    )
 
         except asyncio.CancelledError as exc:
             logger.info(f"query_handler: {session_id} cancelled!")

@@ -1286,6 +1286,16 @@ export default function ChatPage() {
         value: "skills",
         description: t("chat.commands.skills.description"),
       },
+      {
+        command: "/undo",
+        value: "undo",
+        description: t("chat.commands.undo.description"),
+      },
+      {
+        command: "/redo",
+        value: "redo",
+        description: t("chat.commands.redo.description"),
+      },
     ];
     if (planEnabled) {
       commandSuggestions.push({

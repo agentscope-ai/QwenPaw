@@ -28,6 +28,8 @@ from .approval_handler import (
 from .model_handler import ModelCommandHandler
 from .skills_handler import SkillsCommandHandler
 from .stop_handler import StopCommandHandler
+from .undo_handler import UndoCommandHandler
+from .redo_handler import RedoCommandHandler
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,8 @@ def _register_defaults() -> None:
     register_command(StopCommandHandler())
     register_command(ModelCommandHandler())
     register_command(SkillsCommandHandler())
+    register_command(UndoCommandHandler())
+    register_command(RedoCommandHandler())
 
 
 def register_command(handler: BaseControlCommandHandler) -> None:
@@ -250,6 +254,8 @@ __all__ = [
     "ModelCommandHandler",
     "SkillsCommandHandler",
     "StopCommandHandler",
+    "UndoCommandHandler",
+    "RedoCommandHandler",
     "is_control_command",
     "handle_control_command",
     "register_command",
