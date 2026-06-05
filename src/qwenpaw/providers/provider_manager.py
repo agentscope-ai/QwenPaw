@@ -909,6 +909,7 @@ PROVIDER_KIMI_CN = OpenAIProvider(
     api_key_prefix="",
     models=KIMI_MODELS,
     freeze_url=True,
+    support_model_discovery=True,
 )
 
 PROVIDER_KIMI_INTL = OpenAIProvider(
@@ -927,6 +928,7 @@ PROVIDER_DEEPSEEK = OpenAIProvider(
     api_key_prefix="sk-",
     models=DEEPSEEK_MODELS,
     freeze_url=True,
+    support_model_discovery=True,
 )
 
 PROVIDER_ANTHROPIC = AnthropicProvider(
@@ -986,6 +988,7 @@ PROVIDER_SILICONFLOW_CN = OpenAIProvider(
     models=[],
     freeze_url=True,
     require_api_key=True,
+    support_model_discovery=True,
 )
 
 PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
