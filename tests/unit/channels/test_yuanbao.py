@@ -58,7 +58,9 @@ def connected_channel(yuanbao_channel):
     """Channel with mocked connected state."""
     yuanbao_channel._connected = True
     yuanbao_channel._bot_id = "test_bot_id"
+    yuanbao_channel._connect_id = "8c41af0b7aec4074a0bbe2478d175516"
     yuanbao_channel._ws = MagicMock()
+    yuanbao_channel._ws.closed = False
     yuanbao_channel._ws.send_bytes = AsyncMock()
     yuanbao_channel._ws.close = AsyncMock()
     yuanbao_channel._session = MagicMock()
@@ -120,6 +122,7 @@ class TestYuanbaoChannelInit:
         assert yuanbao_channel._connected is False
         assert yuanbao_channel._reconnect_attempts == 0
         assert yuanbao_channel._bot_id == ""
+        assert yuanbao_channel._connect_id == ""
         assert isinstance(yuanbao_channel._session_map, dict)
         assert yuanbao_channel._token_manager is None
 
@@ -1048,3 +1051,199 @@ class TestCleanup:
         connected_channel._media_session = None
         await connected_channel._cleanup_session()
         assert connected_channel._media_session is None
+
+    async def test_cleanup_resets_connect_id(self, connected_channel):
+        """_cleanup_session should reset _connect_id."""
+        connected_channel._media_session = None
+        assert connected_channel._connect_id != ""
+        await connected_channel._cleanup_session()
+        assert connected_channel._connect_id == ""
+
+
+# =============================================================================
+# P2: Health Check Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestHealthCheck:
+    """P2: health_check tests including connectId reporting."""
+
+    async def test_health_check_healthy_includes_connect_id(
+        self,
+        connected_channel,
+    ):
+        """Healthy status should include connectId."""
+        result = await connected_channel.health_check()
+        assert result["status"] == "healthy"
+        assert "8c41af0b7aec4074a0bbe2478d175516" in result["detail"]
+        assert "connectId=" in result["detail"]
+
+    async def test_health_check_unhealthy_no_connect_id(
+        self,
+        yuanbao_channel,
+    ):
+        """Unhealthy status should not reference connectId."""
+        result = await yuanbao_channel.health_check()
+        assert result["status"] == "unhealthy"
+        assert "connectId=" not in result["detail"]
+
+    async def test_health_check_disabled(self, yuanbao_channel):
+        """Disabled channel should return disabled status."""
+        yuanbao_channel.enabled = False
+        result = await yuanbao_channel.health_check()
+        assert result["status"] == "disabled"
+
+
+# =============================================================================
+# P2: Auth Response connectId Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestAuthResponseConnectId:
+    """P2: Tests for _connect_id storage during auth handshake."""
+
+    async def test_wait_for_auth_response_stores_connect_id(
+        self,
+        connected_channel,
+    ):
+        """_wait_for_auth_response should store connectId on success."""
+        from qwenpaw.app.channels.yuanbao.codec import (
+            encode_conn_msg,
+            encode_pb,
+        )
+
+        auth_rsp_data = encode_pb(
+            "trpc.yuanbao.conn_common.AuthBindRsp",
+            {"code": 0, "message": "ok"},
+        )
+        conn_raw = encode_conn_msg(
+            {
+                "cmdType": 1,
+                "cmd": "auth-bind",
+                "seqNo": 1,
+                "msgId": "test",
+                "module": "conn_access",
+                "status": 0,
+            },
+            auth_rsp_data,
+        )
+
+        ws_msg = MagicMock()
+        ws_msg.type = 2  # WSMsgType.BINARY
+        ws_msg.data = conn_raw
+
+        connected_channel._ws.receive = AsyncMock(return_value=ws_msg)
+        connected_channel._connect_id = ""
+
+        with patch(
+            "qwenpaw.app.channels.yuanbao.channel.decode_auth_bind_rsp",
+        ) as mock_decode:
+            mock_decode.return_value = {
+                "code": 0,
+                "message": "ok",
+                "connectId": "abc123def456",
+            }
+            result = await connected_channel._wait_for_auth_response()
+
+        assert result is True
+        assert connected_channel._connect_id == "abc123def456"
+
+    async def test_wait_for_auth_response_no_connect_id(
+        self,
+        connected_channel,
+    ):
+        """Auth success without connectId should leave _connect_id empty."""
+        from qwenpaw.app.channels.yuanbao.codec import (
+            encode_conn_msg,
+            encode_pb,
+        )
+
+        auth_rsp_data = encode_pb(
+            "trpc.yuanbao.conn_common.AuthBindRsp",
+            {"code": 0, "message": "ok"},
+        )
+        conn_raw = encode_conn_msg(
+            {
+                "cmdType": 1,
+                "cmd": "auth-bind",
+                "seqNo": 1,
+                "msgId": "test",
+                "module": "conn_access",
+                "status": 0,
+            },
+            auth_rsp_data,
+        )
+
+        ws_msg = MagicMock()
+        ws_msg.type = 2
+        ws_msg.data = conn_raw
+
+        connected_channel._ws.receive = AsyncMock(return_value=ws_msg)
+        connected_channel._connect_id = ""
+
+        with patch(
+            "qwenpaw.app.channels.yuanbao.channel.decode_auth_bind_rsp",
+        ) as mock_decode:
+            mock_decode.return_value = {
+                "code": 0,
+                "message": "ok",
+            }
+            result = await connected_channel._wait_for_auth_response()
+
+        assert result is True
+        assert connected_channel._connect_id == ""
+
+    async def test_handle_response_auth_bind_updates_connect_id(
+        self,
+        connected_channel,
+    ):
+        """_handle_response for auth-bind should update _connect_id."""
+        connected_channel._connect_id = ""
+        head = {
+            "cmdType": 1,
+            "cmd": "auth-bind",
+            "seqNo": 1,
+            "msgId": "test",
+            "module": "conn_access",
+            "status": 0,
+        }
+
+        with patch(
+            "qwenpaw.app.channels.yuanbao.channel.decode_auth_bind_rsp",
+        ) as mock_decode:
+            mock_decode.return_value = {
+                "code": 0,
+                "message": "ok",
+                "connectId": "new_conn_id_999",
+            }
+            await connected_channel._handle_response(head, b"\x00")
+
+        assert connected_channel._connect_id == "new_conn_id_999"
+
+    async def test_handle_response_auth_bind_preserves_existing(
+        self,
+        connected_channel,
+    ):
+        """If rsp has no connectId, existing _connect_id should be kept."""
+        connected_channel._connect_id = "existing_id"
+        head = {
+            "cmdType": 1,
+            "cmd": "auth-bind",
+            "seqNo": 1,
+            "msgId": "test",
+            "module": "conn_access",
+            "status": 0,
+        }
+
+        with patch(
+            "qwenpaw.app.channels.yuanbao.channel.decode_auth_bind_rsp",
+        ) as mock_decode:
+            mock_decode.return_value = {
+                "code": 0,
+                "message": "ok",
+            }
+            await connected_channel._handle_response(head, b"\x00")
+
+        assert connected_channel._connect_id == "existing_id"

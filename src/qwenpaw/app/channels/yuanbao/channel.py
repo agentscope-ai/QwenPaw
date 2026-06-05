@@ -162,8 +162,9 @@ class YuanbaoChannel(BaseChannel):
         self._reconnect_attempts = 0
         self._stopping = False
 
-        # Bot identity (resolved during sign-token)
+        # Connection identity (resolved during AuthBind)
         self._bot_id: str = ""
+        self._connect_id: str = ""
 
         # Session tracking for reply routing (short_id → raw ids)
         self._session_map: Dict[str, Dict[str, Any]] = {}
@@ -323,7 +324,10 @@ class YuanbaoChannel(BaseChannel):
         return {
             "channel": self.channel,
             "status": "healthy",
-            "detail": f"Connected as bot={self._bot_id}",
+            "detail": (
+                f"Connected as bot={self._bot_id}"
+                f" connectId={self._connect_id}"
+            ),
         }
 
     async def start(self) -> None:
@@ -401,8 +405,6 @@ class YuanbaoChannel(BaseChannel):
         self._heartbeat_ack_received = True
         self._heartbeat_timeout_count = 0
 
-        logger.info("yuanbao: authenticated as bot=%s ✅", self._bot_id)
-
         # Start heartbeat and receive loops
         self._heartbeat_task = asyncio.create_task(
             self._heartbeat_loop(),
@@ -459,10 +461,11 @@ class YuanbaoChannel(BaseChannel):
 
         code = rsp.get("code", status_code)
         if code in (0, AUTH_ALREADY_CODE):
-            connect_id = rsp.get("connectId", "")
+            self._connect_id = rsp.get("connectId", "")
             logger.info(
-                "yuanbao: auth success connectId=%s",
-                connect_id,
+                "yuanbao: auth success bot=%s connectId=%s",
+                self._bot_id,
+                self._connect_id,
             )
             return True
 
@@ -617,6 +620,8 @@ class YuanbaoChannel(BaseChannel):
 
         if cmd == CMD_AUTH_BIND:
             rsp = decode_auth_bind_rsp(data)
+            if rsp:
+                self._connect_id = rsp.get("connectId", "") or self._connect_id
             status = head.get("status", 0)
             if status != 0 and status in AUTH_FAILED_CODES:
                 logger.warning(
@@ -1430,6 +1435,8 @@ class YuanbaoChannel(BaseChannel):
         self._reconnect_task = asyncio.create_task(_reconnect())
 
     async def _cleanup_session(self) -> None:
+        self._connect_id = ""
+
         if self._ws:
             try:
                 await self._ws.close()
