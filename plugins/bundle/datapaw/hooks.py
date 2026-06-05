@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=protected-access
+# pylint: disable=protected-access,relative-beyond-top-level
 # Monkey-patches by definition reach into host internals
 # (``notebook._sse_event_queue`` / ``channel._datapaw_*`` /
 # ``_patched_query_handler._datapaw_patched`` / ...). The entire module

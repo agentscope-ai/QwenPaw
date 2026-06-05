@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=relative-beyond-top-level
 """DataPaw plugin entry."""
 from __future__ import annotations
 
@@ -79,8 +80,10 @@ class DataPawPlugin:
         from .core.i18n import tr
         from .core.path_context import default_artifacts_root
 
+        agent_config = getattr(agent, "_agent_config", None)
+        agent_id = agent_config.id if agent_config else "datapaw"
         workspace_dir = getattr(agent, "_workspace_dir", None)
-        artifacts_root = default_artifacts_root(workspace_dir)
+        artifacts_root = default_artifacts_root(agent_id, workspace_dir)
         lang = getattr(agent, "_lang", "zh")
         return tr("env.hint", lang, root=artifacts_root)
 

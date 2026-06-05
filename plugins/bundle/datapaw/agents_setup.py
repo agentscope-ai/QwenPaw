@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=relative-beyond-top-level
 """Agent profile / workspace setup for the DataPaw plugin.
 
 On plugin startup, ensure a stable ``agent_id="datapaw"`` profile exists in
