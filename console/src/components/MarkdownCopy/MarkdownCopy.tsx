@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Button, Switch, Input } from "@agentscope-ai/design";
 import { CopyOutlined } from "@ant-design/icons";
 import { XMarkdown } from "@ant-design/x-markdown";
+import Latex from "@ant-design/x-markdown/plugins/Latex";
 import { useTranslation } from "react-i18next";
 import type { CSSProperties } from "react";
 import { useAppMessage } from "../../hooks/useAppMessage";
@@ -180,9 +181,19 @@ export function MarkdownCopy({
             content={markdownContent}
             {...defaultMarkdownViewerProps}
             components={mermaidComponents}
+            config={{ extensions: Latex() }}
             dompurifyConfig={{
-              ADD_TAGS: ["pre", "code"],
-              ADD_ATTR: ["data-block", "data-state", "data-lang", "class"],
+              ADD_TAGS: ["pre", "code", "math", "annotation", "semantics"],
+              ADD_ATTR: [
+                "data-block",
+                "data-state",
+                "data-lang",
+                "class",
+                "style",
+                "aria-hidden",
+                "xmlns",
+                "encoding",
+              ],
             }}
           />
         </div>

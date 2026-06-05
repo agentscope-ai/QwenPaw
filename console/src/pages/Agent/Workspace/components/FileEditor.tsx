@@ -3,6 +3,7 @@ import { Button, Card, Input, Switch } from "@agentscope-ai/design";
 import { CopyOutlined, UndoOutlined, SaveOutlined } from "@ant-design/icons";
 import type { MarkdownFile } from "../../../../api/types";
 import { XMarkdown } from "@ant-design/x-markdown";
+import Latex from "@ant-design/x-markdown/plugins/Latex";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { stripFrontmatter } from "../../../../utils/markdown";
@@ -123,13 +124,24 @@ export const FileEditor: React.FC<FileEditorProps> = ({
                   content={markdownContent}
                   className={styles.markdownViewer}
                   components={mermaidComponents}
+                  config={{ extensions: Latex() }}
                   dompurifyConfig={{
-                    ADD_TAGS: ["pre", "code"],
+                    ADD_TAGS: [
+                      "pre",
+                      "code",
+                      "math",
+                      "annotation",
+                      "semantics",
+                    ],
                     ADD_ATTR: [
                       "data-block",
                       "data-state",
                       "data-lang",
                       "class",
+                      "style",
+                      "aria-hidden",
+                      "xmlns",
+                      "encoding",
                     ],
                   }}
                 />
