@@ -1392,6 +1392,61 @@ class YuanbaoChannel(BaseChannel):
             logger.error("yuanbao: failed to send media: %s", exc)
 
     # ------------------------------------------------------------------
+    # Streaming support
+    # ------------------------------------------------------------------
+
+    async def on_streaming_end(
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Send accumulated text via WebSocket when streaming ends."""
+        if stream_type != "message":
+            return
+        if not accumulated_text or not accumulated_text.strip():
+            return
+        await self.send(to_handle, accumulated_text, send_meta)
+
+    async def _on_stream_msg_end(
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        msg_id_to_stream_type: Dict[str, str],
+        streaming_buffers: Dict[str, str],
+    ) -> bool:
+        """Override: return False when buffer is empty so non-streaming
+        send() runs."""
+        stream_type = self._resolve_stream_type(event)
+        msg_id = getattr(event, "id", None)
+        if msg_id:
+            msg_id_to_stream_type.pop(msg_id, None)
+        if stream_type not in self._STREAMABLE_TYPES:
+            return False
+        if stream_type not in streaming_buffers:
+            return False
+        if stream_type == "reasoning" and self._filter_thinking:
+            streaming_buffers.pop(stream_type, None)
+            return True
+        accumulated = streaming_buffers.pop(stream_type, "")
+        if not accumulated.strip():
+            return False
+        await self.on_streaming_end(
+            request,
+            to_handle,
+            event,
+            send_meta,
+            stream_type,
+            accumulated_text=accumulated,
+        )
+        return True
+
+    # ------------------------------------------------------------------
     # Reconnect / cleanup / stop
     # ------------------------------------------------------------------
 

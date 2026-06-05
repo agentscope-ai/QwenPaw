@@ -1048,3 +1048,149 @@ class TestCleanup:
         connected_channel._media_session = None
         await connected_channel._cleanup_session()
         assert connected_channel._media_session is None
+
+
+# =============================================================================
+# P0: Streaming Support Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestStreamingSupport:
+    """P0: on_streaming_end and _on_stream_msg_end override tests."""
+
+    async def test_on_streaming_end_sends_message_text(
+        self,
+        connected_channel,
+    ):
+        """on_streaming_end should send accumulated text via send()."""
+        connected_channel._session_map["sess"] = {
+            "chat_type": "c2c",
+            "sender_id": "user_1",
+        }
+        with patch.object(
+            connected_channel,
+            "send",
+            new_callable=AsyncMock,
+        ) as mock_send:
+            await connected_channel.on_streaming_end(
+                request=MagicMock(),
+                to_handle="sess",
+                event=MagicMock(),
+                send_meta={"session_id": "sess"},
+                stream_type="message",
+                accumulated_text="Hello from streaming!",
+            )
+        mock_send.assert_called_once_with(
+            "sess",
+            "Hello from streaming!",
+            {"session_id": "sess"},
+        )
+
+    async def test_on_streaming_end_skips_non_message_type(
+        self,
+        connected_channel,
+    ):
+        """on_streaming_end should ignore reasoning type."""
+        with patch.object(
+            connected_channel,
+            "send",
+            new_callable=AsyncMock,
+        ) as mock_send:
+            await connected_channel.on_streaming_end(
+                request=MagicMock(),
+                to_handle="sess",
+                event=MagicMock(),
+                send_meta={},
+                stream_type="reasoning",
+                accumulated_text="thinking...",
+            )
+        mock_send.assert_not_called()
+
+    async def test_on_streaming_end_skips_empty_text(self, connected_channel):
+        """on_streaming_end should skip empty accumulated text."""
+        with patch.object(
+            connected_channel,
+            "send",
+            new_callable=AsyncMock,
+        ) as mock_send:
+            await connected_channel.on_streaming_end(
+                request=MagicMock(),
+                to_handle="sess",
+                event=MagicMock(),
+                send_meta={},
+                stream_type="message",
+                accumulated_text="",
+            )
+        mock_send.assert_not_called()
+
+    async def test_on_stream_msg_end_returns_true_with_text(
+        self,
+        connected_channel,
+    ):
+        """_on_stream_msg_end should return True when buffer has text."""
+        event = MagicMock()
+        event.type = MagicMock(value="message")
+        event.id = "msg_1"
+
+        streaming_buffers = {"message": "Hello world"}
+        msg_id_to_stream_type = {"msg_1": "message"}
+
+        with patch.object(
+            connected_channel,
+            "on_streaming_end",
+            new_callable=AsyncMock,
+        ):
+            result = await connected_channel._on_stream_msg_end(
+                request=MagicMock(),
+                to_handle="sess",
+                event=event,
+                send_meta={},
+                msg_id_to_stream_type=msg_id_to_stream_type,
+                streaming_buffers=streaming_buffers,
+            )
+        assert result is True
+        assert "message" not in streaming_buffers
+
+    async def test_on_stream_msg_end_returns_false_empty_buffer(
+        self,
+        connected_channel,
+    ):
+        """_on_stream_msg_end should return False when buffer is empty,
+        allowing non-streaming send() fallback."""
+        event = MagicMock()
+        event.type = MagicMock(value="message")
+        event.id = "msg_2"
+
+        streaming_buffers = {"message": ""}
+        msg_id_to_stream_type = {"msg_2": "message"}
+
+        result = await connected_channel._on_stream_msg_end(
+            request=MagicMock(),
+            to_handle="sess",
+            event=event,
+            send_meta={},
+            msg_id_to_stream_type=msg_id_to_stream_type,
+            streaming_buffers=streaming_buffers,
+        )
+        assert result is False
+
+    async def test_on_stream_msg_end_returns_false_no_buffer(
+        self,
+        connected_channel,
+    ):
+        """_on_stream_msg_end returns False when stream_type
+        not in buffer."""
+        event = MagicMock()
+        event.type = MagicMock(value="message")
+        event.id = "msg_3"
+
+        result = await connected_channel._on_stream_msg_end(
+            request=MagicMock(),
+            to_handle="sess",
+            event=event,
+            send_meta={},
+            msg_id_to_stream_type={},
+            streaming_buffers={},
+        )
+        assert result is False
