@@ -77,14 +77,17 @@ class DataPawPlugin:
 
     @staticmethod
     def _provide_env_hint(agent) -> str:
+        from pathlib import Path
+
         from .core.i18n import tr
         from .core.path_context import default_artifacts_root
 
         agent_config = getattr(agent, "_agent_config", None)
-        agent_id = agent_config.id if agent_config else "datapaw"
-        workspace_dir = getattr(agent, "_workspace_dir", None)
+        agent_id: str = agent_config.id if agent_config else "datapaw"
+        ws = getattr(agent, "_workspace_dir", None)
+        workspace_dir: Path | None = Path(ws) if ws is not None else None
         artifacts_root = default_artifacts_root(agent_id, workspace_dir)
-        lang = getattr(agent, "_lang", "zh")
+        lang: str = getattr(agent, "_lang", "zh")
         return tr("env.hint", lang, root=artifacts_root)
 
     def _on_uninstall(self, **_kwargs):
