@@ -178,3 +178,37 @@ export async function fetchPluginStatus(
 
   return response.json();
 }
+
+/**
+ * Export (download) a plugin as a ZIP archive.
+ */
+export async function exportPlugin(pluginId: string): Promise<void> {
+  const response = await fetch(getApiUrl(`/plugins/${pluginId}/export`), {
+    headers: buildAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Export failed (${response.status})`);
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+
+  const disposition = response.headers.get("content-disposition");
+  let downloadName = `${pluginId}.zip`;
+  if (disposition) {
+    const match = disposition.match(/filename="([^"]+)"/);
+    if (match?.[1]) {
+      downloadName = match[1];
+    }
+  }
+  a.download = downloadName;
+
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

@@ -2308,7 +2308,10 @@
     "kindBundle": "Bundle",
     "kindTool": "Tool",
     "filterByName": "Filter by name",
-    "filterByKind": "Filter by kind"
+    "filterByKind": "Filter by kind",
+    "export": "Export",
+    "exportFailed": "Failed to export plugin",
+    "exportSuccess": "Export successful"
   },
   "codingMode": {
     "title": "Coding Mode",
