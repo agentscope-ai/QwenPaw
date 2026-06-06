@@ -1,0 +1,15 @@
+.chatContainer {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--ant-color-bg-container, #fff);
+  border-radius: 8px;
+}
+
+// ── Dark mode overrides ──
+:global(.dark-mode) {
+  .chatContainer {
+    background: var(--ant-color-bg-container, #141414);
+  }
+}

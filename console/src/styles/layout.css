@@ -873,7 +873,13 @@ html.dark-mode .qwenpaw-bubble-list-wrapper {
 }
 
 /* Chat welcome message in dark mode */
-html.dark-mode .qwenpaw-chat-anywhere-welcome-default {
+html.dark-mode .qwenpaw-chat-anywhere-welcome-default,
+html.dark-mode .qwenpaw-chat-anywhere-message-list-welcome {
+  background: #141414 !important;
+}
+
+/* Chat input area background in dark mode (must be after the light-mode rule to win) */
+html.dark-mode .qwenpaw-chat-anywhere-input {
   background: #141414 !important;
 }
 

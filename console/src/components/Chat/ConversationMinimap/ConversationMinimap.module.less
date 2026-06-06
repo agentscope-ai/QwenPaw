@@ -1,0 +1,107 @@
+.minimap {
+  position: absolute;
+  right: 10px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.track {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  max-height: 80%;
+  overflow-y: auto;
+  overflow-x: visible;
+  pointer-events: auto;
+  padding: 8px 4px;
+  padding-right: 0;
+
+  &::-webkit-scrollbar {
+    width: 0;
+  }
+
+  &:hover {
+    background: var(--ant-color-bg-elevated, #fff);
+    box-shadow: -4px 0 16px rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    padding: 10px 12px;
+    padding-right: 0;
+
+    .label {
+      max-width: 220px;
+      opacity: 1;
+    }
+  }
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.itemActive {
+  .tick {
+    background: var(--ant-color-primary, #1677ff);
+  }
+
+  .label {
+    color: var(--ant-color-primary, #1677ff);
+    font-weight: 500;
+  }
+}
+
+.label {
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ant-color-text-secondary, #666);
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  transition:
+    max-width 0.25s,
+    opacity 0.2s;
+}
+
+.tick {
+  flex-shrink: 0;
+  width: 16px;
+  height: 3px;
+  border-radius: 1.5px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+// Dark mode
+.dark {
+  .track:hover {
+    background: var(--ant-color-bg-elevated, #1f1f1f);
+    box-shadow: -4px 0 16px rgba(0, 0, 0, 0.4);
+  }
+
+  .track:hover .item:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .tick {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .itemActive {
+    .tick {
+      background: var(--ant-color-primary, #4096ff);
+    }
+  }
+}

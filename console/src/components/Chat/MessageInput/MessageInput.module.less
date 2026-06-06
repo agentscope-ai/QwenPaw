@@ -1,0 +1,107 @@
+.inputContainer {
+  position: relative;
+  padding: 12px 24px 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.inputWrapper {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.prefixArea {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.senderArea {
+  flex: 1;
+  min-width: 0;
+}
+
+.suffixArea {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+// Command suggestions panel
+.suggestionsPanel {
+  position: absolute;
+  bottom: 100%;
+  left: 24px;
+  right: 24px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--ant-color-bg-elevated, #fff);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  padding: 4px;
+  margin-bottom: 8px;
+  z-index: 10;
+}
+
+.suggestionItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.04);
+  }
+
+  &:focus {
+    background: rgba(0, 0, 0, 0.04);
+    outline: none;
+  }
+}
+
+.suggestionItemActive {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.suggestionCommand {
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ant-color-primary, #1677ff);
+  white-space: nowrap;
+}
+
+.suggestionDescription {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary, #666);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// ── Dark mode overrides ──
+:global(.dark-mode) {
+  .inputContainer {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .suggestionsPanel {
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+
+  .suggestionItem {
+    &:hover,
+    &:focus {
+      background: rgba(255, 255, 255, 0.06);
+    }
+  }
+
+  .suggestionItemActive {
+    background: rgba(255, 255, 255, 0.1);
+  }
+}

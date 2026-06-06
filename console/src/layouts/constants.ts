@@ -42,6 +42,7 @@ export const KEY_TO_PATH: Record<string, string> = {
   debug: "/debug",
   backups: "/backups",
   "plugin-manager": "/plugin-manager",
+  "chat-v2": "/chat-v2",
 };
 
 export const KEY_TO_LABEL: Record<string, string> = {

@@ -1,0 +1,193 @@
+.shellCard {
+  margin: 2px 0;
+  overflow: hidden;
+
+  &.loading {
+    .label {
+      color: var(--ant-color-primary, #1677ff);
+    }
+  }
+
+  &.error {
+    .label {
+      color: #ff4d4f;
+    }
+  }
+
+  &[open] > .summary::before {
+    transform: rotate(90deg);
+  }
+
+  // When open and has icon: keep icon visible
+  &[open] > .summary .icon {
+    display: inline-flex;
+  }
+
+  // When closed and has icon: hide arrow
+  &:not([open]) > .summary.hasIcon::before {
+    display: none;
+  }
+}
+
+// Single-line summary
+.summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+
+  &::before {
+    display: none;
+  }
+
+  &::-webkit-details-marker {
+    display: none;
+  }
+}
+
+.hasIcon {
+  // marker class
+}
+
+.icon {
+  font-size: 13px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.iconDone {
+  color: #8c8c8c;
+}
+
+.iconError {
+  color: #ff4d4f;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 0, 0, 0.1);
+  border-top-color: var(--ant-color-primary, #1677ff);
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: shellSpin 0.8s linear infinite;
+}
+
+@keyframes shellSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.label {
+  color: var(--ant-color-text-secondary, #666);
+  flex-shrink: 0;
+
+  &:hover {
+    color: var(--ant-color-primary, #1677ff);
+    text-decoration: underline;
+  }
+}
+
+.commandPreview {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--ant-color-text, #000);
+  background: rgba(0, 0, 0, 0.04);
+  padding: 1px 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+// Body (expanded)
+.body {
+  margin-left: 18px;
+}
+
+.commandFull {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 4px 0 2px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  color: var(--ant-color-text, #000);
+}
+
+.outputPre {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 4px 0 2px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 4px;
+  overflow-x: auto;
+  max-height: 300px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  color: var(--ant-color-text, #000);
+}
+
+.stderrPre {
+  color: #ff4d4f;
+  background: rgba(255, 77, 79, 0.03);
+}
+
+.loadingHint {
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--ant-color-text-quaternary, #bbb);
+  font-style: italic;
+}
+
+// ── Dark mode overrides ──
+:global(.dark-mode) {
+  .commandPreview {
+    color: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .commandFull {
+    color: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .outputPre {
+    color: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .stderrPre {
+    color: #ff6b6b;
+    background: rgba(255, 77, 79, 0.1);
+  }
+
+  .label {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .iconDone {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .spinner {
+    border-color: rgba(255, 255, 255, 0.15);
+    border-top-color: var(--ant-color-primary, #ff7f16);
+  }
+
+  .summary::before {
+    color: rgba(255, 255, 255, 0.35);
+  }
+}

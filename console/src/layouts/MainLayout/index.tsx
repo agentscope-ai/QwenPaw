@@ -47,6 +47,7 @@ const BackupsPage = lazyImportWithRetry("../../pages/Settings/Backups");
 const PluginManagerPage = lazyImportWithRetry(
   "../../pages/Settings/PluginManager",
 );
+const ChatV2Page = lazyImportWithRetry("../../pages/ChatV2");
 
 const { Content } = Layout;
 
@@ -94,6 +95,7 @@ const pathToKey: Record<string, string> = {
   "/debug": "debug",
   "/backups": "backups",
   "/plugin-manager": "plugin-manager",
+  "/chat-v2": "chat-v2",
 };
 
 export default function MainLayout() {
@@ -168,6 +170,8 @@ export default function MainLayout() {
                     path="/plugin-manager"
                     element={<PluginManagerPage />}
                   />
+                  <Route path="/chat-v2" element={<ChatV2Page />} />
+                  <Route path="/chat-v2/:chatId" element={<ChatV2Page />} />
 
                   {/* Plugin routes — dynamically injected at runtime */}
                   {pluginRoutes.map((route) => (

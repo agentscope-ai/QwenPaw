@@ -68,6 +68,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
     file_path: str,
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
+    description: Optional[str] = None,
 ) -> ToolResponse:
     """Read a file. Relative paths resolve from WORKING_DIR.
 
@@ -81,6 +82,8 @@ async def read_file(  # pylint: disable=too-many-return-statements
             First line to read (1-based, inclusive).
         end_line (`int`, optional):
             Last line to read (1-based, inclusive).
+        description:
+            Description of the file content.
     """
 
     # Convert start_line/end_line to int if they are strings

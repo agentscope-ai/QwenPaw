@@ -220,6 +220,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.chat"),
     },
     {
+      key: "chat-v2",
+      icon: <SparkChatTabFill size={18} />,
+      path: "/chat-v2",
+      label: "Chat V2",
+    },
+    {
       key: "inbox",
       icon: (
         <span style={{ position: "relative", display: "inline-flex" }}>
@@ -587,6 +593,17 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
               >
                 <SparkChatTabFill size={16} />
                 <span>{t("nav.chat")}</span>
+              </button>
+              <button
+                className={`${styles.stickyChatButton}${
+                  selectedKey === "chat-v2"
+                    ? ` ${styles.stickyChatButtonActive}`
+                    : ""
+                }`}
+                onClick={() => navigate("/chat-v2")}
+              >
+                <SparkChatTabFill size={16} />
+                <span>Chat V2</span>
               </button>
             </div>
             <Menu

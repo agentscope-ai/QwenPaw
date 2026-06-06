@@ -500,13 +500,13 @@ def agentscope_msg_to_message(
                 )
                 current_message.add_content(new_content=data_content)
 
-                media_message = _build_media_message_from_block(
-                    block,
-                    role,
-                    metadata,
-                )
-                if media_message:
-                    results.append(media_message)
+                # media_message = _build_media_message_from_block(
+                #     block,
+                #     role,
+                #     metadata,
+                # )
+                # if media_message:
+                #     results.append(media_message)
 
             elif btype == "image":
                 if current_type != MessageType.MESSAGE:
