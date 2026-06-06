@@ -34,6 +34,11 @@ import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { planApi } from "../../api/modules/plan";
+import {
+  chatCommandsApi,
+  AvailableCommand,
+} from "../../api/modules/chatCommands";
+import { CommandCustomizer } from "./components/CommandCustomizer";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -715,6 +720,16 @@ export default function ChatPage() {
     () => chatSkills.filter(isSkillAvailableInConsole),
     [chatSkills],
   );
+  const [chatCommands, setChatCommands] = useState<string[]>([
+    "clear",
+    "compact",
+    "mission",
+    "skills",
+  ]);
+  const [customizerVisible, setCustomizerVisible] = useState(false);
+  const [availableCommands, setAvailableCommands] = useState<
+    AvailableCommand[]
+  >([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -722,6 +737,18 @@ export default function ChatPage() {
       .getPlanConfig()
       .then((cfg) => {
         if (!cancelled) setPlanEnabled(cfg.enabled);
+      })
+      .catch(() => {});
+    chatCommandsApi
+      .get()
+      .then((res) => {
+        if (!cancelled && res.commands?.length) setChatCommands(res.commands);
+      })
+      .catch(() => {});
+    chatCommandsApi
+      .getAvailable()
+      .then((cmds) => {
+        if (!cancelled) setAvailableCommands(cmds);
       })
       .catch(() => {});
     return () => {
@@ -1265,33 +1292,25 @@ export default function ChatPage() {
 
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
-    const commandSuggestions: CommandSuggestion[] = [
-      {
-        command: "/clear",
-        value: "clear",
-        description: t("chat.commands.clear.description"),
-      },
-      {
-        command: "/compact",
-        value: "compact",
-        description: t("chat.commands.compact.description"),
-      },
-      {
-        command: "/mission",
-        value: "mission",
-        description: t("chat.commands.mission.description"),
-      },
-      {
-        command: "/skills",
-        value: "skills",
-        description: t("chat.commands.skills.description"),
-      },
-    ];
+    const cmdMap = new Map(availableCommands.map((c) => [c.command, c]));
+    const commandSuggestions: CommandSuggestion[] = [];
+    for (const name of chatCommands) {
+      const cmd = cmdMap.get(name);
+      if (!cmd) continue;
+      if (cmd.command === "plan") continue;
+      const rawValue = cmd.display.replace(/^\//, "");
+      const value = cmd.has_args ? `${rawValue} ` : rawValue;
+      commandSuggestions.push({
+        command: cmd.display,
+        value,
+        description: t(`chat.commands.${cmd.command}.description`, ""),
+      });
+    }
     if (planEnabled) {
       commandSuggestions.push({
         command: "/plan",
         value: "plan ",
-        description: t("chat.commands.plan.description"),
+        description: t("chat.commands.plan.description", ""),
       });
     }
     const reservedCommands = new Set(
@@ -1342,12 +1361,26 @@ export default function ChatPage() {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: whisperChecked && !whisperEnabled,
-        prefix: whisperEnabled ? (
-          <WhisperSpeechButton
-            ref={whisperSpeechRef}
-            onTranscription={handleWhisperTranscription}
-          />
-        ) : undefined,
+        prefix: (
+          <>
+            {whisperEnabled && (
+              <WhisperSpeechButton
+                ref={whisperSpeechRef}
+                onTranscription={handleWhisperTranscription}
+              />
+            )}
+            <Tooltip
+              title={t("chat.commands.customizeTitle", "Customize Commands")}
+            >
+              <IconButton
+                icon={<SettingOutlined />}
+                bordered={false}
+                onClick={() => setCustomizerVisible(true)}
+              />
+            </Tooltip>
+          </>
+        ),
+
         attachments: {
           multiple: true,
           trigger: function (props: any) {
@@ -1501,6 +1534,8 @@ export default function ChatPage() {
     toolRenderConfig,
     scheduleHistoryClear,
     planEnabled,
+    chatCommands,
+    availableCommands,
     consoleSkills,
     selectedAgent,
     onFileCardClick,
@@ -1631,6 +1666,12 @@ export default function ChatPage() {
           ]}
         />
       </Modal>
+      <CommandCustomizer
+        visible={customizerVisible}
+        onClose={() => setCustomizerVisible(false)}
+        selected={chatCommands}
+        onChange={setChatCommands}
+      />
     </div>
   );
 }

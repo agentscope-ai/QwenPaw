@@ -1787,7 +1787,69 @@
       },
       "plan": {
         "description": "创建结构化计划，将任务分解为多个子任务"
-      }
+      },
+      "category": {
+        "context": "上下文",
+        "history": "历史",
+        "model": "模型",
+        "session": "会话",
+        "control": "控制",
+        "daemon": "守护"
+      },
+      "new": {
+        "description": "创建新对话（保留记忆）"
+      },
+      "history": {
+        "description": "查看对话历史"
+      },
+      "message": {
+        "description": "查看指定序号的消息内容"
+      },
+      "compact_str": {
+        "description": "查看压缩摘要"
+      },
+      "summarize_status": {
+        "description": "查看摘要任务状态"
+      },
+      "dump_history": {
+        "description": "导出对话到 JSONL 文件"
+      },
+      "load_history": {
+        "description": "从 JSONL 文件加载对话"
+      },
+      "model": {
+        "description": "模型管理（切换/列表/重置）"
+      },
+      "proactive": {
+        "description": "主动消息模式（设置空闲时长）"
+      },
+      "stop": {
+        "description": "停止当前任务"
+      },
+      "daemon_status": {
+        "description": "查看守护进程状态"
+      },
+      "daemon_restart": {
+        "description": "重启守护进程"
+      },
+      "daemon_reload_config": {
+        "description": "重载配置文件"
+      },
+      "daemon_reload_config_alt": {
+        "description": "重载配置文件"
+      },
+      "daemon_version": {
+        "description": "查看版本号"
+      },
+      "daemon_logs": {
+        "description": "查看守护进程日志"
+      },
+      "customizeTitle": "自定义快捷命令",
+      "customizeHint": "勾选你希望在输入框 / 菜单中显示的魔法命令",
+      "resetToDefault": "恢复默认",
+      "save": "保存",
+      "saveSuccess": "快捷命令配置已保存",
+      "saveFailed": "保存失败，请重试"
     },
     "attachments": {
       "tooltip": "支持文档、图片、视频、音频等多种格式",

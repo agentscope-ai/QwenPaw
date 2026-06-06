@@ -27,6 +27,7 @@ from .settings import router as settings_router
 from .plugins import router as plugins_router
 from .frontend_plugin import router as frontend_plugin_router
 from .backup import router as backup_router
+from .chat_commands import router as chat_commands_router
 from .plan import router as plan_router
 from .fork import router as fork_router
 from .git import router as git_router
@@ -37,6 +38,7 @@ router = APIRouter()
 
 router.include_router(agents_router)
 router.include_router(config_router)
+router.include_router(chat_commands_router)
 router.include_router(console_router)
 router.include_router(cron_router)
 router.include_router(local_models_router)

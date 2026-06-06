@@ -14,6 +14,25 @@ Commands for controlling conversation context.
 | `/new`     | ⚡ No  | 🗑️ Clear           | ✅ Background save | ✅ New conversation prompt    |
 | `/clear`   | ⚡ No  | 🗑️ Clear           | ❌ No save         | ✅ History cleared prompt     |
 
+### Customizable Shortcut Menu
+
+The slash-command shortcut menu that appears when you type `/` in the chat input can be customized. Click the gear icon inside the input area to open a settings panel where you can check which commands you want to show.
+
+Changes take effect immediately and are persisted across sessions. By default, `/clear`, `/compact`, `/mission`, and `/skills` are shown.
+
+> 💡 Want to see all available commands? Check them all. Prefer a minimal menu? Keep only the ones you actually use.
+
+| Category | Available shortcut commands                                                                  |
+| -------- | -------------------------------------------------------------------------------------------- |
+| Context  | `/compact` `/new` `/clear`                                                                   |
+| History  | `/history` `/message <n>` `/compact_str` `/summarize_status` `/dump_history` `/load_history` |
+| Model    | `/model`                                                                                     |
+| Session  | `/mission` `/plan` `/proactive` `/skills`                                                    |
+| Control  | `/stop`                                                                                      |
+| Daemon   | `/status` `/restart` `/reload-config` `/reload_config` `/version` `/logs`                    |
+
+> ⚠️ `/approve` and `/deny` only appear dynamically during tool approval flows. They are not in the shortcut menu options.
+
 ---
 
 ### /compact - Compress Current Conversation

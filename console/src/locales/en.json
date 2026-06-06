@@ -1938,7 +1938,69 @@
       },
       "plan": {
         "description": "Create a structured plan to decompose the task into subtasks"
-      }
+      },
+      "category": {
+        "context": "Context",
+        "history": "History",
+        "model": "Model",
+        "session": "Session",
+        "control": "Control",
+        "daemon": "Daemon"
+      },
+      "new": {
+        "description": "Start a new conversation (keep memory)"
+      },
+      "history": {
+        "description": "View conversation history"
+      },
+      "message": {
+        "description": "View a specific message by index"
+      },
+      "compact_str": {
+        "description": "View compressed summary"
+      },
+      "summarize_status": {
+        "description": "View summary task status"
+      },
+      "dump_history": {
+        "description": "Export conversation to JSONL file"
+      },
+      "load_history": {
+        "description": "Load conversation from JSONL file"
+      },
+      "model": {
+        "description": "Model management (switch/list/reset)"
+      },
+      "proactive": {
+        "description": "Proactive message mode (set idle duration)"
+      },
+      "stop": {
+        "description": "Stop the current task"
+      },
+      "daemon_status": {
+        "description": "View daemon process status"
+      },
+      "daemon_restart": {
+        "description": "Restart the daemon process"
+      },
+      "daemon_reload_config": {
+        "description": "Reload configuration"
+      },
+      "daemon_reload_config_alt": {
+        "description": "Reload configuration"
+      },
+      "daemon_version": {
+        "description": "View version number"
+      },
+      "daemon_logs": {
+        "description": "View daemon process logs"
+      },
+      "customizeTitle": "Customize Shortcut Commands",
+      "customizeHint": "Select the magic commands to show in the / shortcut menu",
+      "resetToDefault": "Reset to Default",
+      "save": "Save",
+      "saveSuccess": "Shortcut command configuration saved",
+      "saveFailed": "Failed to save, please try again"
     },
     "attachments": {
       "tooltip": "Supports documents, images, videos, audio and more formats",
