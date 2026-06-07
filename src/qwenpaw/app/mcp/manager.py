@@ -85,8 +85,6 @@ class MCPClientManager:
         async def _run() -> None:
             try:
                 await self.init_from_config(config, timeout=timeout)
-            except asyncio.CancelledError:
-                raise
             except Exception:
                 logger.warning(
                     "Background MCP initialization failed",

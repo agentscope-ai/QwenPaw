@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Tests for non-blocking MCP startup."""
 
 from __future__ import annotations
