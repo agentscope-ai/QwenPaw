@@ -192,7 +192,10 @@ async def post_console_chat(
     if is_reconnect:
         queue = await tracker.attach(chat.id)
         if queue is None:
-            return
+            raise HTTPException(
+                status_code=409,
+                detail="No active console chat stream found to reconnect",
+            )
     else:
         queue, _ = await tracker.attach_or_start(
             chat.id,
