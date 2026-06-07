@@ -145,10 +145,14 @@ class MessageRenderer:
                         elif btype == "video":
                             result.append(VideoContent(video_url=url))
                         elif btype == "audio":
+                            media_type = (
+                                src.get("media_type")
+                                or "application/octet-stream"
+                            )
                             result.append(
                                 AudioContent(
                                     data=url,
-                                    format=b.get("media_type"),
+                                    format=media_type,
                                 ),
                             )
                         else:
@@ -187,25 +191,13 @@ class MessageRenderer:
                         )
                         out.extend(block_parts)
                     else:
-                        media_types = (
-                            ContentType.IMAGE,
-                            ContentType.AUDIO,
-                            ContentType.VIDEO,
-                            ContentType.FILE,
-                        )
                         # Internal tools (e.g. view_image/view_video) produce
                         # media for the LLM, not the user — skip.
-                        media_parts = (
-                            []
-                            if name in s.internal_tools
-                            else [
-                                p
-                                for p in block_parts
-                                if getattr(p, "type", None) in media_types
-                            ]
-                        )
-                        out.extend(media_parts)
-                        if not media_parts:
+                        if name in s.internal_tools:
+                            continue
+                        if block_parts:
+                            out.extend(block_parts)
+                        else:
                             out.append(
                                 TextContent(
                                     text=_fmt_tool_output_label(name, s)
