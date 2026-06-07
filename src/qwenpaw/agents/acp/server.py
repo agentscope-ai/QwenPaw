@@ -71,7 +71,6 @@ from ...config.config import ModelSlotConfig
 from ...providers.provider_manager import ProviderManager
 from ...agents.command_handler import SYSTEM_COMMAND_DESCRIPTIONS
 from ...agents.mission.handler import MISSION_COMMAND_DESCRIPTIONS
-from ...app.runner.control_commands import iter_commands
 
 logger = logging.getLogger(__name__)
 
@@ -530,6 +529,7 @@ class QwenPawACPAgent(Agent):
         workspace = Workspace(
             agent_id=agent_id,
             workspace_dir=str(workspace_dir),
+            defer_mcp_startup=True,
         )
         await workspace.start()
 
@@ -953,6 +953,11 @@ class QwenPawACPAgent(Agent):
         control commands, skipping those that have a dedicated ACP
         affordance (see ``_ACP_REDUNDANT_COMMANDS``).
         """
+        # Imported lazily to avoid a circular import: ``app.runner`` pulls in
+        # ``react_agent`` -> ``agents.tools``, which (via the ACP tool adapter)
+        # imports this module during ``agents.tools`` package init.
+        from ...app.runner.control_commands import iter_commands
+
         commands = [
             AvailableCommand(name=name, description=desc)
             for name, desc in {
