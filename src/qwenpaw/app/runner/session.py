@@ -235,7 +235,7 @@ class SafeJSONSession(SessionBase):
         safe_sid = sanitize_filename(session_id)
         safe_uid = sanitize_filename(user_id) if user_id else ""
 
-        if safe_uid:
+        if safe_uid and safe_uid != safe_sid:
             filename = f"{safe_uid}_{safe_sid}.json"
         else:
             filename = f"{safe_sid}.json"

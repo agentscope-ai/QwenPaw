@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for SafeJSONSession JSON corruption resilience."""
-# pylint: disable=redefined-outer-name
+# pylint: disable=redefined-outer-name,protected-access,unused-argument
 import json
 import os
 import pathlib
@@ -335,3 +335,45 @@ async def test_load_whitespace_only(sess, tmp_session_dir):
     mod = FakeModule()
     await sess.load_session_state("test:session", user_id="", memory=mod)
     assert mod.data is None
+
+
+# ── regression: issue #5025 — duplicated session_id in filename ────
+
+
+def test_save_path_no_duplicated_sid_when_user_id_differs(
+    sess,
+    tmp_session_dir,
+):
+    """When user_id differs from session_id, the filename must not duplicate.
+
+    Regression test for #5025: when inter-agent requests omitted user_id,
+    the framework defaulted user_id=session_id, producing filenames like
+    ``{sid}_{sid}.json``. Now user_id is set to the calling agent's ID.
+    """
+    sid = "Project_Director:to:Reviewer:1780928960707:eba0fdee"
+    uid = "Project_Director"
+    path = sess._get_save_path(sid, user_id=uid, channel="console")
+    basename = os.path.basename(path)
+    assert basename.startswith(f"{uid}_")
+    # The critical check: the session_id part must not repeat the user_id
+    # prefix pattern as if user_id == session_id.
+    assert (
+        basename != f"{sid.replace(':', '--')}_{sid.replace(':', '--')}.json"
+    )
+
+
+def test_save_path_user_id_equals_session_id_falls_back_to_sid_only(
+    sess,
+    tmp_session_dir,
+):
+    """When user_id equals session_id, the duplicated pattern is avoided.
+
+    Regression test for #5025: _get_save_path now detects user_id ==
+    session_id and falls back to ``{sid}.json`` instead of producing
+    ``{sid}_{sid}.json``.
+    """
+    sid = "Project_Director:to:Reviewer:1780928960707:eba0fdee"
+    path = sess._get_save_path(sid, user_id=sid, channel="console")
+    basename = os.path.basename(path)
+    safe_sid = sid.replace(":", "--")
+    assert basename == f"{safe_sid}.json"

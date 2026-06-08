@@ -86,6 +86,8 @@ def test_build_agent_chat_request_adds_identity_prefix():
     assert session_id.startswith("bot_a:to:bot_b:")
     assert prefix_added is True
     assert payload["session_id"] == session_id
+    assert payload["user_id"] == "bot_a"
+    assert payload["user_id"] != session_id
     assert payload["input"][0]["content"][0]["text"].startswith(
         "[Agent bot_a requesting] ",
     )
@@ -109,6 +111,7 @@ def test_build_agent_chat_request_discovers_calling_agent(monkeypatch):
     )
 
     assert session_id.startswith("auto_bot:to:bot_b:")
+    assert payload["user_id"] == "auto_bot"
     assert payload["input"][0]["content"][0]["text"].startswith(
         "[Agent auto_bot requesting] ",
     )
@@ -129,6 +132,7 @@ def test_build_agent_chat_request_reuses_session_id_when_provided():
 
     assert session_id == "existing-session"
     assert payload["session_id"] == "existing-session"
+    assert payload["user_id"] == "bot_a"
     assert prefix_added is True
 
 
