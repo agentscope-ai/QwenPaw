@@ -336,19 +336,27 @@ async def run_mission_phase1(
     # Check if agent signaled Phase 2 confirmation
     cfg = read_loop_config(loop_dir)
     if not cfg and _is_file_corrupted(loop_dir, "loop_config.json"):
-        yield Msg(
-            name="system",
-            role="assistant",
-            content=[
-                TextBlock(
-                    type="text",
-                    text=_get_message(
-                        "config_corrupted",
-                        agent_id,
+        warn_msgs = [
+            Msg(
+                name="user",
+                role="user",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=_get_message(
+                            "config_corrupted",
+                            agent_id,
+                        ),
                     ),
-                ),
-            ],
-        ), False
+                ],
+            ),
+        ]
+        async for msg, last in stream_printing_messages(
+            agents=[agent],
+            coroutine_task=agent(warn_msgs),
+        ):
+            yield msg, last
+        cfg = read_loop_config(loop_dir)
     if cfg.get("current_phase") == "execution_confirmed":
         # Validate PRD before transitioning to Phase 2
         prd = read_prd(loop_dir)
@@ -580,19 +588,6 @@ async def run_mission_phase2(
             # Code-level completion check
             prd = read_prd(loop_dir)
             if not prd and _is_file_corrupted(loop_dir, "prd.json"):
-                yield Msg(
-                    name="system",
-                    role="assistant",
-                    content=[
-                        TextBlock(
-                            type="text",
-                            text=_get_message(
-                                "prd_corrupted",
-                                agent_id,
-                            ),
-                        ),
-                    ],
-                ), False
                 msgs = [
                     Msg(
                         name="user",
