@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
+import signal
+import time
 from contextlib import AsyncExitStack
 from datetime import timedelta
 from typing import Any, Literal
@@ -155,6 +158,109 @@ def _is_401_error(exc: BaseException) -> bool:
     return False
 
 
+# Timeout for ``close()`` to wait for the lifecycle task before
+# cancelling and force-killing child processes.
+_CLOSE_TIMEOUT = 15.0
+
+# Graceful period between SIGTERM and SIGKILL when force-killing
+# orphaned MCP subprocesses.
+_FORCE_KILL_GRACE = 2.0
+
+
+def _snapshot_child_pids() -> set[int]:
+    """Return PIDs of current child processes.
+
+    Uses ``/proc`` on Linux, falls back to ``psutil``,
+    then returns an empty set on unsupported platforms.
+    """
+    my_pid = os.getpid()
+    try:
+        children_path = f"/proc/{my_pid}/task/{my_pid}/children"
+        with open(
+            children_path,
+            encoding="utf-8",
+        ) as fh:
+            return {int(p) for p in fh.read().split() if p.strip()}
+    except (FileNotFoundError, OSError, ValueError):
+        pass
+    try:
+        import psutil  # type: ignore[import-untyped]
+
+        return {c.pid for c in psutil.Process(my_pid).children()}
+    except Exception:
+        pass
+    return set()
+
+
+def _pid_exists(pid: int) -> bool:
+    """Check whether *pid* is alive (cross-platform)."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+    except OSError:
+        return False
+
+
+def _force_kill_pids(
+    pids: set[int],
+    client_name: str,
+) -> None:
+    """SIGTERM then SIGKILL orphaned MCP child PIDs.
+
+    Uses ``os.killpg`` when a process-group ID can be
+    obtained (POSIX); falls back to ``os.kill`` per-PID.
+    """
+    if not pids:
+        return
+
+    _sigterm = signal.SIGTERM
+    _sigkill = getattr(signal, "SIGKILL", _sigterm)
+    _killpg = getattr(os, "killpg", None)
+
+    def _send(pid: int, sig: int) -> None:
+        if _killpg is not None:
+            try:
+                pgid = os.getpgid(pid)
+                _killpg(pgid, sig)
+                return
+            except (
+                ProcessLookupError,
+                PermissionError,
+                OSError,
+            ):
+                pass
+        try:
+            os.kill(pid, sig)
+        except (
+            ProcessLookupError,
+            PermissionError,
+            OSError,
+        ):
+            pass
+
+    for pid in pids:
+        _send(pid, _sigterm)
+        logger.debug(
+            "Sent SIGTERM to MCP child %d (%s)",
+            pid,
+            client_name,
+        )
+
+    time.sleep(_FORCE_KILL_GRACE)
+
+    for pid in pids:
+        if not _pid_exists(pid):
+            continue
+        _send(pid, _sigkill)
+        logger.warning(
+            "Force-killed MCP child %d (%s) after SIGTERM timeout",
+            pid,
+            client_name,
+        )
+
+
 class _MCPClientMixin:
     """Mixin providing shared tool-call and lifecycle logic for both clients.
 
@@ -187,6 +293,7 @@ class _MCPClientMixin:
     _reload_event: asyncio.Event
     _ready_event: asyncio.Event
     _lifecycle_task: asyncio.Task | None
+    _child_pids: set[int]
 
     # ------------------------------------------------------------------
     # Transport hook (implemented by each concrete subclass)
@@ -210,6 +317,28 @@ class _MCPClientMixin:
     # Lifecycle
     # ------------------------------------------------------------------
 
+    def _force_kill_children(self) -> None:
+        """Force-kill any tracked child PIDs that survived
+        the graceful ``AsyncExitStack`` teardown.
+
+        Safe to call from any context (sync).  No-op when
+        ``_child_pids`` is empty or on non-stdio clients.
+        """
+        pids = getattr(self, "_child_pids", None)
+        if not pids:
+            return
+        alive = {p for p in pids if _pid_exists(p)}
+        if alive:
+            logger.warning(
+                "MCP client '%s': %d child process(es) "
+                "survived teardown, force-killing: %s",
+                self.name,
+                len(alive),
+                alive,
+            )
+            _force_kill_pids(alive, self.name)
+        self._child_pids = set()
+
     async def _run_lifecycle(self) -> None:  # noqa: C901
         """Run MCP client lifecycle in a dedicated task.
 
@@ -219,58 +348,70 @@ class _MCPClientMixin:
         """
         while not self._stop_event.is_set():
             try:
-                logger.debug(f"Connecting MCP client: {self.name}")
+                logger.debug(
+                    f"Connecting MCP client: {self.name}",
+                )
 
                 async with AsyncExitStack() as stack:
                     read_stream, write_stream = await self._setup_transport(
                         stack,
                     )
 
-                    self.session = ClientSession(read_stream, write_stream)
-                    await stack.enter_async_context(self.session)
+                    self.session = ClientSession(
+                        read_stream,
+                        write_stream,
+                    )
+                    await stack.enter_async_context(
+                        self.session,
+                    )
                     await self.session.initialize()
 
                     self.is_connected = True
                     self._ready_event.set()
-                    logger.info(f"MCP client connected: {self.name}")
+                    logger.info(
+                        f"MCP client connected: {self.name}",
+                    )
 
-                    # Wait for a reload or stop signal (0.1 s poll).
+                    # Wait for a reload or stop signal.
                     while (
                         not self._reload_event.is_set()
                         and not self._stop_event.is_set()
                     ):
                         await asyncio.sleep(0.1)
 
-                    # Clear state before the context manager exits and
-                    # tears down the transport / subprocess.
+                    # Clear state before the context manager
+                    # exits and tears down the transport.
                     self.session = None
                     self.is_connected = False
                     self._cached_tools = None
                     self._name_alias_to_real = {}
 
                     if self._reload_event.is_set():
-                        logger.info(f"Reloading MCP client: {self.name}")
+                        logger.info(
+                            f"Reloading MCP client: " f"{self.name}",
+                        )
                         self._reload_event.clear()
                         self._ready_event.clear()
                     else:
-                        logger.info(f"Stopping MCP client: {self.name}")
+                        logger.info(
+                            f"Stopping MCP client: " f"{self.name}",
+                        )
 
-                # AsyncExitStack exits here in THIS task — no cross-task issue.
+                # AsyncExitStack exits here in THIS task.
 
             except Exception as e:
-                # 401 means the server requires OAuth; fail fast and signal
-                # connect() so it can raise instead of returning silently.
                 if _is_401_error(e):
                     logger.info(
-                        f"MCP client '{self.name}': server requires OAuth "
-                        "(HTTP 401). Authorize via the UI to connect.",
+                        f"MCP client '{self.name}': server "
+                        "requires OAuth (HTTP 401). "
+                        "Authorize via the UI to connect.",
                     )
                     self._oauth_required = True
                     self._stop_event.set()
                     self._ready_event.set()
                     return
                 logger.error(
-                    f"Error in MCP client lifecycle for {self.name}: {e}",
+                    "Error in MCP client lifecycle " f"for {self.name}: {e}",
                     exc_info=True,
                 )
                 self.session = None
@@ -279,8 +420,15 @@ class _MCPClientMixin:
                 self._name_alias_to_real = {}
                 self._ready_event.clear()
                 await asyncio.sleep(1)
+            finally:
+                # After each iteration (whether clean exit,
+                # reload, or exception), kill any orphaned
+                # child processes the SDK failed to reap.
+                self._force_kill_children()
 
-        logger.info(f"MCP client lifecycle task exited: {self.name}")
+        logger.info(
+            f"MCP client lifecycle task exited: " f"{self.name}",
+        )
 
     async def connect(self, timeout: float = 30.0) -> None:
         """Connect to the MCP server.
@@ -499,53 +647,64 @@ class _MCPClientMixin:
         )
 
     async def close(self, ignore_errors: bool = True) -> None:
-        """Close the MCP client and stop its background lifecycle task.
+        """Close the MCP client and stop its lifecycle task.
 
-        Unlike the old guard (``if not self.is_connected: return``), this
-        method always attempts to stop the lifecycle task when one is still
-        running.  The old guard was a bug: when the client is in a reconnect
-        loop (``is_connected=False`` but the task is alive and will spawn a
-        new subprocess the moment it wakes from ``asyncio.sleep``), skipping
-        the stop leaked the eventual subprocess permanently.
+        Waits up to ``_CLOSE_TIMEOUT`` seconds for the lifecycle
+        task to finish.  If it doesn't, the task is cancelled
+        and any surviving child processes are force-killed.
 
         Args:
-            ignore_errors: When ``True`` (default), exceptions during cleanup
-                are logged but not re-raised.
+            ignore_errors: When ``True`` (default), exceptions
+                during cleanup are logged but not re-raised.
 
         Raises:
-            RuntimeError: If not connected and no task is running, and
-                ``ignore_errors`` is ``False``.
+            RuntimeError: If not connected and no task running,
+                and ``ignore_errors`` is ``False``.
         """
-        has_task = self._lifecycle_task is not None and not (
-            self._lifecycle_task.done()
+        has_task = (
+            self._lifecycle_task is not None
+            and not self._lifecycle_task.done()
         )
 
         if not self.is_connected and not has_task:
             if not ignore_errors:
                 raise RuntimeError(
-                    f"MCP client '{self.name}' is not connected. "
-                    f"Call connect() before closing.",
+                    f"MCP client '{self.name}' is not "
+                    "connected. Call connect() first.",
                 )
             return
 
         try:
-            # Signal stop and wait for the lifecycle task to finish.  This
-            # must happen even when is_connected is False (reconnect loop).
             self._stop_event.set()
             if self._lifecycle_task:
-                await self._lifecycle_task
+                try:
+                    await asyncio.wait_for(
+                        self._lifecycle_task,
+                        timeout=_CLOSE_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "MCP client '%s' close timed out "
+                        "after %.0fs, cancelling task",
+                        self.name,
+                        _CLOSE_TIMEOUT,
+                    )
+                    self._lifecycle_task.cancel()
+                    try:
+                        await self._lifecycle_task
+                    except (
+                        asyncio.CancelledError,
+                        Exception,
+                    ):
+                        pass
+                    self._force_kill_children()
         except Exception as e:
             if not ignore_errors:
                 raise
             logger.warning(
-                f"Error closing MCP client '{self.name}': {e}",
+                f"Error closing MCP client " f"'{self.name}': {e}",
             )
         finally:
-            # Clear the reference unconditionally — including when the current
-            # coroutine is cancelled (CancelledError is BaseException, not
-            # Exception, so it bypasses the except block above).  _stop_event
-            # is already set at this point, so the task will exit on its next
-            # iteration even if we don't hold the reference.
             self._lifecycle_task = None
 
     # ------------------------------------------------------------------
@@ -702,18 +861,30 @@ class StdIOStatefulClient(_MCPClientMixin, StatefulClientBase):
         self._cached_tools = None
         self._name_alias_to_real: dict[str, str] = {}
 
+        # PID tracking for force-kill fallback
+        self._child_pids: set[int] = set()
+
     async def _setup_transport(
         self,
         stack: AsyncExitStack,
     ) -> tuple[Any, Any]:
-        # Local import: stdio_client pulls in anyio's subprocess machinery;
-        # deferring it here keeps module import time fast and avoids pulling
-        # platform-specific code at import time for users who only use HTTP.
         from mcp.client.stdio import stdio_client
+
+        pids_before = _snapshot_child_pids()
 
         context = await stack.enter_async_context(
             stdio_client(self.server_params),
         )
+
+        new_pids = _snapshot_child_pids() - pids_before
+        if new_pids:
+            self._child_pids = new_pids
+            logger.debug(
+                "MCP client '%s': tracked child PID(s) %s",
+                self.name,
+                new_pids,
+            )
+
         return context[0], context[1]
 
 
@@ -789,6 +960,9 @@ class HttpStatefulClient(_MCPClientMixin, StatefulClientBase):
         # Tool cache
         self._cached_tools = None
         self._name_alias_to_real: dict[str, str] = {}
+
+        # No stdio children for HTTP clients
+        self._child_pids: set[int] = set()
 
     async def _setup_transport(
         self,
