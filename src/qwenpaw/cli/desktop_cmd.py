@@ -17,7 +17,7 @@ from collections.abc import Mapping
 
 import click
 
-from ..constant import LOG_LEVEL_ENV
+from ..constant import LOG_LEVEL_ENV, WORKING_DIR
 from ..utils.logging import setup_logger
 
 try:
@@ -110,6 +110,42 @@ def _find_free_port(host: str = "127.0.0.1") -> int:
         return sock.getsockname()[1]
 
 
+def _get_stable_port(host: str = "127.0.0.1") -> int:
+    """Return a stable port for the desktop app, reusing previous if possible.
+
+    Persists the port to ~/.qwenpaw/desktop_port so the browser origin
+    (http://127.0.0.1:{port}) stays the same across restarts, preserving
+    localStorage data (selected agent, chat history, plugin flags).
+    """
+    port_file = str(WORKING_DIR / "desktop_port")
+
+    # Try to reuse the previous port
+    try:
+        with open(port_file, "r", encoding="utf-8") as fh:
+            last_port = int(fh.read().strip())
+        if 1024 <= last_port <= 65535:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.bind((host, last_port))
+            logger.info(f"Reusing previous desktop port {last_port}")
+            return last_port
+    except (OSError, ValueError):
+        pass
+
+    # Fall back to random port
+    port = _find_free_port(host)
+    logger.info(f"Allocated new desktop port {port}")
+
+    # Persist for next launch
+    try:
+        os.makedirs(os.path.dirname(port_file), exist_ok=True)
+        with open(port_file, "w", encoding="utf-8") as fh:
+            fh.write(str(port))
+    except OSError:
+        pass
+
+    return port
+
+
 def _wait_for_http(host: str, port: int, timeout_sec: float = 300.0) -> bool:
     """Return True when something accepts TCP on host:port."""
     deadline = time.monotonic() + timeout_sec
@@ -175,7 +211,7 @@ def desktop_cmd(
     # Setup logger for desktop command (separate from backend subprocess)
     setup_logger(log_level)
 
-    port = _find_free_port(host)
+    port = _get_stable_port(host)
     url = f"http://{host}:{port}"
     click.echo(f"Starting QwenPaw app on {url} (port {port})")
     logger.info("Server subprocess starting...")
@@ -249,8 +285,14 @@ def desktop_cmd(
                 logger.info(
                     "Calling webview.start() (blocks until closed)...",
                 )
+                # Persist localStorage/cookies across restarts so the
+                # user's agent selection, chat history, and preferences
+                # survive window close.  Without storage_path, WebView2
+                # may use a temp directory that is discarded on restart.
+                webview_storage = str(WORKING_DIR / "webview_data")
                 webview.start(
                     private_mode=False,
+                    storage_path=webview_storage,
                 )  # blocks until user closes the window
                 logger.info("webview.start() returned (window closed).")
             else:
