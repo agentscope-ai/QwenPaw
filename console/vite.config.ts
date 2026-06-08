@@ -70,6 +70,14 @@ export default defineConfig(({ mode }) => {
           __dirname,
           "src/test/icons-mock.ts",
         ),
+        "@tauri-apps/api/core": path.resolve(
+          __dirname,
+          "src/test/tauri-mock.ts",
+        ),
+        "@tauri-apps/plugin-dialog": path.resolve(
+          __dirname,
+          "src/test/tauri-mock.ts",
+        ),
       },
       exclude: [
         "**/node_modules/**",
@@ -83,7 +91,7 @@ export default defineConfig(({ mode }) => {
       ],
       coverage: {
         provider: "v8",
-        reporter: ["text", "html", "json", "lcov"],
+        reporter: ["text", "html", "json", "json-summary", "lcov"],
         include: ["src/**/*.{ts,tsx}"],
         exclude: [
           "src/test/**",
@@ -92,8 +100,12 @@ export default defineConfig(({ mode }) => {
           "src/main.tsx",
           "src/vite-env.d.ts",
         ],
-        // 第一阶段：记录基线，不强制卡点
-        // 后续稳定后可开启：thresholds: { statements: 60, functions: 60 }
+        thresholds: {
+          statements: 5,
+          branches: 4,
+          functions: 3,
+          lines: 5,
+        },
       },
     },
     optimizeDeps: {
