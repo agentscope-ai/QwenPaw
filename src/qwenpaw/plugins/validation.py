@@ -64,12 +64,9 @@ def validate_plugin_module(
     try:
         spec.loader.exec_module(module)
 
-        has_plugin_class = hasattr(module, "Plugin")
-        has_plugin_instance = hasattr(module, "plugin")
-        if not (has_plugin_class or has_plugin_instance):
+        if not hasattr(module, "plugin"):
             raise AttributeError(
-                "Plugin module must export a 'Plugin' class "
-                "or 'plugin' instance",
+                "Plugin module must export a 'plugin' instance",
             )
     finally:
         # Clean up ephemeral validation modules to avoid
