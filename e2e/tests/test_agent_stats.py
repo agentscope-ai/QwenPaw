@@ -331,9 +331,8 @@ class TestAgentStatsChannelDistribution:
                 ':text("No data"), :text("暂无数据")'
             ).first
             if global_empty.count() > 0 and global_empty.is_visible(timeout=3000):
-                logger.info("Page shows global empty state — no statistics data in selected period")
+                logger.warning("Page shows global empty state — channel distribution not exercised (no data in clean env)")
                 log_test_result(test_name, True, 0)
-                logger.info(f"Test {test_name} passed (empty state)")
                 return
 
             # Exclude sidebar text — only check main content area

@@ -103,7 +103,7 @@ class TestTokenUsageDisplay:
             ':text("No data"), :text("暂无数据")'
         ).first
         if no_data_text.count() > 0 and no_data_text.is_visible(timeout=3000):
-            logger.info("Page shows empty state — no token usage data in selected period")
+            logger.warning("Page shows empty state — token usage table not exercised (no data in clean env)")
             log_test_result(test_name, "PASS", "Token usage page empty state validated")
             return
 

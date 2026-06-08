@@ -66,7 +66,7 @@ jobs:
         run: |
           mkdir -p .e2e_coverage
           SRC_ABS=$(cd src/qwenpaw && pwd)
-          cat > .e2e_coverage/coverage_e2e.ini << RCEOF
+          cat > .e2e_coverage/coverage_e2e.ini <<RCEOF
           [run]
           parallel = true
           branch = false
@@ -76,6 +76,7 @@ jobs:
               */test_*
               */__pycache__/*
           RCEOF
+          sed -i 's/^          //' .e2e_coverage/coverage_e2e.ini
 
       # ---- Start backend (isolated) ----
       - name: Start QwenPaw backend
@@ -125,9 +126,13 @@ jobs:
         if: always()
         run: |
           if [ -f /tmp/qwenpaw-e2e.pid ]; then
-            kill -INT "$(cat /tmp/qwenpaw-e2e.pid)" 2>/dev/null || true
-            sleep 3
-            kill -9 "$(cat /tmp/qwenpaw-e2e.pid)" 2>/dev/null || true
+            PID=$(cat /tmp/qwenpaw-e2e.pid)
+            kill -INT "$PID" 2>/dev/null || true
+            for i in $(seq 1 15); do
+              kill -0 "$PID" 2>/dev/null || break
+              sleep 1
+            done
+            kill -9 "$PID" 2>/dev/null || true
           fi
 
           cd .e2e_coverage
