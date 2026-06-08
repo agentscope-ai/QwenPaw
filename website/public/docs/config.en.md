@@ -91,6 +91,7 @@ You can customize paths and behavior via environment variables:
 | -------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `QWENPAW_WORKING_DIR`      | `~/.qwenpaw`        | Working directory root path                                                                                 |
 | `QWENPAW_SECRET_DIR`       | `~/.qwenpaw.secret` | Sensitive data directory (stores `providers.json` and `envs.json`). Docker default is `/app/working.secret` |
+| `QWENPAW_KEYRING_ACCOUNT`  | _(auto)_            | OS keychain account name for the master key. Defaults to `master_key`; when `QWENPAW_WORKING_DIR`/`QWENPAW_SECRET_DIR` are set (e.g. a dev checkout) it auto-derives a per-install account so a dev install never overwrites the stable install's key. Set explicitly to name a profile. |
 | `QWENPAW_CONFIG_FILE`      | `config.json`       | Config file name (relative to `QWENPAW_WORKING_DIR`)                                                        |
 | `QWENPAW_HEARTBEAT_FILE`   | `HEARTBEAT.md`      | Heartbeat file name (relative to agent workspace)                                                           |
 | `QWENPAW_JOBS_FILE`        | `jobs.json`         | Cron jobs file name (relative to agent workspace)                                                           |
