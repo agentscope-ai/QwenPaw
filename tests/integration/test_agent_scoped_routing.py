@@ -25,6 +25,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 _HTTP_TIMEOUT = 15.0
@@ -56,15 +57,19 @@ def _wait_until_plugin_loader_ready(
     last_status = None
     last_detail = ""
     while time.time() < deadline:
-        resp = app_server.api_request(
-            "POST",
-            "/api/plugins/install",
-            json={
-                "source": "/tmp/integ-agent-scoped-probe-not-a-path",
-                "force": False,
-            },
-            timeout=5.0,
-        )
+        try:
+            resp = app_server.api_request(
+                "POST",
+                "/api/plugins/install",
+                json={
+                    "source": "/tmp/integ-agent-scoped-probe-not-a-path",
+                    "force": False,
+                },
+                timeout=5.0,
+            )
+        except httpx.TimeoutException:
+            time.sleep(0.5)
+            continue
         last_status = resp.status_code
         try:
             last_detail = resp.json().get("detail", "")
