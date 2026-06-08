@@ -194,12 +194,13 @@ class MCPClientManager:
                 "some clients may not have shut down cleanly",
             )
 
-        # Final sweep: kill any stdio subprocesses that survived
-        # graceful teardown (include_active=True covers the case
-        # where the gather timed out before all clients closed).
+        # Reap orphans only — PIDs that survived their client's
+        # close().  Do NOT use include_active=True here because
+        # another manager (e.g. new workspace after reload) may
+        # have already registered fresh PIDs in the global table.
         from .stateful_client import kill_orphaned_mcp_children
 
-        await kill_orphaned_mcp_children(include_active=True)
+        await kill_orphaned_mcp_children(include_active=False)
 
     async def _add_client(
         self,
