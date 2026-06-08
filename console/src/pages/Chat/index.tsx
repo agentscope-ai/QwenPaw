@@ -1318,8 +1318,6 @@ export default function ChatPage() {
         value: skill.name,
         description: "",
       }));
-    const senderSuggestions = [...commandSuggestions, ...skillSuggestions];
-
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;
       localStorage.removeItem(getDraftStorageKey(selectedAgent));
@@ -1488,7 +1486,10 @@ export default function ChatPage() {
       );
     }
 
-    const baseSuggestions = commandSuggestions.map((item) => ({
+    const baseSuggestions = [
+      ...commandSuggestions,
+      ...skillSuggestions,
+    ].map((item) => ({
       label: renderSuggestionLabel(item.command, item.description),
       value: item.value,
     }));
