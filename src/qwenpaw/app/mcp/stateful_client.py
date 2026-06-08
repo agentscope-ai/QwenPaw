@@ -227,11 +227,19 @@ def _register_stdio_pids(
     pids: set[int],
     server_name: str,
 ) -> None:
-    """Register newly spawned stdio PIDs and their PGIDs."""
+    """Register newly spawned stdio PIDs and their PGIDs.
+
+    Only stores pgid when pgid == pid (child is its own
+    process-group leader, guaranteed by start_new_session).
+    Skips storage otherwise to prevent killpg from hitting
+    the main application's process group.
+    """
     pgids: Dict[int, int] = {}
     for pid in pids:
         try:
-            pgids[pid] = os.getpgid(pid)
+            pgid = os.getpgid(pid)
+            if pgid == pid:
+                pgids[pid] = pgid
         except (AttributeError, ProcessLookupError, OSError):
             pass
     with _stdio_lock:
