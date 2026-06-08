@@ -118,7 +118,7 @@ jobs:
           else
             MARKER="${{ github.event.inputs.test_marker || 'p0' }}"
           fi
-          pytest tests/ -m "$MARKER" -v --tb=short --reruns=2 --reruns-delay=3
+          pytest tests/ -m "$MARKER" -v --tb=short --reruns=1 --reruns-delay=3
 
       # ---- Collect coverage ----
       - name: Stop backend and collect coverage
