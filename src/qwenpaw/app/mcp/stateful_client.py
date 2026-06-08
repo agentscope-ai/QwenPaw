@@ -21,7 +21,6 @@ import logging
 import os
 import re
 import signal
-import time
 from contextlib import AsyncExitStack
 from datetime import timedelta
 from typing import Any, Literal
@@ -203,7 +202,7 @@ def _pid_exists(pid: int) -> bool:
         return False
 
 
-def _force_kill_pids(
+async def _force_kill_pids(
     pids: set[int],
     client_name: str,
 ) -> None:
@@ -211,13 +210,16 @@ def _force_kill_pids(
 
     Uses ``os.killpg`` when a process-group ID can be
     obtained (POSIX); falls back to ``os.kill`` per-PID.
+    On Windows, SIGTERM already calls TerminateProcess
+    (hard kill), so SIGKILL escalation is skipped.
     """
     if not pids:
         return
 
     _sigterm = signal.SIGTERM
-    _sigkill = getattr(signal, "SIGKILL", _sigterm)
+    _sigkill = getattr(signal, "SIGKILL", None)
     _killpg = getattr(os, "killpg", None)
+    _is_win = os.name == "nt"
 
     def _send(pid: int, sig: int) -> None:
         if _killpg is not None:
@@ -248,7 +250,12 @@ def _force_kill_pids(
             client_name,
         )
 
-    time.sleep(_FORCE_KILL_GRACE)
+    # On Windows, SIGTERM is TerminateProcess (immediate),
+    # no need to wait and escalate to SIGKILL.
+    if _is_win or _sigkill is None:
+        return
+
+    await asyncio.sleep(_FORCE_KILL_GRACE)
 
     for pid in pids:
         if not _pid_exists(pid):
@@ -317,12 +324,12 @@ class _MCPClientMixin:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def _force_kill_children(self) -> None:
+    async def _force_kill_children(self) -> None:
         """Force-kill any tracked child PIDs that survived
         the graceful ``AsyncExitStack`` teardown.
 
-        Safe to call from any context (sync).  No-op when
-        ``_child_pids`` is empty or on non-stdio clients.
+        No-op when ``_child_pids`` is empty or on non-stdio
+        clients.
         """
         pids = getattr(self, "_child_pids", None)
         if not pids:
@@ -336,7 +343,7 @@ class _MCPClientMixin:
                 len(alive),
                 alive,
             )
-            _force_kill_pids(alive, self.name)
+            await _force_kill_pids(alive, self.name)
         self._child_pids = set()
 
     async def _run_lifecycle(self) -> None:  # noqa: C901
@@ -424,7 +431,7 @@ class _MCPClientMixin:
                 # After each iteration (whether clean exit,
                 # reload, or exception), kill any orphaned
                 # child processes the SDK failed to reap.
-                self._force_kill_children()
+                await self._force_kill_children()
 
         logger.info(
             f"MCP client lifecycle task exited: " f"{self.name}",
@@ -697,7 +704,7 @@ class _MCPClientMixin:
                         Exception,
                     ):
                         pass
-                    self._force_kill_children()
+                    await self._force_kill_children()
         except Exception as e:
             if not ignore_errors:
                 raise
