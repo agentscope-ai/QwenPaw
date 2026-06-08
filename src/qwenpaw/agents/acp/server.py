@@ -11,7 +11,9 @@ sub-agent delegation, etc.).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -30,6 +32,7 @@ from acp import (
     update_agent_message,
     update_agent_thought,
     update_tool_call,
+    update_user_message,
 )
 from acp.interfaces import Client
 from acp.schema import (
@@ -66,6 +69,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 
 from ...__version__ import __version__
+from ...app.channels.schema import DEFAULT_CHANNEL
 from ...constant import WORKING_DIR
 from ...config.config import ModelSlotConfig
 from ...providers.provider_manager import ProviderManager
@@ -94,6 +98,22 @@ ACP_ERROR_META_KEY = "qwenpaw.error"
 # has no standard field for it).
 ACP_AGENT_META_KEY = "qwenpaw.agent"
 
+# Cap for the auto-derived session title (first user message, truncated).
+_ACP_TITLE_MAX_CHARS = 60
+
+# Backend-warmup sessions (opened by the paw TUI to spin up the model) start
+# with this exact prompt. They are persisted like any other session, so
+# ``session/list`` filters them out by matching this prefix. Keep in sync with
+# paw's ``_WARMUP_PROMPT``. This stays as a backstop for pre-existing files;
+# new warmup sessions are flagged ephemeral (below) and never persisted.
+_WARMUP_TITLE_PREFIX = "Warm up the QwenPaw backend"
+
+# ``_meta`` key the paw TUI sets on ``session/new`` (and ``session/prompt``) to
+# mark its throwaway backend-warmup session as *ephemeral*: such a session must
+# not register a console chat or persist its state to disk. Keep in sync with
+# paw's ``_EPHEMERAL_META_KEY``.
+ACP_EPHEMERAL_META_KEY = "qwenpaw.ephemeral"
+
 
 PromptBlocks = list[
     TextContentBlock
@@ -119,6 +139,26 @@ def _extract_text(
         if text:
             parts.append(str(text))
     return "\n".join(parts)
+
+
+def _message_text(content: Any) -> str:
+    """Join the plain ``text`` blocks of a persisted message's content.
+
+    Persisted messages store ``content`` as a list of ``{type, text}`` block
+    dicts (the same shape agentscope uses). Only ``text`` blocks contribute;
+    thinking/tool blocks are ignored. A bare string is returned as-is.
+    """
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") in (None, "text"):
+            text = block.get("text")
+            if text:
+                parts.append(str(text))
+    return "\n".join(parts).strip()
 
 
 class _StreamTracker:
@@ -479,6 +519,7 @@ class QwenPawACPAgent(Agent):
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._workspace: Any | None = None
         self._workspace_ready = False
+        self._warmup_cleanup_done = False
 
     def on_connect(self, conn: Client) -> None:
         self._conn = conn
@@ -548,6 +589,15 @@ class QwenPawACPAgent(Agent):
             agent_id,
             workspace_dir,
         )
+        # One-time sweep of pre-existing backend-warmup junk (chats + files).
+        if not self._warmup_cleanup_done:
+            self._warmup_cleanup_done = True
+            try:
+                await self._purge_legacy_warmup_artifacts(runner)
+            except Exception:  # pylint: disable=broad-except
+                logger.debug(
+                    "Legacy warmup cleanup skipped", exc_info=True
+                )
         return runner
 
     async def _shutdown_workspace(self) -> None:
@@ -561,6 +611,268 @@ class QwenPawACPAgent(Agent):
                 )
             self._workspace = None
             self._workspace_ready = False
+
+    # ------------------------------------------------------------------
+    # Session persistence / resume support
+    # ------------------------------------------------------------------
+
+    def _sessions_dir(self) -> Path:
+        """Root directory holding the persisted per-session state files."""
+        agent_id = self._resolve_agent_id()
+        return self._resolve_workspace_dir(agent_id) / "sessions"
+
+    def _session_dirs(self) -> list[Path]:
+        """Directories to search for ACP session files, in priority order.
+
+        The runner persists under the default channel sub-directory
+        (``sessions/console/``); older builds wrote to ``sessions/`` directly.
+        Search both so every paw session is discoverable and loadable.
+        """
+        root = self._sessions_dir()
+        return [root / DEFAULT_CHANNEL, root]
+
+    @staticmethod
+    def _user_id_for(session_id: str) -> str:
+        """The deterministic ``user_id`` paired with an ACP session.
+
+        ``new_session`` / ``load_session`` always derive the user id from
+        the session id the same way, so the runner persists and reloads the
+        session under a stable filename — this is what makes ``load_session``
+        actually restore prior context on the next prompt.
+        """
+        return f"acp_{session_id[:8]}"
+
+    def _session_filename(self, session_id: str) -> str:
+        from ...app.runner.session import sanitize_filename
+
+        uid = sanitize_filename(self._user_id_for(session_id))
+        sid = sanitize_filename(session_id)
+        return f"{uid}_{sid}.json"
+
+    def _session_state_path(self, session_id: str) -> Path | None:
+        """Existing state-file path for *session_id*, or ``None`` if absent."""
+        filename = self._session_filename(session_id)
+        for directory in self._session_dirs():
+            candidate = directory / filename
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _delete_session_file(self, session_id: str) -> bool:
+        """Delete the persisted state file for *session_id*, if any.
+
+        Returns ``True`` when a file was removed. Best-effort: a missing file
+        or an unlink error is swallowed (logged at debug).
+        """
+        path = self._session_state_path(session_id)
+        if path is None:
+            return False
+        try:
+            path.unlink()
+            return True
+        except OSError:
+            logger.debug(
+                "Failed to delete session file %s", path, exc_info=True
+            )
+            return False
+
+    async def _purge_legacy_warmup_artifacts(self, runner: Any) -> None:
+        """One-time sweep removing pre-existing backend-warmup junk.
+
+        Older builds persisted the paw TUI's throwaway warmup session and
+        auto-registered a "Warm up the QwenPaw backend…" console chat for it.
+        New warmup sessions are flagged ephemeral and never persist, but a user
+        may have accumulated many of these; clear them so the console chat list
+        and the sessions dir start clean. Idempotent and best-effort — failures
+        never block workspace startup.
+        """
+        warmup_ids: set[str] = set()
+        for directory in self._session_dirs():
+            if not directory.is_dir():
+                continue
+            for path in directory.glob("acp_*.json"):
+                session_id = self._session_id_from_filename(path.name)
+                if session_id is None:
+                    continue
+                try:
+                    state = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if not self._first_user_text(state).startswith(
+                    _WARMUP_TITLE_PREFIX
+                ):
+                    continue
+                warmup_ids.add(session_id)
+                try:
+                    path.unlink()
+                except OSError:
+                    logger.debug(
+                        "Failed to delete warmup file %s", path, exc_info=True
+                    )
+
+        # Remove the matching auto-registered console chats. Match by the
+        # session id we just purged; fall back to the truncated warmup name the
+        # runner stored, to catch chats whose state file was already gone.
+        chat_manager = getattr(runner, "_chat_manager", None)
+        stale: list[str] = []
+        if chat_manager is not None:
+            try:
+                chats = await chat_manager.list_chats(channel=DEFAULT_CHANNEL)
+            except Exception:  # pylint: disable=broad-except
+                chats = []
+            name_prefix = _WARMUP_TITLE_PREFIX[:10]
+            stale = [
+                c.id
+                for c in chats
+                if c.session_id in warmup_ids
+                or (c.name or "").startswith(name_prefix)
+            ]
+            if stale:
+                try:
+                    await chat_manager.delete_chats(stale)
+                except Exception:  # pylint: disable=broad-except
+                    logger.debug(
+                        "Failed to delete warmup chats", exc_info=True
+                    )
+
+        if warmup_ids or stale:
+            logger.info(
+                "Purged legacy warmup artifacts: %d session file(s), "
+                "%d chat(s)",
+                len(warmup_ids),
+                len(stale),
+            )
+
+    @staticmethod
+    def _session_id_from_filename(name: str) -> str | None:
+        """Recover the session_id from an ``acp_{sid[:8]}_{sid}.json`` name.
+
+        The user_id prefix is ``acp_`` + the first 8 chars of the (underscore
+        free) session id, so the id is everything after the second underscore.
+        """
+        if not name.startswith("acp_") or not name.endswith(".json"):
+            return None
+        parts = name[: -len(".json")].split("_", 2)
+        if len(parts) != 3 or not parts[2]:
+            return None
+        return parts[2]
+
+    @staticmethod
+    def _first_user_text(state: dict[str, Any]) -> str:
+        """Pull the first user message out of a persisted session's memory.
+
+        The runner stores memory as ``agent.memory.content``: a list whose
+        items are ``[message_dict, ...]`` (or a bare ``message_dict``). A
+        message's ``content`` may be a plain string or a list of ``{type,
+        text}`` blocks. Returns ``""`` when no user text is present.
+        """
+        content = (
+            (state.get("agent") or {}).get("memory", {}).get("content") or []
+        )
+        for item in content:
+            msg = item[0] if isinstance(item, list) and item else item
+            if not isinstance(msg, dict) or msg.get("role") != "user":
+                continue
+            text = _message_text(msg.get("content"))
+            if text:
+                return text
+        return ""
+
+    async def list_persisted_sessions(
+        self,
+        cwd: str | None = None,  # pylint: disable=unused-argument
+        limit: int = 50,
+    ) -> list[SessionInfo]:
+        """Enumerate resumable paw sessions from disk for ``session/list``.
+
+        Scans the session directories for ACP session files, keeps those with
+        a real first user message (skipping empty and backend-warmup
+        sessions), titles each with that message and timestamps it with the
+        file mtime. Newest first, capped at *limit*.
+
+        ``cwd`` is ignored on purpose: QwenPaw runs every session in its single
+        workspace dir regardless of where paw was launched, so past sessions
+        are not folder-scoped.
+        """
+        infos: list[tuple[float, SessionInfo]] = []
+        seen: set[str] = set()
+        for directory in self._session_dirs():
+            if not directory.is_dir():
+                continue
+            for path in directory.glob("acp_*.json"):
+                session_id = self._session_id_from_filename(path.name)
+                if session_id is None or session_id in seen:
+                    continue
+                try:
+                    state = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                title = self._first_user_text(state)
+                if not title or title.startswith(_WARMUP_TITLE_PREFIX):
+                    # Skip never-prompted and backend-warmup sessions.
+                    continue
+                seen.add(session_id)
+                if len(title) > _ACP_TITLE_MAX_CHARS:
+                    title = title[: _ACP_TITLE_MAX_CHARS - 1].rstrip() + "…"
+                try:
+                    mtime = path.stat().st_mtime
+                except OSError:
+                    mtime = 0.0
+                updated_at = datetime.fromtimestamp(
+                    mtime, tz=timezone.utc
+                ).isoformat()
+                infos.append(
+                    (
+                        mtime,
+                        SessionInfo(
+                            session_id=session_id,
+                            cwd="",
+                            title=title,
+                            updated_at=updated_at,
+                        ),
+                    )
+                )
+        infos.sort(key=lambda pair: pair[0], reverse=True)
+        return [info for _, info in infos[:limit]]
+
+    async def _replay_session_history(self, session_id: str) -> None:
+        """Stream a loaded session's saved transcript back to the client.
+
+        Per the ACP ``session/load`` contract, the agent replays the prior
+        conversation via ``session/update`` notifications so the client can
+        rebuild the transcript. Only the visible turns are replayed — user
+        messages and assistant text — so the rebuilt view is clean across the
+        various stored message shapes (thinking blocks, tool calls and tool
+        results are intentionally skipped).
+        """
+        state_path = self._session_state_path(session_id)
+        if state_path is None:
+            return
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        content = (
+            (state.get("agent") or {}).get("memory", {}).get("content") or []
+        )
+        for item in content:
+            msg = item[0] if isinstance(item, list) and item else item
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role")
+            text = _message_text(msg.get("content"))
+            if not text:
+                continue
+            if role == "user":
+                update = update_user_message(text_block(text))
+            elif role == "assistant":
+                update = update_agent_message(text_block(text))
+            else:
+                continue
+            await self._conn.session_update(
+                session_id=session_id,
+                update=update,
+            )
 
     # ------------------------------------------------------------------
     # ACP protocol methods
@@ -604,15 +916,18 @@ class QwenPawACPAgent(Agent):
         **kwargs: Any,
     ) -> NewSessionResponse:
         session_id = uuid4().hex
+        ephemeral = bool(kwargs.get(ACP_EPHEMERAL_META_KEY))
         self._sessions[session_id] = {
             "cwd": cwd,
-            "user_id": f"acp_{session_id[:8]}",
+            "user_id": self._user_id_for(session_id),
             "mode": self.MODE_DEFAULT,
+            "ephemeral": ephemeral,
         }
         logger.info(
-            "ACP new_session: id=%s cwd=%s",
+            "ACP new_session: id=%s cwd=%s ephemeral=%s",
             session_id,
             cwd,
+            ephemeral,
         )
         # Advertise slash commands after the response is sent, so the
         # client has learned this session_id first.
@@ -634,7 +949,7 @@ class QwenPawACPAgent(Agent):
     ) -> LoadSessionResponse | None:
         self._sessions[session_id] = {
             "cwd": cwd,
-            "user_id": f"acp_{session_id[:8]}",
+            "user_id": self._user_id_for(session_id),
             "mode": self.MODE_DEFAULT,
         }
         logger.info(
@@ -642,6 +957,16 @@ class QwenPawACPAgent(Agent):
             session_id,
             cwd,
         )
+        # Replay the saved transcript so the client can rebuild its view.
+        # Done before returning so all history updates are delivered ahead
+        # of the response (and before the user's next prompt).
+        try:
+            await self._replay_session_history(session_id)
+        except Exception:  # pylint: disable=broad-except
+            logger.exception(
+                "Failed to replay ACP session history: %s",
+                session_id,
+            )
         asyncio.create_task(self._advertise_commands(session_id))
         return LoadSessionResponse(field_meta=self._session_meta())
 
@@ -669,6 +994,13 @@ class QwenPawACPAgent(Agent):
         user_id = session_info.get(
             "user_id",
             f"acp_{session_id[:8]}",
+        )
+        # Ephemeral (backend-warmup) sessions must not register a chat or
+        # persist state. The flag rides on ``session/new`` (recorded above) and
+        # is repeated on the prompt as a belt-and-suspenders for callers that
+        # only flag the prompt.
+        ephemeral = bool(
+            session_info.get("ephemeral") or kwargs.get(ACP_EPHEMERAL_META_KEY)
         )
 
         cancel_event = asyncio.Event()
@@ -707,6 +1039,7 @@ class QwenPawACPAgent(Agent):
             async for msg, _is_last in runner.query_handler(
                 msgs,
                 request=request,
+                ephemeral=ephemeral,
             ):
                 if cancel_event.is_set():
                     logger.info(
@@ -750,8 +1083,14 @@ class QwenPawACPAgent(Agent):
         **kwargs: Any,
     ) -> CloseSessionResponse | None:
         logger.info("ACP close_session: session=%s", session_id)
-        self._sessions.pop(session_id, None)
+        info = self._sessions.pop(session_id, None)
         self._cancel_events.pop(session_id, None)
+        # Defense in depth: query_handler already skips persistence for
+        # ephemeral (warmup) sessions, so normally nothing exists here. Delete
+        # any state file that slipped through so it can never leak into the
+        # console session list.
+        if info and info.get("ephemeral"):
+            self._delete_session_file(session_id)
         return CloseSessionResponse()
 
     async def list_sessions(  # pylint: disable=unused-argument
@@ -761,18 +1100,7 @@ class QwenPawACPAgent(Agent):
         **kwargs: Any,
     ) -> ListSessionsResponse:
         logger.info("ACP list_sessions: cwd=%s", cwd)
-        sessions: list[SessionInfo] = []
-        for sid, info in self._sessions.items():
-            sess_cwd = info.get("cwd", "")
-            if cwd is not None and sess_cwd != cwd:
-                continue
-            sessions.append(
-                SessionInfo(
-                    session_id=sid,
-                    cwd=sess_cwd,
-                    title=f"ACP session {sid[:8]}",
-                ),
-            )
+        sessions = await self.list_persisted_sessions(cwd=cwd)
         return ListSessionsResponse(sessions=sessions)
 
     async def resume_session(  # pylint: disable=unused-argument
@@ -792,7 +1120,7 @@ class QwenPawACPAgent(Agent):
         if session_id not in self._sessions:
             self._sessions[session_id] = {
                 "cwd": cwd,
-                "user_id": f"acp_{session_id[:8]}",
+                "user_id": self._user_id_for(session_id),
                 "mode": self.MODE_DEFAULT,
             }
         else:

@@ -379,6 +379,12 @@ class AgentRunner(Runner):
         query = _get_last_user_text(msgs)
         session_id = getattr(request, "session_id", "") or ""
 
+        # Ephemeral sessions (e.g. the paw TUI's backend-warmup session) run
+        # the turn but must leave no trace: no auto-registered chat, no
+        # persisted session state. The ACP server sets this for sessions
+        # flagged ephemeral via ``_meta``.
+        ephemeral = bool(kwargs.get("ephemeral"))
+
         # Check if query is a command (including /approval)
         logger.debug(f"Query: {query!r}, is_command: {_is_command(query)}")
         if query and _is_command(query):
@@ -747,7 +753,12 @@ class AgentRunner(Runner):
                 f"agent_id={self.agent_id}",
             )
 
-            if self._chat_manager is not None:
+            if ephemeral:
+                logger.debug(
+                    "Ephemeral session %s: skipping chat auto-registration",
+                    session_id,
+                )
+            elif self._chat_manager is not None:
                 _req_extra = getattr(request, "model_extra", None) or {}
                 _session_source = _req_extra.get("session_source", "chat")
                 logger.debug(
@@ -977,7 +988,7 @@ class AgentRunner(Runner):
                     ) + converted.args[1:]
             raise converted from e
         finally:
-            if agent is not None and session_state_loaded:
+            if agent is not None and session_state_loaded and not ephemeral:
                 # For isolated cron: restore the full history (snapshot) plus
                 # the new messages produced by this execution
                 if (
