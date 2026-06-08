@@ -704,6 +704,213 @@
     "toolsLoadError": "Failed to load tools from MCP server",
     "toolsConnecting": "MCP server is still connecting, please try again in a moment",
     "toolSchema": "Input Schema",
+    "market": {
+      "open": "MCP Marketplace",
+      "browse": "Browse MCP Marketplace",
+      "title": "MCP Marketplace",
+      "searchPlaceholder": "Search MCP servers…",
+      "categoryAll": "All",
+      "noResults": "No matching MCP templates",
+      "categories": {
+        "official": "Official",
+        "dev": "Development",
+        "data": "Data",
+        "web": "Web",
+        "productivity": "Productivity",
+        "cloud": "Cloud"
+      },
+      "templates": {
+        "aliyunCommon": {
+          "fields": {
+            "accessKeyId": "AccessKey ID",
+            "accessKeySecret": "AccessKey Secret"
+          }
+        },
+        "filesystem": {
+          "name": "Filesystem",
+          "description": "Read and write files in allowed directories",
+          "fields": {
+            "allowed_directories": "Allowed directories",
+            "allowed_directoriesPlaceholder": "/path/to/dir (comma or newline separated)"
+          }
+        },
+        "fetch": {
+          "name": "Fetch",
+          "description": "Fetch web pages and convert to Markdown"
+        },
+        "github": {
+          "name": "GitHub",
+          "description": "Manage repos, issues, and pull requests",
+          "fields": {
+            "token": "Personal Access Token"
+          }
+        },
+        "gitee": {
+          "name": "Gitee",
+          "description": "Manage Gitee repos, issues, pull requests, and notifications",
+          "fields": {
+            "token": "Personal access token",
+            "tokenPlaceholder": "https://gitee.com/profile/personal_access_tokens"
+          }
+        },
+        "gitlab": {
+          "name": "GitLab",
+          "description": "GitLab repos, issues, and merge requests",
+          "fields": {
+            "token": "Personal Access Token"
+          }
+        },
+        "postgres": {
+          "name": "PostgreSQL",
+          "description": "Read-only queries against PostgreSQL",
+          "fields": {
+            "connection": "Connection string",
+            "connectionPlaceholder": "postgresql://user:pass@host:5432/db"
+          }
+        },
+        "mysql": {
+          "name": "MySQL",
+          "description": "Read-only MySQL access (schema, SELECT, etc.)",
+          "fields": {
+            "host": "Host",
+            "hostPlaceholder": "127.0.0.1",
+            "port": "Port",
+            "portPlaceholder": "3306",
+            "user": "Username",
+            "password": "Password",
+            "database": "Database",
+            "readonly": "Read-only mode",
+            "readonlyPlaceholder": "true or false"
+          }
+        },
+        "redis": {
+          "name": "Redis",
+          "description": "Redis key-value get/set/list and more",
+          "fields": {
+            "url": "Redis URL",
+            "urlPlaceholder": "redis://localhost:6379"
+          }
+        },
+        "sqlite": {
+          "name": "SQLite",
+          "description": "Local SQLite database queries and analysis",
+          "fields": {
+            "path": "Database file path",
+            "pathPlaceholder": "/path/to/database.sqlite"
+          }
+        },
+        "yuque": {
+          "name": "Yuque",
+          "description": "Search, read, and manage Yuque knowledge base docs",
+          "fields": {
+            "token": "Yuque personal token",
+            "tokenPlaceholder": "Create at Yuque Settings → Tokens"
+          }
+        },
+        "aliyunAck": {
+          "name": "Alibaba Cloud ACK",
+          "description": "ACK clusters, kubectl, pod logs/events, Prometheus metrics, audit logs"
+        },
+        "aliyunObservability": {
+          "name": "Alibaba Cloud Observability",
+          "description": "SLS log query, cloud monitoring metrics, NL to SQL/PromQL",
+          "fields": {
+            "region": "Default region (optional)",
+            "regionPlaceholder": "cn-hangzhou"
+          }
+        },
+        "aliyunSls": {
+          "name": "Alibaba Cloud SLS",
+          "description": "Log Service (SLS) query and analysis",
+          "fields": {
+            "region": "SLS region",
+            "regionPlaceholder": "cn-shanghai"
+          }
+        },
+        "braveSearch": {
+          "name": "Brave Search",
+          "description": "Web search via Brave Search API",
+          "fields": {
+            "apiKey": "Brave API Key"
+          }
+        },
+        "puppeteer": {
+          "name": "Puppeteer",
+          "description": "Headless browser automation: navigate, screenshot, forms, scripts"
+        },
+        "time": {
+          "name": "Time",
+          "description": "Timezone conversion and current time queries"
+        },
+        "slack": {
+          "name": "Slack",
+          "description": "Send messages and access Slack workspace",
+          "fields": {
+            "botToken": "Bot Token",
+            "teamId": "Team ID"
+          }
+        },
+        "memory": {
+          "name": "Memory",
+          "description": "Persistent knowledge graph memory"
+        },
+        "jenkins": {
+          "name": "Jenkins",
+          "description": "Manage Jenkins jobs, builds, and pipelines",
+          "fields": {
+            "url": "Jenkins URL",
+            "urlPlaceholder": "https://your-jenkins-server.com",
+            "user": "Username",
+            "apiToken": "API Token",
+            "apiTokenPlaceholder": "Jenkins → User → Configure → API Token"
+          }
+        },
+        "remoteHttp": {
+          "name": "Remote HTTP MCP",
+          "description": "Connect to a Streamable HTTP remote MCP server",
+          "fields": {
+            "url": "Server URL",
+            "urlPlaceholder": "https://mcp.example.com/mcp"
+          }
+        }
+      }
+    },
+    "wizard": {
+      "back": "Back to marketplace",
+      "docs": "Docs",
+      "install": "Install",
+      "noFields": "No extra configuration required",
+      "keyConflict": "This client key already exists",
+      "keyHint": "1–100 characters: letters, digits, hyphens, and underscores only"
+    },
+    "keyValidation": {
+      "empty": "Client key must not be empty",
+      "tooLong": "Client key must be at most 100 characters",
+      "invalidChars": "Key may only contain letters, digits, hyphens (-), and underscores (_)",
+      "reserved": "This key conflicts with a reserved system path",
+      "invalidKey": "Invalid key \"{{key}}\": {{reason}}"
+    },
+    "connectivity": {
+      "disabled": "Disabled",
+      "connecting": "Connecting",
+      "available": "Available",
+      "unavailable": "Unavailable",
+      "refresh": "Check connectivity",
+      "refreshSuccess": "MCP server is reachable",
+      "refreshError": "Connectivity check failed"
+    },
+    "card": {
+      "fromMarket": "Market",
+      "clientKey": "Key: {{key}}"
+    },
+    "custom": {
+      "add": "Custom setup"
+    },
+    "advanced": {
+      "jsonImport": "Advanced · JSON import",
+      "hint": "For power users migrating config from Cursor / Claude Desktop",
+      "invalidJson": "Invalid JSON format"
+    },
     "tab": {
       "json": "JSON Import",
       "form": "Form Mode"

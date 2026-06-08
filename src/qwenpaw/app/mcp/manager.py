@@ -87,6 +87,80 @@ class MCPClientManager:
         async with self._lock:
             return self._clients.get(key)
 
+    async def resolve_connection_status(
+        self,
+        key: str,
+        client_config: "MCPClientConfig",
+        *,
+        probe: bool = False,
+        probe_timeout: float = 8.0,
+    ) -> tuple[str, str | None]:
+        # pylint: disable=too-many-return-statements
+        """Return runtime connectivity for a configured client.
+
+        Status is one of: ``disabled``, ``connecting``, ``available``,
+        ``unavailable``.
+        """
+        if not client_config.enabled:
+            return "disabled", None
+
+        async with self._lock:
+            client = self._clients.get(key)
+
+        if client is None:
+            return "unavailable", "Client is not connected to the runtime"
+
+        lifecycle_task = getattr(client, "_lifecycle_task", None)
+        if (
+            lifecycle_task is not None
+            and not lifecycle_task.done()
+            and not client.is_connected
+        ):
+            return "connecting", None
+
+        if not client.is_connected:
+            return "unavailable", "MCP server is not connected"
+
+        if not probe:
+            return "available", None
+
+        try:
+            await asyncio.wait_for(client.list_tools(), timeout=probe_timeout)
+            return "available", None
+        except Exception as exc:
+            return "unavailable", str(exc) or exc.__class__.__name__
+
+    async def refresh_connection(
+        self,
+        key: str,
+        client_config: "MCPClientConfig",
+        timeout: float = 30.0,
+    ) -> tuple[str, str | None]:
+        """Reconnect (or reload) a client and probe tool listing."""
+        if not client_config.enabled:
+            return "disabled", None
+
+        client = await self.get_client(key)
+        try:
+            if client is not None and client.is_connected:
+                await asyncio.wait_for(client.reload(), timeout=timeout)
+            else:
+                await self.replace_client(key, client_config, timeout=timeout)
+        except Exception as exc:
+            logger.warning(
+                f"Refresh connection failed for MCP client '{key}': {exc}",
+                exc_info=True,
+            )
+            return "unavailable", str(exc) or exc.__class__.__name__
+
+        probe_timeout = min(timeout, 15.0)
+        return await self.resolve_connection_status(
+            key,
+            client_config,
+            probe=True,
+            probe_timeout=probe_timeout,
+        )
+
     async def replace_client(
         self,
         key: str,
@@ -106,7 +180,7 @@ class MCPClientManager:
         """
         # 1. Create and connect new client outside lock (may be slow)
         logger.debug(f"Connecting new MCP client: {key}")
-        new_client = self._build_client(client_config)
+        new_client = self._build_client(client_config, client_key=key)
 
         try:
             # Add timeout to prevent indefinite blocking
@@ -180,7 +254,7 @@ class MCPClientManager:
             client_config: Client configuration
             timeout: Connection timeout in seconds (default 60s)
         """
-        client = self._build_client(client_config)
+        client = self._build_client(client_config, client_key=key)
 
         try:
             await asyncio.wait_for(client.connect(), timeout=timeout)
@@ -243,7 +317,10 @@ class MCPClientManager:
         return result
 
     @staticmethod
-    def _build_client(client_config: "MCPClientConfig") -> Any:
+    def _build_client(
+        client_config: "MCPClientConfig",
+        client_key: str = "",
+    ) -> Any:
         """Build MCP client instance by configured transport."""
         rebuild_info = {
             "name": client_config.name,
@@ -272,6 +349,7 @@ class MCPClientManager:
                 tool_whitelist=whitelist,
             )
             setattr(client, "_qwenpaw_rebuild_info", rebuild_info)
+            setattr(client, "_qwenpaw_mcp_client_key", client_key or "")
             return client
 
         headers: dict = dict(client_config.headers or {})
@@ -291,4 +369,5 @@ class MCPClientManager:
             tool_whitelist=whitelist,
         )
         setattr(client, "_qwenpaw_rebuild_info", rebuild_info)
+        setattr(client, "_qwenpaw_mcp_client_key", client_key or "")
         return client

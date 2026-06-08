@@ -543,6 +543,213 @@
     "toolsLoadError": "获取 MCP 服务器工具列表失败",
     "toolsConnecting": "MCP 服务器正在连接中，请稍后重试",
     "toolSchema": "输入参数",
+    "market": {
+      "open": "MCP 市场",
+      "browse": "浏览 MCP 市场",
+      "title": "MCP 市场",
+      "searchPlaceholder": "搜索 MCP 服务…",
+      "categoryAll": "全部",
+      "noResults": "没有匹配的 MCP 模板",
+      "categories": {
+        "official": "官方",
+        "dev": "开发",
+        "data": "数据",
+        "web": "网络",
+        "productivity": "协作",
+        "cloud": "云服务"
+      },
+      "templates": {
+        "aliyunCommon": {
+          "fields": {
+            "accessKeyId": "AccessKey ID",
+            "accessKeySecret": "AccessKey Secret"
+          }
+        },
+        "filesystem": {
+          "name": "文件系统",
+          "description": "读写本地目录中的文件",
+          "fields": {
+            "allowed_directories": "允许访问的目录",
+            "allowed_directoriesPlaceholder": "/path/to/dir（多个用逗号或换行分隔）"
+          }
+        },
+        "fetch": {
+          "name": "网页抓取",
+          "description": "获取并转换网页内容为 Markdown"
+        },
+        "github": {
+          "name": "GitHub",
+          "description": "管理仓库、Issue 与 Pull Request",
+          "fields": {
+            "token": "Personal Access Token"
+          }
+        },
+        "gitee": {
+          "name": "Gitee",
+          "description": "管理 Gitee 仓库、Issue、Pull Request 与通知",
+          "fields": {
+            "token": "私人令牌",
+            "tokenPlaceholder": "https://gitee.com/profile/personal_access_tokens"
+          }
+        },
+        "gitlab": {
+          "name": "GitLab",
+          "description": "GitLab 仓库、Issue 与合并请求管理",
+          "fields": {
+            "token": "Personal Access Token"
+          }
+        },
+        "postgres": {
+          "name": "PostgreSQL",
+          "description": "只读查询 PostgreSQL 数据库",
+          "fields": {
+            "connection": "连接字符串",
+            "connectionPlaceholder": "postgresql://user:pass@host:5432/db"
+          }
+        },
+        "mysql": {
+          "name": "MySQL",
+          "description": "只读查询 MySQL 数据库（表结构、SELECT 等）",
+          "fields": {
+            "host": "主机地址",
+            "hostPlaceholder": "127.0.0.1",
+            "port": "端口",
+            "portPlaceholder": "3306",
+            "user": "用户名",
+            "password": "密码",
+            "database": "数据库名",
+            "readonly": "只读模式",
+            "readonlyPlaceholder": "true 或 false"
+          }
+        },
+        "redis": {
+          "name": "Redis",
+          "description": "读写 Redis 键值，支持 get/set/list 等",
+          "fields": {
+            "url": "Redis 连接 URL",
+            "urlPlaceholder": "redis://localhost:6379"
+          }
+        },
+        "sqlite": {
+          "name": "SQLite",
+          "description": "本地 SQLite 数据库查询与分析",
+          "fields": {
+            "path": "数据库文件路径",
+            "pathPlaceholder": "/path/to/database.sqlite"
+          }
+        },
+        "yuque": {
+          "name": "语雀",
+          "description": "搜索、阅读与管理语雀知识库文档",
+          "fields": {
+            "token": "语雀个人 Token",
+            "tokenPlaceholder": "在语雀设置 → Token 中创建"
+          }
+        },
+        "aliyunAck": {
+          "name": "阿里云 ACK 容器",
+          "description": "ACK 集群管理、kubectl 操作、Pod 日志/事件、Prometheus 指标与审计日志"
+        },
+        "aliyunObservability": {
+          "name": "阿里云可观测",
+          "description": "SLS 日志查询、云监控指标、自然语言转 SQL/PromQL",
+          "fields": {
+            "region": "默认地域（可选）",
+            "regionPlaceholder": "cn-hangzhou"
+          }
+        },
+        "aliyunSls": {
+          "name": "阿里云 SLS",
+          "description": "日志服务 SLS 查询与分析",
+          "fields": {
+            "region": "SLS 地域",
+            "regionPlaceholder": "cn-shanghai"
+          }
+        },
+        "braveSearch": {
+          "name": "Brave 搜索",
+          "description": "通过 Brave Search API 进行网页搜索",
+          "fields": {
+            "apiKey": "Brave API Key"
+          }
+        },
+        "puppeteer": {
+          "name": "Puppeteer 浏览器",
+          "description": "无头浏览器自动化：打开页面、截图、填表与执行脚本"
+        },
+        "time": {
+          "name": "时间",
+          "description": "时区转换与当前时间查询"
+        },
+        "slack": {
+          "name": "Slack",
+          "description": "发送消息并访问 Slack 工作区",
+          "fields": {
+            "botToken": "Bot Token",
+            "teamId": "Team ID"
+          }
+        },
+        "memory": {
+          "name": "记忆",
+          "description": "基于知识图谱的持久记忆"
+        },
+        "jenkins": {
+          "name": "Jenkins",
+          "description": "管理 Jenkins 任务、构建与流水线",
+          "fields": {
+            "url": "Jenkins 地址",
+            "urlPlaceholder": "https://your-jenkins-server.com",
+            "user": "用户名",
+            "apiToken": "API Token",
+            "apiTokenPlaceholder": "Jenkins 用户设置 → API Token"
+          }
+        },
+        "remoteHttp": {
+          "name": "远程 HTTP MCP",
+          "description": "连接 Streamable HTTP 远程 MCP 服务器",
+          "fields": {
+            "url": "服务器 URL",
+            "urlPlaceholder": "https://mcp.example.com/mcp"
+          }
+        }
+      }
+    },
+    "wizard": {
+      "back": "返回市场",
+      "docs": "文档",
+      "install": "安装",
+      "noFields": "无需额外配置，可直接安装",
+      "keyConflict": "该客户端标识符已存在，请更换",
+      "keyHint": "1–100 个字符，仅允许英文字母、数字、连字符与下划线"
+    },
+    "keyValidation": {
+      "empty": "客户端标识符不能为空",
+      "tooLong": "客户端标识符不能超过 100 个字符",
+      "invalidChars": "标识符仅允许英文字母、数字、连字符（-）与下划线（_）",
+      "reserved": "该标识符与系统保留路径冲突，请更换",
+      "invalidKey": "标识符「{{key}}」无效：{{reason}}"
+    },
+    "connectivity": {
+      "disabled": "未启用",
+      "connecting": "连接中",
+      "available": "可用",
+      "unavailable": "不可用",
+      "refresh": "检测联通性",
+      "refreshSuccess": "MCP 服务可用",
+      "refreshError": "联通性检测失败"
+    },
+    "card": {
+      "fromMarket": "市场",
+      "clientKey": "标识符：{{key}}"
+    },
+    "custom": {
+      "add": "自定义添加"
+    },
+    "advanced": {
+      "jsonImport": "高级 · JSON 导入",
+      "hint": "适用于从 Cursor / Claude Desktop 等配置迁移的高级用户",
+      "invalidJson": "JSON 格式无效"
+    },
     "tab": {
       "json": "JSON 导入",
       "form": "表单模式"

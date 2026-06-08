@@ -1,14 +1,37 @@
 .mcpPage {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  height: 100%;
+  overflow: hidden;
+}
+
+.mcpContainer {
+  flex: 1;
+  overflow: auto;
+  padding-bottom: 24px;
 }
 
 .emptyState {
-  flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 16px;
+  padding: 60px 16px;
+  min-height: 240px;
+}
+
+.emptyActions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.headerActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .pageHeader {
@@ -46,7 +69,8 @@
 }
 
 .mcpCard {
-  height: auto;
+  min-height: 150px;
+  height: 100%;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -55,8 +79,14 @@
   border: 1px solid var(--color-border-secondary, #eae8e7);
   box-sizing: border-box;
   transition: all 0.2s ease-in-out;
+  padding: 16px;
+  cursor: pointer;
 
   :global(.qwenpaw-card-body) {
+    padding: 0 !important;
+  }
+
+  :global(.qwenpaw-spark-card-wrapper) {
     padding: 0 !important;
   }
 
@@ -79,6 +109,66 @@
     border-color: var(--color-border-secondary, #eae8e7);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   }
+}
+
+.installedCardTop {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.installedCardHeadText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.installedCardTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.installedCardMeta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.marketBadge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(97, 92, 237, 0.1);
+  color: #615ced;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.clientKeyText {
+  font-size: 12px;
+  color: #888;
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+.cardHeaderOauth {
+  margin-top: -4px;
+}
+
+.oauthIconRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .cardHeader {
@@ -136,6 +226,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
   padding-top: 12px;
   margin-top: auto;
@@ -209,6 +300,54 @@
   color: rgba(20, 20, 19, 0.45);
 }
 
+.connectivityRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.connectivityIconWrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+}
+
+.connectivityRefreshBtn {
+  width: 22px !important;
+  min-width: 22px !important;
+  height: 22px !important;
+  padding: 0 !important;
+}
+
+.connectivityRefreshLoading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.connectivityRefreshSpinner {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(20, 20, 19, 0.12);
+  border-top-color: #1677ff;
+  border-radius: 50%;
+  animation: mcpConnectivityRefreshSpin 0.65s linear infinite;
+  will-change: transform;
+}
+
+@keyframes mcpConnectivityRefreshSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .editJsonTextArea {
   width: 100%;
   min-height: 500px;
@@ -236,15 +375,18 @@
 
 .mcpGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(346px, 1fr));
   gap: 16px;
-  padding: 16px;
+  padding: 16px 16px 32px;
 }
 
 .loading {
   text-align: center;
   padding: 60px;
-  color: rgba(20, 20, 19, 0.45);
+}
+
+.loadingText {
+  color: #999;
 }
 
 .modalFooter {
@@ -407,6 +549,19 @@
     color: rgba(255, 255, 255, 0.65);
   }
 
+  .clientKeyText {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .marketBadge {
+    background: rgba(97, 92, 237, 0.2);
+    color: #8b87f0;
+  }
+
+  .loadingText {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
   .cardFooter {
     border-top-color: rgba(255, 255, 255, 0.08);
   }
@@ -491,5 +646,10 @@
       background: rgba(255, 255, 255, 0.08);
       color: rgba(255, 255, 255, 0.75);
     }
+  }
+
+  .connectivityRefreshSpinner {
+    border-color: rgba(255, 255, 255, 0.15);
+    border-top-color: #4096ff;
   }
 }

@@ -40,6 +40,10 @@ export interface MCPClientInfo {
   tools: string[] | null;
   /** OAuth status (null if OAuth not configured) */
   oauth_status: MCPClientOAuthStatus | null;
+  /** Runtime connectivity to the MCP server */
+  connection_status: "disabled" | "connecting" | "available" | "unavailable";
+  /** Detail when unavailable or connecting */
+  connection_message?: string | null;
 }
 
 export interface MCPOAuthStartRequest {

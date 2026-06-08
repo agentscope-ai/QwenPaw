@@ -1,0 +1,341 @@
+.marketplaceModal {
+  :global(.ant-modal-content) {
+    border-radius: 12px;
+  }
+
+  :global(.ant-modal-header) {
+    border-bottom: none;
+    padding: 24px 24px 0;
+  }
+
+  :global(.ant-modal-body) {
+    padding: 16px 24px 24px;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+}
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 200px;
+}
+
+.categoryTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.categoryTab {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-secondary, #e8e8e8);
+  background: var(--color-bg-base, #fff);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #666;
+
+  &:hover {
+    border-color: #615ced;
+    color: #615ced;
+  }
+
+  &.active {
+    border-color: #615ced;
+    background: rgba(97, 92, 237, 0.08);
+    color: #615ced;
+    font-weight: 500;
+  }
+}
+
+.templatesGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.templateCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--color-border-secondary, #e8e8e8);
+  border-radius: 10px;
+  background: var(--color-bg-base, #fff);
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    border-color: #615ced;
+    box-shadow: 0 4px 12px rgba(97, 92, 237, 0.1);
+  }
+
+  &.templateCardActive {
+    border-color: #615ced;
+    box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.15);
+  }
+}
+
+.templateIconBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.templateIconImg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.templateIconBrand {
+  background: #ffffff !important;
+  border: 1px solid #eae8e7 !important;
+}
+
+.mcpMarketIcon {
+  display: block;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.mcpMarketTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+:global(.dark-mode) {
+  .mcpMarketIcon {
+    filter: brightness(0) invert(1);
+  }
+
+  .templateIconImg {
+    filter: none;
+  }
+
+  .templateIconBrand {
+    background: #ffffff !important;
+    border-color: #eae8e7 !important;
+  }
+}
+
+.templateIconLabel {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+.templateCardBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.templateCardName {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(20, 20, 19, 0.88);
+  margin-bottom: 4px;
+}
+
+.templateCardDesc {
+  font-size: 12px;
+  color: #888;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.templateCardTransport {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(239, 240, 243, 0.9);
+  color: #8e8c99;
+  flex-shrink: 0;
+}
+
+.emptyTemplates {
+  text-align: center;
+  padding: 32px;
+  color: #999;
+  font-size: 14px;
+}
+
+.wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.wizardBack {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: #615ced;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  width: fit-content;
+
+  &:hover {
+    opacity: 0.85;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.wizardHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.wizardHeader .templateIconBadge {
+  flex-shrink: 0;
+}
+
+.wizardTitle {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.wizardDesc {
+  margin: 0;
+  font-size: 13px;
+  color: #666;
+}
+
+.docsLink {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #615ced;
+  white-space: nowrap;
+}
+
+.wizardField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fieldLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: #555;
+}
+
+.required {
+  color: #c0392b;
+  margin-left: 2px;
+}
+
+.fieldError {
+  font-size: 12px;
+  color: #ff4d4f;
+}
+
+.fieldHint {
+  font-size: 12px;
+  color: #888;
+  line-height: 1.4;
+}
+
+.wizardNoFields {
+  font-size: 13px;
+  color: #888;
+  margin: 0;
+}
+
+.wizardFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+:global(.dark-mode) {
+  .categoryTab {
+    background: #1f1f1f;
+    border-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.55);
+
+    &.active {
+      background: rgba(97, 92, 237, 0.15);
+      color: #8b87f0;
+    }
+  }
+
+  .templateCard {
+    background: #1f1f1f;
+    border-color: rgba(255, 255, 255, 0.1);
+
+    &:hover,
+    &.templateCardActive {
+      border-color: #615ced;
+    }
+  }
+
+  .templateCardName {
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .templateCardDesc {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .wizardHeader,
+  .wizardFooter {
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .wizardDesc,
+  .fieldLabel {
+    color: rgba(255, 255, 255, 0.55);
+  }
+}
+
+@media (max-width: 640px) {
+  .templatesGrid {
+    grid-template-columns: 1fr;
+  }
+}

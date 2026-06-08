@@ -11,17 +11,39 @@ import {
 import { Spin } from "antd";
 import type { MCPClientInfo, MCPToolInfo } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
+import {
+  hasStaticBearerAuth,
+  parseMarketClientMeta,
+  resolveClientDisplayDescription,
+  resolveClientDisplayName,
+  resolveMarketTemplate,
+} from "../market/clientMeta";
+import {
+  MCPTemplateIcon,
+  MCPCustomClientIcon,
+  type MCPMarketIconId,
+} from "../market/templateIcons";
+import marketStyles from "./MCPMarketplaceModal.module.less";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import {
   EyeOutlined,
   EyeInvisibleOutlined,
   ToolOutlined,
+  ReloadOutlined,
 } from "@ant-design/icons";
-import { ShieldCheck, ShieldAlert, ShieldX, KeyRound } from "lucide-react";
+import {
+  ShieldCheck,
+  ShieldAlert,
+  ShieldX,
+  KeyRound,
+  Link2,
+} from "lucide-react";
 import api from "../../../../api";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { MCPOAuthSection } from "./MCPOAuthSection";
+import { MCPInstallWizard } from "./MCPInstallWizard";
+import type { MCPClientUpdatePayload } from "../market/installTemplate";
 import styles from "../index.module.less";
 
 interface MCPClientUpdate {
@@ -43,6 +65,7 @@ interface MCPClientCardProps {
   onDelete: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onUpdate: (key: string, updates: MCPClientUpdate) => Promise<boolean>;
   onRefresh?: () => Promise<void>;
+  onRefreshConnection?: (client: MCPClientInfo) => Promise<unknown>;
 }
 
 export const MCPClientCard = React.memo(function MCPClientCard({
@@ -51,12 +74,15 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   onDelete,
   onUpdate,
   onRefresh,
+  onRefreshConnection,
 }: MCPClientCardProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark } = useTheme();
   const [isHovered, setIsHovered] = useState(false);
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
+  const [marketEditOpen, setMarketEditOpen] = useState(false);
+  const [marketSaving, setMarketSaving] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [toolsModalOpen, setToolsModalOpen] = useState(false);
   const [tools, setTools] = useState<MCPToolInfo[]>([]);
@@ -73,11 +99,36 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   );
   const [oauthAuthEndpoint, setOauthAuthEndpoint] = useState("");
   const [oauthTokenEndpoint, setOauthTokenEndpoint] = useState("");
+  const [connectionRefreshing, setConnectionRefreshing] = useState(false);
 
-  // Determine if MCP client is remote or local based on command
+  const marketMeta = useMemo(
+    () => parseMarketClientMeta(client),
+    [client.key, client.description],
+  );
+
+  const displayName = useMemo(
+    () => resolveClientDisplayName(client, marketMeta, t),
+    [client, marketMeta, t],
+  );
+
+  const displayDescription = useMemo(
+    () => resolveClientDisplayDescription(client, marketMeta, t),
+    [client, marketMeta, t],
+  );
+
+  const marketTemplate = useMemo(() => resolveMarketTemplate(client), [client]);
+
   const isRemote =
     client.transport === "streamable_http" || client.transport === "sse";
-  const clientType = isRemote ? "Remote" : "Local";
+
+  const showOauthButton = isRemote && !hasStaticBearerAuth(client);
+
+  const transportLabel =
+    client.transport === "stdio"
+      ? marketTemplate?.command === "uvx"
+        ? "uvx"
+        : "Stdio"
+      : "HTTP";
 
   const oauthStatus = client.oauth_status;
   const now = Date.now() / 1000;
@@ -87,9 +138,51 @@ export const MCPClientCard = React.memo(function MCPClientCard({
     !!oauthStatus?.authorized && oauthStatus.expires_at <= now;
   const hasOauth = !!oauthStatus;
 
+  const connectionStatus = client.connection_status ?? "unavailable";
+
+  const connectivityIconColor = useMemo(() => {
+    const colors: Record<
+      NonNullable<MCPClientInfo["connection_status"]>,
+      string
+    > = {
+      disabled: "#bfbfbf",
+      connecting: "#faad14",
+      available: "#52c41a",
+      unavailable: "#ff4d4f",
+    };
+    return colors[connectionStatus] ?? "#ff4d4f";
+  }, [connectionStatus]);
+
+  const connectivityTooltip = useMemo(() => {
+    if (client.connection_message) {
+      return client.connection_message;
+    }
+    const labels: Record<
+      NonNullable<MCPClientInfo["connection_status"]>,
+      string
+    > = {
+      disabled: t("mcp.connectivity.disabled"),
+      connecting: t("mcp.connectivity.connecting"),
+      available: t("mcp.connectivity.available"),
+      unavailable: t("mcp.connectivity.unavailable"),
+    };
+    return labels[connectionStatus] ?? t("mcp.connectivity.unavailable");
+  }, [client.connection_message, connectionStatus, t]);
+
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onToggle(client, e);
+  };
+
+  const handleRefreshConnection = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!onRefreshConnection || connectionRefreshing) return;
+    setConnectionRefreshing(true);
+    try {
+      await onRefreshConnection(client);
+    } finally {
+      setConnectionRefreshing(false);
+    }
   };
 
   const handleDeleteClick = (e: React.MouseEvent) => {
@@ -103,10 +196,27 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   };
 
   const handleCardClick = () => {
+    if (marketTemplate) {
+      setMarketEditOpen(true);
+      return;
+    }
     const jsonStr = JSON.stringify(client, null, 2);
     setEditedJson(jsonStr);
     setIsEditing(false);
     setJsonModalOpen(true);
+  };
+
+  const handleMarketSave = async (updates: MCPClientUpdatePayload) => {
+    setMarketSaving(true);
+    try {
+      const success = await onUpdate(client.key, updates);
+      if (success) {
+        setMarketEditOpen(false);
+      }
+      return success;
+    } finally {
+      setMarketSaving(false);
+    }
   };
 
   const handleSaveJson = async () => {
@@ -198,59 +308,105 @@ export const MCPClientCard = React.memo(function MCPClientCard({
           client.enabled ? styles.enabledCard : ""
         } ${isHovered ? styles.hover : styles.normal}`}
       >
-        <div className={styles.cardHeader}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              minWidth: 0,
-            }}
-          >
-            <Tooltip title={client.name}>
-              <h3 className={styles.mcpTitle}>{client.name}</h3>
+        <div className={styles.installedCardTop}>
+          {marketMeta.templateId && marketTemplate ? (
+            <MCPTemplateIcon
+              iconId={marketTemplate.iconId as MCPMarketIconId}
+            />
+          ) : (
+            <MCPCustomClientIcon />
+          )}
+          <div className={styles.installedCardHeadText}>
+            <div className={styles.installedCardTitleRow}>
+              <Tooltip title={displayName}>
+                <h3 className={styles.mcpTitle}>{displayName}</h3>
+              </Tooltip>
+              {marketMeta.fromMarket && (
+                <span className={styles.marketBadge}>
+                  {t("mcp.card.fromMarket")}
+                </span>
+              )}
+            </div>
+            <Tooltip title={client.key}>
+              <span className={styles.clientKeyText}>
+                {t("mcp.card.clientKey", { key: client.key })}
+              </span>
             </Tooltip>
-            <span
-              className={`${styles.typeBadge} ${
-                isRemote ? styles.remote : styles.local
-              }`}
-            >
-              {clientType}
-            </span>
-            {hasOauth && isOauthExpired && (
-              <Tooltip title={t("mcp.oauth.expired")}>
-                <ShieldAlert
-                  size={13}
-                  style={{ color: "#e67e22", flexShrink: 0 }}
-                />
-              </Tooltip>
-            )}
-            {hasOauth && isOauthAuthorized && (
-              <Tooltip title={t("mcp.oauth.authorized")}>
-                <ShieldCheck
-                  size={13}
-                  style={{ color: "#27ae60", flexShrink: 0 }}
-                />
-              </Tooltip>
-            )}
-            {hasOauth && !isOauthAuthorized && !isOauthExpired && (
-              <Tooltip title={t("mcp.oauth.notAuthorized")}>
-                <ShieldX
-                  size={13}
-                  style={{ color: "#7f8c8d", flexShrink: 0 }}
-                />
-              </Tooltip>
-            )}
           </div>
-          <div className={styles.statusContainer}>
-            <span className={styles.statusDot} />
-            <span className={styles.statusText}>
-              {client.enabled ? t("common.enabled") : t("common.disabled")}
+          <div className={styles.installedCardMeta}>
+            <span className={marketStyles.templateCardTransport}>
+              {transportLabel}
             </span>
+            <div className={styles.statusContainer}>
+              <span className={styles.statusDot} />
+              <span className={styles.statusText}>
+                {client.enabled ? t("common.enabled") : t("common.disabled")}
+              </span>
+            </div>
+            <div className={styles.connectivityRow}>
+              <Tooltip title={connectivityTooltip}>
+                <span className={styles.connectivityIconWrap}>
+                  <Link2
+                    size={16}
+                    strokeWidth={2.25}
+                    style={{ color: connectivityIconColor, flexShrink: 0 }}
+                  />
+                </span>
+              </Tooltip>
+              {client.enabled &&
+                onRefreshConnection &&
+                (connectionRefreshing ? (
+                  <span
+                    className={styles.connectivityRefreshLoading}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <span className={styles.connectivityRefreshSpinner} />
+                  </span>
+                ) : (
+                  <Button
+                    type="text"
+                    size="small"
+                    className={styles.connectivityRefreshBtn}
+                    icon={<ReloadOutlined />}
+                    onClick={handleRefreshConnection}
+                  />
+                ))}
+            </div>
           </div>
         </div>
 
-        <p className={styles.mcpDescription}>{client.description || "-"}</p>
+        {hasOauth && (
+          <div className={styles.cardHeaderOauth}>
+            <div className={styles.oauthIconRow}>
+              {isOauthExpired && (
+                <Tooltip title={t("mcp.oauth.expired")}>
+                  <ShieldAlert
+                    size={13}
+                    style={{ color: "#e67e22", flexShrink: 0 }}
+                  />
+                </Tooltip>
+              )}
+              {isOauthAuthorized && (
+                <Tooltip title={t("mcp.oauth.authorized")}>
+                  <ShieldCheck
+                    size={13}
+                    style={{ color: "#27ae60", flexShrink: 0 }}
+                  />
+                </Tooltip>
+              )}
+              {!isOauthAuthorized && !isOauthExpired && (
+                <Tooltip title={t("mcp.oauth.notAuthorized")}>
+                  <ShieldX
+                    size={13}
+                    style={{ color: "#7f8c8d", flexShrink: 0 }}
+                  />
+                </Tooltip>
+              )}
+            </div>
+          </div>
+        )}
+
+        <p className={styles.mcpDescription}>{displayDescription || "-"}</p>
 
         <div className={styles.cardFooter}>
           <Button
@@ -262,7 +418,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
           >
             {t("mcp.tools")}
           </Button>
-          {isRemote && (
+          {showOauthButton && (
             <Button
               className={styles.toggleButton}
               onClick={(e) => {
@@ -339,7 +495,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
       </Modal>
 
       <Modal
-        title={`${client.name} - ${t("mcp.tools")}`}
+        title={`${displayName} - ${t("mcp.tools")}`}
         open={toolsModalOpen}
         onCancel={() => setToolsModalOpen(false)}
         footer={
@@ -410,7 +566,28 @@ export const MCPClientCard = React.memo(function MCPClientCard({
       </Modal>
 
       <Modal
-        title={`${client.name} - Configuration`}
+        title={`${displayName} — ${t("common.edit")}`}
+        open={marketEditOpen}
+        onCancel={() => !marketSaving && setMarketEditOpen(false)}
+        footer={null}
+        width={640}
+        destroyOnClose
+      >
+        {marketTemplate && (
+          <MCPInstallWizard
+            template={marketTemplate}
+            existingKeys={[]}
+            editClient={client}
+            marketUserNote={marketMeta.userNote}
+            saving={marketSaving}
+            onBack={() => setMarketEditOpen(false)}
+            onSave={handleMarketSave}
+          />
+        )}
+      </Modal>
+
+      <Modal
+        title={`${displayName} - Configuration`}
         open={jsonModalOpen}
         onCancel={() => setJsonModalOpen(false)}
         footer={
@@ -472,7 +649,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
             ) : (
               <ShieldX size={16} style={{ color: "#7f8c8d" }} />
             )}
-            {`${client.name} — ${t("mcp.oauth.manage")}`}
+            {`${displayName} — ${t("mcp.oauth.manage")}`}
           </div>
         }
         open={oauthModalOpen}

@@ -4,6 +4,10 @@ import api from "../../../api";
 import type { MCPClientInfo } from "../../../api/types";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
+import {
+  getMcpClientKeyErrorMessage,
+  normalizeMcpClientKey,
+} from "./utils/mcpClientKey";
 
 export function useMCP() {
   const { t } = useTranslation();
@@ -45,9 +49,15 @@ export function useMCP() {
         cwd?: string;
       },
     ) => {
+      const normalizedKey = normalizeMcpClientKey(key);
+      const keyError = getMcpClientKeyErrorMessage(normalizedKey || key, t);
+      if (keyError) {
+        message.error(keyError);
+        return false;
+      }
       try {
         await api.createMCPClient({
-          client_key: key,
+          client_key: normalizedKey,
           client: clientData,
         });
         message.success(t("mcp.createSuccess"));
@@ -120,6 +130,65 @@ export function useMCP() {
     [t, loadClients],
   );
 
+  const probeConnection = useCallback(
+    async (client: MCPClientInfo): Promise<MCPClientInfo> => {
+      try {
+        await api.listMCPTools(client.key);
+        return {
+          ...client,
+          connection_status: "available",
+          connection_message: null,
+        };
+      } catch (error: unknown) {
+        const errMsg = error instanceof Error ? error.message : "";
+        const connecting =
+          errMsg.includes("connecting") || errMsg.includes("not ready");
+        return {
+          ...client,
+          connection_status: connecting ? "connecting" : "unavailable",
+          connection_message: errMsg || null,
+        };
+      }
+    },
+    [],
+  );
+
+  const refreshConnection = useCallback(
+    async (client: MCPClientInfo) => {
+      try {
+        let updated: MCPClientInfo;
+        try {
+          updated = await api.refreshMCPConnection(client.key);
+        } catch (error: unknown) {
+          const errMsg = error instanceof Error ? error.message : "";
+          if (!errMsg.includes("Method Not Allowed")) {
+            throw error;
+          }
+          updated = await probeConnection(client);
+        }
+        setClients((prev) =>
+          prev.map((c) => (c.key === updated.key ? updated : c)),
+        );
+        if (updated.connection_status === "available") {
+          message.success(t("mcp.connectivity.refreshSuccess"));
+        } else if (updated.connection_status === "unavailable") {
+          message.warning(
+            updated.connection_message || t("mcp.connectivity.unavailable"),
+          );
+        }
+        return updated;
+      } catch (error: unknown) {
+        const errMsg =
+          error instanceof Error
+            ? error.message
+            : t("mcp.connectivity.refreshError");
+        message.error(errMsg);
+        return null;
+      }
+    },
+    [t, probeConnection],
+  );
+
   return {
     clients,
     loading,
@@ -127,6 +196,7 @@ export function useMCP() {
     updateClient,
     toggleEnabled,
     deleteClient,
+    refreshConnection,
     refreshClients: loadClients,
   };
 }
