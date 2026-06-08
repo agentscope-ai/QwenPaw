@@ -30,6 +30,7 @@ Portions of the prompt-driven workflow are adapted from snarktank/ralph
 """
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any, AsyncGenerator
@@ -95,12 +96,19 @@ def _get_message(key: str, agent_id: str, **kwargs) -> str:
     return template.format(**kwargs) if kwargs else template
 
 
-def _is_file_corrupted(
+def _is_json_corrupted(
     loop_dir: Path,
     filename: str,
 ) -> bool:
-    """Return True if file exists but parsed to empty dict."""
-    return (loop_dir / filename).exists()
+    """Return True if file exists but contains invalid JSON."""
+    p = loop_dir / filename
+    if not p.exists():
+        return False
+    try:
+        json.loads(p.read_text(encoding="utf-8"))
+        return False
+    except json.JSONDecodeError:
+        return True
 
 
 # ── Tool-group name used for implementation tools ──────────
@@ -335,7 +343,7 @@ async def run_mission_phase1(
 
     # Check if agent signaled Phase 2 confirmation
     cfg = read_loop_config(loop_dir)
-    if not cfg and _is_file_corrupted(loop_dir, "loop_config.json"):
+    if not cfg and _is_json_corrupted(loop_dir, "loop_config.json"):
         await agent.memory.add(
             Msg(
                 "assistant",
@@ -573,7 +581,7 @@ async def run_mission_phase2(
 
             # Code-level completion check
             prd = read_prd(loop_dir)
-            if not prd and _is_file_corrupted(loop_dir, "prd.json"):
+            if not prd and _is_json_corrupted(loop_dir, "prd.json"):
                 await agent.memory.add(
                     Msg(
                         "assistant",

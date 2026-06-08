@@ -5,6 +5,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+_NOT_DICT_MSG = "File %s parsed as %s, not dict; returning {}."
+_NOT_DICT_RAW_MSG = "File %s raw_decode recovered %s, not dict; returning {}."
+
 
 def safe_json_loads(content: str, filepath: str = "") -> dict:
     """Parse JSON with corruption recovery.
@@ -24,13 +27,28 @@ def safe_json_loads(content: str, filepath: str = "") -> dict:
         Parsed dict, or ``{}`` when beyond recovery.
     """
     try:
-        return json.loads(content)
+        result = json.loads(content)
+        if not isinstance(result, dict):
+            logger.warning(
+                _NOT_DICT_MSG,
+                filepath,
+                type(result).__name__,
+            )
+            return {}
+        return result
     except json.JSONDecodeError:
         pass
 
     # Try to extract the first valid JSON object.
     try:
         result, _ = json.JSONDecoder().raw_decode(content)
+        if not isinstance(result, dict):
+            logger.warning(
+                _NOT_DICT_RAW_MSG,
+                filepath,
+                type(result).__name__,
+            )
+            return {}
         logger.warning(
             "File %s had corrupted JSON. "
             "Recovered first valid object via raw_decode.",
