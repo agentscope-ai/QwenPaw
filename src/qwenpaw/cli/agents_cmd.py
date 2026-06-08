@@ -22,6 +22,10 @@ from ..config.config import (
     generate_short_agent_id,
     save_agent_config,
 )
+from ..config.workspace_paths import (
+    WorkspacePathValidationError,
+    validate_agent_workspace_path,
+)
 from ..constant import WORKING_DIR
 from ..config.config import ModelSlotConfig
 from ..providers.provider_manager import ProviderManager
@@ -336,8 +340,13 @@ def _build_agent_workspace_dir(
         workspace_dir = workspace_dir.strip() or None
 
     if workspace_dir is not None:
-        return Path(workspace_dir).expanduser()
-    return (WORKING_DIR / "workspaces" / agent_id).expanduser()
+        path = Path(workspace_dir).expanduser()
+    else:
+        path = (WORKING_DIR / "workspaces" / agent_id).expanduser()
+    try:
+        return validate_agent_workspace_path(path)
+    except WorkspacePathValidationError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def _normalize_optional_text(value: Optional[str]) -> Optional[str]:

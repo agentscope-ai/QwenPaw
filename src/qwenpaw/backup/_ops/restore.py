@@ -29,6 +29,7 @@ from .._utils.safe_swap import (
 )
 from .._utils.signing import resolve_signature_action, sign_trusted_backup
 from ..models import BackupMeta, BackupValidationError, RestoreBackupRequest
+from ...config.workspace_paths import WorkspacePathValidationError
 from ...config.config import AgentProfileRef
 from ...config.utils import load_config, save_config
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
@@ -161,11 +162,18 @@ def _plan_agent_destinations(
             # Will be skipped in the staging loop; no need to plan a dst.
             continue
         ref = config_before.agents.profiles.get(aid)
-        dst, is_new = resolve_workspace_dst(
-            aid,
-            ref,
-            req.default_workspace_dir,
-        )
+        try:
+            dst, is_new = resolve_workspace_dst(
+                aid,
+                ref,
+                req.default_workspace_dir,
+            )
+        except WorkspacePathValidationError as exc:
+            raise BackupValidationError(
+                "invalid_workspace_restore_target",
+                str(exc),
+                exc.details,
+            ) from exc
 
         # Conflict: two agents in the same restore batch resolve to the
         # same dir.

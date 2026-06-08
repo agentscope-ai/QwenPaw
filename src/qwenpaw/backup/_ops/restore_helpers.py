@@ -18,6 +18,10 @@ from pathlib import Path
 
 from .._utils.constants import PREFIX_SECRETS, PREFIX_WORKSPACES
 from ..models import BackupMeta, RestoreBackupRequest
+from ...config.workspace_paths import (
+    WorkspacePathValidationError,
+    validate_agent_workspace_path,
+)
 from ...constant import BACKUP_DIR, SECRET_DIR, WORKING_DIR
 
 logger = logging.getLogger(__name__)
@@ -87,10 +91,16 @@ def resolve_workspace_dst(
     All returned paths are fully resolved (absolute, symlinks expanded) so
     that ``str(dst)`` is always canonical regardless of which branch is taken.
     """
+    if aid in {"", ".", ".."} or "/" in aid or "\\" in aid:
+        raise WorkspacePathValidationError(
+            f"Backup agent ID {aid!r} is not a safe workspace directory name.",
+            path=Path(aid),
+        )
+
     if ref is not None:
         dst = Path(ref.workspace_dir).expanduser()
         if dst.exists():
-            return dst.resolve(), False
+            return validate_agent_workspace_path(dst), False
         # Existing agent in config but local path is absent (cross-machine
         # restore or manually deleted directory) – fall through to defaults.
 
@@ -99,14 +109,7 @@ def resolve_workspace_dst(
     else:
         dst = Path(WORKING_DIR) / "workspaces" / aid
 
-    # Resolve even when the directory does not yet exist so that the returned
-    # path string is always in fully-qualified, canonical form.
-    try:
-        return dst.resolve(), ref is None
-    except OSError:
-        # resolve() can fail on some platforms when parts of the path don't
-        # exist; fall back to absolute path without symlink expansion.
-        return dst.absolute(), ref is None
+    return validate_agent_workspace_path(dst), ref is None
 
 
 def rewrite_agent_workspace_dir(dst: Path, aid: str) -> None:

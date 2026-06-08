@@ -11,6 +11,7 @@ from qwenpaw.config.config import (
     AgentProfileRef,
     Config,
 )
+from qwenpaw.config import workspace_paths
 from qwenpaw.app.routers import agents as agents_router
 
 
@@ -170,6 +171,45 @@ async def test_create_agent_appends_new_id_to_order(monkeypatch, tmp_path):
     )
 
     assert config.agents.agent_order == ["alpha", "default", "beta"]
+
+
+@pytest.mark.asyncio
+async def test_create_agent_rejects_managed_workspace_dir(
+    monkeypatch,
+    tmp_path,
+):
+    """New agents should not be created inside app-managed directories."""
+    working_dir = tmp_path / "working"
+    custom_channels_dir = working_dir / "custom_channels"
+    config = _build_config(["default"])
+
+    monkeypatch.setattr(workspace_paths, "WORKING_DIR", working_dir)
+    monkeypatch.setattr(
+        workspace_paths,
+        "CUSTOM_CHANNELS_DIR",
+        custom_channels_dir,
+    )
+    monkeypatch.setattr(workspace_paths, "PLUGINS_DIR", working_dir / "plugins")
+    monkeypatch.setattr(workspace_paths, "SECRET_DIR", working_dir / ".secret")
+    monkeypatch.setattr(
+        workspace_paths,
+        "BACKUP_DIR",
+        working_dir / ".backups",
+    )
+    monkeypatch.setattr(agents_router, "load_config", lambda: config)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await agents_router.create_agent(
+            agents_router.CreateAgentRequest(
+                id="unsafe",
+                name="Unsafe",
+                workspace_dir=str(custom_channels_dir / "unsafe"),
+            ),
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "custom_channels" in exc_info.value.detail
+    assert not (custom_channels_dir / "unsafe").exists()
 
 
 @pytest.mark.asyncio

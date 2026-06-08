@@ -28,6 +28,10 @@ from ...config.config import (
     validate_agent_id,
 )
 from ...config.utils import load_config, save_config
+from ...config.workspace_paths import (
+    WorkspacePathValidationError,
+    validate_agent_workspace_path,
+)
 from ...agents.utils import copy_workspace_md_files, normalize_agent_language
 from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
 from ..multi_agent_manager import MultiAgentManager
@@ -303,6 +307,10 @@ async def create_agent(
     workspace_dir = Path(
         request.workspace_dir or f"{WORKING_DIR}/workspaces/{new_id}",
     ).expanduser()
+    try:
+        workspace_dir = validate_agent_workspace_path(workspace_dir)
+    except WorkspacePathValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
     from ...config.config import (
