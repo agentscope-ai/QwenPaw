@@ -32,7 +32,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     TextContent,
     ImageContent,
     VideoContent,

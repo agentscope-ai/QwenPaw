@@ -78,12 +78,12 @@ class AsBlockStat(BaseModel):
         if self.block_type in ["image", "audio", "video", "file"]:
             content = self.media_url if self.media_url else ""
             return f"[{self.block_type}]: {content}"
-        if self.block_type == "tool_use":
+        if self.block_type in ("tool_use", "tool_call"):
             content = (
                 f"{self.tool_name} params="
                 f"{self._truncate(self.tool_input, max_length)}"
             )
-            return f"[tool_use]: {content}"
+            return f"[tool_call]: {content}"
         if self.block_type == "tool_result":
             if not self.tool_output:
                 return ""

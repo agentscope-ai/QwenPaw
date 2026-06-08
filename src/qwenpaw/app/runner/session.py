@@ -3,8 +3,6 @@
 compatibility.
 
 Windows filenames cannot contain: \\ / : * ? " < > |
-This module wraps agentscope's SessionBase so that session_id and user_id
-are sanitized before being used as filenames.
 """
 import os
 import re
@@ -15,8 +13,7 @@ import shutil
 from typing import Union, Sequence
 
 import aiofiles
-from agentscope.session import SessionBase
-from agentscope_runtime.engine.schemas.exception import ConfigurationException
+from qwenpaw.exceptions import ConfigurationException
 from ...exceptions import AgentStateError
 
 logger = logging.getLogger(__name__)
@@ -193,12 +190,8 @@ def _rewrite_weixin_in_session_filename(name: str) -> str | None:
     return None
 
 
-class SafeJSONSession(SessionBase):
-    """SessionBase subclass with filename sanitization and async file I/O.
-
-    Overrides all file-reading/writing methods to use :mod:`aiofiles` so
-    that disk I/O does not block the event loop.
-    """
+class SafeJSONSession:
+    """Filename-safe JSON session store with async file I/O."""
 
     def __init__(
         self,

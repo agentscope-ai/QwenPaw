@@ -10,7 +10,8 @@ import json
 import logging
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.message import ToolResultState
+from agentscope.tool import ToolChunk
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ async def a2a_discover(
     agent_url: str,
     auth_type: str = "",
     auth_token: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     """发现远程 A2A Agent 并获取其信息。
 
     解析远程 Agent 的 Agent Card，获取其名称、描述、技能列表、
@@ -37,7 +38,7 @@ async def a2a_discover(
                     auth_type="gateway" 时无需传入
 
     Returns:
-        ToolResponse: 包含 Agent Card 信息的 JSON：
+        ToolChunk: 包含 Agent Card 信息的 JSON：
         - name: Agent 名称
         - description: Agent 描述
         - skills: 技能列表（名称和描述）
@@ -74,6 +75,7 @@ async def a2a_discover(
             ensure_ascii=False,
         )
 
-    return ToolResponse(
+    return ToolChunk(
+        state=ToolResultState.SUCCESS,
         content=[TextBlock(type="text", text=result)],
     )

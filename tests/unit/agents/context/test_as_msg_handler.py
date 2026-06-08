@@ -3,8 +3,16 @@
 # pylint: disable=line-too-long,unused-argument,unused-variable,redefined-outer-name
 """Unit tests for AsMsgHandler context_check with tool_use/tool_result alignment."""
 
+import json
+
 import pytest
-from agentscope.message import Msg
+from agentscope.message import (
+    Msg,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    ToolResultBlock,
+)
 
 from qwenpaw.agents.context.as_msg_handler import AsMsgHandler
 from qwenpaw.agents.utils.estimate_token_counter import EstimatedTokenCounter
@@ -36,37 +44,42 @@ class TestAsMsgHandlerToolAlignment:
 
         tool_id = "tool-001"
         messages = [
-            Msg(name="user", role="user", content="Hello", metadata={}),
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(text="Hello")],
+                metadata={},
+            ),
             Msg(
                 name="assistant",
                 role="assistant",
                 content=[
-                    {
-                        "type": "tool_use",
-                        "id": tool_id,
-                        "name": "test_tool",
-                        "input": {},
-                    },
-                ],
-                metadata={},
-            ),
-            Msg(
-                name="system",
-                role="system",
-                content=[
-                    {
-                        "type": "tool_result",
-                        "id": tool_id,
-                        "name": "test_tool",
-                        "output": "small result",
-                    },
+                    ToolCallBlock(
+                        type="tool_call",
+                        id=tool_id,
+                        name="test_tool",
+                        input=json.dumps({}),
+                    ),
                 ],
                 metadata={},
             ),
             Msg(
                 name="assistant",
                 role="assistant",
-                content="Done",
+                content=[
+                    ToolResultBlock(
+                        type="tool_result",
+                        id=tool_id,
+                        name="test_tool",
+                        output="small result",
+                    ),
+                ],
+                metadata={},
+            ),
+            Msg(
+                name="assistant",
+                role="assistant",
+                content=[TextBlock(text="Done")],
                 metadata={},
             ),
         ]
@@ -86,11 +99,11 @@ class TestAsMsgHandlerToolAlignment:
         tool_use_ids = set()
         tool_result_ids = set()
         for msg in msgs_to_keep:
-            for block in msg.get_content_blocks("tool_use"):
-                if tid := block.get("id"):
+            for block in msg.get_content_blocks("tool_call"):
+                if tid := getattr(block, "id", None):
                     tool_use_ids.add(tid)
             for block in msg.get_content_blocks("tool_result"):
-                if tid := block.get("id"):
+                if tid := getattr(block, "id", None):
                     tool_result_ids.add(tid)
         assert tool_use_ids == tool_result_ids
 
@@ -128,59 +141,59 @@ class TestAsMsgHandlerToolAlignment:
             Msg(
                 name="user",
                 role="user",
-                content="Earlier message",
+                content=[TextBlock(text="Earlier message")],
                 metadata={},
             ),
             Msg(
                 name="assistant",
                 role="assistant",
-                content="Earlier response",
+                content=[TextBlock(text="Earlier response")],
                 metadata={},
             ),
             Msg(
                 name="Friday",
                 role="assistant",
                 content=[
-                    {"type": "thinking", "thinking": "thinking content"},
-                    {"type": "text", "text": "Some text"},
-                    {
-                        "type": "tool_use",
-                        "id": tool_id,
-                        "name": "grep_search",
-                        "input": {"pattern": "卷"},
-                    },
-                    {
-                        "type": "tool_use",
-                        "id": tool_id2,
-                        "name": "read_file",
-                        "input": {"file_path": "test"},
-                    },
+                    ThinkingBlock(thinking="thinking content"),
+                    TextBlock(text="Some text"),
+                    ToolCallBlock(
+                        type="tool_call",
+                        id=tool_id,
+                        name="grep_search",
+                        input=json.dumps({"pattern": "卷"}),
+                    ),
+                    ToolCallBlock(
+                        type="tool_call",
+                        id=tool_id2,
+                        name="read_file",
+                        input=json.dumps({"file_path": "test"}),
+                    ),
                 ],
                 metadata={},
             ),
             Msg(
-                name="system",
-                role="system",
+                name="assistant",
+                role="assistant",
                 content=[
-                    {
-                        "type": "tool_result",
-                        "id": tool_id,
-                        "name": "grep_search",
-                        "output": "huge tool result content that exceeds reserve",
-                    },
+                    ToolResultBlock(
+                        type="tool_result",
+                        id=tool_id,
+                        name="grep_search",
+                        output="huge tool result content that exceeds reserve",
+                    ),
                 ],
                 metadata={},
             ),
             Msg(
-                name="system",
-                role="system",
+                name="assistant",
+                role="assistant",
                 content=[
-                    {
-                        "type": "tool_result",
-                        "id": tool_id2,
-                        "name": "read_file",
-                        "output": "huge tool result content that exceeds reserve",
-                    },
+                    ToolResultBlock(
+                        type="tool_result",
+                        id=tool_id2,
+                        name="read_file",
+                        output="huge tool result content that exceeds reserve",
+                    ),
                 ],
                 metadata={},
             ),
@@ -205,11 +218,11 @@ class TestAsMsgHandlerToolAlignment:
         tool_result_ids_in_keep = set()
 
         for msg in msgs_to_keep:
-            for block in msg.get_content_blocks("tool_use"):
-                if tid := block.get("id"):
+            for block in msg.get_content_blocks("tool_call"):
+                if tid := getattr(block, "id", None):
                     tool_use_ids_in_keep.add(tid)
             for block in msg.get_content_blocks("tool_result"):
-                if tid := block.get("id"):
+                if tid := getattr(block, "id", None):
                     tool_result_ids_in_keep.add(tid)
 
         assert tool_use_ids_in_keep == tool_result_ids_in_keep, (
@@ -233,30 +246,35 @@ class TestAsMsgHandlerToolAlignment:
 
         tool_id = "tool-partial"
         messages = [
-            Msg(name="user", role="user", content="Query", metadata={}),
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(text="Query")],
+                metadata={},
+            ),
             Msg(
                 name="assistant",
                 role="assistant",
                 content=[
-                    {
-                        "type": "tool_use",
-                        "id": tool_id,
-                        "name": "search",
-                        "input": {},
-                    },
+                    ToolCallBlock(
+                        type="tool_call",
+                        id=tool_id,
+                        name="search",
+                        input=json.dumps({}),
+                    ),
                 ],
                 metadata={},
             ),
             Msg(
-                name="system",
-                role="system",
+                name="assistant",
+                role="assistant",
                 content=[
-                    {
-                        "type": "tool_result",
-                        "id": tool_id,
-                        "name": "search",
-                        "output": "medium result",
-                    },
+                    ToolResultBlock(
+                        type="tool_result",
+                        id=tool_id,
+                        name="search",
+                        output="medium result",
+                    ),
                 ],
                 metadata={},
             ),
@@ -278,11 +296,11 @@ class TestAsMsgHandlerToolAlignment:
         tool_use_ids = set()
         tool_result_ids = set()
         for msg in msgs_to_keep:
-            for block in msg.get_content_blocks("tool_use"):
-                if tid := block.get("id"):
+            for block in msg.get_content_blocks("tool_call"):
+                if tid := getattr(block, "id", None):
                     tool_use_ids.add(tid)
             for block in msg.get_content_blocks("tool_result"):
-                if tid := block.get("id"):
+                if tid := getattr(block, "id", None):
                     tool_result_ids.add(tid)
         assert tool_use_ids == tool_result_ids
 
@@ -309,44 +327,44 @@ class TestAsMsgHandlerToolAlignment:
                 name="assistant",
                 role="assistant",
                 content=[
-                    {
-                        "type": "tool_use",
-                        "id": tool_id1,
-                        "name": "tool1",
-                        "input": {},
-                    },
-                    {
-                        "type": "tool_use",
-                        "id": tool_id2,
-                        "name": "tool2",
-                        "input": {},
-                    },
+                    ToolCallBlock(
+                        type="tool_call",
+                        id=tool_id1,
+                        name="tool1",
+                        input=json.dumps({}),
+                    ),
+                    ToolCallBlock(
+                        type="tool_call",
+                        id=tool_id2,
+                        name="tool2",
+                        input=json.dumps({}),
+                    ),
                 ],
                 metadata={},
             ),
             Msg(
-                name="system",
-                role="system",
+                name="assistant",
+                role="assistant",
                 content=[
-                    {
-                        "type": "tool_result",
-                        "id": tool_id1,
-                        "name": "tool1",
-                        "output": "result1",
-                    },
+                    ToolResultBlock(
+                        type="tool_result",
+                        id=tool_id1,
+                        name="tool1",
+                        output="result1",
+                    ),
                 ],
                 metadata={},
             ),
             Msg(
-                name="system",
-                role="system",
+                name="assistant",
+                role="assistant",
                 content=[
-                    {
-                        "type": "tool_result",
-                        "id": tool_id2,
-                        "name": "tool2",
-                        "output": "result2",
-                    },
+                    ToolResultBlock(
+                        type="tool_result",
+                        id=tool_id2,
+                        name="tool2",
+                        output="result2",
+                    ),
                 ],
                 metadata={},
             ),
@@ -406,39 +424,39 @@ class TestAsMsgHandlerToolAlignment:
             Msg(
                 name="user",
                 role="user",
-                content="First message",
+                content=[TextBlock(text="First message")],
                 metadata={},
             ),
             Msg(
                 name="assistant",
                 role="assistant",
                 content=[
-                    {
-                        "type": "tool_use",
-                        "id": tool_id,
-                        "name": "test",
-                        "input": {},
-                    },
-                ],
-                metadata={},
-            ),
-            Msg(
-                name="system",
-                role="system",
-                content=[
-                    {
-                        "type": "tool_result",
-                        "id": tool_id,
-                        "name": "test",
-                        "output": large_result,
-                    },
+                    ToolCallBlock(
+                        type="tool_call",
+                        id=tool_id,
+                        name="test",
+                        input=json.dumps({}),
+                    ),
                 ],
                 metadata={},
             ),
             Msg(
                 name="assistant",
                 role="assistant",
-                content="Final",
+                content=[
+                    ToolResultBlock(
+                        type="tool_result",
+                        id=tool_id,
+                        name="test",
+                        output=large_result,
+                    ),
+                ],
+                metadata={},
+            ),
+            Msg(
+                name="assistant",
+                role="assistant",
+                content=[TextBlock(text="Final")],
                 metadata={},
             ),
         ]
@@ -457,11 +475,11 @@ class TestAsMsgHandlerToolAlignment:
         tool_result_ids_in_keep = set()
 
         for msg in msgs_to_keep:
-            for block in msg.get_content_blocks("tool_use"):
-                if tid := block.get("id"):
+            for block in msg.get_content_blocks("tool_call"):
+                if tid := getattr(block, "id", None):
                     tool_use_ids_in_keep.add(tid)
             for block in msg.get_content_blocks("tool_result"):
-                if tid := block.get("id"):
+                if tid := getattr(block, "id", None):
                     tool_result_ids_in_keep.add(tid)
 
         assert (

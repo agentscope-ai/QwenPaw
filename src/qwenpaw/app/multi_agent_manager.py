@@ -9,7 +9,7 @@ import logging
 import time
 from typing import Dict, Set
 
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     ConfigurationException,
 )
 

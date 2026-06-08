@@ -11,7 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from agentscope_runtime.engine.schemas.exception import ConfigurationException
+from qwenpaw.exceptions import ConfigurationException
 
 from ...config import get_heartbeat_config, get_dream_cron
 from ..inbox_store import append_event as append_inbox_event

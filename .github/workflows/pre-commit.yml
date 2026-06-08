@@ -20,14 +20,14 @@ jobs:
       fail-fast: true
     env:
       OS: ubuntu-latest
-      PYTHON: "3.10"
+      PYTHON: "3.11"
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
 
       - name: Update setuptools and wheel
         run: |

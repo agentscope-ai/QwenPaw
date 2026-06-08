@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     TextContent,
     ImageContent,
     VideoContent,

@@ -10,12 +10,12 @@ import uuid
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, ORJSONResponse
-from agentscope_runtime.engine.app import AgentApp
-from agentscope_runtime.engine.schemas.exception import (
+
+from qwenpaw.exceptions import (
     AppBaseException,
 )
 
@@ -75,7 +75,7 @@ load_envs_into_environ()
 class DynamicMultiAgentRunner:
     """Runner wrapper that dynamically routes to the correct workspace runner.
 
-    This allows AgentApp to work with multiple agents by inspecting
+    This allows the runner to work with multiple agents by inspecting
     the X-Agent-Id header on each request.
     """
 
@@ -170,31 +170,7 @@ class DynamicMultiAgentRunner:
             if workspace is not None and run_key is not None:
                 await workspace.task_tracker.unregister_external_task(run_key)
 
-    async def query_handler(self, request, *args, **kwargs):
-        """Dynamically route to the correct workspace runner.
-
-        Registers the task with the workspace's TaskTracker so that
-        graceful shutdown during agent reload can detect in-flight
-        requests (fixes #3275).
-        """
-        workspace = None
-        run_key = None
-        try:
-            workspace = await self._get_workspace(request)
-            runner = workspace.runner
-
-            run_key = f"ext-{uuid.uuid4().hex}"
-            await workspace.task_tracker.register_external_task(run_key)
-
-            async for item in runner.query_handler(request, *args, **kwargs):
-                yield item
-        finally:
-            # Always unregister the task when done (success, error,
-            # or cancellation).
-            if workspace is not None and run_key is not None:
-                await workspace.task_tracker.unregister_external_task(run_key)
-
-    # Async context manager support for AgentApp lifecycle
+    # Async context manager support for lifecycle management
     async def __aenter__(self):
         """
         No-op context manager entry (workspaces manage their own runners).
@@ -206,17 +182,9 @@ class DynamicMultiAgentRunner:
         return None
 
 
-# Use dynamic runner for AgentApp
 runner = DynamicMultiAgentRunner()
 
-agent_app = AgentApp(
-    app_name="QwenPaw",
-    app_description="A helpful assistant with background task support",
-    runner=runner,
-    enable_stream_task=True,
-    stream_task_queue="stream_query",
-    stream_task_timeout=1800,
-)
+_agent_router = APIRouter()
 
 
 @asynccontextmanager
@@ -667,7 +635,7 @@ agent_scoped_router = create_agent_scoped_router()
 app.include_router(agent_scoped_router, prefix="/api")
 
 app.include_router(
-    agent_app.router,
+    _agent_router,
     prefix="/api/agent",
     tags=["agent"],
 )

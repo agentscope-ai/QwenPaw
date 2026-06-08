@@ -819,7 +819,7 @@ def chat_cmd(
 ) -> None:
     """Chat with another agent (inter-agent communication).
 
-    Sends a message to another agent via /api/agent/process endpoint
+    Sends a message to another agent via /api/console/chat endpoint
     and returns the response. By default generates unique session IDs
     to avoid concurrency issues.
 

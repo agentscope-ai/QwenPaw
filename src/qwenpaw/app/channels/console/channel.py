@@ -4,10 +4,9 @@
 
 A lightweight channel that prints all agent responses to stdout.
 
-Messages are sent to the agent via the standard AgentApp ``/agent/process``
-endpoint or via POST /console/chat. This channel handles the **output** side:
-whenever a completed message event or a proactive send arrives, it is
-pretty-printed to the terminal.
+Messages are sent to the agent via POST /api/console/chat. This channel
+handles the **output** side: whenever a completed message event or a
+proactive send arrives, it is pretty-printed to the terminal.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     MessageType,
     Message,
     RunStatus,
@@ -63,8 +62,8 @@ def _ts() -> str:
 class ConsoleChannel(BaseChannel):
     """Console Channel: prints agent responses to stdout.
 
-    Input is handled by AgentApp's ``/agent/process`` endpoint; this
-    channel only takes care of output (printing to the terminal).
+    Input is handled by ``POST /api/console/chat``; this channel only
+    takes care of output (printing to the terminal).
 
     Supports filtering options via config:
         - show_tool_details: Display tool execution details
@@ -314,7 +313,9 @@ class ConsoleChannel(BaseChannel):
                     type=MessageType.MESSAGE,
                     role="assistant",
                     content=new_parts,
+                    status=RunStatus.Completed,
                 )
+                media_message.object = "message"
         return media_message
 
     def _extract_token_usage(

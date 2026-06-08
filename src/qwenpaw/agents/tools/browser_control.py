@@ -28,7 +28,8 @@ from urllib.parse import urljoin
 from urllib import request as urllib_request
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from ...config import (
     get_playwright_chromium_executable_path,
@@ -354,9 +355,11 @@ def _atexit_cleanup() -> None:
 atexit.register(_atexit_cleanup)
 
 
-def _tool_response(text: str) -> ToolResponse:
-    """Wrap text for agentscope Toolkit (return ToolResponse)."""
-    return ToolResponse(
+def _tool_response(text: str) -> ToolChunk:
+    """Wrap text for agentscope Toolkit (return ToolChunk)."""
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
         content=[TextBlock(type="text", text=text)],
     )
 
@@ -1015,7 +1018,7 @@ async def _action_start(
     private_mode: bool = False,
     browser_args: str = "",
     executable_path: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     _validate_executable_path(executable_path)
     # Check browser state based on mode
     if _USE_SYNC_PLAYWRIGHT:
@@ -1230,7 +1233,7 @@ async def _action_start(
         )
 
 
-async def _action_stop(state: dict) -> ToolResponse:
+async def _action_stop(state: dict) -> ToolChunk:
     _cancel_idle_watchdog(state)
 
     # Check browser state based on mode
@@ -1348,7 +1351,7 @@ async def _action_stop(state: dict) -> ToolResponse:
     )
 
 
-async def _action_open(state: dict, url: str, page_id: str) -> ToolResponse:
+async def _action_open(state: dict, url: str, page_id: str) -> ToolChunk:
     url = (url or "").strip()
     if not url:
         return _tool_response(
@@ -1420,7 +1423,7 @@ async def _action_navigate(
     state: dict,
     url: str,
     page_id: str,
-) -> ToolResponse:
+) -> ToolChunk:
     url = (url or "").strip()
     if not url:
         return _tool_response(
@@ -1479,7 +1482,7 @@ async def _action_screenshot(
     ref: str = "",
     element: str = "",  # pylint: disable=unused-argument
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     path = (path or "").strip()
     if not path:
         ext = "jpeg" if screenshot_type == "jpeg" else "png"
@@ -1603,7 +1606,7 @@ async def _action_click(  # pylint: disable=too-many-branches
     button: str = "left",
     modifiers_json: str = "",
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     ref = (ref or "").strip()
     selector = (selector or "").strip()
     if not ref and not selector:
@@ -1739,7 +1742,7 @@ async def _action_type(
     submit: bool = False,
     slowly: bool = False,
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     ref = (ref or "").strip()
     selector = (selector or "").strip()
     if not ref and not selector:
@@ -1844,7 +1847,7 @@ async def _action_type(
         )
 
 
-async def _action_eval(state: dict, page_id: str, code: str) -> ToolResponse:
+async def _action_eval(state: dict, page_id: str, code: str) -> ToolChunk:
     code = (code or "").strip()
     if not code:
         return _tool_response(
@@ -1900,7 +1903,7 @@ async def _action_eval(state: dict, page_id: str, code: str) -> ToolResponse:
         )
 
 
-async def _action_pdf(state: dict, page_id: str, path: str) -> ToolResponse:
+async def _action_pdf(state: dict, page_id: str, path: str) -> ToolChunk:
     path = (path or "page.pdf").strip() or "page.pdf"
     path = _resolve_output_path(path)
     page = _get_page(state, page_id)
@@ -1934,7 +1937,7 @@ async def _action_pdf(state: dict, page_id: str, path: str) -> ToolResponse:
         )
 
 
-async def _action_close(state: dict, page_id: str) -> ToolResponse:
+async def _action_close(state: dict, page_id: str) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -1984,7 +1987,7 @@ async def _action_snapshot(
     page_id: str,
     filename: str,
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -2043,7 +2046,7 @@ async def _action_snapshot(
         )
 
 
-async def _action_navigate_back(state: dict, page_id: str) -> ToolResponse:
+async def _action_navigate_back(state: dict, page_id: str) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -2082,7 +2085,7 @@ async def _action_evaluate(
     ref: str = "",
     element: str = "",  # pylint: disable=unused-argument
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     code = (code or "").strip()
     if not code:
         return _tool_response(
@@ -2168,7 +2171,7 @@ async def _action_resize(
     page_id: str,
     width: int,
     height: int,
-) -> ToolResponse:
+) -> ToolChunk:
     if width <= 0 or height <= 0:
         return _tool_response(
             json.dumps(
@@ -2216,7 +2219,7 @@ async def _action_console_messages(
     page_id: str,
     level: str,
     filename: str,
-) -> ToolResponse:
+) -> ToolChunk:
     level = (level or "info").strip().lower()
     order = ("error", "warning", "info", "debug")
     idx = order.index(level) if level in order else 2
@@ -2266,7 +2269,7 @@ async def _action_handle_dialog(
     page_id: str,
     accept: bool,
     prompt_text: str,
-) -> ToolResponse:
+) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -2324,7 +2327,7 @@ async def _action_file_upload(
     state: dict,
     page_id: str,
     paths_json: str,
-) -> ToolResponse:
+) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -2455,7 +2458,7 @@ def _direct_url_download_rejected_response(
     source_url: str,
     file_path: str,
     error: DirectUrlDownloadRejectedError,
-) -> ToolResponse:
+) -> ToolChunk:
     payload = {
         "ok": False,
         "error": error.reason,
@@ -2488,7 +2491,7 @@ async def _action_file_download(  # pylint: disable=too-many-branches,too-many-r
     ref: str = "",
     url: str = "",
     wait_time: float = 0.0,
-) -> ToolResponse:
+) -> ToolChunk:
     """Save a browser download event or a page resource to a local file."""
     file_path = (file_path or "").strip()
     if not file_path:
@@ -2702,7 +2705,7 @@ async def _file_download_click_fallback(
     before_url: str,
     before_page_ids: set[str],
     original_error: Exception,
-) -> ToolResponse:
+) -> ToolChunk:
     new_page_id = None
     current_page = page
     current_page_id = page_id
@@ -2779,7 +2782,7 @@ async def _action_fill_form(
     state: dict,
     page_id: str,
     fields_json: str,
-) -> ToolResponse:
+) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -2876,7 +2879,7 @@ def _run_playwright_install() -> None:
     )
 
 
-async def _action_install() -> ToolResponse:
+async def _action_install() -> ToolChunk:
     """Install Playwright browsers. If a system Chrome/Chromium/Edge is found,
     use it and skip download. On macOS with no Chromium, use Safari (WebKit)
     so no download is needed. Only run playwright install when necessary.
@@ -2944,7 +2947,7 @@ async def _action_press_key(
     state: dict,
     page_id: str,
     key: str,
-) -> ToolResponse:
+) -> ToolChunk:
     key = (key or "").strip()
     if not key:
         return _tool_response(
@@ -2990,7 +2993,7 @@ async def _action_network_requests(
     page_id: str,
     include_static: bool,
     filename: str,
-) -> ToolResponse:
+) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -3037,7 +3040,7 @@ async def _action_run_code(
     state: dict,
     page_id: str,
     code: str,
-) -> ToolResponse:
+) -> ToolChunk:
     """Run JS in page (like eval). Use evaluate for element (ref)."""
     code = (code or "").strip()
     if not code:
@@ -3104,7 +3107,7 @@ async def _action_drag(
     start_element: str = "",  # pylint: disable=unused-argument
     end_element: str = "",  # pylint: disable=unused-argument
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     start_ref = (start_ref or "").strip()
     end_ref = (end_ref or "").strip()
     start_selector = (start_selector or "").strip()
@@ -3189,7 +3192,7 @@ async def _action_hover(
     element: str = "",  # pylint: disable=unused-argument
     selector: str = "",
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     ref = (ref or "").strip()
     selector = (selector or "").strip()
     if not ref and not selector:
@@ -3257,7 +3260,7 @@ async def _action_select_option(
     element: str = "",  # pylint: disable=unused-argument
     values_json: str = "",
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     ref = (ref or "").strip()
     values = _parse_json_param(values_json, [])
     if not isinstance(values, list):
@@ -3332,7 +3335,7 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
     page_id: str,
     tab_action: str,
     index: int,
-) -> ToolResponse:
+) -> ToolChunk:
     tab_action = (tab_action or "").strip().lower()
     if not tab_action:
         return _tool_response(
@@ -3452,7 +3455,7 @@ async def _action_wait_for(
     wait_time: float,
     text: str,
     text_gone: str,
-) -> ToolResponse:
+) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -3522,7 +3525,7 @@ _BROWSER_DISK_CACHE_DIRS = [
 ]
 
 
-async def _action_clear_browser_cache(state: dict) -> ToolResponse:
+async def _action_clear_browser_cache(state: dict) -> ToolChunk:
     """Clear browser cache.
 
     - Browser running: uses CDP Network.clearBrowserCache (no restart needed).
@@ -3643,7 +3646,7 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
     state: dict,
     page_id: str,
     actions_json: str,
-) -> ToolResponse:
+) -> ToolChunk:
     """Execute multiple browser actions sequentially.
 
     Each action in the JSON array is a dict with at least an "action" key.
@@ -3706,7 +3709,7 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
         }
 
         try:
-            resp: ToolResponse | None = None
+            resp: ToolChunk | None = None
 
             # --- navigate ---
             if sub_action == "navigate":
@@ -3857,7 +3860,7 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
             # Parse helper response into step_result
             if resp is not None and resp.content:
                 try:
-                    # ToolResponse content is a list of TextBlocks; extract text from the first one
+                    # ToolChunk content is a list of TextBlocks; extract text from the first one
                     raw_text = resp.content[0]["text"]
                     resp_data = json.loads(raw_text)
                     if isinstance(resp_data, dict):
@@ -3903,7 +3906,7 @@ _CDP_SCAN_PORT_MAX = 10000
 def _fetch_cdp_json(port: int) -> list:
     """Fetch CDP /json endpoint synchronously. Raises on failure."""
     url = f"http://localhost:{port}/json"
-    with urllib_request.urlopen(url, timeout=1) as resp:  # noqa: S310
+    with urllib_request.urlopen(url, timeout=1) as resp:
         return json.loads(resp.read())
 
 
@@ -3911,7 +3914,7 @@ async def _action_list_cdp_targets(
     port: int = 0,
     port_min: int = 0,
     port_max: int = 0,
-) -> ToolResponse:
+) -> ToolChunk:
     """List CDP targets on local ports.
 
     Priority: port (single) > port_min/port_max (range) > default range.
@@ -3966,7 +3969,7 @@ async def _action_list_cdp_targets(
     )
 
 
-async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
+async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolChunk:
     """Connect Playwright to a running Chrome via CDP."""
     if not cdp_url:
         return _tool_response(
@@ -4207,7 +4210,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
     port: int = 0,
     port_min: int = 0,
     port_max: int = 0,
-) -> ToolResponse:
+) -> ToolChunk:
     """Control browser (Playwright). Default is headless. Use headed=True with
     action=start to open a visible browser window. Flow: start, open(url),
     snapshot to get refs, then click/type etc. with ref or selector. Use

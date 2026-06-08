@@ -14,7 +14,10 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
-from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+from qwenpaw.schemas import (
+    AgentRequest,
+    _coerce_content_item,
+)
 from ...utils.logging import LOG_FILE_PATH
 from ..agent_context import get_agent_for_request
 from ..runner.title_generator import generate_and_update_title
@@ -91,7 +94,12 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
             if hasattr(content_part, "content"):
                 content_parts.extend(list(content_part.content or []))
             elif isinstance(content_part, dict) and "content" in content_part:
-                content_parts.extend(content_part["content"] or [])
+                # Coerce raw dicts to typed Content models so downstream
+                # getattr checks (e.g. _content_has_text) see real attrs.
+                content_parts.extend(
+                    _coerce_content_item(c)
+                    for c in (content_part["content"] or [])
+                )
 
     native_payload = {
         "channel_id": channel_id,

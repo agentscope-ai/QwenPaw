@@ -29,7 +29,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import base64 as _b64
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     AgentRequest,
     FileContent,
     ImageContent,

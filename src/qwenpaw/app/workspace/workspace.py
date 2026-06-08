@@ -189,6 +189,10 @@ class Workspace:
                 reusable=True,
                 priority=20,
                 concurrent_init=True,
+                # reme depends on `agentscope.token`, which agentscope no
+                # longer ships; let the workspace boot without
+                # memory_manager when its import fails.
+                optional=True,
             ),
         )
 

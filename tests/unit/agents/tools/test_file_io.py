@@ -105,24 +105,24 @@ class TestReadFile:
         f = tmp_path / "test.txt"
         f.write_text("hello world", encoding="utf-8")
         result = await read_file(str(f))
-        assert "hello world" in result.content[0]["text"]
+        assert "hello world" in result.content[0].text
 
     @pytest.mark.asyncio
     async def test_read_nonexistent_file(self, tmp_path):
         result = await read_file(str(tmp_path / "missing.txt"))
-        assert "does not exist" in result.content[0]["text"]
+        assert "does not exist" in result.content[0].text
 
     @pytest.mark.asyncio
     async def test_read_directory_error(self, tmp_path):
         result = await read_file(str(tmp_path))
-        assert "not a file" in result.content[0]["text"]
+        assert "not a file" in result.content[0].text
 
     @pytest.mark.asyncio
     async def test_read_with_line_range(self, tmp_path):
         f = tmp_path / "lines.txt"
         f.write_text("line1\nline2\nline3\nline4\n", encoding="utf-8")
         result = await read_file(str(f), start_line=2, end_line=3)
-        text = result.content[0]["text"]
+        text = result.content[0].text
         assert "line2" in text
         assert "line3" in text
 
@@ -131,28 +131,28 @@ class TestReadFile:
         f = tmp_path / "short.txt"
         f.write_text("only one line\n", encoding="utf-8")
         result = await read_file(str(f), start_line=100)
-        assert "exceeds file length" in result.content[0]["text"]
+        assert "exceeds file length" in result.content[0].text
 
     @pytest.mark.asyncio
     async def test_read_invalid_start_line(self, tmp_path):
         f = tmp_path / "data.txt"
         f.write_text("data\n", encoding="utf-8")
         result = await read_file(str(f), start_line="abc")
-        assert "must be an integer" in result.content[0]["text"]
+        assert "must be an integer" in result.content[0].text
 
     @pytest.mark.asyncio
     async def test_read_invalid_end_line(self, tmp_path):
         f = tmp_path / "data.txt"
         f.write_text("data\n", encoding="utf-8")
         result = await read_file(str(f), end_line="xyz")
-        assert "must be an integer" in result.content[0]["text"]
+        assert "must be an integer" in result.content[0].text
 
     @pytest.mark.asyncio
     async def test_read_start_greater_than_end(self, tmp_path):
         f = tmp_path / "data.txt"
         f.write_text("line1\nline2\nline3\n", encoding="utf-8")
         result = await read_file(str(f), start_line=3, end_line=1)
-        assert "start_line" in result.content[0]["text"]
+        assert "start_line" in result.content[0].text
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +167,7 @@ class TestWriteFile:
     async def test_write_new_file(self, tmp_path):
         f = tmp_path / "new.txt"
         result = await write_file(str(f), "hello")
-        assert "Wrote" in result.content[0]["text"]
+        assert "Wrote" in result.content[0].text
         # .txt uses utf-8-sig which adds BOM
         assert f.read_text(encoding="utf-8-sig") == "hello"
 
@@ -182,8 +182,8 @@ class TestWriteFile:
     async def test_write_empty_path(self):
         result = await write_file("", "content")
         assert (
-            "No" in result.content[0]["text"]
-            and "file_path" in result.content[0]["text"]
+            "No" in result.content[0].text
+            and "file_path" in result.content[0].text
         )
 
     @pytest.mark.asyncio
@@ -215,7 +215,7 @@ class TestEditFile:
         f = tmp_path / "edit.txt"
         f.write_text("hello world", encoding="utf-8")
         result = await edit_file(str(f), "hello", "goodbye")
-        assert "Successfully replaced" in result.content[0]["text"]
+        assert "Successfully replaced" in result.content[0].text
         assert f.read_text(encoding="utf-8-sig") == "goodbye world"
 
     @pytest.mark.asyncio
@@ -223,19 +223,19 @@ class TestEditFile:
         f = tmp_path / "edit.txt"
         f.write_text("hello world", encoding="utf-8")
         result = await edit_file(str(f), "missing", "replacement")
-        assert "not found" in result.content[0]["text"]
+        assert "not found" in result.content[0].text
 
     @pytest.mark.asyncio
     async def test_edit_nonexistent_file(self, tmp_path):
         result = await edit_file(str(tmp_path / "missing.txt"), "a", "b")
-        assert "does not exist" in result.content[0]["text"]
+        assert "does not exist" in result.content[0].text
 
     @pytest.mark.asyncio
     async def test_edit_empty_path(self):
         result = await edit_file("", "a", "b")
         assert (
-            "No" in result.content[0]["text"]
-            and "file_path" in result.content[0]["text"]
+            "No" in result.content[0].text
+            and "file_path" in result.content[0].text
         )
 
     @pytest.mark.asyncio
@@ -259,20 +259,20 @@ class TestAppendFile:
         f = tmp_path / "append.txt"
         f.write_text("line1\n", encoding="utf-8")
         result = await append_file(str(f), "line2\n")
-        assert "Appended" in result.content[0]["text"]
+        assert "Appended" in result.content[0].text
         assert f.read_text(encoding="utf-8") == "line1\nline2\n"
 
     @pytest.mark.asyncio
     async def test_append_creates_new_file(self, tmp_path):
         f = tmp_path / "new_append.txt"
         result = await append_file(str(f), "first line")
-        assert "Appended" in result.content[0]["text"]
+        assert "Appended" in result.content[0].text
         assert f.read_text(encoding="utf-8-sig") == "first line"
 
     @pytest.mark.asyncio
     async def test_append_empty_path(self):
         result = await append_file("", "content")
         assert (
-            "No" in result.content[0]["text"]
-            and "file_path" in result.content[0]["text"]
+            "No" in result.content[0].text
+            and "file_path" in result.content[0].text
         )

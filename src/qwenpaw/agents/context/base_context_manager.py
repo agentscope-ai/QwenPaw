@@ -2,37 +2,44 @@
 """Abstract base class for context managers."""
 import logging
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, AsyncGenerator, Callable, TYPE_CHECKING
 
 from agentscope.message import Msg
+from agentscope.middleware import MiddlewareBase
 
-from .agent_context import AgentContext
 from ..utils.registry import Registry
+
+if TYPE_CHECKING:
+    from agentscope.agent import Agent
 
 logger = logging.getLogger(__name__)
 
 
-class BaseContextManager(ABC):
+class BaseContextManager(MiddlewareBase, ABC):
     """Abstract base class defining the context manager interface.
 
-    All context manager backends must implement this interface to be usable
-    as a drop-in replacement within the workspace.
-
     Concrete implementations are responsible for managing the *active*
-    conversation context window, including:
-    - **Compaction**: condensing older messages into a rolling summary when
+    conversation context window:
+
+    - **Compaction**: condense older messages into a rolling summary when
       the context approaches the model's token limit.
-    - **Tool-result pruning**: trimming oversized tool outputs inline so
-      they do not exhaust the context budget unnecessarily.
-    - **Context health checks**: deciding whether and what to compact before
+    - **Tool-result pruning**: trim oversized tool outputs inline so they
+      do not exhaust the context budget unnecessarily.
+    - **Context health checks**: decide whether and what to compact before
       each agent step.
 
-    The typical lifecycle mirrors ``BaseMemoryManager``:
-        1. Instantiate with ``working_dir`` and ``agent_id``.
-        2. Call ``await start()`` to connect to the backing store.
-        3. Use the lifecycle hooks (``pre_reasoning``, ``post_acting``, etc.)
-           during the agent loop.
-        4. Call ``await close()`` to flush state and release resources.
+    A context manager wears three hats:
+
+    1. **Service** — :meth:`start` / :meth:`close` are called by the
+       workspace's ``ServiceManager`` during workspace bring-up / tear-down.
+    2. **Public API** — :meth:`compact_context` is invoked by command
+       handlers (e.g. ``/compact``) to condense messages on demand.
+    3. **Middleware** — instances are passed directly into
+       ``Agent(middlewares=[...])``.  This base class implements the
+       :class:`agentscope.middleware.MiddlewareBase` ``on_*`` hooks as
+       thin onion-wrappers that delegate to the
+       :meth:`pre_reply` / :meth:`post_reply` / :meth:`pre_reasoning` /
+       :meth:`post_acting` half-hooks subclasses implement.
 
     Attributes:
         working_dir: Root directory used for any on-disk context storage
@@ -175,24 +182,6 @@ class BaseContextManager(ABC):
         """
 
     @abstractmethod
-    def get_agent_context(self, **kwargs) -> AgentContext:
-        """Return the ``AgentContext`` object attached to this agent.
-
-        ``AgentContext`` is a custom ``InMemoryMemory`` implementation
-        with token-aware message handling, dialog persistence, and context
-        compression support. It is used by the agent loop for accurate token
-        counting and context-window management.
-
-        Args:
-            **kwargs: Implementation-specific options (e.g. token counter
-                to attach to the returned object).
-
-        Returns:
-            The agent context instance configured with the agent's token
-            counter.
-        """
-
-    @abstractmethod
     async def compact_context(
         self,
         messages: list[Msg],
@@ -219,6 +208,65 @@ class BaseContextManager(ABC):
             - before_tokens: Token count of messages before compaction.
             - after_tokens: Token count of the compacted summary.
         """
+
+    # ------------------------------------------------------------------
+    # Middleware bridge — translate the half-hooks above into the onion
+    # ``on_*`` methods that ``MiddlewareBase`` exposes to the agent.
+    # Hook exceptions are logged and swallowed so a context-manager bug
+    # cannot abort the agent's reply.
+    # ------------------------------------------------------------------
+
+    async def on_reply(
+        self,
+        agent: "Agent",
+        input_kwargs: dict,
+        next_handler: Callable[..., AsyncGenerator],
+    ) -> AsyncGenerator:
+        try:
+            await self.pre_reply(agent, input_kwargs)
+        except Exception:
+            logger.exception("ContextManager pre_reply raised")
+
+        events: list[Any] = []
+        async for event in next_handler():
+            events.append(event)
+            yield event
+
+        if events:
+            try:
+                await self.post_reply(agent, input_kwargs, events[-1])
+            except Exception:
+                logger.exception("ContextManager post_reply raised")
+
+    async def on_reasoning(
+        self,
+        agent: "Agent",
+        input_kwargs: dict,
+        next_handler: Callable[..., AsyncGenerator],
+    ) -> AsyncGenerator:
+        try:
+            await self.pre_reasoning(agent, input_kwargs)
+        except Exception:
+            logger.exception("ContextManager pre_reasoning raised")
+        async for event in next_handler():
+            yield event
+
+    async def on_acting(
+        self,
+        agent: "Agent",
+        input_kwargs: dict,
+        next_handler: Callable[..., AsyncGenerator],
+    ) -> AsyncGenerator:
+        events: list[Any] = []
+        async for event in next_handler():
+            events.append(event)
+            yield event
+
+        if events:
+            try:
+                await self.post_acting(agent, input_kwargs, events[-1])
+            except Exception:
+                logger.exception("ContextManager post_acting raised")
 
 
 # ---------------------------------------------------------------------------

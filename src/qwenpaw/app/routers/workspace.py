@@ -234,7 +234,7 @@ def _list_all_files(workspace_dir: Path) -> list[dict]:
                         ).isoformat(),
                     },
                 )
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return files
 
@@ -379,7 +379,7 @@ async def read_code_file(file_path: str, request: Request):
 
     try:
         content = await asyncio.to_thread(_read)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return ORJSONResponse(
         {"path": file_path, "content": content},
@@ -415,7 +415,7 @@ async def write_code_file(
 
     try:
         size = await asyncio.to_thread(_write)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"path": file_path, "size": size}
 
@@ -491,7 +491,7 @@ async def watch_workspace_files(request: Request) -> StreamingResponse:
         finally:
             try:
                 await watcher.aclose()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
 
     return StreamingResponse(

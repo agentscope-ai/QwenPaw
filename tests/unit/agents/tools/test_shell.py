@@ -321,7 +321,7 @@ class TestExecuteShellCommand:
 
             result = await execute_shell_command("echo hello")
             assert result.content is not None
-            text = result.content[0]["text"]
+            text = result.content[0].text
             assert "hello" in text
 
     @pytest.mark.asyncio
@@ -360,7 +360,7 @@ class TestExecuteShellCommand:
             )
 
             result = await execute_shell_command("false")
-            text = result.content[0]["text"]
+            text = result.content[0].text
             assert "failed" in text.lower() or "error" in text.lower()
 
     @pytest.mark.asyncio
@@ -397,7 +397,7 @@ class TestExecuteShellCommand:
             )
 
             result = await execute_shell_command("")
-            text = result.content[0]["text"]
+            text = result.content[0].text
             assert "successfully" in text.lower()
 
     @pytest.mark.asyncio

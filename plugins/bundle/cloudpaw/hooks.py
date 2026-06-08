@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
+from typing import Any
 
 from .constants import (
     BUILTIN_EXECUTOR_AGENT_ID,
@@ -379,6 +380,7 @@ def setup_tool_and_prompt_hooks() -> (  # pylint: disable=too-many-statements
     # with `async_execution=True` via constants.py.
     try:
         from qwenpaw.agents.react_agent import QwenPawAgent
+        from qwenpaw.runtime.tool_guard import GuardedFunctionTool
     except ImportError as exc:
         logger.error(
             "Cannot import QwenPawAgent; tool/prompt hooks skipped: %s",
@@ -389,8 +391,19 @@ def setup_tool_and_prompt_hooks() -> (  # pylint: disable=too-many-statements
     _original_create_toolkit = QwenPawAgent._create_toolkit
     _original_build_sys_prompt = QwenPawAgent._build_sys_prompt
 
+    def _append_tool(toolkit, tool_fn, agent_id):
+        """Append a plugin tool to the toolkit's basic group, skipping if
+        a tool by the same name is already present."""
+        name = getattr(tool_fn, "__name__", str(tool_fn))
+        basic_group = toolkit.tool_groups[0]
+        for existing in basic_group.tools:
+            if getattr(existing, "name", None) == name:
+                return
+        basic_group.tools.append(
+            GuardedFunctionTool(tool_fn, agent_id=agent_id),
+        )
+
     def _patched_create_toolkit(self, *args, **kwargs):
-        namesake_strategy = kwargs.get("namesake_strategy", "skip")
         toolkit = _original_create_toolkit(
             self,
             *args,
@@ -413,19 +426,13 @@ def setup_tool_and_prompt_hooks() -> (  # pylint: disable=too-many-statements
 
             if agent_id == BUILTIN_ORCHESTRATION_AGENT_ID:
                 try:
-                    toolkit.register_tool_function(
-                        _proposal_choice_fn,
-                        namesake_strategy=namesake_strategy,
-                    )
+                    _append_tool(toolkit, _proposal_choice_fn, agent_id)
                     logger.debug("Registered plugin tool: proposal_choice")
                 except Exception as e:
                     logger.debug("proposal_choice registration skipped: %s", e)
 
                 try:
-                    toolkit.register_tool_function(
-                        _manage_prd_fn,
-                        namesake_strategy=namesake_strategy,
-                    )
+                    _append_tool(toolkit, _manage_prd_fn, agent_id)
                     logger.debug("Registered plugin tool: manage_prd")
                 except Exception as e:
                     logger.debug("manage_prd registration skipped: %s", e)
@@ -444,19 +451,13 @@ def setup_tool_and_prompt_hooks() -> (  # pylint: disable=too-many-statements
                 from tools.a2a_call import a2a_call as _a2a_call_fn
 
                 try:
-                    toolkit.register_tool_function(
-                        _a2a_list_fn,
-                        namesake_strategy=namesake_strategy,
-                    )
+                    _append_tool(toolkit, _a2a_list_fn, agent_id)
                     logger.debug("Registered plugin tool: a2a_list")
                 except Exception as e:
                     logger.debug("a2a_list registration skipped: %s", e)
 
                 try:
-                    toolkit.register_tool_function(
-                        _a2a_call_fn,
-                        namesake_strategy=namesake_strategy,
-                    )
+                    _append_tool(toolkit, _a2a_call_fn, agent_id)
                     logger.debug("Registered plugin tool: a2a_call")
                 except Exception as e:
                     logger.debug("a2a_call registration skipped: %s", e)
@@ -519,22 +520,21 @@ def setup_tool_and_prompt_hooks() -> (  # pylint: disable=too-many-statements
     _setup_a2a_query_rewrite()
 
 
-def _setup_a2a_query_rewrite() -> None:
-    """Intercept ``/a2a <name> <msg>`` via query_handler patch.
+# Bound methods captured by ``make_process_from_runner`` freeze the
+# function pointer at access time and bypass class-level patches; track
+# our replacements so they can be undone on teardown.
+_PATCHED_CHANNEL_PROCESSES: list[tuple[Any, Any]] = []
 
-    When a user types ``/a2a <agent_name> <message>``, the patch rewrites the
-    user message into a natural-language instruction that tells the LLM to call
-    the ``a2a_call`` tool with the specified alias and message.  Because the
-    rewritten text no longer starts with ``/``, it bypasses the control-command
-    path and flows through the normal agent query pipeline, giving the LLM full
-    control over the remote A2A call (including streaming tool output).
 
-    ``/a2a`` without arguments is left untouched so the control-command handler
-    can list registered agents as before.
+def _setup_a2a_query_rewrite() -> None:  # pylint: disable=too-many-statements
+    """Intercept ``/a2a <name> <msg>`` and rewrite into a natural-language
+    instruction so the LLM picks up the ``a2a_call`` tool.
+
+    ``/a2a`` without arguments is left for the control-command handler to
+    list registered agents.
     """
     try:
         from qwenpaw.app.runner.runner import AgentRunner
-        from qwenpaw.app.runner.command_dispatch import _get_last_user_text
     except ImportError as exc:
         logger.warning(
             "Cannot import AgentRunner; /a2a query rewrite skipped: %s",
@@ -542,33 +542,147 @@ def _setup_a2a_query_rewrite() -> None:
         )
         return
 
-    _original_query_handler = AgentRunner.query_handler
+    _original_stream_query = AgentRunner.stream_query
 
-    async def _patched_query_handler(self, msgs, request=None, **kwargs):
-        query = _get_last_user_text(msgs)
-        if query and query.strip().startswith("/a2a "):
-            rewritten = _try_rewrite_a2a_query(
-                query.strip(),
-                self.workspace_dir,
+    async def _patched_stream_query(self, request, *args, **kwargs):
+        try:
+            _maybe_rewrite_a2a_input(request, self.workspace_dir)
+        except Exception:
+            logger.warning(
+                "[CloudPaw] /a2a query rewrite raised; "
+                "passing input through unchanged",
+                exc_info=True,
             )
-            if rewritten is not None:
-                AgentRunner._rewrite_last_message_text(msgs, rewritten)
-                logger.info(
-                    "[CloudPaw] /a2a query rewritten for agent processing",
-                )
-
-        async for item in _original_query_handler(
+        async for item in _original_stream_query(
             self,
-            msgs,
             request,
+            *args,
             **kwargs,
         ):
             yield item
 
-    AgentRunner.query_handler = _patched_query_handler
+    AgentRunner.stream_query = _patched_stream_query
     logger.info(
-        "[CloudPaw] Patched AgentRunner.query_handler for /a2a rewrite",
+        "[CloudPaw] Patched AgentRunner.stream_query for /a2a rewrite",
     )
+
+    _wire_existing_channels(_patched_stream_query)
+    _patch_make_process_factory(_patched_stream_query)
+
+
+def _maybe_rewrite_a2a_input(request: Any, workspace_dir: Path | None) -> None:
+    """Rewrite the first ``TextContent`` on ``request.input[-1]`` when it
+    starts with ``/a2a ``."""
+    input_list = getattr(request, "input", None) or []
+    if not input_list:
+        return
+    last_msg = input_list[-1]
+    content_list = getattr(last_msg, "content", None) or []
+    text_block = None
+    text_value = ""
+    for block in content_list:
+        bt = getattr(block, "text", None)
+        if isinstance(bt, str):
+            text_block = block
+            text_value = bt
+            break
+    if text_block is None:
+        return
+    stripped = text_value.strip()
+    if not stripped.startswith("/a2a "):
+        return
+    rewritten = _try_rewrite_a2a_query(stripped, workspace_dir)
+    if rewritten is None:
+        return
+    text_block.text = rewritten
+    logger.info("[CloudPaw] /a2a query rewritten for agent processing")
+
+
+def _wire_existing_channels(patched_fn) -> None:
+    """Replace each live channel's ``_process`` with a proxy that calls
+    ``patched_fn`` against the channel's owning runner.
+
+    No-ops when the FastAPI app or its ``multi_agent_manager`` isn't
+    importable (CLI-only mode, headless runner).
+    """
+    try:
+        from qwenpaw.app._app import app as fastapi_app
+    except Exception:
+        logger.debug("CloudPaw: FastAPI app not importable; skip rewire")
+        return
+
+    manager = getattr(
+        getattr(fastapi_app, "state", None),
+        "multi_agent_manager",
+        None,
+    )
+    if manager is None:
+        logger.debug("CloudPaw: no multi_agent_manager; skip rewire")
+        return
+
+    workspaces = getattr(manager, "agents", {}) or {}
+    rewired = 0
+    for _agent_id, ws in workspaces.items():
+        try:
+            services = (
+                ws._service_manager.services
+            )  # pylint: disable=protected-access
+        except AttributeError:
+            continue
+        cm = services.get("channel_manager")
+        if cm is None:
+            continue
+        runner = services.get("runner")
+        if runner is None:
+            continue
+        for channel in getattr(cm, "channels", []) or []:
+            original = getattr(channel, "_process", None)
+            if original is None:
+                continue
+
+            def _make_proxy(_runner, _fn):
+                def _proxy(request, *args, **kwargs):
+                    return _fn(_runner, request, *args, **kwargs)
+
+                _proxy.__qualname__ = "cloudpaw.patched_channel_process"
+                return _proxy
+
+            channel._process = _make_proxy(runner, patched_fn)
+            _PATCHED_CHANNEL_PROCESSES.append((channel, original))
+            rewired += 1
+    if rewired:
+        logger.info(
+            "[CloudPaw] rewired %d channel _process refs to patched "
+            "stream_query",
+            rewired,
+        )
+
+
+def _patch_make_process_factory(patched_fn) -> None:
+    """Wrap ``make_process_from_runner`` so workspaces created after this
+    point also receive the patched proxy instead of a bound method."""
+    try:
+        from qwenpaw.app.channels import utils as ch_utils
+    except Exception:
+        logger.debug(
+            "CloudPaw: channels.utils not importable; skip factory patch",
+        )
+        return
+
+    original = getattr(ch_utils, "make_process_from_runner", None)
+    if original is None or getattr(original, "_cloudpaw_patched", False):
+        return
+
+    def patched_factory(runner):
+        def _proxy(request, *args, **kwargs):
+            return patched_fn(runner, request, *args, **kwargs)
+
+        _proxy.__qualname__ = "cloudpaw.patched_channel_process"
+        return _proxy
+
+    patched_factory._cloudpaw_patched = True  # type: ignore[attr-defined]
+    patched_factory._original = original  # type: ignore[attr-defined]
+    ch_utils.make_process_from_runner = patched_factory
 
 
 def _try_rewrite_a2a_query(  # pylint: disable=too-many-return-statements

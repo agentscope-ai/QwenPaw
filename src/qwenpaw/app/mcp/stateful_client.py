@@ -28,8 +28,6 @@ from mcp.client.stdio import StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 
-from agentscope.mcp import StatefulClientBase
-
 logger = logging.getLogger(__name__)
 
 # anyio is a required transitive dependency of the mcp package, so it is
@@ -57,6 +55,13 @@ _TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
     ConnectionResetError,
     BrokenPipeError,
 )
+
+
+# How long ``list_tools`` waits for an in-flight reconnect before raising.
+# Picked to cover typical HTTP MCP reconnect latency (sub-second to ~1s
+# in practice) with headroom, while still failing fast enough that a
+# permanently-broken client doesn't stall every turn for long.
+_LIST_TOOLS_RECONNECT_WAIT: float = 3.0
 
 
 def _is_transport_error(exc: BaseException) -> bool:
@@ -105,6 +110,7 @@ class _MCPClientMixin:
     name: str
     session: ClientSession | None
     is_connected: bool
+    is_stateful: bool
     _oauth_required: bool
     _cached_tools: Any
     _stop_event: asyncio.Event
@@ -166,10 +172,14 @@ class _MCPClientMixin:
                         await asyncio.sleep(0.1)
 
                     # Clear state before the context manager exits and
-                    # tears down the transport / subprocess.
+                    # tears down the transport / subprocess.  Note we do
+                    # NOT clear ``_cached_tools`` here for the reload
+                    # path — callers in the brief reconnect window fall
+                    # back to it (see ``list_tools``).  On explicit stop
+                    # the client is going away anyway, but we still null
+                    # it out below for tidiness.
                     self.session = None
                     self.is_connected = False
-                    self._cached_tools = None
 
                     if self._reload_event.is_set():
                         logger.info(f"Reloading MCP client: {self.name}")
@@ -177,6 +187,7 @@ class _MCPClientMixin:
                         self._ready_event.clear()
                     else:
                         logger.info(f"Stopping MCP client: {self.name}")
+                        self._cached_tools = None
 
                 # AsyncExitStack exits here in THIS task — no cross-task issue.
 
@@ -296,22 +307,94 @@ class _MCPClientMixin:
     async def list_tools(self):
         """Return all tools available from the MCP server.
 
+        Returns ``MCPTool`` instances so the tools are compatible with
+        agentscope 2.0's ``Toolkit`` (which expects ``ToolBase`` objects
+        with ``is_state_injected``, ``is_mcp``, etc.).
+
+        If the client is in a transient reconnect window (``is_connected``
+        is False but the lifecycle task is still alive), wait briefly for
+        the reconnect to finish before raising.  This keeps a single
+        flaky MCP client from killing the user's turn — agentscope's
+        ``Toolkit.get_tool_schemas`` has no per-client error handling
+        and one ``list_tools`` failure aborts the whole schema fetch
+        (and thus ``compress_context`` → ``_reply``).
+
         Returns:
-            List of available MCP tools
+            List of MCPTool wrappers
 
         Raises:
-            RuntimeError: If not connected
+            RuntimeError: If not connected and no reconnect is in flight,
+                or if the reconnect does not complete within
+                ``_LIST_TOOLS_RECONNECT_WAIT`` seconds.
         """
+        from agentscope.tool import MCPTool
+
+        if not self.is_connected:
+            has_task = self._lifecycle_task is not None and not (
+                self._lifecycle_task.done()
+            )
+            if has_task:
+                logger.info(
+                    "MCP client '%s' not connected; waiting up to %.1fs "
+                    "for reconnect before list_tools.",
+                    self.name,
+                    _LIST_TOOLS_RECONNECT_WAIT,
+                )
+                try:
+                    await asyncio.wait_for(
+                        self._ready_event.wait(),
+                        timeout=_LIST_TOOLS_RECONNECT_WAIT,
+                    )
+                except asyncio.TimeoutError:
+                    pass
+
+        # Reconnect succeeded — go fetch fresh schemas.
+        if self.is_connected and self.session is not None:
+            try:
+                res = await self.session.list_tools()
+            except Exception as exc:
+                self._handle_transport_error(exc)
+                raise
+            self._cached_tools = res.tools
+            return [
+                MCPTool(
+                    mcp_name=self.name,
+                    tool=t,
+                    session=self.session,
+                )
+                for t in res.tools
+            ]
+
+        # Reconnect didn't land in time.  Fall back to the cache from the
+        # last successful list_tools call (preserved across transient
+        # reconnects on purpose — see ``_handle_transport_error`` and
+        # ``_run_lifecycle``).  The returned MCPTool wrappers will have
+        # ``session=None``, so any ``call_tool`` issued this turn will
+        # raise — but agentscope ReAct catches per-tool errors and records
+        # them as tool results, so the user's turn survives.
+        # This shape mirrors how agentscope 1.x worked: schemas captured
+        # once and reused, only ``call_tool`` was sensitive to liveness.
+        if self._cached_tools is not None:
+            logger.warning(
+                "MCP client '%s' still disconnected after %.1fs; serving "
+                "cached schemas from last successful list_tools.",
+                self.name,
+                _LIST_TOOLS_RECONNECT_WAIT,
+            )
+            return [
+                MCPTool(
+                    mcp_name=self.name,
+                    tool=t,
+                    session=self.session,
+                )
+                for t in self._cached_tools
+            ]
+
+        # No cache and not connected — this is the cold-start failure mode.
         self._validate_connection()
-
-        try:
-            res = await self.session.list_tools()
-        except Exception as exc:
-            self._handle_transport_error(exc)
-            raise
-
-        self._cached_tools = res.tools
-        return res.tools
+        # ``_validate_connection`` always raises in this branch; the line
+        # below is unreachable but keeps the return type honest.
+        return []
 
     async def call_tool(self, name: str, arguments: dict | None = None):
         """Call a tool on the MCP server.
@@ -432,7 +515,19 @@ class _MCPClientMixin:
             exc,
         )
         self.is_connected = False
-        self._cached_tools = None
+        # ``_cached_tools`` is intentionally NOT cleared here.  Callers
+        # in ``list_tools`` fall back to the cache during the reconnect
+        # window so a single flaky MCP client doesn't kill the user's
+        # turn.  The cache only gets cleared on explicit stop (see
+        # ``_run_lifecycle``) or on a hard lifecycle exception, both of
+        # which mean the cache is no longer trustworthy.
+        # Clear ``_ready_event`` synchronously so callers waiting on it
+        # (see ``list_tools``) actually block until the reconnect lands,
+        # instead of waking immediately on the stale "set" state from the
+        # previous successful connect.  The lifecycle task will also clear
+        # it ~100 ms later inside its reload teardown, but that's too late
+        # for a caller that's already in the wait.
+        self._ready_event.clear()
         # session is left as-is; see docstring above.
         if not self._stop_event.is_set():
             self._reload_event.set()
@@ -456,7 +551,7 @@ class _MCPClientMixin:
             )
 
 
-class StdIOStatefulClient(_MCPClientMixin, StatefulClientBase):
+class StdIOStatefulClient(_MCPClientMixin):
     """StdIO MCP client with proper cross-task lifecycle management.
 
     Drop-in replacement for agentscope.mcp.StdIOStatefulClient that solves
@@ -512,6 +607,7 @@ class StdIOStatefulClient(_MCPClientMixin, StatefulClientBase):
             )
 
         self.name = name
+        self.is_stateful = True
         self.server_params = StdioServerParameters(
             command=command,
             args=args or [],
@@ -551,7 +647,7 @@ class StdIOStatefulClient(_MCPClientMixin, StatefulClientBase):
         return context[0], context[1]
 
 
-class HttpStatefulClient(_MCPClientMixin, StatefulClientBase):
+class HttpStatefulClient(_MCPClientMixin):
     """HTTP/SSE MCP client with proper cross-task lifecycle management.
 
     Drop-in replacement for agentscope.mcp.HttpStatefulClient that solves
@@ -601,6 +697,7 @@ class HttpStatefulClient(_MCPClientMixin, StatefulClientBase):
             raise TypeError(f"url must be str, got {type(url).__name__}")
 
         self.name = name
+        self.is_stateful = True
         self.transport = transport
         self.url = url
         self.headers = headers
