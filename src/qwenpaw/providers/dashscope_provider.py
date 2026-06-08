@@ -91,6 +91,7 @@ class DashScopeProvider(OpenAIProvider):
             parameters=DashScopeChatModel.Parameters(**param_kwargs),
             stream=True,
             default_headers=merged_headers or None,
+            context_size=self._get_context_size(model_id),
         )
 
 

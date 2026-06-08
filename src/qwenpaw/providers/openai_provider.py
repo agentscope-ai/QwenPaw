@@ -191,6 +191,7 @@ class OpenAIProvider(Provider):
             stream=True,
             default_headers=merged_headers or None,
             extra_generate_kwargs=gen_kwargs or None,
+            context_size=self._get_context_size(model_id),
         )
 
     async def probe_model_multimodal(

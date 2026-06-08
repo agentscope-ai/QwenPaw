@@ -279,6 +279,7 @@ class AnthropicProvider(Provider):
                 if getattr(self, "auth_mode", None) == "auth_token"
                 else None
             ),
+            context_size=self._get_context_size(model_id),
         )
 
     async def probe_model_multimodal(

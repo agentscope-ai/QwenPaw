@@ -87,4 +87,5 @@ class OllamaProvider(OpenAIProvider):
             stream=True,
             default_headers=self._build_default_headers() or None,
             extra_generate_kwargs=gen_kwargs or None,
+            context_size=self._get_context_size(model_id),
         )

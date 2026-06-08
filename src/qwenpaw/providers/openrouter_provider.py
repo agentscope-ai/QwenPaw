@@ -350,4 +350,5 @@ class OpenRouterProvider(Provider):
             model=model_id,
             stream=True,
             default_headers=self._build_default_headers() or None,
+            context_size=self._get_context_size(model_id),
         )

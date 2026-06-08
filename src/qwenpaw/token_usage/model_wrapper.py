@@ -27,6 +27,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
             parameters=getattr(model, "parameters", None)
             or ChatModelBase.Parameters(),
             stream=getattr(model, "stream", True),
+            context_size=getattr(model, "context_size", 32768),
         )
         self._model = model
         self._provider_id = provider_id
@@ -72,6 +73,15 @@ class TokenRecordingModelWrapper(ChatModelBase):
         session_id = get_current_session_id()
         if session_id and usage:
             TokenRecordingModelWrapper._usage_by_session[session_id] = usage
+
+    async def generate_structured_output(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        result = await self._model.generate_structured_output(*args, **kwargs)
+        self._record_usage(getattr(result, "usage", None))
+        return result
 
     async def __call__(
         self,

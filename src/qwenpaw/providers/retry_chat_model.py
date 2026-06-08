@@ -303,6 +303,7 @@ class RetryChatModel(ChatModelBase):
             parameters=getattr(inner, "parameters", None)
             or ChatModelBase.Parameters(),
             stream=getattr(inner, "stream", True),
+            context_size=getattr(inner, "context_size", 32768),
         )
         self._inner = inner
         self._retry_config = _normalize_retry_config(retry_config)
@@ -390,6 +391,13 @@ class RetryChatModel(ChatModelBase):
                 # Stream failed before producing any chunk;
                 # slot not yet released.
                 limiter.release()
+
+    async def generate_structured_output(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        return await self._inner.generate_structured_output(*args, **kwargs)
 
     async def __call__(
         self,
