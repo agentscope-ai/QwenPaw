@@ -177,7 +177,9 @@ export const MCPClientCard = React.memo(function MCPClientCard({
       setToolToggles(toggles);
       onRefresh?.();
     } catch (err: any) {
-      message.error(err?.message || t("mcp.toolsSaveError", "Failed to save tool settings"));
+      message.error(
+        err?.message || t("mcp.toolsSaveError", "Failed to save tool settings"),
+      );
     } finally {
       setToolsSaving(false);
     }
@@ -342,7 +344,10 @@ export const MCPClientCard = React.memo(function MCPClientCard({
         onCancel={() => setToolsModalOpen(false)}
         footer={
           <div style={{ textAlign: "right" }}>
-            <Button onClick={() => setToolsModalOpen(false)} style={{ marginRight: 8 }}>
+            <Button
+              onClick={() => setToolsModalOpen(false)}
+              style={{ marginRight: 8 }}
+            >
               {t("common.close")}
             </Button>
             {tools.length > 0 && (
@@ -376,7 +381,13 @@ export const MCPClientCard = React.memo(function MCPClientCard({
                     checked={toolToggles[tool.name] ?? tool.enabled}
                     onChange={(checked) => handleToolToggle(tool.name, checked)}
                   />
-                  <Tag color={toolToggles[tool.name] ?? tool.enabled ? "blue" : "default"}>
+                  <Tag
+                    color={
+                      toolToggles[tool.name] ?? tool.enabled
+                        ? "blue"
+                        : "default"
+                    }
+                  >
                     {tool.name}
                   </Tag>
                 </div>
