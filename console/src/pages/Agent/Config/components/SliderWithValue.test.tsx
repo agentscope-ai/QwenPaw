@@ -41,7 +41,13 @@ describe("SliderWithValue", () => {
   it("calls onChange when slider value changes", () => {
     const handleChange = vi.fn();
     renderWithProviders(
-      <SliderWithValue value={0.5} min={0} max={1} step={0.01} onChange={handleChange} />,
+      <SliderWithValue
+        value={0.5}
+        min={0}
+        max={1}
+        step={0.01}
+        onChange={handleChange}
+      />,
     );
 
     const slider = screen.getByTestId("slider");

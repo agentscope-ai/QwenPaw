@@ -49,17 +49,23 @@ describe("cronJobApi", () => {
   it("replaceCronJob sends PUT with encoded jobId and spec body", async () => {
     const spec = { name: "updated", cron_expression: "*/5 * * * *" } as any;
     await cronJobApi.replaceCronJob("job-1", spec);
-    expect(request).toHaveBeenCalledWith(`/cron/jobs/${encodeURIComponent("job-1")}`, {
-      method: "PUT",
-      body: JSON.stringify(spec),
-    });
+    expect(request).toHaveBeenCalledWith(
+      `/cron/jobs/${encodeURIComponent("job-1")}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(spec),
+      },
+    );
   });
 
   it("deleteCronJob sends DELETE with encoded jobId", async () => {
     await cronJobApi.deleteCronJob("job-1");
-    expect(request).toHaveBeenCalledWith(`/cron/jobs/${encodeURIComponent("job-1")}`, {
-      method: "DELETE",
-    });
+    expect(request).toHaveBeenCalledWith(
+      `/cron/jobs/${encodeURIComponent("job-1")}`,
+      {
+        method: "DELETE",
+      },
+    );
   });
 
   it("pauseCronJob sends POST to /pause endpoint", async () => {

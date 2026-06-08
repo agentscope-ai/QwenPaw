@@ -10,10 +10,26 @@ interface TestSkill {
 }
 
 const mockSkills: TestSkill[] = [
-  { name: "CodeGen", description: "Generates code from prompts", tags: ["ai", "code"] },
-  { name: "Translator", description: "Translates between languages", tags: ["ai", "language"] },
-  { name: "Formatter", description: "Formats source files", tags: ["code", "tools"] },
-  { name: "Linter", description: "Checks code quality", tags: ["code", "quality"] },
+  {
+    name: "CodeGen",
+    description: "Generates code from prompts",
+    tags: ["ai", "code"],
+  },
+  {
+    name: "Translator",
+    description: "Translates between languages",
+    tags: ["ai", "language"],
+  },
+  {
+    name: "Formatter",
+    description: "Formats source files",
+    tags: ["code", "tools"],
+  },
+  {
+    name: "Linter",
+    description: "Checks code quality",
+    tags: ["code", "quality"],
+  },
 ];
 
 function tagFilter(tag: string) {
@@ -76,7 +92,13 @@ describe("useSkillFilter", () => {
 
   it("collects unique sorted tags from all skills", () => {
     const { result } = renderHook(() => useSkillFilter(mockSkills));
-    expect(result.current.allTags).toEqual(["ai", "code", "language", "quality", "tools"]);
+    expect(result.current.allTags).toEqual([
+      "ai",
+      "code",
+      "language",
+      "quality",
+      "tools",
+    ]);
   });
 
   it("re-filters skills when searchQuery is updated", () => {

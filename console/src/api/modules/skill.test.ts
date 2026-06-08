@@ -154,9 +154,7 @@ describe("skillApi.searchHubSkills", () => {
   it("uses default limit of 20", async () => {
     vi.mocked(request).mockResolvedValue([]);
     await skillApi.searchHubSkills("test");
-    expect(request).toHaveBeenCalledWith(
-      "/skills/hub/search?q=test&limit=20",
-    );
+    expect(request).toHaveBeenCalledWith("/skills/hub/search?q=test&limit=20");
   });
 });
 
@@ -202,10 +200,9 @@ describe("skillApi.disableSkill", () => {
   it("sends POST to /skills/<encoded>/disable", async () => {
     vi.mocked(request).mockResolvedValue(undefined);
     await skillApi.disableSkill("special/skill");
-    expect(request).toHaveBeenCalledWith(
-      "/skills/special%2Fskill/disable",
-      { method: "POST" },
-    );
+    expect(request).toHaveBeenCalledWith("/skills/special%2Fskill/disable", {
+      method: "POST",
+    });
   });
 });
 
