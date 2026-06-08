@@ -256,6 +256,12 @@ class MCPClientManager:
             "cwd": client_config.cwd or None,
         }
 
+        whitelist = (
+            set(client_config.tools)
+            if client_config.tools is not None
+            else None
+        )
+
         if client_config.transport == "stdio":
             client = StdIOStatefulClient(
                 name=client_config.name,
@@ -263,6 +269,7 @@ class MCPClientManager:
                 args=client_config.args,
                 env=client_config.env,
                 cwd=client_config.cwd or None,
+                tool_whitelist=whitelist,
             )
             setattr(client, "_qwenpaw_rebuild_info", rebuild_info)
             return client
@@ -281,6 +288,7 @@ class MCPClientManager:
             transport=client_config.transport,
             url=client_config.url,
             headers=headers or None,
+            tool_whitelist=whitelist,
         )
         setattr(client, "_qwenpaw_rebuild_info", rebuild_info)
         return client

@@ -183,6 +183,7 @@ class _MCPClientMixin:
     _oauth_required: bool
     _cached_tools: Any
     _name_alias_to_real: dict[str, str]
+    _tool_whitelist: set[str] | None
     _stop_event: asyncio.Event
     _reload_event: asyncio.Event
     _ready_event: asyncio.Event
@@ -371,20 +372,48 @@ class _MCPClientMixin:
     # Public API
     # ------------------------------------------------------------------
 
-    async def list_tools(self):
-        """Return all tools available from the MCP server.
+    def _sanitize_server_tools(
+        self,
+        raw_tools: list,
+    ) -> tuple[list, dict[str, str]]:
+        """Sanitize tool names for model-side compatibility.
 
-        MCP allows tool names with characters (``.``, ``/``, ``:``…) that
-        OpenAI- and Anthropic-style tool-call APIs reject. To stay compatible
-        without losing the ability to dispatch back to the real tool, this
-        method rewrites each non-conformant ``tool.name`` to a sanitized
-        alias and stores the alias→real mapping on the client. Subsequent
-        :meth:`call_tool` lookups consult that mapping. Tools whose names are
-        already valid pass through untouched, with no mapping entry.
+        Returns ``(sanitized_tools, alias_to_real)`` where
+        ``alias_to_real`` maps each rewritten name back to the original
+        MCP name (only for tools that were actually renamed).
+        """
+        sanitized: list = []
+        alias_to_real: dict[str, str] = {}
+        taken: set[str] = {
+            t.name for t in raw_tools if _TOOL_NAME_ALLOWED.match(t.name)
+        }
+        for tool in raw_tools:
+            if _TOOL_NAME_ALLOWED.match(tool.name):
+                sanitized.append(tool)
+                continue
+            safe = _sanitize_tool_name(tool.name, taken)
+            taken.add(safe)
+            alias_to_real[safe] = tool.name
+            sanitized.append(tool.model_copy(update={"name": safe}))
+            logger.info(
+                "MCP client '%s': renamed tool '%s' -> '%s' for "
+                "model-side compatibility.",
+                self.name,
+                tool.name,
+                safe,
+            )
+        return sanitized, alias_to_real
+
+    async def list_tools(self):
+        """Return whitelisted tools from the MCP server.
+
+        Applies name sanitization (so all names match
+        ``^[a-zA-Z0-9_-]+$``) and then filters by ``_tool_whitelist``.
+        The whitelist stores **sanitized** names (the same names the
+        frontend and model see).
 
         Returns:
-            List of MCP tools whose names are guaranteed to match
-            ``^[a-zA-Z0-9_-]+$``.
+            List of MCP tools after sanitization and whitelist filtering.
 
         Raises:
             RuntimeError: If not connected
@@ -397,32 +426,37 @@ class _MCPClientMixin:
             self._handle_transport_error(exc)
             raise
 
-        rewritten: list = []
-        alias_to_real: dict[str, str] = {}
-        # Reserve the set of safe names already taken so collisions
-        # (e.g. upstream exposes both ``a.b`` and ``a_b``) get a suffix.
-        taken: set[str] = {
-            t.name for t in res.tools if _TOOL_NAME_ALLOWED.match(t.name)
-        }
-        for tool in res.tools:
-            if _TOOL_NAME_ALLOWED.match(tool.name):
-                rewritten.append(tool)
-                continue
-            safe = _sanitize_tool_name(tool.name, taken)
-            taken.add(safe)
-            alias_to_real[safe] = tool.name
-            rewritten.append(tool.model_copy(update={"name": safe}))
-            logger.info(
-                "MCP client '%s': renamed tool '%s' -> '%s' for "
-                "model-side compatibility.",
-                self.name,
-                tool.name,
-                safe,
-            )
+        rewritten, alias_to_real = self._sanitize_server_tools(res.tools)
+
+        # Whitelist stores sanitized names (what the frontend displays).
+        whitelist = getattr(self, "_tool_whitelist", None)
+        if whitelist is not None:
+            rewritten = [t for t in rewritten if t.name in whitelist]
+            alias_to_real = {
+                k: v for k, v in alias_to_real.items() if k in whitelist
+            }
 
         self._cached_tools = rewritten
         self._name_alias_to_real = alias_to_real
         return rewritten
+
+    async def list_all_tools(self):
+        """Return all tools from the MCP server, ignoring the whitelist.
+
+        Used by management APIs to show available tools so users can
+        configure which ones to enable. Applies name sanitization but
+        skips whitelist filtering.
+        """
+        self._validate_connection()
+
+        try:
+            res = await self.session.list_tools()
+        except Exception as exc:
+            self._handle_transport_error(exc)
+            raise
+
+        sanitized, _ = self._sanitize_server_tools(res.tools)
+        return sanitized
 
     async def call_tool(self, name: str, arguments: dict | None = None):
         """Call a tool on the MCP server with its real MCP name.
@@ -653,6 +687,7 @@ class StdIOStatefulClient(_MCPClientMixin, StatefulClientBase):
             "replace",
         ] = "strict",
         read_timeout_seconds: float = 60 * 5,
+        tool_whitelist: set[str] | None = None,
     ) -> None:
         """Initialize the StdIO MCP client.
 
@@ -665,6 +700,8 @@ class StdIOStatefulClient(_MCPClientMixin, StatefulClientBase):
             encoding: The text encoding used when sending/receiving messages
             encoding_error_handler: The text encoding error handler
             read_timeout_seconds: The read timeout seconds
+            tool_whitelist: Only expose these tools (sanitized names).
+                None means expose all.
 
         Raises:
             TypeError: If name or command is not a string
@@ -698,9 +735,10 @@ class StdIOStatefulClient(_MCPClientMixin, StatefulClientBase):
         self.session: ClientSession | None = None
         self.is_connected = False
 
-        # Tool cache
+        # Tool cache and whitelist
         self._cached_tools = None
         self._name_alias_to_real: dict[str, str] = {}
+        self._tool_whitelist = tool_whitelist
 
     async def _setup_transport(
         self,
@@ -735,6 +773,7 @@ class HttpStatefulClient(_MCPClientMixin, StatefulClientBase):
         headers: dict[str, str] | None = None,
         timeout: float = 30,
         sse_read_timeout: float = 60 * 5,
+        tool_whitelist: set[str] | None = None,
         **client_kwargs: Any,
     ) -> None:
         """Initialize the HTTP MCP client.
@@ -746,6 +785,8 @@ class HttpStatefulClient(_MCPClientMixin, StatefulClientBase):
             headers: Additional headers to include in the HTTP request
             timeout: The timeout for the HTTP request in seconds
             sse_read_timeout: The timeout for reading SSE in seconds
+            tool_whitelist: Only expose these tools (sanitized names).
+                None means expose all.
             **client_kwargs: Additional keyword arguments for the client
 
         Raises:
@@ -786,9 +827,10 @@ class HttpStatefulClient(_MCPClientMixin, StatefulClientBase):
         self.session: ClientSession | None = None
         self.is_connected = False
 
-        # Tool cache
+        # Tool cache and whitelist
         self._cached_tools = None
         self._name_alias_to_real: dict[str, str] = {}
+        self._tool_whitelist = tool_whitelist
 
     async def _setup_transport(
         self,
