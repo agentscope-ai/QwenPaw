@@ -175,7 +175,12 @@ class MultiAgentManager:
                 if asyncio.iscoroutinefunction(callback):
                     await callback(workspace_info)
                 else:
-                    await asyncio.to_thread(callback, workspace_info)
+                    result = await asyncio.to_thread(callback, workspace_info)
+                    if asyncio.iscoroutine(result) or hasattr(
+                        result,
+                        "__await__",
+                    ):
+                        await result
             except Exception as exc:
                 logger.error(
                     f"Error in workspace_created hook "
