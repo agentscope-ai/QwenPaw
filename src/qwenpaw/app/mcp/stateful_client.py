@@ -225,8 +225,9 @@ async def _force_kill_pids(
         if _killpg is not None:
             try:
                 pgid = os.getpgid(pid)
-                _killpg(pgid, sig)
-                return
+                if pgid == pid:
+                    _killpg(pgid, sig)
+                    return
             except (
                 ProcessLookupError,
                 PermissionError,
@@ -698,8 +699,12 @@ class _MCPClientMixin:
                     )
                     self._lifecycle_task.cancel()
                     try:
-                        await self._lifecycle_task
+                        await asyncio.wait_for(
+                            self._lifecycle_task,
+                            timeout=1.0,
+                        )
                     except (
+                        asyncio.TimeoutError,
                         asyncio.CancelledError,
                         Exception,
                     ):
