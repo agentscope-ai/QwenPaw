@@ -32,9 +32,12 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
   const { t } = useTranslation();
   const [enabled, setEnabled] = useState(true);
   const [paths, setPaths] = useState<string[]>([]);
+  const [whitelistEnabled, setWhitelistEnabled] = useState(false);
+  const [whitelistPaths, setWhitelistPaths] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [newPath, setNewPath] = useState("");
+  const [newWhitelistPath, setNewWhitelistPath] = useState("");
   const { message } = useAppMessage();
 
   const fetchData = useCallback(async () => {
@@ -43,6 +46,15 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
       const data = await api.getFileGuard();
       setEnabled(data?.enabled ?? true);
       setPaths(data?.paths ?? []);
+      setWhitelistEnabled(data?.whitelist_enabled ?? false);
+      setWhitelistPaths(
+        Array.from(
+          new Set([
+            ...(data?.whitelist_read_paths ?? []),
+            ...(data?.whitelist_write_paths ?? []),
+          ]),
+        ),
+      );
     } catch {
       message.error(t("security.fileGuard.loadFailed"));
     } finally {
@@ -83,17 +95,50 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
     setPaths((prev) => prev.filter((p) => p !== path));
   }, []);
 
+  const handleWhitelistToggle = useCallback(
+    async (checked: boolean) => {
+      setWhitelistEnabled(checked);
+      try {
+        await api.updateFileGuard({ whitelist_enabled: checked });
+        message.success(t("security.fileGuard.saveSuccess"));
+      } catch {
+        setWhitelistEnabled(!checked);
+        message.error(t("security.fileGuard.saveFailed"));
+      }
+    },
+    [t],
+  );
+
+  const handleAddWhitelist = useCallback(() => {
+    const trimmed = newWhitelistPath.trim();
+    if (!trimmed) return;
+    if (whitelistPaths.includes(trimmed)) {
+      message.warning(t("security.fileGuard.duplicate"));
+      return;
+    }
+    setWhitelistPaths((prev) => [...prev, trimmed]);
+    setNewWhitelistPath("");
+  }, [newWhitelistPath, whitelistPaths, t]);
+
+  const handleRemoveWhitelist = useCallback((path: string) => {
+    setWhitelistPaths((prev) => prev.filter((p) => p !== path));
+  }, []);
+
   const handleSave = useCallback(async () => {
     try {
       setSaving(true);
-      await api.updateFileGuard({ paths });
+      await api.updateFileGuard({
+        paths,
+        whitelist_read_paths: whitelistPaths,
+        whitelist_write_paths: whitelistPaths,
+      });
       message.success(t("security.fileGuard.saveSuccess"));
     } catch {
       message.error(t("security.fileGuard.saveFailed"));
     } finally {
       setSaving(false);
     }
-  }, [paths, t]);
+  }, [paths, whitelistPaths, t]);
 
   const handleReset = useCallback(() => {
     fetchData();
@@ -143,6 +188,10 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
   ];
 
   const dataSource = paths.map((path) => ({ key: path, path }));
+  const whitelistDataSource = whitelistPaths.map((path) => ({
+    key: path,
+    path,
+  }));
 
   return (
     <>
@@ -179,6 +228,50 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
             {t("security.fileGuard.add")}
           </Button>
         </Space.Compact>
+
+        <div
+          style={{
+            borderTop: "1px solid var(--ant-color-border-secondary, #f0f0f0)",
+            marginTop: 20,
+            paddingTop: 20,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 16,
+            }}
+          >
+            <span style={{ fontWeight: 500 }}>
+              {t("security.fileGuard.whitelistEnableLabel")}
+            </span>
+            <Switch
+              checked={whitelistEnabled}
+              onChange={handleWhitelistToggle}
+            />
+          </div>
+
+          <Space.Compact style={{ width: "100%" }}>
+            <Input
+              value={newWhitelistPath}
+              onChange={(e) => setNewWhitelistPath(e.target.value)}
+              placeholder={t("security.fileGuard.whitelistInputPlaceholder")}
+              onPressEnter={handleAddWhitelist}
+              allowClear
+              disabled={!whitelistEnabled}
+            />
+            <Button
+              type="primary"
+              icon={<PlusCircleOutlined />}
+              onClick={handleAddWhitelist}
+              disabled={!newWhitelistPath.trim() || !whitelistEnabled}
+            >
+              {t("security.fileGuard.add")}
+            </Button>
+          </Space.Compact>
+        </div>
       </Card>
 
       <Card className={styles.tableCard}>
@@ -190,6 +283,41 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
           size="middle"
           locale={{
             emptyText: t("security.fileGuard.empty"),
+          }}
+        />
+      </Card>
+
+      <Card className={styles.tableCard} style={{ marginTop: 20 }}>
+        <Table
+          columns={[
+            columns[0],
+            {
+              title: t("security.fileGuard.actions"),
+              key: "actions",
+              width: 80,
+              render: (_: unknown, record: { path: string }) => (
+                <Popconfirm
+                  title={t("security.fileGuard.removeConfirm")}
+                  onConfirm={() => handleRemoveWhitelist(record.path)}
+                  okText={t("common.delete")}
+                  cancelText={t("common.cancel")}
+                >
+                  <Button
+                    type="text"
+                    danger
+                    icon={<DeleteOutlined />}
+                    size="small"
+                  />
+                </Popconfirm>
+              ),
+            },
+          ]}
+          dataSource={whitelistDataSource}
+          loading={loading}
+          pagination={false}
+          size="middle"
+          locale={{
+            emptyText: t("security.fileGuard.whitelistEmpty"),
           }}
         />
       </Card>
