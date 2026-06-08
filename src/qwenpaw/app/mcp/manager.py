@@ -194,6 +194,13 @@ class MCPClientManager:
                 "some clients may not have shut down cleanly",
             )
 
+        # Final sweep: kill any stdio subprocesses that survived
+        # graceful teardown (include_active=True covers the case
+        # where the gather timed out before all clients closed).
+        from .stateful_client import kill_orphaned_mcp_children
+
+        await kill_orphaned_mcp_children(include_active=True)
+
     async def _add_client(
         self,
         key: str,

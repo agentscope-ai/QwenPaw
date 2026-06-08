@@ -21,9 +21,10 @@ import logging
 import os
 import re
 import signal
+import threading
 from contextlib import AsyncExitStack
 from datetime import timedelta
-from typing import Any, Literal
+from typing import Any, Dict, Literal
 
 import httpx
 from mcp import ClientSession
@@ -165,6 +166,26 @@ _CLOSE_TIMEOUT = 15.0
 # orphaned MCP subprocesses.
 _FORCE_KILL_GRACE = 2.0
 
+# ----------------------------------------------------------------
+# Global PID registry for stdio MCP subprocesses.
+#
+# All StdIOStatefulClient instances share this registry so that
+# concurrent connections cannot mis-attribute PIDs.  A PID is
+# registered at spawn time and removed on normal teardown.  If
+# teardown fails, the PID is moved to _orphan_stdio_pids for
+# deferred cleanup by kill_orphaned_mcp_children().
+# ----------------------------------------------------------------
+_stdio_lock = threading.Lock()
+
+# pid -> server_name (active stdio children)
+_stdio_pids: Dict[int, str] = {}
+
+# pid -> pgid (captured at spawn time while child is alive)
+_stdio_pgids: Dict[int, int] = {}
+
+# PIDs that survived their session teardown (SDK cleanup failed).
+_orphan_stdio_pids: set = set()
+
 
 def _snapshot_child_pids() -> set[int]:
     """Return PIDs of current child processes.
@@ -202,17 +223,85 @@ def _pid_exists(pid: int) -> bool:
         return False
 
 
-async def _force_kill_pids(
+def _register_stdio_pids(
     pids: set[int],
-    client_name: str,
+    server_name: str,
 ) -> None:
-    """SIGTERM then SIGKILL orphaned MCP child PIDs.
+    """Register newly spawned stdio PIDs and their PGIDs."""
+    pgids: Dict[int, int] = {}
+    for pid in pids:
+        try:
+            pgids[pid] = os.getpgid(pid)
+        except (AttributeError, ProcessLookupError, OSError):
+            pass
+    with _stdio_lock:
+        for pid in pids:
+            _stdio_pids[pid] = server_name
+        _stdio_pgids.update(pgids)
 
-    Uses ``os.killpg`` when a process-group ID can be
-    obtained (POSIX); falls back to ``os.kill`` per-PID.
-    On Windows, SIGTERM already calls TerminateProcess
-    (hard kill), so SIGKILL escalation is skipped.
+
+def _unregister_stdio_pids(pids: set[int]) -> None:
+    """Unregister PIDs on normal teardown.
+
+    If any PID is still alive, move it to orphan set instead
+    of dropping it silently.
     """
+    if not pids:
+        return
+    _killpg = getattr(os, "killpg", None)
+    with _stdio_lock:
+        for pid in pids:
+            _stdio_pids.pop(pid, None)
+        for pid in pids:
+            pid_alive = _pid_exists(pid)
+            pgroup_alive = False
+            pgid = _stdio_pgids.get(pid)
+            if not pid_alive and pgid is not None and _killpg is not None:
+                try:
+                    _killpg(pgid, 0)
+                    pgroup_alive = True
+                except (
+                    ProcessLookupError,
+                    PermissionError,
+                    OSError,
+                ):
+                    pass
+            if pid_alive or pgroup_alive:
+                _orphan_stdio_pids.add(pid)
+            else:
+                _stdio_pgids.pop(pid, None)
+
+
+async def kill_orphaned_mcp_children(
+    include_active: bool = False,
+) -> None:
+    """Reap orphaned MCP stdio subprocesses.
+
+    Sends SIGTERM, waits ``_FORCE_KILL_GRACE`` seconds, then
+    escalates to SIGKILL for survivors.  Uses the spawn-time
+    pgid so reparented grandchildren are also reaped.
+
+    On Windows, SIGTERM is TerminateProcess (hard kill), so
+    the SIGKILL phase is skipped.
+
+    Args:
+        include_active: If True, also kills all PIDs in the
+            active registry (for final shutdown only).
+    """
+    with _stdio_lock:
+        pids: Dict[int, str] = {}
+        for opid in _orphan_stdio_pids:
+            pids[opid] = "orphan"
+        _orphan_stdio_pids.clear()
+        if include_active:
+            pids.update(dict(_stdio_pids))
+            _stdio_pids.clear()
+        pgids: Dict[int, int] = {
+            pid: _stdio_pgids[pid] for pid in pids if pid in _stdio_pgids
+        }
+        for pid in pgids:
+            _stdio_pgids.pop(pid, None)
+
     if not pids:
         return
 
@@ -222,12 +311,11 @@ async def _force_kill_pids(
     _is_win = os.name == "nt"
 
     def _send(pid: int, sig: int) -> None:
-        if _killpg is not None:
+        pgid = pgids.get(pid)
+        if pgid is not None and _killpg is not None:
             try:
-                pgid = os.getpgid(pid)
-                if pgid == pid:
-                    _killpg(pgid, sig)
-                    return
+                _killpg(pgid, sig)
+                return
             except (
                 ProcessLookupError,
                 PermissionError,
@@ -243,29 +331,28 @@ async def _force_kill_pids(
         ):
             pass
 
-    for pid in pids:
+    for pid, name in pids.items():
         _send(pid, _sigterm)
         logger.debug(
-            "Sent SIGTERM to MCP child %d (%s)",
+            "Sent SIGTERM to orphaned MCP process %d (%s)",
             pid,
-            client_name,
+            name,
         )
 
-    # On Windows, SIGTERM is TerminateProcess (immediate),
-    # no need to wait and escalate to SIGKILL.
+    # On Windows, SIGTERM is TerminateProcess (immediate).
     if _is_win or _sigkill is None:
         return
 
     await asyncio.sleep(_FORCE_KILL_GRACE)
 
-    for pid in pids:
+    for pid, name in pids.items():
         if not _pid_exists(pid):
             continue
         _send(pid, _sigkill)
         logger.warning(
-            "Force-killed MCP child %d (%s) after SIGTERM timeout",
+            "Force-killed MCP process %d (%s) after SIGTERM",
             pid,
-            client_name,
+            name,
         )
 
 
@@ -325,27 +412,19 @@ class _MCPClientMixin:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    async def _force_kill_children(self) -> None:
-        """Force-kill any tracked child PIDs that survived
-        the graceful ``AsyncExitStack`` teardown.
+    async def _mark_and_reap_orphans(self) -> None:
+        """Mark tracked child PIDs as orphans if still alive,
+        then reap all orphans.
 
-        No-op when ``_child_pids`` is empty or on non-stdio
-        clients.
+        Called after each lifecycle iteration and on close
+        timeout.  No-op for non-stdio clients.
         """
         pids = getattr(self, "_child_pids", None)
         if not pids:
             return
-        alive = {p for p in pids if _pid_exists(p)}
-        if alive:
-            logger.warning(
-                "MCP client '%s': %d child process(es) "
-                "survived teardown, force-killing: %s",
-                self.name,
-                len(alive),
-                alive,
-            )
-            await _force_kill_pids(alive, self.name)
+        _unregister_stdio_pids(pids)
         self._child_pids = set()
+        await kill_orphaned_mcp_children()
 
     async def _run_lifecycle(self) -> None:  # noqa: C901
         """Run MCP client lifecycle in a dedicated task.
@@ -432,7 +511,7 @@ class _MCPClientMixin:
                 # After each iteration (whether clean exit,
                 # reload, or exception), kill any orphaned
                 # child processes the SDK failed to reap.
-                await self._force_kill_children()
+                await self._mark_and_reap_orphans()
 
         logger.info(
             f"MCP client lifecycle task exited: " f"{self.name}",
@@ -709,7 +788,7 @@ class _MCPClientMixin:
                         Exception,
                     ):
                         pass
-                    await self._force_kill_children()
+                    await self._mark_and_reap_orphans()
         except Exception as e:
             if not ignore_errors:
                 raise
@@ -891,6 +970,7 @@ class StdIOStatefulClient(_MCPClientMixin, StatefulClientBase):
         new_pids = _snapshot_child_pids() - pids_before
         if new_pids:
             self._child_pids = new_pids
+            _register_stdio_pids(new_pids, self.name)
             logger.debug(
                 "MCP client '%s': tracked child PID(s) %s",
                 self.name,
