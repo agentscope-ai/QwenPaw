@@ -1486,13 +1486,12 @@ export default function ChatPage() {
       );
     }
 
-    const baseSuggestions = [
-      ...commandSuggestions,
-      ...skillSuggestions,
-    ].map((item) => ({
-      label: renderSuggestionLabel(item.command, item.description),
-      value: item.value,
-    }));
+    const baseSuggestions = [...commandSuggestions, ...skillSuggestions].map(
+      (item) => ({
+        label: renderSuggestionLabel(item.command, item.description),
+        value: item.value,
+      }),
+    );
 
     // leftHeader: whole-section render wins, otherwise partial merge {logo, title}.
     const mergedLeftHeader: any =
