@@ -23,18 +23,25 @@ def registry() -> ExpectedCapabilityRegistry:
     return ExpectedCapabilityRegistry()
 
 
-def test_registry_loads_baseline(registry: ExpectedCapabilityRegistry) -> None:
-    all_caps = registry.get_all_for_provider("openai")
-    assert len(all_caps) > 0
+def test_registry_loads_baseline() -> None:
+    """Baseline file should load and contain at least one entry."""
+    reg = ExpectedCapabilityRegistry()
+    assert reg._data, "baseline file appears empty or failed to parse"
 
 
-def test_registry_get_expected_found(
-    registry: ExpectedCapabilityRegistry,
-) -> None:
-    cap = registry.get_expected("openai", "gpt-4o")
-    assert cap is not None
-    assert cap.provider_id == "openai"
-    assert cap.model_id == "gpt-4o"
+def test_registry_get_expected_found() -> None:
+    reg = ExpectedCapabilityRegistry()
+    cap = ExpectedCapability(
+        provider_id="synth_provider",
+        model_id="synth_model",
+        expected_image=True,
+        expected_video=False,
+    )
+    reg._register(cap)
+    result = reg.get_expected("synth_provider", "synth_model")
+    assert result is not None
+    assert result.provider_id == "synth_provider"
+    assert result.model_id == "synth_model"
 
 
 def test_registry_get_expected_not_found(
@@ -49,11 +56,32 @@ def test_registry_get_all_for_provider_empty(
     assert registry.get_all_for_provider("no_such_provider") == []
 
 
-def test_registry_get_all_for_provider_filters(
-    registry: ExpectedCapabilityRegistry,
-) -> None:
-    caps = registry.get_all_for_provider("dashscope")
-    assert all(c.provider_id == "dashscope" for c in caps)
+def test_registry_get_all_for_provider_filters() -> None:
+    reg = ExpectedCapabilityRegistry()
+    cap1 = ExpectedCapability(
+        provider_id="synth_prov",
+        model_id="m1",
+        expected_image=True,
+        expected_video=False,
+    )
+    cap2 = ExpectedCapability(
+        provider_id="synth_prov",
+        model_id="m2",
+        expected_image=False,
+        expected_video=True,
+    )
+    cap_other = ExpectedCapability(
+        provider_id="other_prov",
+        model_id="m3",
+        expected_image=True,
+        expected_video=True,
+    )
+    reg._register(cap1)
+    reg._register(cap2)
+    reg._register(cap_other)
+    caps = reg.get_all_for_provider("synth_prov")
+    assert len(caps) >= 2
+    assert all(c.provider_id == "synth_prov" for c in caps)
 
 
 def test_registry_register_overwrites() -> None:

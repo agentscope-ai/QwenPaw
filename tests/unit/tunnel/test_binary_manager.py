@@ -102,9 +102,7 @@ async def test_download_unsupported_platform(
 # ---------------------------------------------------------------------------
 
 
-async def test_download_file_timeout(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_download_file_timeout() -> None:
     import httpx
 
     class FakeStream:
@@ -121,9 +119,7 @@ async def test_download_file_timeout(
         await _download_file(client, "https://example.com/file", "/tmp/out")
 
 
-async def test_download_file_http_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_download_file_http_error() -> None:
     import httpx
 
     mock_response = MagicMock()
