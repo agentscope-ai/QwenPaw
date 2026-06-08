@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn() }));
@@ -10,7 +10,9 @@ vi.mock("../authHeaders", () => ({
   buildAuthHeaders: vi.fn(() => ({})),
 }));
 vi.mock("../../stores/codeFileCacheStore", () => ({
-  useCodeFileCacheStore: { getState: () => ({ get: () => null, set: vi.fn(), invalidate: vi.fn() }) },
+  useCodeFileCacheStore: {
+    getState: () => ({ get: () => null, set: vi.fn(), invalidate: vi.fn() }),
+  },
 }));
 vi.mock("../../utils/downloadFileFromUrl", () => ({
   downloadFileFromUrl: vi.fn(),
@@ -32,7 +34,9 @@ describe("workspaceApi.listFiles", () => {
 
     expect(request).toHaveBeenCalledWith("/workspace/files");
     expect(result[0]).toHaveProperty("updated_at");
-    expect(result[0].updated_at).toBe(new Date("2024-01-15T10:00:00Z").getTime());
+    expect(result[0].updated_at).toBe(
+      new Date("2024-01-15T10:00:00Z").getTime(),
+    );
   });
 });
 
