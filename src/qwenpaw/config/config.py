@@ -1303,6 +1303,11 @@ class MCPClientConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     cwd: str = ""
+    tools: Optional[List[str]] = Field(
+        default=None,
+        description="Tool whitelist. Only listed tools will be loaded. "
+        "None means load all tools from the server.",
+    )
     oauth: Optional[MCPOAuthConfig] = None
 
     @model_validator(mode="before")
