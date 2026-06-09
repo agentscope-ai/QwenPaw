@@ -38,10 +38,10 @@ describe("ThemeToggleButton", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows sun icon when system mode is active", () => {
+  it("shows sun-moon icon when system mode is active", () => {
     renderWithTheme("system");
     expect(
-      document.querySelector('[data-icon="SparkSunLine"]'),
+      document.querySelector('[data-icon="SunMoonLine"]'),
     ).toBeInTheDocument();
   });
 
