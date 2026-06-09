@@ -8,6 +8,7 @@ with integrated tools, skills, and memory management.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 from pathlib import Path
@@ -1484,3 +1485,13 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
                     "Exception occurred during interrupt cleanup",
                     exc_info=True,
                 )
+
+    async def _broadcast_to_subscribers(self, msg):
+        # agentscope hook wrapper may misidentify an
+        # async bound method as sync, returning an
+        # unawaited coroutine instead of a Msg.
+        if inspect.iscoroutine(msg):
+            msg = await msg
+        elif isinstance(msg, list):
+            msg = [(await m) if inspect.iscoroutine(m) else m for m in msg]
+        await super()._broadcast_to_subscribers(msg)
