@@ -422,9 +422,7 @@ export default function ModelSelector() {
                         {t("modelSelector.vision")}
                       </span>
                     )}
-                    {isActive && (
-                      <CheckOutlined className={styles.checkIcon} />
-                    )}
+                    {isActive && <CheckOutlined className={styles.checkIcon} />}
                   </div>
                 </div>
               );

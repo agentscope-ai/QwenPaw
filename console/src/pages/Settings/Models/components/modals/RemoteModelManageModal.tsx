@@ -1,4 +1,10 @@
-import { useState, useEffect, useMemo, useCallback, useDeferredValue } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useDeferredValue,
+} from "react";
 import {
   Button,
   Form,
@@ -806,7 +812,11 @@ export function RemoteModelManageModal({
                           type="text"
                           size="small"
                           icon={
-                            isConfigOpen ? <DownOutlined /> : <SettingOutlined />
+                            isConfigOpen ? (
+                              <DownOutlined />
+                            ) : (
+                              <SettingOutlined />
+                            )
                           }
                           onClick={() =>
                             setConfigOpenModelId(isConfigOpen ? null : m.id)
@@ -851,9 +861,7 @@ export function RemoteModelManageModal({
                 <Button
                   type="link"
                   size="small"
-                  onClick={() =>
-                    setVisibleCount((c) => c + PAGE_SIZE)
-                  }
+                  onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
                 >
                   {t("models.loadMore", {
                     count: Math.min(
