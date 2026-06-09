@@ -23,6 +23,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 _PLUGIN_HTTP_TIMEOUT = 30.0
@@ -159,15 +160,19 @@ def _wait_until_plugin_loader_ready(
     last_status = None
     last_detail = ""
     while time.time() < deadline:
-        resp = app_server.api_request(
-            "POST",
-            "/api/plugins/install",
-            json={
-                "source": "/tmp/integ-loader-readiness-probe-not-a-path",
-                "force": False,
-            },
-            timeout=5.0,
-        )
+        try:
+            resp = app_server.api_request(
+                "POST",
+                "/api/plugins/install",
+                json={
+                    "source": "/tmp/integ-loader-readiness-probe-not-a-path",
+                    "force": False,
+                },
+                timeout=5.0,
+            )
+        except httpx.TimeoutException:
+            time.sleep(0.5)
+            continue
         last_status = resp.status_code
         try:
             last_detail = resp.json().get("detail", "")
@@ -199,12 +204,18 @@ def _install_local_official_plugin(
     resp = None
     while True:
         _wait_until_plugin_loader_ready(app_server)
-        resp = app_server.api_request(
-            "POST",
-            "/api/plugins/install",
-            json={"source": str(source_path), "force": False},
-            timeout=_PLUGIN_HTTP_TIMEOUT,
-        )
+        try:
+            resp = app_server.api_request(
+                "POST",
+                "/api/plugins/install",
+                json={"source": str(source_path), "force": False},
+                timeout=_PLUGIN_HTTP_TIMEOUT,
+            )
+        except httpx.TimeoutException:
+            if time.time() >= deadline:
+                raise
+            time.sleep(0.5)
+            continue
         if resp.status_code != 503 or time.time() >= deadline:
             break
         time.sleep(0.5)
@@ -240,11 +251,17 @@ def _upload_plugin_zip(
     deadline = time.time() + _LOADER_READY_TIMEOUT
     while True:
         _wait_until_plugin_loader_ready(app_server)
-        resp = app_server.api_request(
-            "POST",
-            "/api/plugins/upload",
-            **kwargs,
-        )
+        try:
+            resp = app_server.api_request(
+                "POST",
+                "/api/plugins/upload",
+                **kwargs,
+            )
+        except httpx.TimeoutException:
+            if time.time() >= deadline:
+                raise
+            time.sleep(0.5)
+            continue
         if resp.status_code != 503 or time.time() >= deadline:
             return resp
         time.sleep(0.5)

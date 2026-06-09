@@ -35,12 +35,18 @@ class MCPClientManager:
         """Initialize an empty MCP client manager."""
         self._clients: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
+        self._init_task: asyncio.Task[None] | None = None
 
-    async def init_from_config(self, config: "MCPConfig") -> None:
+    async def init_from_config(
+        self,
+        config: "MCPConfig",
+        timeout: float = 60.0,
+    ) -> None:
         """Initialize clients from configuration.
 
         Args:
             config: MCP configuration containing client definitions
+            timeout: Connection timeout per client in seconds
         """
         logger.debug("Initializing MCP clients from config")
         for key, client_config in config.clients.items():
@@ -49,15 +55,57 @@ class MCPClientManager:
                 continue
 
             try:
-                await self._add_client(key, client_config)
+                await self._add_client(key, client_config, timeout=timeout)
                 logger.debug(f"MCP client '{key}' initialized successfully")
             except BaseException as e:
-                if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                if isinstance(
+                    e,
+                    (KeyboardInterrupt, SystemExit, asyncio.CancelledError),
+                ):
                     raise
                 logger.warning(
                     f"Failed to initialize MCP client '{key}': {e}",
                     exc_info=True,
                 )
+
+    def init_from_config_background(
+        self,
+        config: "MCPConfig",
+        timeout: float = 10.0,
+    ) -> None:
+        """Start MCP initialization without blocking workspace startup.
+
+        The runner asks this manager for connected clients at query time, so
+        clients that finish later become available without delaying ACP/TUI
+        startup.  Repeated calls replace any still-running startup task.
+        """
+        if self._init_task is not None and not self._init_task.done():
+            self._init_task.cancel()
+
+        async def _run() -> None:
+            try:
+                await self.init_from_config(config, timeout=timeout)
+            except Exception:
+                logger.warning(
+                    "Background MCP initialization failed",
+                    exc_info=True,
+                )
+
+        self._init_task = asyncio.create_task(_run())
+        self._init_task.add_done_callback(self._consume_init_task_result)
+
+    @staticmethod
+    def _consume_init_task_result(task: asyncio.Task[None]) -> None:
+        """Consume background task result so cancellation is quiet."""
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.warning(
+                "Background MCP initialization task failed",
+                exc_info=True,
+            )
 
     async def get_clients(self) -> List[Any]:
         """Get list of all active MCP clients.
@@ -155,6 +203,16 @@ class MCPClientManager:
 
         Called during application shutdown.
         """
+        if self._init_task is not None and not self._init_task.done():
+            self._init_task.cancel()
+            try:
+                await self._init_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.warning(f"Error stopping MCP init task: {e}")
+        self._init_task = None
+
         async with self._lock:
             clients_snapshot = list(self._clients.items())
             self._clients.clear()
@@ -256,6 +314,12 @@ class MCPClientManager:
             "cwd": client_config.cwd or None,
         }
 
+        whitelist = (
+            set(client_config.tools)
+            if client_config.tools is not None
+            else None
+        )
+
         if client_config.transport == "stdio":
             client = StdIOStatefulClient(
                 name=client_config.name,
@@ -263,6 +327,7 @@ class MCPClientManager:
                 args=client_config.args,
                 env=client_config.env,
                 cwd=client_config.cwd or None,
+                tool_whitelist=whitelist,
             )
             setattr(client, "_qwenpaw_rebuild_info", rebuild_info)
             return client
@@ -281,6 +346,7 @@ class MCPClientManager:
             transport=client_config.transport,
             url=client_config.url,
             headers=headers or None,
+            tool_whitelist=whitelist,
         )
         setattr(client, "_qwenpaw_rebuild_info", rebuild_info)
         return client

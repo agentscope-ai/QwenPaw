@@ -44,26 +44,28 @@ export async function registerHostModulesDynamic(): Promise<void> {
     } module(s) for registration`,
   );
 
-  // Register modules
-  let registeredCount = 0;
-  for (const [path, importFn] of Object.entries(modules)) {
-    try {
-      // Convert absolute path to module key
-      // "../pages/Agent/Config/index.tsx" -> "Agent/Config/index"
+  // Register modules in parallel so dev-mode background warm-up doesn't serialize
+  // 233 import requests through Vite's transform pipeline.
+  const results = await Promise.allSettled(
+    Object.entries(modules).map(async ([path, importFn]) => {
       const moduleKey = path
         .replace(/^\.\.\/pages\//, "")
         .replace(/\.(ts|tsx)$/, "");
-
-      // Lazy load the module
       const module = await importFn();
-
-      // Check if module has exports
       if (module && Object.keys(module).length > 0) {
         moduleRegistry.register(moduleKey, module);
-        registeredCount++;
+        return true;
       }
-    } catch (error) {
-      console.warn(`[patchable] Failed to register module: ${path}`, error);
+      return false;
+    }),
+  );
+
+  const registeredCount = results.filter(
+    (r) => r.status === "fulfilled" && r.value,
+  ).length;
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.warn("[patchable] Failed to register module:", r.reason);
     }
   }
 

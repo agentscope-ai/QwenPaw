@@ -23,6 +23,7 @@ import { useTranslation } from "react-i18next";
 import type { ChatStatus } from "../../../../api/types/chat";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
+import { useCodingMode } from "../../../../stores/codingModeStore";
 import ChatSessionItem from "../ChatSessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
 import {
@@ -148,6 +149,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const navigate = useNavigate();
   const { sessions, currentSessionId, setCurrentSessionId, setSessions } =
     useChatAnywhereSessionsState();
+  const { codingMode } = useCodingMode();
 
   const { createSession } = useChatAnywhereSessions();
 
@@ -294,9 +296,15 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       sessionApi
         .preloadSession(sessionId)
         .then(({ realId }) => {
-          const targetUrl = `/chat/${realId || sessionId}`;
-          sessionApi.lastNavigatedChatId = realId || sessionId;
-          navigate(targetUrl, { replace: true });
+          // Issue #4987: In coding mode, skip URL navigation to /chat/<id>.
+          // The redirect effect in ChatPage would immediately navigate back
+          // to /coding before session data loads, causing the switch to fail.
+          // Instead, just set the session directly — the UI stays on /coding.
+          if (!codingMode) {
+            const targetUrl = `/chat/${realId || sessionId}`;
+            sessionApi.lastNavigatedChatId = realId || sessionId;
+            navigate(targetUrl, { replace: true });
+          }
           // Now set currentSessionId — the library's getSession will hit cache.
           setCurrentSessionId(sessionId);
         })
@@ -318,7 +326,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           setSwitchingSessionId(null);
         });
     },
-    [currentSessionId, setCurrentSessionId, navigate],
+    [currentSessionId, setCurrentSessionId, navigate, codingMode],
   );
 
   /** Delete a session: call deleteChat API then refresh the list */
@@ -575,13 +583,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           </div>
         ) : (
           <>
-            {/* Background loading — only show when content overflows the container,
-                so it's visible through unrendered gaps during fast scroll */}
-            {sortedSessions.length * ITEM_HEIGHT > listHeight && (
-              <div className={styles.virtualListBackground}>
-                <Spin size="small" />
-              </div>
-            )}
             <FixedSizeList
               height={listHeight}
               width="100%"

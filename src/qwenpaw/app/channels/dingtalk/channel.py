@@ -2071,7 +2071,7 @@ class DingTalkChannel(BaseChannel):
             and send_meta.get("sender_staff_id", "")
         ):
             at_id = send_meta["sender_staff_id"]
-            at_nick = send_meta.get("sender_nick", "") or at_id
+            at_nick = send_meta.get("user_name", "") or at_id
             return f"<a atId={at_id}>{at_nick}</a>\n"
         return ""
 
@@ -2380,6 +2380,7 @@ class DingTalkChannel(BaseChannel):
         out = {
             "channel_id": first.get("channel_id") or self.channel,
             "sender_id": first.get("sender_id") or "",
+            "acl_sender_id": first.get("acl_sender_id") or "",
             "content_parts": merged_parts,
             "meta": merged_meta,
         }

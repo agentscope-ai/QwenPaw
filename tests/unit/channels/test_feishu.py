@@ -20,6 +20,7 @@ Run:
     pytest tests/unit/channels/test_feishu.py -v
     pytest tests/unit/channels/test_feishu.py::TestFeishuChannelInit -v
 """
+
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 # pylint: disable=broad-exception-raised,unused-import,unused-variable
 from __future__ import annotations
@@ -32,7 +33,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from qwenpaw.app.channels.base import ContentType, OutgoingContentPart
-
 
 # =============================================================================
 # Fixtures
@@ -2037,11 +2037,14 @@ class TestFeishuChannelUploadImage:
         mock_request_builder.request_body.return_value = mock_request_builder
         mock_request_builder.build.return_value = mock_request
 
-        with patch(
-            "qwenpaw.app.channels.feishu.channel.CreateImageRequestBody",
-        ) as mock_body_class, patch(
-            "qwenpaw.app.channels.feishu.channel.CreateImageRequest",
-        ) as mock_request_class:
+        with (
+            patch(
+                "qwenpaw.app.channels.feishu.channel.CreateImageRequestBody",
+            ) as mock_body_class,
+            patch(
+                "qwenpaw.app.channels.feishu.channel.CreateImageRequest",
+            ) as mock_request_class,
+        ):
             mock_body_class.builder.return_value = mock_body_builder
             mock_request_class.builder.return_value = mock_request_builder
             yield mock_request_class, mock_request
@@ -2156,11 +2159,14 @@ class TestFeishuChannelUploadFile:
         mock_request_builder.request_body.return_value = mock_request_builder
         mock_request_builder.build.return_value = mock_request
 
-        with patch(
-            "qwenpaw.app.channels.feishu.channel.CreateFileRequestBody",
-        ) as mock_body_class, patch(
-            "qwenpaw.app.channels.feishu.channel.CreateFileRequest",
-        ) as mock_request_class:
+        with (
+            patch(
+                "qwenpaw.app.channels.feishu.channel.CreateFileRequestBody",
+            ) as mock_body_class,
+            patch(
+                "qwenpaw.app.channels.feishu.channel.CreateFileRequest",
+            ) as mock_request_class,
+        ):
             mock_body_class.builder.return_value = mock_body_builder
             mock_request_class.builder.return_value = mock_request_builder
             yield mock_request_class, mock_request
@@ -2365,11 +2371,14 @@ class TestFeishuChannelSendMessage:
         mock_request_builder.request_body.return_value = mock_request_builder
         mock_request_builder.build.return_value = mock_request
 
-        with patch(
-            "qwenpaw.app.channels.feishu.channel.CreateMessageRequestBody",
-        ) as mock_body_class, patch(
-            "qwenpaw.app.channels.feishu.channel.CreateMessageRequest",
-        ) as mock_request_class:
+        with (
+            patch(
+                "qwenpaw.app.channels.feishu.channel.CreateMessageRequestBody",
+            ) as mock_body_class,
+            patch(
+                "qwenpaw.app.channels.feishu.channel.CreateMessageRequest",
+            ) as mock_request_class,
+        ):
             mock_body_class.builder.return_value = mock_body_builder
             mock_request_class.builder.return_value = mock_request_builder
             yield mock_request_class, mock_request
@@ -3146,3 +3155,389 @@ class TestFeishuChannelThreadReply:
         await feishu_channel._before_consume_process(request)
 
         feishu_channel._create_streaming_card.assert_not_called()
+
+
+# =============================================================================
+# Tests for extract_interactive_text (utils)
+# =============================================================================
+
+
+# pylint: disable=unsupported-membership-test
+class TestExtractInteractiveText:
+    """Unit tests for extract_interactive_text()."""
+
+    def test_extracts_title_and_elements(self):
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+
+        payload = json.dumps(
+            {
+                "title": "Card Title",
+                "elements": [
+                    [{"tag": "text", "text": "Hello world"}],
+                ],
+            },
+        )
+        result = extract_interactive_text(payload)
+        assert result is not None
+        assert "Card Title" in result
+        assert "Hello world" in result
+
+    def test_cardkit_v2_body_elements(self):
+        """CardKit v2 nests elements under body — must still extract."""
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+
+        payload = json.dumps(
+            {
+                "header": {"title": {"content": "V2 Card"}},
+                "body": {
+                    "elements": [
+                        {"tag": "text", "text": "Body content here"},
+                    ],
+                },
+            },
+        )
+        result = extract_interactive_text(payload)
+        assert result is not None
+        assert "V2 Card" in result
+        assert "Body content here" in result
+
+    def test_extracts_links_as_markdown(self):
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+
+        payload = json.dumps(
+            {
+                "elements": [
+                    [
+                        {
+                            "tag": "a",
+                            "text": "Click me",
+                            "href": "https://example.com",
+                        },
+                    ],
+                ],
+            },
+        )
+        result = extract_interactive_text(payload)
+        assert result is not None
+        assert "[Click me](https://example.com)" in result
+
+    def test_returns_none_for_empty_or_invalid(self):
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+
+        assert extract_interactive_text(None) is None
+        assert extract_interactive_text("") is None
+        assert extract_interactive_text("{broken") is None
+        assert extract_interactive_text(json.dumps({"other": "data"})) is None
+
+    def test_title_only(self):
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+
+        result = extract_interactive_text(json.dumps({"title": "Hello"}))
+        assert result == "Hello"
+
+    def test_header_title_content(self):
+        from qwenpaw.app.channels.feishu.utils import extract_interactive_text
+
+        payload = json.dumps(
+            {
+                "header": {"title": {"content": "Header Title"}},
+            },
+        )
+        result = extract_interactive_text(payload)
+        assert result == "Header Title"
+
+
+# =============================================================================
+# Tests for _parse_message_content (channel)
+# =============================================================================
+
+
+class TestParseMessageContent:
+    """Tests for the shared _parse_message_content engine.
+
+    Returns (main_text, error_hints, content_parts).
+    """
+
+    @pytest.mark.asyncio
+    async def test_text_basic(self, feishu_channel):
+        (
+            main_text,
+            error_hints,
+            content_parts,
+        ) = await feishu_channel._parse_message_content(
+            "text",
+            '{"text": "Hello world"}',
+            "msg_001",
+        )
+        assert main_text == "Hello world"
+        assert error_hints == []
+        assert content_parts == []
+
+    @pytest.mark.asyncio
+    async def test_text_empty(self, feishu_channel):
+        (
+            main_text,
+            error_hints,
+            _,
+        ) = await feishu_channel._parse_message_content(
+            "text",
+            '{"text": ""}',
+            "msg_002",
+        )
+        assert main_text is None
+        assert error_hints == []
+
+    @pytest.mark.asyncio
+    async def test_text_whitespace_only(self, feishu_channel):
+        main_text, _, _ = await feishu_channel._parse_message_content(
+            "text",
+            '{"text": "   "}',
+            "msg_003",
+        )
+        assert main_text is None
+
+    @pytest.mark.asyncio
+    async def test_post_basic(self, feishu_channel):
+        content = json.dumps(
+            {
+                "content": [[{"tag": "text", "text": "Post body"}]],
+            },
+        )
+        (
+            main_text,
+            error_hints,
+            _,
+        ) = await feishu_channel._parse_message_content(
+            "post",
+            content,
+            "msg_010",
+        )
+        assert main_text is not None
+        assert "Post body" in main_text
+        assert error_hints == []
+
+    @pytest.mark.asyncio
+    async def test_image_missing_key(self, feishu_channel):
+        (
+            main_text,
+            error_hints,
+            content_parts,
+        ) = await feishu_channel._parse_message_content(
+            "image",
+            '{"other": "val"}',
+            "msg_020",
+        )
+        assert main_text is None
+        assert "[image: missing key]" in error_hints
+        assert content_parts == []
+
+    @pytest.mark.asyncio
+    async def test_image_download_success(self, feishu_channel):
+        feishu_channel._download_image_resource = AsyncMock(
+            return_value="/tmp/img.jpg",
+        )
+        (
+            main_text,
+            error_hints,
+            content_parts,
+        ) = await feishu_channel._parse_message_content(
+            "image",
+            '{"image_key": "img_abc"}',
+            "msg_021",
+        )
+        assert main_text is None
+        assert error_hints == []
+        assert len(content_parts) == 1
+        assert content_parts[0].image_url == "/tmp/img.jpg"
+
+    @pytest.mark.asyncio
+    async def test_file_missing_key(self, feishu_channel):
+        _, error_hints, _ = await feishu_channel._parse_message_content(
+            "file",
+            '{"other": "val"}',
+            "msg_030",
+        )
+        assert "[file: missing key]" in error_hints
+
+    @pytest.mark.asyncio
+    async def test_audio_download_success(self, feishu_channel):
+        feishu_channel._download_file_resource = AsyncMock(
+            return_value="/tmp/audio.opus",
+        )
+        (
+            main_text,
+            error_hints,
+            content_parts,
+        ) = await feishu_channel._parse_message_content(
+            "audio",
+            '{"file_key": "file_abc"}',
+            "msg_031",
+        )
+        assert main_text is None
+        assert error_hints == []
+        assert len(content_parts) == 1
+        assert content_parts[0].type == ContentType.AUDIO
+
+    @pytest.mark.asyncio
+    async def test_interactive_basic(self, feishu_channel):
+        content = json.dumps(
+            {
+                "header": {"title": {"content": "Card Title"}},
+                "body": {"elements": [{"tag": "text", "text": "Card body"}]},
+            },
+        )
+        (
+            main_text,
+            error_hints,
+            _,
+        ) = await feishu_channel._parse_message_content(
+            "interactive",
+            content,
+            "msg_040",
+        )
+        assert main_text is not None
+        assert "Card Title" in main_text
+        assert "Card body" in main_text
+        assert error_hints == []
+
+    @pytest.mark.asyncio
+    async def test_interactive_empty_returns_none(self, feishu_channel):
+        content = json.dumps({"other": "data"})
+        main_text, _, _ = await feishu_channel._parse_message_content(
+            "interactive",
+            content,
+            "msg_041",
+        )
+        assert main_text is None
+
+    @pytest.mark.asyncio
+    async def test_unknown_type_returns_empty(self, feishu_channel):
+        (
+            main_text,
+            error_hints,
+            content_parts,
+        ) = await feishu_channel._parse_message_content(
+            "sticker",
+            "{}",
+            "msg_099",
+        )
+        assert main_text is None
+        assert error_hints == []
+        assert content_parts == []
+
+
+# =============================================================================
+# Tests for _process_quoted_message (channel)
+# =============================================================================
+
+
+class TestProcessQuotedMessage:
+    """Tests for _process_quoted_message."""
+
+    @pytest.mark.asyncio
+    async def test_quoted_text_message(self, feishu_channel):
+        feishu_channel._fetch_quoted_message_content = AsyncMock(
+            return_value=("text", '{"text": "Original message"}'),
+        )
+        text_parts = ["My reply"]
+        content_parts = []
+        await feishu_channel._process_quoted_message(
+            "parent_123",
+            text_parts,
+            content_parts,
+        )
+        assert text_parts[0] == "[quoted message: Original message]"
+        assert text_parts[1] == "My reply"
+
+    @pytest.mark.asyncio
+    async def test_quoted_image_with_label(self, feishu_channel):
+        feishu_channel._fetch_quoted_message_content = AsyncMock(
+            return_value=("image", '{"image_key": "img_abc"}'),
+        )
+        feishu_channel._download_image_resource = AsyncMock(
+            return_value="/tmp/img.jpg",
+        )
+        text_parts = ["Reply text"]
+        content_parts = []
+        await feishu_channel._process_quoted_message(
+            "parent_456",
+            text_parts,
+            content_parts,
+        )
+        # Pure image — should still add a label
+        assert text_parts[0] == "[quoted image]"
+        assert text_parts[1] == "Reply text"
+        assert len(content_parts) == 1
+
+    @pytest.mark.asyncio
+    async def test_quoted_interactive_card(self, feishu_channel):
+        card_content = json.dumps(
+            {
+                "header": {"title": {"content": "Card Title"}},
+                "body": {"elements": [{"tag": "text", "text": "Card body"}]},
+            },
+        )
+        feishu_channel._fetch_quoted_message_content = AsyncMock(
+            return_value=("interactive", card_content),
+        )
+        text_parts = ["My reply"]
+        content_parts = []
+        await feishu_channel._process_quoted_message(
+            "parent_789",
+            text_parts,
+            content_parts,
+        )
+        assert "quoted interactive card:" in text_parts[0]
+        assert "Card Title" in text_parts[0]
+
+    @pytest.mark.asyncio
+    async def test_quoted_fetch_failure_no_change(self, feishu_channel):
+        feishu_channel._fetch_quoted_message_content = AsyncMock(
+            return_value=None,
+        )
+        text_parts = ["My reply"]
+        content_parts = []
+        await feishu_channel._process_quoted_message(
+            "parent_000",
+            text_parts,
+            content_parts,
+        )
+        assert text_parts == ["My reply"]
+        assert not content_parts
+
+    @pytest.mark.asyncio
+    async def test_quoted_error_hints_preserved(self, feishu_channel):
+        feishu_channel._fetch_quoted_message_content = AsyncMock(
+            return_value=("image", '{"other": "no key"}'),
+        )
+        text_parts = ["Reply"]
+        content_parts = []
+        await feishu_channel._process_quoted_message(
+            "parent_err",
+            text_parts,
+            content_parts,
+        )
+        assert text_parts[0] == "[quoted image]"
+        assert any("missing key" in t for t in text_parts)
+
+    @pytest.mark.asyncio
+    async def test_quoted_lines_order_preserved(self, feishu_channel):
+        """Error hints after post with failed downloads stay ordered."""
+        content = json.dumps(
+            {
+                "content": [[{"tag": "text", "text": "Post text"}]],
+            },
+        )
+        feishu_channel._fetch_quoted_message_content = AsyncMock(
+            return_value=("post", content),
+        )
+        text_parts = ["Reply"]
+        content_parts = []
+        await feishu_channel._process_quoted_message(
+            "parent_order",
+            text_parts,
+            content_parts,
+        )
+        # quoted label should be first, reply should be last
+        assert text_parts[0].startswith("[quoted message:")
+        assert text_parts[-1] == "Reply"

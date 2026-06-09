@@ -468,15 +468,17 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
         )
         logger.debug("System prompt:\n%s...", sys_prompt[:100])
 
-        # Inject multimodal capability awareness
-        multimodal_hint = build_multimodal_hint()
-        if multimodal_hint:
-            sys_prompt = sys_prompt + "\n\n" + multimodal_hint
+        from .prompt_builder import PromptBuilder
+        from ..plugins.registry import PluginRegistry
 
-        if self._env_context is not None:
-            sys_prompt = sys_prompt + "\n\n" + self._env_context
-
-        return sys_prompt
+        builder = PromptBuilder(PluginRegistry())
+        return builder.build(
+            agent=self,
+            agent_id=agent_id,
+            workspace=sys_prompt,
+            multimodal=build_multimodal_hint() or "",
+            env_context=self._env_context or "",
+        )
 
     def _register_hooks(self) -> None:
         """Register pre-reasoning and pre-acting hooks."""

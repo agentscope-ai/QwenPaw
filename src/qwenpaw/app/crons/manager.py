@@ -330,9 +330,10 @@ class CronManager:
                 task.get_name(),
                 repr(exc),
             )
-            # Push error to the console for the frontend to display
+            # Push error to the console for the frontend to display.
+            # Agent cron jobs skip push bubbles.
             session_id = job.dispatch.target.session_id
-            if session_id:
+            if session_id and job.task_type != "agent":
                 error_text = f"❌ Cron job [{job.name}] failed: {exc}"
                 asyncio.ensure_future(
                     push_store_append(session_id, error_text),
@@ -486,14 +487,22 @@ class CronManager:
     async def _dream_callback(self) -> None:
         """Run one dream-based memory optimization task."""
         try:
-            # Run dream task
-            await self._runner.memory_manager.dream()
-            logger.debug("Dream task executed successfully")
+            # Get workspace_dir from runner if available
+            workspace_dir = None
+            if hasattr(self._runner, "workspace_dir"):
+                workspace_dir = self._runner.workspace_dir
+
+            await self._runner.memory_manager.dream(
+                runner=self._runner,
+                channel_manager=self._channel_manager,
+                agent_id=self._agent_id,
+                workspace_dir=workspace_dir,
+            )
         except asyncio.CancelledError:
-            logger.info("Dream task was cancelled")
+            logger.info("dream cancelled")
             raise
-        except Exception as e:  # pylint: disable=broad-except
-            logger.error(f"Failed to execute dream task: {e}", exc_info=True)
+        except Exception:  # pylint: disable=broad-except
+            logger.exception("dream run failed")
 
     # pylint: disable-next=too-many-branches,too-many-statements
     async def _execute_once(

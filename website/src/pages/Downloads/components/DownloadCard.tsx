@@ -71,6 +71,11 @@ export function DownloadCard({
             <span className="text-sm font-normal text-site-text-muted">
               v{selected.version}
             </span>
+            {selected.author && (
+              <span className="text-sm font-normal text-site-text-muted">
+                · {selected.author}
+              </span>
+            )}
             {isRecommended && (
               <span className="inline-flex items-center rounded-sm bg-[rgba(255,106,0,0.1)] px-2 py-1 text-xs font-medium text-[#FF6A00]">
                 {t("downloads.recommended")}

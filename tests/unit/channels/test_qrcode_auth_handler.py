@@ -247,7 +247,7 @@ class TestQRCodeAuthHandlerRegistry:
             QRCODE_AUTH_HANDLERS,
         )
 
-        expected_channels = {"wechat", "wecom", "dingtalk", "feishu"}
+        expected_channels = {"wechat", "wecom", "dingtalk", "feishu", "qq"}
         assert set(QRCODE_AUTH_HANDLERS.keys()) == expected_channels
 
     def test_registry_handlers_are_correct_type(self):

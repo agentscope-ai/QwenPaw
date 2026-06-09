@@ -132,7 +132,7 @@ export function Hero() {
             </span>
           </h1>
           <p className="font-inter mx-auto mt-3 max-w-3xl px-2 text-[14px] font-medium leading-[1.55] text-(--color-text-tertiary) sm:mt-4 sm:px-0 sm:text-[15px] md:mt-5 md:text-[16px]">
-            {t("hero.sub")}
+            {t("hero.sub", { version: LATEST_RELEASE_VERSION })}
             <br />
             {t("hero.sub1")}
           </p>
