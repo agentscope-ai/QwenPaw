@@ -9,9 +9,10 @@ from typing import Optional
 
 from .policy import (
     GovernancePolicy, PolicyRule, PolicyAction, PolicyDecision,
+    DEFAULT_SANDBOX_DENY_PATHS, FILE_READ_TOOLS, FILE_WRITE_TOOLS,
     load_governance_policy, save_governance_policy,
+    _parse_match,
 )
-from .tool_registry import DEFAULT_REGISTRY
 from .audit import AuditLog
 
 
@@ -115,74 +116,96 @@ class ResourceGovernor:
     # 核心接口 2：编译 sandbox config
     # ------------------------------------------------------------------
 
-    def compile_sandbox_config(self, agent_id: str, session_id: str):
-        """根据当前 policy 中该 agent 的所有 allow 规则，
-        编译出 sandbox 可执行的权限配置（目录级白名单）。
+    def compile_sandbox_config(
+        self, tool_call: ToolCall,
+    ):
+        """根据当前 policy 编译 sandbox 的文件系统权限配置。
 
-        返回 SandboxConfig dataclass。
+        sandbox 的安全模型：
+            - workspace 作为工作目录，始终 readwrite mount（Bash 需要正常工作）
+            - user_rules 中 FILE_READ_TOOLS / FILE_WRITE_TOOLS 的路径编译为 mounts
+            - deny_paths 阻止敏感路径（defense-in-depth）
+            - policy 裁决控制命令能否执行，sandbox 控制文件系统边界
 
-        编译逻辑：
-            - 遍历 builtin_rules + user_rules 中 grantee 匹配的 allow 规则
-            - 提取路径级权限 → mounts
-            - 提取网络权限 → network_allow
-            - 设置 timeout、env_vars 等
+        mounts 编译逻辑：
+            遍历 user_rules，对每条规则：
+              - 解析 match → (tool_name, pattern)
+              - 如果 tool_name ∈ FILE_READ_TOOLS → readonly mount
+              - 如果 tool_name ∈ FILE_WRITE_TOOLS → readwrite mount
+            相同路径以最宽松权限为准（write > read）。
 
-        注意：sandbox 的粒度是目录/文件路径白名单，
-        做不到文件类型级别（如 "只允许 .py"）。
+        返回 SandboxConfig dataclass（来自 qwenpaw.sandbox.config）。
         """
-        from dataclasses import dataclass
-
-        @dataclass
-        class MountSpec:
-            path: str
-            readonly: bool = False
-
-        @dataclass
-        class SandboxConfig:
-            mounts: list
-            network_allow: list
-            timeout: float = 60.0
-            env_vars: dict = None
-
-        mounts = []
-        seen_paths = set()
-        registry = self.policy._registry if self._policy else DEFAULT_REGISTRY
-
-        # 遍历两层规则
-        all_rules = (
-            list(self._policy.builtin_rules if self._policy else [])
-            + list(self._policy.user_rules if self._policy else [])
+        from qwenpaw.sandbox.config import (
+            MountSpec, SandboxConfig, detect_platform_mode,
         )
-        for rule in all_rules:
-            if rule.grantee != "*" and rule.grantee != agent_id:
-                continue
-            if rule.action != PolicyAction.ALLOW:
+
+        ws = str(self.workspace_dir)
+
+        # ── 从 user_rules 编译 mounts ──
+        # path → writable 映射：同一路径以最宽松为准
+        mount_map: dict[str, bool] = {}
+
+        for rule in self.policy.user_rules:
+            try:
+                rule_tool, rule_pattern = _parse_match(rule.match)
+            except (ValueError, IndexError):
                 continue
 
-            # 从 "ToolName(pattern)" 提取路径 pattern
-            rule_tool, rule_pattern = _parse_match_from_rule(rule)
-
-            # 跳过 shell 类 tool（Bash 走 sandbox 独立权限）
-            if registry.get_type(rule_tool) == "shell":
+            # 从 pattern 提取路径：去掉尾部的 * 等通配符以得到目录前缀
+            path = self._resolve_mount_path(rule_pattern, ws)
+            if not path:
                 continue
 
-            # 将 glob pattern 转为 sandbox mount 路径
-            # 支持的模式：Read(src/**) → mount src/
-            #           Write(.env*) → mount 目录级（取 prefix）
-            mount_path = _glob_to_mount_path(rule_pattern)
-            if mount_path and mount_path not in seen_paths:
-                seen_paths.add(mount_path)
-                resolved = self.workspace_dir / mount_path
-                mounts.append(MountSpec(
-                    path=str(resolved),
-                    readonly=rule_tool in ("Read", "Grep", "Glob"),
-                ))
+            if rule_tool in FILE_READ_TOOLS:
+                # readonly mount，但若已有 write 则保持 write
+                if path not in mount_map:
+                    mount_map[path] = False
+            elif rule_tool in FILE_WRITE_TOOLS:
+                # readwrite mount
+                mount_map[path] = True
+
+        mounts = [
+            MountSpec(path=p, writable=w)
+            for p, w in mount_map.items()
+        ]
+        # workspace 始终 readwrite
+        mounts.insert(0, MountSpec(path=ws, writable=True))
 
         return SandboxConfig(
+            mode=detect_platform_mode(),
+            workspace_dir=ws,
             mounts=mounts,
-            network_allow=[],  # 从 policy 中扩展
-            timeout=60.0,
+            deny_paths=list(DEFAULT_SANDBOX_DENY_PATHS),
+            network_allow=["*"],
+            timeout_seconds=60,
         )
+
+    @staticmethod
+    def _resolve_mount_path(pattern: str, workspace_dir: str) -> str:
+        """从规则 pattern 推导 mount 路径。
+
+        处理策略：
+            - WORKSPACE_DIR/* → workspace_dir（整体 mount）
+            - /absolute/path/* → /absolute/path（取目录部分）
+            - 相对路径 → workspace_dir / 相对路径（取目录部分）
+            - 纯通配符 (*、**) → 跳过，无法推导具体路径
+        """
+        p = pattern.rstrip("*").rstrip("/")
+
+        if not p or p == ".":
+            return ""
+
+        # WORKSPACE_DIR 占位符（理论上 load 时已替换，做防御性处理）
+        if "WORKSPACE_DIR" in p:
+            p = p.replace("WORKSPACE_DIR", workspace_dir)
+
+        # 绝对路径
+        if p.startswith("/"):
+            return p
+
+        # 相对路径 → 基于 workspace 解析
+        return str(Path(workspace_dir) / p)
 
     # ------------------------------------------------------------------
     # 核心接口 3：动态追加规则
@@ -244,48 +267,3 @@ class ResourceGovernor:
         """获取全局 AuditLog 单例。"""
         return AuditLog.get_instance()
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-
-
-# ---------------------------------------------------------------------------
-# Helpers for compile_sandbox_config
-# ---------------------------------------------------------------------------
-
-def _parse_match_from_rule(rule: PolicyRule) -> tuple[str, str]:
-    """从 PolicyRule.match 解析出 (tool_name, pattern)。"""
-    from .policy import _parse_match
-    return _parse_match(rule.match)
-
-
-def _glob_to_mount_path(pattern: str) -> str | None:
-    """将 glob pattern 转为 sandbox mount 路径。
-
-    支持的模式：
-        src/**    → src/       (递归目录)
-        src/*.py  → src/       (目录级)
-        .env*     → .env       (文件 prefix)
-        **        → .          (整个 workspace)
-        src/foo   → src/foo    (精确文件/目录)
-    """
-    if not pattern or pattern == "**":
-        return "."
-
-    # 递归通配 → 目录
-    if pattern.endswith("/**"):
-        return pattern[:-3]
-    if pattern.endswith("/*"):
-        return pattern[:-2]
-
-    # 文件级 glob（如 .env*、*.py）→ 取目录部分
-    if "/" in pattern:
-        return pattern.rsplit("/", 1)[0]
-
-    # 无前缀通配 → 可能是文件 prefix
-    if pattern.endswith("*"):
-        return pattern.rstrip("*")
-
-    # 精确路径
-    return pattern

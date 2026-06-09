@@ -12,7 +12,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from agentscope.message import TextBlock
 from agentscope.tool import ToolChunk
@@ -24,6 +24,14 @@ from ...config.context import (
     get_current_shell_command_timeout,
     get_current_workspace_dir,
 )
+
+
+class SandboxViolationError(Exception):
+    """Raised when a sandboxed command tries to access a restricted resource."""
+
+    def __init__(self, violation_msg: str):
+        self.violation_msg = violation_msg
+        super().__init__(f"Sandbox violation: {violation_msg}")
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -359,11 +367,79 @@ def _execute_subprocess_sync(
                     pass
 
 
+async def _execute_in_sandbox(
+    cmd: str,
+    sandbox_config: Any,
+    timeout: float,
+    cwd: str,
+) -> ToolChunk:
+    """Execute a shell command inside the sandbox."""
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+    from ...sandbox import create_sandbox
+
+    sandbox_config.timeout_seconds = int(timeout)
+    _logger.info(
+        "[sandbox] executing cmd=%r cwd=%s mode=%s mounts=%s",
+        cmd, cwd,
+        getattr(sandbox_config, "mode", None),
+        [(m.path, m.writable) for m in getattr(sandbox_config, "mounts", [])],
+    )
+    async with create_sandbox(sandbox_config) as sandbox:
+        _logger.info("[sandbox] sandbox created: %s", type(sandbox).__name__)
+        result = await sandbox.execute(cmd, cwd=cwd)
+    _logger.info(
+        "[sandbox] done exit_code=%d timed_out=%s duration_ms=%d",
+        result.exit_code, result.timed_out, result.duration_ms,
+    )
+    if result.exit_code != 0:
+        _logger.info(
+            "[sandbox] stdout: %s", result.stdout[:500] if result.stdout else "",
+        )
+        _logger.info(
+            "[sandbox] stderr: %s", result.stderr[:500] if result.stderr else "",
+        )
+        if result.sandbox_violation:
+            _logger.info(
+                "[sandbox] violation: %s", result.sandbox_violation[:500],
+            )
+
+    # Sandbox violation: command tried to access something not permitted
+    # TODO: case: ls -lh ~/Library/Keychains  | wc -l
+    #             no sandbox_violation, but has Operation not permitted in stderr
+    if result.sandbox_violation:
+        raise SandboxViolationError(result.sandbox_violation)
+
+    if result.exit_code == 0:
+        response_text = result.stdout or "Command executed successfully (no output)."
+        if result.stderr:
+            response_text += f"\n[stderr]\n{result.stderr}"
+    else:
+        parts = [f"Command failed with exit code {result.exit_code}."]
+        if result.stdout:
+            parts.append(f"\n[stdout]\n{result.stdout}")
+        if result.stderr:
+            parts.append(f"\n[stderr]\n{result.stderr}")
+        response_text = "".join(parts)
+
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
+        content=[
+            TextBlock(
+                type="text",
+                text=response_text,
+            ),
+        ],
+    )
+
+
 # pylint: disable=too-many-branches, too-many-statements
 async def execute_shell_command(
     command: str,
     timeout: float = 60.0,
     cwd: Optional[Path] = None,
+    sandbox_config: Optional[Any] = None,
 ) -> ToolChunk:
     """Execute a shell command and return its output.
 
@@ -384,6 +460,10 @@ async def execute_shell_command(
         cwd (`Optional[Path]`, defaults to `None`):
             The working directory for the command execution.
             If None, defaults to the agent workspace.
+        sandbox_config (`Optional[Any]`, defaults to `None`):
+            Sandbox execution configuration compiled from governance policy.
+            When provided, the command executes within a sandboxed environment
+            with the specified mount permissions and network restrictions.
 
     Returns:
         `ToolChunk`:
@@ -426,6 +506,16 @@ async def execute_shell_command(
         get_current_shell_command_executable()
         or os.environ.get("SHELL")
         or None
+    )
+
+    if sandbox_config is not None:
+        return await _execute_in_sandbox(
+            cmd, sandbox_config, timeout, str(working_dir),
+        )
+
+    import logging as _logging
+    _logging.getLogger(__name__).info(
+        "[sandbox] SKIP: sandbox_config is None, executing directly"
     )
 
     try:

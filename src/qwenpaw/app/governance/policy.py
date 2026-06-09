@@ -174,7 +174,45 @@ DEFAULT_BUILTIN_RULES: List[PolicyRule] = [
 
 
 # ---------------------------------------------------------------------------
-# 默认 user_rules（§4.3 — 冷启动时初始化）
+# 默认 sandbox deny_paths — sandbox 进程禁止访问的路径（defense-in-depth）
+# ---------------------------------------------------------------------------
+
+DEFAULT_SANDBOX_DENY_PATHS: List[str] = [
+    # SSH 密钥和配置
+    "~/.ssh",
+    # AWS 凭证
+    "~/.aws",
+    # GPG 密钥
+    "~/.gnupg",
+    # Kubernetes 配置
+    "~/.kube",
+    # Google Cloud 凭证
+    "~/.config/gcloud",
+    # Docker 认证
+    "~/.docker/config.json",
+    # 通用环境变量文件
+    "~/.env",
+    "~/.claude",
+    # macOS Keychain 数据库
+    "~/Library/Keychains",
+    # 浏览器凭据
+    "~/Library/Application Support/Google/Chrome/Default/Login Data",
+    "~/Library/Application Support/Firefox/Profiles",
+    # Git 凭据
+    "~/.git-credentials",
+    # Terraform 状态（可能含敏感信息）
+    "~/.terraformrc",
+    # 其他常见敏感配置
+    "~/.config/gh",   # GitHub CLI
+    "~/.config/nix",  # Nix 配置
+]
+
+FILE_READ_TOOLS: frozenset[str] = frozenset({"Read", "ViewImage", "ViewVideo", "SendFileToUser"})
+FILE_WRITE_TOOLS: frozenset[str] = frozenset({"Write", "Edit", "Append"})
+
+
+# ---------------------------------------------------------------------------
+# 默认 user_rules（for cold start）
 # ---------------------------------------------------------------------------
 
 DEFAULT_USER_RULES: List[PolicyRule] = [
@@ -195,7 +233,7 @@ DEFAULT_USER_RULES: List[PolicyRule] = [
                reason="Agent 间委派"),
     # ── File 类 tool（WORKSPACE_DIR 内文件操作，永远可以执行）──
     PolicyRule(match="Read(WORKSPACE_DIR/*)", action=PolicyAction.ALLOW,
-               reason="工作区内文件读取="),
+               reason="工作区内文件读取"),
     PolicyRule(match="Write(WORKSPACE_DIR/*)", action=PolicyAction.ALLOW,
                reason="工作区内文件写入"),
     PolicyRule(match="Edit(WORKSPACE_DIR/*)", action=PolicyAction.ALLOW,
