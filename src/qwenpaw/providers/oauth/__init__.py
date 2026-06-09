@@ -4,7 +4,6 @@
 from .base import OAuthFlow, OAuthStartResult, OAuthTokenResult
 from .session_store import OAuthSessionStore
 from .openrouter_flow import OpenRouterOAuthFlow
-from .qwen_flow import QwenOAuthFlow
 
 __all__ = [
     "OAuthFlow",
@@ -12,5 +11,4 @@ __all__ = [
     "OAuthTokenResult",
     "OAuthSessionStore",
     "OpenRouterOAuthFlow",
-    "QwenOAuthFlow",
 ]

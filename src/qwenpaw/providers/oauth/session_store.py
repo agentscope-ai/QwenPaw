@@ -31,7 +31,7 @@ class OAuthSession:
 
 
 class OAuthSessionStore:
-    """Thread-safe in-memory store for OAuth sessions."""
+    """Process-local in-memory store for OAuth sessions."""
 
     def __init__(self) -> None:
         """Initialise session store."""

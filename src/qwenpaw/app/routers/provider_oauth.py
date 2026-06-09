@@ -168,14 +168,19 @@ async def oauth_callback(
         )
         _session_store.fail(session_state, str(exc))
         return HTMLResponse(
-            content=_error_html(f"Authorization failed: {exc}"),
+            content=_error_html("Authorization failed. Please retry."),
             status_code=500,
         )
 
     # Save credentials to provider config
     credential = flow.get_credential_dict(token_result)
     if credential:
-        manager.update_provider(provider_id, credential)
+        if not manager.update_provider(provider_id, credential):
+            _session_store.fail(session_state, "Provider not found")
+            return HTMLResponse(
+                content=_error_html("Provider not found."),
+                status_code=404,
+            )
         # Auto-discover models now that credentials are available
         try:
             await manager.fetch_provider_models(provider_id)
