@@ -41,7 +41,7 @@ describe("ThemeToggleButton", () => {
   it("shows sun-moon icon when system mode is active", () => {
     renderWithTheme("system");
     expect(
-      document.querySelector('[data-icon="SunMoonLine"]'),
+      document.querySelector(".lucide-sun-moon"),
     ).toBeInTheDocument();
   });
 
