@@ -7,38 +7,71 @@ import { ToolCardShell, DefaultBlock } from "../shared";
 import { stringifyResult } from "../shared/utils";
 
 /**
+ * Try to extract meaningful fields from a browser tool result object.
+ * Returns extracted text or null if the object doesn't have known fields.
+ */
+function extractBrowserFields(obj: Record<string, unknown>): string | null {
+  const parts: string[] = [];
+  if (obj.snapshot && typeof obj.snapshot === "string") {
+    parts.push(obj.snapshot);
+  }
+  if (obj.message && typeof obj.message === "string") {
+    parts.push(obj.message);
+  }
+  if (obj.url && typeof obj.url === "string" && !obj.snapshot) {
+    parts.push(`URL: ${obj.url}`);
+  }
+  return parts.length > 0 ? parts.join("\n\n") : null;
+}
+
+/**
  * Extract human-readable text from browser tool results.
- * Browser results are typically JSON with fields like:
- *   { ok, snapshot, message, url, page_id, ... }
- * We extract the most useful text content.
+ * Handles: string JSON, parsed object, MCP content blocks wrapping JSON.
  */
 function formatBrowserResult(result: unknown): string {
-  const raw = stringifyResult(result);
-  if (!raw) return "";
+  if (result == null) return "";
 
-  // Try to parse as JSON and extract meaningful fields
-  try {
-    const parsed = typeof result === "string" ? JSON.parse(raw) : result;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const obj = parsed as Record<string, unknown>;
-      const parts: string[] = [];
-
-      if (obj.snapshot && typeof obj.snapshot === "string") {
-        parts.push(obj.snapshot);
-      }
-      if (obj.message && typeof obj.message === "string") {
-        parts.push(obj.message);
-      }
-      if (obj.url && typeof obj.url === "string" && !obj.snapshot) {
-        parts.push(`URL: ${obj.url}`);
-      }
-
-      if (parts.length > 0) return parts.join("\n\n");
-    }
-  } catch {
-    // not JSON, use raw
+  // Case 1: result is already an object with snapshot/message/url
+  if (typeof result === "object" && !Array.isArray(result)) {
+    const extracted = extractBrowserFields(result as Record<string, unknown>);
+    if (extracted) return extracted;
   }
-  return raw;
+
+  // Case 2: result is a string — try parsing as JSON
+  if (typeof result === "string") {
+    const trimmed = result.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        // Could be a direct object
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const extracted = extractBrowserFields(parsed as Record<string, unknown>);
+          if (extracted) return extracted;
+        }
+        // Could be MCP content blocks wrapping a JSON string
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (item?.type === "text" && typeof item.text === "string") {
+              try {
+                const inner = JSON.parse(item.text);
+                if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+                  const extracted = extractBrowserFields(inner as Record<string, unknown>);
+                  if (extracted) return extracted;
+                }
+              } catch {
+                // text is not JSON, use it directly
+              }
+            }
+          }
+        }
+      } catch {
+        // not valid JSON
+      }
+    }
+  }
+
+  // Fallback: use stringifyResult
+  return stringifyResult(result);
 }
 
 /** All tool names this card handles */
