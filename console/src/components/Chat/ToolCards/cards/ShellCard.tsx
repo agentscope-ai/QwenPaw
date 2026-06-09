@@ -4,12 +4,12 @@
  */
 
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { CodeOutlined } from "@ant-design/icons";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell } from "../shared";
 import { DefaultBlock } from "../shared";
 import { stringifyResult } from "../shared/utils";
-import styles from "../shared/toolCards.module.less";
 
 export interface ShellCardProps {
   content: ToolCallContent;
@@ -17,6 +17,7 @@ export interface ShellCardProps {
 }
 
 const ShellCard: React.FC<ShellCardProps> = ({ content }) => {
+  const { t } = useTranslation();
   const command =
     (content.params?.command as string) ||
     (content.params?.cmd as string) ||
@@ -26,23 +27,10 @@ const ShellCard: React.FC<ShellCardProps> = ({ content }) => {
   return (
     <ToolCardShell
       icon={<CodeOutlined />}
-      title={command || content.name}
+      title={command ? t("tool.shell", { command }) : t("tool.shellDefault")}
       content={content}
     >
-      {command && <DefaultBlock title="Command" content={command} />}
-      {resultText && (
-        <div className={styles.toolCallResultMd}>
-          <pre
-            style={{
-              margin: 0,
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-all",
-            }}
-          >
-            {resultText}
-          </pre>
-        </div>
-      )}
+      {resultText && <DefaultBlock title="Output" content={resultText} />}
     </ToolCardShell>
   );
 };

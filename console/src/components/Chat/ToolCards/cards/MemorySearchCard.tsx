@@ -1,11 +1,9 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { BulbOutlined } from "@ant-design/icons";
-import { Markdown } from "@agentscope-ai/chat";
 import type { ToolCallContent } from "../shared/types";
-import { ToolCardShell } from "../shared";
-import { formatMemorySearch, stringifyResult } from "../shared/utils";
-import styles from "../shared/toolCards.module.less";
+import { ToolCardShell, DefaultBlock } from "../shared";
+import { formatMemorySearch } from "../shared/utils";
 
 export interface MemorySearchCardProps {
   content: ToolCallContent;
@@ -24,7 +22,14 @@ const MemorySearchCard: React.FC<MemorySearchCardProps> = ({
     ? t("tool.memorySearch", { query: queryShort })
     : t("tool.memorySearchDefault");
 
-  const rawResult = stringifyResult(content.result);
+  // Use the raw result string for formatMemorySearch — it expects JSON to parse.
+  // Fall back to stringifyResult if result is not a string.
+  const rawResult =
+    typeof content.result === "string"
+      ? content.result
+      : content.result != null
+      ? JSON.stringify(content.result)
+      : "";
   const formattedResult = rawResult ? formatMemorySearch(rawResult, t) : "";
 
   return (
@@ -35,9 +40,7 @@ const MemorySearchCard: React.FC<MemorySearchCardProps> = ({
       title={title}
     >
       {formattedResult && (
-        <div className={styles.toolCallResultMd}>
-          <Markdown content={formattedResult} />
-        </div>
+        <DefaultBlock title="Output" content={formattedResult} />
       )}
     </ToolCardShell>
   );

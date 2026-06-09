@@ -1,9 +1,8 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { FolderOpenOutlined } from "@ant-design/icons";
-import { Markdown } from "@agentscope-ai/chat";
 import type { ToolCallContent } from "../shared/types";
-import { ToolCardShell } from "../shared";
+import { ToolCardShell, DefaultBlock } from "../shared";
 import { countLines, stringifyResult } from "../shared/utils";
 import styles from "../shared/toolCards.module.less";
 
@@ -41,11 +40,7 @@ const GlobSearchCard: React.FC<GlobSearchCardProps> = ({
       title={title}
       badges={badge}
     >
-      {resultText && (
-        <div className={styles.toolCallResultMd}>
-          <Markdown content={`\`\`\`\n${resultText}\n\`\`\``} />
-        </div>
-      )}
+      {resultText && <DefaultBlock title="Output" content={resultText} />}
     </ToolCardShell>
   );
 };

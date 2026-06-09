@@ -1,8 +1,11 @@
 /**
  * DefaultBlock — reusable Input/Output block with title + copy button.
  *
- * Renders monospace text or auto-detected markdown content inside a
+ * Renders monospace text or auto-detected markdown/JSON content inside a
  * bordered block with a copy button in the header.
+ * - Markdown content → rendered via Markdown component
+ * - JSON content → pretty-printed and rendered as ```json code block
+ * - Plain text → rendered as monospace <pre>
  */
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
@@ -17,6 +20,89 @@ export interface DefaultBlockProps {
   copyTitle?: string;
 }
 
+/** Try to parse JSON. Returns parsed object or null. */
+function tryParseJson(text: string): unknown | null {
+  const trimmed = text.trim();
+  if (
+    (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+    (trimmed.startsWith("[") && trimmed.endsWith("]"))
+  ) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/** Render JSON with inline syntax highlighting (keys, strings, numbers, booleans, null). */
+function highlightJson(obj: unknown, indent = 0): React.ReactNode[] {
+  const pad = "  ".repeat(indent);
+  const nodes: React.ReactNode[] = [];
+  let keyCounter = 0;
+
+  if (obj === null) {
+    nodes.push(
+      <span key="null" style={{ color: "#d4880f" }}>
+        null
+      </span>,
+    );
+  } else if (typeof obj === "boolean") {
+    nodes.push(
+      <span key="bool" style={{ color: "#d4880f" }}>
+        {String(obj)}
+      </span>,
+    );
+  } else if (typeof obj === "number") {
+    nodes.push(
+      <span key="num" style={{ color: "#1677ff" }}>
+        {String(obj)}
+      </span>,
+    );
+  } else if (typeof obj === "string") {
+    nodes.push(
+      <span key="str" style={{ color: "#389e0d" }}>{`"${obj}"`}</span>,
+    );
+  } else if (Array.isArray(obj)) {
+    if (obj.length === 0) {
+      nodes.push("[]");
+    } else {
+      nodes.push("[\n");
+      obj.forEach((item, index) => {
+        nodes.push(`${pad}  `);
+        nodes.push(...highlightJson(item, indent + 1));
+        if (index < obj.length - 1) nodes.push(",");
+        nodes.push("\n");
+      });
+      nodes.push(`${pad}]`);
+    }
+  } else if (typeof obj === "object") {
+    const entries = Object.entries(obj as Record<string, unknown>);
+    if (entries.length === 0) {
+      nodes.push("{}");
+    } else {
+      nodes.push("{\n");
+      entries.forEach(([key, value], index) => {
+        keyCounter++;
+        nodes.push(`${pad}  `);
+        nodes.push(
+          <span
+            key={`k${keyCounter}`}
+            style={{ color: "#cf1322" }}
+          >{`"${key}"`}</span>,
+        );
+        nodes.push(": ");
+        nodes.push(...highlightJson(value, indent + 1));
+        if (index < entries.length - 1) nodes.push(",");
+        nodes.push("\n");
+      });
+      nodes.push(`${pad}}`);
+    }
+  }
+  return nodes;
+}
+
 const DefaultBlock: React.FC<DefaultBlockProps> = ({
   title,
   content,
@@ -25,6 +111,10 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMarkdown = useMemo(() => looksLikeMarkdown(content), [content]);
+  const parsedJson = useMemo(
+    () => (isMarkdown ? null : tryParseJson(content)),
+    [content, isMarkdown],
+  );
 
   const handleCopy = useCallback(() => {
     navigator.clipboard
@@ -36,6 +126,24 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
       })
       .catch(() => {});
   }, [content]);
+
+  const renderContent = () => {
+    if (isMarkdown) {
+      return (
+        <div className={styles.defaultBlockContentMd}>
+          <Markdown content={content} />
+        </div>
+      );
+    }
+    if (parsedJson !== null) {
+      return (
+        <pre className={styles.defaultBlockContent}>
+          {highlightJson(parsedJson)}
+        </pre>
+      );
+    }
+    return <pre className={styles.defaultBlockContent}>{content}</pre>;
+  };
 
   return (
     <div className={styles.defaultBlock}>
@@ -49,13 +157,7 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
           {copied ? <CheckOutlined /> : <CopyOutlined />}
         </button>
       </div>
-      {isMarkdown ? (
-        <div className={styles.defaultBlockContentMd}>
-          <Markdown content={content} />
-        </div>
-      ) : (
-        <pre className={styles.defaultBlockContent}>{content}</pre>
-      )}
+      {renderContent()}
     </div>
   );
 };

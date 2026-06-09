@@ -319,8 +319,51 @@ export function looksLikeMarkdown(text: string): boolean {
 }
 
 /** Stringify tool result safely */
+/**
+ * Extract text from MCP content blocks: `[{ type: "text", text: "..." }, ...]`.
+ * Returns joined text or null if the input is not MCP format.
+ */
+function extractMcpText(arr: unknown[]): string | null {
+  const textParts = arr
+    .filter(
+      (item): item is { type: string; text: string } =>
+        item != null &&
+        typeof item === "object" &&
+        (item as Record<string, unknown>).type === "text" &&
+        typeof (item as Record<string, unknown>).text === "string",
+    )
+    .map((item) => item.text);
+  return textParts.length > 0 ? textParts.join("\n") : null;
+}
+
+/**
+ * Convert a tool result to a display string.
+ *
+ * Handles three cases:
+ * 1. String that is a JSON-serialized MCP content block array → extract text
+ * 2. Array of MCP content blocks → extract text
+ * 3. Anything else → JSON.stringify or return as-is
+ */
 export function stringifyResult(result: unknown): string {
-  if (typeof result === "string") return result;
+  if (typeof result === "string") {
+    const trimmed = result.trim();
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          const extracted = extractMcpText(parsed);
+          if (extracted) return extracted;
+        }
+      } catch {
+        // not valid JSON, return as-is
+      }
+    }
+    return result;
+  }
+  if (Array.isArray(result)) {
+    const extracted = extractMcpText(result);
+    if (extracted) return extracted;
+  }
   if (result != null) return JSON.stringify(result, null, 2);
   return "";
 }

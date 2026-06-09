@@ -18,9 +18,30 @@ const GetCurrentTimeCard: React.FC<GetCurrentTimeCardProps> = ({
 
   const inlineResult = (() => {
     if (content.status !== "done" || !content.result) return null;
-    const result = typeof content.result === "string" ? content.result : "";
-    if (!result) return null;
-    return result.length > 60 ? result.slice(0, 60) + "…" : result;
+    const raw = content.result;
+
+    // Extract readable text from structured result like {"type":"text","text":"..."}
+    // or [{"type":"text","text":"..."}]
+    let text = "";
+    try {
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (Array.isArray(parsed)) {
+        text = parsed
+          .filter((item: Record<string, unknown>) => item?.type === "text")
+          .map((item: Record<string, unknown>) => item.text)
+          .join(" ");
+      } else if (parsed?.type === "text" && parsed?.text) {
+        text = String(parsed.text);
+      }
+    } catch {
+      // not JSON, use as-is
+    }
+
+    if (!text) {
+      text = typeof raw === "string" ? raw : JSON.stringify(raw);
+    }
+
+    return text.length > 80 ? text.slice(0, 80) + "…" : text;
   })();
 
   return (

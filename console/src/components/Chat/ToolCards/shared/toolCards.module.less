@@ -5,6 +5,8 @@
 // Tool call — compact single-line (click to expand)
 .toolCallCompact {
   margin: 2px 0;
+  display: block;
+  width: 100%;
 
   &.toolCallCompactLoading {
     .toolCallLabel {
@@ -70,7 +72,7 @@
 }
 
 .toolCallLabel {
-  color: var(--ant-color-text-secondary, #666);
+  color: var(--ant-color-text, rgba(0, 0, 0, 0.88));
 
   &:hover {
     color: var(--ant-color-primary, #1677ff);
@@ -78,28 +80,32 @@
   }
 }
 
-// Badges
-.diffAddBadge {
+// Badges — use explicit colors that work on both light and dark backgrounds.
+// The chat-anywhere dark-mode stylesheet applies a blanket
+// `color: rgba(255,255,255,0.85) !important` to all descendant spans
+// with high specificity. We double the class selector to win the
+// specificity battle while keeping !important.
+.diffAddBadge.diffAddBadge {
   font-size: 12px;
-  color: #52c41a;
+  color: #52c41a !important;
   font-weight: 500;
 }
 
-.diffDelBadge {
+.diffDelBadge.diffDelBadge {
   font-size: 12px;
-  color: #ff4d4f;
+  color: #ff4d4f !important;
   font-weight: 500;
 }
 
-.lineReadBadge {
+.lineReadBadge.lineReadBadge {
   font-size: 12px;
-  color: #1677ff;
+  color: #4096ff !important;
   font-weight: 500;
 }
 
-.lineSearchBadge {
+.lineSearchBadge.lineSearchBadge {
   font-size: 12px;
-  color: #faad14;
+  color: #faad14 !important;
   font-weight: 500;
 }
 
@@ -118,7 +124,7 @@
 
 .diffLineDel {
   background: rgba(255, 77, 79, 0.08);
-  color: #cf1322;
+  color: #ff4d4f !important;
   white-space: pre-wrap;
   word-break: break-all;
   padding: 0 6px;
@@ -126,7 +132,7 @@
 
 .diffLineAdd {
   background: rgba(82, 196, 26, 0.08);
-  color: #389e0d;
+  color: #52c41a !important;
   white-space: pre-wrap;
   word-break: break-all;
   padding: 0 6px;
@@ -193,10 +199,14 @@
 
 // Default block (input/output sections)
 .defaultBlock {
+  margin: 4px 0 4px 0;
   border: 1px solid var(--ant-color-border-secondary, rgba(0, 0, 0, 0.06));
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 1px 3px var(--ant-color-border-secondary, rgba(0, 0, 0, 0.06));
+  background: var(--ant-color-bg-container, #fff);
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .defaultBlockHeader {
@@ -212,7 +222,7 @@
 .defaultBlockTitle {
   font-size: 13px;
   font-weight: 500;
-  color: var(--ant-color-text, #000);
+  color: inherit !important;
 }
 
 .defaultBlockCopy {
@@ -246,7 +256,7 @@
   word-break: break-all;
   max-height: 300px;
   overflow-y: auto;
-  color: var(--ant-color-text, #000);
+  color: var(--ant-color-text, #000) !important;
 }
 
 .defaultBlockContentMd {
@@ -255,7 +265,7 @@
   line-height: 1.6;
   max-height: 360px;
   overflow-y: auto;
-  color: var(--ant-color-text, #000);
+  color: var(--ant-color-text, #000) !important;
 
   :global(p),
   :global(ul),
@@ -297,7 +307,7 @@
   border-radius: 8px;
   overflow-x: auto;
   max-height: 360px;
-  color: var(--ant-color-text, #000);
+  color: var(--ant-color-text, #000) !important;
   box-shadow: 0 1px 4px var(--ant-color-border, rgba(0, 0, 0, 0.08));
 
   :global(p),

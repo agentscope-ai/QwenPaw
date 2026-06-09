@@ -2,11 +2,44 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { ChromeOutlined } from "@ant-design/icons";
-import { Markdown } from "@agentscope-ai/chat";
 import type { ToolCallContent } from "../shared/types";
-import { ToolCardShell } from "../shared";
+import { ToolCardShell, DefaultBlock } from "../shared";
 import { stringifyResult } from "../shared/utils";
-import styles from "../shared/toolCards.module.less";
+
+/**
+ * Extract human-readable text from browser tool results.
+ * Browser results are typically JSON with fields like:
+ *   { ok, snapshot, message, url, page_id, ... }
+ * We extract the most useful text content.
+ */
+function formatBrowserResult(result: unknown): string {
+  const raw = stringifyResult(result);
+  if (!raw) return "";
+
+  // Try to parse as JSON and extract meaningful fields
+  try {
+    const parsed = typeof result === "string" ? JSON.parse(raw) : result;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const obj = parsed as Record<string, unknown>;
+      const parts: string[] = [];
+
+      if (obj.snapshot && typeof obj.snapshot === "string") {
+        parts.push(obj.snapshot);
+      }
+      if (obj.message && typeof obj.message === "string") {
+        parts.push(obj.message);
+      }
+      if (obj.url && typeof obj.url === "string" && !obj.snapshot) {
+        parts.push(`URL: ${obj.url}`);
+      }
+
+      if (parts.length > 0) return parts.join("\n\n");
+    }
+  } catch {
+    // not JSON, use raw
+  }
+  return raw;
+}
 
 /** All tool names this card handles */
 export const BROWSER_TOOL_NAMES = new Set([
@@ -168,11 +201,6 @@ function getBrowserTitle(
   }
 }
 
-/** Determine render mode for browser tools */
-function isSnapshotTool(name: string): boolean {
-  return name === "browser_snapshot" || name === "snapshot";
-}
-
 export interface BrowserUseCardProps {
   content: ToolCallContent;
   isStreaming?: boolean;
@@ -184,7 +212,7 @@ const BrowserUseCard: React.FC<BrowserUseCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const title = getBrowserTitle(content.name, content.params || {}, t);
-  const resultText = stringifyResult(content.result);
+  const resultText = formatBrowserResult(content.result);
 
   return (
     <ToolCardShell
@@ -193,16 +221,7 @@ const BrowserUseCard: React.FC<BrowserUseCardProps> = ({
       icon={<ChromeOutlined />}
       title={title}
     >
-      {resultText && isSnapshotTool(content.name) && (
-        <div className={styles.toolCallResultMd}>
-          <Markdown content={`\`\`\`\n${resultText}\n\`\`\``} />
-        </div>
-      )}
-      {resultText && !isSnapshotTool(content.name) && (
-        <div className={styles.toolCallResultMd}>
-          <Markdown content={resultText} />
-        </div>
-      )}
+      {resultText && <DefaultBlock title="Output" content={resultText} />}
     </ToolCardShell>
   );
 };

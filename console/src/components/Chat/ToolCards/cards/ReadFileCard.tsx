@@ -1,10 +1,9 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { FileTextOutlined } from "@ant-design/icons";
-import { Markdown } from "@agentscope-ai/chat";
 import type { ToolCallContent } from "../shared/types";
-import { ToolCardShell } from "../shared";
-import { shortFileName, countLines, getFileLanguage } from "../shared/utils";
+import { ToolCardShell, DefaultBlock } from "../shared";
+import { shortFileName, countLines } from "../shared/utils";
 import styles from "../shared/toolCards.module.less";
 
 export interface ReadFileCardProps {
@@ -23,7 +22,6 @@ const ReadFileCard: React.FC<ReadFileCardProps> = ({
 
   const resultText = typeof content.result === "string" ? content.result : "";
   const lineCount = countLines(content.result);
-  const lang = getFileLanguage(content);
 
   const badge =
     content.status === "done" && lineCount > 0 ? (
@@ -40,15 +38,7 @@ const ReadFileCard: React.FC<ReadFileCardProps> = ({
       title={title}
       badges={badge}
     >
-      {resultText && (
-        <div className={styles.toolCallResultMd}>
-          {lang === "markdown" ? (
-            <Markdown content={resultText} />
-          ) : (
-            <Markdown content={`\`\`\`${lang}\n${resultText}\n\`\`\``} />
-          )}
-        </div>
-      )}
+      {resultText && <DefaultBlock title="Output" content={resultText} />}
     </ToolCardShell>
   );
 };

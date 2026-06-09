@@ -34,5 +34,5 @@ export function registerBuiltinCards(): void {
     } tool cards:`,
     Object.keys(v1AdaptedCards).join(", "),
   );
-  pluginSystem.addToolRenderers(PLUGIN_ID, v1AdaptedCards);
+  pluginSystem.addToolRenderers(PLUGIN_ID, v1AdaptedCards, { isBuiltin: true });
 }

@@ -1,10 +1,9 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { FileAddOutlined } from "@ant-design/icons";
-import { Markdown } from "@agentscope-ai/chat";
 import type { ToolCallContent } from "../shared/types";
-import { ToolCardShell } from "../shared";
-import { shortFileName, countLines, getFileLanguage } from "../shared/utils";
+import { ToolCardShell, DefaultBlock } from "../shared";
+import { shortFileName, countLines } from "../shared/utils";
 import styles from "../shared/toolCards.module.less";
 
 export interface AppendFileCardProps {
@@ -25,7 +24,6 @@ const AppendFileCard: React.FC<AppendFileCardProps> = ({
 
   const appendedContent = (params.content as string) || "";
   const lineCount = countLines(appendedContent);
-  const lang = getFileLanguage(content);
 
   const badge =
     !content.status?.startsWith("call") && lineCount > 0 ? (
@@ -43,9 +41,7 @@ const AppendFileCard: React.FC<AppendFileCardProps> = ({
       badges={badge}
     >
       {appendedContent && (
-        <div className={styles.toolCallResultMd}>
-          <Markdown content={`\`\`\`${lang}\n${appendedContent}\n\`\`\``} />
-        </div>
+        <DefaultBlock title="Content" content={appendedContent} />
       )}
     </ToolCardShell>
   );
