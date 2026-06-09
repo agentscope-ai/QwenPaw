@@ -126,7 +126,8 @@ class StatusBar(Static):
             # confirmed total then carries forward across later turns.
             if self._sb_tok_in:
                 line.append(
-                    f" ↑{_fmt_count(self._sb_tok_in)}", style="#7fb7d9"
+                    f" ↑{_fmt_count(self._sb_tok_in)}",
+                    style="#7fb7d9",
                 )
             if self._sb_tok_out:
                 approx = "~" if self._sb_tok_out_approx else ""

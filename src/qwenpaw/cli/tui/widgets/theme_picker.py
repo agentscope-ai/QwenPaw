@@ -127,8 +127,9 @@ class ThemePicker(ModalScreen[ThemeInfo | str | None]):
         if not themes:
             return [
                 ListItem(
-                    Static("Use Enter for a custom prompt"), disabled=True
-                )
+                    Static("Use Enter for a custom prompt"),
+                    disabled=True,
+                ),
             ]
         items: list[ListItem] = []
         for index, theme in enumerate(themes):

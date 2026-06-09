@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+# Tests exercise the widget's private rendering helpers directly.
+# pylint: disable=protected-access
+
 from qwenpaw.cli.tui.widgets.messages import (
     WelcomeMessage,
     _bright_dot_hex,
@@ -43,7 +46,7 @@ def test_welcome_logo_dots_are_brighter_than_current_letter_color():
         dot_color = _bright_dot_hex(letter_color)
 
         assert _relative_luminance(dot_color) > _relative_luminance(
-            letter_color
+            letter_color,
         )
 
 

@@ -141,7 +141,8 @@ async def test_list_sessions():
     try:
         await asyncio.wait_for(transport.start(), timeout=10.0)
         sessions = await asyncio.wait_for(
-            transport.list_sessions(), timeout=10.0
+            transport.list_sessions(),
+            timeout=10.0,
         )
     finally:
         await transport.close()
@@ -155,7 +156,8 @@ async def test_list_sessions():
 @pytest.mark.asyncio
 async def test_start_with_resume_loads_and_replays():
     transport = AcpTransport(
-        command=[sys.executable, FAKE], resume_session_id="old-session-1"
+        command=[sys.executable, FAKE],
+        resume_session_id="old-session-1",
     )
     try:
         connected = await asyncio.wait_for(transport.start(), timeout=10.0)
@@ -185,7 +187,8 @@ async def test_load_session_replays_history():
     try:
         await asyncio.wait_for(transport.start(), timeout=10.0)
         await asyncio.wait_for(
-            transport.load_session("old-session-1"), timeout=10.0
+            transport.load_session("old-session-1"),
+            timeout=10.0,
         )
         assert transport.session_id == "old-session-1"
         # The replayed history is delivered as session updates; drain until

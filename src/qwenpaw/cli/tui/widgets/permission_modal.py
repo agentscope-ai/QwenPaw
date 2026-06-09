@@ -47,7 +47,8 @@ class PermissionModal(ModalScreen[str | None]):
             yield Static(f"🔐 {self._request.title}", classes="ptitle")
             if self._request.tool_kind:
                 yield Static(
-                    f"kind: {self._request.tool_kind}", classes="pkind"
+                    f"kind: {self._request.tool_kind}",
+                    classes="pkind",
                 )
             for option in self._request.options:
                 yield Button(
