@@ -184,3 +184,40 @@
     background-color: #2a2a2a !important;
   }
 }
+
+/* ---- Rate-limit guidance banner ---- */
+.rateLimitBanner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(250, 173, 20, 0.08);
+  border-top: 1px solid rgba(250, 173, 20, 0.2);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.rateLimitText {
+  font-size: 13px;
+  color: #d48806;
+  flex: 1;
+  min-width: 120px;
+}
+
+.rateLimitActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+:global(.dark-mode) {
+  .rateLimitBanner {
+    background: rgba(250, 173, 20, 0.06);
+    border-top-color: rgba(250, 173, 20, 0.15);
+  }
+
+  .rateLimitText {
+    color: #ffc53d;
+  }
+}

@@ -1,12 +1,14 @@
-import React from "react";
-import { Card, Button, Modal } from "@agentscope-ai/design";
+import React, { useState } from "react";
+import { Card, Button, Modal, Input } from "@agentscope-ai/design";
 import type { ProviderInfo } from "../../../../../api/types";
 import api from "../../../../../api";
+import { providerApi } from "../../../../../api/modules/provider";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import { getIsConfigured } from "../../utils";
 import styles from "../../index.module.less";
 import { ProviderIcon } from "../ProviderIconComponent";
+import { OAuthConfirmModal } from "../../../../Chat/ModelSelector/OAuthConfirmModal";
 
 interface RemoteProviderCardProps {
   provider: ProviderInfo;
@@ -23,6 +25,12 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
 }: RemoteProviderCardProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
+  const [oauthModalOpen, setOauthModalOpen] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [apiKeySaving, setApiKeySaving] = useState(false);
+
+  const needsOAuth =
+    provider.supports_oauth && !provider.api_key && !provider.oauth_connected;
 
   const handleDeleteProvider = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -129,8 +137,50 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
           <span className={styles.infoLabel}>API Key:</span>
           {provider.api_key ? (
             <span className={styles.infoValue}>{provider.api_key}</span>
+          ) : provider.require_api_key === false ? (
+            <span className={styles.infoEmpty}>{t("models.notRequired")}</span>
           ) : (
-            <span className={styles.infoEmpty}>{t("models.notSet")}</span>
+            <div className={styles.inlineKeyInput}>
+              <Input.Password
+                size="small"
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                placeholder={
+                  provider.api_key_prefix
+                    ? `${provider.api_key_prefix}...`
+                    : "sk-..."
+                }
+                style={{ flex: 1 }}
+              />
+              <Button
+                type="primary"
+                size="small"
+                loading={apiKeySaving}
+                disabled={!apiKeyInput.trim()}
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  setApiKeySaving(true);
+                  try {
+                    await providerApi.configureProvider(provider.id, {
+                      api_key: apiKeyInput.trim(),
+                    });
+                    message.success(t("models.saved"));
+                    setApiKeyInput("");
+                    onSaved();
+                  } catch (err) {
+                    const msg =
+                      err instanceof Error
+                        ? err.message
+                        : t("models.failedToSave");
+                    message.error(msg);
+                  } finally {
+                    setApiKeySaving(false);
+                  }
+                }}
+              >
+                {t("models.saveApiKey")}
+              </Button>
+            </div>
           )}
         </div>
         <div className={styles.infoRow}>
@@ -144,6 +194,19 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
       </div>
 
       <div className={styles.cardActions}>
+        {needsOAuth && (
+          <Button
+            type="primary"
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOauthModalOpen(true);
+            }}
+            className={styles.actionBtn}
+          >
+            {t("models.connect")}
+          </Button>
+        )}
         <Button
           type="default"
           size="small"
@@ -178,6 +241,17 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
           </Button>
         )}
       </div>
+
+      <OAuthConfirmModal
+        open={oauthModalOpen}
+        providerId={provider.id}
+        providerName={provider.name}
+        onSuccess={() => {
+          setOauthModalOpen(false);
+          onSaved();
+        }}
+        onCancel={() => setOauthModalOpen(false)}
+      />
     </Card>
   );
 });

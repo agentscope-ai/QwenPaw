@@ -711,6 +711,14 @@ export default function ChatPage() {
     return match?.[1];
   }, [location.pathname]);
   const [showModelPrompt, setShowModelPrompt] = useState(false);
+  const [rateLimitAlternatives, setRateLimitAlternatives] = useState<
+    Array<{
+      provider_id: string;
+      provider_name: string;
+      model_id: string;
+      model_name: string;
+    }>
+  >([]);
   const { selectedAgent } = useAgentStore();
   const { toolRenderConfig } = usePlugins();
   const extScalar = useChatScalarSnapshot();
@@ -1599,6 +1607,14 @@ export default function ChatPage() {
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
 
+          if (payload.type === "rate_limited") {
+            const alts =
+              (payload.alternatives as typeof rateLimitAlternatives) || [];
+            setRateLimitAlternatives(alts);
+            message.warning(t("chat.rateLimitHit"));
+            return null;
+          }
+
           if (payloadRequestsHistoryClear(payload)) {
             pendingClearHistoryRef.current = true;
             if (payloadCompletesResponse(payload)) {
@@ -1747,6 +1763,50 @@ export default function ChatPage() {
           options={options}
         />
       </div>
+
+      {/* Rate-limit guidance banner */}
+      {rateLimitAlternatives.length > 0 && (
+        <div className={styles.rateLimitBanner}>
+          <span className={styles.rateLimitText}>
+            {t("chat.rateLimitMessage")}
+          </span>
+          <div className={styles.rateLimitActions}>
+            {rateLimitAlternatives.slice(0, 3).map((alt) => (
+              <Button
+                key={`${alt.provider_id}/${alt.model_id}`}
+                size="small"
+                type="default"
+                onClick={async () => {
+                  try {
+                    await providerApi.setActiveLlm({
+                      provider_id: alt.provider_id,
+                      model: alt.model_id,
+                      scope: "agent",
+                      agent_id: selectedAgent,
+                    });
+                    window.dispatchEvent(new CustomEvent("model-switched"));
+                    message.success(
+                      t("chat.rateLimitSwitched", { model: alt.model_name }),
+                    );
+                    setRateLimitAlternatives([]);
+                  } catch {
+                    message.error(t("modelSelector.switchFailed"));
+                  }
+                }}
+              >
+                {alt.model_name}
+              </Button>
+            ))}
+            <Button
+              size="small"
+              type="link"
+              onClick={() => setRateLimitAlternatives([])}
+            >
+              {t("common.close")}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Render approval cards as overlays */}
       {Array.from(approvalRequests.values()).map((request) => (

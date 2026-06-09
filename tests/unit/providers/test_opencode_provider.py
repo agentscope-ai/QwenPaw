@@ -24,7 +24,7 @@ class TestOpenCodeProvider:
         """Provider-level attributes should be correctly set."""
         assert PROVIDER_OPENCODE.id == "opencode"
         assert PROVIDER_OPENCODE.api_key_prefix == ""
-        assert PROVIDER_OPENCODE.require_api_key is True
+        assert PROVIDER_OPENCODE.require_api_key is False
         assert PROVIDER_OPENCODE.freeze_url is False
         assert PROVIDER_OPENCODE.base_url == "https://opencode.ai/zen/v1"
         assert (
@@ -105,11 +105,11 @@ class TestOpenCodeProvider:
         for m in OPENCODE_MODELS:
             assert m.probe_source == "documentation"
 
-    def test_opencode_models_no_free_models(self):
-        """No free models after removing Zen-only big-pickle/nemotron."""
-        assert not any(
+    def test_opencode_models_all_free(self):
+        """All OpenCode models should be marked as free."""
+        assert all(
             m.is_free for m in OPENCODE_MODELS
-        ), "OPENCODE_MODELS should not contain free models"
+        ), "All OPENCODE_MODELS should be free"
 
     def test_opencode_registered_in_provider_manager(self):
         """opencode provider should be registerable via built-in init."""

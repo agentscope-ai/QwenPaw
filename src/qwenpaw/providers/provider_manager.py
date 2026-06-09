@@ -22,7 +22,11 @@ from ..exceptions import ProviderError
 from .anthropic_provider import AnthropicProvider
 from .gemini_provider import GeminiProvider
 from .ollama_provider import OllamaProvider
-from .openai_provider import OpenAIProvider
+from .openai_provider import (
+    OpenAIProvider,
+    OpenCodeProvider,
+    KiloProvider,
+)
 from .lmstudio_provider import LMStudioProvider
 from .provider import (
     ModelInfo,
@@ -207,6 +211,14 @@ ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
 
 ZHIPU_MODELS: List[ModelInfo] = [
     ModelInfo(
+        id="glm-4.7-flash",
+        name="GLM-4.7-Flash",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
         id="glm-5",
         name="glm-5",
         supports_image=False,
@@ -316,62 +328,97 @@ OPENAI_MODELS: List[ModelInfo] = [
     ),
 ]
 
+KILO_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="kilo-auto/free",
+        name="Kilo Auto (Free Router)",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="nvidia/nemotron-3-ultra-550b-a55b:free",
+        name="Nemotron 3 Ultra 550B",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="nvidia/nemotron-3-super-120b-a12b:free",
+        name="Nemotron 3 Super 120B",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="poolside/laguna-m.1:free",
+        name="Poolside Laguna M.1",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="poolside/laguna-xs.2:free",
+        name="Poolside Laguna XS.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="stepfun/step-3.7-flash:free",
+        name="Step 3.7 Flash",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="nex-agi/nex-n2-pro:free",
+        name="Nex N2 Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+]
+
 OPENCODE_MODELS: List[ModelInfo] = [
     ModelInfo(
-        id="glm-5.1",
-        name="GLM-5.1",
+        id="deepseek-v4-flash-free",
+        name="DeepSeek V4 Flash",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
+        is_free=True,
     ),
     ModelInfo(
-        id="glm-5",
-        name="GLM-5",
+        id="mimo-v2.5-free",
+        name="Mimo V2.5",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
+        is_free=True,
     ),
     ModelInfo(
-        id="kimi-k2.5",
-        name="Kimi K2.5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2.6",
-        name="Kimi K2.6",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="minimax-m2.5",
-        name="MiniMax-M2.5",
+        id="nemotron-3-ultra-free",
+        name="Nemotron 3 Ultra",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
+        is_free=True,
     ),
     ModelInfo(
-        id="minimax-m2.7",
-        name="MiniMax-M2.7",
+        id="nemotron-3-super-free",
+        name="Nemotron 3 Super",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3.6-plus",
-        name="Qwen3.6 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3.5-plus",
-        name="Qwen3.5 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
+        is_free=True,
     ),
 ]
 
@@ -811,6 +858,7 @@ PROVIDER_ZHIPU_CN = OpenAIProvider(
     api_key_prefix="",
     models=ZHIPU_MODELS,
     freeze_url=True,
+    meta={"is_free_tier": True},
 )
 
 PROVIDER_ZHIPU_CN_CODINGPLAN = OpenAIProvider(
@@ -858,19 +906,32 @@ PROVIDER_OPENAI = OpenAIProvider(
     freeze_url=True,
 )
 
-PROVIDER_OPENCODE = OpenAIProvider(
+PROVIDER_OPENCODE = OpenCodeProvider(
     id="opencode",
     name="OpenCode",
     base_url="https://opencode.ai/zen/v1",
     api_key_prefix="",
     models=OPENCODE_MODELS,
+    require_api_key=False,
     meta={
         "base_url_options": [
             {"label": "OpenCode", "value": "https://opencode.ai/zen/v1"},
             {"label": "OpenCode Go", "value": "https://opencode.ai/zen/go/v1"},
         ],
+        "is_free_tier": True,
     },
     freeze_url=False,
+)
+
+PROVIDER_KILO = KiloProvider(
+    id="kilo",
+    name="Kilo Code",
+    base_url="https://api.kilo.ai/api/gateway",
+    api_key_prefix="",
+    models=KILO_MODELS,
+    require_api_key=False,
+    meta={"is_free_tier": True},
+    freeze_url=True,
 )
 
 PROVIDER_AZURE_OPENAI = OpenAIProvider(
@@ -947,6 +1008,9 @@ PROVIDER_GEMINI = GeminiProvider(
     models=GEMINI_MODELS,
     chat_model="GeminiChatModel",
     freeze_url=True,
+    meta={
+        "is_free_tier": True,
+    },
 )
 
 PROVIDER_OLLAMA = OllamaProvider(
@@ -965,7 +1029,59 @@ PROVIDER_OPENROUTER = OpenRouterProvider(
     api_key_prefix="sk-or-v1-",
     models=[],
     freeze_url=True,
+    meta={
+        "supports_oauth": True,
+        "is_free_tier": True,
+    },
 )
+
+GITHUB_MODELS_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="gpt-4o-mini",
+        name="GPT-4o Mini",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="gpt-4o",
+        name="GPT-4o",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="Meta-Llama-3.1-405B-Instruct",
+        name="Llama 3.1 405B",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="Meta-Llama-3.1-8B-Instruct",
+        name="Llama 3.1 8B",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+]
+
+PROVIDER_GITHUB_MODELS = OpenAIProvider(
+    id="github-models",
+    name="GitHub Models",
+    base_url="https://models.inference.ai.azure.com",
+    api_key_prefix="ghp_",
+    models=GITHUB_MODELS_MODELS,
+    freeze_url=True,
+    meta={
+        "is_free_tier": True,
+    },
+)
+
 
 PROVIDER_LMSTUDIO = LMStudioProvider(
     id="lmstudio",
@@ -986,6 +1102,9 @@ PROVIDER_SILICONFLOW_CN = OpenAIProvider(
     models=[],
     freeze_url=True,
     require_api_key=True,
+    meta={
+        "is_free_tier": True,
+    },
 )
 
 PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
@@ -996,6 +1115,9 @@ PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
     models=[],
     freeze_url=True,
     require_api_key=True,
+    meta={
+        "is_free_tier": True,
+    },
 )
 
 PROVIDER_VOLCENGINE_CN = OpenAIProvider(
@@ -1074,12 +1196,14 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
         self._add_builtin(PROVIDER_OPENROUTER)
+        self._add_builtin(PROVIDER_GITHUB_MODELS)
         self._add_builtin(PROVIDER_MODELSCOPE)
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN_INTL)
         self._add_builtin(PROVIDER_ALIYUN_TOKENPLAN)
         self._add_builtin(PROVIDER_OPENCODE)
+        self._add_builtin(PROVIDER_KILO)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_ANTHROPIC)
