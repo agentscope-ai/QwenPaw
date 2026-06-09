@@ -14,7 +14,7 @@ from typing import Any
 
 import httpx
 
-PLUGIN_HTTP_TIMEOUT = 30.0
+PLUGIN_HTTP_TIMEOUT = 60.0
 LOADER_READY_TIMEOUT = 20.0
 AGENT_SCOPED_PREFIX = "/api/agents"
 REPO_ROOT = Path(__file__).resolve().parents[2]

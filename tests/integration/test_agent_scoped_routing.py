@@ -21,6 +21,7 @@ import io
 import time
 import zipfile
 
+import httpx
 import pytest
 
 from tests.integration.helpers import (
@@ -173,12 +174,21 @@ def test_plugins_install_real_via_agentscoped(app_server) -> None:
         deadline = time.time() + LOADER_READY_TIMEOUT
         resp = None
         while True:
-            resp = app_server.api_request(
-                "POST",
-                scoped("default", "/plugins/install"),
-                json={"source": str(source_path), "force": False},
-                timeout=PLUGIN_HTTP_TIMEOUT,
-            )
+            try:
+                resp = app_server.api_request(
+                    "POST",
+                    scoped("default", "/plugins/install"),
+                    json={
+                        "source": str(source_path),
+                        "force": False,
+                    },
+                    timeout=PLUGIN_HTTP_TIMEOUT,
+                )
+            except httpx.TimeoutException:
+                if time.time() >= deadline:
+                    raise
+                time.sleep(0.5)
+                continue
             if resp.status_code != 503 or time.time() >= deadline:
                 break
             time.sleep(0.5)
