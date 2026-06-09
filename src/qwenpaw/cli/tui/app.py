@@ -22,7 +22,6 @@ from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.widgets import TextArea
 
-from .__version__ import __version__
 from .events import (
     AvailableCommands,
     BackendWarmed,
@@ -214,7 +213,7 @@ class PawApp(App):
 
     # -- layout --------------------------------------------------------------
     def compose(self) -> ComposeResult:
-        yield StatusBar(tui_version=__version__)
+        yield StatusBar()
         yield VerticalScroll(id="transcript")
         yield self._menu
         yield PromptInput(

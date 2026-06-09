@@ -22,7 +22,6 @@ _FIELDS = (
     "tok_out_approx",
     "state",
     "qwenpaw_version",
-    "tui_version",
 )
 
 
@@ -42,7 +41,7 @@ def _fmt_count(n: int) -> str:
 class StatusBar(Static):
     """A one-line header rendered from a few fields via :meth:`set`."""
 
-    def __init__(self, *, tui_version: str = "—") -> None:
+    def __init__(self) -> None:
         self._frame = 0
         self._timer = None
         self._sb_agent = "default"
@@ -55,7 +54,6 @@ class StatusBar(Static):
         self._sb_tok_out_approx = False
         self._sb_state = "starting"
         self._sb_qwenpaw_version = "—"
-        self._sb_tui_version = tui_version
         # Pass an initial renderable so the first arrange has a valid visual.
         super().__init__(self._compose_line(), classes="statusbar")
 
@@ -104,8 +102,7 @@ class StatusBar(Static):
         line = Text()
         # Version badge — top-left (replaces the old "paw" badge).
         line.append(
-            f" QwenPaw {self._sb_qwenpaw_version}  "
-            f"TUI {self._sb_tui_version} ",
+            f" QwenPaw {self._sb_qwenpaw_version} ",
             style="bold on #2a2a3a",
         )
         line.append("  agent:", style="#8a8a8a")

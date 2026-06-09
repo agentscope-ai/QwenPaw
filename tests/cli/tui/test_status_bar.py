@@ -34,12 +34,13 @@ def test_initial_state_is_starting_not_ready():
     assert "ready" not in summary
 
 
-def test_versions_render_in_status_bar():
-    bar = StatusBar(tui_version="0.1.0")
+def test_version_renders_in_status_bar():
+    bar = StatusBar()
     bar.set(qwenpaw_version="1.1.10")
     summary = bar.summary
     assert "QwenPaw 1.1.10" in summary
-    assert "TUI 0.1.0" in summary
+    # Only QwenPaw's version is shown; the TUI version was removed.
+    assert "TUI" not in summary
 
 
 def test_estimate_is_marked_with_tilde():

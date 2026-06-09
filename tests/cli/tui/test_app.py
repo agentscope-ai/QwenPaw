@@ -15,7 +15,6 @@ import pytest
 from textual.widgets import ListView
 
 from qwenpaw.cli.tui.app import PawApp
-from qwenpaw.cli.tui.__version__ import __version__
 from qwenpaw.cli.tui.events import (
     AvailableCommands,
     BackendWarmed,
@@ -605,13 +604,13 @@ async def test_welcome_message_mounts_with_qwenpaw_greeting():
         assert "▀" not in plain
         assert plain.count("█") > 150
         assert "QwenPaw 9.8.7" not in plain
-        assert f"TUI {__version__}" not in plain
         assert "works for you" not in plain
         assert "/theme" not in plain
         assert len(plain.splitlines()) >= 6
         status = app.query_one(StatusBar).summary
         assert "QwenPaw 9.8.7" in status
-        assert f"TUI {__version__}" in status
+        # The TUI version is no longer shown — only QwenPaw's.
+        assert "TUI" not in status
 
 
 @pytest.mark.asyncio
