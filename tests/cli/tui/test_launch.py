@@ -1,0 +1,101 @@
+# -*- coding: utf-8 -*-
+"""Tests for launching the bundled TUI (`qwenpaw` / `qwenpaw tui`).
+
+Replaces paw's old ``test_cli.py`` + ``test_resolve.py``: the standalone
+``paw`` command and PATH-based resolution were dropped when the TUI moved into
+QwenPaw. The TUI now spawns ``qwenpaw acp`` using the *current* interpreter.
+"""
+
+from __future__ import annotations
+
+import sys
+
+from click.testing import CliRunner
+
+from qwenpaw.cli.tui.launch import _build_transport, tui_cmd
+
+
+def test_default_transport_targets_current_interpreter():
+    """Default spawns this very ``python -m qwenpaw acp`` (no PATH lookup)."""
+    transport, description = _build_transport(
+        agent=None, agent_cmd=None, resume=None
+    )
+    assert transport._command == [sys.executable, "-m", "qwenpaw", "acp"]
+    assert "qwenpaw acp" in description
+
+
+def test_default_transport_appends_agent_once():
+    """``--agent`` is appended exactly once (by the transport)."""
+    transport, _ = _build_transport(
+        agent="writer", agent_cmd=None, resume=None
+    )
+    assert transport._command == [
+        sys.executable,
+        "-m",
+        "qwenpaw",
+        "acp",
+        "--agent",
+        "writer",
+    ]
+
+
+def test_explicit_agent_cmd_is_split():
+    transport, description = _build_transport(
+        agent=None, agent_cmd="qwenpaw acp", resume=None
+    )
+    assert transport._command == ["qwenpaw", "acp"]
+    assert "custom" in description
+
+
+def test_explicit_agent_cmd_with_agent_suffix():
+    transport, _ = _build_transport(
+        agent="writer", agent_cmd="qwenpaw acp", resume=None
+    )
+    assert transport._command == ["qwenpaw", "acp", "--agent", "writer"]
+
+
+def test_resume_is_threaded_through():
+    transport, _ = _build_transport(
+        agent=None, agent_cmd=None, resume="sess-123"
+    )
+    assert transport._resume_session_id == "sess-123"
+
+
+def test_tui_help():
+    result = CliRunner().invoke(tui_cmd, ["--help"])
+    assert result.exit_code == 0
+    assert "--agent-cmd" in result.output
+    assert "--resume" in result.output
+
+
+def test_tui_cmd_invokes_run_tui(monkeypatch):
+    calls = {}
+
+    def fake_run_tui(*, agent, agent_cmd, resume):
+        calls["agent"] = agent
+        calls["agent_cmd"] = agent_cmd
+        calls["resume"] = resume
+
+    monkeypatch.setattr("qwenpaw.cli.tui.launch.run_tui", fake_run_tui)
+    result = CliRunner().invoke(tui_cmd, ["--agent", "writer"])
+    assert result.exit_code == 0
+    assert calls == {
+        "agent": "writer",
+        "agent_cmd": None,
+        "resume": None,
+    }
+
+
+def test_bare_qwenpaw_launches_tui(monkeypatch):
+    """Bare ``qwenpaw`` (no subcommand) opens the TUI."""
+    from qwenpaw.cli.main import cli
+
+    launched = {"called": False}
+
+    def fake_run_tui(*args, **kwargs):
+        launched["called"] = True
+
+    monkeypatch.setattr("qwenpaw.cli.tui.launch.run_tui", fake_run_tui)
+    result = CliRunner().invoke(cli, [])
+    assert result.exit_code == 0
+    assert launched["called"] is True
