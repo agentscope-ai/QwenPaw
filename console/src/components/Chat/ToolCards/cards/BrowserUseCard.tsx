@@ -10,10 +10,15 @@ import { stringifyResult } from "../shared/utils";
  * Try to extract meaningful fields from a browser tool result object.
  * Returns extracted text or null if the object doesn't have known fields.
  */
+/** Unescape literal \n \t sequences that survived double-serialization. */
+function unescapeLiterals(text: string): string {
+  return text.replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+}
+
 function extractBrowserFields(obj: Record<string, unknown>): string | null {
   const parts: string[] = [];
   if (obj.snapshot && typeof obj.snapshot === "string") {
-    parts.push(obj.snapshot);
+    parts.push(unescapeLiterals(obj.snapshot));
   }
   if (obj.message && typeof obj.message === "string") {
     parts.push(obj.message);
