@@ -113,6 +113,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
         workspace_dir: Path | None = None,
         task_tracker: Any | None = None,
         plan_notebook: Any | None = None,
+        parallel_tool_calls: bool = False,
     ):
         """Initialize QwenPawAgent.
 
@@ -198,6 +199,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             "memory": InMemoryMemory(),
             "formatter": formatter,
             "max_iters": running_config.max_iters,
+            "parallel_tool_calls": parallel_tool_calls,
         }
         if plan_notebook is not None:
             init_kwargs["plan_notebook"] = plan_notebook
@@ -757,7 +759,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             "revise_current_plan",
         },
     )
-    _PLAN_JSON_KEYS = ("subtask", "subtasks", "changes")
+    _PLAN_JSON_KEYS = ("subtask", "subtasks", "changes", "node", "nodes")
 
     @staticmethod
     def _fix_stringified_json_args(tool_call) -> None:

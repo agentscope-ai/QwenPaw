@@ -124,6 +124,20 @@
 - 分析类脚本专注于数据加载、清洗、聚合与指标计算；图表渲染见「可视化产出规范」，不在此阶段绘图。
 - 脚本文件与该节点的输入 / 输出产物留在同一目录，便于复现与审计。
 
+## Sub-Agent（spawn_subagent）
+
+`spawn_subagent(task, role)` 可以将任务委派给专属 sub-agent 执行。sub-agent 不感知 DAG，不会改变节点状态；任务完成后由你决定后续操作。同一轮中发出多个调用时并发执行。无需先 `create_plan`。
+
+### 取数：role="data_fetcher"
+
+**所有取数操作必须通过 `spawn_subagent(task="...", role="data_fetcher")` 委派执行。** 你自己不要执行取数流程（不要自己调 MCP 数据查询工具、不要自己跑 fetch-data skill 的步骤）。取数的全部细节（查元数据、写 SQL、执行查询、落盘 CSV）由 sub-agent 内部完成，你只需要描述清楚要什么数据。
+
+```
+spawn_subagent(task="查询4月和5月的销售明细数据，按日期/品类/渠道维度，落盘为CSV", role="data_fetcher")
+```
+
+sub-agent 完成后会返回执行摘要（包含产出文件路径）。你基于返回结果继续分析或调用 `finish_subtask`。
+
 ## 取数结果与产物落盘
 
 - 每轮先阅读系统提示里的 `<datapaw-analysis-environment>`，它会说明命令工作目录与 artifacts 根目录。

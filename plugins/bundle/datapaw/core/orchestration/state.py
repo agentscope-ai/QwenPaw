@@ -832,10 +832,39 @@ class RuntimeStateManager(PlanNotebook):
             return Msg("user", hint_content, "user")
         return None
 
+    # --- Node accessors (used by spawn_subagent) ----------------------------
+
+    def get_current_in_progress_node(self) -> Optional[TaskNode]:
+        """Return the (single) in-progress node, or ``None``."""
+        if not self.current_plan:
+            return None
+        for node in self.current_plan.nodes.values():
+            if node.state == "in_progress":
+                return node
+        return None
+
+    def get_upstream_outputs(self, node_id: str) -> Dict[str, str]:
+        """Return ``{dep_node_id: summary}`` for all done upstream deps."""
+        if not self.current_plan:
+            return {}
+        node = self.current_plan.nodes.get(node_id)
+        if node is None:
+            return {}
+        result: Dict[str, str] = {}
+        for dep_id in node.deps:
+            dep = self.current_plan.nodes.get(dep_id)
+            if dep is not None and dep.output is not None:
+                result[dep_id] = dep.output.summary
+        return result
+
     # --- Trace collection (called by DataPawAgent) -------------------------
 
     def append_to_trace(self, msg: Msg) -> None:
-        """Append a message to the currently in-progress node's trace."""
+        """Append a message to the currently in-progress node's trace.
+
+        Thread-safe under ``asyncio.gather``: the underlying list append
+        is atomic in CPython, and all callers run on the same event loop.
+        """
         if not self.current_plan:
             return
 

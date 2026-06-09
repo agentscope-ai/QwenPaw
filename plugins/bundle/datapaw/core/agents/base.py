@@ -34,6 +34,7 @@ from ..orchestration import RuntimeStateManager
 from ..path_context import PathContext, default_artifacts_root
 from ..sse_metadata import NODE_ROUTING_METADATA_KEYS
 from ..tools import DEFAULT_TOOL_NAMES, TOOL_REGISTRY
+from .spawn_subagent import make_spawn_subagent_fn
 
 if TYPE_CHECKING:
     from qwenpaw.agents.memory import BaseMemoryManager
@@ -272,6 +273,7 @@ class DataPawAgent(QwenPawAgent):
             namesake_strategy=namesake_strategy,
             workspace_dir=workspace_dir,
             task_tracker=task_tracker,
+            parallel_tool_calls=True,
         )
 
         self._disable_send_file_to_user_tool()
@@ -406,7 +408,7 @@ class DataPawAgent(QwenPawAgent):
         self,
         namesake_strategy: NamesakeStrategy = "skip",
     ) -> None:
-        """Register all 9 plan tools from plan_notebook (no mode filter)."""
+        """Register all plan tools from plan_notebook + spawn_subagent."""
         for tool in self.plan_notebook.list_tools():
             try:
                 self.toolkit.register_tool_function(
@@ -419,6 +421,72 @@ class DataPawAgent(QwenPawAgent):
                     getattr(tool, "__name__", repr(tool)),
                     exc_info=True,
                 )
+
+        try:
+            spawn_fn = self._make_spawn_subagent_fn()
+            self.toolkit.register_tool_function(
+                spawn_fn,
+                namesake_strategy="override",
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "Failed to register spawn_subagent tool",
+                exc_info=True,
+            )
+
+    _SKILL_DIRS = {
+        "data_fetcher": [
+            str(PLUGIN_DIR / "skills" / "fetch-data"),
+        ],
+    }
+
+    def _make_spawn_subagent_fn(self) -> Any:
+        """Build the ``spawn_subagent`` closure with captured dependencies."""
+        from qwenpaw.agents.model_factory import create_model_and_formatter
+
+        agent_id = self._agent_config.id
+
+        def _get_model_and_formatter():
+            return create_model_and_formatter(agent_id=agent_id)
+
+        def _get_tools_for_role(role: str) -> list:
+            """Return tool functions appropriate for the given sub-agent role."""
+            if role == "data_fetcher":
+                return self._get_data_fetcher_tools()
+            return []
+
+        def _get_skill_dirs_for_role(role: str) -> list:
+            """Return skill directory paths for the given sub-agent role."""
+            return self._SKILL_DIRS.get(role, [])
+
+        return make_spawn_subagent_fn(
+            runtime_state=self.plan_notebook,
+            get_model_and_formatter=_get_model_and_formatter,
+            get_tools_for_role=_get_tools_for_role,
+            get_skill_dirs_for_role=_get_skill_dirs_for_role,
+        )
+
+    _DATA_FETCHER_BUILTINS = frozenset({
+        "execute_shell_command",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "grep_search",
+        "glob_search",
+    })
+
+    def _get_data_fetcher_tools(self) -> list:
+        """Tools for the ``data_fetcher`` role: file/shell builtins + MCP."""
+        tools = []
+        for name, registered in self.toolkit.tools.items():
+            if (
+                name in self._DATA_FETCHER_BUILTINS
+                or registered.source == "mcp_server"
+            ):
+                fn = registered.original_func
+                if fn is not None:
+                    tools.append(fn)
+        return tools
 
     def _register_datapaw_tools(
         self,
@@ -558,9 +626,14 @@ class DataPawAgent(QwenPawAgent):
         self,
         tool_call: dict,
     ) -> dict | None:
-        """Run the tool, then append its result to the current node's trace."""
-        self._inject_datasource_metadata(tool_call)
+        """Run the tool, then append its result to the current node's trace.
 
+        When ``parallel_tool_calls=True``, multiple ``_acting`` coroutines
+        run concurrently via ``asyncio.gather``.  All concurrent calls
+        (e.g. multiple ``spawn_subagent``) target the same ``in_progress``
+        node, so trace append ordering is non-deterministic but correct.
+        """
+        self._inject_datasource_metadata(tool_call)
         result = await super()._acting(tool_call)
 
         if self.memory.content:

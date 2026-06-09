@@ -1,0 +1,342 @@
+# -*- coding: utf-8 -*-
+"""Tests for plugins/bundle/datapaw/core/agents/spawn_subagent.py."""
+import asyncio
+import sys
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+_repo = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_repo))
+sys.path.insert(0, str(_repo.parent.parent.parent / "src"))
+
+from core.agents.spawn_subagent import (  # noqa: E402
+    _build_sub_prompt,
+    _extract_text,
+    _extract_tool_call_info,
+    _is_tool_call,
+    _should_stream,
+    make_spawn_subagent_fn,
+)
+from agentscope.message import Msg  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# Helper function tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSubPrompt:
+    def test_with_upstream(self):
+        prompt = _build_sub_prompt("查询数据", "上下文", {"n0": "结果"})
+        assert "查询数据" in prompt
+        assert "n0" in prompt
+        assert "结果" in prompt
+
+    def test_empty_upstream(self):
+        prompt = _build_sub_prompt("test", "", {})
+        assert "根节点" in prompt
+
+
+class TestShouldStream:
+    def test_assistant_streams(self):
+        assert _should_stream(Msg("a", content="hi", role="assistant")) is True
+
+    def test_system_does_not_stream(self):
+        assert _should_stream(Msg("s", content="r", role="system")) is False
+
+
+class TestIsToolCall:
+    def test_true(self):
+        msg = Msg(
+            "a",
+            content=[{"type": "tool_use", "id": "t1", "name": "foo", "input": {}}],
+            role="assistant",
+        )
+        assert _is_tool_call(msg) is True
+
+    def test_false(self):
+        msg = Msg("a", content=[{"type": "text", "text": "hi"}], role="assistant")
+        assert _is_tool_call(msg) is False
+
+    def test_string_content(self):
+        msg = Msg("a", content="hello", role="assistant")
+        assert _is_tool_call(msg) is False
+
+
+class TestExtractText:
+    def test_string_content(self):
+        assert _extract_text(Msg("a", content="plain", role="assistant")) == "plain"
+
+    def test_thinking_block(self):
+        msg = Msg(
+            "a",
+            content=[{"type": "thinking", "text": "hmm"}],
+            role="assistant",
+        )
+        assert _extract_text(msg) == "hmm"
+
+    def test_text_block(self):
+        msg = Msg(
+            "a",
+            content=[{"type": "text", "text": "hello"}],
+            role="assistant",
+        )
+        assert _extract_text(msg) == "hello"
+
+    def test_system_tool_result(self):
+        msg = Msg(
+            "system",
+            content=[
+                {
+                    "type": "tool_result",
+                    "id": "tc1",
+                    "name": "execute_sql",
+                    "output": [{"type": "text", "text": "rows: 42"}],
+                }
+            ],
+            role="system",
+        )
+        assert "rows: 42" in _extract_text(msg)
+
+
+class TestExtractToolCallInfo:
+    def test_basic(self):
+        msg = Msg(
+            "a",
+            content=[
+                {
+                    "type": "tool_use",
+                    "id": "t1",
+                    "name": "execute_sql",
+                    "input": {"query": "SELECT 1"},
+                }
+            ],
+            role="assistant",
+        )
+        info = _extract_tool_call_info(msg)
+        assert info["name"] == "execute_sql"
+        assert info["input"] == {"query": "SELECT 1"}
+
+    def test_no_tool_use(self):
+        msg = Msg("a", content="text", role="assistant")
+        info = _extract_tool_call_info(msg)
+        assert info["name"] == "tool"
+
+
+# ---------------------------------------------------------------------------
+# Async spawn function tests
+# ---------------------------------------------------------------------------
+
+
+def _make_runtime_state():
+    rs = MagicMock()
+    node = MagicMock()
+    node.node_id = "n1"
+    rs.get_current_in_progress_node.return_value = node
+    rs.get_upstream_outputs.return_value = {}
+    return rs
+
+
+@pytest.mark.asyncio
+async def test_unsupported_role():
+    fn = make_spawn_subagent_fn(
+        runtime_state=_make_runtime_state(),
+        get_model_and_formatter=lambda: (MagicMock(), MagicMock()),
+        get_tools_for_role=lambda r: [],
+        get_skill_dirs_for_role=lambda r: [],
+    )
+    results = []
+    async for resp in fn(task="test", role="bad_role"):
+        results.append(resp)
+
+    assert len(results) == 1
+    assert results[0].is_last is True
+    assert "不支持" in results[0].content[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_model_failure():
+    def _fail():
+        raise RuntimeError("model broken")
+
+    fn = make_spawn_subagent_fn(
+        runtime_state=_make_runtime_state(),
+        get_model_and_formatter=_fail,
+        get_tools_for_role=lambda r: [],
+        get_skill_dirs_for_role=lambda r: [],
+    )
+    results = []
+    async for resp in fn(task="test", role="data_fetcher"):
+        results.append(resp)
+
+    assert len(results) == 1
+    assert results[0].is_last is True
+    assert "模型创建失败" in results[0].content[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_successful_run():
+    reply_msg = Msg("agent", content="done", role="assistant")
+
+    with patch("core.agents.spawn_subagent.ReActAgent") as MockAgent:
+
+        async def _call(task_msg):
+            q = instance._stored_queue
+            await q.put(
+                (
+                    Msg(
+                        "agent",
+                        content=[{"type": "thinking", "text": "let me think"}],
+                        role="assistant",
+                    ),
+                    False,
+                    None,
+                )
+            )
+            await q.put(
+                (Msg("agent", content="任务完成", role="assistant"), True, None)
+            )
+            return reply_msg
+
+        instance = AsyncMock(side_effect=_call)
+
+        def _set_q(enabled, q):
+            instance._stored_queue = q
+
+        instance.set_msg_queue_enabled = _set_q
+        MockAgent.return_value = instance
+
+        fn = make_spawn_subagent_fn(
+            runtime_state=_make_runtime_state(),
+            get_model_and_formatter=lambda: (MagicMock(), MagicMock()),
+            get_tools_for_role=lambda r: [],
+            get_skill_dirs_for_role=lambda r: [],
+        )
+        results = []
+        async for resp in fn(task="do it", role="data_fetcher"):
+            results.append(resp)
+
+        assert len(results) >= 2
+        assert results[-1].is_last is True
+        assert results[0].content[0]["text"] == "let me think"
+
+
+@pytest.mark.asyncio
+async def test_tool_call_and_result():
+    reply_msg = Msg("agent", content="分析完成", role="assistant")
+
+    with patch("core.agents.spawn_subagent.ReActAgent") as MockAgent:
+
+        async def _call(task_msg):
+            q = instance._stored_queue
+            # thinking
+            await q.put(
+                (
+                    Msg(
+                        "agent",
+                        content=[{"type": "thinking", "text": "need data"}],
+                        role="assistant",
+                    ),
+                    False,
+                    None,
+                )
+            )
+            # tool_call (final reasoning frame)
+            await q.put(
+                (
+                    Msg(
+                        "agent",
+                        content=[
+                            {"type": "thinking", "text": "need data"},
+                            {
+                                "type": "tool_use",
+                                "id": "tc1",
+                                "name": "execute_sql",
+                                "input": {"query": "SELECT 1"},
+                            },
+                        ],
+                        role="assistant",
+                    ),
+                    True,
+                    None,
+                )
+            )
+            # tool_result
+            await q.put(
+                (
+                    Msg(
+                        "system",
+                        content=[
+                            {
+                                "type": "tool_result",
+                                "id": "tc1",
+                                "name": "execute_sql",
+                                "output": [{"type": "text", "text": "rows: 42"}],
+                            }
+                        ],
+                        role="system",
+                    ),
+                    True,
+                    None,
+                )
+            )
+            # final text
+            await q.put(
+                (Msg("agent", content="分析完成", role="assistant"), True, None)
+            )
+            return reply_msg
+
+        instance = AsyncMock(side_effect=_call)
+
+        def _set_q(enabled, q):
+            instance._stored_queue = q
+
+        instance.set_msg_queue_enabled = _set_q
+        MockAgent.return_value = instance
+
+        fn = make_spawn_subagent_fn(
+            runtime_state=_make_runtime_state(),
+            get_model_and_formatter=lambda: (MagicMock(), MagicMock()),
+            get_tools_for_role=lambda r: [],
+            get_skill_dirs_for_role=lambda r: [],
+        )
+        results = []
+        async for resp in fn(task="query", role="data_fetcher"):
+            results.append(resp)
+
+        texts = [r.content[0]["text"] for r in results]
+        assert any("need data" in t for t in texts), f"missing thinking: {texts}"
+        assert any("[tool_call]" in t for t in texts), f"missing tool_call: {texts}"
+        assert any("rows: 42" in t for t in texts), f"missing tool_result: {texts}"
+        assert results[-1].is_last is True
+
+
+@pytest.mark.asyncio
+async def test_timeout():
+    with patch("core.agents.spawn_subagent.ReActAgent") as MockAgent, patch(
+        "core.agents.spawn_subagent.TIMEOUT_SECONDS", 0.5
+    ):
+
+        async def _hang(task_msg):
+            await asyncio.sleep(999)
+            return Msg("agent", content="", role="assistant")
+
+        instance = AsyncMock(side_effect=_hang)
+        instance.set_msg_queue_enabled = MagicMock()
+        MockAgent.return_value = instance
+
+        fn = make_spawn_subagent_fn(
+            runtime_state=_make_runtime_state(),
+            get_model_and_formatter=lambda: (MagicMock(), MagicMock()),
+            get_tools_for_role=lambda r: [],
+            get_skill_dirs_for_role=lambda r: [],
+        )
+        results = []
+        async for resp in fn(task="hang", role="data_fetcher"):
+            results.append(resp)
+
+        assert len(results) >= 1
+        assert results[-1].is_last is True
+        assert "超时" in results[-1].content[0]["text"]
