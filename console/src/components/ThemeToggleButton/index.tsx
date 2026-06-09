@@ -1,9 +1,5 @@
 import { Dropdown, Button, type MenuProps } from "antd";
-import {
-  SparkMoonLine,
-  SparkSunLine,
-  SparkComputerLine,
-} from "@agentscope-ai/icons";
+import { SparkMoonLine, SparkSunLine } from "@agentscope-ai/icons";
 import { useTheme, type ThemeMode } from "../../contexts/ThemeContext";
 import { useTranslation } from "react-i18next";
 import type { ReactNode } from "react";
@@ -12,7 +8,7 @@ import styles from "./index.module.less";
 const ICONS: Record<ThemeMode, ReactNode> = {
   light: <SparkSunLine />,
   dark: <SparkMoonLine />,
-  system: <SparkComputerLine />,
+  system: <SparkSunLine />,
 };
 
 export default function ThemeToggleButton() {
