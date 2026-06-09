@@ -4,10 +4,7 @@ import { Loader2, ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { providerApi } from "../../../api/modules/provider";
 import { useAppMessage } from "../../../hooks/useAppMessage";
-import {
-  openExternalLink,
-  isDesktopTauriRuntime,
-} from "../../../utils/openExternalLink";
+import { openExternalLink } from "../../../utils/openExternalLink";
 
 interface OAuthConfirmModalProps {
   open: boolean;
@@ -43,43 +40,9 @@ export function OAuthConfirmModal({
       const { authorize_url, state } = await providerApi.startOAuth(providerId);
       setPhase("waiting");
 
-      const isDesktop = isDesktopTauriRuntime();
-      let popup: Window | null = null;
+      openExternalLink(authorize_url, "_blank", "popup,width=600,height=700");
 
-      if (isDesktop) {
-        openExternalLink(authorize_url);
-      } else {
-        popup = window.open(
-          authorize_url,
-          "_blank",
-          "popup,width=600,height=700",
-        );
-      }
-
-      // postMessage listener (works in browser, not in desktop)
-      const messageHandler = (event: MessageEvent) => {
-        if (
-          event.data?.type === "oauth_complete" &&
-          event.data.provider === providerId
-        ) {
-          cleanup();
-          message.success(
-            t("modelSelector.oauthConnected", { provider: providerName }),
-          );
-          onSuccess();
-        }
-      };
-      if (!isDesktop) {
-        window.addEventListener("message", messageHandler);
-      }
-
-      const cleanup = () => {
-        if (pollRef.current) clearInterval(pollRef.current);
-        if (timeoutRef.current) clearTimeout(timeoutRef.current);
-        window.removeEventListener("message", messageHandler);
-      };
-
-      // Poll status (primary mechanism for desktop, fallback for browser)
+      // Poll backend status until completion (same pattern as MCP OAuth)
       pollRef.current = setInterval(async () => {
         try {
           const { status } = await providerApi.getOAuthStatus(
@@ -87,15 +50,15 @@ export function OAuthConfirmModal({
             state,
           );
           if (status === "completed") {
-            cleanup();
-            popup?.close();
+            if (pollRef.current) clearInterval(pollRef.current);
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
             message.success(
               t("modelSelector.oauthConnected", { provider: providerName }),
             );
             onSuccess();
           } else if (status === "failed") {
-            cleanup();
-            popup?.close();
+            if (pollRef.current) clearInterval(pollRef.current);
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
             message.error(t("modelSelector.oauthFailed"));
             onCancel();
           }
@@ -106,7 +69,7 @@ export function OAuthConfirmModal({
 
       // Timeout after 5 minutes
       timeoutRef.current = setTimeout(() => {
-        cleanup();
+        if (pollRef.current) clearInterval(pollRef.current);
       }, 300000);
     } catch (err) {
       message.error(
