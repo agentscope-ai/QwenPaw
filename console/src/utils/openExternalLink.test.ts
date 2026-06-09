@@ -5,21 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // to src/test/tauri-mock.ts, which exports vi.fn() instances we can control directly.
 import { invoke, isTauri, save } from "../test/tauri-mock";
 
-vi.mock("../request", () => ({
-  request: vi.fn(),
-}));
-vi.mock("../config", () => ({
-  getApiUrl: (path: string) => `/api${path}`,
-}));
-vi.mock("../authHeaders", () => ({
-  buildAuthHeaders: vi.fn(() => ({})),
-}));
-vi.mock("../../stores/codeFileCacheStore", () => ({
-  useCodeFileCacheStore: {
-    getState: () => ({ get: () => null, set: vi.fn(), invalidate: vi.fn() }),
-  },
-}));
-
 import {
   DownloadCancelledError,
   downloadFileFromUrl,

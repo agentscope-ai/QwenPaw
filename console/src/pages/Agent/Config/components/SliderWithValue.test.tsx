@@ -28,7 +28,7 @@ describe("SliderWithValue", () => {
     expect(container).toBeTruthy();
   });
 
-  it("displays formatted value: integer for >= 1, two decimals for < 1", () => {
+  it("displays formatted value: toString for >= 1, two decimals for < 1", () => {
     const { rerender } = renderWithProviders(
       <SliderWithValue value={0.75} min={0} max={2} step={0.01} />,
     );
@@ -36,6 +36,10 @@ describe("SliderWithValue", () => {
 
     rerender(<SliderWithValue value={2} min={0} max={2} step={0.01} />);
     expect(screen.getByText("2")).toBeInTheDocument();
+
+    // toString preserves decimals (does not truncate to integer)
+    rerender(<SliderWithValue value={1.5} min={0} max={2} step={0.01} />);
+    expect(screen.getByText("1.5")).toBeInTheDocument();
   });
 
   it("calls onChange when slider value changes", () => {

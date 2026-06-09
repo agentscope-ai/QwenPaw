@@ -81,14 +81,20 @@ describe("workspaceApi.downloadWorkspace", () => {
 });
 
 describe("workspaceApi.uploadFile", () => {
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
 
   it("sends POST with FormData to /workspace/upload", async () => {
     const mockFile = new File(["content"], "test.txt", { type: "text/plain" });
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ success: true, message: "ok" }),
-    } as unknown as Response);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ success: true, message: "ok" }),
+      } as unknown as Response),
+    );
 
     const result = await workspaceApi.uploadFile(mockFile);
 
@@ -101,12 +107,15 @@ describe("workspaceApi.uploadFile", () => {
 
   it("throws on upload failure", async () => {
     const mockFile = new File(["x"], "bad.txt");
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 413,
-      statusText: "Payload Too Large",
-      text: () => Promise.resolve("File too big"),
-    } as unknown as Response);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 413,
+        statusText: "Payload Too Large",
+        text: () => Promise.resolve("File too big"),
+      } as unknown as Response),
+    );
 
     await expect(workspaceApi.uploadFile(mockFile)).rejects.toThrow(
       "Upload failed: 413 Payload Too Large - File too big",
