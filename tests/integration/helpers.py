@@ -54,6 +54,15 @@ def delete_agent_quietly(app_server, agent_id: str) -> None:
         pass
 
 
+def toggle_agent(app_server, agent_id: str, enabled: bool):
+    """PATCH /api/agents/{id}/toggle and return response."""
+    return app_server.api_request(
+        "PATCH",
+        f"/api/agents/{agent_id}/toggle",
+        json={"enabled": enabled},
+    )
+
+
 # ------------------------------------------------------------------ #
 # plugin helpers
 # ------------------------------------------------------------------ #

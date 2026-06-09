@@ -249,6 +249,267 @@ def test_messages_send_to_unknown_channel(app_server) -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.p1
+def test_custom_channel_lifecycle_health_transitions(
+    app_server,
+) -> None:
+    """Test purpose:
+    - Verify the full health state machine for a custom channel:
+      enable → healthy, disable → 404, re-enable → healthy.
+
+    Test flow:
+    1. PUT enabled=true, wait for startup.
+    2. GET health → assert 200 + status contains expected value.
+    3. PUT enabled=false, wait for shutdown.
+    4. GET health → assert 404 (channel not running).
+    5. PUT enabled=true, wait for startup.
+    6. GET health → assert 200 again.
+    7. Restore disabled state.
+
+    API endpoints:
+    - PUT /api/config/channels/test_echo
+    - GET /api/config/channels/test_echo/health
+    """
+    put_enable = app_server.api_request(
+        "PUT",
+        "/api/config/channels/test_echo",
+        json={"enabled": True},
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    assert put_enable.status_code == 200, app_server.logs_tail()
+    time.sleep(1.0)
+
+    health_1 = app_server.api_request(
+        "GET",
+        "/api/config/channels/test_echo/health",
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    assert health_1.status_code == 200, app_server.logs_tail()
+    h1 = health_1.json()
+    assert h1.get("channel") == "test_echo"
+    assert h1.get("status") in ("healthy", "unhealthy")
+
+    put_disable = app_server.api_request(
+        "PUT",
+        "/api/config/channels/test_echo",
+        json={"enabled": False},
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    assert put_disable.status_code == 200, app_server.logs_tail()
+    time.sleep(0.5)
+
+    health_2 = app_server.api_request(
+        "GET",
+        "/api/config/channels/test_echo/health",
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    assert health_2.status_code == 404, app_server.logs_tail()
+
+    put_re_enable = app_server.api_request(
+        "PUT",
+        "/api/config/channels/test_echo",
+        json={"enabled": True},
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    assert put_re_enable.status_code == 200, app_server.logs_tail()
+    time.sleep(1.0)
+
+    health_3 = app_server.api_request(
+        "GET",
+        "/api/config/channels/test_echo/health",
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    assert health_3.status_code == 200, app_server.logs_tail()
+
+    app_server.api_request(
+        "PUT",
+        "/api/config/channels/test_echo",
+        json={"enabled": False},
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_custom_channel_send_multiple_messages_ordered(
+    app_server,
+    channel_callback_server,
+) -> None:
+    """Test purpose:
+    - Verify multiple messages sent to the custom channel arrive
+      at the callback server in order with correct content.
+
+    Test flow:
+    1. Enable test_echo channel.
+    2. Send 3 messages with distinct text.
+    3. Poll callback server until all 3 arrive.
+    4. Assert messages arrived in order with correct text.
+
+    API endpoints:
+    - PUT /api/config/channels/test_echo
+    - POST /api/messages/send
+    """
+    server = channel_callback_server
+    server.recorded.clear()
+
+    put_resp = app_server.api_request(
+        "PUT",
+        "/api/config/channels/test_echo",
+        json={"enabled": True},
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    assert put_resp.status_code == 200, app_server.logs_tail()
+    time.sleep(1.0)
+
+    messages = [f"ordered_msg_{i}" for i in range(3)]
+    for text in messages:
+        send_resp = app_server.api_request(
+            "POST",
+            "/api/messages/send",
+            json={
+                "channel": "test_echo",
+                "target_user": "integ-user-ordered",
+                "target_session": "integ-session-ordered",
+                "text": text,
+            },
+            timeout=_CHANNEL_HTTP_TIMEOUT,
+        )
+        assert send_resp.status_code == 200, app_server.logs_tail()
+
+    deadline = time.time() + 8.0
+    while time.time() < deadline and len(server.recorded) < 3:
+        time.sleep(0.2)
+
+    assert (
+        len(server.recorded) >= 3
+    ), f"expected 3 messages, got {len(server.recorded)}"
+    for i, text in enumerate(messages):
+        assert (
+            server.recorded[i].get("text") == text
+        ), f"message {i} mismatch: {server.recorded[i]}"
+
+
+@pytest.mark.integration
+@pytest.mark.p0
+def test_disabled_channel_rejects_send(app_server) -> None:
+    """Test purpose:
+    - Verify POST /api/messages/send to a disabled channel returns
+      404 (disabled channels are not instantiated, so the send
+      path raises KeyError caught as 404).
+
+    Test flow:
+    1. PUT test_echo enabled=false.
+    2. POST /api/messages/send with channel=test_echo.
+    3. Assert 404.
+
+    API endpoints:
+    - PUT /api/config/channels/test_echo
+    - POST /api/messages/send
+    """
+    put_resp = app_server.api_request(
+        "PUT",
+        "/api/config/channels/test_echo",
+        json={"enabled": False},
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    assert put_resp.status_code == 200, app_server.logs_tail()
+    time.sleep(0.5)
+
+    send_resp = app_server.api_request(
+        "POST",
+        "/api/messages/send",
+        json={
+            "channel": "test_echo",
+            "target_user": "user",
+            "target_session": "session",
+            "text": "should fail",
+        },
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    assert send_resp.status_code == 404, app_server.logs_tail()
+
+
+@pytest.mark.integration
+@pytest.mark.p2
+def test_custom_channel_send_after_restart(
+    app_server,
+    channel_callback_server,
+) -> None:
+    """Test purpose:
+    - Verify that restarting a custom channel does not break the
+      outbound send pipeline — messages still reach the callback.
+
+    Test flow:
+    1. Enable test_echo and send a message (verify delivery).
+    2. POST restart.
+    3. Wait for restart completion.
+    4. Send another message.
+    5. Verify the second message also reaches callback.
+
+    API endpoints:
+    - PUT /api/config/channels/test_echo
+    - POST /api/messages/send
+    - POST /api/config/channels/test_echo/restart
+    """
+    server = channel_callback_server
+    server.recorded.clear()
+
+    app_server.api_request(
+        "PUT",
+        "/api/config/channels/test_echo",
+        json={"enabled": True},
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    time.sleep(1.0)
+
+    send_1 = app_server.api_request(
+        "POST",
+        "/api/messages/send",
+        json={
+            "channel": "test_echo",
+            "target_user": "user-restart",
+            "target_session": "session-restart",
+            "text": "before_restart",
+        },
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    assert send_1.status_code == 200, app_server.logs_tail()
+
+    deadline = time.time() + 5.0
+    while time.time() < deadline and not server.recorded:
+        time.sleep(0.2)
+    assert len(server.recorded) >= 1
+
+    restart_resp = app_server.api_request(
+        "POST",
+        "/api/config/channels/test_echo/restart",
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    assert restart_resp.status_code == 200, app_server.logs_tail()
+    time.sleep(1.0)
+
+    server.recorded.clear()
+    send_2 = app_server.api_request(
+        "POST",
+        "/api/messages/send",
+        json={
+            "channel": "test_echo",
+            "target_user": "user-restart",
+            "target_session": "session-restart",
+            "text": "after_restart",
+        },
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    assert send_2.status_code == 200, app_server.logs_tail()
+
+    deadline = time.time() + 5.0
+    while time.time() < deadline and not server.recorded:
+        time.sleep(0.2)
+    assert len(server.recorded) >= 1
+    assert server.recorded[0].get("text") == "after_restart"
+
+
+@pytest.mark.integration
 @pytest.mark.p2
 def test_custom_channel_invalid_file_ignored(app_server) -> None:
     """Test purpose:

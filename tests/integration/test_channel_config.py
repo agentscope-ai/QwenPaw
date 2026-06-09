@@ -262,7 +262,6 @@ def test_channel_put_console_roundtrip(app_server) -> None:
     assert isinstance(before, dict)
 
     updated = dict(before)
-    original_prefix = before.get("bot_prefix", "")
     updated["bot_prefix"] = "integ-test-prefix"
 
     try:
@@ -449,6 +448,149 @@ def test_channel_bulk_put_get_roundtrip(app_server) -> None:
         app_server.api_request(
             "PUT",
             "/api/config/channels",
+            json=before,
+            timeout=_CHANNEL_HTTP_TIMEOUT,
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_channel_bulk_put_preserves_unmodified_channels(
+    app_server,
+) -> None:
+    """Test purpose:
+    - Verify bulk PUT that modifies only one channel does not
+      produce side effects on other channels' config fields.
+
+    Test flow:
+    1. GET /api/config/channels as baseline.
+    2. Deep-copy and modify only console.bot_prefix.
+    3. PUT /api/config/channels with modified payload.
+    4. GET /api/config/channels.
+    5. Assert console.bot_prefix changed.
+    6. Assert every field of telegram and discord configs
+       matches baseline exactly (side-effect assertion).
+    7. Restore baseline.
+
+    API endpoints:
+    - GET /api/config/channels
+    - PUT /api/config/channels
+    """
+    get_before = app_server.api_request(
+        "GET",
+        "/api/config/channels",
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    assert get_before.status_code == 200, app_server.logs_tail()
+    before = get_before.json()
+    assert isinstance(before, dict)
+    assert "console" in before
+
+    updated = {}
+    for k, v in before.items():
+        updated[k] = dict(v) if isinstance(v, dict) else v
+    updated["console"]["bot_prefix"] = "side-effect-test"
+
+    try:
+        put_resp = app_server.api_request(
+            "PUT",
+            "/api/config/channels",
+            json=updated,
+            timeout=_CHANNEL_HTTP_TIMEOUT,
+        )
+        assert put_resp.status_code == 200, app_server.logs_tail()
+
+        get_after = app_server.api_request(
+            "GET",
+            "/api/config/channels",
+            timeout=_CHANNEL_HTTP_TIMEOUT,
+        )
+        assert get_after.status_code == 200, app_server.logs_tail()
+        after = get_after.json()
+        assert after["console"].get("bot_prefix") == "side-effect-test"
+
+        for ch_name in ("telegram", "discord"):
+            if ch_name not in before:
+                continue
+            for k, v in before[ch_name].items():
+                assert (
+                    after[ch_name].get(k) == v
+                ), f"side-effect on {ch_name}.{k}"
+    finally:
+        app_server.api_request(
+            "PUT",
+            "/api/config/channels",
+            json=before,
+            timeout=_CHANNEL_HTTP_TIMEOUT,
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_channel_config_persists_after_restart(app_server) -> None:
+    """Test purpose:
+    - Verify that a channel config change persists after a
+      channel restart (restart re-reads from disk, should see
+      the new value).
+
+    Test flow:
+    1. GET /api/config/channels/console as baseline.
+    2. PUT with modified bot_prefix.
+    3. POST /api/config/channels/console/restart.
+    4. Wait for restart to complete.
+    5. GET /api/config/channels/console and verify new value
+       persists (restart did not revert it).
+    6. Restore baseline.
+
+    API endpoints:
+    - GET /api/config/channels/console
+    - PUT /api/config/channels/console
+    - POST /api/config/channels/console/restart
+    """
+    import time
+
+    get_before = app_server.api_request(
+        "GET",
+        "/api/config/channels/console",
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    assert get_before.status_code == 200, app_server.logs_tail()
+    before = get_before.json()
+    assert isinstance(before, dict)
+
+    updated = dict(before)
+    updated["bot_prefix"] = "restart-persist-test"
+
+    try:
+        put_resp = app_server.api_request(
+            "PUT",
+            "/api/config/channels/console",
+            json=updated,
+            timeout=_CHANNEL_HTTP_TIMEOUT,
+        )
+        assert put_resp.status_code == 200, app_server.logs_tail()
+
+        restart_resp = app_server.api_request(
+            "POST",
+            "/api/config/channels/console/restart",
+            timeout=_CHANNEL_HTTP_TIMEOUT,
+        )
+        assert restart_resp.status_code == 200, app_server.logs_tail()
+
+        time.sleep(1.0)
+
+        get_after = app_server.api_request(
+            "GET",
+            "/api/config/channels/console",
+            timeout=_CHANNEL_HTTP_TIMEOUT,
+        )
+        assert get_after.status_code == 200, app_server.logs_tail()
+        after = get_after.json()
+        assert after.get("bot_prefix") == "restart-persist-test"
+    finally:
+        app_server.api_request(
+            "PUT",
+            "/api/config/channels/console",
             json=before,
             timeout=_CHANNEL_HTTP_TIMEOUT,
         )
