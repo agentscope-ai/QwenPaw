@@ -52,4 +52,33 @@ export const Switch = ({
     ...props,
   });
 
-export default { IconButton, Dropdown, Button, Input, Switch };
+export const Modal = Object.assign(passThrough, {
+  confirm: () => {},
+  info: () => {},
+  warning: () => {},
+  error: () => {},
+});
+
+export const Tag = passThrough;
+export const Tooltip = passThrough;
+export const Form = Object.assign(passThrough, {
+  Item: passThrough,
+  useForm: () => [{}],
+});
+export const InputNumber = (props: Record<string, unknown>) =>
+  React.createElement("input", { type: "number", ...props } as any);
+export const Spin = passThrough;
+
+export default {
+  IconButton,
+  Dropdown,
+  Button,
+  Input,
+  Switch,
+  Modal,
+  Tag,
+  Tooltip,
+  Form,
+  InputNumber,
+  Spin,
+};
