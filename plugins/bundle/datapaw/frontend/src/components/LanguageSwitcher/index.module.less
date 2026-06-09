@@ -1,0 +1,74 @@
+// ─── Language Switcher Dropdown ───────────────────────────────────────────────
+.languageDropdown {
+  :global {
+    .qwenpaw-dropdown-menu-item,
+    .ant-dropdown-menu-item {
+      font-family: "Inter", sans-serif;
+      font-size: 14px;
+      font-weight: normal;
+      line-height: 24px;
+      letter-spacing: normal;
+      color: rgba(26, 23, 22, 0.65);
+      transition: all 0.2s ease;
+
+      &:hover {
+        background: rgba(43, 18, 0, 0.06) !important;
+      }
+    }
+
+    .qwenpaw-dropdown-menu-item-selected,
+    .ant-dropdown-menu-item-selected {
+      border-radius: 2px !important;
+      background: rgba(43, 18, 0, 0.03) !important;
+      color: rgba(26, 23, 22, 0.88) !important;
+    }
+  }
+}
+
+// ─── Language Icon Trigger ────────────────────────────────────────────────────
+.languageIcon {
+  width: 18px;
+  height: 18px;
+  display: block;
+  vertical-align: middle;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+
+  &:hover {
+    opacity: 0.8;
+  }
+}
+
+// ─── Dark mode overrides ───────────────────────────────────────────────────────
+:global(.dark-mode) {
+  .languageDropdown {
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5) !important;
+    border-radius: 8px;
+    overflow: hidden;
+
+    :global {
+      .qwenpaw-dropdown-menu,
+      .ant-dropdown-menu {
+        background: #2a2a2a !important;
+        border: none !important;
+        box-shadow: none !important;
+      }
+
+      .qwenpaw-dropdown-menu-item,
+      .ant-dropdown-menu-item {
+        color: rgba(255, 255, 255, 0.65);
+
+        &:hover {
+          background: rgba(255, 255, 255, 0.08) !important;
+        }
+      }
+
+      .qwenpaw-dropdown-menu-item-selected,
+      .ant-dropdown-menu-item-selected {
+        background: rgba(255, 255, 255, 0.06) !important;
+        color: rgba(255, 255, 255, 0.88) !important;
+      }
+    }
+  }
+}

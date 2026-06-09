@@ -1,0 +1,199 @@
+.configPage {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  :global {
+    .qwenpaw-slider-track {
+      background-color: #ff7f16;
+    }
+
+    .qwenpaw-slider .qwenpaw-slider-handle::after {
+      box-shadow: 0 0 0 2px #ff7f16;
+    }
+  }
+}
+
+.pageContent {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
+  margin-bottom: 0;
+}
+
+.breadcrumbHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.formCard {
+  width: 100%;
+}
+
+.form {
+  flex: 1;
+  min-height: 0;
+
+  :global {
+    .ant-form-item-label > label {
+      font-weight: 500;
+    }
+  }
+}
+
+/* ReAct Agent row layout */
+.reactAgentRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.reactAgentField {
+  margin-bottom: 0 !important;
+}
+
+/* LLM Retry row layout */
+.llmRetryRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.llmRetryField {
+  margin-bottom: 0 !important;
+}
+
+/* Slider overrides - remove theme color */
+:global {
+  .ant-slider-rail {
+    background-color: rgba(20, 20, 19, 0.15) !important;
+  }
+
+  .ant-slider-track {
+    background-color: rgba(20, 20, 19, 0.25) !important;
+  }
+
+  .ant-slider-handle::after {
+    box-shadow: 0 0 0 2px rgba(20, 20, 19, 0.25) !important;
+    background-color: #fff !important;
+  }
+}
+
+:global(.dark-mode) {
+  .ant-slider-rail {
+    background-color: rgba(255, 255, 255, 0.15) !important;
+  }
+
+  .ant-slider-track {
+    background-color: rgba(255, 255, 255, 0.25) !important;
+  }
+
+  .ant-slider-handle::after {
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25) !important;
+    background-color: #fff !important;
+  }
+}
+
+.formContainer {
+  padding: 16px;
+}
+
+.sliderValue {
+  font-weight: 500;
+  color: #1890ff;
+}
+
+.buttonGroup {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 32px;
+  margin-bottom: 0;
+}
+
+.centerState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  gap: 16px;
+}
+
+.stateText {
+  font-size: 14px;
+  color: #666;
+}
+
+.stateTextError {
+  font-size: 14px;
+  color: #ff4d4f;
+}
+
+.footerActions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 16px 24px;
+  border-top: 1px solid #eae9e7;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .breadcrumbParent {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .footerActions {
+    background: #1f1f1f;
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .sliderValue {
+    color: #ff7f16;
+  }
+}

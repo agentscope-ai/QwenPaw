@@ -1,0 +1,118 @@
+.editor {
+  display: flex;
+  height: 336px;
+  border: 1px solid #ebebeb;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+
+  :global(html.dark-mode) & {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: #141414;
+  }
+}
+
+.lineNumbers {
+  flex-shrink: 0;
+  width: 36px;
+  padding: 12px 0 12px 4px;
+  background: #fff;
+  overflow: hidden;
+  user-select: none;
+
+  :global(html.dark-mode) & {
+    background: #141414;
+  }
+}
+
+.lineNumber {
+  height: 20px;
+  padding-right: 6px;
+  color: rgba(0, 0, 0, 0.25);
+  font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 20px;
+  text-align: right;
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.25);
+  }
+}
+
+.codeArea {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.highlight,
+.textarea {
+  margin: 0;
+  padding: 12px 12px 12px 0;
+  border: none;
+  outline: none;
+  resize: none;
+  width: 100%;
+  height: 100%;
+  font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 20px;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+  letter-spacing: 0;
+}
+
+.highlight {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: rgba(0, 0, 0, 0.88);
+  background: transparent;
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.88);
+  }
+}
+
+.textarea {
+  position: relative;
+  z-index: 1;
+  color: transparent;
+  caret-color: rgba(0, 0, 0, 0.88);
+  background: transparent;
+
+  :global(html.dark-mode) & {
+    caret-color: rgba(255, 255, 255, 0.88);
+  }
+
+  &::selection {
+    background: rgba(22, 119, 255, 0.2);
+  }
+}
+
+.codeLine {
+  min-height: 20px;
+}
+
+.yamlKey {
+  color: #2f54eb;
+}
+
+.yamlValue {
+  color: rgba(0, 0, 0, 0.88);
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.88);
+  }
+}
+
+.yamlPunctuation {
+  color: rgba(0, 0, 0, 0.88);
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.88);
+  }
+}

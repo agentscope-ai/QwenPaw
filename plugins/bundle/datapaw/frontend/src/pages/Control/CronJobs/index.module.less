@@ -1,0 +1,200 @@
+.cronJobsPage {
+  :global {
+    .qwenpaw-spark-card-wrapper {
+      padding: 0 !important;
+    }
+    .qwenpaw-table-wrapper
+      .qwenpaw-table-container
+      .qwenpaw-table-thead
+      > tr
+      > th {
+      background: #f9f8f4 !important;
+    }
+  }
+}
+
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
+}
+
+.breadcrumbHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #333;
+}
+
+.description {
+  color: #999;
+  font-size: 14px;
+  margin: 0;
+  display: none;
+}
+
+.tableCard {
+  :global(.ant-card-body) {
+    padding: 0;
+  }
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Status indicator styling */
+.statusIndicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+
+  &.enabled {
+    background-color: #52c41a;
+  }
+
+  &.disabled {
+    background-color: #d9d9d9;
+  }
+}
+
+/* Table text styles */
+.tableText {
+  font-size: 12px;
+}
+
+.cronText {
+  font-size: 12px;
+  cursor: help;
+}
+
+.codeText {
+  font-size: 12px;
+}
+
+.codeLink {
+  font-size: 12px;
+  cursor: help;
+  text-decoration: underline dotted;
+}
+
+/* Tooltip content */
+.tooltipContent {
+  position: relative;
+}
+
+.tooltipJsonContent {
+  max-width: 400px;
+  max-height: 300px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 12px;
+  font-family: monospace;
+  padding-right: 30px;
+}
+
+.copyButton {
+  position: absolute;
+  top: 0;
+  right: 0;
+  color: #1890ff;
+  z-index: 10;
+}
+
+/* Form extra text */
+.formExtraText {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.formHelperLink {
+  color: #1890ff;
+}
+
+/* Action column */
+.actionColumn {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .breadcrumbParent {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .title {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .description {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .statusDot {
+    &.enabled {
+      background-color: #73d13d;
+    }
+
+    &.disabled {
+      background-color: #5a5a5a;
+    }
+  }
+
+  /* Form extra text */
+  .formExtraText {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .formHelperLink {
+    color: #69b1ff !important;
+  }
+}

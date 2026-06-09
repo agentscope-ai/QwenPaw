@@ -1,0 +1,129 @@
+.triggerWrap {
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.planCorrectionPopover {
+  :global(.qwenpaw-popover-inner),
+  :global(.ant-popover-inner) {
+    padding: 0 !important;
+    border: 1px solid #ebebeb;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    overflow: visible;
+  }
+
+  :global(.qwenpaw-popover-arrow),
+  :global(.ant-popover-arrow) {
+    &::before {
+      background: #fff !important;
+    }
+
+    &::after {
+      box-shadow: -1px 0 0 #ebebeb !important;
+    }
+  }
+
+  :global(html.dark-mode) & {
+    :global(.qwenpaw-popover-inner),
+    :global(.ant-popover-inner) {
+      border-color: rgba(255, 255, 255, 0.12);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.36);
+    }
+
+    :global(.qwenpaw-popover-arrow),
+    :global(.ant-popover-arrow) {
+      &::before {
+        background: #1f1f1f !important;
+      }
+    }
+  }
+}
+
+.popoverPanel {
+  width: 480px;
+  padding: 20px;
+}
+
+.popoverHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.popoverTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.88);
+  line-height: 24px;
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.88);
+  }
+}
+
+.closeBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+
+  &:hover {
+    color: rgba(0, 0, 0, 0.88);
+  }
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.45);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+}
+
+.popoverFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.cancelBtn {
+  min-width: 72px;
+  height: 32px;
+  padding-inline: 15px;
+  border-radius: 6px;
+  color: rgba(0, 0, 0, 0.88) !important;
+  border-color: #d9d9d9 !important;
+  background: #fff !important;
+  box-shadow: none !important;
+
+  &:hover {
+    color: rgba(0, 0, 0, 0.88) !important;
+    border-color: #1677ff !important;
+    background: #fff !important;
+  }
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.88) !important;
+    border-color: rgba(255, 255, 255, 0.2) !important;
+    background: transparent !important;
+  }
+}
+
+.confirmBtn {
+  min-width: 88px;
+  height: 32px;
+  padding-inline: 15px;
+  border-radius: 6px;
+  box-shadow: none !important;
+}

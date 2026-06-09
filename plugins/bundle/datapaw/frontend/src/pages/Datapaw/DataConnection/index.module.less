@@ -1,0 +1,86 @@
+.dataConnectionPage {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  :global {
+    .qwenpaw-spark-card-wrapper {
+      padding: 0 !important;
+    }
+
+    .qwenpaw-table-wrapper
+      .qwenpaw-table-container
+      .qwenpaw-table-thead
+      > tr
+      > th {
+      background: #f9f8f4 !important;
+    }
+  }
+}
+
+.description {
+  margin: 4px 0 0;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.tableCard {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 20px;
+}
+
+.typeCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px;
+}
+
+.typeBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.typeLabel {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.deleteAction {
+  padding: 0;
+  color: #ff4d4f;
+}
+
+:global(html.dark-mode) {
+  .description {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .typeLabel {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .dataConnectionPage {
+    :global {
+      .qwenpaw-table-wrapper
+        .qwenpaw-table-container
+        .qwenpaw-table-thead
+        > tr
+        > th {
+        background: #1f1f1f !important;
+      }
+    }
+  }
+}

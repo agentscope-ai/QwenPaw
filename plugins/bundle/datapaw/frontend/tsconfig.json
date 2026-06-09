@@ -1,0 +1,37 @@
+{
+  "//": [
+    "Mirrors the upstream console tsconfig (jsx: react-jsx, @/* alias)",
+    "while staying compatible with the qwenpaw-pet plugin layout (single",
+    "tsconfig, types stay minimal so the bundle never grabs Node globals).",
+    "",
+    "We DO let @types/react register here (unlike qwenpaw-pet) because all",
+    "the copied console sources use modern `import React from \"react\"` /",
+    "automatic JSX — they need real React types. There is no `const React =",
+    "host.React` line in the source that would collide with the global."
+  ],
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "types": ["node", "vite/client"]
+  },
+  "include": ["src"]
+}

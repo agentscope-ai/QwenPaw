@@ -1,0 +1,140 @@
+.toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.65);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease;
+
+  &:hover {
+    border-color: var(--qwenpaw-color-primary, #1677ff);
+    color: var(--qwenpaw-color-primary, #1677ff);
+  }
+}
+
+.triggerOpen {
+  border-color: var(--qwenpaw-color-primary, #1677ff);
+  color: var(--qwenpaw-color-primary, #1677ff);
+}
+
+.triggerIcon {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+}
+
+.triggerChevron {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  opacity: 0.55;
+}
+
+.panel {
+  min-width: 220px;
+}
+
+.panelTitle {
+  margin: 0 0 4px;
+  padding: 0 4px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.88);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.optionList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 4px;
+}
+
+.optionRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  padding: 4px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.04);
+  }
+}
+
+.optionLeft {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.optionLabel {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.88);
+  white-space: nowrap;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.addButton {
+  width: 100%;
+  margin-top: 8px;
+}
+
+:global(html.dark-mode) {
+  .trigger {
+    border-color: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .triggerOpen,
+  .trigger:hover {
+    border-color: var(--qwenpaw-color-primary, #1677ff);
+    color: var(--qwenpaw-color-primary, #1677ff);
+  }
+
+  .panelTitle {
+    color: rgba(255, 255, 255, 0.85);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .optionRow:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .optionLabel {
+    color: rgba(255, 255, 255, 0.85);
+  }
+}

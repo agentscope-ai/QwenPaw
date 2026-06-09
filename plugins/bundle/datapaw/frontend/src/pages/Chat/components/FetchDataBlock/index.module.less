@@ -1,0 +1,129 @@
+/**
+ * FetchDataBlock 通用组件样式
+ * 提供 fetch_data 工具调用的表格化渲染外观
+ */
+.fetchDataBlock {
+  margin: 8px 0;
+  border: 1px solid var(--colorBorder, #e5e7eb);
+  border-radius: 8px;
+  overflow: hidden;
+
+  :global(html.dark-mode) & {
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+.fetchDataTitle {
+  padding: 8px 12px;
+  background: var(--color-fill-quaternary, #f9fafb);
+  font-size: 13px;
+  font-weight: 500;
+  border-bottom: 1px solid var(--colorBorder, #e5e7eb);
+
+  :global(html.dark-mode) & {
+    background: rgba(255, 255, 255, 0.06);
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+.fetchDataSection {
+  padding: 8px 12px;
+}
+
+.fetchDataSectionTitle {
+  font-size: 12px;
+  color: var(--colorTextTertiary, #999);
+  margin-bottom: 4px;
+  font-weight: 500;
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.45);
+  }
+}
+
+.dataTableWrapper {
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.dataTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+
+  th, td {
+    padding: 6px 10px;
+    border: 1px solid var(--colorBorder, #e5e7eb);
+    text-align: left;
+    white-space: nowrap;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  th {
+    background: var(--color-fill-quaternary, #f9fafb);
+    font-weight: 500;
+    position: sticky;
+    top: 0;
+  }
+
+  tr:hover td {
+    background: var(--color-fill-tertiary, #f3f4f6);
+  }
+
+  :global(html.dark-mode) & {
+    th, td {
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    th {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.06);
+    }
+  }
+}
+
+.fetchDataPre {
+  padding: 8px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+
+.markdownBody {
+  font-size: 13px;
+  line-height: 1.6;
+
+  pre {
+    background: var(--color-fill-quaternary, #f6f8fa);
+    padding: 10px 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 0;
+
+    :global(html.dark-mode) & {
+      background: rgba(255, 255, 255, 0.06);
+    }
+  }
+
+  code {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 12px;
+  }
+
+  p {
+    margin: 0;
+  }
+}
+
+.loadingWrap {
+  display: flex;
+  align-items: center;
+  padding: 4px 0;
+}

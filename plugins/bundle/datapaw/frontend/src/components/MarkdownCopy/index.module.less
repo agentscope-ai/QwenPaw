@@ -1,0 +1,62 @@
+.markdownCopy {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  height: 20px;
+  color: var(--ant-color-text);
+}
+
+.controlGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.previewToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.previewLabel {
+  font-size: 12px;
+  color: #666;
+  white-space: nowrap;
+}
+
+.markdownViewer {
+  flex: 1;
+  min-height: 300px;
+  max-height: 300px;
+  overflow: auto;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background-color: #fff;
+}
+
+.textareaContainer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.textarea {
+  font-family: monospace;
+  font-size: 13px;
+  resize: vertical;
+  height: min(100%, clamp(280px, 50vh, 640px));
+  min-height: min(240px, 100%);
+  max-height: 100%;
+  padding: 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+}

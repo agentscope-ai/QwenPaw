@@ -1,0 +1,32 @@
+.addPage {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.formCard {
+  flex: 1;
+  margin: 0 20px 20px;
+  max-width: 960px;
+}
+
+.formTitle {
+  margin: 0 0 20px;
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+:global(html.dark-mode) {
+  .formTitle {
+    color: rgba(255, 255, 255, 0.85);
+  }
+}

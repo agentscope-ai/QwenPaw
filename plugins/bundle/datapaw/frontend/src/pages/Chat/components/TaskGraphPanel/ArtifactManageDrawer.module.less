@@ -1,0 +1,154 @@
+.drawer {
+  :global(.ant-drawer-body),
+  :global(.qwenpaw-drawer-body) {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--colorBorder, #f0f0f0);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
+
+  :global(html.dark-mode) & {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.88);
+  }
+}
+
+.closeBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.04);
+    color: var(--colorText, rgba(0, 0, 0, 0.88));
+  }
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.45);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+}
+
+.body {
+  flex: 1;
+  overflow: auto;
+  padding: 0 16px 16px;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--colorBorderSecondary, #f5f5f5);
+
+  :global(html.dark-mode) & {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+}
+
+.path {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.88);
+  }
+}
+
+.statusDot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #1677ff;
+}
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.actionBtn {
+  min-width: 52px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--colorBorder, #d9d9d9);
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    border-color: #1677ff;
+    color: #1677ff;
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  :global(html.dark-mode) & {
+    background: #1f1f1f;
+    border-color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.88);
+  }
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--colorTextQuaternary, rgba(0, 0, 0, 0.25));
+  font-size: 12px;
+  user-select: none;
+}
+
+.empty,
+.loadingWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  padding: 24px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  font-size: 14px;
+}

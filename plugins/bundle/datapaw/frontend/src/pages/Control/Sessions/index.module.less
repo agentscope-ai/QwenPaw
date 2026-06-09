@@ -1,0 +1,161 @@
+.sessionsPage {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  :global {
+    .qwenpaw-spark-card-wrapper {
+      padding: 0 !important;
+    }
+    .qwenpaw-table-wrapper
+      .qwenpaw-table-container
+      .qwenpaw-table-thead
+      > tr
+      > th {
+      background: #f9f8f4 !important;
+    }
+  }
+}
+
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
+  flex-shrink: 0;
+}
+
+.breadcrumbHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #333;
+}
+
+.description {
+  color: #999;
+  font-size: 14px;
+  margin: 0;
+  display: none;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tableCard {
+  :global(.ant-card-body) {
+    padding: 0;
+  }
+  overflow-y: auto;
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .sessionsPage {
+  }
+
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .breadcrumbParent {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .title {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .description {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* Selected row styling */
+  .selectedRow > td {
+    background-color: rgba(97, 92, 237, 0.12) !important;
+  }
+
+  .selectedRow:hover > td {
+    background-color: rgba(97, 92, 237, 0.2) !important;
+  }
+  :global(.sessions-filter-input) {
+    :global(.qwenpaw-input),
+    :global(.ant-input) {
+      background: #2a2a2a !important;
+      border-color: rgba(255, 255, 255, 0.15) !important;
+      color: rgba(255, 255, 255, 0.85) !important;
+
+      &::placeholder {
+        color: rgba(255, 255, 255, 0.25) !important;
+      }
+    }
+  }
+
+  :global(.sessions-filter-select) {
+    :global(.qwenpaw-select-selector),
+    :global(.ant-select-selector) {
+      background: #2a2a2a !important;
+      border-color: rgba(255, 255, 255, 0.15) !important;
+      color: rgba(255, 255, 255, 0.85) !important;
+    }
+
+    :global(.qwenpaw-select-selection-placeholder),
+    :global(.ant-select-selection-placeholder) {
+      color: rgba(255, 255, 255, 0.25) !important;
+    }
+
+    :global(.qwenpaw-select-arrow),
+    :global(.ant-select-arrow) {
+      color: rgba(255, 255, 255, 0.3) !important;
+    }
+  }
+}

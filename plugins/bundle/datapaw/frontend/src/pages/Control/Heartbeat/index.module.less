@@ -1,0 +1,156 @@
+.heartbeatPage {
+  :global {
+    .qwenpaw-spark-card-wrapper {
+      padding: 0 !important;
+    }
+
+    .qwenpaw-table-wrapper
+      .qwenpaw-table-container
+      .qwenpaw-table-thead
+      > tr
+      > th {
+      background: #f9f8f4 !important;
+    }
+
+    .qwenpaw-card {
+      padding: 16px !important;
+      padding-bottom: 0 !important;
+    }
+  }
+}
+
+.heartbeatContent {
+  padding: 0 20px;
+  margin-top: 16px;
+}
+
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
+}
+
+.breadcrumbHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #333;
+}
+
+.description {
+  color: #999;
+  font-size: 14px;
+  margin: 0;
+  display: none;
+}
+
+.card {
+  max-width: 100%;
+}
+
+.everyField {
+  :global(.ant-form-item-control-input-content) {
+    display: block;
+  }
+}
+
+.everyRow {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.everyNumber {
+  width: 120px;
+}
+
+.everyUnit {
+  min-width: 100px;
+}
+
+.formActions {
+  display: flex;
+  gap: 8px;
+  border-top: 1px solid #eae9e7;
+  padding-top: 16px;
+}
+
+.activeHoursRow {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.activeHoursRow :global(.ant-form-item) {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .heartbeatPage {
+    :global {
+      .qwenpaw-table-wrapper
+        .qwenpaw-table-container
+        .qwenpaw-table-thead
+        > tr
+        > th {
+        background: #262626 !important;
+      }
+    }
+  }
+
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .breadcrumbParent {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .title {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .description {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .formActions {
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+  }
+}
