@@ -86,11 +86,11 @@ turn model.
 - The root group is `invoke_without_command=True`; bare `qwenpaw` calls
   `run_tui()` (the TUI), while every other entry point is an explicit
   subcommand. `--help`/`--version` are handled by Click before the callback.
-- `qwenpaw tui [--agent | --agent-cmd | --resume]` is the explicit form.
-- The default transport command is `[sys.executable, "-m", "qwenpaw", "acp"]`,
-  so the TUI always drives the *same* install/venv it ships in — no reliance on
-  `qwenpaw` being on `PATH`. `--agent-cmd` overrides this to point at any
-  command speaking ACP over stdio (remote/dev agents).
+- `qwenpaw tui [--agent | --resume]` is the explicit form.
+- The transport command is `[sys.executable, "-m", "qwenpaw", "acp"]`, so the
+  TUI always drives the *same* install/venv it ships in — no reliance on
+  `qwenpaw` being on `PATH`. (`AcpTransport` still accepts a custom `command`
+  for a future remote/dev escape hatch; it is simply not exposed on the CLI.)
 
 ## 6. Why ACP-subprocess for Phase 1
 

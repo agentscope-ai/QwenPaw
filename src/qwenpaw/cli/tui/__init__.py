@@ -11,7 +11,7 @@ touching any widget.
 Entry points:
 
 * bare ``qwenpaw`` (no subcommand) -> :func:`~qwenpaw.cli.tui.launch.run_tui`
-* ``qwenpaw tui [--agent ... | --agent-cmd ... | --resume ...]``
+* ``qwenpaw tui [--agent ... | --resume ...]``
 
 Originally developed as the standalone ``paw`` CLI; relocated here in Phase 1.
 """
