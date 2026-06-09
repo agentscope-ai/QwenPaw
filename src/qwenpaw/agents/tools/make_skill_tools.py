@@ -136,12 +136,29 @@ def _tool_text_response(text: str) -> ToolResponse:
     return ToolResponse(content=[TextBlock(type="text", text=text)])
 
 
+def _parse_extra_files(
+    extra_files: dict[str, str] | str | None,
+) -> dict[str, str] | None:
+    """Accept either a mapping or its JSON string representation."""
+    if extra_files is None or isinstance(extra_files, dict):
+        return extra_files
+    try:
+        parsed = json.loads(extra_files)
+    except json.JSONDecodeError as exc:
+        raise SkillsError(
+            message="extra_files string must be a valid JSON object",
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise SkillsError(message="extra_files string must parse to an object")
+    return parsed
+
+
 # pylint: disable=too-many-return-statements,too-many-branches,too-many-locals
 async def materialize_skill(
     name: str,
     description: str,
     body: str,
-    extra_files: dict[str, str] | None = None,
+    extra_files: dict[str, str] | str | None = None,
 ) -> ToolResponse:
     """Persist a confirmed skill proposal into the workspace.
 
@@ -157,10 +174,10 @@ async def materialize_skill(
             don't under-trigger.
         body: The SKILL.md body, no frontmatter.
         extra_files: Additional files to include alongside SKILL.md.
-            Keys are relative paths (e.g. ``"scripts/batch.json"``),
-            values are file contents as strings. Useful for bundling
-            ``run_tool_batch`` JSON files or helper scripts referenced
-            by the skill body.
+            Pass either a dict or a JSON object string. Keys are relative
+            paths (e.g. ``"scripts/batch.json"``), values are file
+            contents as strings. Useful for bundling ``run_tool_batch``
+            JSON files or helper scripts referenced by the skill body.
     """
     if not name or not description or not body:
         return _tool_text_response(
@@ -211,11 +228,12 @@ async def materialize_skill(
     )
 
     try:
+        parsed_extra_files = _parse_extra_files(extra_files)
         service = SkillService(workspace_dir)
         skill_name = service.create_skill(
             name=normalized_name,
             content=content,
-            extra_files=extra_files or None,
+            extra_files=parsed_extra_files or None,
             enable=True,
             source="agent",
         )
@@ -254,8 +272,8 @@ async def materialize_skill(
 
     # Analyse batch JSON files for $steps references
     verification = ""
-    if extra_files:
-        refs = _analyse_batch_refs(extra_files)
+    if parsed_extra_files:
+        refs = _analyse_batch_refs(parsed_extra_files)
         verification = _format_ref_verification(refs)
 
     return _tool_text_response(
