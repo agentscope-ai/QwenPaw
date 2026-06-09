@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import urlparse
 
 from .events import (
     AvailableCommands,
@@ -36,6 +37,21 @@ from .events import (
 
 # Tool-content block types that carry a file/resource URI worth linking.
 _LINK_BLOCK_TYPES = ("resource_link", "image", "audio", "resource")
+
+
+def _is_local_file_uri(uri: str) -> bool:
+    """Whether *uri* is a local file safe to surface as a one-click link.
+
+    A clicked ``FileLink`` is handed to ``App.open_url`` (the OS handler), so a
+    buggy or hostile agent emitting an ``http(s)://`` (or other-scheme)
+    ``resource_link`` could drive a one-click browser open. QwenPaw only emits
+    local files here (e.g. ``send_file_to_user``), so restrict to ``file://``
+    and bare local paths; everything else is dropped.
+    """
+    scheme = urlparse(uri).scheme.lower()
+    # "" = bare path; a single alpha char is a Windows drive letter (C:\...).
+    return scheme in ("", "file") or (len(scheme) == 1 and scheme.isalpha())
+
 
 # ``_meta`` key QwenPaw sets on an ``agent_message_chunk`` to mark it as an
 # error; mirrors the ACP server's ``ACP_ERROR_META_KEY``.
@@ -95,6 +111,9 @@ def _tool_links(content: Any) -> tuple[FileLink, ...]:
             continue
         uri = _attr(inner, "uri")
         if not uri:
+            continue
+        if not _is_local_file_uri(str(uri)):
+            # Skip non-local schemes (e.g. http) — not safe to one-click open.
             continue
         links.append(
             FileLink(

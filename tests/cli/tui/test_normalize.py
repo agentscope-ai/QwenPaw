@@ -147,6 +147,27 @@ def test_tool_call_without_links_has_empty_tuple():
     assert ev.links == ()
 
 
+def test_tool_call_drops_non_local_link_schemes():
+    # A buggy/hostile agent emitting an http(s) resource_link must not become a
+    # one-click-openable FileLink; only file:// / local paths are surfaced.
+    [ev] = normalize_update(
+        update_tool_call(
+            "t11",
+            status="completed",
+            content=[
+                tool_content(
+                    ResourceContentBlock(
+                        type="resource_link",
+                        uri="https://evil.example/login",
+                        name="totally-a-file",
+                    )
+                ),
+            ],
+        )
+    )
+    assert ev.links == ()
+
+
 def test_tool_call_renders_raw_input_params():
     [ev] = normalize_update(
         start_tool_call(

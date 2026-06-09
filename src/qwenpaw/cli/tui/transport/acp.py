@@ -256,7 +256,12 @@ class AcpTransport:
         # of opening a fresh one.
         self._resume_session_id = resume_session_id
         # Default: re-invoke this very interpreter as `python -m qwenpaw acp`.
-        self._command = command or [sys.executable, "-m", "qwenpaw", "acp"]
+        # Copy the caller's list so appending ``--agent`` never mutates it.
+        self._command = (
+            list(command)
+            if command
+            else [sys.executable, "-m", "qwenpaw", "acp"]
+        )
         if agent:
             self._command += ["--agent", agent]
 

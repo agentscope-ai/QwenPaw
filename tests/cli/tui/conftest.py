@@ -6,8 +6,8 @@ from __future__ import annotations
 import os
 import tempfile
 
-# Point paw's state dir at a temp location for the whole test session before
-# any paw module reads it.
-os.environ.setdefault(
-    "PAW_STATE_DIR", os.path.join(tempfile.gettempdir(), "paw-test-state")
-)
+# Point the TUI's state dir at a unique temp location for the whole test
+# session before any TUI module reads it. A unique per-session dir (vs a fixed
+# path) avoids cross-run/cross-worker (xdist) pollution and leftover files.
+if "PAW_STATE_DIR" not in os.environ:
+    os.environ["PAW_STATE_DIR"] = tempfile.mkdtemp(prefix="paw-test-state-")
