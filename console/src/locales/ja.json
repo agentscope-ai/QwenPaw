@@ -1159,6 +1159,7 @@
     "removeModelConfirm": "{{provider}} からモデル \"{{name}}\" を削除しますか？",
     "modelRemoved": "モデル \"{{name}}\" を削除しました",
     "modelRemoveFailed": "モデルの削除に失敗しました",
+    "loadMore": "もっと読み込む ({{count}})",
     "modelsCount": "{{count}} モデル",
     "noModels": "モデルなし",
     "addModelFirst": "先にモデルを追加してください",

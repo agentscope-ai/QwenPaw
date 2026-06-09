@@ -1455,6 +1455,7 @@
     "removeModelConfirm": "Remove model \"{{name}}\" from {{provider}}?",
     "modelRemoved": "Model \"{{name}}\" removed",
     "modelRemoveFailed": "Failed to remove model",
+    "loadMore": "Load more ({{count}})",
     "modelsCount": "{{count}} models",
     "noModels": "No models",
     "addModelFirst": "Please add a model first",

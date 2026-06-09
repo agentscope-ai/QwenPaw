@@ -1159,6 +1159,7 @@
     "removeModelConfirm": "Удалить модель «{{name}}» из {{provider}}?",
     "modelRemoved": "Модель «{{name}}» удалена",
     "modelRemoveFailed": "Не удалось удалить модель",
+    "loadMore": "Загрузить ещё ({{count}})",
     "modelsCount": "{{count}} моделей",
     "noModels": "Нет моделей",
     "addModelFirst": "Сначала добавьте модель",

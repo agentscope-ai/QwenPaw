@@ -1304,6 +1304,7 @@
     "removeModelConfirm": "确定从 {{provider}} 中移除模型 \"{{name}}\"？",
     "modelRemoved": "模型 \"{{name}}\" 已移除",
     "modelRemoveFailed": "移除模型失败",
+    "loadMore": "加载更多 ({{count}})",
     "modelsCount": "{{count}} 个模型",
     "noModels": "暂无模型",
     "addModelFirst": "请先添加模型",

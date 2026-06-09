@@ -1362,6 +1362,7 @@
     "removeModelConfirm": "Remove model \"{{name}}\" from {{provider}}?",
     "modelRemoved": "Modelo \"{{name}}\" removed",
     "modelRemoveFailed": "Falhou to Remover Modelo",
+    "loadMore": "Carregar mais ({{count}})",
     "modelsCount": "{{count}} Modelos",
     "noModels": "Nao Modelos",
     "addModelFirst": "Please add a model first",
