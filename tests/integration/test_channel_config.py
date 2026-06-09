@@ -13,6 +13,8 @@ channel restart lag.
 """
 from __future__ import annotations
 
+import copy
+
 import pytest
 
 _CHANNEL_HTTP_TIMEOUT = 15.0
@@ -421,10 +423,7 @@ def test_channel_bulk_put_get_roundtrip(app_server) -> None:
     assert isinstance(before, dict)
     assert "console" in before
 
-    updated = {}
-    for k, v in before.items():
-        updated[k] = dict(v) if isinstance(v, dict) else v
-
+    updated = copy.deepcopy(before)
     updated["console"]["bot_prefix"] = "bulk-test-prefix"
 
     try:
@@ -486,9 +485,7 @@ def test_channel_bulk_put_preserves_unmodified_channels(
     assert isinstance(before, dict)
     assert "console" in before
 
-    updated = {}
-    for k, v in before.items():
-        updated[k] = dict(v) if isinstance(v, dict) else v
+    updated = copy.deepcopy(before)
     updated["console"]["bot_prefix"] = "side-effect-test"
 
     try:

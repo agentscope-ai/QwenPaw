@@ -17,7 +17,7 @@ from qwenpaw.app.channels.base import BaseChannel
 logger = logging.getLogger(__name__)
 
 
-class TestEchoChannel(BaseChannel):
+class IntegEchoChannel(BaseChannel):
     channel = "test_echo"
 
     async def start(self) -> None:
@@ -26,7 +26,7 @@ class TestEchoChannel(BaseChannel):
     async def stop(self) -> None:
         logger.info("test_echo channel stopped")
 
-    async def send(
+    async def send(  # pylint: disable=unused-argument
         self,
         to_handle: str,
         text: str,
@@ -56,12 +56,12 @@ class TestEchoChannel(BaseChannel):
     def from_config(
         cls,
         process,
-        config,
+        config,  # pylint: disable=unused-argument
         on_reply_sent=None,
         show_tool_details=True,
         filter_tool_messages=False,
         filter_thinking=False,
-    ) -> "TestEchoChannel":
+    ) -> "IntegEchoChannel":
         return cls(
             process=process,
             on_reply_sent=on_reply_sent,

@@ -245,6 +245,8 @@ def test_messages_send_to_unknown_channel(app_server) -> None:
         },
         timeout=_CHANNEL_HTTP_TIMEOUT,
     )
+    # 404 if handler checks channel existence; 500 if KeyError
+    # propagates unhandled — both are acceptable error signals.
     assert resp.status_code in (404, 500), app_server.logs_tail()
 
 
@@ -511,10 +513,13 @@ def test_custom_channel_send_after_restart(
 
 @pytest.mark.integration
 @pytest.mark.p2
-def test_custom_channel_invalid_file_ignored(app_server) -> None:
+def test_bad_file_does_not_crash_running_channels(
+    app_server,
+) -> None:
     """Test purpose:
-    - Verify a malformed .py file in custom_channels/ does not
-      prevent the app from loading other channels.
+    - Verify a malformed .py file written to custom_channels/ while
+      the server is running does not crash already-loaded channels.
+      (Discovery happens at boot; this confirms runtime resilience.)
 
     Test flow:
     1. Write a syntax-error .py file to custom_channels/.
