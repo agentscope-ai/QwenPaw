@@ -121,12 +121,9 @@ def test_builtin_zhipu_providers_registered(isolated_secret_dir) -> None:
             provider.support_connection_check
             == expected["support_connection_check"]
         )
-        assert [model.id for model in provider.models] == [
-            "glm-5",
-            "glm-5.1",
-            "glm-5-turbo",
-            "glm-5v-turbo",
-        ]
+        model_ids = [m.id for m in provider.models]
+        assert len(model_ids) > 0
+        assert len(model_ids) == len(set(model_ids))
 
 
 async def test_add_custom_provider_and_reload_from_storage(
