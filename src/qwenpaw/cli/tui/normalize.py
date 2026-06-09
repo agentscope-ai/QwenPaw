@@ -124,7 +124,7 @@ def _tool_links(content: Any) -> tuple[FileLink, ...]:
                     if _attr(inner, "mime_type")
                     else None
                 ),
-            )
+            ),
         )
     return tuple(links)
 
@@ -153,6 +153,7 @@ def _tool_input_text(raw_input: Any) -> str:
     return str(raw_input)
 
 
+# pylint: disable-next=too-many-return-statements
 def normalize_update(update: Any) -> list[TuiEvent]:
     """Convert one ACP ``session_update`` payload into zero or more events.
 
@@ -173,7 +174,7 @@ def normalize_update(update: Any) -> list[TuiEvent]:
                     output_tokens=int(u.get("outputTokens", 0) or 0),
                     total_tokens=int(u.get("totalTokens", 0) or 0),
                     model=str(u.get("model")) if u.get("model") else None,
-                )
+                ),
             ]
         text = _block_text(getattr(update, "content", None))
         if not text:
@@ -205,7 +206,7 @@ def normalize_update(update: Any) -> list[TuiEvent]:
                 params=_tool_input_text(getattr(update, "raw_input", None))
                 or None,
                 links=_tool_links(getattr(update, "content", None)),
-            )
+            ),
         ]
 
     if kind == "plan":
@@ -224,7 +225,7 @@ def normalize_update(update: Any) -> list[TuiEvent]:
             Usage(
                 used=int(getattr(update, "used", 0) or 0),
                 size=int(getattr(update, "size", 0) or 0),
-            )
+            ),
         ]
 
     if kind == "available_commands_update":

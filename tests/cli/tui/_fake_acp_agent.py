@@ -13,6 +13,10 @@ backend (agentscope, etc.).
 
 from __future__ import annotations
 
+# Test double: it intentionally overrides ACP Agent methods with simplified
+# signatures and ignores most params.
+# pylint: disable=arguments-renamed,unused-argument
+
 import asyncio
 
 from acp import (
@@ -73,7 +77,11 @@ class FakeAgent(Agent):
         )
 
     async def new_session(
-        self, cwd, additional_directories=None, mcp_servers=None, **kw
+        self,
+        cwd,
+        additional_directories=None,
+        mcp_servers=None,
+        **kw,
     ):  # noqa: ANN001
         self._session_count += 1
         return NewSessionResponse(session_id=f"sess-{self._session_count}")
@@ -84,7 +92,11 @@ class FakeAgent(Agent):
             ev.set()
 
     async def list_sessions(
-        self, cursor=None, cwd=None, additional_directories=None, **kw
+        self,
+        cursor=None,
+        cwd=None,
+        additional_directories=None,
+        **kw,
     ):  # noqa: ANN001
         return ListSessionsResponse(
             sessions=[
@@ -93,8 +105,8 @@ class FakeAgent(Agent):
                     cwd=cwd or "",
                     title=_PAST_SESSION_TITLE,
                     updated_at="2026-01-01T00:00:00+00:00",
-                )
-            ]
+                ),
+            ],
         )
 
     async def load_session(
@@ -111,12 +123,17 @@ class FakeAgent(Agent):
             else:
                 update = update_agent_message(text_block(text))
             await self._conn.session_update(
-                session_id=session_id, update=update
+                session_id=session_id,
+                update=update,
             )
         return LoadSessionResponse()
 
     async def prompt(
-        self, prompt, session_id, message_id=None, **kw
+        self,
+        prompt,
+        session_id,
+        message_id=None,
+        **kw,
     ):  # noqa: ANN001
         text = ""
         for block in prompt:
@@ -142,19 +159,26 @@ class FakeAgent(Agent):
             outcome = await self._conn.request_permission(
                 options=[
                     PermissionOption(
-                        option_id="allow", name="Allow", kind="allow_once"
+                        option_id="allow",
+                        name="Allow",
+                        kind="allow_once",
                     ),
                     PermissionOption(
-                        option_id="deny", name="Deny", kind="reject_once"
+                        option_id="deny",
+                        name="Deny",
+                        kind="reject_once",
                     ),
                 ],
                 session_id=session_id,
                 tool_call=ToolCallUpdate(
-                    tool_call_id="t1", title="dangerous_tool"
+                    tool_call_id="t1",
+                    title="dangerous_tool",
                 ),
             )
             chosen = getattr(
-                getattr(outcome, "outcome", None), "option_id", "cancelled"
+                getattr(outcome, "outcome", None),
+                "option_id",
+                "cancelled",
             )
             await self._conn.session_update(
                 session_id=session_id,
@@ -165,7 +189,10 @@ class FakeAgent(Agent):
         await self._conn.session_update(
             session_id=session_id,
             update=start_tool_call(
-                "t2", "read_file", kind="read", status="in_progress"
+                "t2",
+                "read_file",
+                kind="read",
+                status="in_progress",
             ),
         )
         await self._conn.session_update(

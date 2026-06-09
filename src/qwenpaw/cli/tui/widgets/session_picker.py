@@ -16,6 +16,7 @@ from textual.widgets import Input, ListItem, ListView, Static
 from ..events import SessionSummary
 
 
+# pylint: disable-next=too-many-return-statements
 def _relative_time(iso: str) -> str:
     """Render an ISO-8601 timestamp as a compact 'x ago' label."""
     if not iso:
@@ -27,9 +28,7 @@ def _relative_time(iso: str) -> str:
     if when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)
     delta = datetime.now(timezone.utc) - when
-    secs = int(delta.total_seconds())
-    if secs < 0:
-        secs = 0
+    secs = max(int(delta.total_seconds()), 0)
     if secs < 60:
         return "just now"
     mins = secs // 60

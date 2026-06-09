@@ -172,4 +172,4 @@ def mix_hex(left: str, right: str, amount: float) -> str:
     mixed = tuple(
         round(a + (b - a) * amount) for a, b in zip(left_rgb, right_rgb)
     )
-    return "#{:02x}{:02x}{:02x}".format(*mixed)
+    return f"#{mixed[0]:02x}{mixed[1]:02x}{mixed[2]:02x}"

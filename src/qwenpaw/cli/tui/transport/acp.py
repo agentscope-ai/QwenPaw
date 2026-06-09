@@ -20,7 +20,7 @@ import os
 import sys
 import uuid
 from contextlib import AsyncExitStack
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, cast
 
 from acp import (
     PROTOCOL_VERSION,
@@ -145,7 +145,10 @@ class _TuiClient:
 
     # -- streaming updates ---------------------------------------------------
     async def session_update(
-        self, session_id: str, update: Any, **_: Any
+        self,
+        session_id: str,
+        update: Any,
+        **_: Any,
     ) -> None:
         if session_id in self._ignored_sessions:
             return
@@ -164,11 +167,11 @@ class _TuiClient:
     ) -> RequestPermissionResponse:
         if session_id in self._ignored_sessions:
             return RequestPermissionResponse(
-                outcome=DeniedOutcome(outcome="cancelled")
+                outcome=DeniedOutcome(outcome="cancelled"),
             )
         if self._session_id is not None and session_id != self._session_id:
             return RequestPermissionResponse(
-                outcome=DeniedOutcome(outcome="cancelled")
+                outcome=DeniedOutcome(outcome="cancelled"),
             )
         request_id = uuid.uuid4().hex
         loop = asyncio.get_running_loop()
@@ -194,7 +197,7 @@ class _TuiClient:
                     )
                     for o in options
                 ],
-            )
+            ),
         )
 
         try:
@@ -204,10 +207,10 @@ class _TuiClient:
 
         if option_id is None:
             return RequestPermissionResponse(
-                outcome=DeniedOutcome(outcome="cancelled")
+                outcome=DeniedOutcome(outcome="cancelled"),
             )
         return RequestPermissionResponse(
-            outcome=AllowedOutcome(outcome="selected", option_id=option_id)
+            outcome=AllowedOutcome(outcome="selected", option_id=option_id),
         )
 
     def resolve(self, request_id: str, option_id: str | None) -> None:
@@ -223,7 +226,9 @@ class _TuiClient:
 
     # -- extensions: server-initiated push (design §4.3) --------------------
     async def ext_notification(
-        self, method: str, params: dict[str, Any]
+        self,
+        method: str,
+        params: dict[str, Any],
     ) -> None:
         if method in ("qwenpaw/push_message", "session/push_message"):
             text = str(params.get("text") or params.get("message") or "")
@@ -232,7 +237,9 @@ class _TuiClient:
         # Unknown notifications are ignored (degrade gracefully).
 
     async def ext_method(
-        self, method: str, params: dict[str, Any]
+        self,
+        method: str,
+        params: dict[str, Any],
     ) -> dict[str, Any]:
         del params
         logger.debug("Ignoring unsupported ACP ext method: %s", method)
@@ -296,7 +303,7 @@ class AcpTransport:
                 cwd=self._cwd,
                 env={**os.environ},
                 transport_kwargs=transport_kwargs,
-            )
+            ),
         )
         initialized = await self._conn.initialize(
             protocol_version=PROTOCOL_VERSION,
@@ -312,23 +319,24 @@ class AcpTransport:
         if self._resume_session_id is not None:
             # Point the client at the resumed session before loading so its
             # replayed history updates (tagged with this id) aren't filtered.
-            self._session_id = self._resume_session_id
-            self._client.set_session_id(self._session_id)
+            session_id = self._resume_session_id
             session = await self._conn.load_session(
-                cwd=self._cwd, session_id=self._session_id
+                cwd=self._cwd,
+                session_id=session_id,
             )
             # LoadSessionResponse carries no model list; it populates from the
             # first turn's usage report instead.
             model = None
         else:
             session = await self._conn.new_session(cwd=self._cwd)
-            self._session_id = session.session_id
-            self._client.set_session_id(self._session_id)
+            session_id = cast(str, session.session_id)
             model = _current_model(session)
+        self._session_id = session_id
+        self._client.set_session_id(session_id)
         if not _warmup_disabled():
             self._warmup_task = asyncio.create_task(self._warm_backend())
         return Connected(
-            session_id=self._session_id,
+            session_id=session_id,
             # Prefer the agent the server actually resolved (via _meta) over
             # the one we requested, so the UI shows the real agent.
             agent=_session_agent(session) or self._agent,
@@ -343,9 +351,10 @@ class AcpTransport:
             if self._conn is None:
                 return
             warm_session = await self._conn.new_session(
-                cwd=self._cwd, **{_EPHEMERAL_META_KEY: True}
+                cwd=self._cwd,
+                **{_EPHEMERAL_META_KEY: True},
             )
-            warm_session_id = warm_session.session_id
+            warm_session_id = cast(str, warm_session.session_id)
             if warm_session_id == self._session_id:
                 logger.debug(
                     "skipping ACP warmup because agent reused session id %s",
@@ -355,7 +364,7 @@ class AcpTransport:
                     BackendWarmed(
                         success=False,
                         message="warmup skipped: duplicate session id",
-                    )
+                    ),
                 )
                 return
             self._client.ignore_session(warm_session_id)
@@ -365,12 +374,12 @@ class AcpTransport:
                 **{_EPHEMERAL_META_KEY: True},
             )
             await self._queue.put(BackendWarmed())
-        except asyncio.CancelledError:
+        except asyncio.CancelledError:  # pylint: disable=try-except-raise
             raise
         except Exception as exc:  # noqa: BLE001 - warmup is best-effort
             logger.debug("ACP warmup failed: %s", exc, exc_info=True)
             await self._queue.put(
-                BackendWarmed(success=False, message=str(exc))
+                BackendWarmed(success=False, message=str(exc)),
             )
         finally:
             if (
@@ -382,7 +391,8 @@ class AcpTransport:
                     await self._conn.close_session(session_id=warm_session_id)
                 except Exception:  # noqa: BLE001
                     logger.debug(
-                        "failed to close warmup session", exc_info=True
+                        "failed to close warmup session",
+                        exc_info=True,
                     )
 
     async def send(self, text: str) -> None:
@@ -391,14 +401,14 @@ class AcpTransport:
         if self._prompt_task is not None and not self._prompt_task.done():
             raise RuntimeError("a turn is already in progress")
         self._prompt_task = asyncio.create_task(
-            self._run_prompt_after_warmup(text)
+            self._run_prompt_after_warmup(text),
         )
 
     async def _run_prompt_after_warmup(self, text: str) -> None:
         if self._warmup_task is not None and not self._warmup_task.done():
             try:
                 await self._warmup_task
-            except asyncio.CancelledError:
+            except asyncio.CancelledError:  # pylint: disable=try-except-raise
                 raise
             except Exception:  # noqa: BLE001
                 logger.debug("warmup task failed before prompt", exc_info=True)
@@ -466,7 +476,7 @@ class AcpTransport:
                     title=str(getattr(info, "title", "") or ""),
                     cwd=str(getattr(info, "cwd", "") or ""),
                     updated_at=str(getattr(info, "updated_at", "") or ""),
-                )
+                ),
             )
         return summaries
 
@@ -480,7 +490,7 @@ class AcpTransport:
         if self._warmup_task is not None and not self._warmup_task.done():
             try:
                 await self._warmup_task
-            except asyncio.CancelledError:
+            except asyncio.CancelledError:  # pylint: disable=try-except-raise
                 raise
             except Exception:  # noqa: BLE001 - warmup is best-effort
                 logger.debug("warmup task failed before load", exc_info=True)
@@ -491,7 +501,9 @@ class AcpTransport:
         await self._conn.load_session(cwd=self._cwd, session_id=session_id)
 
     async def resolve_permission(
-        self, request_id: str, option_id: str | None
+        self,
+        request_id: str,
+        option_id: str | None,
     ) -> None:
         self._client.resolve(request_id, option_id)
 
@@ -564,15 +576,21 @@ def _current_model(new_session: Any) -> str | None:
     if not models:
         return None
     current_id = getattr(models, "current_model_id", None) or getattr(
-        models, "current", None
+        models,
+        "current",
+        None,
     )
     available = getattr(models, "available_models", None) or getattr(
-        models, "models", None
+        models,
+        "models",
+        None,
     )
     if available:
         for model in available:
             mid = getattr(model, "model_id", None) or getattr(
-                model, "id", None
+                model,
+                "id",
+                None,
             )
             if mid == current_id:
                 return getattr(model, "name", None) or str(mid)

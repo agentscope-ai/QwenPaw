@@ -235,14 +235,14 @@ class PawApp(App):
         self._apply_theme_prompt(self._theme_prompt, notify=False)
         if self._resume_session_id is not None:
             await self._mount(
-                InfoMessage("Resumed previous session — replaying history…")
+                InfoMessage("Resumed previous session — replaying history…"),
             )
         else:
             await self._mount(
                 WelcomeMessage(
                     palette_for_prompt(self._theme_prompt),
                     accent_for_prompt(self._theme_prompt),
-                )
+                ),
             )
         self._consume()
 
@@ -303,7 +303,7 @@ class PawApp(App):
     def _scroll_transcript_end(self, *, defer: bool = False) -> None:
         if defer:
             self.call_after_refresh(
-                lambda: self._transcript().scroll_end(animate=False)
+                lambda: self._transcript().scroll_end(animate=False),
             )
             return
         self._transcript().scroll_end(animate=False)
@@ -484,8 +484,8 @@ class PawApp(App):
                         "suggestions (or /resume list to browse all), "
                         "/theme <prompt> to personalize the background, "
                         "or /inspect for details. Model and provider "
-                        "commands (e.g. /model) are handled by QwenPaw."
-                    )
+                        "commands (e.g. /model) are handled by QwenPaw.",
+                    ),
                 )
             case "/resume":
                 await self._handle_resume_command(rest.strip())
@@ -506,14 +506,16 @@ class PawApp(App):
     async def _handle_theme_command(self, rest: str) -> None:
         if not rest or rest in {"gallery", "list"}:
             await self.push_screen(
-                ThemePicker(), callback=self._apply_theme_picker_result
+                ThemePicker(),
+                callback=self._apply_theme_picker_result,
             )
             return
         theme = find_theme(rest)
         self._apply_theme(theme or rest)
 
     def _apply_theme_picker_result(
-        self, result: ThemeInfo | str | None
+        self,
+        result: ThemeInfo | str | None,
     ) -> None:
         self.query_one("#prompt", PromptInput).focus()
         if result is None:
@@ -533,21 +535,21 @@ class PawApp(App):
                 InfoMessage(
                     "Finish or interrupt the current turn before resuming.",
                     level="warn",
-                )
+                ),
             )
             return
         try:
             sessions = await self._transport.list_sessions()
         except Exception as exc:  # noqa: BLE001 - surface, don't crash
             await self._mount(
-                InfoMessage(f"Could not list sessions: {exc}", level="warn")
+                InfoMessage(f"Could not list sessions: {exc}", level="warn"),
             )
             return
         # Keep the auto-suggest entries fresh from this same fetch.
         self._set_recent_sessions(sessions)
         if not sessions:
             await self._mount(
-                InfoMessage("No previous sessions yet.", level="info")
+                InfoMessage("No previous sessions yet.", level="info"),
             )
             return
 
@@ -560,7 +562,7 @@ class PawApp(App):
                     InfoMessage(
                         f"No session matches '{rest}'. Try /resume list.",
                         level="warn",
-                    )
+                    ),
                 )
                 return
             self.query_one("#prompt", PromptInput).focus()
@@ -577,7 +579,8 @@ class PawApp(App):
 
     @staticmethod
     def _resolve_session_ref(
-        ref: str, sessions: list[SessionSummary]
+        ref: str,
+        sessions: list[SessionSummary],
     ) -> str | None:
         """Map a `/resume` argument to a full session id.
 
@@ -609,7 +612,7 @@ class PawApp(App):
         # Mounted before the load so it sits above the replayed transcript;
         # the replay updates only land once load_session is awaited below.
         await self._mount(
-            InfoMessage("Resumed previous session — replaying history…")
+            InfoMessage("Resumed previous session — replaying history…"),
         )
         try:
             await self._transport.load_session(session_id)
@@ -624,7 +627,7 @@ class PawApp(App):
             attachments = _attachments_from_paste(text)
         except ValueError as exc:
             await self._mount(
-                InfoMessage(f"Could not attach paste: {exc}", level="warn")
+                InfoMessage(f"Could not attach paste: {exc}", level="warn"),
             )
             return None
         if attachments:
@@ -634,7 +637,7 @@ class PawApp(App):
                     f"Attached {len(paths)} pasted file"
                     f"{'s' if len(paths) != 1 else ''}.",
                     level="ok",
-                )
+                ),
             )
             return "\n".join(f"[attached file: {path}]" for path in paths)
         embedded = _replace_embedded_file_references(text)
@@ -645,15 +648,16 @@ class PawApp(App):
                     f"Attached {len(paths)} pasted file"
                     f"{'s' if len(paths) != 1 else ''}.",
                     level="ok",
-                )
+                ),
             )
             return replacement
         if _should_store_pasted_text(text):
             path = _store_pasted_text(text)
             await self._mount(
                 InfoMessage(
-                    f"Stored pasted text ({len(text)} characters).", level="ok"
-                )
+                    f"Stored pasted text ({len(text)} characters).",
+                    level="ok",
+                ),
             )
             return f"[pasted text: {path}]"
         return None
@@ -683,17 +687,21 @@ class PawApp(App):
         """
         variables = super().get_css_variables()
         screen, prompt_bg, chrome = palette_for_prompt(
-            getattr(self, "_theme_prompt", "") or "original"
+            getattr(self, "_theme_prompt", "") or "original",
         )
         variables.update(
             {
                 "bubble-border": mix_hex(
-                    mix_hex(screen, chrome, 0.55), "#ffffff", 0.12
+                    mix_hex(screen, chrome, 0.55),
+                    "#ffffff",
+                    0.12,
                 ),
                 "bubble-user-border": mix_hex(
-                    mix_hex(prompt_bg, chrome, 0.7), "#ffffff", 0.16
+                    mix_hex(prompt_bg, chrome, 0.7),
+                    "#ffffff",
+                    0.16,
                 ),
-            }
+            },
         )
         return variables
 
@@ -712,7 +720,8 @@ class PawApp(App):
             welcome.set_palette(colors, accent_for_prompt(prompt))
         try:
             self._theme_path().write_text(
-                json.dumps({"prompt": prompt}), encoding="utf-8"
+                json.dumps({"prompt": prompt}),
+                encoding="utf-8",
             )
         except Exception:  # noqa: BLE001
             pass
@@ -765,6 +774,7 @@ class PawApp(App):
             tok_out_approx=est > 0,
         )
 
+    # pylint: disable-next=too-many-branches, too-many-statements
     async def _dispatch(self, event) -> None:
         if isinstance(event, TextDelta):
             self._mark_backend_update()
@@ -914,7 +924,7 @@ class PawApp(App):
                     InfoMessage(
                         f"Backend warmup skipped: {event.message}",
                         level="warn",
-                    )
+                    ),
                 )
             self._status().set(state=self._current_work_state())
 
@@ -944,7 +954,7 @@ class PawApp(App):
             ):
                 self._status().set(state="error")
                 await self._mount(
-                    ErrorMessage(self._no_response_text(event.stop_reason))
+                    ErrorMessage(self._no_response_text(event.stop_reason)),
                 )
             # Hand off to the next message the user queued while we worked.
             await self._drain_queue()
@@ -986,7 +996,8 @@ class PawApp(App):
         def _resolve(option_id: str | None) -> None:
             self.run_worker(
                 self._transport.resolve_permission(
-                    event.request_id, option_id
+                    event.request_id,
+                    option_id,
                 ),
                 exclusive=False,
             )
@@ -1074,7 +1085,7 @@ def _replace_embedded_file_references(
     cursor = 0
     for ref in references:
         destination = _copy_paste_attachment(
-            _PasteAttachment(name=ref.path.name, source_path=ref.path)
+            _PasteAttachment(name=ref.path.name, source_path=ref.path),
         )
         copied.append(destination)
         chunks.append(text[cursor : ref.start])
@@ -1109,7 +1120,8 @@ def _looks_like_path_start(text: str, index: int) -> bool:
 
 
 def _longest_file_reference(
-    text: str, start: int
+    text: str,
+    start: int,
 ) -> _PasteFileReference | None:
     line_end = text.find("\n", start)
     if line_end == -1:
@@ -1178,7 +1190,9 @@ def _is_file(path: Path | None) -> bool:
 
 def _data_url_attachment(value: str) -> _PasteAttachment | None:
     match = re.fullmatch(
-        r"data:([^;,]+)?(;base64)?,(.*)", value, flags=re.DOTALL
+        r"data:([^;,]+)?(;base64)?,(.*)",
+        value,
+        flags=re.DOTALL,
     )
     if match is None:
         return None

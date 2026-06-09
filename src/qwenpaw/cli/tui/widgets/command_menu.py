@@ -151,7 +151,10 @@ class PromptInput(TextArea):
         self.text = text
 
     def set_programmatic_value(
-        self, text: str, *, cursor_end: bool = False
+        self,
+        text: str,
+        *,
+        cursor_end: bool = False,
     ) -> None:
         self._ignore_change_events += 1
         self.text = text
@@ -164,6 +167,7 @@ class PromptInput(TextArea):
         self._ignore_change_events -= 1
         return True
 
+    # pylint: disable-next=too-many-return-statements
     async def _on_key(self, event: events.Key) -> None:
         if self._consume_suppressed_paste_tail(event):
             return
@@ -196,7 +200,7 @@ class PromptInput(TextArea):
         if event.key == "enter":
             event.prevent_default()
             event.stop()
-            await app._submit_prompt()
+            await app._submit_prompt()  # pylint: disable=protected-access
             return
         if event.key in {"shift+enter", "ctrl+j"}:
             event.prevent_default()
@@ -216,7 +220,8 @@ class PromptInput(TextArea):
         replacement = await handler(event.text)
         if replacement is None:
             if result := self._replace_via_keyboard(
-                event.text, *self.selection
+                event.text,
+                *self.selection,
             ):
                 self.move_cursor(result.end_location)
                 self.focus()

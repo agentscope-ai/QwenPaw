@@ -22,6 +22,7 @@ class _Bubble(Static):
     the rounded corners simply show the background.
     """
 
+    # pylint: disable-next=useless-parent-delegation
     def __init__(self, renderable, *, classes: str = "") -> None:
         super().__init__(renderable, classes=f"msg {classes}".strip())
 
@@ -98,7 +99,9 @@ class WelcomeMessage(Static):
         super().__init__(self._render_body(), classes="msg welcome")
 
     def set_palette(
-        self, palette: tuple[str, str, str], accent: str | None = None
+        self,
+        palette: tuple[str, str, str],
+        accent: str | None = None,
     ) -> None:
         if accent is not None:
             self._accent = accent
@@ -169,7 +172,7 @@ def _mix_hex(left: str, right: str, amount: float) -> str:
         round(a + (b - a) * amount)
         for a, b in zip(left_rgb, right_rgb, strict=True)
     )
-    return "#{:02x}{:02x}{:02x}".format(*mixed)
+    return f"#{mixed[0]:02x}{mixed[1]:02x}{mixed[2]:02x}"
 
 
 def _hex_to_rgb(value: str) -> tuple[int, int, int]:

@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+# ``bar`` is a fine local name for a StatusBar widget under test.
+# pylint: disable=disallowed-name
+
 from qwenpaw.cli.tui.widgets.status_bar import StatusBar, _fmt_count
 
 

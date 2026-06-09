@@ -3,6 +3,11 @@
 
 from __future__ import annotations
 
+# Tests poke at the app's internals and use terse fixtures.
+# pylint: disable=protected-access,not-an-iterable,disallowed-name
+# pylint: disable=consider-using-with,unnecessary-lambda
+# pylint: disable=use-implicit-booleaness-not-comparison
+
 import asyncio
 
 import pytest
@@ -89,7 +94,7 @@ class FakeTransport:
                         PermissionOption("allow", "Allow", "allow_once"),
                         PermissionOption("deny", "Deny", "reject_once"),
                     ],
-                )
+                ),
             )
             return
         for chunk in ("Hello ", "there"):
@@ -101,7 +106,7 @@ class FakeTransport:
                 kind="read",
                 status="completed",
                 output="data",
-            )
+            ),
         )
         await self._queue.put(TurnEnded(stop_reason="end_turn"))
 
@@ -307,7 +312,7 @@ async def test_running_tool_expanded_then_collapsed_when_done():
                 kind="execute",
                 status="in_progress",
                 params="command: ls -la",
-            )
+            ),
         )
         await pilot.pause()
         panel = app.query(ToolPanel).first()
@@ -320,7 +325,7 @@ async def test_running_tool_expanded_then_collapsed_when_done():
                 kind="execute",
                 status="completed",
                 output="total 0",
-            )
+            ),
         )
         await pilot.pause()
         assert panel.collapsed is True  # done → collapsed, re-openable
@@ -336,10 +341,10 @@ async def test_tool_name_persists_after_completion_update():
         await pilot.pause()
         # start: real name; completion: no title, just status + output
         await app._dispatch(
-            ToolCall("t1", "execute_shell_command", status="in_progress")
+            ToolCall("t1", "execute_shell_command", status="in_progress"),
         )
         await app._dispatch(
-            ToolCall("t1", "", status="completed", output="done")
+            ToolCall("t1", "", status="completed", output="done"),
         )
         await pilot.pause()
         panel = app.query(ToolPanel).first()
@@ -361,7 +366,7 @@ async def test_finished_tool_header_is_informative():
                 status="completed",
                 params="command: ls -la /tmp\nshell: zsh",
                 output="x",
-            )
+            ),
         )
         await pilot.pause()
         panel = app.query(ToolPanel).first()
@@ -378,10 +383,10 @@ async def test_toggle_hides_finished_tools_only():
     async with app.run_test() as pilot:
         await pilot.pause()
         await app._dispatch(
-            ToolCall("done", "read_file", kind="read", status="completed")
+            ToolCall("done", "read_file", kind="read", status="completed"),
         )
         await app._dispatch(
-            ToolCall("live", "grep", kind="search", status="in_progress")
+            ToolCall("live", "grep", kind="search", status="in_progress"),
         )
         await pilot.pause()
         done = app._tools["done"]
@@ -447,7 +452,7 @@ async def test_friendly_mode_collapses_tool_chain_to_one_activity_line():
                 status="completed",
                 params="path: README.md",
                 output="...",
-            )
+            ),
         )
         await app._dispatch(
             ToolCall(
@@ -456,7 +461,7 @@ async def test_friendly_mode_collapses_tool_chain_to_one_activity_line():
                 kind="execute",
                 status="in_progress",
                 params="command: pytest -q",
-            )
+            ),
         )
         await pilot.pause()
 
@@ -533,8 +538,8 @@ async def test_slash_command_suggestions():
                     SlashCommand("model", "switch model"),
                     SlashCommand("agent", "change agent"),
                     SlashCommand("clear", "clear session"),
-                ]
-            )
+                ],
+            ),
         )
         menu = app.query_one(CommandMenu)
         prompt = app.query_one("#prompt")
@@ -697,7 +702,7 @@ async def test_resume_opens_picker_and_replays_selected_session():
             session_id="old-1",
             title="Earlier chat about Rust",
             updated_at="2026-01-01T00:00:00+00:00",
-        )
+        ),
     ]
     app = PawApp(transport)
     async with app.run_test() as pilot:
@@ -797,7 +802,8 @@ async def test_resume_autosuggest_lists_recent_ten():
     # 12 sessions; only the most recent 10 should become suggestions.
     transport.sessions = [
         SessionSummary(
-            session_id=f"{i:02d}cdef00" + "0" * 24, title=f"Chat {i}"
+            session_id=f"{i:02d}cdef00" + "0" * 24,
+            title=f"Chat {i}",
         )
         for i in range(12)
     ]
@@ -859,7 +865,8 @@ async def test_resume_flag_skips_welcome_and_replays_at_start():
 
 @pytest.mark.asyncio
 async def test_named_theme_command_applies_gallery_theme(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     monkeypatch.setenv("PAW_STATE_DIR", str(tmp_path / "state"))
     transport = FakeTransport()
@@ -903,7 +910,7 @@ async def test_single_agent_label_per_turn_above_thinking():
         # above the first activity (the thinking lane).
         await app._dispatch(ThoughtDelta("hmm"))
         await app._dispatch(
-            ToolCall("t1", "grep", kind="search", status="in_progress")
+            ToolCall("t1", "grep", kind="search", status="in_progress"),
         )
         await app._dispatch(TextDelta("Done."))
         await pilot.pause()
@@ -941,7 +948,7 @@ async def test_text_after_tool_mounts_below_it():
         # that order (the post-tool text must not fold into the first bubble).
         await app._dispatch(TextDelta("Let me check."))
         await app._dispatch(
-            ToolCall("t1", "grep", kind="search", status="in_progress")
+            ToolCall("t1", "grep", kind="search", status="in_progress"),
         )
         await app._dispatch(TextDelta("Found it."))
         await pilot.pause()
@@ -993,7 +1000,7 @@ async def test_live_token_estimate_then_exact():
 
         # Exact usage for the call replaces the estimate (no tilde).
         await app._dispatch(
-            TokenUsage(input_tokens=1200, output_tokens=7, model="m")
+            TokenUsage(input_tokens=1200, output_tokens=7, model="m"),
         )
         await pilot.pause()
         assert "↓7" in bar.summary
@@ -1204,7 +1211,8 @@ async def test_file_path_paste_is_copied_to_attachment(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_embedded_escaped_file_path_paste_is_copied(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     monkeypatch.setenv("PAW_STATE_DIR", str(tmp_path / "state"))
     source = tmp_path / "Screenshot 2026-06-06 at 9.31.17 PM.png"
@@ -1215,7 +1223,7 @@ async def test_embedded_escaped_file_path_paste_is_copied(
     async with app.run_test() as pilot:
         await pilot.pause()
         replacement = await app._handle_prompt_paste(
-            f"Can you describe this image? {escaped}"
+            f"Can you describe this image? {escaped}",
         )
         assert replacement is not None
         assert replacement.startswith("Can you describe this image? ")

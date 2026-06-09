@@ -8,6 +8,9 @@ QwenPaw. The TUI now spawns ``qwenpaw acp`` using the *current* interpreter.
 
 from __future__ import annotations
 
+# Tests assert on transport internals and use a stub run_tui.
+# pylint: disable=protected-access,unused-argument
+
 import sys
 
 from click.testing import CliRunner

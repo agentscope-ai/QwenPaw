@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+# ``assert normalize_update(...) == []`` reads clearer than ``not ...`` here.
+# pylint: disable=use-implicit-booleaness-not-comparison
+
 from acp import (
     start_tool_call,
     text_block,
@@ -62,7 +65,7 @@ def test_usage_meta_chunk_is_token_usage():
                 "outputTokens": 340,
                 "totalTokens": 1540,
                 "model": "qwen3.6-plus",
-            }
+            },
         },
     )
     assert normalize_update(chunk) == [
@@ -71,7 +74,7 @@ def test_usage_meta_chunk_is_token_usage():
             output_tokens=340,
             total_tokens=1540,
             model="qwen3.6-plus",
-        )
+        ),
     ]
 
 
@@ -82,7 +85,7 @@ def test_thought_chunk():
 
 def test_tool_call_start_and_update():
     start = normalize_update(
-        start_tool_call("t1", "grep", kind="search", status="in_progress")
+        start_tool_call("t1", "grep", kind="search", status="in_progress"),
     )
     assert start == [
         E.ToolCall(
@@ -90,7 +93,7 @@ def test_tool_call_start_and_update():
             title="grep",
             kind="search",
             status="in_progress",
-        )
+        ),
     ]
 
     done = normalize_update(
@@ -98,7 +101,7 @@ def test_tool_call_start_and_update():
             "t1",
             status="completed",
             content=[tool_content(text_block("3 hits"))],
-        )
+        ),
     )
     assert len(done) == 1
     ev = done[0]
@@ -121,10 +124,10 @@ def test_tool_call_extracts_resource_link():
                         uri="file:///tmp/report.pdf",
                         name="report.pdf",
                         mime_type="application/pdf",
-                    )
+                    ),
                 ),
             ],
-        )
+        ),
     )
     assert ev.output == "File sent successfully."
     assert ev.links == (
@@ -142,7 +145,7 @@ def test_tool_call_without_links_has_empty_tuple():
             "t10",
             status="completed",
             content=[tool_content(text_block("plain output"))],
-        )
+        ),
     )
     assert ev.links == ()
 
@@ -160,10 +163,10 @@ def test_tool_call_drops_non_local_link_schemes():
                         type="resource_link",
                         uri="https://evil.example/login",
                         name="totally-a-file",
-                    )
+                    ),
                 ),
             ],
-        )
+        ),
     )
     assert ev.links == ()
 
@@ -176,7 +179,7 @@ def test_tool_call_renders_raw_input_params():
             kind="execute",
             status="in_progress",
             raw_input={"command": "ls -la /tmp"},
-        )
+        ),
     )
     assert ev.params == "command: ls -la /tmp"
 
@@ -187,7 +190,7 @@ def test_tool_call_renders_raw_input_params():
             "t3",
             "grep",
             raw_input={"pattern": "TODO", "max": 5},
-        )
+        ),
     )
     assert multi.params == "pattern: TODO\nmax: 5"
 
@@ -210,7 +213,7 @@ def test_plan_update():
 
 def test_usage_update():
     out = normalize_update(
-        UsageUpdate(session_update="usage_update", used=1200, size=8000)
+        UsageUpdate(session_update="usage_update", used=1200, size=8000),
     )
     assert out == [E.Usage(used=1200, size=8000)]
 
@@ -229,8 +232,8 @@ def test_available_commands_update():
             commands=[
                 E.SlashCommand(name="model", description="switch model"),
                 E.SlashCommand(name="agent", description=""),
-            ]
-        )
+            ],
+        ),
     ]
 
 
@@ -238,7 +241,8 @@ def test_session_info_update_is_session_title():
     from acp.schema import SessionInfoUpdate
 
     upd = SessionInfoUpdate(
-        sessionUpdate="session_info_update", title="Fix the parser"
+        sessionUpdate="session_info_update",
+        title="Fix the parser",
     )
     assert normalize_update(upd) == [E.SessionTitle("Fix the parser")]
 
