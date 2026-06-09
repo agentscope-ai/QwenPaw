@@ -8,10 +8,13 @@ import os
 import shutil
 import uuid
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
+from pydantic import ValidationError
+
 from .base import BaseJobRepository
-from ..models import CronExecutionRecord, JobsFile
+from ..models import CronExecutionRecord, CronJobSpec, JobsFile
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +47,43 @@ class JsonJobRepository(BaseJobRepository):
             return JobsFile(version=1, jobs=[])
 
         data = json.loads(self._path.read_text(encoding="utf-8"))
-        return JobsFile.model_validate(data)
+        try:
+            return JobsFile.model_validate(data)
+        except ValidationError:
+            # A single malformed job must not break the whole workspace:
+            # keep the valid jobs, drop the invalid ones, and log each drop
+            # so it stays visible (issue #4835).
+            return self._load_tolerant(data)
+
+    def _load_tolerant(self, data: Any) -> JobsFile:
+        """Build a JobsFile, skipping jobs that fail validation."""
+        if not isinstance(data, dict):
+            logger.error(
+                "jobs file %s is not a JSON object; starting with no jobs",
+                self._path,
+            )
+            return JobsFile(version=1, jobs=[])
+
+        raw_jobs = data.get("jobs")
+        if not isinstance(raw_jobs, list):
+            raw_jobs = []
+
+        jobs: list[CronJobSpec] = []
+        for index, raw in enumerate(raw_jobs):
+            try:
+                jobs.append(CronJobSpec.model_validate(raw))
+            except ValidationError as exc:
+                logger.error(
+                    "Skipping invalid job at index %d in %s: %s",
+                    index,
+                    self._path,
+                    exc,
+                )
+
+        version = data.get("version", 1)
+        if not isinstance(version, int):
+            version = 1
+        return JobsFile(version=version, jobs=jobs)
 
     async def save(self, jobs_file: JobsFile) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
