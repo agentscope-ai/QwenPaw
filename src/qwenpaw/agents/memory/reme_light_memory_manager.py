@@ -8,6 +8,7 @@ import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Optional
 
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg, TextBlock, ToolResultBlock, ToolUseBlock
@@ -33,7 +34,7 @@ from ...constant import EnvVarLoader
 logger = logging.getLogger(__name__)
 
 _REME_STORE_VERSION = "v1"
-_EXPECTED_REME_VERSION = "0.3.1.8"
+_EXPECTED_REME_VERSION = "0.3.1.10"
 # Maximum number of tokens from query splitting
 MAX_QUERY_TOKENS = 50
 
@@ -591,15 +592,67 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             if recent_messages:
                 self.add_summarize_task(messages=recent_messages)
 
-    async def dream(self, **kwargs) -> None:
-        """Run one dream-based memory optimization pass."""
+    async def dream(
+        self,
+        *,
+        runner: Any = None,
+        channel_manager: Any = None,
+        agent_id: Optional[str] = None,
+        workspace_dir: Optional[Path] = None,
+        **kwargs,
+    ) -> None:
+        """
+        Run one dream-based memory optimization pass.
+
+        Args:
+            runner: Agent runner instance (typically supplied by the cron
+                callback). Reserved here to mirror ``run_heartbeat_once``'s
+                signature.
+            channel_manager: Optional channel manager. Reserved for future
+                use (e.g. dispatching an optimization summary); accepted
+                here to mirror ``run_heartbeat_once``'s signature.
+            agent_id: Agent ID for loading config. Falls back to
+                ``self.agent_id`` when omitted.
+            workspace_dir: Workspace directory used to locate MEMORY.md
+                and write backups. Required — raises ``ValueError`` when
+                omitted (so a misconfigured cron fails loudly instead of
+                writing to the process CWD).
+        """
+        del runner, channel_manager, kwargs  # mirror run_heartbeat_once
         logger.info("running dream-based memory optimization")
 
-        agent_config = load_agent_config(self.agent_id)
-        light_ctx = agent_config.running.light_context_config
-        chat_model, formatter = create_model_and_formatter(self.agent_id)
+        # Use agent_id if provided, otherwise fall back to instance default
+        if not agent_id:
+            agent_id = self.agent_id
 
-        set_current_workspace_dir(Path(self.working_dir))
+        agent_config = load_agent_config(agent_id)
+        light_ctx = agent_config.running.light_context_config
+        chat_model, formatter = create_model_and_formatter(agent_id)
+
+        # Refuse to run when neither is available — running with
+        # an empty path would silently target the process CWD.
+        if not workspace_dir:
+            raise ValueError(
+                "dream requires a workspace_dir",
+            )
+        workspace_path = Path(workspace_dir)
+
+        # Build a dedicated toolkit for the dream agent so it stays
+        # isolated from self.summary_toolkit (which the summarize path
+        # shares). Decoupling avoids any future tool change on either
+        # side accidentally affecting the other.
+        from qwenpaw.agents.tools import (  # noqa: PLC0415
+            read_file,
+            write_file,
+            edit_file,
+        )
+
+        dream_toolkit = Toolkit()
+        dream_toolkit.register_tool_function(read_file)
+        dream_toolkit.register_tool_function(write_file)
+        dream_toolkit.register_tool_function(edit_file)
+
+        set_current_workspace_dir(workspace_path)
         pruning_cfg = light_ctx.tool_result_pruning_config
         recent_max_bytes = pruning_cfg.pruning_recent_msg_max_bytes
         set_current_recent_max_bytes(recent_max_bytes)
@@ -615,10 +668,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             logger.debug("dream optimization skipped: empty query")
             return
 
-        backup_path = Path(self.working_dir).absolute() / "backup"
+        backup_path = workspace_path.absolute() / "backup"
         backup_path.mkdir(parents=True, exist_ok=True)
 
-        memory_file = Path(self.working_dir) / "MEMORY.md"
+        memory_file = workspace_path / "MEMORY.md"
         if memory_file.exists():
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_filename = f"memory_backup_{timestamp}.md"
@@ -636,7 +689,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             model=chat_model,
             sys_prompt="You are a Dream Memory Organizer specialized"
             " in optimizing long-term memory files.",
-            toolkit=self.summary_toolkit,
+            toolkit=dream_toolkit,
             formatter=formatter,
         )
         dream_agent.set_console_output_enabled(False)

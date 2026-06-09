@@ -351,6 +351,18 @@ class AgentRunner(Runner):
                 exc_info=True,
             )
 
+    async def stream_query(self, request, **kwargs):
+        """Override to set created_at to current time on response events."""
+        from datetime import datetime, timezone
+
+        created_at = int(
+            datetime.now(timezone.utc).timestamp(),
+        )
+        async for event in super().stream_query(request, **kwargs):
+            if getattr(event, "object", None) == "response":
+                event.created_at = created_at
+            yield event
+
     async def query_handler(
         self,
         msgs,

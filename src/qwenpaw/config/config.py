@@ -243,6 +243,8 @@ class FeishuConfig(BaseChannelConfig):
     domain: 'feishu' for China, 'lark' for international.
     streaming_enabled: enable CardKit streaming card updates for real-time
     typewriter-style text output.
+    share_session_in_group: if True, all group members share one session;
+    if False (default), each member gets an independent session.
     """
 
     app_id: str = ""
@@ -252,6 +254,7 @@ class FeishuConfig(BaseChannelConfig):
     media_dir: Optional[str] = None
     domain: Literal["feishu", "lark"] = "feishu"
     streaming_enabled: bool = False
+    share_session_in_group: bool = False
 
 
 class QQConfig(BaseChannelConfig):
@@ -1300,6 +1303,11 @@ class MCPClientConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     cwd: str = ""
+    tools: Optional[List[str]] = Field(
+        default=None,
+        description="Tool whitelist. Only listed tools will be loaded. "
+        "None means load all tools from the server.",
+    )
     oauth: Optional[MCPOAuthConfig] = None
 
     @model_validator(mode="before")
@@ -2279,6 +2287,14 @@ def get_model_max_input_length(
     from ..providers import ProviderManager
 
     model_slot = agent_config.active_model
+    # Fallback: if agent.json doesn't have active_model, try ProviderManager
+    if not model_slot or not model_slot.provider_id:
+        try:
+            manager = ProviderManager.get_instance()
+            model_slot = manager.get_active_model()
+        except Exception:
+            pass
+
     if model_slot and model_slot.provider_id and model_slot.model:
         try:
             manager = ProviderManager.get_instance()

@@ -41,12 +41,14 @@ export interface FeishuConfig extends BaseChannelConfig {
   media_dir: string;
   domain?: "feishu" | "lark";
   streaming_enabled?: boolean;
+  share_session_in_group?: boolean;
 }
 
 export interface QQConfig extends BaseChannelConfig {
   app_id: string;
   client_secret: string;
   ack_message?: string;
+  user_openid?: string;
 }
 
 export interface TelegramConfig extends BaseChannelConfig {
