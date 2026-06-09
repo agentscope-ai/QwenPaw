@@ -5,7 +5,7 @@ All endpoints are mounted under ``/workspace/git/`` and operate on the
 workspace directory resolved from the request (same agent-context pattern
 used by other workspace routes).
 
-Uses stdlib ``asyncio.create_subprocess_exec`` – no extra Python deps.
+Uses the shared command runner; no extra Python deps.
 """
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from ..agent_context import get_agent_for_request, get_coding_dir
 from ..utils import safe_join
+from ...utils.command_runner import run_command_async
 
 logger = logging.getLogger(__name__)
 
@@ -86,19 +87,15 @@ async def _git(cwd: Path, *args: str) -> tuple[int, str, str]:
 
     Returns ``(returncode, stdout, stderr)``.
     """
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        *args,
+    result = await run_command_async(
+        ["git", *args],
         cwd=str(cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=None,
     )
-    stdout, stderr = await proc.communicate()
-    return (
-        int(proc.returncode or 0),
-        stdout.decode("utf-8", errors="replace"),
-        stderr.decode("utf-8", errors="replace"),
-    )
+    return result.returncode, result.stdout, result.stderr
 
 
 def _raise_if_not_repo(rc: int, stderr: str) -> None:

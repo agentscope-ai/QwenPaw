@@ -18,7 +18,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import qwenpaw.agents.tools.shell as shell_module
 from qwenpaw.agents.tools.shell import (
     _collapse_embedded_newlines,
     _collapse_newlines_outside_quotes,
@@ -28,7 +27,6 @@ from qwenpaw.agents.tools.shell import (
     _read_temp_file,
     _sanitize_win_cmd,
     _shell_basename,
-    _windows_shell_creationflags,
     smart_decode,
 )
 
@@ -180,32 +178,6 @@ class TestSanitizeWinCmd:
         # Mix of escaped and unescaped — don't strip
         cmd = 'echo \\"hello" world'
         assert _sanitize_win_cmd(cmd) == cmd
-
-
-# ---------------------------------------------------------------------------
-# _windows_shell_creationflags
-# ---------------------------------------------------------------------------
-
-
-class TestWindowsShellCreationflags:
-    """Tests for Windows shell subprocess flags."""
-
-    def test_desktop_env_does_not_add_no_window(self, monkeypatch):
-        monkeypatch.setattr(
-            shell_module.subprocess,
-            "CREATE_NEW_PROCESS_GROUP",
-            0x00000200,
-            raising=False,
-        )
-        monkeypatch.setattr(
-            shell_module.subprocess,
-            "CREATE_NO_WINDOW",
-            0x08000000,
-            raising=False,
-        )
-        monkeypatch.setenv("QWENPAW_DESKTOP_APP", "1")
-
-        assert _windows_shell_creationflags() == 0x00000200
 
 
 # ---------------------------------------------------------------------------

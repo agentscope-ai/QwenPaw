@@ -47,6 +47,7 @@ class BaseControlCommandHandler(ABC):
     Example:
         class StopCommandHandler(BaseControlCommandHandler):
             command_name = "/stop"
+            description = "Stop the current task"
 
             async def handle(self, context: ControlContext) -> str:
                 # Implementation
@@ -54,6 +55,9 @@ class BaseControlCommandHandler(ABC):
     """
 
     command_name: str = ""
+    # Human-readable summary, used when advertising commands to clients
+    # (e.g. the ACP ``available_commands_update`` notification).
+    description: str = ""
 
     @abstractmethod
     async def handle(self, context: ControlContext) -> str:

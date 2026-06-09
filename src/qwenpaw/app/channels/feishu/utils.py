@@ -74,56 +74,178 @@ def detect_file_ext(data: bytes, default: str = "bin") -> str:
     return default
 
 
-def extract_post_text(content: Optional[str]) -> Optional[str]:
-    # pylint: disable=too-many-branches
-    """Extract plain text from Feishu post message content."""
+# ---- shared element text extraction ----
+
+# Tags whose "text" (or "content") field should be collected.
+_TEXT_TAGS = frozenset(
+    {
+        "text",
+        "code_block",
+        "md",
+        "plain_text",
+        "lark_md",
+        "markdown",
+        "button",
+    },
+)
+
+# Keys that may contain nested child elements.
+_CHILD_KEYS = ("elements", "columns", "body", "content", "actions")
+
+
+def _collect_select_parts(item: dict, parts: list[str]) -> None:
+    """Extract text from select/overflow/date_picker elements."""
+    placeholder = item.get("placeholder")
+    if isinstance(placeholder, str) and placeholder.strip():
+        parts.append(placeholder.strip())
+    options = item.get("options")
+    if isinstance(options, list):
+        for opt in options:
+            if isinstance(opt, str) and opt.strip():
+                parts.append(opt.strip())
+            elif isinstance(opt, dict):
+                opt_text = opt.get("text") or opt.get("value") or ""
+                if isinstance(opt_text, str) and opt_text.strip():
+                    parts.append(opt_text.strip())
+
+
+def _collect_table_parts(item: dict, parts: list[str]) -> None:
+    """Extract text from a native table component."""
+    columns = item.get("columns") or []
+    col_names = [c.get("name", "") for c in columns if isinstance(c, dict)]
+    headers = [
+        c.get("display_name", "") for c in columns if isinstance(c, dict)
+    ]
+    if headers:
+        parts.append(" | ".join(headers))
+    rows = item.get("rows") or []
+    for row in rows:
+        if isinstance(row, dict):
+            cells = [str(row.get(n, "")) for n in col_names]
+            parts.append(" | ".join(cells))
+
+
+def _collect_link_parts(item: dict, parts: list[str]) -> None:
+    """Extract text from an anchor (a) element."""
+    text = item.get("text", "")
+    href = item.get("href", "")
+    if href:
+        parts.append(f"[{text}]({href})" if text else href)
+    elif text:
+        parts.append(text.strip())
+
+
+def _collect_plain_text(item: dict, parts: list[str]) -> None:
+    """Extract text/content from a tag in _TEXT_TAGS."""
+    text = item.get("text") or item.get("content") or ""
+    if isinstance(text, dict):
+        text = text.get("content") or text.get("text") or ""
+    if isinstance(text, str) and text.strip():
+        parts.append(text.strip())
+
+
+def _collect_text_parts(item: Any, parts: list[str]) -> None:
+    """Recursively visit a Feishu element tree and collect text.
+
+    Handles:
+    * ``list`` -- iterate and recurse.
+    * ``dict`` with ``tag`` -- extract text/link/at based on tag type,
+      then recurse into child keys (*elements*, *columns*, *body*,
+      *content*).
+    * Everything else is silently ignored.
+    """
+    if isinstance(item, list):
+        for sub in item:
+            _collect_text_parts(sub, parts)
+        return
+    if not isinstance(item, dict):
+        return
+
+    tag = item.get("tag", "")
+
+    if tag in _TEXT_TAGS:
+        _collect_plain_text(item, parts)
+    elif tag == "a":
+        _collect_link_parts(item, parts)
+    elif tag == "at":
+        user_name = item.get("user_name") or item.get("user_id")
+        if isinstance(user_name, str) and user_name.strip():
+            parts.append(f"@{user_name.strip()}")
+    elif tag in (
+        "select_static",
+        "select_person",
+        "overflow",
+        "date_picker",
+        "picker_time",
+        "picker_datetime",
+    ):
+        _collect_select_parts(item, parts)
+    elif tag == "table":
+        _collect_table_parts(item, parts)
+
+    # Recurse into nested structures (column_set, column, div, ...)
+    for child_key in _CHILD_KEYS:
+        children = item.get(child_key)
+        if isinstance(children, list):
+            _collect_text_parts(children, parts)
+
+
+def _extract_structured_text(
+    content: Optional[str],
+    blocks_key: str = "content",
+) -> Optional[str]:
+    """Shared parser for post / interactive card content.
+
+    *blocks_key* is the top-level JSON key that holds the element tree
+    (``"content"`` for post messages, ``"elements"`` for interactive cards).
+    """
     if not content:
         return None
     try:
         data = json.loads(content)
     except json.JSONDecodeError:
         return None
-
     if not isinstance(data, dict):
         return None
 
     parts: list[str] = []
 
-    # Extract title if present
     title = data.get("title")
-    if title and isinstance(title, str) and title.strip():
+    header = data.get("header")
+    if isinstance(header, dict):
+        title_obj = header.get("title")
+        if isinstance(title_obj, dict):
+            title = title_obj.get("content") or title
+        elif isinstance(title_obj, str):
+            title = title_obj or title
+    if isinstance(title, str) and title.strip():
         parts.append(title.strip())
 
-    # Extract text from content blocks
-    content_blocks = data.get("content") or []
-    if isinstance(content_blocks, list):
-        for block in content_blocks:
-            if not isinstance(block, list):
-                continue
-            for item in block:
-                if not isinstance(item, dict):
-                    continue
-                tag = item.get("tag")
-                # text, code_block, md tags have text field
-                if tag in {"text", "code_block", "md"}:
-                    text = item.get("text")
-                    if isinstance(text, str) and text.strip():
-                        parts.append(text.strip())
-                # a tag: text + href as markdown link
-                elif tag == "a":
-                    text = item.get("text", "")
-                    href = item.get("href", "")
-                    if href:
-                        parts.append(f"[{text}]({href})" if text else href)
-                    elif text:
-                        parts.append(text.strip())
-                # at tag uses user_name
-                elif tag == "at":
-                    user_name = item.get("user_name") or item.get("user_id")
-                    if isinstance(user_name, str) and user_name.strip():
-                        parts.append(f"@{user_name.strip()}")
+    blocks = data.get(blocks_key) or []
+    # CardKit v2 cards nest elements under "body" (body.elements),
+    # fall back to body-nested key when top-level is empty.
+    if not blocks:
+        body = data.get("body")
+        if isinstance(body, dict):
+            blocks = body.get(blocks_key) or []
+    if isinstance(blocks, list):
+        _collect_text_parts(blocks, parts)
 
     return " ".join(parts) if parts else None
+
+
+def extract_post_text(content: Optional[str]) -> Optional[str]:
+    """Extract plain text from Feishu post message content."""
+    return _extract_structured_text(content, blocks_key="content")
+
+
+def extract_interactive_text(content: Optional[str]) -> Optional[str]:
+    """Extract text from a Feishu interactive card.
+
+    Delegates to the shared ``_extract_structured_text`` with
+    ``blocks_key="elements"``.
+    """
+    return _extract_structured_text(content, blocks_key="elements")
 
 
 def _extract_post_keys(

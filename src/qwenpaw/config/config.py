@@ -243,6 +243,8 @@ class FeishuConfig(BaseChannelConfig):
     domain: 'feishu' for China, 'lark' for international.
     streaming_enabled: enable CardKit streaming card updates for real-time
     typewriter-style text output.
+    share_session_in_group: if True, all group members share one session;
+    if False (default), each member gets an independent session.
     """
 
     app_id: str = ""
@@ -252,6 +254,7 @@ class FeishuConfig(BaseChannelConfig):
     media_dir: Optional[str] = None
     domain: Literal["feishu", "lark"] = "feishu"
     streaming_enabled: bool = False
+    share_session_in_group: bool = False
 
 
 class QQConfig(BaseChannelConfig):
@@ -409,6 +412,19 @@ class XiaoYiConfig(BaseChannelConfig):
     task_timeout_ms: int = 3600000  # 1 hour task timeout
 
 
+class YuanbaoConfig(BaseChannelConfig):
+    """Tencent Yuanbao (元宝) channel config.
+
+    Connects to Yuanbao bot platform via protobuf WebSocket with
+    sign-token authentication. Supports C2C and group messaging.
+    """
+
+    app_id: str = ""
+    app_secret: str = ""
+    api_domain: str = "bot.yuanbao.tencent.com"
+    media_dir: Optional[str] = None
+
+
 class WeChatConfig(BaseChannelConfig):
     """WeChat (iLink Bot) personal account channel config.
 
@@ -455,6 +471,7 @@ class ChannelConfig(BaseModel):
     sip: SIPChannelConfig = SIPChannelConfig()
     wecom: WecomConfig = WecomConfig()
     xiaoyi: XiaoYiConfig = XiaoYiConfig()
+    yuanbao: YuanbaoConfig = YuanbaoConfig()
     wechat: WeChatConfig = WeChatConfig()
     onebot: OneBotConfig = OneBotConfig()
 
@@ -1286,6 +1303,11 @@ class MCPClientConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     cwd: str = ""
+    tools: Optional[List[str]] = Field(
+        default=None,
+        description="Tool whitelist. Only listed tools will be loaded. "
+        "None means load all tools from the server.",
+    )
     oauth: Optional[MCPOAuthConfig] = None
 
     @model_validator(mode="before")
@@ -1521,6 +1543,14 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             enabled=True,
             description="Check the status of a background agent task",
             icon="⏳",
+        ),
+        "spawn_subagent": BuiltinToolConfig(
+            name="spawn_subagent",
+            enabled=True,
+            description=(
+                "Spawn an ephemeral sub-task within the current " "workspace"
+            ),
+            icon="🔀",
         ),
     }
 
@@ -2257,6 +2287,14 @@ def get_model_max_input_length(
     from ..providers import ProviderManager
 
     model_slot = agent_config.active_model
+    # Fallback: if agent.json doesn't have active_model, try ProviderManager
+    if not model_slot or not model_slot.provider_id:
+        try:
+            manager = ProviderManager.get_instance()
+            model_slot = manager.get_active_model()
+        except Exception:
+            pass
+
     if model_slot and model_slot.provider_id and model_slot.model:
         try:
             manager = ProviderManager.get_instance()

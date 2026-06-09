@@ -16,7 +16,13 @@ from agentscope.message import Msg
 from ...constant import MEDIA_UNSUPPORTED_PLACEHOLDER
 from .tool_message_utils import _sanitize_tool_messages
 
-_MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
+# Block types stripped from copied messages during request-time normalization
+# when the target model cannot accept them. ``file`` is included so the
+# OpenAI/Anthropic strip path matches the model-rejection fallback in
+# QwenPawAgent. Note: model_factory._fixup_media_list converts ``file``
+# blocks to text placeholders rather than stripping them — that path
+# preserves user-facing history; this one prepares retryable requests.
+_MEDIA_BLOCK_TYPES = {"image", "audio", "video", "file"}
 
 # Fields that are provider-specific and should not leak across families.
 # Gemini: extra_content carries thought_signature.

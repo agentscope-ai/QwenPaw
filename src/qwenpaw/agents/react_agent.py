@@ -8,6 +8,7 @@ with integrated tools, skills, and memory management.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 from pathlib import Path
@@ -43,6 +44,7 @@ from .tools import (
     delegate_external_agent,
     chat_with_agent,
     check_agent_task,
+    spawn_subagent,
     submit_to_agent,
     desktop_screenshot,
     edit_file,
@@ -301,6 +303,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             "chat_with_agent": chat_with_agent,
             "submit_to_agent": submit_to_agent,
             "check_agent_task": check_agent_task,
+            "spawn_subagent": spawn_subagent,
             # Register only when the `make-skill` skill is enabled.
             **(
                 {"materialize_skill": materialize_skill}
@@ -466,15 +469,17 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
         )
         logger.debug("System prompt:\n%s...", sys_prompt[:100])
 
-        # Inject multimodal capability awareness
-        multimodal_hint = build_multimodal_hint()
-        if multimodal_hint:
-            sys_prompt = sys_prompt + "\n\n" + multimodal_hint
+        from .prompt_builder import PromptBuilder
+        from ..plugins.registry import PluginRegistry
 
-        if self._env_context is not None:
-            sys_prompt = sys_prompt + "\n\n" + self._env_context
-
-        return sys_prompt
+        builder = PromptBuilder(PluginRegistry())
+        return builder.build(
+            agent=self,
+            agent_id=agent_id,
+            workspace=sys_prompt,
+            multimodal=build_multimodal_hint() or "",
+            env_context=self._env_context or "",
+        )
 
     def _register_hooks(self) -> None:
         """Register pre-reasoning and pre-acting hooks."""
@@ -728,10 +733,15 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
 
     # ------------------------------------------------------------------
     # Media-block fallback: strip unsupported media blocks (image, audio,
-    # video) from memory and retry when the model rejects them.
+    # video, file) from memory and retry when the model rejects them.
+    # Unlike model_factory._fixup_media_list (which converts file blocks
+    # to text placeholders so the user-facing message history stays
+    # readable), this fallback strips them entirely — its purpose is to
+    # make a previously-rejected request retryable, so leaving residue
+    # would defeat the point.
     # ------------------------------------------------------------------
 
-    _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
+    _MEDIA_BLOCK_TYPES = {"image", "audio", "video", "file"}
 
     # ------------------------------------------------------------------
     # Plan gate: block non-create_plan tools when /plan gate is active
@@ -1475,3 +1485,13 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
                     "Exception occurred during interrupt cleanup",
                     exc_info=True,
                 )
+
+    async def _broadcast_to_subscribers(self, msg):
+        # agentscope hook wrapper may misidentify an
+        # async bound method as sync, returning an
+        # unawaited coroutine instead of a Msg.
+        if inspect.iscoroutine(msg):
+            msg = await msg
+        elif isinstance(msg, list):
+            msg = [(await m) if inspect.iscoroutine(m) else m for m in msg]
+        await super()._broadcast_to_subscribers(msg)

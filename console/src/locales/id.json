@@ -150,9 +150,10 @@
       }
     },
     "attachments": {
-      "tooltip": "Mendukung dokumen, gambar, video, audio, dan format lain, satu file hingga {{limit}}MB",
-      "tooltipImageOnly": "Model saat ini hanya mendukung unggahan gambar, satu file hingga {{limit}}MB",
-      "tooltipNoMultimodal": "Kemampuan multimodal tidak terdeteksi untuk model saat ini. Gambar atau video mungkin tidak diproses dengan benar. Satu file hingga {{limit}}MB",
+      "tooltip": "Mendukung dokumen, gambar, video, audio, dan format lain",
+      "tooltipImageOnly": "Model saat ini hanya mendukung unggahan gambar",
+      "tooltipNoMultimodal": "Kemampuan multimodal tidak terdeteksi untuk model saat ini. Gambar atau video mungkin tidak diproses dengan benar",
+      "fileSizeLimit": "Satu file hingga {{limit}}MB",
       "fileSizeExceeded": "Ukuran file melebihi batas {{limit}}MB. File saat ini: {{size}}MB",
       "multimodalDisabled": "Model saat ini tidak mendukung unggahan file",
       "multimodalWarning": "Kemampuan multimodal tidak terdeteksi untuk model saat ini, gambar atau video mungkin tidak diproses dengan benar",
@@ -360,6 +361,7 @@
     "addUser": "Tambah",
     "addUserPlaceholder": "Masukkan ID pengguna",
     "userId": "ID Pengguna",
+    "username": "Nama Pengguna",
     "channel": "Kanal",
     "firstMessage": "Pesan Pertama",
     "time": "Waktu",
@@ -377,6 +379,7 @@
     "dismissSuccess": "Diabaikan",
     "operationFailed": "Operasi gagal",
     "remark": "Catatan",
+    "usernamePlaceholder": "Masukkan nama pengguna (opsional)",
     "remarkPlaceholder": "Masukkan catatan (opsional)",
     "filterByChannel": "Filter berdasarkan channel",
     "selectToOperate": "Pilih item untuk operasi",
@@ -466,6 +469,8 @@
     "downloadPreparing": "Mempersiapkan unduhan workspace...",
     "downloadSuccess": "Workspace berhasil diunduh",
     "downloadFailed": "Gagal mengunduh workspace",
+    "uploadTooltip": "Hanya file ZIP",
+    "uploadTooltipWithLimit": "Hanya file ZIP, maks {{limit}}MB",
     "zipOnly": "Hanya file .zip yang didukung untuk unggahan",
     "saveSuccess": "Berhasil disimpan",
     "saveFailed": "Gagal menyimpan"

@@ -362,6 +362,20 @@ class DingTalkChannel(BaseChannel):
             return short_session_id_from_conversation_id(cid)
         return f"{self.channel}:{sender_id}"
 
+    def get_debounce_key(self, payload: Any) -> str:
+        """Queue routing key with sender isolation.
+
+        Appends sender_id to the base session key so that messages
+        from different users whose conversation_id share the same
+        suffix are routed to separate queues and never merged.
+        """
+        base_key = super().get_debounce_key(payload)
+        if isinstance(payload, dict):
+            sender_id = payload.get("sender_id") or ""
+            if sender_id:
+                return f"{base_key}:{sender_id}"
+        return base_key
+
     def build_agent_request_from_native(
         self,
         native_payload: Any,
@@ -2071,7 +2085,7 @@ class DingTalkChannel(BaseChannel):
             and send_meta.get("sender_staff_id", "")
         ):
             at_id = send_meta["sender_staff_id"]
-            at_nick = send_meta.get("sender_nick", "") or at_id
+            at_nick = send_meta.get("user_name", "") or at_id
             return f"<a atId={at_id}>{at_nick}</a>\n"
         return ""
 
@@ -2380,6 +2394,7 @@ class DingTalkChannel(BaseChannel):
         out = {
             "channel_id": first.get("channel_id") or self.channel,
             "sender_id": first.get("sender_id") or "",
+            "acl_sender_id": first.get("acl_sender_id") or "",
             "content_parts": merged_parts,
             "meta": merged_meta,
         }

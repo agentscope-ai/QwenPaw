@@ -87,6 +87,66 @@ def _validate_executable_path(executable_path: str) -> None:
         )
 
 
+def _browser_type_from_exe(exe_path: str) -> str:
+    """Infer browser type keyword from an executable path (lowercase)."""
+    if not exe_path:
+        return ""
+    name = Path(exe_path).name.lower()
+    for browser_type in (
+        "edge",
+        "chromium",
+        "chrome",
+        "brave",
+        "vivaldi",
+        "opera",
+        "firefox",
+        "360se",
+        "yandex",
+        "tor",
+    ):
+        if browser_type in name:
+            return browser_type
+    return ""
+
+
+def _workspace_dir_for_browser_state(state: dict) -> str:
+    """Return a usable workspace directory for browser profile storage."""
+    workspace_dir = state.get("workspace_dir")
+    if workspace_dir:
+        return str(workspace_dir)
+    current_workspace = get_current_workspace_dir()
+    if current_workspace:
+        return str(current_workspace)
+    return str(WORKING_DIR)
+
+
+def _resolve_user_data_dir(
+    workspace_dir: str,
+    exe_path: str,
+    explicit_executable_path: bool = False,
+) -> str:
+    """Return the user-data directory for a browser launch.
+
+    * No explicit executable_path → ``{workspace}/browser/user_data``
+    * Explicit executable_path    → ``{workspace}/browser/user_data_{type}``
+
+    Keeping the implicit/default launch on the legacy directory preserves
+    existing users' cookies and sessions. Explicit browser paths get isolated
+    profiles to avoid profile-format conflicts when switching browsers.
+    """
+    if not workspace_dir:
+        return ""
+    base = Path(workspace_dir) / "browser"
+    if not explicit_executable_path:
+        return str(base / "user_data")
+
+    browser_type = _browser_type_from_exe(exe_path)
+    if not browser_type:
+        return str(base / "user_data")
+
+    return str(base / f"user_data_{browser_type}")
+
+
 def _resolve_output_path(path: str) -> str:
     """Resolve relative output paths under workspace_dir/browser/."""
     if Path(path).is_absolute():
@@ -461,6 +521,12 @@ def _sync_browser_launch(
         extra_args.append(f"--remote-debugging-port={cdp_port}")
 
     if exe:
+        ws_dir = _workspace_dir_for_browser_state(state)
+        state["user_data_dir"] = _resolve_user_data_dir(
+            ws_dir,
+            exe,
+            explicit_executable_path=bool(executable_path),
+        )
         user_data_dir = state["user_data_dir"]
         if user_data_dir:
             Path(user_data_dir).mkdir(parents=True, exist_ok=True)
@@ -536,7 +602,7 @@ def _find_free_local_port() -> int:
 
 async def _wait_for_cdp_ready(
     port: int,
-    timeout: float = 15.0,
+    timeout: float = _CDP_CONNECT_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     deadline = time.monotonic() + timeout
     last_error: Optional[Exception] = None
@@ -559,6 +625,7 @@ async def _start_managed_cdp_browser(
     ensure_pages: bool = False,
     browser_args: str = "",
     executable_path: str = "",
+    wait_time: float = 0,
 ) -> None:
     default_kind, exe = _resolve_chromium_launch_target()
     if executable_path:
@@ -575,6 +642,13 @@ async def _start_managed_cdp_browser(
             "but none was found.",
         )
 
+    ws_dir = _workspace_dir_for_browser_state(state)
+    state["user_data_dir"] = _resolve_user_data_dir(
+        ws_dir,
+        exe,
+        explicit_executable_path=bool(executable_path),
+    )
+
     chosen_cdp_port = cdp_port or _find_free_local_port()
     proc = _start_managed_chromium_process(
         executable_path=exe,
@@ -585,7 +659,12 @@ async def _start_managed_cdp_browser(
     )
     pw = None
     try:
-        await _wait_for_cdp_ready(chosen_cdp_port)
+        await _wait_for_cdp_ready(
+            chosen_cdp_port,
+            timeout=wait_time
+            if wait_time > 0
+            else _CDP_CONNECT_TIMEOUT_SECONDS,
+        )
         async_playwright = _ensure_playwright_async()
         pw = await async_playwright().start()
         browser = await pw.chromium.connect_over_cdp(
@@ -966,6 +1045,7 @@ async def _ensure_browser(
                     ensure_pages=True,
                     browser_args=state.get("_browser_args", ""),
                     executable_path=state.get("_executable_path", ""),
+                    wait_time=state.get("_wait_time", 0),
                 )
             except Exception:
                 await _action_start(
@@ -974,6 +1054,7 @@ async def _ensure_browser(
                     private_mode=True,
                     browser_args=state.get("_browser_args", ""),
                     executable_path=state.get("_executable_path", ""),
+                    wait_time=state.get("_wait_time", 0),
                 )
         state["_last_browser_error"] = None
         _touch_activity(state)
@@ -1015,6 +1096,7 @@ async def _action_start(
     private_mode: bool = False,
     browser_args: str = "",
     executable_path: str = "",
+    wait_time: float = 0,
 ) -> ToolResponse:
     _validate_executable_path(executable_path)
     # Check browser state based on mode
@@ -1093,6 +1175,7 @@ async def _action_start(
                 ensure_pages=True,
                 browser_args=browser_args,
                 executable_path=executable_path,
+                wait_time=wait_time,
             )
         elif _USE_SYNC_PLAYWRIGHT:
             loop = asyncio.get_event_loop()
@@ -1131,6 +1214,12 @@ async def _action_start(
 
             if exe:
                 # Use persistent context so cookies/storage survive browser restarts
+                ws_dir = _workspace_dir_for_browser_state(state)
+                state["user_data_dir"] = _resolve_user_data_dir(
+                    ws_dir,
+                    exe,
+                    explicit_executable_path=bool(executable_path),
+                )
                 user_data_dir = state["user_data_dir"]
                 if user_data_dir:
                     Path(user_data_dir).mkdir(parents=True, exist_ok=True)
@@ -1192,6 +1281,7 @@ async def _action_start(
         # Store launch config for _ensure_browser fallback restarts
         state["_browser_args"] = browser_args
         state["_executable_path"] = executable_path
+        state["_wait_time"] = wait_time
         msg = (
             "Browser started (visible window)"
             if not state["headless"]
@@ -1221,12 +1311,18 @@ async def _action_start(
             json.dumps(result, ensure_ascii=False, indent=2),
         )
     except Exception as e:
+        user_data_dir = state.get("user_data_dir", "")
+        error_payload: dict[str, Any] = {
+            "ok": False,
+            "error": f"Browser start failed: {e!s}",
+        }
+        if user_data_dir:
+            error_payload["hint"] = (
+                "If this error is caused by incompatible browser profile data, "
+                f"try deleting the user data directory and retrying: {user_data_dir}"
+            )
         return _tool_response(
-            json.dumps(
-                {"ok": False, "error": f"Browser start failed: {e!s}"},
-                ensure_ascii=False,
-                indent=2,
-            ),
+            json.dumps(error_payload, ensure_ascii=False, indent=2),
         )
 
 
@@ -1592,12 +1688,14 @@ async def _action_screenshot(
         )
 
 
-async def _action_click(  # pylint: disable=too-many-branches
+async def _action_click(  # pylint: disable=too-many-branches,too-many-return-statements
     state: dict,
     page_id: str,
     selector: str,
     ref: str = "",
     element: str = "",  # pylint: disable=unused-argument
+    page_x: int = -1,
+    page_y: int = -1,
     wait: int = 0,
     double_click: bool = False,
     button: str = "left",
@@ -1606,14 +1704,38 @@ async def _action_click(  # pylint: disable=too-many-branches
 ) -> ToolResponse:
     ref = (ref or "").strip()
     selector = (selector or "").strip()
+    has_any_coord = page_x != -1 or page_y != -1
+    coords_are_int = isinstance(page_x, int) and isinstance(page_y, int)
+    has_page_xy = coords_are_int and page_x >= 0 and page_y >= 0
     if not ref and not selector:
-        return _tool_response(
-            json.dumps(
-                {"ok": False, "error": "selector or ref required for click"},
-                ensure_ascii=False,
-                indent=2,
-            ),
-        )
+        if has_any_coord and (not coords_are_int or page_x < 0 or page_y < 0):
+            return _tool_response(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": (
+                            "page_x and page_y must both be non-negative"
+                            " integers for coordinate click"
+                        ),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+        if not has_page_xy:
+            return _tool_response(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": (
+                            "selector or ref required for click, or provide both"
+                            " page_x and page_y"
+                        ),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -1629,17 +1751,21 @@ async def _action_click(  # pylint: disable=too-many-branches
         mods = _parse_json_param(modifiers_json, [])
         if not isinstance(mods, list):
             mods = []
-        kwargs = {
+        click_kwargs = {
             "button": (
                 button if button in ("left", "right", "middle") else "left"
             ),
         }
         if mods:
-            kwargs["modifiers"] = [
+            click_kwargs["modifiers"] = [
                 m
                 for m in mods
                 if m in ("Alt", "Control", "ControlOrMeta", "Meta", "Shift")
             ]
+        mouse_kwargs = {
+            "button": click_kwargs["button"],
+            "click_count": 2 if double_click else 1,
+        }
 
         if _USE_SYNC_PLAYWRIGHT:
             loop = asyncio.get_event_loop()
@@ -1662,26 +1788,35 @@ async def _action_click(  # pylint: disable=too-many-branches
                 if double_click:
                     await loop.run_in_executor(
                         _get_executor(),
-                        lambda: locator.dblclick(**kwargs),
+                        lambda: locator.dblclick(**click_kwargs),
                     )
                 else:
                     await loop.run_in_executor(
                         _get_executor(),
-                        lambda: locator.click(**kwargs),
+                        lambda: locator.click(**click_kwargs),
                     )
-            else:
+            elif selector:
                 root = _get_root(page, frame_selector)
                 locator = root.locator(selector).first
                 if double_click:
                     await loop.run_in_executor(
                         _get_executor(),
-                        lambda: locator.dblclick(**kwargs),
+                        lambda: locator.dblclick(**click_kwargs),
                     )
                 else:
                     await loop.run_in_executor(
                         _get_executor(),
-                        lambda: locator.click(**kwargs),
+                        lambda: locator.click(**click_kwargs),
                     )
+            else:
+                await loop.run_in_executor(
+                    _get_executor(),
+                    lambda: page.mouse.click(
+                        page_x,
+                        page_y,
+                        **mouse_kwargs,
+                    ),
+                )
         else:
             # Standard async mode
             if ref:
@@ -1701,20 +1836,33 @@ async def _action_click(  # pylint: disable=too-many-branches
                         ),
                     )
                 if double_click:
-                    await locator.dblclick(**kwargs)
+                    await locator.dblclick(**click_kwargs)
                 else:
-                    await locator.click(**kwargs)
-            else:
+                    await locator.click(**click_kwargs)
+            elif selector:
                 root = _get_root(page, frame_selector)
                 locator = root.locator(selector).first
                 if double_click:
-                    await locator.dblclick(**kwargs)
+                    await locator.dblclick(**click_kwargs)
                 else:
-                    await locator.click(**kwargs)
+                    await locator.click(**click_kwargs)
+            else:
+                await page.mouse.click(
+                    page_x,
+                    page_y,
+                    **mouse_kwargs,
+                )
 
         return _tool_response(
             json.dumps(
-                {"ok": True, "message": f"Clicked {ref or selector}"},
+                {
+                    "ok": True,
+                    "message": (
+                        f"Clicked {ref or selector}"
+                        if (ref or selector)
+                        else f"Clicked page coordinate ({page_x}, {page_y})"
+                    ),
+                },
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -3724,6 +3872,8 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
                     selector=(act.get("selector") or "").strip(),
                     ref=(act.get("ref") or "").strip(),
                     element=act.get("element", ""),
+                    page_x=act.get("page_x", -1),
+                    page_y=act.get("page_y", -1),
                     wait=act.get("wait", 0),
                     double_click=act.get("double_click", False),
                     button=act.get("button", "left"),
@@ -3966,7 +4116,11 @@ async def _action_list_cdp_targets(
     )
 
 
-async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
+async def _action_connect_cdp(
+    state: dict,
+    cdp_url: str,
+    wait_time: float = 0,
+) -> ToolResponse:
     """Connect Playwright to a running Chrome via CDP."""
     if not cdp_url:
         return _tool_response(
@@ -4012,7 +4166,9 @@ async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
         pw = await async_playwright().start()
         browser = await asyncio.wait_for(
             pw.chromium.connect_over_cdp(cdp_url),
-            timeout=_CDP_CONNECT_TIMEOUT_SECONDS,
+            timeout=wait_time
+            if wait_time > 0
+            else _CDP_CONNECT_TIMEOUT_SECONDS,
         )
         contexts = browser.contexts
         if contexts:
@@ -4055,6 +4211,9 @@ async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
             ),
         )
     except asyncio.TimeoutError:
+        actual_timeout = (
+            wait_time if wait_time > 0 else _CDP_CONNECT_TIMEOUT_SECONDS
+        )
         await _stop_playwright_instance(pw)
         return _tool_response(
             json.dumps(
@@ -4062,7 +4221,7 @@ async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
                     "ok": False,
                     "error": (
                         "CDP connect timed out after "
-                        f"{_CDP_CONNECT_TIMEOUT_SECONDS:g}s: {cdp_url}"
+                        f"{actual_timeout:g}s: {cdp_url}"
                     ),
                 },
                 ensure_ascii=False,
@@ -4185,6 +4344,8 @@ async def browser_use(  # pylint: disable=R0911,R0912
     double_click: bool = False,
     button: str = "left",
     modifiers_json: str = "",
+    page_x: int = -1,
+    page_y: int = -1,
     start_ref: str = "",
     end_ref: str = "",
     start_selector: str = "",
@@ -4247,7 +4408,8 @@ async def browser_use(  # pylint: disable=R0911,R0912
             multiple tabs.
         selector (str):
             CSS selector to locate element for click/type/hover etc. Prefer
-            ref when available.
+            ref when available. For action=click, selector/ref take precedence
+            over page_x/page_y when both are provided.
         text (str):
             Text to type. Required for action=type.
         code (str):
@@ -4311,6 +4473,17 @@ async def browser_use(  # pylint: disable=R0911,R0912
         modifiers_json (str):
             JSON array of modifier keys, e.g. ["Shift","Control"]. Used with
             action=click.
+        page_x (int):
+            Page viewport X coordinate in pixels for action=click. Used only
+            when neither ref nor selector is provided. Designed for
+            Canvas/WebGL UIs where no DOM sub-elements exist — coordinates
+            can be estimated from screenshots or computed via
+            action=evaluate for pixel-precise targeting.
+        page_y (int):
+            Page viewport Y coordinate in pixels for action=click. See
+            page_x for usage guidance.
+            Coordinate click uses page.mouse.click; it supports button and
+            double_click but not modifiers_json.
         start_ref (str):
             Drag start element ref. Used with action=drag.
         end_ref (str):
@@ -4332,9 +4505,10 @@ async def browser_use(  # pylint: disable=R0911,R0912
         index (int):
             Tab index for tabs select, zero-based. Used with action=tabs.
         wait_time (float):
-            Seconds to wait. Used with action=wait_for and as the download
-            event timeout for action=file_download. Defaults to 30 seconds for
-            file_download when omitted.
+            Seconds to wait. Used with action=wait_for, as the download
+            event timeout for action=file_download (defaults to 30s), and
+            as the CDP connection timeout for action=start and connect_cdp
+            (defaults to 30s). Increase for slower browser initialization.
         text_gone (str):
             Wait until this text disappears from page. Used with
             action=wait_for.
@@ -4373,7 +4547,9 @@ async def browser_use(  # pylint: disable=R0911,R0912
             "wait" (seconds to wait after the action), "stop_on_error"
             (bool, default True). Example:
             [{"action": "navigate", "url": "https://example.com"},
-             {"action": "click", "ref": "e1"}, {"action": "type", "ref": "e2", "text": "hello"}].
+             {"action": "click", "ref": "e1"},
+             {"action": "click", "page_x": 400, "page_y": 240},
+             {"action": "type", "ref": "e2", "text": "hello"}].
         cdp_url (str):
             CDP base URL, e.g. "http://localhost:9222". Required for
             action=connect_cdp.
@@ -4420,11 +4596,16 @@ async def browser_use(  # pylint: disable=R0911,R0912
                 private_mode=private_mode,
                 browser_args=browser_args,
                 executable_path=executable_path,
+                wait_time=wait_time,
             )
         if action == "stop":
             return await _action_stop(state)
         if action == "connect_cdp":
-            return await _action_connect_cdp(state, cdp_url)
+            return await _action_connect_cdp(
+                state,
+                cdp_url,
+                wait_time=wait_time,
+            )
         if action == "list_cdp_targets":
             return await _action_list_cdp_targets(port, port_min, port_max)
         if action == "open":
@@ -4458,6 +4639,8 @@ async def browser_use(  # pylint: disable=R0911,R0912
                 selector,
                 ref,
                 element,
+                page_x,
+                page_y,
                 wait,
                 double_click,
                 button,

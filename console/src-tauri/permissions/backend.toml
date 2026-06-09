@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "backend"
+description = "Allows the bootstrap page to monitor and restart the bundled backend sidecar."
+commands.allow = ["backend_port", "backend_startup_error", "restart_backend"]

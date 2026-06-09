@@ -390,6 +390,7 @@ class WecomChannel(BaseChannel):
                 "sender_id",
                 first.get("sender_id", ""),
             ),
+            "acl_sender_id": first.get("acl_sender_id") or "",
             "user_id": last.get("user_id", first.get("user_id", "")),
             "session_id": last.get(
                 "session_id",
@@ -682,6 +683,7 @@ class WecomChannel(BaseChannel):
                 "wecom_chat_type": chat_type,
                 "wecom_frame": frame,
                 "is_group": is_group,
+                "user_name": sender_id,
             }
 
             session_id = self.resolve_session_id(sender_id, meta)

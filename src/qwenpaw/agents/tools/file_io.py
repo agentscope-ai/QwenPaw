@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
+import aiofiles
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
@@ -232,8 +233,8 @@ async def write_file(
     encoding = _get_encoding_for_file(file_path)
 
     try:
-        with open(file_path, "w", encoding=encoding) as file:
-            file.write(content)
+        async with aiofiles.open(file_path, "w", encoding=encoding) as file:
+            await file.write(content)
         return ToolResponse(
             content=[
                 TextBlock(
@@ -374,8 +375,8 @@ async def append_file(
     encoding = _get_encoding_for_file(file_path)
 
     try:
-        with open(file_path, "a", encoding=encoding) as file:
-            file.write(content)
+        async with aiofiles.open(file_path, "a", encoding=encoding) as file:
+            await file.write(content)
         return ToolResponse(
             content=[
                 TextBlock(

@@ -15,6 +15,8 @@ import { codingProjectApi } from "../../api/modules/codingProject";
 import { useWorkspaceWatch } from "../../hooks/useWorkspaceWatch";
 import { useProjectDir } from "../../stores/codingModeStore";
 import { useCodeFileCacheStore } from "../../stores/codeFileCacheStore";
+import { useCodingTabsStore } from "../../stores/codingTabsStore";
+import { useAgentStore } from "../../stores/agentStore";
 import ProjectSelectModal from "../../components/ProjectSelectModal";
 import type { MdFileInfo } from "../../api/types";
 import styles from "./FileTree.module.less";
@@ -399,9 +401,14 @@ export default function FileTree({ onFileSelect }: FileTreeProps) {
     [onFileSelect],
   );
 
+  const { selectedAgent } = useAgentStore();
+  const { clearAgent } = useCodingTabsStore();
+
   const handleProjectConfirm = (_path: string | null) => {
     setProjectModalOpen(false);
-    // Reload file tree after project switch
+    // Clear editor tabs from the previous project so stale files don't linger
+    clearAgent(selectedAgent);
+    // Reload file tree for the new project
     void load();
   };
 

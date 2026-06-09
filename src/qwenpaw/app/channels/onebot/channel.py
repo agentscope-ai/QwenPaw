@@ -245,7 +245,11 @@ class OneBotChannel(BaseChannel):
         await self._stop_ws_server()
 
     async def _start_ws_server(self) -> None:
-        """Create and start the aiohttp WebSocket server."""
+        """Create and start the aiohttp WebSocket server.
+
+        On port conflict (e.g. during reload), defers to watchdog
+        for automatic recovery instead of blocking.
+        """
         self._app = web.Application()
         self._app.router.add_get("/ws", self._handle_ws_connection)
         self._app.router.add_get("/ws/", self._handle_ws_connection)
@@ -256,12 +260,29 @@ class OneBotChannel(BaseChannel):
             self._ws_host,
             self._ws_port,
         )
-        await self._site.start()
-        logger.info(
-            "onebot: reverse WS server listening on %s:%s",
-            self._ws_host,
-            self._ws_port,
-        )
+        try:
+            await self._site.start()
+            logger.info(
+                "onebot: reverse WS server listening on %s:%s",
+                self._ws_host,
+                self._ws_port,
+            )
+        except OSError:
+            logger.warning(
+                "onebot: port %s:%s in use, watchdog will retry "
+                "once the old instance releases it",
+                self._ws_host,
+                self._ws_port,
+            )
+            # Clean up the failed attempt so watchdog sees
+            # _site as None and triggers a restart.
+            self._site = None
+            try:
+                await self._runner.cleanup()
+            except Exception:
+                pass
+            self._runner = None
+            self._app = None
 
     async def _stop_ws_server(self) -> None:
         """Tear down the WebSocket server and clean up connections."""
@@ -473,7 +494,7 @@ class OneBotChannel(BaseChannel):
             "message_type": message_type,
             "message_id": message_id,
             "sender_id": user_id,
-            "sender_name": sender_name,
+            "user_name": sender_name,
             "group_id": group_id if is_group else "",
             "is_group": is_group,
             "bot_mentioned": bot_mentioned,
