@@ -5,14 +5,11 @@ from __future__ import annotations
 import pytest
 
 from qwenpaw.local_models.tag_parser import (
-    TextWithThinking,
-    TextWithToolCalls,
     extract_thinking_from_text,
     parse_tool_calls_from_text,
     text_contains_think_tag,
     text_contains_tool_call_tag,
 )
-
 
 # ---------------------------------------------------------------------------
 # text_contains_think_tag
@@ -104,9 +101,9 @@ def test_text_contains_tool_call_tag(text: str, expected: bool) -> None:
 
 def test_parse_json_tool_call() -> None:
     text = (
-        'before<tool_call>\n'
+        "before<tool_call>\n"
         '{"name": "get_weather", "arguments": {"city": "NYC"}}\n'
-        '</tool_call>after'
+        "</tool_call>after"
     )
     result = parse_tool_calls_from_text(text)
     assert result.text_before == "before"
@@ -121,9 +118,9 @@ def test_parse_json_tool_call() -> None:
 
 def test_parse_json_tool_call_string_arguments() -> None:
     text = (
-        '<tool_call>'
+        "<tool_call>"
         '{"name": "func", "arguments": "{\\"key\\": \\"val\\"}"}'
-        '</tool_call>'
+        "</tool_call>"
     )
     result = parse_tool_calls_from_text(text)
     assert len(result.tool_calls) == 1
@@ -156,10 +153,10 @@ def test_parse_multiple_tool_calls() -> None:
 
 def test_parse_xml_tool_call_strict() -> None:
     xml_body = (
-        '<function=search>\n'
-        '<parameter=query>hello</parameter>\n'
-        '<parameter=limit>10</parameter>\n'
-        '</function>'
+        "<function=search>\n"
+        "<parameter=query>hello</parameter>\n"
+        "<parameter=limit>10</parameter>\n"
+        "</function>"
     )
     text = f"<tool_call>{xml_body}</tool_call>"
     result = parse_tool_calls_from_text(text)
@@ -171,9 +168,9 @@ def test_parse_xml_tool_call_strict() -> None:
 
 def test_parse_xml_tool_call_lenient_no_closing() -> None:
     xml_body = (
-        '<function=do_stuff>\n'
-        '<parameter=arg1>value1\n'
-        '<parameter=arg2>value2\n'
+        "<function=do_stuff>\n"
+        "<parameter=arg1>value1\n"
+        "<parameter=arg2>value2\n"
     )
     text = f"<tool_call>{xml_body}</tool_call>"
     result = parse_tool_calls_from_text(text)
@@ -201,7 +198,7 @@ def test_parse_open_tag_no_complete_blocks() -> None:
 def test_parse_complete_blocks_plus_trailing_open() -> None:
     text = (
         '<tool_call>{"name":"a","arguments":{}}</tool_call>'
-        '<tool_call>still streaming'
+        "<tool_call>still streaming"
     )
     result = parse_tool_calls_from_text(text)
     assert len(result.tool_calls) == 1
@@ -213,7 +210,7 @@ def test_parse_complete_blocks_plus_trailing_open() -> None:
 def test_parse_no_tags() -> None:
     result = parse_tool_calls_from_text("plain text no tags")
     assert result.text_before == "plain text no tags"
-    assert result.tool_calls == []
+    assert not result.tool_calls
     assert result.has_open_tag is False
     assert result.partial_tool_text == ""
 

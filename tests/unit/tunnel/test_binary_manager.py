@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import stat
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 import qwenpaw.tunnel.binary_manager as bm_module
 from qwenpaw.tunnel.binary_manager import BinaryManager, _download_file
-
 
 # ---------------------------------------------------------------------------
 # BinaryManager.get_binary_path — PATH lookup

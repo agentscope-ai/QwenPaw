@@ -1,17 +1,15 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,redefined-outer-name
 from __future__ import annotations
 
 import pytest
 
 from qwenpaw.providers.capability_baseline import (
-    ComparisonSummary,
-    DiscrepancyLog,
     ExpectedCapability,
     ExpectedCapabilityRegistry,
     compare_probe_result,
     generate_summary,
 )
-
 
 # ---------------------------------------------------------------------------
 # ExpectedCapabilityRegistry
@@ -53,7 +51,7 @@ def test_registry_get_expected_not_found(
 def test_registry_get_all_for_provider_empty(
     registry: ExpectedCapabilityRegistry,
 ) -> None:
-    assert registry.get_all_for_provider("no_such_provider") == []
+    assert not registry.get_all_for_provider("no_such_provider")
 
 
 def test_registry_get_all_for_provider_filters() -> None:
@@ -110,13 +108,23 @@ def test_registry_register_overwrites() -> None:
 
 
 def test_compare_no_discrepancy() -> None:
-    cap = ExpectedCapability("p", "m", expected_image=True, expected_video=False)
+    cap = ExpectedCapability(
+        "p",
+        "m",
+        expected_image=True,
+        expected_video=False,
+    )
     logs = compare_probe_result(cap, actual_image=True, actual_video=False)
-    assert logs == []
+    assert not logs
 
 
 def test_compare_false_negative() -> None:
-    cap = ExpectedCapability("p", "m", expected_image=True, expected_video=None)
+    cap = ExpectedCapability(
+        "p",
+        "m",
+        expected_image=True,
+        expected_video=None,
+    )
     logs = compare_probe_result(cap, actual_image=False, actual_video=False)
     assert len(logs) == 1
     assert logs[0].field == "image"
@@ -126,7 +134,12 @@ def test_compare_false_negative() -> None:
 
 
 def test_compare_false_positive() -> None:
-    cap = ExpectedCapability("p", "m", expected_image=False, expected_video=None)
+    cap = ExpectedCapability(
+        "p",
+        "m",
+        expected_image=False,
+        expected_video=None,
+    )
     logs = compare_probe_result(cap, actual_image=True, actual_video=True)
     assert len(logs) == 1
     assert logs[0].field == "image"
@@ -134,13 +147,23 @@ def test_compare_false_positive() -> None:
 
 
 def test_compare_none_expected_skips() -> None:
-    cap = ExpectedCapability("p", "m", expected_image=None, expected_video=None)
+    cap = ExpectedCapability(
+        "p",
+        "m",
+        expected_image=None,
+        expected_video=None,
+    )
     logs = compare_probe_result(cap, actual_image=True, actual_video=True)
-    assert logs == []
+    assert not logs
 
 
 def test_compare_both_fields_discrepant() -> None:
-    cap = ExpectedCapability("p", "m", expected_image=True, expected_video=True)
+    cap = ExpectedCapability(
+        "p",
+        "m",
+        expected_image=True,
+        expected_video=True,
+    )
     logs = compare_probe_result(cap, actual_image=False, actual_video=False)
     assert len(logs) == 2
     fields = {log.field for log in logs}
@@ -153,7 +176,12 @@ def test_compare_both_fields_discrepant() -> None:
 
 
 def test_generate_summary_counts() -> None:
-    cap = ExpectedCapability("p", "m", expected_image=True, expected_video=None)
+    cap = ExpectedCapability(
+        "p",
+        "m",
+        expected_image=True,
+        expected_video=None,
+    )
     results = [
         (cap, True, False, "ok"),
         (cap, False, False, "discrepancy"),
@@ -170,11 +198,16 @@ def test_generate_summary_empty() -> None:
     summary = generate_summary([])
     assert summary.total_models == 0
     assert summary.passed == 0
-    assert summary.details == []
+    assert not summary.details
 
 
 def test_generate_summary_details_populated() -> None:
-    cap = ExpectedCapability("p", "m", expected_image=True, expected_video=None)
+    cap = ExpectedCapability(
+        "p",
+        "m",
+        expected_image=True,
+        expected_video=None,
+    )
     results = [
         (cap, False, False, "discrepancy"),
     ]

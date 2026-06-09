@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -14,14 +13,12 @@ import qwenpaw.utils.telemetry as telemetry_module
 from qwenpaw.utils.telemetry import (
     TELEMETRY_MARKER_FILE,
     _detect_gpu,
-    _get_current_version,
     _safe_get,
     collect_and_upload_telemetry,
     has_telemetry_been_collected,
     is_telemetry_opted_out,
     mark_telemetry_collected,
 )
-
 
 # ---------------------------------------------------------------------------
 # _safe_get
@@ -56,13 +53,19 @@ def test_has_collected_v13_format_current_version(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(telemetry_module, "_get_current_version", lambda: "1.0.0")
+    monkeypatch.setattr(
+        telemetry_module,
+        "_get_current_version",
+        lambda: "1.0.0",
+    )
     marker = tmp_path / TELEMETRY_MARKER_FILE
     marker.write_text(
-        json.dumps({
-            "collected_versions": ["1.0.0"],
-            "version": "1.3",
-        }),
+        json.dumps(
+            {
+                "collected_versions": ["1.0.0"],
+                "version": "1.3",
+            },
+        ),
     )
     assert has_telemetry_been_collected(tmp_path) is True
 
@@ -71,13 +74,19 @@ def test_has_collected_v13_format_different_version(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(telemetry_module, "_get_current_version", lambda: "2.0.0")
+    monkeypatch.setattr(
+        telemetry_module,
+        "_get_current_version",
+        lambda: "2.0.0",
+    )
     marker = tmp_path / TELEMETRY_MARKER_FILE
     marker.write_text(
-        json.dumps({
-            "collected_versions": ["1.0.0"],
-            "version": "1.3",
-        }),
+        json.dumps(
+            {
+                "collected_versions": ["1.0.0"],
+                "version": "1.3",
+            },
+        ),
     )
     assert has_telemetry_been_collected(tmp_path) is False
 
@@ -86,7 +95,11 @@ def test_has_collected_v11_compat(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(telemetry_module, "_get_current_version", lambda: "0.5.0")
+    monkeypatch.setattr(
+        telemetry_module,
+        "_get_current_version",
+        lambda: "0.5.0",
+    )
     marker = tmp_path / TELEMETRY_MARKER_FILE
     marker.write_text(json.dumps({"qwenpaw_version": "0.5.0"}))
     assert has_telemetry_been_collected(tmp_path) is True
@@ -134,7 +147,11 @@ def test_mark_collected_creates_marker(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(telemetry_module, "_get_current_version", lambda: "1.0.0")
+    monkeypatch.setattr(
+        telemetry_module,
+        "_get_current_version",
+        lambda: "1.0.0",
+    )
     mark_telemetry_collected(tmp_path)
     marker = tmp_path / TELEMETRY_MARKER_FILE
     assert marker.exists()
@@ -150,13 +167,19 @@ def test_mark_collected_appends_version(
 ) -> None:
     marker = tmp_path / TELEMETRY_MARKER_FILE
     marker.write_text(
-        json.dumps({
-            "collected_versions": ["0.9.0"],
-            "opted_out": False,
-            "version": "1.3",
-        }),
+        json.dumps(
+            {
+                "collected_versions": ["0.9.0"],
+                "opted_out": False,
+                "version": "1.3",
+            },
+        ),
     )
-    monkeypatch.setattr(telemetry_module, "_get_current_version", lambda: "1.0.0")
+    monkeypatch.setattr(
+        telemetry_module,
+        "_get_current_version",
+        lambda: "1.0.0",
+    )
     mark_telemetry_collected(tmp_path)
     data = json.loads(marker.read_text())
     assert "0.9.0" in data["collected_versions"]
@@ -169,7 +192,11 @@ def test_mark_collected_v11_migration(
 ) -> None:
     marker = tmp_path / TELEMETRY_MARKER_FILE
     marker.write_text(json.dumps({"qwenpaw_version": "0.5.0"}))
-    monkeypatch.setattr(telemetry_module, "_get_current_version", lambda: "1.0.0")
+    monkeypatch.setattr(
+        telemetry_module,
+        "_get_current_version",
+        lambda: "1.0.0",
+    )
     mark_telemetry_collected(tmp_path)
     data = json.loads(marker.read_text())
     assert "0.5.0" in data["collected_versions"]
@@ -181,8 +208,14 @@ def test_mark_collected_preserves_opt_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     marker = tmp_path / TELEMETRY_MARKER_FILE
-    marker.write_text(json.dumps({"opted_out": True, "collected_versions": []}))
-    monkeypatch.setattr(telemetry_module, "_get_current_version", lambda: "1.0.0")
+    marker.write_text(
+        json.dumps({"opted_out": True, "collected_versions": []}),
+    )
+    monkeypatch.setattr(
+        telemetry_module,
+        "_get_current_version",
+        lambda: "1.0.0",
+    )
     mark_telemetry_collected(tmp_path)
     data = json.loads(marker.read_text())
     assert data["opted_out"] is True
@@ -192,7 +225,11 @@ def test_mark_collected_opt_out_flag(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(telemetry_module, "_get_current_version", lambda: "1.0.0")
+    monkeypatch.setattr(
+        telemetry_module,
+        "_get_current_version",
+        lambda: "1.0.0",
+    )
     mark_telemetry_collected(tmp_path, opted_out=True)
     data = json.loads((tmp_path / TELEMETRY_MARKER_FILE).read_text())
     assert data["opted_out"] is True
@@ -240,8 +277,16 @@ def test_collect_and_upload_success(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(telemetry_module, "_get_current_version", lambda: "1.0.0")
-    monkeypatch.setattr(telemetry_module, "_upload_telemetry_sync", lambda _d: True)
+    monkeypatch.setattr(
+        telemetry_module,
+        "_get_current_version",
+        lambda: "1.0.0",
+    )
+    monkeypatch.setattr(
+        telemetry_module,
+        "_upload_telemetry_sync",
+        lambda _d: True,
+    )
     monkeypatch.setattr(
         telemetry_module,
         "get_system_info",
@@ -257,8 +302,16 @@ def test_collect_and_upload_failure_still_marks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(telemetry_module, "_get_current_version", lambda: "1.0.0")
-    monkeypatch.setattr(telemetry_module, "_upload_telemetry_sync", lambda _d: False)
+    monkeypatch.setattr(
+        telemetry_module,
+        "_get_current_version",
+        lambda: "1.0.0",
+    )
+    monkeypatch.setattr(
+        telemetry_module,
+        "_upload_telemetry_sync",
+        lambda _d: False,
+    )
     monkeypatch.setattr(
         telemetry_module,
         "get_system_info",

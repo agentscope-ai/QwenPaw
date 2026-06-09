@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -20,7 +19,6 @@ from qwenpaw.providers.retry_chat_model import (
     _normalize_rate_limit_config,
     _normalize_retry_config,
 )
-
 
 # ---------------------------------------------------------------------------
 # _is_retryable
@@ -149,7 +147,9 @@ def test_extract_retry_after_lowercase() -> None:
 
 def test_extract_retry_after_from_response() -> None:
     exc = Exception()
-    exc.response = SimpleNamespace(headers={"Retry-After": "10"})  # type: ignore[attr-defined]
+    exc.response = SimpleNamespace(  # type: ignore[attr-defined]
+        headers={"Retry-After": "10"},
+    )
     assert _extract_retry_after(exc) == 10.0
 
 
