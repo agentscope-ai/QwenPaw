@@ -324,18 +324,8 @@ class TestAgentStatsChannelDistribution:
             page.wait_for_load_state("commit", timeout=30000)
             page.wait_for_timeout(2000)
 
-            # 2. Check for global empty state first (no stats data at all)
+            # 2. Find channel distribution area
             log_test_step("2. Find channel distribution area")
-            global_empty = page.locator(
-                ':text("No statistics data"), :text("暂无统计数据"), '
-                ':text("No data"), :text("暂无数据")'
-            ).first
-            if global_empty.count() > 0 and global_empty.is_visible(timeout=3000):
-                logger.warning("Page shows global empty state — channel distribution not exercised (no data in clean env)")
-                log_test_result(test_name, True, 0)
-                return
-
-            # Exclude sidebar text — only check main content area
             main_content = page.locator('main, [class*="content"], [class*="pageContent"]').first
             if main_content.count() > 0:
                 page_text = main_content.inner_text()

@@ -116,13 +116,6 @@ def seed_workspace_file(api_context):
 
     yield
 
-    if created:
-        try:
-            api_context.delete(f"/api/workspace/files/{_SEED_FILE_NAME}")
-            logger.info(f"Seed workspace file '{_SEED_FILE_NAME}' cleaned up")
-        except Exception:
-            pass
-
 
 @pytest.fixture(scope="session", autouse=True)
 def seed_test_skill(api_context):

@@ -96,17 +96,8 @@ class TestTokenUsageDisplay:
         else:
             logger.info("No overview cards found (page may use different layout or have no data)")
 
-        # Step 5: Check for global empty state text first
+        # Step 5: Check for data table or empty state
         log_test_step("5. Verify data table or empty state")
-        no_data_text = page.locator(
-            ':text("No token usage data"), :text("暂无"), '
-            ':text("No data"), :text("暂无数据")'
-        ).first
-        if no_data_text.count() > 0 and no_data_text.is_visible(timeout=3000):
-            logger.warning("Page shows empty state — token usage table not exercised (no data in clean env)")
-            log_test_result(test_name, "PASS", "Token usage page empty state validated")
-            return
-
         table_area = page.locator('.qwenpaw-table, .ant-table, table, [class*=dataTable]').first
         empty_state = page.locator('.qwenpaw-empty, .ant-empty, [class*=empty], [class*=Empty]').first
         has_table = table_area.count() > 0 and table_area.is_visible(timeout=5000)
