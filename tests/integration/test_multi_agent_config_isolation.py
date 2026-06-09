@@ -582,46 +582,52 @@ def test_delete_recreate_agent_gets_fresh_config(
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_file_guard_blocked_paths_isolated(app_server) -> None:
+def test_running_config_max_iters_isolated(app_server) -> None:
     """Test purpose:
-    - Verify adding a blocked path to agent_a's file-guard does
-      not appear in agent_b's file-guard.
+    - Verify changing agent_a's running-config max_iters does
+      not affect agent_b's running-config.
 
     Test flow:
     1. Create agent_a and agent_b.
-    2. GET agent_a file-guard baseline.
-    3. PUT agent_a file-guard with an extra blocked path.
-    4. GET agent_a file-guard → blocked path present.
-    5. GET agent_b file-guard → blocked path absent.
+    2. GET agent_a running-config baseline.
+    3. PUT agent_a running-config with max_iters=42.
+    4. GET agent_a running-config → max_iters==42.
+    5. GET agent_b running-config → max_iters unchanged.
     6. Restore agent_a and cleanup.
 
     API endpoints:
     - POST /api/agents
-    - GET /api/agents/{agentId}/config/security/file-guard
-    - PUT /api/agents/{agentId}/config/security/file-guard
+    - GET /api/agents/{agentId}/workspace/running-config
+    - PUT /api/agents/{agentId}/workspace/running-config
     """
-    a_id = "integ_iso_fg_a"
-    b_id = "integ_iso_fg_b"
+    a_id = "integ_iso_running_a"
+    b_id = "integ_iso_running_b"
     try:
         create_agent(app_server, a_id)
         create_agent(app_server, b_id)
 
+        get_b = app_server.api_request(
+            "GET",
+            scoped(b_id, "/workspace/running-config"),
+            timeout=_AGENT_HTTP_TIMEOUT,
+        )
+        assert get_b.status_code == 200, app_server.logs_tail()
+        b_baseline = get_b.json()
+
         get_a = app_server.api_request(
             "GET",
-            scoped(a_id, "/config/security/file-guard"),
+            scoped(a_id, "/workspace/running-config"),
             timeout=_AGENT_HTTP_TIMEOUT,
         )
         assert get_a.status_code == 200, app_server.logs_tail()
-        fg_a = get_a.json()
+        a_baseline = get_a.json()
 
-        modified = dict(fg_a)
-        blocked = list(modified.get("blocked_paths", []))
-        blocked.append("/integ/test/blocked")
-        modified["blocked_paths"] = blocked
+        modified = dict(a_baseline)
+        modified["max_iters"] = 42
 
         put_a = app_server.api_request(
             "PUT",
-            scoped(a_id, "/config/security/file-guard"),
+            scoped(a_id, "/workspace/running-config"),
             json=modified,
             timeout=_AGENT_HTTP_TIMEOUT,
         )
@@ -629,19 +635,19 @@ def test_file_guard_blocked_paths_isolated(app_server) -> None:
 
         verify_a = app_server.api_request(
             "GET",
-            scoped(a_id, "/config/security/file-guard"),
+            scoped(a_id, "/workspace/running-config"),
             timeout=_AGENT_HTTP_TIMEOUT,
         )
-        a_paths = verify_a.json().get("blocked_paths", [])
-        assert "/integ/test/blocked" in a_paths
+        assert verify_a.json().get("max_iters") == 42
 
         verify_b = app_server.api_request(
             "GET",
-            scoped(b_id, "/config/security/file-guard"),
+            scoped(b_id, "/workspace/running-config"),
             timeout=_AGENT_HTTP_TIMEOUT,
         )
-        b_paths = verify_b.json().get("blocked_paths", [])
-        assert "/integ/test/blocked" not in b_paths
+        assert verify_b.json().get("max_iters") == b_baseline.get(
+            "max_iters",
+        )
     finally:
         delete_agent_quietly(app_server, a_id)
         delete_agent_quietly(app_server, b_id)
@@ -717,83 +723,33 @@ def test_acp_config_isolated_across_agents(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p2
-def test_user_timezone_isolated_across_agents(app_server) -> None:
+def test_approval_level_isolated_across_agents(app_server) -> None:
     """Test purpose:
-    - Verify modifying user-timezone for one agent does not affect
-      another agent.
+    - Verify modifying approval_level for one agent does not affect
+      another agent's approval_level.
 
     Test flow:
     1. Create agent_a and agent_b.
-    2. GET agent_b user-timezone as baseline.
-    3. PUT agent_a user-timezone to a different value.
-    4. GET agent_b user-timezone → unchanged.
-    5. Cleanup.
+    2. GET agent_b running-config as baseline.
+    3. PUT agent_a running-config with approval_level=CONFIRM.
+    4. GET agent_a running-config → approval_level changed.
+    5. GET agent_b running-config → approval_level unchanged.
+    6. Cleanup.
 
     API endpoints:
     - POST /api/agents
-    - GET /api/agents/{agentId}/config/user-timezone
-    - PUT /api/agents/{agentId}/config/user-timezone
+    - GET /api/agents/{agentId}/workspace/running-config
+    - PUT /api/agents/{agentId}/workspace/running-config
     """
-    a_id = "integ_iso_tz_a"
-    b_id = "integ_iso_tz_b"
+    a_id = "integ_iso_approval_a"
+    b_id = "integ_iso_approval_b"
     try:
         create_agent(app_server, a_id)
         create_agent(app_server, b_id)
 
         get_b = app_server.api_request(
             "GET",
-            scoped(b_id, "/config/user-timezone"),
-            timeout=_AGENT_HTTP_TIMEOUT,
-        )
-        assert get_b.status_code == 200, app_server.logs_tail()
-        b_baseline = get_b.json()
-
-        app_server.api_request(
-            "PUT",
-            scoped(a_id, "/config/user-timezone"),
-            json={"timezone": "America/New_York"},
-            timeout=_AGENT_HTTP_TIMEOUT,
-        )
-
-        get_b_after = app_server.api_request(
-            "GET",
-            scoped(b_id, "/config/user-timezone"),
-            timeout=_AGENT_HTTP_TIMEOUT,
-        )
-        assert get_b_after.json() == b_baseline
-    finally:
-        delete_agent_quietly(app_server, a_id)
-        delete_agent_quietly(app_server, b_id)
-
-
-@pytest.mark.integration
-@pytest.mark.p2
-def test_llm_routing_isolated_across_agents(app_server) -> None:
-    """Test purpose:
-    - Verify modifying LLM routing config for one agent does not
-      affect another agent.
-
-    Test flow:
-    1. Create agent_a and agent_b.
-    2. GET agent_b llm-routing as baseline.
-    3. PUT agent_a llm-routing with modified value.
-    4. GET agent_b llm-routing → unchanged.
-    5. Cleanup.
-
-    API endpoints:
-    - POST /api/agents
-    - GET /api/agents/{agentId}/config/agents/llm-routing
-    - PUT /api/agents/{agentId}/config/agents/llm-routing
-    """
-    a_id = "integ_iso_llm_a"
-    b_id = "integ_iso_llm_b"
-    try:
-        create_agent(app_server, a_id)
-        create_agent(app_server, b_id)
-
-        get_b = app_server.api_request(
-            "GET",
-            scoped(b_id, "/config/agents/llm-routing"),
+            scoped(b_id, "/workspace/running-config"),
             timeout=_AGENT_HTTP_TIMEOUT,
         )
         assert get_b.status_code == 200, app_server.logs_tail()
@@ -801,25 +757,92 @@ def test_llm_routing_isolated_across_agents(app_server) -> None:
 
         get_a = app_server.api_request(
             "GET",
-            scoped(a_id, "/config/agents/llm-routing"),
+            scoped(a_id, "/workspace/running-config"),
             timeout=_AGENT_HTTP_TIMEOUT,
         )
         a_cfg = get_a.json()
-        modified = dict(a_cfg) if isinstance(a_cfg, dict) else {}
-        modified["mode"] = "integ-test-mode"
+        modified = dict(a_cfg)
+        modified["approval_level"] = "CONFIRM"
+
         app_server.api_request(
             "PUT",
-            scoped(a_id, "/config/agents/llm-routing"),
+            scoped(a_id, "/workspace/running-config"),
             json=modified,
             timeout=_AGENT_HTTP_TIMEOUT,
         )
 
-        get_b_after = app_server.api_request(
+        verify_a = app_server.api_request(
             "GET",
-            scoped(b_id, "/config/agents/llm-routing"),
+            scoped(a_id, "/workspace/running-config"),
             timeout=_AGENT_HTTP_TIMEOUT,
         )
-        assert get_b_after.json() == b_baseline
+        assert verify_a.json().get("approval_level") == "CONFIRM"
+
+        get_b_after = app_server.api_request(
+            "GET",
+            scoped(b_id, "/workspace/running-config"),
+            timeout=_AGENT_HTTP_TIMEOUT,
+        )
+        assert get_b_after.json().get(
+            "approval_level",
+        ) == b_baseline.get("approval_level")
+    finally:
+        delete_agent_quietly(app_server, a_id)
+        delete_agent_quietly(app_server, b_id)
+
+
+@pytest.mark.integration
+@pytest.mark.p2
+def test_workspace_files_isolated_across_agents(app_server) -> None:
+    """Test purpose:
+    - Verify a workspace file written to one agent is not visible
+      in another agent's workspace.
+
+    Test flow:
+    1. Create agent_a and agent_b.
+    2. PUT a markdown file in agent_a workspace.
+    3. GET agent_a workspace files → file present.
+    4. GET agent_b workspace files → file absent.
+    5. Cleanup.
+
+    API endpoints:
+    - POST /api/agents
+    - PUT /api/agents/{agentId}/workspace/files/{md_name}
+    - GET /api/agents/{agentId}/workspace/files
+    """
+    a_id = "integ_iso_wf_a"
+    b_id = "integ_iso_wf_b"
+    try:
+        create_agent(app_server, a_id)
+        create_agent(app_server, b_id)
+
+        put_file = app_server.api_request(
+            "PUT",
+            scoped(a_id, "/workspace/files/isolation_marker.md"),
+            json={"content": "# isolation marker"},
+            timeout=_AGENT_HTTP_TIMEOUT,
+        )
+        assert put_file.status_code == 200, app_server.logs_tail()
+
+        get_a_files = app_server.api_request(
+            "GET",
+            scoped(a_id, "/workspace/files"),
+            timeout=_AGENT_HTTP_TIMEOUT,
+        )
+        assert get_a_files.status_code == 200, app_server.logs_tail()
+        a_files = get_a_files.json()
+        a_names = [f.get("filename", f.get("name", "")) for f in a_files]
+        assert any("isolation_marker" in n for n in a_names)
+
+        get_b_files = app_server.api_request(
+            "GET",
+            scoped(b_id, "/workspace/files"),
+            timeout=_AGENT_HTTP_TIMEOUT,
+        )
+        assert get_b_files.status_code == 200, app_server.logs_tail()
+        b_files = get_b_files.json()
+        b_names = [f.get("filename", f.get("name", "")) for f in b_files]
+        assert not any("isolation_marker" in n for n in b_names)
     finally:
         delete_agent_quietly(app_server, a_id)
         delete_agent_quietly(app_server, b_id)

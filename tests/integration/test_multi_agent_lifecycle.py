@@ -60,6 +60,8 @@ def test_create_agent_with_full_options(app_server) -> None:
         assert resp.status_code == 201, app_server.logs_tail()
         body = resp.json()
         assert body.get("id") == agent_id
+        assert body.get("enabled") is True
+        assert "workspace_dir" in body
 
         get_resp = app_server.api_request(
             "GET",
@@ -70,7 +72,6 @@ def test_create_agent_with_full_options(app_server) -> None:
         profile = get_resp.json()
         assert profile.get("name") == "Full Options Agent"
         assert profile.get("description") == ("test agent with all fields")
-        assert profile.get("enabled") is True
         assert "workspace_dir" in profile
     finally:
         delete_agent_quietly(app_server, agent_id)
@@ -470,17 +471,17 @@ def test_disabled_agent_re_enable_preserves_state(
       workspace files written before disable.
 
     Test flow:
-    1. Create agent and PUT a file to its workspace.
+    1. Create agent and PUT a markdown file to its workspace.
     2. Disable agent.
     3. Re-enable agent.
-    4. GET workspace files → file still present.
+    4. GET the file → content still present.
     5. Cleanup.
 
     API endpoints:
     - POST /api/agents
-    - PUT /api/agents/{agentId}/workspace/working/files/{path}
+    - PUT /api/agents/{agentId}/workspace/files/{md_name}
     - PATCH /api/agents/{agentId}/toggle
-    - GET /api/agents/{agentId}/workspace/working/files
+    - GET /api/agents/{agentId}/workspace/files/{md_name}
     """
     agent_id = "integ_ma_preserve_01"
     try:
@@ -488,38 +489,25 @@ def test_disabled_agent_re_enable_preserves_state(
 
         put_file = app_server.api_request(
             "PUT",
-            scoped(agent_id, "/workspace/working/files/test.txt"),
-            json={"content": "persist-test"},
+            scoped(agent_id, "/workspace/files/persist_test.md"),
+            json={"content": "# persist-test\ndata here"},
             timeout=_AGENT_HTTP_TIMEOUT,
         )
-        assert put_file.status_code in (
-            200,
-            201,
-        ), app_server.logs_tail()
+        assert put_file.status_code == 200, app_server.logs_tail()
 
         toggle_agent(app_server, agent_id, False)
         time.sleep(0.5)
         toggle_agent(app_server, agent_id, True)
-        time.sleep(0.5)
+        time.sleep(1.0)
 
-        list_resp = app_server.api_request(
+        get_file = app_server.api_request(
             "GET",
-            scoped(agent_id, "/workspace/working/files"),
+            scoped(agent_id, "/workspace/files/persist_test.md"),
             timeout=_AGENT_HTTP_TIMEOUT,
         )
-        assert list_resp.status_code == 200, app_server.logs_tail()
-        files = list_resp.json()
-        names = []
-        if isinstance(files, list):
-            names = [f.get("name", f.get("path", "")) for f in files]
-        elif isinstance(files, dict):
-            names = [
-                f.get("name", f.get("path", ""))
-                for f in files.get("files", [])
-            ]
-        assert any(
-            "test.txt" in n for n in names
-        ), f"test.txt not in files: {names}"
+        assert get_file.status_code == 200, app_server.logs_tail()
+        content = get_file.json().get("content", "")
+        assert "persist-test" in content
     finally:
         delete_agent_quietly(app_server, agent_id)
 
@@ -653,7 +641,11 @@ def test_agent_chats_isolated(app_server) -> None:
         create_chat = app_server.api_request(
             "POST",
             scoped(a_id, "/chats"),
-            json={"name": "isolation-test-chat"},
+            json={
+                "name": "isolation-test-chat",
+                "session_id": "console:integ_user",
+                "user_id": "integ_user",
+            },
             timeout=_AGENT_HTTP_TIMEOUT,
         )
         assert create_chat.status_code in (
@@ -696,8 +688,8 @@ def test_agent_workspace_files_isolated(app_server) -> None:
 
     API endpoints:
     - POST /api/agents
-    - PUT /api/agents/{agentId}/workspace/working/files/{path}
-    - GET /api/agents/{agentId}/workspace/working/files
+    - PUT /api/agents/{agentId}/workspace/files/{md_name}
+    - GET /api/agents/{agentId}/workspace/files
     """
     a_id = "integ_ma_iso_file_a"
     b_id = "integ_ma_iso_file_b"
@@ -707,31 +699,28 @@ def test_agent_workspace_files_isolated(app_server) -> None:
 
         put_file = app_server.api_request(
             "PUT",
-            scoped(a_id, "/workspace/working/files/isolated.txt"),
-            json={"content": "only-in-a"},
+            scoped(a_id, "/workspace/files/isolated_note.md"),
+            json={"content": "# only-in-a"},
             timeout=_AGENT_HTTP_TIMEOUT,
         )
-        assert put_file.status_code in (
-            200,
-            201,
-        ), app_server.logs_tail()
+        assert put_file.status_code == 200, app_server.logs_tail()
 
         get_b_files = app_server.api_request(
             "GET",
-            scoped(b_id, "/workspace/working/files"),
+            scoped(b_id, "/workspace/files"),
             timeout=_AGENT_HTTP_TIMEOUT,
         )
         assert get_b_files.status_code == 200, app_server.logs_tail()
         b_files = get_b_files.json()
         names = []
         if isinstance(b_files, list):
-            names = [f.get("name", f.get("path", "")) for f in b_files]
+            names = [f.get("filename", f.get("name", "")) for f in b_files]
         elif isinstance(b_files, dict):
             names = [
-                f.get("name", f.get("path", ""))
+                f.get("filename", f.get("name", ""))
                 for f in b_files.get("files", [])
             ]
-        assert not any("isolated.txt" in n for n in names)
+        assert not any("isolated_note" in n for n in names)
     finally:
         delete_agent_quietly(app_server, a_id)
         delete_agent_quietly(app_server, b_id)
