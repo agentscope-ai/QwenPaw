@@ -1,10 +1,10 @@
+# Standalone E2E Integration Tests (manual dispatch only).
+# Nightly E2E runs are handled by full-tests-nightly.yml as part of the
+# four-tier coverage pipeline. Use this workflow for ad-hoc E2E runs
+# with a custom marker filter.
 name: E2E Integration Tests
 
 on:
-  schedule:
-    # 18:47 UTC daily ~= 02:47 Beijing next day.
-    # Off-the-hour to avoid the global GitHub Actions cron rush at :00 / :30.
-    - cron: '47 18 * * *'
   workflow_dispatch:
     inputs:
       test_marker:
@@ -114,11 +114,7 @@ jobs:
       - name: Run E2E tests
         working-directory: e2e
         run: |
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            MARKER="integration"
-          else
-            MARKER="${{ github.event.inputs.test_marker || 'p0' }}"
-          fi
+          MARKER="${{ github.event.inputs.test_marker || 'p0' }}"
           pytest tests/ -m "$MARKER" -v --tb=short --reruns=1 --reruns-delay=3
 
       # ---- Collect coverage ----

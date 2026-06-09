@@ -1,20 +1,22 @@
 name: Full Tests Nightly
 
-# Nightly sweep of the entire test suite (unit + contract + integration)
-# with combined coverage. tests.yml runs the PR (p0) and pre-merge
-# (p0+p1) integration tiers gated by event name; this workflow exercises
-# the full integration suite (all markers including p2) and re-runs unit
-# / contract on every supported platform/python combo to catch nightly
-# drift, then renders per-tier and combined coverage numbers.
+# Nightly sweep of the entire test suite (unit + contract + integration +
+# E2E Playwright) with combined four-tier coverage.
+#
+# tests.yml runs the PR (p0) and pre-merge (p0+p1) integration tiers
+# gated by event name; this workflow exercises the full integration suite
+# (all markers including p2), the full E2E Playwright suite against a
+# live backend, and re-runs unit / contract on every supported
+# platform/python combo to catch nightly drift.
 #
 # Independent of tests.yml so it can run unattended without going through
 # the manual maintainer-approval gate that protects PR/push CI.
 #
 # Coverage data files (.coverage.unit / .coverage.contract /
-# .coverage.integration plus their cobertura xml) are produced on a
-# single matrix entry (ubuntu-latest + python 3.10, historically the
-# fastest combination) per test class and consumed by coverage-report,
-# which only combines and renders — it does not run pytest itself.
+# .coverage.integration / .coverage.e2e plus their cobertura xml) are
+# produced on a single matrix entry (ubuntu-latest + python 3.10) per
+# test class and consumed by coverage-report, which only combines and
+# renders — it does not run pytest itself.
 
 on:
   schedule:
@@ -273,9 +275,160 @@ jobs:
           retention-days: 1
           include-hidden-files: true
 
+  e2e-tests:
+    name: E2E Playwright Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+
+    env:
+      QWENPAW_BASE_URL: http://localhost:8088
+      QWENPAW_HEADLESS: 'true'
+      QWENPAW_TIMEOUT: '60000'
+      QWENPAW_API_KEY: ${{ secrets.QWENPAW_API_KEY }}
+      QWENPAW_MODEL_KEY: ${{ secrets.QWENPAW_MODEL_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: console/package-lock.json
+
+      - name: Build console frontend
+        shell: bash
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+        run: |
+          cd console && npm ci && npm run build
+
+      - name: Copy console build into package
+        shell: bash
+        run: |
+          rm -rf src/qwenpaw/console/*
+          mkdir -p src/qwenpaw/console
+          cp -R console/dist/* src/qwenpaw/console/
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install backend + E2E dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install -r e2e/requirements.txt
+          playwright install chromium --with-deps
+
+      - name: Prepare coverage config
+        shell: bash
+        run: |
+          mkdir -p .e2e_coverage
+          SRC_ABS=$(cd src/qwenpaw && pwd)
+          cat > .e2e_coverage/coverage_e2e.ini <<RCEOF
+          [run]
+          parallel = true
+          branch = false
+          source = ${SRC_ABS}
+          omit =
+              */tests/*
+              */test_*
+              */__pycache__/*
+          RCEOF
+          sed -i 's/^          //' .e2e_coverage/coverage_e2e.ini
+
+      - name: Start QwenPaw backend
+        shell: bash
+        run: |
+          QWENPAW_E2E_DIR=$(mktemp -d)
+          echo "QWENPAW_E2E_DIR=$QWENPAW_E2E_DIR" >> "$GITHUB_ENV"
+          mkdir -p "$QWENPAW_E2E_DIR/working" \
+                   "$QWENPAW_E2E_DIR/secret" \
+                   "$QWENPAW_E2E_DIR/backups"
+
+          QWENPAW_WORKING_DIR="$QWENPAW_E2E_DIR/working" \
+          QWENPAW_SECRET_DIR="$QWENPAW_E2E_DIR/secret" \
+          QWENPAW_BACKUP_DIR="$QWENPAW_E2E_DIR/backups" \
+          QWENPAW_AUTH_ENABLED=false \
+          PYTHONUNBUFFERED=1 \
+          COVERAGE_PROCESS_START="${{ github.workspace }}/.e2e_coverage/coverage_e2e.ini" \
+          COVERAGE_FILE="${{ github.workspace }}/.e2e_coverage/e2e_subproc" \
+          python -m qwenpaw app --host 127.0.0.1 --port 8088 --log-level info &
+
+          echo $! > /tmp/qwenpaw-e2e.pid
+
+      - name: Wait for backend ready
+        shell: bash
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8088/api/version > /dev/null 2>&1; then
+              echo "Backend ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend failed to start within 60s"
+          exit 1
+
+      - name: Run E2E tests
+        working-directory: e2e
+        shell: bash
+        run: |
+          pytest tests/ -m integration -v --tb=short --reruns=1 --reruns-delay=3
+
+      - name: Stop backend and collect coverage
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/qwenpaw-e2e.pid ]; then
+            PID=$(cat /tmp/qwenpaw-e2e.pid)
+            kill -INT "$PID" 2>/dev/null || true
+            for i in $(seq 1 15); do
+              kill -0 "$PID" 2>/dev/null || break
+              sleep 1
+            done
+            kill -9 "$PID" 2>/dev/null || true
+          fi
+
+          cd .e2e_coverage
+          if compgen -G "e2e_subproc*" > /dev/null 2>&1; then
+            coverage combine --data-file=e2e_subproc
+            cp e2e_subproc ../.coverage.e2e
+            coverage xml  --data-file=e2e_subproc -o ../coverage.e2e.xml    || [ "$?" -eq 2 ]
+            coverage html --data-file=e2e_subproc -d ../htmlcov-e2e         || [ "$?" -eq 2 ]
+            echo "## E2E Backend Coverage"          >> "$GITHUB_STEP_SUMMARY"
+            coverage report --data-file=e2e_subproc --fail-under=0 | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No E2E coverage data collected"
+          fi
+
+      - name: Upload E2E coverage data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data-e2e
+          path: |
+            .coverage.e2e
+            coverage.e2e.xml
+          retention-days: 1
+          include-hidden-files: true
+
+      - name: Upload E2E test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-integration-report
+          path: e2e/reports/
+          retention-days: 14
+
   coverage-report:
     name: Coverage Report
-    needs: [unit-tests, contract-tests, integrated-tests]
+    needs: [unit-tests, contract-tests, integrated-tests, e2e-tests]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -313,10 +466,15 @@ jobs:
       - name: Combine all coverage data
         shell: bash
         run: |
-          coverage combine \
-            .coverage.unit .coverage.contract .coverage.integration
-          # Tolerate fail-under (exit 2): combined number is what matters
-          # and reflected in the summary regardless.
+          COMBINE_ARGS=""
+          for f in .coverage.unit .coverage.contract .coverage.integration .coverage.e2e; do
+            [ -f "$f" ] && COMBINE_ARGS="$COMBINE_ARGS $f"
+          done
+          if [ -z "$COMBINE_ARGS" ]; then
+            echo "No coverage data files found"
+            exit 0
+          fi
+          coverage combine $COMBINE_ARGS
           coverage xml -o coverage.combined.xml || [ "$?" -eq 2 ]
           coverage html -d htmlcov-combined || [ "$?" -eq 2 ]
           echo "Combined coverage report:"
@@ -338,10 +496,12 @@ jobs:
           UNIT=$(get_pct coverage.unit.xml)
           CONTRACT=$(get_pct coverage.contract.xml)
           INTEGRATION=$(get_pct coverage.integration.xml)
+          E2E=$(get_pct coverage.e2e.xml)
           COMBINED=$(get_pct coverage.combined.xml)
           echo "UNIT=${UNIT:-n/a}"
           echo "CONTRACT=${CONTRACT:-n/a}"
           echo "INTEGRATION=${INTEGRATION:-n/a}"
+          echo "E2E=${E2E:-n/a}"
           echo "COMBINED=${COMBINED:-n/a}"
 
           {
@@ -352,11 +512,13 @@ jobs:
             echo "| Unit        | ${UNIT:-n/a}% |"
             echo "| Contract    | ${CONTRACT:-n/a}% |"
             echo "| Integration | ${INTEGRATION:-n/a}% |"
+            echo "| E2E         | ${E2E:-n/a}% |"
             echo "| **Combined** | **${COMBINED:-n/a}%** |"
             echo ""
-            echo "> Combined = \`coverage combine\` of unit + contract + integration (subprocess mode)."
+            echo "> Combined = \`coverage combine\` of unit + contract + integration + E2E."
             echo "> Integration ran the full \`-m integration\` sweep (p0 + p1 + p2)."
-            echo "> HTML reports under workflow artifact \`coverage-reports\` (\`htmlcov-combined\` / \`htmlcov-integration\`)."
+            echo "> E2E ran the full Playwright suite against a live backend."
+            echo "> HTML reports under workflow artifact \`coverage-reports\` (\`htmlcov-combined\` / \`htmlcov-integration\` / \`htmlcov-e2e\`)."
             echo "> Coverage is collected only on the ubuntu/py3.10 matrix entry; other matrix entries verify cross-platform compatibility without the tracer overhead."
           } > coverage_summary.md
 
@@ -371,14 +533,16 @@ jobs:
             coverage.unit.xml
             coverage.contract.xml
             coverage.integration.xml
+            coverage.e2e.xml
             coverage.combined.xml
             htmlcov-combined/
             htmlcov-integration/
+            htmlcov-e2e/
           retention-days: 14
 
   test-summary:
     name: Test Summary
-    needs: [unit-tests, contract-tests, integrated-tests, coverage-report]
+    needs: [unit-tests, contract-tests, integrated-tests, e2e-tests, coverage-report]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -388,10 +552,12 @@ jobs:
           echo "Unit tests: ${{ needs.unit-tests.result }}"
           echo "Contract tests: ${{ needs.contract-tests.result }}"
           echo "Integrated tests: ${{ needs.integrated-tests.result }}"
+          echo "E2E tests: ${{ needs.e2e-tests.result }}"
 
           if [ "${{ needs.unit-tests.result }}" = "failure" ] || \
              [ "${{ needs.contract-tests.result }}" = "failure" ] || \
-             [ "${{ needs.integrated-tests.result }}" = "failure" ]; then
+             [ "${{ needs.integrated-tests.result }}" = "failure" ] || \
+             [ "${{ needs.e2e-tests.result }}" = "failure" ]; then
             echo "❌ Some tests failed"
             exit 1
           else
