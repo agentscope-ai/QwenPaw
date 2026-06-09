@@ -50,7 +50,9 @@ function formatBrowserResult(result: unknown): string {
         const parsed = JSON.parse(trimmed);
         // Could be a direct object
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          const extracted = extractBrowserFields(parsed as Record<string, unknown>);
+          const extracted = extractBrowserFields(
+            parsed as Record<string, unknown>,
+          );
           if (extracted) return extracted;
         }
         // Could be MCP content blocks wrapping a JSON string
@@ -59,8 +61,14 @@ function formatBrowserResult(result: unknown): string {
             if (item?.type === "text" && typeof item.text === "string") {
               try {
                 const inner = JSON.parse(item.text);
-                if (inner && typeof inner === "object" && !Array.isArray(inner)) {
-                  const extracted = extractBrowserFields(inner as Record<string, unknown>);
+                if (
+                  inner &&
+                  typeof inner === "object" &&
+                  !Array.isArray(inner)
+                ) {
+                  const extracted = extractBrowserFields(
+                    inner as Record<string, unknown>,
+                  );
                   if (extracted) return extracted;
                 }
               } catch {
