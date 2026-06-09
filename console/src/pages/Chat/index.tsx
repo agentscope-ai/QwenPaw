@@ -34,6 +34,17 @@ import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { planApi } from "../../api/modules/plan";
+import {
+  useChatScalarSnapshot,
+  useChatListSnapshot,
+} from "../../plugins/registry/useChatExtensions";
+import { PluginSlotBoundary } from "../../plugins/registry/PluginSlotBoundary";
+import {
+  resolveLocalized,
+  type WelcomeRenderProps,
+} from "../../plugins/registry/types";
+import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
+import { HostRequestCard, HostResponseCard } from "./HostBubbles";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -682,7 +693,7 @@ const timestampStyle: React.CSSProperties = {
 };
 
 export default function ChatPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark } = useTheme();
@@ -702,6 +713,8 @@ export default function ChatPage() {
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const { selectedAgent } = useAgentStore();
   const { toolRenderConfig } = usePlugins();
+  const extScalar = useChatScalarSnapshot();
+  const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const { message } = useAppMessage();
@@ -1305,8 +1318,6 @@ export default function ChatPage() {
         value: skill.name,
         description: "",
       }));
-    const senderSuggestions = [...commandSuggestions, ...skillSuggestions];
-
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;
       localStorage.removeItem(getDraftStorageKey(selectedAgent));
@@ -1314,14 +1325,198 @@ export default function ChatPage() {
       return true;
     };
 
+    // ── Resolve plugin extension snapshots ────────────────────────────────
+    const locale = i18n.language;
+    const extGreeting = resolveLocalized(
+      extScalar[ChatScalar.welcomeGreeting]?.value,
+      locale,
+    );
+    const extDescription = resolveLocalized(
+      extScalar[ChatScalar.welcomeDescription]?.value,
+      locale,
+    );
+    const extAvatar = resolveLocalized(
+      extScalar[ChatScalar.welcomeAvatar]?.value,
+      locale,
+    );
+    const extNick = resolveLocalized(
+      extScalar[ChatScalar.welcomeNick]?.value,
+      locale,
+    );
+    const extPrompts = resolveLocalized(
+      extScalar[ChatScalar.welcomePrompts]?.value,
+      locale,
+    );
+    const extLeftTitle = resolveLocalized(
+      extScalar[ChatScalar.headerLeftTitle]?.value,
+      locale,
+    );
+    const extLeftLogo = resolveLocalized(
+      extScalar[ChatScalar.headerLeftLogo]?.value,
+      locale,
+    );
+    const extColorPrimary = extScalar[ChatScalar.themeColorPrimary]?.value;
+    const extPlaceholder = resolveLocalized(
+      extScalar[ChatScalar.senderPlaceholder]?.value,
+      locale,
+    );
+    const extDisclaimer = resolveLocalized(
+      extScalar[ChatScalar.senderDisclaimer]?.value,
+      locale,
+    );
+
+    // Whole-section render overrides (plugin can fully replace welcome / leftHeader)
+    const extWelcomeRenderEntry = extScalar[ChatScalar.welcomeRender];
+    const extWelcomeRender = extWelcomeRenderEntry?.value;
+    const extLeftHeaderRenderEntry =
+      extScalar[ChatScalar.headerLeftHeaderRender];
+    const extLeftHeaderRender = extLeftHeaderRenderEntry?.value;
+
+    const wrappedWelcomeRender = extWelcomeRender
+      ? (props: WelcomeRenderProps) => (
+          <PluginSlotBoundary
+            slot={ChatScalar.welcomeRender}
+            pluginId={extWelcomeRenderEntry!.pluginId}
+          >
+            {extWelcomeRender(props)}
+          </PluginSlotBoundary>
+        )
+      : undefined;
+
+    const sortByOrder = <T extends { item: { order?: number } }>(arr: T[]) =>
+      arr.slice().sort((a, b) => (a.item.order ?? 100) - (b.item.order ?? 100));
+
+    const pluginRightHeader = sortByOrder(extLists[ChatList.rightHeader]).map(
+      (e) => (
+        <PluginSlotBoundary
+          key={e.item.id}
+          slot={ChatList.rightHeader}
+          pluginId={e.pluginId}
+        >
+          {e.item.node}
+        </PluginSlotBoundary>
+      ),
+    );
+    const pluginSenderPrefix = sortByOrder(extLists[ChatList.senderPrefix]).map(
+      (e) => (
+        <PluginSlotBoundary
+          key={e.item.id}
+          slot={ChatList.senderPrefix}
+          pluginId={e.pluginId}
+        >
+          {e.item.node}
+        </PluginSlotBoundary>
+      ),
+    );
+    const pluginSuggestions = extLists[ChatList.senderSuggestions].flatMap(
+      (e) => {
+        const resolved = resolveLocalized(e.item.items, locale) ?? [];
+        return resolved.map((s) => ({ label: s.label, value: s.value }));
+      },
+    );
+
+    const wrapActionSpec = (
+      pluginId: string,
+      slot: string,
+      spec: { id: string; icon?: any; render?: any; onClick?: any },
+    ) => ({
+      icon: spec.icon,
+      render: spec.render
+        ? (ctx: { data: unknown }) => (
+            <PluginSlotBoundary slot={slot} pluginId={pluginId}>
+              {spec.render!(ctx)}
+            </PluginSlotBoundary>
+          )
+        : undefined,
+      onClick: spec.onClick
+        ? (ctx: { data: unknown }) => {
+            try {
+              spec.onClick!(ctx);
+            } catch (err) {
+              console.error(
+                `[plugin:${pluginId}] action ${spec.id} onClick threw:`,
+                err,
+              );
+            }
+          }
+        : undefined,
+    });
+
+    const pluginActions = extLists[ChatList.actions].map((e) =>
+      wrapActionSpec(e.pluginId, ChatList.actions, e.item.item),
+    );
+    const pluginRequestActions = extLists[ChatList.requestActions].map((e) =>
+      wrapActionSpec(e.pluginId, ChatList.requestActions, e.item.item),
+    );
+
+    const wrapToolFC = (
+      pluginId: string,
+      toolName: string,
+      FC: React.FC<any>,
+    ) => {
+      const Wrapped: React.FC<any> = (props) => (
+        <PluginSlotBoundary
+          slot={`customToolRender:${toolName}`}
+          pluginId={pluginId}
+        >
+          <FC {...props} />
+        </PluginSlotBoundary>
+      );
+      return Wrapped;
+    };
+    const pluginToolRenderers: Record<string, React.FC<any>> = {};
+    for (const e of extLists[ChatList.customToolRender]) {
+      pluginToolRenderers[e.item.toolName] = wrapToolFC(
+        e.pluginId,
+        e.item.toolName,
+        e.item.render,
+      );
+    }
+    const mergedToolRenderers: Record<string, React.FC<any>> = {
+      ...toolRenderConfig,
+      ...pluginToolRenderers,
+    };
+
+    const pluginCards: Record<string, React.FC<any>> = {};
+    for (const e of extLists[ChatList.cards]) {
+      pluginCards[e.item.cardName] = wrapToolFC(
+        e.pluginId,
+        e.item.cardName,
+        e.item.render,
+      );
+    }
+
+    const baseSuggestions = [...commandSuggestions, ...skillSuggestions].map(
+      (item) => ({
+        label: renderSuggestionLabel(item.command, item.description),
+        value: item.value,
+      }),
+    );
+
+    // leftHeader: whole-section render wins, otherwise partial merge {logo, title}.
+    const mergedLeftHeader: any =
+      extLeftHeaderRender !== undefined ? (
+        <PluginSlotBoundary
+          slot={ChatScalar.headerLeftHeaderRender}
+          pluginId={extLeftHeaderRenderEntry!.pluginId}
+        >
+          {extLeftHeaderRender}
+        </PluginSlotBoundary>
+      ) : (
+        {
+          ...defaultConfig.theme.leftHeader,
+          ...(extLeftTitle !== undefined ? { title: extLeftTitle } : {}),
+          ...(extLeftLogo !== undefined ? { logo: extLeftLogo } : {}),
+        }
+      );
+
     return {
       ...i18nConfig,
       theme: {
         ...defaultConfig.theme,
         darkMode: isDark,
-        leftHeader: {
-          ...defaultConfig.theme.leftHeader,
-        },
+        ...(extColorPrimary ? { colorPrimary: extColorPrimary } : {}),
+        leftHeader: mergedLeftHeader,
         rightHeader: (
           <>
             <ChatSessionInitializer />
@@ -1330,24 +1525,38 @@ export default function ChatPage() {
             <span style={{ flex: 1 }} />
             <ModelSelector />
             <ChatActionGroup planEnabled={planEnabled} />
+            {pluginRightHeader}
           </>
         ),
       },
       welcome: {
         ...i18nConfig.welcome,
-        nick: "QwenPaw",
-        avatar: "/qwenpaw.png",
+        nick: extNick ?? "QwenPaw",
+        avatar: extAvatar ?? "/qwenpaw.png",
+        ...(extGreeting !== undefined ? { greeting: extGreeting } : {}),
+        ...(extDescription !== undefined
+          ? { description: extDescription }
+          : {}),
+        ...(extPrompts !== undefined ? { prompts: extPrompts } : {}),
+        // SDK uses `render` if present and ignores the other fields.
+        ...(wrappedWelcomeRender ? { render: wrappedWelcomeRender } : {}),
       },
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: whisperChecked && !whisperEnabled,
-        prefix: whisperEnabled ? (
-          <WhisperSpeechButton
-            ref={whisperSpeechRef}
-            onTranscription={handleWhisperTranscription}
-          />
-        ) : undefined,
+        prefix:
+          whisperEnabled || pluginSenderPrefix.length > 0 ? (
+            <>
+              {whisperEnabled ? (
+                <WhisperSpeechButton
+                  ref={whisperSpeechRef}
+                  onTranscription={handleWhisperTranscription}
+                />
+              ) : null}
+              {pluginSenderPrefix}
+            </>
+          ) : undefined,
         attachments: {
           multiple: true,
           trigger: function (props: any) {
@@ -1375,11 +1584,9 @@ export default function ChatPage() {
           },
           customRequest: handleFileUpload,
         },
-        placeholder: t("chat.inputPlaceholder"),
-        suggestions: senderSuggestions.map((item) => ({
-          label: renderSuggestionLabel(item.command, item.description),
-          value: item.value,
-        })),
+        placeholder: extPlaceholder ?? t("chat.inputPlaceholder"),
+        ...(extDisclaimer !== undefined ? { disclaimer: extDisclaimer } : {}),
+        suggestions: [...baseSuggestions, ...pluginSuggestions],
       },
       session: {
         multiple: true,
@@ -1434,7 +1641,17 @@ export default function ChatPage() {
         },
       },
       customToolRenderConfig:
-        Object.keys(toolRenderConfig).length > 0 ? toolRenderConfig : undefined,
+        Object.keys(mergedToolRenderers).length > 0
+          ? mergedToolRenderers
+          : undefined,
+      cards: {
+        // Host wrappers that delegate to vendor defaults when no plugin
+        // request/response render/prepend/append is registered — and
+        // compose plugin slots otherwise.
+        AgentScopeRuntimeRequestCard: HostRequestCard,
+        AgentScopeRuntimeResponseCard: HostResponseCard,
+        ...pluginCards,
+      },
       actions: {
         list: [
           {
@@ -1460,6 +1677,7 @@ export default function ChatPage() {
               );
             },
           },
+          ...pluginActions,
         ],
         replace: true,
       },
@@ -1488,6 +1706,7 @@ export default function ChatPage() {
               }
             },
           },
+          ...pluginRequestActions,
         ],
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
@@ -1496,9 +1715,12 @@ export default function ChatPage() {
     copyResponse,
     handleFileUpload,
     t,
+    i18n.language,
     isDark,
     multimodalCaps,
     toolRenderConfig,
+    extScalar,
+    extLists,
     scheduleHistoryClear,
     planEnabled,
     consoleSkills,
