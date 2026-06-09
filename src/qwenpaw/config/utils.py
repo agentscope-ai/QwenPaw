@@ -307,7 +307,13 @@ def _get_linux_default_browser() -> Tuple[Optional[str], Optional[str]]:
             with open(path, encoding="utf-8") as f:
                 for line in f:
                     if line.strip().startswith("Exec="):
-                        exe = line.split("=", 1)[1].strip().split()[0]
+                        # An empty/malformed "Exec=" yields no tokens; skip
+                        # rather than let [0] raise IndexError (callers rely
+                        # on a (None, None) result, never an exception).
+                        parts = line.split("=", 1)[1].strip().split()
+                        if not parts:
+                            break
+                        exe = parts[0]
                         if exe.startswith("/") and Path(exe).is_file():
                             return _linux_desktop_to_kind_and_path(exe)
                         for p in ["/usr/bin", "/usr/local/bin"]:
