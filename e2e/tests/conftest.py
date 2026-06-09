@@ -33,10 +33,10 @@ Placeholder skill for E2E tests.
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_default_model(api_context):
-    """Configure provider API key and set a global default model when QWENPAW_MODEL_KEY is set."""
-    model_key = os.getenv("QWENPAW_MODEL_KEY")
+    """Configure provider API key and set a global default model when QWENPAW_DASHSCOPE_API_KEY is set."""
+    model_key = os.getenv("QWENPAW_DASHSCOPE_API_KEY")
     if not model_key:
-        logger.info("QWENPAW_MODEL_KEY not set, skipping model setup")
+        logger.info("QWENPAW_DASHSCOPE_API_KEY not set, skipping model setup")
         yield
         return
 

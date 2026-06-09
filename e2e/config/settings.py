@@ -141,8 +141,8 @@ class Config:
         if os.getenv("QWENPAW_CHANNEL"):
             self.test.channel = os.getenv("QWENPAW_CHANNEL")
 
-        if os.getenv("QWENPAW_MODEL_KEY"):
-            self.server.model_key = os.getenv("QWENPAW_MODEL_KEY")
+        if os.getenv("QWENPAW_DASHSCOPE_API_KEY"):
+            self.server.model_key = os.getenv("QWENPAW_DASHSCOPE_API_KEY")
 
         # Set API base URL
         if not self.server.api_base_url:
