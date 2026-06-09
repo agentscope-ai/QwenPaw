@@ -293,7 +293,7 @@ def channel_callback_server():
     inspect recorded payloads request this fixture by name.
     """
     from http.server import BaseHTTPRequestHandler, HTTPServer
-    import json as _json
+    import json as _json  # pylint: disable=reimported
 
     class _Handler(BaseHTTPRequestHandler):
         def do_POST(self):  # noqa: N802
