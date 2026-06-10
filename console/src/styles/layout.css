@@ -784,7 +784,9 @@ html.dark-mode
   [class*="message"]
   span:not([class*="diffAddBadge"]):not([class*="diffDelBadge"]):not(
     [class*="lineReadBadge"]
-  ):not([class*="lineSearchBadge"]),
+  ):not([class*="lineSearchBadge"]):not([class*="jsonKey"]):not(
+    [class*="jsonStr"]
+  ):not([class*="jsonNum"]):not([class*="jsonNull"]),
 html.dark-mode [class*="chat-anywhere"] [class*="message"] blockquote,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] td,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] th {
@@ -825,6 +827,32 @@ html.dark-mode [class*="chat-anywhere"] [class*="toolCallDiff"] {
 html.dark-mode [class*="chat-anywhere"] [class*="toolCallResultMd"] {
   background: #2a2a2a !important;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* JSON syntax highlighting in tool output — preserve distinct colors in dark mode */
+html.dark-mode
+  [class*="chat-anywhere"]
+  [class*="defaultBlockContent"]
+  [class*="jsonKey"] {
+  color: #f5827a !important;
+}
+html.dark-mode
+  [class*="chat-anywhere"]
+  [class*="defaultBlockContent"]
+  [class*="jsonStr"] {
+  color: #7ec87e !important;
+}
+html.dark-mode
+  [class*="chat-anywhere"]
+  [class*="defaultBlockContent"]
+  [class*="jsonNum"] {
+  color: #6cb6ff !important;
+}
+html.dark-mode
+  [class*="chat-anywhere"]
+  [class*="defaultBlockContent"]
+  [class*="jsonNull"] {
+  color: #f0b95f !important;
 }
 
 /* ─── Mobile safe-area & keyboard adaptation (#4738) ──────────────────────── */

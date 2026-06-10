@@ -297,6 +297,37 @@
   margin-left: 6px;
 }
 
+// JSON syntax highlighting.
+// Double class selector + !important to beat the blanket
+// `color: rgba(255,255,255,0.85) !important` from chat-anywhere dark-mode.
+.jsonKey.jsonKey {
+  color: #cf1322 !important;
+}
+.jsonStr.jsonStr {
+  color: #389e0d !important;
+}
+.jsonNum.jsonNum {
+  color: #1677ff !important;
+}
+.jsonNull.jsonNull {
+  color: #d4880f !important;
+}
+
+:global(.dark-mode) {
+  .jsonKey.jsonKey {
+    color: #f5827a !important;
+  }
+  .jsonStr.jsonStr {
+    color: #7ec87e !important;
+  }
+  .jsonNum.jsonNum {
+    color: #6cb6ff !important;
+  }
+  .jsonNull.jsonNull {
+    color: #f0b95f !important;
+  }
+}
+
 // Markdown result block
 .toolCallResultMd {
   font-size: 13px;

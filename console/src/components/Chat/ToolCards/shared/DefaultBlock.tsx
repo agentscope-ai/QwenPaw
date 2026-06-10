@@ -44,26 +44,24 @@ function highlightJson(obj: unknown, indent = 0): React.ReactNode[] {
 
   if (obj === null) {
     nodes.push(
-      <span key="null" style={{ color: "#d4880f" }}>
+      <span key="null" className={styles.jsonNull}>
         null
       </span>,
     );
   } else if (typeof obj === "boolean") {
     nodes.push(
-      <span key="bool" style={{ color: "#d4880f" }}>
+      <span key="bool" className={styles.jsonNull}>
         {String(obj)}
       </span>,
     );
   } else if (typeof obj === "number") {
     nodes.push(
-      <span key="num" style={{ color: "#1677ff" }}>
+      <span key="num" className={styles.jsonNum}>
         {String(obj)}
       </span>,
     );
   } else if (typeof obj === "string") {
-    nodes.push(
-      <span key="str" style={{ color: "#389e0d" }}>{`"${obj}"`}</span>,
-    );
+    nodes.push(<span key="str" className={styles.jsonStr}>{`"${obj}"`}</span>);
   } else if (Array.isArray(obj)) {
     if (obj.length === 0) {
       nodes.push("[]");
@@ -89,7 +87,7 @@ function highlightJson(obj: unknown, indent = 0): React.ReactNode[] {
         nodes.push(
           <span
             key={`k${keyCounter}`}
-            style={{ color: "#cf1322" }}
+            className={styles.jsonKey}
           >{`"${key}"`}</span>,
         );
         nodes.push(": ");
