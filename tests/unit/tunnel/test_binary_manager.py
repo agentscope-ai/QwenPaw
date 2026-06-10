@@ -31,6 +31,7 @@ async def test_get_binary_path_found_local(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("shutil.which", lambda _name: None)
+    monkeypatch.setattr("platform.system", lambda: "Linux")
     bin_file = tmp_path / "cloudflared"
     bin_file.write_bytes(b"binary")
     bin_file.chmod(bin_file.stat().st_mode | stat.S_IXUSR)
