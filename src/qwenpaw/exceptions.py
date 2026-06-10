@@ -121,10 +121,11 @@ def _extract_error_summary(exc: Exception) -> str:
                 return msg[:_ERROR_SUMMARY_MAX_LEN]
 
     raw = str(exc)
-    first_line = raw.split("\n", 1)[0].strip()
-    if first_line:
-        return first_line[:_ERROR_SUMMARY_MAX_LEN]
-    return raw[:_ERROR_SUMMARY_MAX_LEN]
+    for line in raw.splitlines():
+        first_line = line.strip()
+        if first_line:
+            return first_line[:_ERROR_SUMMARY_MAX_LEN]
+    return raw.strip()[:_ERROR_SUMMARY_MAX_LEN]
 
 
 def _append_error_detail(
