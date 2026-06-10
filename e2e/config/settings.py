@@ -45,7 +45,7 @@ class ServerConfig:
     """Server configuration"""
     base_url: str = "http://localhost:8088"
     api_base_url: str = ""  # Leave empty to use base_url + /api
-    api_key: str = ""       # API Key for integration tests
+
     model_key: str = ""     # Key for Model connection tests
     timeout: int = 30000
     retry_count: int = 3
@@ -141,12 +141,8 @@ class Config:
         if os.getenv("QWENPAW_CHANNEL"):
             self.test.channel = os.getenv("QWENPAW_CHANNEL")
 
-        # API Key configuration
-        if os.getenv("QWENPAW_API_KEY"):
-            self.server.api_key = os.getenv("QWENPAW_API_KEY")
-
-        if os.getenv("QWENPAW_MODEL_KEY"):
-            self.server.model_key = os.getenv("QWENPAW_MODEL_KEY")
+        if os.getenv("QWENPAW_DASHSCOPE_API_KEY"):
+            self.server.model_key = os.getenv("QWENPAW_DASHSCOPE_API_KEY")
 
         # Set API base URL
         if not self.server.api_base_url:

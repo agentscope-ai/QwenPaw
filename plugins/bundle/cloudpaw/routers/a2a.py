@@ -16,20 +16,35 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("qwenpaw").getChild("plugin.cloudpaw.routers.a2a")
 
-router = APIRouter(prefix="/a2a", tags=["a2a"])
+router = APIRouter(prefix="", tags=["a2a"])
 
 # ------------------------------------------------------------------
 # Request / Response models
 # ------------------------------------------------------------------
+
+
+class ImportedAgentResponse(BaseModel):
+    url: str
+    name: str
+    description: Optional[str] = None
+    version: Optional[str] = None
+    skills: Optional[list] = None
+    capabilities: Optional[dict] = None
+    auth_type: str = "gateway"
+
+
+class ImportResponse(BaseModel):
+    agents: list[ImportedAgentResponse]
 
 
 class RegisterRequest(BaseModel):
@@ -119,6 +134,19 @@ def _get_manager():
     return get_a2a_manager()
 
 
+def _sanitize_card_name(name: str) -> str:
+    """Convert a card name like 'ECS Backup Assistant' into a stable alias.
+
+    Strips non-alphanumeric characters, collapses whitespace, lowercases,
+    and joins with hyphens.
+    E.g. ``'ECS Backup Assistant'`` -> ``'ecs-backup-assistant'``.
+    """
+    result = re.sub(r"[^a-zA-Z0-9一-鿿\s-]+", "", name)
+    result = result.strip()
+    result = re.sub(r"[\s_]+", "-", result)
+    return result.lower() or "unknown"
+
+
 def _make_alias(url: str, alias: str | None) -> str:
     """Derive alias: explicit alias, or sanitised URL host."""
     if alias:
@@ -150,6 +178,9 @@ def _build_entry_response(
         data["capabilities"] = card_info.get("capabilities")
     else:
         data["status"] = "disconnected"
+        # Fallback display name from registry when card is unavailable
+        if reg_info.get("card_name"):
+            data["name"] = reg_info["card_name"]
     if error:
         data["error"] = error
         data["status"] = "error"
@@ -174,6 +205,12 @@ async def list_agents(
     agents_cfg = _load_config(ws_dir)
     manager = _get_manager()
 
+    logger.info(
+        "list_agents: %d agents in config, active=%s",
+        len(agents_cfg),
+        active,
+    )
+
     result: list[AgentEntryResponse] = []
     for alias, reg in agents_cfg.items():
         reg["alias"] = alias
@@ -191,6 +228,7 @@ async def list_agents(
         entry = _build_entry_response(reg, card_info)
         if not active or entry.status == "connected":
             result.append(entry)
+    logger.info("list_agents: returning %d agents", len(result))
     return AgentsListResponse(agents=result)
 
 
@@ -207,7 +245,49 @@ async def register_agent(
     agents_cfg = _load_config(ws_dir)
     manager = _get_manager()
 
-    alias = _make_alias(body.url, body.alias)
+    # Try to connect first to get the Agent Card (includes `name`)
+    card_info: dict | None = None
+    connect_error: str | None = None
+    try:
+        card_info = await manager.connect(
+            agent_url=body.url,
+            auth_type=body.auth_type or "",
+            auth_token=body.auth_token or "",
+            gateway_config=body.gateway_config,
+        )
+        logger.info(
+            "register_agent: connected to %s, card name='%s'",
+            body.url,
+            card_info.get("name"),
+        )
+    except Exception as exc:
+        connect_error = str(exc)
+        logger.warning("Failed to connect to %s: %s", body.url, exc)
+
+    # Derive alias: explicit alias > sanitised card name > URL hostname
+    alias: str
+    if body.alias:
+        alias = _sanitize_card_name(body.alias)
+        card_name = body.alias.strip()
+    elif card_info and card_info.get("name"):
+        alias = _sanitize_card_name(card_info["name"])
+        card_name = card_info["name"]
+    else:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(body.url)
+        alias = parsed.hostname or body.url
+        card_name = ""
+
+    if not card_name and card_info and card_info.get("name"):
+        card_name = card_info["name"]
+
+    logger.info(
+        "register_agent: alias='%s' card_name='%s' url='%s'",
+        alias,
+        card_name,
+        body.url,
+    )
 
     existing = agents_cfg.get(alias)
     if existing and existing["url"] != body.url:
@@ -223,28 +303,80 @@ async def register_agent(
         "auth_token": body.auth_token or "",
         "gateway_config": body.gateway_config or {},
     }
-
-    try:
-        card_info = await manager.connect(
-            agent_url=body.url,
-            auth_type=body.auth_type or "",
-            auth_token=body.auth_token or "",
-            gateway_config=body.gateway_config,
-        )
-    except Exception as exc:
-        logger.warning("Failed to connect to %s: %s", body.url, exc)
-        agents_cfg[alias] = reg_info
-        _save_config(ws_dir, agents_cfg)
-        return _build_entry_response(reg_info, None, error=str(exc))
+    if card_name:
+        reg_info["card_name"] = card_name
 
     agents_cfg[alias] = reg_info
     _save_config(ws_dir, agents_cfg)
 
+    if connect_error:
+        return _build_entry_response(reg_info, None, error=connect_error)
+    logger.info("register_agent: registered alias='%s'", alias)
+
     return _build_entry_response(reg_info, card_info)
 
 
-@router.delete("/agents/{alias}", summary="Delete A2A agent")
-async def delete_agent(request: Request, alias: str) -> dict:
+@router.put(
+    "/agents",
+    response_model=AgentEntryResponse,
+    summary="Rename A2A agent alias",
+)
+async def rename_agent(
+    request: Request,
+    alias: str = Query(..., description="Current alias"),
+) -> AgentEntryResponse:
+    """Rename an existing agent's alias."""
+    ws_dir = await _get_workspace_dir(request)
+    agents_cfg = _load_config(ws_dir)
+
+    body_data = await request.json()
+    new_alias = body_data.get("new_alias", "").strip()
+    if not new_alias:
+        raise HTTPException(
+            status_code=400,
+            detail="Alias cannot be empty",
+        )
+    # Validate alias format: no whitespace (breaks /a2a shortcut parsing)
+    if re.search(r"\s", new_alias):
+        raise HTTPException(
+            status_code=400,
+            detail="Alias cannot contain whitespace",
+        )
+
+    reg = agents_cfg.get(alias)
+    if not reg:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{alias}' not found",
+        )
+
+    if new_alias in agents_cfg and agents_cfg[new_alias]["url"] != reg["url"]:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Alias '{new_alias}' is already used for "
+                f"a different agent"
+            ),
+        )
+
+    # Re-register under the new alias
+    agents_cfg.pop(alias)
+    reg["alias"] = new_alias
+    agents_cfg[new_alias] = reg
+    _save_config(ws_dir, agents_cfg)
+    logger.info("rename_agent: '%s' -> '%s'", alias, new_alias)
+
+    manager = _get_manager()
+    card_info = await manager.get_card_info(reg["url"])
+    return _build_entry_response(reg, card_info)
+
+
+@router.delete("/agents", summary="Delete A2A agent")
+async def delete_agent(
+    request: Request,
+    alias: str = Query(..., description="Alias to delete"),
+) -> dict:
+    logger.info("delete_agent: alias='%s'", alias)
     ws_dir = await _get_workspace_dir(request)
     agents_cfg = _load_config(ws_dir)
 
@@ -263,15 +395,19 @@ async def delete_agent(request: Request, alias: str) -> dict:
     except Exception as exc:
         logger.warning("Error disconnecting %s: %s", reg["url"], exc)
 
+    logger.info("delete_agent: deleted alias='%s' url='%s'", alias, reg["url"])
     return {"status": "ok"}
 
 
 @router.post(
-    "/agents/{alias}/refresh",
+    "/agents/refresh",
     response_model=AgentEntryResponse,
     summary="Refresh Agent Card",
 )
-async def refresh_agent(request: Request, alias: str) -> AgentEntryResponse:
+async def refresh_agent(
+    request: Request,
+    alias: str = Query(..., description="Alias to refresh"),
+) -> AgentEntryResponse:
     ws_dir = await _get_workspace_dir(request)
     agents_cfg = _load_config(ws_dir)
 
@@ -302,6 +438,141 @@ async def refresh_agent(request: Request, alias: str) -> AgentEntryResponse:
         return _build_entry_response(reg, None, error=str(exc))
 
     return _build_entry_response(reg, card_info)
+
+
+# ------------------------------------------------------------------
+# Batch import from AgentHub
+# ------------------------------------------------------------------
+
+_AGENTHUB_BASE_URL = "https://agenthub.cn-beijing.aliyuncs.com"
+_AGENTHUB_API_URL = f"{_AGENTHUB_BASE_URL}/agents"  # Agent list API endpoint
+_AGENTHUB_PAGE_SIZE = 10
+
+
+@router.get(
+    "/import",
+    response_model=ImportResponse,
+    summary="Batch import agents from AgentHub",
+)
+async def import_agents() -> ImportResponse:
+    """Fetch all agents from AgentHub using cursor-based pagination.
+
+    Fetches agents via maxResults/nextToken, accumulating all results
+    before returning.  Key parameters (base URL, page size) are module-level
+    variables for easy tuning.
+    """
+    import httpx
+
+    all_results: list[dict] = []
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # First page
+            logger.info(
+                "AgentHub import: fetching first page from %s (maxResults=%d)",
+                _AGENTHUB_API_URL,
+                _AGENTHUB_PAGE_SIZE,
+            )
+            resp = await client.get(
+                _AGENTHUB_API_URL,
+                params={"maxResults": _AGENTHUB_PAGE_SIZE},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            total_count = data.get("totalCount", 0)
+            page_results = data.get("results", [])
+            logger.info(
+                "AgentHub import: page 1, got %d agents, totalCount=%d",
+                len(page_results),
+                total_count,
+            )
+            all_results.extend(page_results)
+
+            # Subsequent pages via nextToken
+            next_token = data.get("nextToken", "")
+            page_index = 1
+            while next_token:
+                page_index += 1
+                logger.info(
+                    "AgentHub import: fetching page %d (nextToken=%s...)",
+                    page_index,
+                    next_token[:20],
+                )
+                resp = await client.get(
+                    _AGENTHUB_API_URL,
+                    params={
+                        "maxResults": _AGENTHUB_PAGE_SIZE,
+                        "nextToken": next_token,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                page_results = data.get("results", [])
+                all_results.extend(page_results)
+                logger.info(
+                    "AgentHub import: page %d, got %d agents",
+                    page_index,
+                    len(page_results),
+                )
+                next_token = data.get("nextToken", "")
+
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "AgentHub import HTTP error: %d — %s",
+            exc.response.status_code,
+            exc.response.text[:200],
+        )
+        raise HTTPException(
+            status_code=exc.response.status_code,
+            detail=(
+                "Failed to fetch agents from AgentHub: "
+                f"{exc.response.text[:200]}"
+            ),
+        ) from exc
+    except httpx.RequestError as exc:
+        logger.warning(
+            "AgentHub import network error: %s",
+            exc,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Network error connecting to AgentHub: {exc}",
+        ) from exc
+    except Exception as exc:
+        logger.warning("AgentHub import unexpected error: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error: {exc}",
+        ) from exc
+
+    agents: list[ImportedAgentResponse] = []
+    for item in all_results:
+        interfaces = item.get("supportedInterfaces", [])
+        if not interfaces:
+            continue
+        agent_url = interfaces[0].get("url", "")
+        if not agent_url:
+            continue
+
+        agents.append(
+            ImportedAgentResponse(
+                url=agent_url,
+                name=item.get("name", agent_url),
+                description=item.get("description"),
+                version=item.get("version"),
+                skills=item.get("skills"),
+                capabilities=item.get("capabilities"),
+                auth_type="gateway",
+            ),
+        )
+
+    logger.info(
+        "AgentHub import complete: fetched %d raw, returned %d with URLs",
+        len(all_results),
+        len(agents),
+    )
+
+    return ImportResponse(agents=agents)
 
 
 # ------------------------------------------------------------------
@@ -338,6 +609,12 @@ async def direct_call(request: Request, body: A2ACallRequest) -> dict:
             detail="An A2A call is already in progress",
         )
 
+    logger.info(
+        "direct_call: agent_alias='%s' agent_url='%s'",
+        body.agent_alias,
+        body.agent_url,
+    )
+
     agent_id = request.headers.get("X-Agent-Id")
     if not agent_id:
         from qwenpaw.config.utils import load_config
@@ -347,20 +624,27 @@ async def direct_call(request: Request, body: A2ACallRequest) -> dict:
 
     from tools.a2a_call import a2a_call
 
-    tool_resp = await a2a_call(
+    # a2a_call is an async generator; iterate and take the final chunk
+    final_chunk = None
+    async for chunk in a2a_call(
         message=body.message,
         agent_alias=body.agent_alias,
         agent_url=body.agent_url,
         context_id=body.context_id,
-    )
+    ):
+        final_chunk = chunk
+
+    if final_chunk is None:
+        return {"error": "A2A call produced no result"}
 
     result: dict = {}
-    for block in tool_resp.content:
+    for block in final_chunk.content:
         if block.get("type") == "text":
             try:
                 result = json.loads(block["text"])
             except (json.JSONDecodeError, TypeError):
                 result = {"response_text": block["text"]}
+    logger.info("direct_call: response received")
     return result
 
 

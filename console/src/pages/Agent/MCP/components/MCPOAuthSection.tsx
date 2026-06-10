@@ -126,7 +126,7 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
       });
 
       setPhase("waiting");
-      openExternalLink(resp.auth_url);
+      openExternalLink(resp.auth_url, "_blank", "popup,width=600,height=700");
       // The existing useEffect polls backend every 2s while phase === "waiting"
     } catch (err: unknown) {
       const msg =
