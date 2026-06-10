@@ -787,10 +787,13 @@ export function useSkillPool() {
   const handleDelete = async (skill: PoolSkillSpec) => {
     Modal.confirm({
       title: t("skillPool.deleteTitle", { name: skill.name }),
-      content:
-        skill.source === "builtin"
-          ? t("skillPool.deleteBuiltinConfirm")
-          : t("skillPool.deleteConfirm"),
+      content: skill.external
+        ? t("skillPool.deleteExternalConfirm", {
+            path: skill.external_path || skill.name,
+          })
+        : skill.source === "builtin"
+        ? t("skillPool.deleteBuiltinConfirm")
+        : t("skillPool.deleteConfirm"),
       okText: t("common.delete"),
       okType: "danger",
       onOk: async () => {
@@ -927,15 +930,25 @@ export function useSkillPool() {
   const handleBatchDeletePool = async () => {
     const names = Array.from(selectedPoolSkills);
     if (names.length === 0) return;
+    const hasExternal = skills.some(
+      (s) => selectedPoolSkills.has(s.name) && s.external,
+    );
     const confirmed = await new Promise<boolean>((resolve) => {
       Modal.confirm({
         title: t("skillPool.batchDeleteTitle", { count: names.length }),
         content: (
-          <ul style={{ margin: "8px 0", paddingLeft: 20 }}>
-            {names.map((n) => (
-              <li key={n}>{n}</li>
-            ))}
-          </ul>
+          <>
+            <ul style={{ margin: "8px 0", paddingLeft: 20 }}>
+              {names.map((n) => (
+                <li key={n}>{n}</li>
+              ))}
+            </ul>
+            {hasExternal && (
+              <div style={{ color: "var(--ant-color-error, #ff4d4f)" }}>
+                {t("skillPool.deleteExternalBatchWarning")}
+              </div>
+            )}
+          </>
         ),
         okText: t("common.delete"),
         okType: "danger",

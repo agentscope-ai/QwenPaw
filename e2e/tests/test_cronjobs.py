@@ -762,25 +762,37 @@ class TestCronjobWeeklySchedule:
             log_test_result(test_name, True, 0)
             return
 
-        log_test_step("Find the schedule type selector")
-        schedule_select = drawer.locator('.qwenpaw-select, .ant-select').first
-        if schedule_select.count() > 0:
-            schedule_select.click()
-            page.wait_for_timeout(500)
-            weekly_option = page.locator('.qwenpaw-select-item:has-text("Weekly")').first
-            if weekly_option.count() > 0:
-                weekly_option.click()
-                page.wait_for_timeout(1000)
-                logger.info("Selected Weekly schedule type")
+        log_test_step("Ensure Recurring mode and select Weekly frequency")
+        selects = drawer.locator('.qwenpaw-select, .ant-select').all()
+        if len(selects) < 2:
+            pytest.skip("Schedule selectors not found, skipping test")
 
-                # Look for the weekday selector
-                day_checkboxes = drawer.locator('.qwenpaw-checkbox, .ant-checkbox').all()
-                assert len(day_checkboxes) > 0, "Weekly schedule type should have weekday checkboxes"
-                logger.info(f"Found {len(day_checkboxes)} weekday checkboxes")
-            else:
-                pytest.skip("Weekly option not found, skipping test")
+        # First select: mode (Recurring / Scheduled) — ensure Recurring
+        selects[0].click()
+        page.wait_for_timeout(500)
+        recurring_opt = page.locator('.qwenpaw-select-item:has-text("Recurring")').first
+        if recurring_opt.count() > 0:
+            recurring_opt.click()
+            page.wait_for_timeout(500)
         else:
-            pytest.skip("Schedule type selector not found, skipping test")
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(300)
+
+        # Second select: frequency (Hourly / Daily / Weekly / Custom)
+        selects = drawer.locator('.qwenpaw-select, .ant-select').all()
+        selects[1].click()
+        page.wait_for_timeout(500)
+        weekly_option = page.locator('.qwenpaw-select-item:has-text("Weekly")').first
+        if weekly_option.count() > 0:
+            weekly_option.click()
+            page.wait_for_timeout(1000)
+            logger.info("Selected Weekly schedule frequency")
+
+            day_checkboxes = drawer.locator('.qwenpaw-checkbox, .ant-checkbox').all()
+            assert len(day_checkboxes) > 0, "Weekly schedule type should have weekday checkboxes"
+            logger.info(f"Found {len(day_checkboxes)} weekday checkboxes")
+        else:
+            pytest.skip("Weekly option not found in frequency selector")
 
         page.keyboard.press("Escape")
         page.wait_for_timeout(500)

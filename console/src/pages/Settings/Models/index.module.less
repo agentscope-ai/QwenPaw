@@ -336,6 +336,14 @@
   font-style: italic;
 }
 
+.inlineKeyInput {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
 /* Card Actions */
 .cardActions {
   display: flex;
@@ -988,6 +996,20 @@
   font-size: 13px;
 }
 
+.modelListLoadMore {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.modelListCount {
+  font-size: 12px;
+  color: #999;
+}
+
 .modelListItem {
   display: flex;
   align-items: center;
@@ -1513,6 +1535,14 @@
 
   .modelListEmpty {
     color: rgba(255, 255, 255, 0.3);
+  }
+
+  .modelListLoadMore {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .modelListCount {
+    color: rgba(255, 255, 255, 0.35);
   }
 
   .modelListItem {

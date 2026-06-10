@@ -4,7 +4,9 @@
 import logging
 import sys
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("qwenpaw").getChild(
+    __name__.replace("plugin_cloudpaw.", ""),
+)
 
 
 def inject_interaction_module() -> None:

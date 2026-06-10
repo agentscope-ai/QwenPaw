@@ -9,7 +9,7 @@
 <p align="center">
   <a href="https://github.com/agentscope-ai/CloudPaw/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License" /></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.10%2B-blue.svg" alt="Python" /></a>
-  <a href="#"><img src="https://img.shields.io/badge/version-0.0.2-green.svg" alt="Version" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/version-0.0.3-green.svg" alt="Version" /></a>
 </p>
 
 <p align="center">
@@ -47,7 +47,7 @@ CloudPaw runs entirely in your own environment, keeping your data secure and und
 1. Launch QwenPaw (`qwenpaw app`), open http://127.0.0.1:8088/
 2. Click "Plugin Manager" in the left sidebar (under Settings), then click "Install Plugin"
 3. Install using either method:
-   - Enter the plugin download URL: `https://qwenpaw-download.oss-ap-southeast-1.aliyuncs.com/files/plugins/cloudpaw/cloudpaw-0.0.2.zip`
+   - Enter the plugin download URL: `https://qwenpaw-download.oss-ap-southeast-1.aliyuncs.com/files/plugins/cloudpaw/cloudpaw-0.0.3.zip`
    - Drag the `cloudpaw/` folder into the install dialog, or select a ZIP file (CloudPaw is pre-bundled with QwenPaw v1.1.7+ at `plugins/bundle/cloudpaw/`)
 4. Wait for installation to complete
 
@@ -56,7 +56,7 @@ CloudPaw runs entirely in your own environment, keeping your data secure and und
 ```bash
 qwenpaw plugin install /path/to/cloudpaw
 # Or install via URL
-qwenpaw plugin install https://qwenpaw-download.oss-ap-southeast-1.aliyuncs.com/files/plugins/cloudpaw/cloudpaw-0.0.2.zip
+qwenpaw plugin install https://qwenpaw-download.oss-ap-southeast-1.aliyuncs.com/files/plugins/cloudpaw/cloudpaw-0.0.3.zip
 ```
 
 > **⚠️ IMPORTANT: After installation, you MUST hard-refresh the browser** (`Ctrl+Shift+R` / `Cmd+Shift+R`) to load frontend updates. CloudPaw's custom UI components (proposal selection, PRD management, etc.) will not appear until the page is refreshed. If features seem missing after install, try refreshing first.

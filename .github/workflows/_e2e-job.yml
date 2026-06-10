@@ -1,0 +1,179 @@
+# Reusable E2E Playwright job.
+# Called by e2e-integration.yml (manual dispatch) and
+# full-tests-nightly.yml (nightly four-tier coverage pipeline).
+name: E2E Playwright Job
+
+on:
+  workflow_call:
+    inputs:
+      test_marker:
+        description: 'Pytest marker expression'
+        type: string
+        default: 'integration'
+
+jobs:
+  e2e:
+    name: E2E Playwright Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+
+    env:
+      QWENPAW_BASE_URL: http://localhost:8088
+      QWENPAW_HEADLESS: 'true'
+      QWENPAW_TIMEOUT: '60000'
+      QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---- Build frontend ----
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: console/package-lock.json
+
+      - name: Build console frontend
+        shell: bash
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+        run: |
+          cd console && npm ci && npm run build
+
+      - name: Copy console build into package
+        shell: bash
+        run: |
+          rm -rf src/qwenpaw/console/*
+          mkdir -p src/qwenpaw/console
+          cp -R console/dist/* src/qwenpaw/console/
+
+      # ---- Install Python dependencies ----
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install backend + E2E dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install -r e2e/requirements.txt
+          playwright install chromium --with-deps
+
+      # ---- Prepare coverage ----
+      - name: Prepare coverage config
+        shell: bash
+        run: |
+          mkdir -p .e2e_coverage
+          SRC_ABS=$(cd src/qwenpaw && pwd)
+          {
+            echo "[run]"
+            echo "parallel = true"
+            echo "branch = false"
+            echo "source = ${SRC_ABS}"
+            echo "omit ="
+            echo "    */tests/*"
+            echo "    */test_*"
+            echo "    */__pycache__/*"
+          } > .e2e_coverage/coverage_e2e.ini
+
+      # ---- Start backend (isolated) ----
+      - name: Start QwenPaw backend
+        shell: bash
+        run: |
+          QWENPAW_E2E_DIR=$(mktemp -d)
+          echo "QWENPAW_E2E_DIR=$QWENPAW_E2E_DIR" >> "$GITHUB_ENV"
+          mkdir -p "$QWENPAW_E2E_DIR/working" \
+                   "$QWENPAW_E2E_DIR/secret" \
+                   "$QWENPAW_E2E_DIR/backups"
+
+          QWENPAW_WORKING_DIR="$QWENPAW_E2E_DIR/working" \
+          QWENPAW_SECRET_DIR="$QWENPAW_E2E_DIR/secret" \
+          QWENPAW_BACKUP_DIR="$QWENPAW_E2E_DIR/backups" \
+          QWENPAW_AUTH_ENABLED=false \
+          PYTHONUNBUFFERED=1 \
+          COVERAGE_PROCESS_START="${{ github.workspace }}/.e2e_coverage/coverage_e2e.ini" \
+          COVERAGE_FILE="${{ github.workspace }}/.e2e_coverage/e2e_subproc" \
+          python -m qwenpaw app --host 127.0.0.1 --port 8088 --log-level info &
+
+          echo $! > /tmp/qwenpaw-e2e.pid
+
+      - name: Wait for backend ready
+        shell: bash
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8088/api/version > /dev/null 2>&1; then
+              echo "Backend ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend failed to start within 60s"
+          exit 1
+
+      # ---- Run E2E tests ----
+      - name: Run E2E tests
+        shell: bash
+        working-directory: e2e
+        run: |
+          pytest tests/ -m "${{ inputs.test_marker }}" -v --tb=short --reruns=1 --reruns-delay=3
+
+      # ---- Collect coverage ----
+      - name: Stop backend and collect coverage
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/qwenpaw-e2e.pid ]; then
+            PID=$(cat /tmp/qwenpaw-e2e.pid)
+            kill -INT "$PID" 2>/dev/null || true
+            for i in $(seq 1 15); do
+              kill -0 "$PID" 2>/dev/null || break
+              sleep 1
+            done
+            kill -9 "$PID" 2>/dev/null || true
+          fi
+
+          cd .e2e_coverage
+          if compgen -G "e2e_subproc*" > /dev/null 2>&1; then
+            coverage combine --data-file=e2e_subproc
+            cp e2e_subproc ../.coverage.e2e
+            coverage xml  --data-file=e2e_subproc -o ../coverage.e2e.xml    || [ "$?" -eq 2 ]
+            coverage html --data-file=e2e_subproc -d ../htmlcov-e2e         || [ "$?" -eq 2 ]
+            echo "## E2E Backend Coverage"          >> "$GITHUB_STEP_SUMMARY"
+            coverage report --data-file=e2e_subproc --fail-under=0 | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No E2E coverage data collected"
+          fi
+
+      # ---- Upload artifacts ----
+      - name: Upload E2E coverage data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data-e2e
+          path: |
+            .coverage.e2e
+            coverage.e2e.xml
+          retention-days: 1
+          include-hidden-files: true
+
+      - name: Upload E2E test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-integration-report
+          path: e2e/reports/
+          retention-days: 7
+
+      - name: Upload E2E coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-coverage-report
+          path: |
+            coverage.e2e.xml
+            htmlcov-e2e/
+          retention-days: 7

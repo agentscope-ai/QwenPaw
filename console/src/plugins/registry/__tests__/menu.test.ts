@@ -156,4 +156,31 @@ describe("menuRegistry locations", () => {
   });
 });
 
+describe("menuRegistry href support", () => {
+  it("item with href appears in snapshot", () => {
+    menuRegistry.add("p1", {
+      id: "ext-link",
+      label: "External",
+      href: "https://example.com",
+    });
+    const items = menuRegistry.snapshot("primary.settings");
+    const item = items.find((i) => i.id === "ext-link");
+    expect(item).toBeDefined();
+    expect(item?.href).toBe("https://example.com");
+  });
+
+  it("href and route can coexist", () => {
+    menuRegistry.add("p1", {
+      id: "dual",
+      label: "Dual",
+      route: "core.chat",
+      href: "https://example.com",
+    });
+    const items = menuRegistry.snapshot("primary.settings");
+    const item = items.find((i) => i.id === "dual");
+    expect(item?.route).toBe("core.chat");
+    expect(item?.href).toBe("https://example.com");
+  });
+});
+
 import type { MenuItem } from "../types";

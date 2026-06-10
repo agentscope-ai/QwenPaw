@@ -19,6 +19,7 @@ export interface FlatMenuEntry {
   icon: ReactNode;
   label: ReactNode;
   path: string;
+  href?: string;
 }
 
 /** Treat MenuItem.icon (Component or Node) as ReactNode with a given size. */
@@ -124,12 +125,13 @@ export function flattenMenu(
         continue;
       }
       const path = routeIdToPath(i.route, routes);
-      if (!path) continue;
+      if (!path && !i.href) continue;
       out.push({
         key: i.id,
         icon: renderIcon(i.icon, iconSize),
         label: resolveLabel(i.label),
-        path,
+        path: path ?? "",
+        href: i.href,
       });
     }
   };

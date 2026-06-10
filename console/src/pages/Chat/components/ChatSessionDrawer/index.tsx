@@ -121,6 +121,11 @@ interface ChatSessionDrawerProps {
   pinned?: boolean;
   /** Callback to toggle the pinned state */
   onPinChange?: (pinned: boolean) => void;
+  /**
+   * When true, render as an inline panel instead of an antd Drawer.
+   * The parent is responsible for layout (width, positioning, etc.).
+   */
+  embedded?: boolean;
 }
 
 /** Format an ISO 8601 timestamp to YYYY-MM-DD HH:mm:ss */
@@ -147,11 +152,22 @@ const getBackendId = (session: ExtendedChatSession): string | null => {
 const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { sessions, currentSessionId, setCurrentSessionId, setSessions } =
-    useChatAnywhereSessionsState();
+  const sdkState = useChatAnywhereSessionsState();
   const { codingMode } = useCodingMode();
 
-  const { createSession } = useChatAnywhereSessions();
+  const sdkActions = useChatAnywhereSessions();
+
+  // In embedded mode, maintain a local session list fetched directly from the
+  // API so we don't depend on the SDK context tree (which lives inside
+  // AgentScopeRuntimeWebUI and may not be accessible from outside).
+  const [localSessions, setLocalSessions] = useState<
+    IAgentScopeRuntimeWebUISession[]
+  >([]);
+
+  const sessions = props.embedded ? localSessions : sdkState.sessions;
+  const { currentSessionId, setCurrentSessionId } = sdkState;
+  const setSessions = props.embedded ? setLocalSessions : sdkState.setSessions;
+  const createSession = sdkActions.createSession;
 
   /** Create a new session; close the drawer only when not pinned */
   const handleCreateSession = useCallback(async () => {
@@ -503,57 +519,36 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     ],
   );
 
-  return (
-    <Drawer
-      open={props.open}
-      onClose={props.pinned ? undefined : props.onClose}
-      destroyOnHidden={!props.pinned}
-      placement="right"
-      width={360}
-      closable={false}
-      title={null}
-      mask={!props.pinned}
-      styles={{
-        header: { display: "none" },
-        body: {
-          padding: 0,
-          display: "flex",
-          flexDirection: "column",
-          height: "100%",
-          overflow: "hidden",
-        },
-        mask: { background: "transparent" },
-      }}
-      className={styles.drawer}
-    >
+  const panelContent = (
+    <>
       {/* Header bar */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <span className={styles.headerTitle}>{t("chat.allChats")}</span>
         </div>
         <div className={styles.headerRight}>
-          <Tooltip
-            title={
-              props.pinned
-                ? t("chat.unpinDrawer", "Unpin")
-                : t("chat.pinDrawer", "Pin")
-            }
-            mouseEnterDelay={0.5}
-          >
-            <IconButton
-              bordered={false}
-              icon={props.pinned ? <SparkLockFill /> : <SparkLockLine />}
-              className={props.pinned ? styles.pinActive : undefined}
-              onClick={() => props.onPinChange?.(!props.pinned)}
-            />
-          </Tooltip>
-          {!props.pinned && (
-            <IconButton
-              bordered={false}
-              icon={<SparkOperateRightLine />}
-              onClick={props.onClose}
-            />
+          {!props.embedded && (
+            <Tooltip
+              title={
+                props.pinned
+                  ? t("chat.unpinDrawer", "Unpin")
+                  : t("chat.pinDrawer", "Pin")
+              }
+              mouseEnterDelay={0.5}
+            >
+              <IconButton
+                bordered={false}
+                icon={props.pinned ? <SparkLockFill /> : <SparkLockLine />}
+                className={props.pinned ? styles.pinActive : undefined}
+                onClick={() => props.onPinChange?.(!props.pinned)}
+              />
+            </Tooltip>
           )}
+          <IconButton
+            bordered={false}
+            icon={<SparkOperateRightLine />}
+            onClick={props.onClose}
+          />
         </div>
       </div>
 
@@ -607,6 +602,40 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         items={contextMenuItems}
         onClose={sharedContextMenu.hide}
       />
+    </>
+  );
+
+  // Embedded mode: render as an inline panel (no Drawer wrapper)
+  if (props.embedded) {
+    if (!props.open) return null;
+    return <div className={styles.embeddedPanel}>{panelContent}</div>;
+  }
+
+  // Drawer mode (legacy)
+  return (
+    <Drawer
+      open={props.open}
+      onClose={props.pinned ? undefined : props.onClose}
+      destroyOnHidden={!props.pinned}
+      placement="right"
+      width={330}
+      closable={false}
+      title={null}
+      mask={!props.pinned}
+      styles={{
+        header: { display: "none" },
+        body: {
+          padding: 0,
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          overflow: "hidden",
+        },
+        mask: { background: "transparent" },
+      }}
+      className={styles.drawer}
+    >
+      {panelContent}
     </Drawer>
   );
 };

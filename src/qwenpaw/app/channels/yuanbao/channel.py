@@ -12,7 +12,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
 
@@ -39,6 +39,7 @@ from .codec import (
     CMD_TYPE_PUSH,
     CMD_TYPE_RESPONSE,
     build_auth_bind_msg,
+    build_heartbeat_msg,
     build_ping_msg,
     build_push_ack,
     build_send_c2c_msg,
@@ -53,6 +54,9 @@ from .constants import (
     AUTH_ALREADY_CODE,
     AUTH_FAILED_CODES,
     DEFAULT_API_DOMAIN,
+    HEARTBEAT_FINISH,
+    HEARTBEAT_RUNNING,
+    TYPING_KEEPALIVE_INTERVAL,
     DEFAULT_WS_URL,
     HEARTBEAT_INTERVAL,
     HEARTBEAT_TIMEOUT_THRESHOLD,
@@ -70,6 +74,9 @@ from .media import (
     resolve_download_url,
 )
 from .utils import download_media
+
+if TYPE_CHECKING:
+    from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +191,9 @@ class YuanbaoChannel(BaseChannel):
 
         # Track reconnect task to prevent GC
         self._reconnect_task: Optional[asyncio.Task] = None
+
+        # Typing indicator keepalive tasks: session_id → Task
+        self._typing_tasks: Dict[str, asyncio.Task] = {}
 
     # ------------------------------------------------------------------
     # Factory
@@ -1097,6 +1107,106 @@ class YuanbaoChannel(BaseChannel):
             )
 
     # ------------------------------------------------------------------
+    # Typing indicator (heartbeat-based "Bot is typing…")
+    # ------------------------------------------------------------------
+
+    async def _send_typing_heartbeat(
+        self,
+        session_id: str,
+        heartbeat: int,
+    ) -> None:
+        """Send a single typing heartbeat for the given session."""
+        if not self._ws or not self._connected:
+            return
+
+        session_info = self._session_map.get(session_id, {})
+        if not session_info:
+            return
+
+        chat_type = session_info.get("chat_type", "c2c")
+        raw_sender_id = session_info.get("sender_id", "")
+        group_code = session_info.get("group_code", "")
+
+        result = build_heartbeat_msg(
+            from_account=self._bot_id,
+            to_account=raw_sender_id,
+            heartbeat=heartbeat,
+            group_code=group_code if chat_type == "group" else None,
+        )
+        if result is None:
+            return
+
+        raw, _msg_id = result
+        try:
+            await self._ws.send_bytes(raw)
+        except Exception as exc:
+            logger.debug("yuanbao: typing heartbeat send failed: %s", exc)
+
+    async def _typing_keepalive_loop(self, session_id: str) -> None:
+        """Periodically send HEARTBEAT_RUNNING until cancelled."""
+        try:
+            while True:
+                await self._send_typing_heartbeat(
+                    session_id,
+                    HEARTBEAT_RUNNING,
+                )
+                await asyncio.sleep(TYPING_KEEPALIVE_INTERVAL)
+        except asyncio.CancelledError:
+            pass
+
+    def _start_typing(self, session_id: str) -> None:
+        """Start typing indicator for a session (idempotent)."""
+        existing = self._typing_tasks.get(session_id)
+        if existing and not existing.done():
+            return
+        self._typing_tasks[session_id] = asyncio.create_task(
+            self._typing_keepalive_loop(session_id),
+        )
+
+    async def _stop_typing(self, session_id: str) -> None:
+        """Cancel typing keepalive and send HEARTBEAT_FINISH."""
+        task = self._typing_tasks.pop(session_id, None)
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+            await self._send_typing_heartbeat(session_id, HEARTBEAT_FINISH)
+
+    async def _before_consume_process(self, request: "AgentRequest") -> None:
+        """Start typing indicator before the agent processes the request."""
+        meta = getattr(request, "channel_meta", None) or {}
+        session_id = meta.get("session_id", "")
+        if not session_id:
+            return
+        self._start_typing(session_id)
+
+    async def _on_process_completed(
+        self,
+        request: "AgentRequest",
+        to_handle: str,
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Stop typing indicator after all processing is done."""
+        session_id = (getattr(request, "channel_meta", None) or {}).get(
+            "session_id",
+        ) or to_handle
+        await self._stop_typing(session_id)
+
+    async def _on_consume_error(
+        self,
+        request: Any,
+        to_handle: str,
+        err_text: str,
+    ) -> None:
+        """Stop typing indicator on error, then send error message."""
+        meta = getattr(request, "channel_meta", None) or {}
+        session_id = meta.get("session_id") or to_handle
+        await self._stop_typing(session_id)
+        await super()._on_consume_error(request, to_handle, err_text)
+
+    # ------------------------------------------------------------------
     # Outgoing: send text / media
     # ------------------------------------------------------------------
 
@@ -1455,6 +1565,12 @@ class YuanbaoChannel(BaseChannel):
         logger.info("yuanbao: stopping channel...")
         self._stopping = True
         self._connected = False
+
+        # Cancel all typing indicator tasks
+        for typing_task in self._typing_tasks.values():
+            if typing_task and not typing_task.done():
+                typing_task.cancel()
+        self._typing_tasks.clear()
 
         for task in (
             self._heartbeat_task,

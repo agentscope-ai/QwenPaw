@@ -11,6 +11,7 @@ import re
 import json
 import logging
 import shutil
+import tempfile
 
 from typing import Union, Sequence
 
@@ -20,6 +21,38 @@ from agentscope_runtime.engine.schemas.exception import ConfigurationException
 from ...exceptions import AgentStateError
 
 logger = logging.getLogger(__name__)
+
+
+def _atomic_write_json(path: str, payload: dict) -> None:
+    """Atomically write JSON to *path* (tmp → os.replace).
+
+    This prevents session corruption on crash/power-loss mid-write.
+    """
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    tmp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            dir=parent or None,
+            prefix=f".{os.path.basename(path)}.",
+            suffix=".tmp",
+            delete=False,
+            encoding="utf-8",
+            newline="\n",
+        ) as f:
+            tmp_path = f.name
+            f.write(json.dumps(payload, ensure_ascii=False))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 
 def _safe_json_loads(content: str, filepath: str = "") -> dict:
@@ -285,12 +318,7 @@ class SafeJSONSession(SessionBase):
             user_id=user_id,
             channel=channel,
         )
-        with open(
-            session_save_path,
-            "w",
-            encoding="utf-8",
-        ) as f:
-            f.write(json.dumps(state_dicts, ensure_ascii=False))
+        _atomic_write_json(session_save_path, state_dicts)
 
         logger.info(
             "Saved session state to %s successfully.",
@@ -392,12 +420,7 @@ class SafeJSONSession(SessionBase):
 
         cur[path[-1]] = value
 
-        with open(
-            session_save_path,
-            "w",
-            encoding="utf-8",
-        ) as f:
-            f.write(json.dumps(states, ensure_ascii=False))
+        _atomic_write_json(session_save_path, states)
 
         logger.info(
             "Updated session state key '%s' in %s successfully.",

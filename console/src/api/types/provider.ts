@@ -37,6 +37,12 @@ export interface ProviderInfo {
   custom_headers?: Record<string, string>;
   /** Authentication mode: 'api_key' (x-api-key) or 'auth_token' (Authorization: Bearer). */
   auth_mode?: "api_key" | "auth_token";
+  /** Whether this provider supports OAuth login. */
+  supports_oauth?: boolean;
+  /** Whether OAuth is currently connected. */
+  oauth_connected?: boolean;
+  /** Whether this provider offers a free tier. */
+  is_free_tier?: boolean;
   /** Provider-specific metadata (e.g. base_url_options for region selection). */
   meta?: Record<string, unknown>;
 }

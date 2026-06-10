@@ -15,7 +15,9 @@ from .constants import (
     _AGENT_SPECS,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("qwenpaw").getChild(
+    __name__.replace("plugin_cloudpaw.", ""),
+)
 
 
 def register_extra_tools(agent_id: str, extra_tools: dict[str, dict]) -> None:
@@ -336,12 +338,11 @@ def _seed_persona_md_files(
 def uninstall_agents() -> None:
     """Uninstall all CloudPaw agents and related resources.
 
-    Removes agent profiles, workspaces, plugin skills from the pool,
-    and environment variables that were provisioned by CloudPaw.
+    Removes agent profiles, workspaces, plugin skills from the pool.
+    Environment variables are intentionally preserved.
     """
     _uninstall_agent_profiles()
     _uninstall_plugin_skills()
-    _uninstall_cloudpaw_env_vars()
 
 
 def _uninstall_agent_profiles() -> None:
@@ -448,33 +449,6 @@ def _uninstall_plugin_skills() -> None:
                 logger.info("Updated skill pool manifest")
         except Exception as exc:
             logger.warning("Failed to update skill pool manifest: %s", exc)
-
-
-def _uninstall_cloudpaw_env_vars() -> None:
-    """Remove CloudPaw-provisioned environment variables from envs.json."""
-    from .plugin import _DEFAULT_ENV_KEYS
-
-    try:
-        from qwenpaw.envs import load_envs, save_envs
-    except ImportError:
-        logger.warning("Cannot import qwenpaw.envs; env uninstall skipped")
-        return
-
-    envs = load_envs()
-    changed = False
-
-    for key in _DEFAULT_ENV_KEYS:
-        if key in envs:
-            del envs[key]
-            changed = True
-            logger.info("Removed env var: %s", key)
-
-    if changed:
-        try:
-            save_envs(envs)
-            logger.info("Saved updated envs.json")
-        except Exception as exc:
-            logger.warning("Failed to save envs.json after uninstall: %s", exc)
 
 
 def _install_workspace_skills(
