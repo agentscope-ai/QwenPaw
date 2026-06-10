@@ -106,8 +106,12 @@ class TestTokenUsageDisplay:
         if not has_table and not has_empty:
             main = page.locator('main, [class*="content"], [class*="pageContent"]').first
             body = main if main.count() > 0 else page.locator("body")
-            page_text = body.inner_text()
-            if any(kw in page_text for kw in ("No token", "暂无", "no data", "No data", "暂无数据")):
+            page_text = body.inner_text().lower()
+            empty_state_keywords = (
+                "no token", "no tokens", "no data",
+                "no usage", "no usage data", "暂无", "暂无数据",
+            )
+            if any(kw in page_text for kw in empty_state_keywords):
                 logger.info("Page shows text-based empty state (no table or empty component rendered)")
                 log_test_result(test_name, "PASS", "Token usage page empty state validated")
                 return
