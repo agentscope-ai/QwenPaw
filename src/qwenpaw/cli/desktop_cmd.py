@@ -19,6 +19,7 @@ import click
 
 from ..constant import LOG_LEVEL_ENV, WORKING_DIR
 from ..utils.logging import setup_logger
+from ..utils.port import get_stable_port
 
 try:
     import webview
@@ -102,52 +103,6 @@ class WebViewAPI:
             return False
 
 
-def _find_free_port(host: str = "127.0.0.1") -> int:
-    """Bind to port 0 and return the OS-assigned free port."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((host, 0))
-        sock.listen(1)
-        return sock.getsockname()[1]
-
-
-def _get_stable_port(host: str = "127.0.0.1") -> int:
-    """Return a stable port for the desktop app, reusing previous if possible.
-
-    Persists the port to WORKING_DIR/desktop_port so the browser origin
-    (http://{host}:{port}) stays the same across restarts, preserving
-    localStorage data (selected agent, chat history, plugin flags).
-    """
-    port_file = str(WORKING_DIR / "desktop_port")
-
-    # Try to reuse the previous port
-    try:
-        with open(port_file, "r", encoding="utf-8") as fh:
-            last_port = int(fh.read().strip())
-        if 1024 <= last_port <= 65535:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                sock.bind((host, last_port))
-                sock.listen(1)
-            logger.info(f"Reusing previous desktop port {last_port}")
-            return last_port
-    except (OSError, ValueError):
-        pass
-
-    # Fall back to random port
-    port = _find_free_port(host)
-    logger.info(f"Allocated new desktop port {port}")
-
-    # Persist for next launch
-    try:
-        os.makedirs(os.path.dirname(port_file), exist_ok=True)
-        with open(port_file, "w", encoding="utf-8") as fh:
-            fh.write(str(port))
-    except OSError:
-        pass
-
-    return port
-
-
 def _wait_for_http(host: str, port: int, timeout_sec: float = 300.0) -> bool:
     """Return True when something accepts TCP on host:port."""
     deadline = time.monotonic() + timeout_sec
@@ -213,7 +168,17 @@ def desktop_cmd(
     # Setup logger for desktop command (separate from backend subprocess)
     setup_logger(log_level)
 
-    port = _get_stable_port(host)
+    # NOTE: The desktop subprocess architecture means there is an inherent
+    # TOCTOU window: we pick a port here, but the backend subprocess binds
+    # it later.  Unlike the Tauri entry point (which passes the pre-bound
+    # socket directly to uvicorn), pywebview launches the backend as a
+    # child process that cannot inherit a socket.  The window is small and
+    # the fallback on bind failure is a clear error, so this is acceptable.
+    port_file = str(WORKING_DIR / "desktop_port")
+    port, reused_socket = get_stable_port(port_file, host)
+    # We cannot pass the socket to the subprocess; close it if returned.
+    if reused_socket:
+        reused_socket.close()
     url = f"http://{host}:{port}"
     click.echo(f"Starting QwenPaw app on {url} (port {port})")
     logger.info("Server subprocess starting...")
