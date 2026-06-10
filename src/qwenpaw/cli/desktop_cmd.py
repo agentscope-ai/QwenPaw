@@ -113,8 +113,8 @@ def _find_free_port(host: str = "127.0.0.1") -> int:
 def _get_stable_port(host: str = "127.0.0.1") -> int:
     """Return a stable port for the desktop app, reusing previous if possible.
 
-    Persists the port to ~/.qwenpaw/desktop_port so the browser origin
-    (http://127.0.0.1:{port}) stays the same across restarts, preserving
+    Persists the port to WORKING_DIR/desktop_port so the browser origin
+    (http://{host}:{port}) stays the same across restarts, preserving
     localStorage data (selected agent, chat history, plugin flags).
     """
     port_file = str(WORKING_DIR / "desktop_port")
@@ -125,7 +125,9 @@ def _get_stable_port(host: str = "127.0.0.1") -> int:
             last_port = int(fh.read().strip())
         if 1024 <= last_port <= 65535:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 sock.bind((host, last_port))
+                sock.listen(1)
             logger.info(f"Reusing previous desktop port {last_port}")
             return last_port
     except (OSError, ValueError):
