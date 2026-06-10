@@ -31,6 +31,9 @@ let activePlanId: string | null = null;
 let injectInFlight = false;
 let dagAbort: AbortController | null = null;
 let dagSessionId: string | null = null;
+let sessionSyncScheduled = false;
+let lastSyncedSessionId: string | null = null;
+let sessionSyncToken = 0;
 
 /** Remove legacy task_graph messages still present in the chat stream. */
 function purgeLegacyTaskGraphMessages(): void {
@@ -89,11 +92,15 @@ function ensureDagEventsSubscription(sessionId: string): void {
   });
 }
 
-function clearCurrentPlan(sessionId?: string | null): void {
+function clearCurrentPlan(
+  sessionId?: string | null,
+  opts: { removeCache?: boolean } = { removeCache: true },
+): void {
   activePlanId = null;
   setCurrentPlan(null);
+  stopDagEventsSubscription();
   const sid = resolveBackendSessionId(sessionId);
-  if (sid) removeTaskCardForSession(sid);
+  if (opts.removeCache !== false && sid) removeTaskCardForSession(sid);
 }
 
 function applyCurrentPlan(
@@ -181,6 +188,65 @@ async function fetchAndApplyTaskPlan(sessionId: string): Promise<boolean> {
     plan.name,
   );
   return true;
+}
+
+async function syncTaskPlanForCurrentSession(sessionId: string): Promise<void> {
+  const token = ++sessionSyncToken;
+  console.info("[datapaw:task-card] sync session task plan", { sessionId });
+
+  try {
+    const summary = await fetchTasksSummary(sessionId);
+    if (token !== sessionSyncToken || lastSyncedSessionId !== sessionId) return;
+
+    const plan = summary?.current_plan ?? null;
+    if (!plan) {
+      console.info("[datapaw:task-card] no current_plan for session", {
+        sessionId,
+      });
+      return;
+    }
+    applyCurrentPlan(plan, sessionId);
+  } catch (error) {
+    if (token === sessionSyncToken) {
+      console.warn("[datapaw] Failed to sync task plan for session:", error);
+    }
+  }
+}
+
+function getCurrentBackendSessionId(): string | null {
+  return resolveBackendSessionId();
+}
+
+/**
+ * Sync the task graph when the selected chat session changes.
+ * This restores historical sessions from the backend, without showing stale
+ * localStorage plans in a fresh session.
+ */
+export function scheduleSessionTaskPlanSync(): void {
+  if (sessionSyncScheduled) return;
+  sessionSyncScheduled = true;
+
+  const sync = () => {
+    if (!isDatapawAgentSelected()) {
+      if (lastSyncedSessionId || activePlanId) {
+        lastSyncedSessionId = null;
+        clearCurrentPlan(null, { removeCache: false });
+      }
+      return;
+    }
+
+    const sessionId = getCurrentBackendSessionId();
+    if (!sessionId || sessionId === lastSyncedSessionId) return;
+
+    lastSyncedSessionId = sessionId;
+    resetNodeStreamEvents();
+    clearCurrentPlan(sessionId, { removeCache: false });
+    purgeLegacyTaskGraphMessages();
+    void syncTaskPlanForCurrentSession(sessionId);
+  };
+
+  sync();
+  window.setInterval(sync, 300);
 }
 
 async function injectTaskPlanAfterCreatePlan(): Promise<void> {

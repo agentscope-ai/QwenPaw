@@ -13,7 +13,10 @@ import { createTaskGraphAppend } from "./renders/task-graph-append";
 import { installFetchPatch } from "./patches/fetch-patch";
 import { ensureDefaultAgent } from "./patches/ensure-agent";
 import { patchWelcomeAndTheme } from "./patches/welcome-theme";
-import { installChatBridge } from "./patches/task-card";
+import {
+  installChatBridge,
+  scheduleSessionTaskPlanSync,
+} from "./patches/task-card";
 import type { HostBundle } from "./types";
 
 function buildPlugin() {
@@ -63,6 +66,7 @@ function buildPlugin() {
   }
 
   installChatBridge();
+  scheduleSessionTaskPlanSync();
   installFetchPatch();
   ensureDefaultAgent();
   patchWelcomeAndTheme();
