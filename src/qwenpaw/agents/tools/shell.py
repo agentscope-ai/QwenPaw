@@ -15,8 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolChunk
-from agentscope.message import ToolResultState
+from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
 from ...config.context import (
@@ -369,7 +368,7 @@ async def execute_shell_command(
     command: str,
     timeout: float = 60.0,
     cwd: Optional[Path] = None,
-) -> ToolChunk:
+) -> ToolResponse:
     """Execute a shell command and return its output.
 
     Each call runs in a fresh subprocess — `cd`, `export`, `source`,
@@ -391,7 +390,7 @@ async def execute_shell_command(
             If None, defaults to the agent workspace.
 
     Returns:
-        `ToolChunk`:
+        `ToolResponse`:
             The tool response containing the return code, standard output, and
             standard error of the executed command. If timeout occurs, the
             return code will be -1 and stderr will contain timeout information.
@@ -526,9 +525,7 @@ async def execute_shell_command(
                 response_parts.append(f"\n[stderr]\n{stderr_str}")
             response_text = "".join(response_parts)
 
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.SUCCESS,
+        return ToolResponse(
             content=[
                 TextBlock(
                     type="text",
@@ -538,9 +535,7 @@ async def execute_shell_command(
         )
 
     except Exception as e:
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.SUCCESS,
+        return ToolResponse(
             content=[
                 TextBlock(
                     type="text",

@@ -6,8 +6,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, List, Optional, Any
 
-from agentscope.agent import Agent
-from agentscope.message import Msg, TextBlock, DataBlock, URLSource
+from agentscope.agent import ReActAgent
+from agentscope.message import Msg
 
 if TYPE_CHECKING:
     from ....app.workspace import Workspace
@@ -38,7 +38,7 @@ def ensure_tz_aware(dt: datetime) -> datetime:
 
 async def build_proactive_memory_context(
     workspace: "Workspace",
-    agent: Agent,
+    agent: ReActAgent,
     max_session_messages: int = 100,
     max_session_chars: int = 50000,
 ) -> str:
@@ -121,8 +121,7 @@ async def _process_session_memory(
     channel: str = "",
 ) -> List[dict]:
     """Process a session's memory and return a list of messages."""
-    from agentscope.state import AgentState
-    from ....app.runner.utils import parse_legacy_memory_state
+    from agentscope.memory import InMemoryMemory
 
     try:
         state = await workspace.runner.session.get_session_state_dict(
@@ -133,24 +132,13 @@ async def _process_session_memory(
         if not state:
             return []
 
-        agent_raw = state.get("agent", {})
-        messages = []
-
-        state_raw = agent_raw.get("state")
-        if isinstance(state_raw, dict):
-            try:
-                agent_state = AgentState.model_validate(state_raw)
-                messages = list(agent_state.context)
-            except Exception:
-                pass
-
-        if not messages:
-            memories_data = agent_raw.get("memory", [])
-            if memories_data:
-                messages, _summary = parse_legacy_memory_state(memories_data)
-
-        if not messages:
+        memories_data = state.get("agent", {}).get("memory", [])
+        if not memories_data:
             return []
+
+        memory = InMemoryMemory()
+        memory.load_state_dict(memories_data)
+        messages = await memory.get_memory()
 
         processed_messages = []
         default_time = datetime.now(timezone.utc)
@@ -246,7 +234,7 @@ def extract_content(content) -> str:
 
 
 async def _analyze_screen_activity(
-    agent: Agent,
+    agent: ReActAgent,
 ) -> Optional[str]:
     """Analyze user's screen activity using multimodal capabilities."""
     # Removed duplicate import: from agentscope.message import Msg
@@ -286,24 +274,15 @@ async def _analyze_screen_activity(
                 "currently engaged in."
             )
 
-            screenshot_url = screenshot_path
-            if not screenshot_url.startswith(
-                ("http://", "https://", "file://"),
-            ):
-                screenshot_url = f"file://{screenshot_url}"
             screenshot_msg = Msg(
                 name="System",
                 role="user",
                 content=[
-                    TextBlock(type="text", text=analysis_prompt),
-                    DataBlock(
-                        type="data",
-                        source=URLSource(
-                            type="url",
-                            url=screenshot_url,
-                            media_type="image/png",
-                        ),
-                    ),
+                    {"type": "text", "text": analysis_prompt},
+                    {
+                        "type": "image",
+                        "source": {"type": "url", "url": screenshot_path},
+                    },
                 ],
             )
 

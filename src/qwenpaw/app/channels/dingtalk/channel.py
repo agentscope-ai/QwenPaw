@@ -89,7 +89,7 @@ from .ai_card import (
 from .utils import guess_suffix_from_file_content
 
 if TYPE_CHECKING:
-    from qwenpaw.schemas import AgentRequest
+    from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 
 # Short aliases for long SDK model names (≤79 chars)
 _GroupDeliverModel = (

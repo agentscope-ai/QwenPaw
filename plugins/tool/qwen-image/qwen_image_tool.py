@@ -6,16 +6,14 @@
 import asyncio
 import base64
 import logging
-import mimetypes
 import threading
 import time
 from pathlib import Path
 from typing import List
 
 import httpx
-from agentscope.message import DataBlock, TextBlock, URLSource
-from agentscope.message import ToolResultState
-from agentscope.tool import ToolChunk
+from agentscope.message import ImageBlock, TextBlock
+from agentscope.tool import ToolResponse
 from qwenpaw.constant import DEFAULT_MEDIA_DIR
 from qwenpaw.plugins import get_tool_config
 
@@ -246,7 +244,7 @@ async def generate_image_qwen(
     n: int = 1,
     negative_prompt: str = "",
     prompt_extend: bool = True,
-) -> ToolChunk:
+) -> ToolResponse:
     """Generate images from a text prompt using Qwen-Image models.
 
     Uses Alibaba Cloud's Qwen-Image models for high-quality image
@@ -280,13 +278,12 @@ async def generate_image_qwen(
             Enable prompt auto-optimization. Default: True.
 
     Returns:
-        ToolChunk: Contains generated images and metadata.
+        ToolResponse: Contains generated images and metadata.
     """
     try:
         tool_config = get_tool_config("generate_image_qwen")
         if not tool_config:
-            return ToolChunk(
-                state=ToolResultState.ERROR,
+            return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
@@ -303,8 +300,7 @@ async def generate_image_qwen(
             default_model="qwen-image-2.0-pro",
         )
         if not api_key:
-            return ToolChunk(
-                state=ToolResultState.ERROR,
+            return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
@@ -317,8 +313,7 @@ async def generate_image_qwen(
             )
 
         if model not in _VALID_MODELS_GENERATE:
-            return ToolChunk(
-                state=ToolResultState.ERROR,
+            return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
@@ -332,8 +327,7 @@ async def generate_image_qwen(
             )
 
         if not 1 <= n <= 6:
-            return ToolChunk(
-                state=ToolResultState.ERROR,
+            return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
@@ -382,8 +376,7 @@ async def generate_image_qwen(
                 f"{rsp.code}: {rsp.message}"
             )
             logger.error(error_msg)
-            return ToolChunk(
-                state=ToolResultState.ERROR,
+            return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
@@ -394,8 +387,7 @@ async def generate_image_qwen(
 
         image_urls = _parse_image_urls(rsp)
         if not image_urls:
-            return ToolChunk(
-                state=ToolResultState.ERROR,
+            return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
@@ -426,14 +418,12 @@ async def generate_image_qwen(
                 )
                 saved_paths.append(str(image_path))
                 content_blocks.append(
-                    DataBlock(
-                        source=URLSource(
-                            url="file://" + str(image_path),
-                            media_type=mimetypes.guess_type(
-                                str(image_path),
-                            )[0]
-                            or "image/*",
-                        ),
+                    ImageBlock(
+                        type="image",
+                        source={
+                            "type": "url",
+                            "url": str(image_path),
+                        },
                     ),
                 )
             except Exception as e:
@@ -441,12 +431,9 @@ async def generate_image_qwen(
                     f"Failed to download image {idx}: {e}",
                 )
                 content_blocks.append(
-                    DataBlock(
-                        source=URLSource(
-                            url=img_url,
-                            media_type=mimetypes.guess_type(img_url)[0]
-                            or "image/*",
-                        ),
+                    ImageBlock(
+                        type="image",
+                        source={"type": "url", "url": img_url},
                     ),
                 )
                 saved_paths.append(img_url)
@@ -465,15 +452,14 @@ async def generate_image_qwen(
             ),
         )
 
-        return ToolChunk(state=ToolResultState.SUCCESS, content=content_blocks)
+        return ToolResponse(content=content_blocks)
 
     except Exception as e:
         logger.error(
             f"Qwen-Image generation failed: {e}",
             exc_info=True,
         )
-        return ToolChunk(
-            state=ToolResultState.ERROR,
+        return ToolResponse(
             content=[
                 TextBlock(
                     type="text",
@@ -490,7 +476,7 @@ async def edit_image_qwen(
     n: int = 1,
     negative_prompt: str = "",
     prompt_extend: bool = True,
-) -> ToolChunk:
+) -> ToolResponse:
     """Edit or fuse images using Qwen-Image models.
 
     Supports single-image editing (modify content, style transfer,
@@ -527,12 +513,11 @@ async def edit_image_qwen(
             Enable prompt auto-optimization. Default: True.
 
     Returns:
-        ToolChunk: Contains edited images and metadata.
+        ToolResponse: Contains edited images and metadata.
     """
     try:
         if not reference_images:
-            return ToolChunk(
-                state=ToolResultState.ERROR,
+            return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
@@ -546,8 +531,7 @@ async def edit_image_qwen(
 
         tool_config = get_tool_config("edit_image_qwen")
         if not tool_config:
-            return ToolChunk(
-                state=ToolResultState.ERROR,
+            return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
@@ -564,8 +548,7 @@ async def edit_image_qwen(
             default_model="qwen-image-2.0-pro",
         )
         if not api_key:
-            return ToolChunk(
-                state=ToolResultState.ERROR,
+            return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
@@ -578,8 +561,7 @@ async def edit_image_qwen(
             )
 
         if model not in _VALID_MODELS_EDIT:
-            return ToolChunk(
-                state=ToolResultState.ERROR,
+            return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
@@ -593,8 +575,7 @@ async def edit_image_qwen(
             )
 
         if not 1 <= n <= 6:
-            return ToolChunk(
-                state=ToolResultState.ERROR,
+            return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
@@ -612,8 +593,7 @@ async def edit_image_qwen(
             try:
                 resolved = _resolve_image_url(img_input)
             except (FileNotFoundError, ValueError) as e:
-                return ToolChunk(
-                    state=ToolResultState.ERROR,
+                return ToolResponse(
                     content=[
                         TextBlock(
                             type="text",
@@ -661,8 +641,7 @@ async def edit_image_qwen(
                 f"{rsp.code}: {rsp.message}"
             )
             logger.error(error_msg)
-            return ToolChunk(
-                state=ToolResultState.ERROR,
+            return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
@@ -673,8 +652,7 @@ async def edit_image_qwen(
 
         image_urls = _parse_image_urls(rsp)
         if not image_urls:
-            return ToolChunk(
-                state=ToolResultState.ERROR,
+            return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
@@ -705,14 +683,12 @@ async def edit_image_qwen(
                 )
                 saved_paths.append(str(image_path))
                 content_blocks.append(
-                    DataBlock(
-                        source=URLSource(
-                            url="file://" + str(image_path),
-                            media_type=mimetypes.guess_type(
-                                str(image_path),
-                            )[0]
-                            or "image/*",
-                        ),
+                    ImageBlock(
+                        type="image",
+                        source={
+                            "type": "url",
+                            "url": str(image_path),
+                        },
                     ),
                 )
             except Exception as e:
@@ -720,12 +696,9 @@ async def edit_image_qwen(
                     f"Failed to download image {idx}: {e}",
                 )
                 content_blocks.append(
-                    DataBlock(
-                        source=URLSource(
-                            url=img_url,
-                            media_type=mimetypes.guess_type(img_url)[0]
-                            or "image/*",
-                        ),
+                    ImageBlock(
+                        type="image",
+                        source={"type": "url", "url": img_url},
                     ),
                 )
                 saved_paths.append(img_url)
@@ -744,15 +717,14 @@ async def edit_image_qwen(
             ),
         )
 
-        return ToolChunk(state=ToolResultState.SUCCESS, content=content_blocks)
+        return ToolResponse(content=content_blocks)
 
     except Exception as e:
         logger.error(
             f"Qwen-Image edit failed: {e}",
             exc_info=True,
         )
-        return ToolChunk(
-            state=ToolResultState.ERROR,
+        return ToolResponse(
             content=[
                 TextBlock(
                     type="text",

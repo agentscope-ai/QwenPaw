@@ -59,7 +59,7 @@ from nio.responses import (
     WhoamiResponse,
 )
 
-from qwenpaw.schemas import (
+from agentscope_runtime.engine.schemas.agent_schemas import (
     AudioContent,
     ContentType,
     FileContent,

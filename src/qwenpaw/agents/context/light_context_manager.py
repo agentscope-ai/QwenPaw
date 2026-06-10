@@ -10,14 +10,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Set
 
-from agentscope.agent import Agent
+from agentscope.agent import ReActAgent
 from agentscope.formatter import FormatterBase
 from agentscope.message import Msg, TextBlock
 from agentscope.model import ChatModelBase
 
+from .agent_context import AgentContext
 from .as_msg_handler import AsMsgHandler
 from .base_context_manager import BaseContextManager, context_registry
-from .context_helpers import persist_compressed
 from .compactor_prompts import (
     INITIAL_USER_MESSAGE_EN,
     INITIAL_USER_MESSAGE_ZH,
@@ -64,13 +64,13 @@ def _should_skip_automation_memory(agent: Any) -> bool:
 class LightContextManager(BaseContextManager):
     """Context manager for agents with compaction support.
 
-    Handles conversation context compaction via lifecycle hooks.
+    Handles conversation context compaction and the agent context object.
 
     Responsibilities:
     - Tool-result pruning via _prune_tool_result()
     - Context-size checking via _check_context()
     - Message compaction via _compact_context()
-    - Dialog-path resolution via get_dialog_path()
+    - Agent context retrieval via get_agent_context()
     """
 
     def __init__(self, working_dir: str, agent_id: str):
@@ -294,33 +294,16 @@ class LightContextManager(BaseContextManager):
                     continue
 
                 for block in msg.content:
-                    btype = (
-                        block.get("type")
-                        if isinstance(block, dict)
-                        else getattr(block, "type", None)
-                    )
-                    if btype in ("tool_use", "tool_call"):
-                        tool_id = (
-                            block.get("id", "")
-                            if isinstance(block, dict)
-                            else getattr(block, "id", "")
-                        )
+                    if (
+                        isinstance(block, dict)
+                        and block.get("type") == "tool_use"
+                    ):
+                        tool_id = block.get("id", "")
                         if not tool_id:
                             continue
 
-                        tool_name = (
-                            block.get("name", "")
-                            if isinstance(block, dict)
-                            else getattr(block, "name", "")
-                        ).lower()
-                        raw_input = (
-                            (
-                                block.get("raw_input")
-                                if isinstance(block, dict)
-                                else getattr(block, "raw_input", None)
-                            )
-                            or ""
-                        ).lower()
+                        tool_name = block.get("name", "").lower()
+                        raw_input = (block.get("raw_input") or "").lower()
 
                         # Check if tool name is in exempt list
                         if tool_name in exempt_tools:
@@ -511,23 +494,14 @@ class LightContextManager(BaseContextManager):
             UPDATE_USER_MESSAGE_ZH if is_zh else UPDATE_USER_MESSAGE_EN
         )
 
-        agent = Agent(
+        # Create ReActAgent for compaction
+        agent = ReActAgent(
             name="qwenpaw_compactor",
             model=as_llm,
-            system_prompt=system_prompt,
+            sys_prompt=system_prompt,
+            formatter=as_llm_formatter,
         )
-        if as_llm_formatter is not None:
-            innermost = as_llm
-            while hasattr(innermost, "_inner"):
-                innermost = (
-                    innermost._inner  # pylint: disable=protected-access
-                )
-            while hasattr(innermost, "_model"):
-                innermost = (
-                    innermost._model  # pylint: disable=protected-access
-                )
-            if hasattr(innermost, "formatter"):
-                innermost.formatter = as_llm_formatter
+        agent.set_console_output_enabled(False)
 
         # Build user message
         if previous_summary:
@@ -544,9 +518,8 @@ class LightContextManager(BaseContextManager):
         if extra_instruction:
             user_message += f"\n\n# extra-instruction\n{extra_instruction}"
 
-        sys_prompt = agent._system_prompt  # pylint: disable=protected-access
         logger.info(
-            f"Compactor system_prompt={sys_prompt} "
+            f"Compactor sys_prompt={agent.sys_prompt} "
             f"user_message={user_message[:500]}...",
         )
 
@@ -554,7 +527,7 @@ class LightContextManager(BaseContextManager):
             Msg(
                 name="compactor",
                 role="user",
-                content=[TextBlock(text=user_message)],
+                content=user_message,
             ),
         )
 
@@ -693,14 +666,12 @@ class LightContextManager(BaseContextManager):
 
     @staticmethod
     async def _print_status_message(agent: "QwenPawAgent", text: str) -> None:
-        # Only reachable from the qwenpaw compactor in ``pre_reasoning``,
-        # which early-returns when ``memory_manager is None`` (the current
-        # default).  When ReMe memory comes back, swap to a proper status-
-        # event channel (e.g. ``app.console_push_store``) so the frontend
-        # renders a status pill without polluting ``state.context``.  For
-        # now just log so the information isn't completely lost.
-        del agent
-        logger.info("compaction status: %s", text)
+        msg = Msg(
+            name=agent.name,
+            role="assistant",
+            content=[TextBlock(type="text", text=text)],
+        )
+        await agent.print(msg)
 
     async def pre_reply(
         self,
@@ -724,7 +695,7 @@ class LightContextManager(BaseContextManager):
         )
 
         # Commands are handled before the ReAct loop — skip memory search.
-        command_handler = agent.command_handler  # type: ignore[has-type]
+        command_handler = agent.command_handler
         if command_handler is not None and command_handler.is_command(query):
             return None
 
@@ -771,18 +742,9 @@ class LightContextManager(BaseContextManager):
             token_counter = get_token_counter(agent_config)
             max_input_length = get_model_max_input_length(agent_config)
 
-            # The branch below only runs when ``memory_manager is not
-            # None`` (long-term ReMe).  Today that's never the case — it
-            # short-circuits at the early-return above — so the double-
-            # compactor risk against agentscope's native ``compress_context``
-            # is dormant.  Re-enabling ReMe must pick one or the other.
-            system_prompt = (
-                agent._system_prompt  # pylint: disable=protected-access
-            )
-            summary_value = agent.state.summary
-            compressed_summary = (
-                summary_value if isinstance(summary_value, str) else ""
-            )
+            memory = agent.memory
+            system_prompt = agent.sys_prompt
+            compressed_summary = memory.get_compressed_summary()
             sys_token_count = await token_counter.count(
                 messages=[],
                 text=(system_prompt or ""),
@@ -815,7 +777,7 @@ class LightContextManager(BaseContextManager):
                 )
                 return None
 
-            messages = list(agent.state.context)
+            messages = await memory.get_memory(prepend_summary=False)
 
             (
                 messages_to_compact,
@@ -857,7 +819,7 @@ class LightContextManager(BaseContextManager):
             if ccc.enabled:
                 result = await self._compact_context_safe(
                     messages=messages_to_compact,
-                    previous_summary=compressed_summary,
+                    previous_summary=memory.get_compressed_summary(),
                     as_llm=agent.model,
                     as_llm_formatter=agent.formatter,
                     as_token_counter=token_counter,
@@ -891,7 +853,7 @@ class LightContextManager(BaseContextManager):
                     )
                     messages_to_compact = fallback_to_compact
                     messages_to_keep = fallback_to_keep
-                    compact_content = compressed_summary or ""
+                    compact_content = memory.get_compressed_summary() or ""
                     keep_count = len(messages_to_keep)
                     compact_count = len(messages_to_compact)
                     total_tokens = str_token_count + ctx_total_tokens
@@ -949,7 +911,7 @@ class LightContextManager(BaseContextManager):
                 )
                 messages_to_compact = fallback_to_compact
                 messages_to_keep = fallback_to_keep
-                compact_content = compressed_summary or ""
+                compact_content = memory.get_compressed_summary() or ""
                 keep_count = len(messages_to_keep)
                 compact_count = len(messages_to_compact)
                 total_tokens = str_token_count + ctx_total_tokens
@@ -971,15 +933,8 @@ class LightContextManager(BaseContextManager):
                     f"Context Status: {token_line} {msg_line}",
                 )
 
-            # Resolve dialog path the same way old AgentContext did.
-            dialog_path = os.path.join(
-                self.working_dir,
-                agent_config.running.light_context_config.dialog_path,
-            )
-            updated_count = await persist_compressed(
-                agent.state,
+            updated_count = await memory.mark_messages_compressed(
                 messages_to_compact,
-                dialog_path,
             )
             logger.info(f"Marked {updated_count} messages as compacted")
 
@@ -990,7 +945,7 @@ class LightContextManager(BaseContextManager):
                     messages=messages_to_compact,
                 )
 
-            agent.state.summary = compact_content or ""
+            await memory.update_compressed_summary(compact_content)
 
         except Exception as e:
             logger.exception(
@@ -1015,7 +970,8 @@ class LightContextManager(BaseContextManager):
             if not trc.enabled:
                 return None
 
-            messages = list(agent.state.context)
+            memory = agent.memory
+            messages = await memory.get_memory(prepend_summary=False)
             await self._prune_tool_result(
                 messages=messages,
                 recent_n=trc.pruning_recent_n,
@@ -1048,7 +1004,8 @@ class LightContextManager(BaseContextManager):
             if memory_manager is None:
                 return None
 
-            all_messages = list(agent.state.context)
+            memory = agent.memory
+            all_messages = [msg for msg, _ in memory.content]
 
             if all_messages and not _should_skip_automation_memory(agent):
                 await memory_manager.auto_memory(
@@ -1059,15 +1016,14 @@ class LightContextManager(BaseContextManager):
 
         return None
 
-    def get_dialog_path(self) -> str:
-        """Resolve the per-agent dialog JSONL directory path.
-
-        Replaces the 1.x ``get_agent_context()`` return-an-AgentContext
-        signature.  Post-Phase-2a callers (``CommandHandler``) just need
-        the path; messages live on ``agent.state.context`` natively.
-        """
+    def get_agent_context(self, **_kwargs) -> AgentContext:
+        """Retrieve the agent context object with token counting support."""
         agent_config = load_agent_config(self.agent_id)
-        return os.path.join(
+        dialog_path = os.path.join(
             self.working_dir,
             agent_config.running.light_context_config.dialog_path,
+        )
+        return AgentContext(
+            token_counter=get_token_counter(agent_config),
+            dialog_path=dialog_path,
         )

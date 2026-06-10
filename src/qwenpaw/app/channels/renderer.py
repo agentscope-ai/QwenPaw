@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, List, Union
 
-from qwenpaw.schemas import (
+from agentscope_runtime.engine.schemas.agent_schemas import (
     AudioContent,
     ContentType,
     FileContent,
@@ -86,7 +86,7 @@ class MessageRenderer:
 
     def message_to_parts(self, message: Any) -> List[_OutgoingPart]:
         """Convert Message to list of sendable parts (runtime Content)."""
-        from qwenpaw.schemas import MessageType
+        from agentscope_runtime.engine.schemas.agent_schemas import MessageType
 
         msg_type = getattr(message, "type", None)
         content = getattr(message, "content", None) or []
@@ -122,24 +122,9 @@ class MessageRenderer:
         def _blocks_to_parts(blocks: list) -> List[_OutgoingPart]:
             result: List[_OutgoingPart] = []
             for b in blocks:
-                if hasattr(b, "model_dump"):
-                    b = b.model_dump()
                 if not isinstance(b, dict):
                     continue
                 btype = b.get("type")
-                if btype == "data":
-                    src = b.get("source") or {}
-                    mt = (
-                        src.get("media_type", "")
-                        if isinstance(src, dict)
-                        else ""
-                    )
-                    for prefix in ("image", "audio", "video"):
-                        if mt.startswith(f"{prefix}/"):
-                            btype = prefix
-                            break
-                    else:
-                        btype = "file"
                 if btype == "text" and b.get("text"):
                     result.append(TextContent(text=b["text"]))
                     continue
@@ -170,8 +155,7 @@ class MessageRenderer:
                             result.append(
                                 FileContent(
                                     file_url=url,
-                                    filename=b.get("filename")
-                                    or b.get("name"),
+                                    filename=b.get("filename"),
                                 ),
                             )
                 if btype == "thinking" and b.get("thinking"):

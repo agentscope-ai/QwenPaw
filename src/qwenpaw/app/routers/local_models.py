@@ -5,12 +5,11 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, HTTPException, Request, Depends
-from pydantic import BaseModel, Field
-
-from qwenpaw.exceptions import (
+from agentscope_runtime.engine.schemas.exception import (
     AppBaseException,
 )
+from fastapi import APIRouter, HTTPException, Request, Depends
+from pydantic import BaseModel, Field
 
 from ...local_models import (
     DownloadSource,

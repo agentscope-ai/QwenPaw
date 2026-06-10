@@ -142,7 +142,7 @@ def get_coding_dir(workspace: "Workspace") -> Path:
         project_dir = (
             config.coding_mode.project_dir if config.coding_mode else None
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         project_dir = None
 
     if project_dir:

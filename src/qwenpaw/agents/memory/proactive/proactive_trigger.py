@@ -60,11 +60,8 @@ async def _run_trigger_loop(
 
 async def is_last_message_proactive(workspace: Any) -> bool:
     """Check if the last message in session was a proactive message."""
-    from agentscope.state import AgentState
-    from ....app.runner.utils import (
-        agentscope_msg_to_message,
-        parse_legacy_memory_state,
-    )
+    from agentscope.memory import InMemoryMemory
+    from ....app.runner.utils import agentscope_msg_to_message
 
     try:
         chats = await workspace.chat_manager.list_chats()
@@ -83,21 +80,11 @@ async def is_last_message_proactive(workspace: Any) -> bool:
             channel,
         )
 
-        agent_raw = state.get("agent", {})
-        messages = []
+        memories_data = state.get("agent", {}).get("memory", [])
 
-        state_raw = agent_raw.get("state")
-        if isinstance(state_raw, dict):
-            try:
-                agent_state = AgentState.model_validate(state_raw)
-                messages = list(agent_state.context)
-            except Exception:
-                pass
-
-        if not messages:
-            memories_data = agent_raw.get("memory", [])
-            if memories_data:
-                messages, _summary = parse_legacy_memory_state(memories_data)
+        memory = InMemoryMemory()
+        memory.load_state_dict(memories_data)
+        messages = await memory.get_memory()
 
         serializable_messages = agentscope_msg_to_message(messages)
 

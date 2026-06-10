@@ -10,10 +10,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from agentscope.agent import Agent
-from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
-from agentscope.tool import Toolkit, ToolChunk
-from agentscope.message import ToolResultState
+from agentscope.agent import ReActAgent
+from agentscope.message import Msg, TextBlock, ToolResultBlock, ToolUseBlock
+from agentscope.tool import Toolkit, ToolResponse
 
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from .prompts import (
@@ -141,20 +140,16 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             },
         )
 
-        from agentscope.tool import FunctionTool
+        self.summary_toolkit = Toolkit()
         from qwenpaw.agents.tools import (
             read_file,
             write_file,
             edit_file,
         )  # noqa: PLC0415
 
-        self.summary_toolkit = Toolkit(
-            tools=[
-                FunctionTool(read_file),
-                FunctionTool(write_file),
-                FunctionTool(edit_file),
-            ],
-        )
+        self.summary_toolkit.register_tool_function(read_file)
+        self.summary_toolkit.register_tool_function(write_file)
+        self.summary_toolkit.register_tool_function(edit_file)
 
     @staticmethod
     def _mask_key(key: str) -> str:
@@ -348,7 +343,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         query: str,
         max_results: int = 5,
         min_score: float = 0.1,
-    ) -> ToolChunk:
+    ) -> ToolResponse:
         """
         Search MEMORY.md and memory/*.md files semantically.
 
@@ -365,15 +360,13 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 Minimum similarity score for results. Defaults to 0.1.
 
         Returns:
-            `ToolChunk`:
+            `ToolResponse`:
                 Search results formatted with paths, line numbers, and
                 content.
         """
         self._warn_if_version_mismatch()
         if self._reme is None or not getattr(self._reme, "_started", False):
-            return ToolChunk(
-                is_last=True,
-                state=ToolResultState.SUCCESS,
+            return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
@@ -499,10 +492,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                         type="text",
                         text="Searching memory for relevant context...",
                     ),
-                    ToolCallBlock(
+                    ToolUseBlock(
+                        type="tool_use",
                         id=_id,
                         name="memory_search",
-                        input=json.dumps(
+                        input=tool_use_input,
+                        raw_input=json.dumps(
                             tool_use_input,
                             ensure_ascii=False,
                         ),
@@ -689,25 +684,15 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         else:
             logger.debug("No existing MEMORY.md file to backup")
 
-        if formatter is not None:
-            innermost = chat_model
-            while hasattr(innermost, "_inner"):
-                # pylint: disable=protected-access
-                innermost = innermost._inner
-            while hasattr(innermost, "_model"):
-                # pylint: disable=protected-access
-                innermost = innermost._model
-            if hasattr(innermost, "formatter"):
-                innermost.formatter = formatter
-
-        dream_agent = Agent(
+        dream_agent = ReActAgent(
             name="DreamOptimizer",
             model=chat_model,
-            system_prompt="You are a Dream Memory Organizer specialized"
+            sys_prompt="You are a Dream Memory Organizer specialized"
             " in optimizing long-term memory files.",
             toolkit=dream_toolkit,
             formatter=formatter,
         )
+        dream_agent.set_console_output_enabled(False)
 
         user_msg = Msg(
             name="dream",

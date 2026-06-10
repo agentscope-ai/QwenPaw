@@ -9,7 +9,7 @@ import logging
 import time
 from typing import Dict, Set
 
-from qwenpaw.exceptions import (
+from agentscope_runtime.engine.schemas.exception import (
     ConfigurationException,
 )
 
@@ -175,12 +175,7 @@ class MultiAgentManager:
                 if asyncio.iscoroutinefunction(callback):
                     await callback(workspace_info)
                 else:
-                    result = await asyncio.to_thread(callback, workspace_info)
-                    if asyncio.iscoroutine(result) or hasattr(
-                        result,
-                        "__await__",
-                    ):
-                        await result
+                    await asyncio.to_thread(callback, workspace_info)
             except Exception as exc:
                 logger.error(
                     f"Error in workspace_created hook "
@@ -588,5 +583,3 @@ class MultiAgentManager:
         """String representation of manager."""
         loaded = list(self.agents.keys())
         return f"MultiAgentManager(loaded_agents={loaded})"
-
-

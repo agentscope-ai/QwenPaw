@@ -22,7 +22,7 @@ from typing import (
     TYPE_CHECKING,
 )
 
-from qwenpaw.schemas import (
+from agentscope_runtime.engine.schemas.agent_schemas import (
     RunStatus,
     ContentType,
     TextContent,
@@ -55,7 +55,7 @@ _TOOL_OUTPUT_MESSAGE_TYPES = {
 }
 
 if TYPE_CHECKING:
-    from qwenpaw.schemas import (
+    from agentscope_runtime.engine.schemas.agent_schemas import (
         AgentRequest,
         AgentResponse,
         Event,
@@ -963,11 +963,10 @@ class BaseChannel(ABC):
     ) -> "AgentRequest":
         """
         Build AgentRequest from runtime content parts (Message content list).
-        Uses :mod:`qwenpaw.schemas` Message / Content types directly — no
-        intermediate envelope. Subclasses call this after parsing the
-        native payload into ``content_parts``.
+        Use agentscope_runtime Message/Content types; no intermediate envelope.
+        Subclasses call this after parsing native payload to content_parts.
         """
-        from qwenpaw.schemas import (
+        from agentscope_runtime.engine.schemas.agent_schemas import (
             AgentRequest,
             Message,
             Role,

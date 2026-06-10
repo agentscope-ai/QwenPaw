@@ -15,7 +15,7 @@ from pydantic import (
     model_validator,
 )
 import shortuuid
-from qwenpaw.exceptions import (
+from agentscope_runtime.engine.schemas.exception import (
     ConfigurationException,
 )
 

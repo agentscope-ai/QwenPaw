@@ -4,8 +4,7 @@
 from datetime import date, timedelta
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolChunk
-from agentscope.message import ToolResultState
+from agentscope.tool import ToolResponse
 
 from ...token_usage import get_token_usage_manager
 
@@ -14,7 +13,7 @@ async def get_token_usage(
     days: int = 30,
     model_name: str | None = None,
     provider_id: str | None = None,
-) -> ToolChunk:
+) -> ToolResponse:
     """Query LLM token usage over the past N days.
 
     Use this when the user asks about token consumption, API usage,
@@ -26,7 +25,7 @@ async def get_token_usage(
         provider_id: Optional provider ID to filter by.
 
     Returns:
-        ToolChunk with a formatted summary of token usage.
+        ToolResponse with a formatted summary of token usage.
     """
     end = date.today()
     start = end - timedelta(days=max(1, min(days, 365)))
@@ -81,8 +80,6 @@ async def get_token_usage(
         )
 
     text = "\n".join(lines) if lines else "No token usage data in this period."
-    return ToolChunk(
-        is_last=True,
-        state=ToolResultState.SUCCESS,
+    return ToolResponse(
         content=[TextBlock(type="text", text=text)],
     )

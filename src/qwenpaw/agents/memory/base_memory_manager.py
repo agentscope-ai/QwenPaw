@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from agentscope.message import Msg
-from agentscope.tool import ToolChunk
+from agentscope.tool import ToolResponse
 
 from ..utils.registry import Registry
 
@@ -65,11 +65,11 @@ class BaseMemoryManager(ABC):
         """
 
     @abstractmethod
-    def list_memory_tools(self) -> list[Callable[..., ToolChunk]]:
+    def list_memory_tools(self) -> list[Callable[..., ToolResponse]]:
         """Return tool functions exposed to the agent for memory access.
 
         Each returned callable may have any signature but must return a
-        ``ToolChunk``.  Implementations register whatever memory-related
+        ``ToolResponse``.  Implementations register whatever memory-related
         tools make sense for the backend (e.g. semantic search, listing).
 
         Returns:

@@ -262,7 +262,7 @@ class SIPChannel(BaseChannel):
         self,
         native_payload: Any,
     ) -> Any:
-        from qwenpaw.schemas import (
+        from agentscope_runtime.engine.schemas.agent_schemas import (
             AgentRequest,
             ContentType,
             Message,
@@ -600,9 +600,11 @@ class SIPChannel(BaseChannel):
 
         try:
             # Import here to avoid top-level dependency
-            from qwenpaw.schemas import RunStatus
+            from agentscope_runtime.engine.schemas import (
+                agent_schemas as _as,
+            )
 
-            completed = RunStatus.Completed
+            completed = _as.RunStatus.Completed
             async for event in self._process(request):
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)

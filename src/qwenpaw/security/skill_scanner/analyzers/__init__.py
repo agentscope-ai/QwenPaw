@@ -84,6 +84,6 @@ class BaseAnalyzer(ABC):
     # Helpers
     # ------------------------------------------------------------------
 
-    def get_name(self) -> str:
+    def get_name(self) -> str:  # noqa: D401
         """Analyzer name."""
         return self.name

@@ -598,41 +598,6 @@ class PluginApi:
             callback=_uninstall_skills,
         )
 
-    def unregister_skill_provider(self) -> None:
-        """Unregister this plugin as a skill provider.
-
-        Removes the startup, workspace_created, and uninstall hooks
-        that were registered by ``register_skill_provider()``, and
-        cleans up skills sourced from this plugin across all existing
-        workspaces.
-
-        This allows plugins to dynamically disable their skill
-        provider without requiring a full plugin uninstall.
-
-        Example:
-            >>> api.unregister_skill_provider()
-        """
-        source_tag = f"plugin:{self.plugin_id}"
-        hook_names = [
-            f"install_skills_{self.plugin_id}",
-            f"provision_skills_{self.plugin_id}",
-            f"uninstall_skills_{self.plugin_id}",
-        ]
-
-        # Remove the hooks from registry
-        if self._registry:
-            self._registry.remove_hooks_by_name(
-                self.plugin_id,
-                hook_names,
-            )
-
-        # Clean up already-installed skills
-        self._do_uninstall_skills(self.plugin_id, source_tag)
-
-        logger.info(
-            f"Plugin '{self.plugin_id}' unregistered as skill provider",
-        )
-
     def _get_skill_names(self, skills_dir: Path) -> List[str]:
         """Return sub-directory names that contain a SKILL.md file."""
         if not skills_dir.exists() or not skills_dir.is_dir():
@@ -705,10 +670,9 @@ class PluginApi:
                     entry = skills.get(name)
                     if entry is None:
                         continue
-                    if entry.get("source") != _src:
-                        entry["enabled"] = _enabled
-                        entry["channels"] = list(_channels)
                     entry["source"] = _src
+                    entry["enabled"] = _enabled
+                    entry["channels"] = _channels
                 return payload
 
             mutate_json(

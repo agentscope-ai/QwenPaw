@@ -5,12 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
-
-from qwenpaw.exceptions import (
+from agentscope_runtime.engine.schemas.exception import (
     AppBaseException,
 )
+from fastapi import APIRouter, Header, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 

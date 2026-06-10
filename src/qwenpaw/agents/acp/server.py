@@ -59,17 +59,18 @@ from acp.schema import (
     SseMcpServer,
     TextContentBlock,
 )
-from qwenpaw.schemas import (
+from agentscope.message import Msg
+from agentscope_runtime.engine.schemas.agent_schemas import (
     AgentRequest,
     Message,
-    MessageType,
-    RunStatus,
 )
 
 from ...__version__ import __version__
 from ...constant import WORKING_DIR
 from ...config.config import ModelSlotConfig
 from ...providers.provider_manager import ProviderManager
+from ...agents.command_handler import SYSTEM_COMMAND_DESCRIPTIONS
+from ...agents.mission.handler import MISSION_COMMAND_DESCRIPTIONS
 
 logger = logging.getLogger(__name__)
 
@@ -120,90 +121,336 @@ def _extract_text(
     return "\n".join(parts)
 
 
-class _EnvelopeTracker:
-    """Track state needed to convert ``stream_query`` envelopes to ACP updates.
+class _StreamTracker:
+    """Convert agentscope's snapshot-style messages to ACP event stream.
 
-    ``stream_query`` emits ``TextContent(delta=True, object="content")`` for
-    both text and thinking blocks — the only distinguisher is ``msg_id``.
-    This tracker remembers which ``msg_id`` values belong to reasoning
-    messages so text deltas and thinking deltas route correctly.
+    agentscope emits cumulative snapshots (each message contains the full
+    state so far).  ACP expects an event stream (each update is a delta).
+    This tracker maintains the necessary state to perform that conversion
+    for text, thinking, and tool-call events.
     """
 
     def __init__(self) -> None:
-        self._reasoning_msg_ids: set[str] = set()
+        self._prev_text: str = ""
+        self._prev_thinking: str = ""
+        self._seen_tool_ids: set[str] = set()
+        self._tool_inputs: dict[str, Any] = {}
 
-    # pylint: disable=too-many-return-statements, too-many-branches
-    def process(
-        self,
-        event: Any,
-    ) -> list[Any]:
-        """Convert one envelope event into zero or more ACP updates."""
-        obj = getattr(event, "object", None)
+    def delta_text(self, cumulative: str) -> str:
+        """Return only the new portion of the text."""
+        if cumulative.startswith(self._prev_text):
+            delta = cumulative[len(self._prev_text) :]
+        else:
+            delta = cumulative
+        self._prev_text = cumulative
+        return delta
 
-        if obj == "content":
-            if not getattr(event, "delta", False):
-                return []
-            text = getattr(event, "text", "") or ""
-            if not text:
-                return []
-            msg_id = getattr(event, "msg_id", None)
-            if msg_id in self._reasoning_msg_ids:
-                return [update_agent_thought(text_block(text))]
-            return [update_agent_message(text_block(text))]
+    def delta_thinking(self, cumulative: str) -> str:
+        """Return only the new portion of the thinking."""
+        if cumulative.startswith(self._prev_thinking):
+            delta = cumulative[len(self._prev_thinking) :]
+        else:
+            delta = cumulative
+        self._prev_thinking = cumulative
+        return delta
 
-        if obj == "message":
-            msg_type = getattr(event, "type", None)
-            if hasattr(msg_type, "value"):
-                msg_type = msg_type.value
-            status = getattr(event, "status", None)
-            msg_id = getattr(event, "id", None)
+    def is_new_tool_call(self, tool_id: str) -> bool:
+        """Return True only the first time *tool_id* is seen."""
+        if tool_id in self._seen_tool_ids:
+            return False
+        self._seen_tool_ids.add(tool_id)
+        return True
 
-            if msg_type == MessageType.REASONING.value:
-                if msg_id:
-                    self._reasoning_msg_ids.add(msg_id)
-                return []
+    def tool_input_changed(self, tool_id: str, raw_input: Any) -> bool:
+        """Return True when *raw_input* is non-empty and differs from the
+        last value recorded for *tool_id*, recording the new value.
 
-            if msg_type == MessageType.PLUGIN_CALL.value:
-                if status == RunStatus.Completed:
-                    for c in getattr(event, "content", []) or []:
-                        data = getattr(c, "data", None)
-                        if isinstance(data, dict):
-                            return [
-                                start_tool_call(
-                                    str(
-                                        data.get("call_id") or uuid4().hex[:8],
-                                    ),
-                                    str(data.get("name") or "tool"),
-                                    status="in_progress",
-                                ),
-                            ]
-                return []
+        Tool-call arguments stream in, so the first sighting of a call
+        often carries empty/partial input; this lets the caller emit an
+        ``update`` once the populated arguments arrive (the initial
+        ``start`` would otherwise pin an empty ``rawInput``).
+        """
+        if not raw_input:
+            return False
+        if self._tool_inputs.get(tool_id) == raw_input:
+            return False
+        self._tool_inputs[tool_id] = raw_input
+        return True
 
-            if msg_type == MessageType.PLUGIN_CALL_OUTPUT.value:
-                if status == RunStatus.Completed:
-                    for c in getattr(event, "content", []) or []:
-                        data = getattr(c, "data", None)
-                        if isinstance(data, dict):
-                            return [
-                                update_tool_call(
-                                    str(
-                                        data.get("call_id") or uuid4().hex[:8],
-                                    ),
-                                    status="completed",
-                                    content=[
-                                        tool_content(
-                                            text_block(
-                                                str(data.get("output") or ""),
-                                            ),
-                                        ),
-                                    ],
-                                ),
-                            ]
-                return []
 
-            return []
+def _msg_to_updates(  # pylint: disable=too-many-branches
+    msg: Any,
+    tracker: _StreamTracker | None = None,
+) -> list[Any]:
+    """Convert a QwenPaw Msg into ACP session update(s).
 
-        return []
+    When *tracker* is provided, text and thinking content blocks are
+    emitted as **incremental** deltas rather than cumulative snapshots,
+    matching the ACP standard used by QwenCode and Qoder.
+    """
+    updates: list[Any] = []
+    metadata = getattr(msg, "metadata", {}) or {}
+    content = getattr(msg, "content", None)
+    role = getattr(msg, "role", "assistant")
+
+    if role == "system":
+        if isinstance(content, list):
+            _content_blocks_to_updates(content, updates, tracker)
+        if not updates:
+            text = _get_msg_text(msg)
+            if text:
+                updates.append(
+                    update_agent_thought(text_block(text)),
+                )
+        return updates
+
+    tool_calls = metadata.get("tool_calls")
+    if isinstance(tool_calls, list):
+        for tc in tool_calls:
+            if not isinstance(tc, dict):
+                continue
+            tc_id = str(tc.get("id") or uuid4().hex[:8])
+            inp = tc.get("input")
+            if not tracker or tracker.is_new_tool_call(tc_id):
+                updates.append(
+                    start_tool_call(
+                        tc_id,
+                        str(tc.get("name") or "tool"),
+                        status="in_progress",
+                        raw_input=inp,
+                    ),
+                )
+                if tracker:
+                    # Record what we sent so a later, fuller input is
+                    # recognised as a change (see tool_input_changed).
+                    tracker.tool_input_changed(tc_id, inp)
+            elif tracker and tracker.tool_input_changed(tc_id, inp):
+                # Arguments finished streaming after the start event.
+                updates.append(
+                    update_tool_call(tc_id, raw_input=inp),
+                )
+        return updates
+
+    tool_responses = metadata.get("tool_responses")
+    if isinstance(tool_responses, list):
+        for tr in tool_responses:
+            if not isinstance(tr, dict):
+                continue
+            updates.append(
+                update_tool_call(
+                    str(tr.get("id") or uuid4().hex[:8]),
+                    status="completed",
+                    content=_tool_result_content(tr.get("output", "")),
+                ),
+            )
+        return updates
+
+    if isinstance(content, list):
+        _content_blocks_to_updates(content, updates, tracker)
+
+    if not updates:
+        text = _get_msg_text(msg)
+        if text:
+            if tracker:
+                text = tracker.delta_text(text)
+            if text:
+                updates.append(
+                    update_agent_message(text_block(text)),
+                )
+
+    return updates
+
+
+def _content_blocks_to_updates(
+    content: list[Any],
+    updates: list[Any],
+    tracker: _StreamTracker | None = None,
+) -> None:
+    """Map Msg content blocks to ACP updates."""
+    for block in content:
+        block_type, block_data = _normalise_block(block)
+        if block_type == "thinking":
+            _emit_thinking(block_data, tracker, updates)
+        elif block_type == "text":
+            _emit_text(block_data, tracker, updates)
+        elif block_type == "tool_use":
+            tc_id = str(block_data.get("id") or uuid4().hex[:8])
+            inp = block_data.get("input")
+            if not tracker or tracker.is_new_tool_call(tc_id):
+                updates.append(
+                    start_tool_call(
+                        tc_id,
+                        str(block_data.get("name") or "tool"),
+                        status="in_progress",
+                        raw_input=inp,
+                    ),
+                )
+                if tracker:
+                    tracker.tool_input_changed(tc_id, inp)
+            elif tracker and tracker.tool_input_changed(tc_id, inp):
+                updates.append(
+                    update_tool_call(tc_id, raw_input=inp),
+                )
+        elif block_type == "tool_result":
+            updates.append(
+                update_tool_call(
+                    str(block_data.get("id") or uuid4().hex[:8]),
+                    status="completed",
+                    content=_tool_result_content(
+                        block_data.get("output", ""),
+                    ),
+                ),
+            )
+
+
+def _extract_tool_output(output: Any) -> str:
+    """Extract plain text from a tool output value.
+
+    The output may be a string, a list of content blocks, or another
+    structure — normalise everything to a flat string. File/media blocks
+    (image/audio/video/file with a URL source, e.g. from
+    ``send_file_to_user``) are rendered as a readable ``filename`` line
+    rather than a raw dict repr; the URL itself travels as a separate
+    ``resource_link`` content block (see ``_tool_result_content``).
+    """
+    if isinstance(output, str):
+        return output
+    if isinstance(output, list):
+        parts = []
+        for item in output:
+            # Works for both dict blocks and attribute-style block objects
+            # (e.g. agentscope ImageBlock/TextBlock from send_file_to_user).
+            text = (
+                item.get("text")
+                if isinstance(item, dict)
+                else getattr(item, "text", None)
+            )
+            if text:
+                parts.append(text)
+                continue
+            media = _media_block_url(item)
+            if media is not None:
+                _url, name, _mime = media
+                parts.append(f"📎 {name}")
+                continue
+            parts.append(str(item))
+        return "\n".join(p for p in parts if p)
+    return str(output)
+
+
+def _media_block_url(
+    item: Any,
+) -> tuple[str, str, str | None] | None:
+    """Return ``(url, name, mime_type)`` for an image/audio/video/file block
+    that carries a URL source, else ``None``.
+
+    Handles both dict blocks (e.g. agentscope ``ImageBlock``/``FileBlock``)
+    and attribute-style objects.
+    """
+    if isinstance(item, dict):
+        btype = item.get("type")
+        source = item.get("source")
+        name = item.get("filename") or item.get("name")
+        mime = item.get("mime_type") or item.get("mimeType")
+    else:
+        btype = getattr(item, "type", None)
+        source = getattr(item, "source", None)
+        name = getattr(item, "filename", None) or getattr(item, "name", None)
+        mime = getattr(item, "mime_type", None)
+    if btype not in ("image", "audio", "video", "file"):
+        return None
+    if isinstance(source, dict):
+        url = source.get("url")
+    else:
+        url = getattr(source, "url", None)
+    if not url or not isinstance(url, str):
+        return None
+    if not name:
+        name = url.rstrip("/").rsplit("/", 1)[-1] or url
+    return url, name, mime
+
+
+def _tool_result_content(output: Any) -> list[Any]:
+    """Build the ACP tool-call ``content`` for a completed tool result.
+
+    Always includes the flattened text; additionally appends a
+    ``resource_link`` block for every **local** ``file://`` media block in
+    the output so ACP clients (e.g. the paw TUI) can offer a clickable link
+    to the file the agent sent via ``send_file_to_user``. Remote URLs
+    (http/https/...) are intentionally not turned into resource links — they
+    still appear as a readable ``📎`` line in the text — so clients are not
+    nudged into treating untrusted remote URLs as openable resources.
+    """
+    contents: list[Any] = [
+        tool_content(text_block(_extract_tool_output(output))),
+    ]
+    if isinstance(output, list):
+        for item in output:
+            media = _media_block_url(item)
+            if media is None:
+                continue
+            url, name, mime = media
+            if not url.startswith("file://"):
+                continue
+            contents.append(
+                tool_content(
+                    ResourceContentBlock(
+                        type="resource_link",
+                        uri=url,
+                        name=name,
+                        mime_type=mime,
+                    ),
+                ),
+            )
+    return contents
+
+
+def _normalise_block(block: Any) -> tuple[str, dict[str, Any]]:
+    """Return ``(block_type, data_dict)`` for both dict and object blocks."""
+    if isinstance(block, dict):
+        return block.get("type", "text"), block
+    btype = getattr(block, "type", "text") or "text"
+    data: dict[str, Any] = {}
+    for attr in ("text", "thinking", "id", "name", "output", "input"):
+        val = getattr(block, attr, None)
+        if val is not None:
+            data[attr] = val
+    return btype, data
+
+
+def _emit_thinking(
+    data: dict[str, Any],
+    tracker: _StreamTracker | None,
+    updates: list[Any],
+) -> None:
+    thinking = data.get("thinking", "")
+    if tracker:
+        thinking = tracker.delta_thinking(thinking)
+    if thinking:
+        updates.append(update_agent_thought(text_block(thinking)))
+
+
+def _emit_text(
+    data: dict[str, Any],
+    tracker: _StreamTracker | None,
+    updates: list[Any],
+) -> None:
+    text = data.get("text", "")
+    if tracker:
+        text = tracker.delta_text(text)
+    if text:
+        updates.append(update_agent_message(text_block(text)))
+
+
+def _get_msg_text(msg: Any) -> str:
+    """Extract plain text from a Msg."""
+    get_text = getattr(msg, "get_text_content", None)
+    if callable(get_text):
+        return get_text() or ""
+    content = getattr(msg, "content", "")
+    if isinstance(content, str):
+        return content
+    return ""
 
 
 class QwenPawACPAgent(Agent):
@@ -282,6 +529,7 @@ class QwenPawACPAgent(Agent):
         workspace = Workspace(
             agent_id=agent_id,
             workspace_dir=str(workspace_dir),
+            defer_mcp_startup=True,
         )
         await workspace.start()
 
@@ -426,6 +674,14 @@ class QwenPawACPAgent(Agent):
         cancel_event = asyncio.Event()
         self._cancel_events[session_id] = cancel_event
 
+        msgs = [
+            Msg(
+                name="user",
+                role="user",
+                content=text,
+            ),
+        ]
+
         session_mode = session_info.get("mode", self.MODE_DEFAULT)
         request_context: dict[str, str] = {}
         if session_mode == self.MODE_BYPASS:
@@ -445,10 +701,13 @@ class QwenPawACPAgent(Agent):
             request_context=request_context or None,
         )
 
-        tracker = _EnvelopeTracker()
+        tracker = _StreamTracker()
 
         try:
-            async for event in runner.stream_query(request):
+            async for msg, _is_last in runner.query_handler(
+                msgs,
+                request=request,
+            ):
                 if cancel_event.is_set():
                     logger.info(
                         "ACP prompt cancelled: session=%s",
@@ -456,13 +715,17 @@ class QwenPawACPAgent(Agent):
                     )
                     break
 
-                updates = tracker.process(event)
+                updates = _msg_to_updates(msg, tracker)
                 for upd in updates:
                     await self._conn.session_update(
                         session_id=session_id,
                         update=upd,
                     )
 
+                # After each message, check for new usage data.
+                # Each LLM invocation writes usage; poll here so
+                # multi-step prompts (with tool calls) report usage
+                # per LLM call, matching QwenCode behaviour.
                 await self._emit_usage_if_available(session_id)
         except Exception as exc:  # pylint: disable=broad-except
             logger.exception(
@@ -475,6 +738,8 @@ class QwenPawACPAgent(Agent):
         finally:
             self._cancel_events.pop(session_id, None)
 
+        # Final sweep: catch any usage that arrived after the last
+        # streamed message (e.g., single-turn prompts with no tools).
         await self._emit_usage_if_available(session_id)
 
         return PromptResponse(stop_reason="end_turn")
@@ -645,7 +910,7 @@ class QwenPawACPAgent(Agent):
             raw = TokenRecordingModelWrapper.pop_usage_for_session(
                 session_id,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             return None
         if not raw:
             return None
@@ -688,51 +953,28 @@ class QwenPawACPAgent(Agent):
         control commands, skipping those that have a dedicated ACP
         affordance (see ``_ACP_REDUNDANT_COMMANDS``).
         """
-        commands: list[AvailableCommand] = []
-
-        # Lazily import command descriptions to avoid circular imports.
-        # These modules may not exist in all deployment configurations.
-        try:
-            from ...agents.command_handler import CommandHandler
-
-            for name, desc in getattr(
-                CommandHandler, "SYSTEM_COMMAND_DESCRIPTIONS", {}
-            ).items():
-                commands.append(AvailableCommand(name=name, description=desc))
-        except Exception:  # pylint: disable=broad-except
-            pass
-
-        try:
-            from ...agents.mission.handler import MISSION_COMMANDS
-
-            for cmd in MISSION_COMMANDS:
-                name = cmd.lstrip("/")
-                if name and name not in _ACP_REDUNDANT_COMMANDS:
-                    commands.append(
-                        AvailableCommand(name=name, description=""),
-                    )
-        except Exception:  # pylint: disable=broad-except
-            pass
-
         # Imported lazily to avoid a circular import: ``app.runner`` pulls in
         # ``react_agent`` -> ``agents.tools``, which (via the ACP tool adapter)
         # imports this module during ``agents.tools`` package init.
-        try:
-            from ...app.runner.control_commands import iter_commands
+        from ...app.runner.control_commands import iter_commands
 
-            for handler in iter_commands():
-                name = handler.command_name.lstrip("/")
-                if not name or name in _ACP_REDUNDANT_COMMANDS:
-                    continue
-                commands.append(
-                    AvailableCommand(
-                        name=name,
-                        description=handler.description,
-                    ),
-                )
-        except Exception:  # pylint: disable=broad-except
-            pass
-
+        commands = [
+            AvailableCommand(name=name, description=desc)
+            for name, desc in {
+                **SYSTEM_COMMAND_DESCRIPTIONS,
+                **MISSION_COMMAND_DESCRIPTIONS,
+            }.items()
+        ]
+        for handler in iter_commands():
+            name = handler.command_name.lstrip("/")
+            if not name or name in _ACP_REDUNDANT_COMMANDS:
+                continue
+            commands.append(
+                AvailableCommand(
+                    name=name,
+                    description=handler.description,
+                ),
+            )
         return commands
 
     async def _report_prompt_error(

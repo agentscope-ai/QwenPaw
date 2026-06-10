@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 import click
-from qwenpaw.exceptions import (
+from agentscope_runtime.engine.schemas.exception import (
     AppBaseException,
 )
 
@@ -71,7 +71,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from qwenpaw.schemas import (
+from agentscope_runtime.engine.schemas.agent_schemas import (
     TextContent,
     ContentType,
 )

@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Set
 import aiohttp
 from aiohttp import web
 
-from qwenpaw.schemas import (
+from agentscope_runtime.engine.schemas.agent_schemas import (
     AudioContent,
     ContentType,
     FileContent,

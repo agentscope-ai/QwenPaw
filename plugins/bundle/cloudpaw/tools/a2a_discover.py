@@ -10,8 +10,7 @@ import json
 import logging
 
 from agentscope.message import TextBlock
-from agentscope.message import ToolResultState
-from agentscope.tool import ToolChunk
+from agentscope.tool import ToolResponse
 
 logger = logging.getLogger("qwenpaw").getChild(
     __name__.replace("plugin_cloudpaw.", ""),
@@ -22,7 +21,7 @@ async def a2a_discover(
     agent_url: str,
     auth_type: str = "",
     auth_token: str = "",
-) -> ToolChunk:
+) -> ToolResponse:
     """发现远程 A2A Agent 并获取其信息。
 
     解析远程 Agent 的 Agent Card，获取其名称、描述、技能列表、
@@ -40,7 +39,7 @@ async def a2a_discover(
                     auth_type="gateway" 时无需传入
 
     Returns:
-        ToolChunk: 包含 Agent Card 信息的 JSON：
+        ToolResponse: 包含 Agent Card 信息的 JSON：
         - name: Agent 名称
         - description: Agent 描述
         - skills: 技能列表（名称和描述）
@@ -77,7 +76,6 @@ async def a2a_discover(
             ensure_ascii=False,
         )
 
-    return ToolChunk(
-        state=ToolResultState.SUCCESS,
+    return ToolResponse(
         content=[TextBlock(type="text", text=result)],
     )

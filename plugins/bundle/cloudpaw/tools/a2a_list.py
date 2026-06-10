@@ -9,22 +9,21 @@ import json
 import logging
 
 from agentscope.message import TextBlock
-from agentscope.message import ToolResultState
-from agentscope.tool import ToolChunk
+from agentscope.tool import ToolResponse
 
 logger = logging.getLogger("qwenpaw").getChild(
     __name__.replace("plugin_cloudpaw.", ""),
 )
 
 
-async def a2a_list() -> ToolChunk:
+async def a2a_list() -> ToolResponse:
     """列出当前智能体已注册的远程 A2A Agent。
 
     无需参数。自动读取当前智能体的 A2A 配置，返回所有已注册的
     远程 Agent 信息（别名、URL、认证类型、连接状态、技能列表等）。
 
     Returns:
-        ToolChunk: 包含已注册 Agent 列表的 JSON：
+        ToolResponse: 包含已注册 Agent 列表的 JSON：
         - agents: Agent 列表，每个包含 alias, url, auth_type, name,
           description, skills, capabilities, status 等字段
     """
@@ -77,7 +76,6 @@ async def a2a_list() -> ToolChunk:
 
     logger.info("a2a_list: found %d registered agents", len(agents_list))
 
-    return ToolChunk(
-        state=ToolResultState.SUCCESS,
+    return ToolResponse(
         content=[TextBlock(type="text", text=result)],
     )

@@ -32,7 +32,7 @@ class ControlContext:
 
     workspace: "Workspace"
     payload: Any
-    channel: "BaseChannel | None"
+    channel: "BaseChannel"
     session_id: str
     user_id: str
     agent_id: str

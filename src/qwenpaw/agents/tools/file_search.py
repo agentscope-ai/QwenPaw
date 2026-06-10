@@ -13,8 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolChunk
-from agentscope.message import ToolResultState
+from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
 from ...config.context import get_current_workspace_dir
@@ -128,21 +127,17 @@ def _relative_display(target: Path, root: Path) -> str:
         return str(target).replace(os.sep, "/")
 
 
-def _make_response(text: str) -> ToolChunk:
-    return ToolChunk(
-        is_last=True,
-        state=ToolResultState.SUCCESS,
-        content=[TextBlock(type="text", text=text)],
-    )
+def _make_response(text: str) -> ToolResponse:
+    return ToolResponse(content=[TextBlock(type="text", text=text)])
 
 
 def _resolve_search_root(
     path: Optional[str],
     require_dir: bool = False,
-) -> "Path | ToolChunk":
+) -> "Path | ToolResponse":
     """Resolve and validate a search root path.
 
-    Returns a ``Path`` on success or a ``ToolChunk`` error.
+    Returns a ``Path`` on success or a ``ToolResponse`` error.
     """
     search_root = (
         Path(_resolve_file_path(path))
@@ -487,7 +482,7 @@ async def grep_search(
     case_sensitive: bool = True,
     context_lines: int = 0,
     include_pattern: Optional[str] = None,
-) -> ToolChunk:
+) -> ToolResponse:
     """Search file contents by pattern, recursively. Relative paths resolve
     from WORKING_DIR. Output format: ``path:line_number: content``.
 
@@ -511,7 +506,7 @@ async def grep_search(
         return _make_response("Error: No search `pattern` provided.")
 
     root_or_err = _resolve_search_root(path)
-    if isinstance(root_or_err, ToolChunk):
+    if isinstance(root_or_err, ToolResponse):
         return root_or_err
     search_root: Path = root_or_err
 
@@ -584,7 +579,7 @@ async def grep_search(
 async def glob_search(
     pattern: str,
     path: Optional[str] = None,
-) -> ToolChunk:
+) -> ToolResponse:
     """Find files matching a glob pattern (e.g. ``"*.py"``, ``"**/*.json"``).
     Relative paths resolve from WORKING_DIR.
 
@@ -598,7 +593,7 @@ async def glob_search(
         return _make_response("Error: No glob `pattern` provided.")
 
     root_or_err = _resolve_search_root(path, require_dir=True)
-    if isinstance(root_or_err, ToolChunk):
+    if isinstance(root_or_err, ToolResponse):
         return root_or_err
     search_root: Path = root_or_err
 

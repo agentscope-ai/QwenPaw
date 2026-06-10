@@ -51,7 +51,7 @@ def _list_plugins_from_disk() -> list[dict]:
         try:
             with open(manifest_path, encoding="utf-8") as f:
                 manifest = json.load(f)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to read %s: %s", manifest_path, exc)
             continue
 
@@ -953,7 +953,7 @@ async def _async_download(url: str, dest: Path) -> None:
     import asyncio
 
     def _download() -> None:
-        with urllib.request.urlopen(
+        with urllib.request.urlopen(  # noqa: S310
             url,
             timeout=_DOWNLOAD_TIMEOUT,
         ) as resp:

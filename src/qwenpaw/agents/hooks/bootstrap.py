@@ -66,7 +66,7 @@ class BootstrapHook:
             if not bootstrap_path.exists():
                 return None
 
-            messages = list(agent.state.context)
+            messages = await agent.memory.get_memory()
             if not is_first_user_interaction(messages):
                 return None
 
