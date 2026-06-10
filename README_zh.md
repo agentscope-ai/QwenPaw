@@ -60,17 +60,17 @@
 
 ## 新闻
 
-- [2026-06-01] **v1.1.10 — 子 Agent 派生 & 更多渠道** | Agent 可派生子 Agent 执行任务；腾讯元宝加入渠道。
+- [2026-06-10] **v1.1.11 — 免费模型 OAuth & 插件市场** | 零配置免费模型一键 OAuth 认证；插件市场集成 AgentScope 平台。
 
   | 亮点 | 更新内容 |
   |------|----------|
-  | **Spawn Subagent** | 新增 `spawn_subagent` 工具，支持在工作区内派生临时子 Agent。 |
-  | **打开目录** | Coding 模式新增"打开目录"标签页，可直接引用本地项目而无需复制。 |
-  | **飞书话题回复** | Agent 支持在飞书消息话题中回复。 |
-  | **腾讯元宝渠道** | 新增腾讯元宝 Bot 渠道集成。 |
-  | **动态上传限制** | 上传大小限制可在控制台和渠道中动态配置。 |
+  | **免费模型 OAuth** | 零配置免费模型，一键 OAuth 认证即可使用。 |
+  | **插件市场** | 新增插件市场标签页，集成 AgentScope 平台。 |
+  | **MCP 工具白名单** | 支持按 MCP 服务器配置工具白名单，含前端开关 UI。 |
 
-  另有：OpenRouter 归因标头、桌面端内置 CLI、技能更新稳定性修复。[v1.1.10 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
+  另有：自进化技能创建、后端启动优化、飞书群会话共享、QQ 二维码授权。[v1.1.11 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
+
+- [2026-06-01] **v1.1.10** — 子 Agent 派生、打开目录、腾讯元宝渠道。[v1.1.10 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 
 - [2026-05-27] **v1.1.9** — Coding 模式（三面板 Web IDE）、Tauri 桌面应用、统一访问控制。[v1.1.9 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 

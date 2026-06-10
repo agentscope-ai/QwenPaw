@@ -9,31 +9,13 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from tests.integration.helpers import (
+    create_agent,
+    delete_agent_quietly,
+    scoped,
+)
+
 _HTTP_TIMEOUT = 15.0
-
-
-def _scoped(agent_id: str, path: str) -> str:
-    return f"/api/agents/{agent_id}{path}"
-
-
-def _create_agent(app_server, agent_id: str) -> None:
-    resp = app_server.api_request(
-        "POST",
-        "/api/agents",
-        json={
-            "id": agent_id,
-            "name": f"Agent {agent_id}",
-            "description": "",
-        },
-    )
-    assert resp.status_code == 201, app_server.logs_tail()
-
-
-def _delete_agent_quietly(app_server, agent_id: str) -> None:
-    try:
-        app_server.api_request("DELETE", f"/api/agents/{agent_id}")
-    except Exception:
-        pass
 
 
 # ------------------------------------------------------------------ #
@@ -58,17 +40,17 @@ def test_tools_list_returns_array(app_server) -> None:
     - GET /api/agents/{agentId}/tools
     """
     agent_id = "integ_misc_tools_list_01"
-    _create_agent(app_server, agent_id)
+    create_agent(app_server, agent_id)
     try:
         resp = app_server.api_request(
             "GET",
-            _scoped(agent_id, "/tools"),
+            scoped(agent_id, "/tools"),
             timeout=_HTTP_TIMEOUT,
         )
         assert resp.status_code == 200, app_server.logs_tail()
         assert isinstance(resp.json(), list)
     finally:
-        _delete_agent_quietly(app_server, agent_id)
+        delete_agent_quietly(app_server, agent_id)
 
 
 @pytest.mark.integration
@@ -88,18 +70,18 @@ def test_tools_config_update_unknown_returns_500(app_server) -> None:
     - POST /api/agents/{agentId}/tools/{tool_name}/config
     """
     agent_id = "integ_misc_tools_cfg_unk_01"
-    _create_agent(app_server, agent_id)
+    create_agent(app_server, agent_id)
     try:
         resp = app_server.api_request(
             "POST",
-            _scoped(agent_id, "/tools/integ-nosuch-tool/config"),
+            scoped(agent_id, "/tools/integ-nosuch-tool/config"),
             json={"config": {"api_key": "test"}},
             timeout=_HTTP_TIMEOUT,
         )
         assert resp.status_code == 500, app_server.logs_tail()
         assert "not found" in resp.json().get("detail", "").lower()
     finally:
-        _delete_agent_quietly(app_server, agent_id)
+        delete_agent_quietly(app_server, agent_id)
 
 
 @pytest.mark.integration
@@ -121,17 +103,17 @@ def test_tools_config_get_nonexistent_returns_empty(
     - GET /api/agents/{agentId}/tools/{tool_name}/config
     """
     agent_id = "integ_misc_tools_cfg_get_01"
-    _create_agent(app_server, agent_id)
+    create_agent(app_server, agent_id)
     try:
         resp = app_server.api_request(
             "GET",
-            _scoped(agent_id, "/tools/integ-nosuch-tool/config"),
+            scoped(agent_id, "/tools/integ-nosuch-tool/config"),
             timeout=_HTTP_TIMEOUT,
         )
         assert resp.status_code == 200, app_server.logs_tail()
         assert resp.json() == {}
     finally:
-        _delete_agent_quietly(app_server, agent_id)
+        delete_agent_quietly(app_server, agent_id)
 
 
 # ------------------------------------------------------------------ #
@@ -157,17 +139,17 @@ def test_heartbeat_run_returns_started(app_server) -> None:
     - POST /api/agents/{agentId}/config/heartbeat/run
     """
     agent_id = "integ_misc_heartbeat_01"
-    _create_agent(app_server, agent_id)
+    create_agent(app_server, agent_id)
     try:
         resp = app_server.api_request(
             "POST",
-            _scoped(agent_id, "/config/heartbeat/run"),
+            scoped(agent_id, "/config/heartbeat/run"),
             timeout=_HTTP_TIMEOUT,
         )
         assert resp.status_code == 200, app_server.logs_tail()
         assert resp.json().get("started") is True
     finally:
-        _delete_agent_quietly(app_server, agent_id)
+        delete_agent_quietly(app_server, agent_id)
 
 
 # ------------------------------------------------------------------ #
@@ -194,9 +176,9 @@ def test_console_chat_returns_sse(app_server) -> None:
     - POST /api/agents/{agentId}/console/chat
     """
     agent_id = "integ_misc_console_chat_01"
-    _create_agent(app_server, agent_id)
+    create_agent(app_server, agent_id)
     try:
-        url = f"{app_server.base_url}" f"{_scoped(agent_id, '/console/chat')}"
+        url = f"{app_server.base_url}" f"{scoped(agent_id, '/console/chat')}"
         body = {
             "input": [
                 {
@@ -220,7 +202,7 @@ def test_console_chat_returns_sse(app_server) -> None:
     except httpx.ReadTimeout:
         pass
     finally:
-        _delete_agent_quietly(app_server, agent_id)
+        delete_agent_quietly(app_server, agent_id)
 
 
 @pytest.mark.integration
@@ -240,7 +222,7 @@ def test_console_chat_invalid_body_returns_422(app_server) -> None:
     """
     resp = app_server.api_request(
         "POST",
-        _scoped("default", "/console/chat"),
+        scoped("default", "/console/chat"),
         content='"just-a-string"',
         headers={"Content-Type": "application/json"},
         timeout=_HTTP_TIMEOUT,
@@ -271,11 +253,11 @@ def test_mcp_oauth_start_returns_auth_url(app_server) -> None:
     - POST /api/agents/{agentId}/mcp/oauth/start/{client_key}
     """
     agent_id = "integ_misc_oauth_start_01"
-    _create_agent(app_server, agent_id)
+    create_agent(app_server, agent_id)
     try:
         resp = app_server.api_request(
             "POST",
-            _scoped(
+            scoped(
                 agent_id,
                 "/mcp/oauth/start/integ-mock-mcp-client",
             ),
@@ -293,4 +275,4 @@ def test_mcp_oauth_start_returns_auth_url(app_server) -> None:
         assert "session_id" in payload
         assert "localhost:19999/authorize" in payload["auth_url"]
     finally:
-        _delete_agent_quietly(app_server, agent_id)
+        delete_agent_quietly(app_server, agent_id)

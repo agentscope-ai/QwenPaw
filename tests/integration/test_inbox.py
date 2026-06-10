@@ -14,105 +14,26 @@ test so cases stay independent within the module.
 """
 from __future__ import annotations
 
-import json
-import shutil
-import time
-from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
 import pytest
 
+from tests.integration.helpers import (
+    clean_inbox,
+    make_event,
+    seed_inbox_events,
+    seed_inbox_trace,
+)
+
 _INBOX_HTTP_TIMEOUT = 15.0
-
-
-# --------------------------------------------------------------------------- #
-# fixture helpers
-# --------------------------------------------------------------------------- #
-
-
-def _inbox_path(working_dir: Path) -> Path:
-    return working_dir / "inbox_events.json"
-
-
-def _trace_dir(working_dir: Path) -> Path:
-    return working_dir / "inbox_traces"
-
-
-def _seed_inbox_events(
-    working_dir: Path,
-    events: list[dict[str, Any]],
-) -> None:
-    """Write the events list to inbox_events.json (newest-first convention)."""
-    path = _inbox_path(working_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(events, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-
-
-def _seed_inbox_trace(
-    working_dir: Path,
-    run_id: str,
-    payload: dict[str, Any],
-) -> None:
-    """Write one trace file under inbox_traces/<run_id>.json."""
-    directory = _trace_dir(working_dir)
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{run_id}.json").write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-
-def _clean_inbox(working_dir: Path) -> None:
-    """Remove inbox file + trace dir so the next test starts clean."""
-    path = _inbox_path(working_dir)
-    if path.exists():
-        path.unlink()
-    directory = _trace_dir(working_dir)
-    if directory.exists():
-        shutil.rmtree(directory)
-
-
-def _make_event(
-    *,
-    event_id: str,
-    agent_id: str = "default",
-    source_type: str = "cron",
-    source_id: str = "",
-    event_type: str = "cron_executed",
-    status: str = "completed",
-    severity: str = "info",
-    title: str = "seeded event",
-    body: str = "",
-    payload: dict[str, Any] | None = None,
-    read: bool = False,
-    created_at: float | None = None,
-) -> dict[str, Any]:
-    """Mirror the shape produced by ``inbox_store.append_event``."""
-    return {
-        "id": event_id,
-        "agent_id": agent_id,
-        "source_type": source_type,
-        "source_id": source_id,
-        "event_type": event_type,
-        "status": status,
-        "severity": severity,
-        "title": title,
-        "body": body,
-        "payload": payload or {},
-        "read": read,
-        "created_at": created_at if created_at is not None else time.time(),
-    }
 
 
 @pytest.fixture(autouse=True)
 def _isolate_inbox(app_server) -> Iterator[None]:
     """Wipe inbox state before and after every test in this module."""
-    _clean_inbox(app_server.working_dir)
+    clean_inbox(app_server.working_dir)
     yield
-    _clean_inbox(app_server.working_dir)
+    clean_inbox(app_server.working_dir)
 
 
 # --------------------------------------------------------------------------- #
@@ -165,32 +86,32 @@ def test_inbox_list_events_with_seeded_data_returns_all(app_server) -> None:
     - GET /api/console/inbox/events
     """
     seeded = [
-        _make_event(
+        make_event(
             event_id="evt-cron-01",
             source_type="cron",
             event_type="cron_executed",
             severity="info",
         ),
-        _make_event(
+        make_event(
             event_id="evt-cron-02",
             source_type="cron",
             event_type="cron_failed",
             severity="warning",
         ),
-        _make_event(
+        make_event(
             event_id="evt-approval-01",
             source_type="approval",
             event_type="approval_pending",
             severity="info",
         ),
-        _make_event(
+        make_event(
             event_id="evt-approval-02",
             source_type="approval",
             event_type="approval_granted",
             severity="info",
         ),
     ]
-    _seed_inbox_events(app_server.working_dir, seeded)
+    seed_inbox_events(app_server.working_dir, seeded)
 
     resp = app_server.api_request(
         "GET",
@@ -228,12 +149,12 @@ def test_inbox_list_events_filter_by_source_type(app_server) -> None:
     - GET /api/console/inbox/events
     """
     seeded = [
-        _make_event(event_id="evt-cron-01", source_type="cron"),
-        _make_event(event_id="evt-cron-02", source_type="cron"),
-        _make_event(event_id="evt-approval-01", source_type="approval"),
-        _make_event(event_id="evt-approval-02", source_type="approval"),
+        make_event(event_id="evt-cron-01", source_type="cron"),
+        make_event(event_id="evt-cron-02", source_type="cron"),
+        make_event(event_id="evt-approval-01", source_type="approval"),
+        make_event(event_id="evt-approval-02", source_type="approval"),
     ]
-    _seed_inbox_events(app_server.working_dir, seeded)
+    seed_inbox_events(app_server.working_dir, seeded)
 
     cron_resp = app_server.api_request(
         "GET",
@@ -281,11 +202,11 @@ def test_inbox_list_events_unread_only_filter(app_server) -> None:
     - GET /api/console/inbox/events
     """
     seeded = [
-        _make_event(event_id="evt-unread-01", read=False),
-        _make_event(event_id="evt-unread-02", read=False),
-        _make_event(event_id="evt-read-01", read=True),
+        make_event(event_id="evt-unread-01", read=False),
+        make_event(event_id="evt-unread-02", read=False),
+        make_event(event_id="evt-read-01", read=True),
     ]
-    _seed_inbox_events(app_server.working_dir, seeded)
+    seed_inbox_events(app_server.working_dir, seeded)
 
     resp = app_server.api_request(
         "GET",
@@ -324,11 +245,11 @@ def test_inbox_mark_read_specific_events_returns_updated_count(
     - GET /api/console/inbox/events
     """
     seeded = [
-        _make_event(event_id="evt-mark-01", read=False),
-        _make_event(event_id="evt-mark-02", read=False),
-        _make_event(event_id="evt-mark-03", read=False),
+        make_event(event_id="evt-mark-01", read=False),
+        make_event(event_id="evt-mark-02", read=False),
+        make_event(event_id="evt-mark-03", read=False),
     ]
-    _seed_inbox_events(app_server.working_dir, seeded)
+    seed_inbox_events(app_server.working_dir, seeded)
 
     mark_resp = app_server.api_request(
         "POST",
@@ -374,12 +295,12 @@ def test_inbox_mark_read_all_updates_only_unread(app_server) -> None:
     - POST /api/console/inbox/read
     """
     seeded = [
-        _make_event(event_id="evt-all-01", read=False),
-        _make_event(event_id="evt-all-02", read=False),
-        _make_event(event_id="evt-all-03", read=False),
-        _make_event(event_id="evt-all-04", read=True),
+        make_event(event_id="evt-all-01", read=False),
+        make_event(event_id="evt-all-02", read=False),
+        make_event(event_id="evt-all-03", read=False),
+        make_event(event_id="evt-all-04", read=True),
     ]
-    _seed_inbox_events(app_server.working_dir, seeded)
+    seed_inbox_events(app_server.working_dir, seeded)
 
     resp = app_server.api_request(
         "POST",
@@ -413,12 +334,12 @@ def test_inbox_delete_event_cleans_orphan_trace(app_server) -> None:
     - GET /api/console/inbox/traces/{run_id}
     """
     run_id = "run-orphan-01"
-    seeded_event = _make_event(
+    seeded_event = make_event(
         event_id="evt-delete-with-trace",
         payload={"run_id": run_id},
     )
-    _seed_inbox_events(app_server.working_dir, [seeded_event])
-    _seed_inbox_trace(
+    seed_inbox_events(app_server.working_dir, [seeded_event])
+    seed_inbox_trace(
         app_server.working_dir,
         run_id,
         {"run_id": run_id, "events": []},
@@ -472,17 +393,17 @@ def test_inbox_delete_event_preserves_shared_trace(app_server) -> None:
     run_id = "run-shared-01"
     keeper_id = "evt-shared-keeper"
     seeded_events = [
-        _make_event(
+        make_event(
             event_id="evt-shared-deleted",
             payload={"run_id": run_id},
         ),
-        _make_event(
+        make_event(
             event_id=keeper_id,
             payload={"run_id": run_id},
         ),
     ]
-    _seed_inbox_events(app_server.working_dir, seeded_events)
-    _seed_inbox_trace(
+    seed_inbox_events(app_server.working_dir, seeded_events)
+    seed_inbox_trace(
         app_server.working_dir,
         run_id,
         {"run_id": run_id, "events": []},

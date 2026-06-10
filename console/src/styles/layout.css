@@ -779,7 +779,14 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] h3,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] h4,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] h5,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] h6,
-html.dark-mode [class*="chat-anywhere"] [class*="message"] span,
+html.dark-mode
+  [class*="chat-anywhere"]
+  [class*="message"]
+  span:not([class*="diffAddBadge"]):not([class*="diffDelBadge"]):not(
+    [class*="lineReadBadge"]
+  ):not([class*="lineSearchBadge"]):not([class*="jsonKey"]):not(
+    [class*="jsonStr"]
+  ):not([class*="jsonNum"]):not([class*="jsonNull"]),
 html.dark-mode [class*="chat-anywhere"] [class*="message"] blockquote,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] td,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] th {
@@ -798,6 +805,54 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] code {
 
 html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   color: #ff7f16 !important;
+}
+
+/* Tool card content blocks — dark mode text and background overrides.
+   These elements use div/pre which are not covered by the span/p/li rules above. */
+html.dark-mode [class*="chat-anywhere"] [class*="defaultBlock"] {
+  background: #2a2a2a !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+html.dark-mode [class*="chat-anywhere"] [class*="defaultBlockHeader"] {
+  background: #333 !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+html.dark-mode [class*="chat-anywhere"] [class*="defaultBlockTitle"],
+html.dark-mode [class*="chat-anywhere"] [class*="defaultBlockContent"],
+html.dark-mode [class*="chat-anywhere"] [class*="toolCallResultMd"],
+html.dark-mode [class*="chat-anywhere"] [class*="toolCallResultMd"] pre,
+html.dark-mode [class*="chat-anywhere"] [class*="toolCallDiff"] {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+html.dark-mode [class*="chat-anywhere"] [class*="toolCallResultMd"] {
+  background: #2a2a2a !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* JSON syntax highlighting in tool output — preserve distinct colors in dark mode */
+html.dark-mode
+  [class*="chat-anywhere"]
+  [class*="defaultBlockContent"]
+  [class*="jsonKey"] {
+  color: #f5827a !important;
+}
+html.dark-mode
+  [class*="chat-anywhere"]
+  [class*="defaultBlockContent"]
+  [class*="jsonStr"] {
+  color: #7ec87e !important;
+}
+html.dark-mode
+  [class*="chat-anywhere"]
+  [class*="defaultBlockContent"]
+  [class*="jsonNum"] {
+  color: #6cb6ff !important;
+}
+html.dark-mode
+  [class*="chat-anywhere"]
+  [class*="defaultBlockContent"]
+  [class*="jsonNull"] {
+  color: #f0b95f !important;
 }
 
 /* ─── Mobile safe-area & keyboard adaptation (#4738) ──────────────────────── */

@@ -245,28 +245,46 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     auto_register_from_env()
 
-    try:
-        from ..utils.telemetry import (
-            collect_and_upload_telemetry,
-            has_telemetry_been_collected,
-            is_telemetry_opted_out,
-        )
+    # Telemetry runs in a background thread to avoid blocking startup.
+    def _maybe_collect_telemetry():
+        try:
+            from ..utils.telemetry import (
+                collect_and_upload_telemetry,
+                has_telemetry_been_collected,
+                is_telemetry_opted_out,
+            )
 
-        if not is_telemetry_opted_out(
-            WORKING_DIR,
-        ) and not has_telemetry_been_collected(WORKING_DIR):
-            collect_and_upload_telemetry(WORKING_DIR)
-    except Exception:
-        logger.debug(
-            "Telemetry collection skipped due to error",
-            exc_info=True,
-        )
+            if not is_telemetry_opted_out(
+                WORKING_DIR,
+            ) and not has_telemetry_been_collected(WORKING_DIR):
+                collect_and_upload_telemetry(WORKING_DIR)
+        except Exception:
+            logger.debug(
+                "Telemetry collection skipped due to error",
+                exc_info=True,
+            )
 
+    asyncio.get_event_loop().run_in_executor(
+        None,
+        _maybe_collect_telemetry,
+    )
+
+    # Migrations offloaded to thread pool — they do heavy file I/O.
+    # Workspace migration must finish first (others read its output).
+    # ensure_default/qa_agent both read-modify-write config.json so
+    # they stay sequential; skills migration only reads config + writes
+    # skill files so it can overlap safely.
     logger.debug("Checking for legacy config migration...")
-    migrate_legacy_workspace_to_default_agent()
-    ensure_default_agent_exists()
-    migrate_legacy_skills_to_skill_pool()
-    ensure_qa_agent_exists()
+    await asyncio.to_thread(migrate_legacy_workspace_to_default_agent)
+
+    async def _agent_ensures():
+        await asyncio.to_thread(ensure_default_agent_exists)
+        await asyncio.to_thread(ensure_qa_agent_exists)
+
+    await asyncio.gather(
+        _agent_ensures(),
+        asyncio.to_thread(migrate_legacy_skills_to_skill_pool),
+    )
 
     # Create core managers (instant — no I/O)
     logger.debug("Initializing MultiAgentManager...")
@@ -316,38 +334,38 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     async def _background_startup():  # pylint: disable=too-many-statements
         try:
-            # Start all configured agents (truly parallel now)
-            await multi_agent_manager.start_all_configured_agents()
+            # ---- Parallel: agents + plugins + local model resume ----
+            # These are independent and together dominate startup time.
+
+            async def _load_plugins():
+                logger.debug("Initializing plugin system...")
+                from ..plugins.loader import PluginLoader
+                from ..config.utils import get_plugins_dir
+
+                plugin_dirs = [get_plugins_dir()]
+                loader = PluginLoader(plugin_dirs)
+                loader.registry.set_plugin_http_app(app)
+
+                cfg = load_config(get_config_path())
+                plugin_cfgs = cfg.plugins if hasattr(cfg, "plugins") else {}
+                logger.debug(
+                    f"Loading plugins with " f"{len(plugin_cfgs)} config(s)",
+                )
+                loaded = await loader.load_all_plugins(
+                    configs=plugin_cfgs,
+                )
+                logger.debug(f"Loaded {len(loaded)} plugin(s)")
+                return loader
+
+            plugin_loader, _ = await asyncio.gather(
+                _load_plugins(),
+                multi_agent_manager.start_all_configured_agents(),
+            )
 
             provider_manager.start_local_model_resume(local_model_manager)
 
-            # ---- Plugin System ----
-            logger.debug("Initializing plugin system...")
-
-            from ..plugins.loader import PluginLoader
+            # ---- Plugin providers (depends on plugins loaded) ----
             from ..plugins.runtime import RuntimeHelpers
-            from ..config.utils import get_plugins_dir
-
-            plugin_dirs = [
-                get_plugins_dir(),
-            ]
-
-            plugin_loader = PluginLoader(plugin_dirs)
-
-            plugin_loader.registry.set_plugin_http_app(app)
-
-            config = load_config(get_config_path())
-            plugin_configs = (
-                config.plugins if hasattr(config, "plugins") else {}
-            )
-            logger.debug(
-                f"Loading plugins with {len(plugin_configs)} config(s)",
-            )
-
-            loaded_plugins = await plugin_loader.load_all_plugins(
-                configs=plugin_configs,
-            )
-            logger.debug(f"Loaded {len(loaded_plugins)} plugin(s)")
 
             runtime_helpers = RuntimeHelpers(
                 provider_manager=provider_manager,
@@ -403,34 +421,57 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                         exc_info=True,
                     )
 
-            # ---- Startup Hooks ----
+            # ---- Startup Hooks (same priority run concurrently) ----
             logger.debug("Executing plugin startup hooks...")
             startup_hooks = plugin_loader.registry.get_startup_hooks()
-            for hook in startup_hooks:
-                try:
-                    logger.debug(
-                        f"Executing startup hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}' "
-                        f"(priority={hook.priority})",
-                    )
 
-                    result = hook.callback()
-                    if inspect.iscoroutine(
-                        result,
-                    ) or inspect.isawaitable(result):
-                        await result
+            from itertools import groupby
 
-                    logger.debug(
-                        f"Completed startup hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}'",
+            async def _run_hook(hook):
+                logger.debug(
+                    f"Executing startup hook '{hook.hook_name}' "
+                    f"from plugin '{hook.plugin_id}' "
+                    f"(priority={hook.priority})",
+                )
+                result = hook.callback()
+                if inspect.iscoroutine(
+                    result,
+                ) or inspect.isawaitable(result):
+                    await result
+                logger.debug(
+                    f"Completed startup hook '{hook.hook_name}' "
+                    f"from plugin '{hook.plugin_id}'",
+                )
+
+            for _priority, group in groupby(
+                startup_hooks,
+                key=lambda h: h.priority,
+            ):
+                hooks_in_group = list(group)
+                if len(hooks_in_group) == 1:
+                    try:
+                        await _run_hook(hooks_in_group[0])
+                    except Exception as e:
+                        logger.error(
+                            f"✗ Failed startup hook "
+                            f"'{hooks_in_group[0].hook_name}' "
+                            f"from '{hooks_in_group[0].plugin_id}'"
+                            f": {e}",
+                            exc_info=True,
+                        )
+                else:
+                    results = await asyncio.gather(
+                        *[_run_hook(h) for h in hooks_in_group],
+                        return_exceptions=True,
                     )
-                except Exception as e:
-                    logger.error(
-                        f"✗ Failed to execute startup hook "
-                        f"'{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}': {e}",
-                        exc_info=True,
-                    )
+                    for hook, res in zip(hooks_in_group, results):
+                        if isinstance(res, Exception):
+                            logger.error(
+                                f"✗ Failed startup hook "
+                                f"'{hook.hook_name}' from "
+                                f"'{hook.plugin_id}': {res}",
+                                exc_info=True,
+                            )
 
             # ---- Approval Service ----
             try:
