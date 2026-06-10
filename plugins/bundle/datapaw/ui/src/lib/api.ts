@@ -42,9 +42,23 @@ export async function fetchTasksSummary(
   const url = getApiUrl(
     `/tasks/${encoded}?user_id=${encodeURIComponent(userId)}`,
   );
+  console.info("[datapaw:tasks-api] GET summary", { sessionId, userId, url });
   const res = await fetch(url, { headers: buildAuthHeaders() });
-  if (!res.ok) return null;
-  return res.json();
+  if (!res.ok) {
+    console.warn("[datapaw:tasks-api] GET summary failed", {
+      status: res.status,
+      sessionId,
+    });
+    return null;
+  }
+  const data = await res.json();
+  console.info("[datapaw:tasks-api] GET summary ok", {
+    sessionId,
+    hasPlan: Boolean(data?.current_plan),
+    planId: data?.current_plan?.id,
+    planName: data?.current_plan?.name,
+  });
+  return data;
 }
 
 export interface TaskMutationResponse {

@@ -11,7 +11,6 @@ import { resetNodeStreamEvents } from "../lib/node-stream-events";
 import { isDatapawAgentSelected } from "../lib/agent";
 import {
   saveTaskCardForSession,
-  loadTaskCardPlan,
   removeTaskCardForSession,
 } from "../lib/task-card-storage";
 import { isTaskGraphMessageId } from "../lib/pin-task-card";
@@ -30,22 +29,8 @@ type ChatRefHolder = {
 let chatRefHolder: ChatRefHolder = { current: null };
 let activePlanId: string | null = null;
 let injectInFlight = false;
-let cacheRestoreScheduled = false;
 let dagAbort: AbortController | null = null;
 let dagSessionId: string | null = null;
-
-function ensureChatRefBound(): boolean {
-  if (chatRefHolder.current?.messages?.removeMessage) return true;
-  const bridge = (
-    window as {
-      QwenPaw?: { host?: { chatBridge?: { _ref?: ChatRefHolder } } };
-    }
-  ).QwenPaw?.host?.chatBridge;
-  if (bridge?._ref) {
-    chatRefHolder = bridge._ref;
-  }
-  return !!chatRefHolder.current?.messages?.removeMessage;
-}
 
 /** Remove legacy task_graph messages still present in the chat stream. */
 function purgeLegacyTaskGraphMessages(): void {
@@ -118,6 +103,13 @@ function applyCurrentPlan(
   const plainPlan = toPlainJson(plan);
   const sid = resolveBackendSessionId(sessionId);
   const planChanged = Boolean(activePlanId && activePlanId !== plainPlan.id);
+  console.info("[datapaw:task-card] applyCurrentPlan", {
+    sessionId: sid,
+    planId: plainPlan.id,
+    planName: plainPlan.name,
+    previousPlanId: activePlanId,
+    planChanged,
+  });
 
   if (planChanged) {
     resetNodeStreamEvents();
@@ -156,7 +148,6 @@ export function installChatBridge(): void {
   const bindRef = (ref: ChatRefHolder) => {
     chatRefHolder = ref;
     purgeLegacyTaskGraphMessages();
-    void restoreCachedTaskCardOnly();
   };
 
   bridge.setChatRef = bindRef;
@@ -171,6 +162,10 @@ export async function refreshTaskCard(
   sessionId?: string | null,
 ): Promise<boolean> {
   const sid = resolveBackendSessionId(sessionId);
+  console.info("[datapaw:task-card] refreshTaskCard", {
+    inputSessionId: sessionId,
+    resolvedSessionId: sid,
+  });
   if (!sid) return false;
   return fetchAndApplyTaskPlan(sid);
 }
@@ -181,57 +176,21 @@ async function fetchAndApplyTaskPlan(sessionId: string): Promise<boolean> {
   if (!plan) return false;
   applyCurrentPlan(plan, sessionId);
   console.info(
-    "[datapaw] Task plan updated for sender prefix:",
+    "[datapaw] Task plan updated:",
     plan.id,
     plan.name,
   );
   return true;
 }
 
-async function restoreFromCache(sessionId: string): Promise<boolean> {
-  const cached = loadTaskCardPlan(sessionId);
-  if (!cached) return false;
-  applyCurrentPlan(cached, sessionId);
-  console.info("[datapaw] Task plan restored from cache:", cached.id);
-  return true;
-}
-
-/** Restore last plan from localStorage only — never calls GET /api/tasks. */
-export async function restoreCachedTaskCardOnly(): Promise<boolean> {
-  if (!isDatapawAgentSelected()) return true;
-
-  const sessionId = resolveBackendSessionId();
-  if (!sessionId) return false;
-
-  try {
-    return restoreFromCache(sessionId);
-  } catch (error) {
-    console.warn("[datapaw] Failed to restore cached task plan:", error);
-    return false;
-  }
-}
-
-/** Poll until session/chatRef ready, then restore cache (no tasks API). */
-export function scheduleCachedTaskCardRestore(): void {
-  if (cacheRestoreScheduled) return;
-  cacheRestoreScheduled = true;
-
-  let attempts = 0;
-  const timer = window.setInterval(() => {
-    attempts += 1;
-    ensureChatRefBound();
-    void restoreCachedTaskCardOnly().then((done) => {
-      if (done || attempts >= 150) {
-        window.clearInterval(timer);
-      }
-    });
-  }, 200);
-}
-
 async function injectTaskPlanAfterCreatePlan(): Promise<void> {
-  if (injectInFlight) return;
+  if (injectInFlight) {
+    console.info("[datapaw:task-card] inject skipped: in flight");
+    return;
+  }
 
   const sessionId = resolveBackendSessionId();
+  console.info("[datapaw:task-card] inject after create_plan", { sessionId });
   if (!sessionId) {
     console.warn("[datapaw] create_plan in stream but session id missing");
     return;
@@ -257,6 +216,7 @@ async function injectTaskPlanAfterCreatePlan(): Promise<void> {
 }
 
 export function handlePlanToolInStream(event: PlanToolStreamEvent): void {
+  console.info("[datapaw:task-card] plan tool event", event);
   if (!isDatapawAgentSelected()) return;
   if (event.name !== TASK_CARD_STREAM_TOOL) return;
 
