@@ -195,6 +195,16 @@ describe("window.QwenPaw.chat.request / response", () => {
     ).toEqual(["p1", "p2"]);
   });
 
+  it("legacy registerCardRender writes to chat.cards list", () => {
+    const Card = () => null;
+    window.QwenPaw.registerCardRender!("datapaw", { task_graph: Card });
+    const cards = chatExtensions.getListSnapshot().cards;
+    expect(cards.some((e) => e.item.cardName === "task_graph")).toBe(true);
+    expect(cards.find((e) => e.item.cardName === "task_graph")?.item.render).toBe(
+      Card,
+    );
+  });
+
   it("returned Disposables actually clean up the slots", () => {
     const d = window.QwenPaw.chat!.request.prepend("p1", () => null, {
       id: "x",

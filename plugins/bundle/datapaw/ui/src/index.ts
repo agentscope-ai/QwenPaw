@@ -57,9 +57,14 @@ function buildPlugin() {
     create_plan: createCreatePlanRender(bundle),
   });
 
-  QP?.registerCardRender?.(PLUGIN_ID, {
-    task_graph: createTaskGraphCard(bundle),
-  });
+  const taskGraphCard = createTaskGraphCard(bundle);
+  if (QP?.chat?.card) {
+    QP.chat.card(PLUGIN_ID, "task_graph", taskGraphCard);
+  } else {
+    QP?.registerCardRender?.(PLUGIN_ID, {
+      task_graph: taskGraphCard,
+    });
+  }
 
   installChatBridge();
   const startPersistence = () => {

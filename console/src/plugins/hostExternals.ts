@@ -46,6 +46,15 @@ export interface HostExternals {
   apiBaseUrl: string;
   getApiUrl: typeof getApiUrl;
   getApiToken: typeof getApiToken;
+  /**
+   * Imperative bridge for plugins that inject synthetic messages into the
+   * chat stream (e.g. DataPaw task cards). Populated by installHostSdk();
+   * Chat/index publishes the live `chatRef` via `_ref` + `setChatRef`.
+   */
+  chatBridge?: {
+    setChatRef?: (ref: { current: unknown }) => void;
+    _ref?: { current: unknown };
+  };
   // ── Hooks + helpers attached later by installHostSdk() ─────────────────────
   useTheme?: () => HostThemeMode;
   useLocale?: () => string;
@@ -159,6 +168,11 @@ export interface WindowNamespace {
   registerRoutes?: (pluginId: string, routes: PluginRouteDeclaration[]) => void;
   /** Register tool-call renderers for a plugin. */
   registerToolRender?: (
+    pluginId: string,
+    renderers: Record<string, React.FC<any>>,
+  ) => void;
+  /** Legacy alias for `chat.card()` — registers message-stream card renderers. */
+  registerCardRender?: (
     pluginId: string,
     renderers: Record<string, React.FC<any>>,
   ) => void;

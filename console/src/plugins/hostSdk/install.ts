@@ -361,4 +361,21 @@ export function installHostSdk(): void {
   if (!host.getSelectedAgentId) host.getSelectedAgentId = getSelectedAgentId;
   if (!host.getCurrentSessionId) host.getCurrentSessionId = getCurrentSessionId;
   if (!host.fetch) host.fetch = hostFetch;
+  if (!host.chatBridge) host.chatBridge = {};
+
+  // Legacy alias — DataPaw (and older plugins) call registerCardRender instead
+  // of the typed chat.card() API.
+  if (!ns.registerCardRender) {
+    ns.registerCardRender = (
+      pluginId: string,
+      renderers: Record<string, React.FC<Record<string, unknown>>>,
+    ) => {
+      for (const [cardName, render] of Object.entries(renderers)) {
+        ns.chat.card(pluginId, cardName, render);
+      }
+      console.info(
+        `[plugin:${pluginId}] registerCardRender → ${Object.keys(renderers).join(", ")}`,
+      );
+    };
+  }
 }

@@ -68,16 +68,12 @@ export default function TaskGraphPanel({
         key: 'download-dag',
         label: t('taskGraph.downloadDag'),
       },
-      {
-        key: 'artifact-manage',
-        label: t('taskGraph.artifactManage'),
-      },
     ],
     [t],
   );
 
-  const handleMoreMenuClick: MenuProps['onClick'] = useCallback(
-    ({ key }) => {
+  const handleMoreMenuClick = useCallback<NonNullable<MenuProps['onClick']>>(
+    ({ gitkey }) => {
       onMoreMenuClick?.(String(key));
     },
     [onMoreMenuClick],

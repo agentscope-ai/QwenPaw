@@ -66,24 +66,32 @@ function ensureDagEventsSubscription(sessionId: string): void {
 }
 
 export function installChatBridge(): void {
-  const bridge = (
+  const host = (
     window as {
       QwenPaw?: {
         host?: {
           chatBridge?: {
             setChatRef?: (ref: ChatRefHolder) => void;
+            _ref?: ChatRefHolder;
           };
         };
       };
     }
-  ).QwenPaw?.host?.chatBridge;
+  ).QwenPaw?.host;
 
-  if (!bridge) return;
+  if (!host) return;
+  if (!host.chatBridge) host.chatBridge = {};
+  const bridge = host.chatBridge;
 
   bridge.setChatRef = (ref: ChatRefHolder) => {
     chatRefHolder = ref;
     void tryRestoreTaskCardOnLoad();
   };
+
+  if (bridge._ref) {
+    chatRefHolder = bridge._ref;
+    void tryRestoreTaskCardOnLoad();
+  }
 }
 
 function isTaskGraphMessageId(id: unknown): boolean {
@@ -278,6 +286,7 @@ export function handlePlanToolInStream(event: PlanToolStreamEvent): void {
     injectDebounceTimer = null;
     const sessionId = resolveBackendSessionId();
     const skipConfirm =
+      event.name === "create_plan" ||
       event.name === "finish_plan" ||
       (sessionId
         ? confirmedSessions.has(`${sessionId}:${event.name}`)

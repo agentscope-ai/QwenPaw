@@ -984,6 +984,14 @@ export default function ChatPage() {
   useChatInputDraft(isChatActive, selectedAgent);
   useChatPasteFromEditor();
 
+  // Publish chatRef to plugin bundles (e.g. DataPaw task cards in message stream).
+  useEffect(() => {
+    const hostBridge = window.QwenPaw?.host?.chatBridge;
+    if (!hostBridge) return;
+    hostBridge._ref = chatRef;
+    hostBridge.setChatRef?.(chatRef);
+  }, []);
+
   const onFileCardClick = useCallback(
     (fileInfo: { name?: string; size?: number; url?: string }) => {
       if (fileInfo.url) {
