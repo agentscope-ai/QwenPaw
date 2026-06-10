@@ -587,6 +587,8 @@
     "broadcast": "Broadcast to Agents",
     "broadcastHint": "Broadcast skills to selected agents",
     "refreshHint": "Refresh skill pool from disk",
+    "deleteExternalConfirm": "This deletes the external skill files at {{path}} from disk.",
+    "deleteExternalBatchWarning": "Selected external skills will be permanently deleted from disk.",
     "broadcastTitle": "Broadcast {{name}}",
     "importBuiltin": "Update Built-in Skills",
     "importBuiltinHint": "Update built-in skills to the latest version",

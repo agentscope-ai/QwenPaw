@@ -327,6 +327,8 @@
     "broadcast": "Sebarkan ke Agen",
     "broadcastHint": "Sebarkan skill ke agen yang dipilih",
     "refreshHint": "Segarkan kumpulan skill dari disk",
+    "deleteExternalConfirm": "Menghapus file skill eksternal di {{path}} dari disk.",
+    "deleteExternalBatchWarning": "Skill eksternal yang dipilih akan dihapus permanen dari disk.",
     "importBuiltin": "Perbarui Skill Bawaan",
     "importHubHint": "Impor skill melalui URL",
     "uploadZipHint": "Unggah via ZIP",

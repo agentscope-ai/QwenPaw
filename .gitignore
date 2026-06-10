@@ -31,6 +31,7 @@ dist/
 .wheelshim/
 # Console frontend build (generated in Docker/CI, do not commit)
 console/.cursor/
+console/.wiki/
 src/qwenpaw/console/dist/
 src/qwenpaw/console/
 
@@ -130,6 +131,7 @@ src/.hypothesis/
 
 # Local File
 /localfile/
+local-docs/
 
 # E2E test artifacts
 e2e/reports/

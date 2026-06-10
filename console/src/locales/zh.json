@@ -426,6 +426,8 @@
     "broadcast": "广播到智能体",
     "broadcastHint": "将技能广播给选定的智能体",
     "refreshHint": "从磁盘刷新技能池",
+    "deleteExternalConfirm": "将从磁盘删除外部技能文件:{{path}}。",
+    "deleteExternalBatchWarning": "所选的外部技能将从磁盘永久删除。",
     "broadcastTitle": "广播 {{name}}",
     "importBuiltin": "更新内置技能",
     "importBuiltinHint": "将内置技能更新到最新版本",

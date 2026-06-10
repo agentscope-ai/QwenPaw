@@ -1816,6 +1816,13 @@ class Config(BaseModel):
         description="Plugin configurations. Key is plugin_id, "
         "value is plugin-specific config dict.",
     )
+    skill_paths: List[str] = Field(
+        default_factory=list,
+        description="Additional read-only skill pool roots, scanned after "
+        "the primary skill_pool in order. Paths support ~ expansion. "
+        "Skills found here are read-only (no edit/create); they can be "
+        "listed, downloaded to a workspace, and deleted.",
+    )
 
 
 ChannelConfigUnion = Union[

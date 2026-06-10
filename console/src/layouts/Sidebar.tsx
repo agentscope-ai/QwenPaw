@@ -28,6 +28,7 @@ import {
   routeIdToPath,
   toAntdItems,
 } from "./registry/adapter";
+import type { FlatMenuEntry } from "./registry/adapter";
 import type { MenuItem } from "../plugins/registry/types";
 import type { ReactNode } from "react";
 
@@ -164,7 +165,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
   const collapsedNavItems = useMemo(() => {
     // Sticky chat is its own carve-out (lives outside menu data — see builtinMenu.ts).
-    const stickyChat = {
+    const stickyChat: FlatMenuEntry = {
       key: "core.chat",
       icon: <SparkChatTabFill size={18} />,
       path: chatPath,
@@ -206,6 +207,10 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
   const handleMenuClick = (key: string, allItems: MenuItem[]) => {
     const item = findMenuItem(allItems, key);
+    if (item?.href) {
+      window.open(item.href, "_blank", "noopener,noreferrer");
+      return;
+    }
     const path = routeIdToPath(item?.route, routes);
     if (path) navigate(path);
   };
@@ -300,7 +305,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                   className={`${styles.collapsedNavItem} ${
                     isActive ? styles.collapsedNavItemActive : ""
                   }`}
-                  onClick={() => navigate(item.path)}
+                  onClick={() =>
+                    item.href
+                      ? window.open(item.href, "_blank", "noopener,noreferrer")
+                      : navigate(item.path)
+                  }
                 >
                   {item.icon}
                 </button>
