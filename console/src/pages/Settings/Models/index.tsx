@@ -5,6 +5,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Button, Input } from "@agentscope-ai/design";
 import { PlusOutlined, SearchOutlined, SyncOutlined } from "@ant-design/icons";
 import { useProviders } from "./useProviders";
@@ -28,6 +29,7 @@ import styles from "./index.module.less";
 
 function ModelsPage() {
   const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { providers, activeModels, loading, error, fetchAll } = useProviders();
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -37,6 +39,18 @@ function ModelsPage() {
     useState<ProviderInfo | null>(null);
   const [modelsModalProvider, setModelsModalProvider] =
     useState<ProviderInfo | null>(null);
+
+  // Auto-open provider config modal from URL param
+  useEffect(() => {
+    const providerParam = searchParams.get("provider");
+    if (providerParam && providers.length > 0) {
+      const target = providers.find((p) => p.id === providerParam);
+      if (target) {
+        setConfigModalProvider(target);
+        setSearchParams({}, { replace: true });
+      }
+    }
+  }, [providers, searchParams, setSearchParams]);
 
   const refreshProvidersSilently = useCallback(() => {
     void fetchAll(false);
@@ -72,7 +86,7 @@ function ModelsPage() {
   // P1: Defer search filtering to avoid blocking input responsiveness
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
-  const { regularProviders, localProviders } = useMemo(() => {
+  const { freeProviders, paidProviders, localProviders } = useMemo(() => {
     const regular: ProviderInfo[] = [];
     const local: ProviderInfo[] = [];
     for (const p of providers) {
@@ -96,15 +110,26 @@ function ModelsPage() {
 
     regular.sort((a, b) => sortPriority(a) - sortPriority(b));
 
+    // Split into free and paid
+    const free: ProviderInfo[] = [];
+    const paid: ProviderInfo[] = [];
+    for (const p of regular) {
+      if (p.is_free_tier) free.push(p);
+      else paid.push(p);
+    }
+
     // Fuzzy search filter: match provider name (case-insensitive)
     const query = deferredSearchQuery.trim().toLowerCase();
     if (!query) {
-      return { regularProviders: regular, localProviders: local };
+      return {
+        freeProviders: free,
+        paidProviders: paid,
+        localProviders: local,
+      };
     }
     return {
-      regularProviders: regular.filter((p) =>
-        p.name.toLowerCase().includes(query),
-      ),
+      freeProviders: free.filter((p) => p.name.toLowerCase().includes(query)),
+      paidProviders: paid.filter((p) => p.name.toLowerCase().includes(query)),
       localProviders: local.filter((p) => p.name.toLowerCase().includes(query)),
     };
   }, [providers, deferredSearchQuery]);
@@ -158,6 +183,8 @@ function ModelsPage() {
                       className={styles.searchInput}
                       prefix={<SearchOutlined />}
                       allowClear
+                      autoComplete="nope"
+                      name="provider-search-nofill"
                     />
                     <Button
                       icon={<SyncOutlined />}
@@ -179,19 +206,30 @@ function ModelsPage() {
 
               {localProviders.length > 0 && (
                 <div className={styles.providerGroup}>
-                  {/* <h4 className={styles.providerGroupTitle}>
-                  {t("models.localEmbedded")}
-                </h4> */}
                   <div className={styles.providerCards}>
                     {renderProviderCards(localProviders)}
                   </div>
                 </div>
               )}
 
-              {regularProviders.length > 0 && (
+              {freeProviders.length > 0 && (
                 <div className={styles.providerGroup}>
+                  <h4 className={styles.providerGroupTitle}>
+                    {t("models.freeTierGroup")}
+                  </h4>
                   <div className={styles.providerCards}>
-                    {renderProviderCards(regularProviders)}
+                    {renderProviderCards(freeProviders)}
+                  </div>
+                </div>
+              )}
+
+              {paidProviders.length > 0 && (
+                <div className={styles.providerGroup}>
+                  <h4 className={styles.providerGroupTitle}>
+                    {t("models.paidGroup")}
+                  </h4>
+                  <div className={styles.providerCards}>
+                    {renderProviderCards(paidProviders)}
                   </div>
                 </div>
               )}

@@ -160,6 +160,9 @@
       "imageOnlyAccept": "Model saat ini hanya mendukung file gambar",
       "imageOnlyWarning": "Model saat ini hanya mendukung gambar, file non-gambar seperti video mungkin tidak diproses dengan benar"
     },
+    "rateLimitHit": "Model saat ini terkena batas laju. Coba beralih ke model gratis lainnya.",
+    "rateLimitMessage": "Batas laju tercapai. Beralih ke model gratis lain:",
+    "rateLimitSwitched": "Beralih ke {{model}}",
     "speech": {
       "startRecording": "Mulai rekaman suara (Ctrl+Shift+M)",
       "stopRecording": "Hentikan rekaman (Ctrl+Shift+M)",
@@ -193,7 +196,29 @@
   "modelSelector": {
     "selectModel": "Pilih model",
     "noConfiguredModels": "Tidak ada model yang dikonfigurasi",
-    "switchFailed": "Gagal mengganti model"
+    "noFreeModels": "Tidak ada model gratis tersedia",
+    "switchFailed": "Gagal mengganti model",
+    "searchModels": "Cari model...",
+    "noModelsFound": "Tidak ada model yang cocok",
+    "free": "Gratis",
+    "vision": "Visi",
+    "freeBannerText": "Model gratis mungkin memiliki batas penggunaan dan tidak stabil. Lihat penyedia untuk detail.",
+    "moreProviders": "Lebih banyak penyedia gratis (perlu API Key)",
+    "proBannerText": "Menampilkan model yang dikonfigurasi di Pengaturan.",
+    "connectToUse": "Hubungkan {{provider}} untuk model gratis",
+    "configureApiKey": "Konfigurasi API Key {{provider}} untuk model gratis",
+    "configureApiKeyTitle": "Buka Halaman Konfigurasi",
+    "configureApiKeyConfirm": "Anda akan diarahkan ke halaman Model untuk mengonfigurasi API Key {{provider}}. Lanjutkan?",
+    "goToConfigure": "Buka Konfigurasi",
+    "noModelsDiscovered": "Terhubung. Memuat model...",
+    "oauthTitle": "Hubungkan ke {{provider}}",
+    "oauthDescription": "Jendela browser baru akan terbuka untuk mengotorisasi akses ke {{provider}}. Kunci API akan disimpan secara otomatis.",
+    "oauthContinue": "Lanjutkan",
+    "oauthWaiting": "Menunggu otorisasi...",
+    "oauthWaitingDescription": "Silakan selesaikan otorisasi di jendela browser.",
+    "oauthConnected": "Berhasil terhubung ke {{provider}}",
+    "oauthFailed": "Otorisasi gagal, silakan coba lagi",
+    "viewMore": "Lihat lebih ({{count}})"
   },
   "agent": {
     "parent": "Pengaturan",

@@ -106,6 +106,48 @@
   }
 }
 
+/* ---- Tab bar ---- */
+.tabBar {
+  display: flex;
+  gap: 0;
+  padding: 0 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+}
+
+.tabButton {
+  flex: 1;
+  padding: 8px 0;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #999;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.15s;
+
+  &:hover {
+    color: #666;
+  }
+
+  &.tabButtonActive {
+    color: #ff7f16;
+
+    &::after {
+      content: "";
+      position: absolute;
+      bottom: 0;
+      left: 20%;
+      right: 20%;
+      height: 2px;
+      background: #ff7f16;
+      border-radius: 1px;
+    }
+  }
+}
+
 /* ---- List container ---- */
 .listContainer {
   overflow-y: auto;
@@ -131,12 +173,30 @@
   font-weight: 500;
   color: #999;
   letter-spacing: 0.5px;
+  cursor: pointer;
+  user-select: none;
+
+  &:hover {
+    color: #666;
+  }
 }
 
 .providerHeaderName {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+}
+
+.collapseIcon {
+  margin-left: auto;
+  font-size: 10px;
+  color: #bbb;
+  transition: color 0.2s;
+
+  .providerHeader:hover & {
+    color: #666;
+  }
 }
 
 /* ---- Model item ---- */
@@ -227,6 +287,129 @@
   text-align: center;
 }
 
+/* ---- Free section warning banner ---- */
+.freeBanner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 8px 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(250, 173, 20, 0.08);
+  border: 1px solid rgba(250, 173, 20, 0.2);
+  font-size: 12px;
+  color: #d48806;
+  line-height: 1.4;
+}
+
+.freeBannerIcon {
+  flex-shrink: 0;
+  color: #faad14;
+}
+
+/* ---- Pro section hint banner ---- */
+.proBanner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 8px 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.03);
+  font-size: 12px;
+  color: #8c8c8c;
+  line-height: 1.4;
+}
+
+/* ---- OAuth warning icon on model items ---- */
+.oauthWarningIcon {
+  flex-shrink: 0;
+  color: #faad14;
+}
+
+/* ---- More toggle ---- */
+.moreToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  margin: 4px 4px 0;
+  font-size: 12px;
+  color: #999;
+  cursor: pointer;
+  user-select: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+
+  &:hover {
+    color: #666;
+  }
+
+  :global(.anticon) {
+    font-size: 10px;
+  }
+}
+
+.moreContent {
+  animation: slideDown 0.2s ease-out;
+  overflow: hidden;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    max-height: 500px;
+    transform: translateY(0);
+  }
+}
+
+.viewMore {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.45));
+  padding: 6px 0;
+  cursor: pointer;
+  transition: color 0.2s;
+
+  &:hover {
+    color: var(--primary-color, #6366f1);
+  }
+}
+
+/* ---- OAuth connect entry ---- */
+.connectEntry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 8px 20px;
+  margin: 0 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #6366f1;
+  border-radius: 6px;
+  transition: background 0.12s;
+
+  &:hover {
+    background: rgba(99, 102, 241, 0.06);
+  }
+}
+
+.connectIcon {
+  flex-shrink: 0;
+  color: #6366f1;
+}
+
+.connectHint {
+  padding: 6px 20px;
+  font-size: 12px;
+  color: #bbb;
+}
+
 /* ─── Dark mode overrides ─────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .trigger {
@@ -277,8 +460,36 @@
     }
   }
 
+  .tabBar {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .tabButton {
+    color: rgba(255, 255, 255, 0.35);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    &.tabButtonActive {
+      color: #ff7f16;
+    }
+  }
+
   .providerHeader {
     color: rgba(255, 255, 255, 0.35);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.55);
+    }
+  }
+
+  .collapseIcon {
+    color: rgba(255, 255, 255, 0.2);
+
+    .providerHeader:hover & {
+      color: rgba(255, 255, 255, 0.45);
+    }
   }
 
   .modelItem {
@@ -317,5 +528,57 @@
 
   .checkIcon {
     color: #ff7f16;
+  }
+
+  .proBanner {
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .freeBanner {
+    background: rgba(250, 173, 20, 0.1);
+    border-color: rgba(250, 173, 20, 0.25);
+    color: #ffc53d;
+  }
+
+  .freeBannerIcon {
+    color: #ffc53d;
+  }
+
+  .oauthWarningIcon {
+    color: #ffc53d;
+  }
+
+  .moreToggle {
+    color: rgba(255, 255, 255, 0.35);
+    border-top-color: rgba(255, 255, 255, 0.08);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.55);
+    }
+  }
+
+  .connectEntry {
+    color: #818cf8;
+
+    &:hover {
+      background: rgba(99, 102, 241, 0.15);
+    }
+  }
+
+  .connectIcon {
+    color: #818cf8;
+  }
+
+  .connectHint {
+    color: rgba(255, 255, 255, 0.25);
+  }
+
+  .viewMore {
+    color: rgba(255, 255, 255, 0.35);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.65);
+    }
   }
 }

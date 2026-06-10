@@ -18,7 +18,9 @@ import json
 import logging
 from collections.abc import AsyncIterator
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("qwenpaw").getChild(
+    __name__.replace("plugin_cloudpaw.", ""),
+)
 
 _queue: asyncio.Queue | None = None
 

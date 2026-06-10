@@ -11,7 +11,9 @@ import json
 import logging
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("qwenpaw").getChild(
+    __name__.replace("plugin_cloudpaw.", ""),
+)
 
 _A2A_CONFIG_FILENAME = "a2a_config.json"
 
