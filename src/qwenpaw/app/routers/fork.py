@@ -198,10 +198,18 @@ async def _create_worktree(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    _, stderr = await asyncio.wait_for(
-        proc.communicate(),
-        timeout=60,
-    )
+    try:
+        _, stderr = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=60,
+        )
+    except asyncio.TimeoutError as exc:
+        proc.kill()
+        await proc.wait()
+        raise HTTPException(
+            status_code=500,
+            detail="git worktree add timed out (60s)",
+        ) from exc
     if proc.returncode != 0:
         detail = stderr.decode("utf-8", errors="replace").strip()
         raise HTTPException(
