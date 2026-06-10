@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import secrets
 import socket
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -60,13 +61,21 @@ def write_port_file(port_file: str | Path, port: int) -> None:
 def try_bind_port(host: str, port: int) -> socket.socket | None:
     """Try to bind and listen on *host*:*port*.
 
+    On Windows, uses ``SO_EXCLUSIVEADDRUSE`` so the probe fails if any
+    other process is already listening (Windows ``SO_REUSEADDR`` would
+    silently succeed, hiding the conflict).  On POSIX, uses
+    ``SO_REUSEADDR`` to allow rebinding ports in ``TIME_WAIT``.
+
     Returns the bound+listening socket on success, or ``None`` if the
     port is unavailable.  The caller is responsible for closing the
     socket (or passing it to a server that will).
     """
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if sys.platform == "win32":
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        else:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((host, port))
         sock.listen(1)
         return sock
