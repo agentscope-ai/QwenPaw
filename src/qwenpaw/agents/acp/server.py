@@ -903,9 +903,7 @@ class QwenPawACPAgent(Agent):
         usage was recorded.
         """
         try:
-            from ...token_usage.model_wrapper import (
-                TokenRecordingModelWrapper,
-            )
+            from ...token_usage import TokenRecordingModelWrapper
 
             raw = TokenRecordingModelWrapper.pop_usage_for_session(
                 session_id,

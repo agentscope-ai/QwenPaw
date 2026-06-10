@@ -45,7 +45,6 @@ from ..base import (
 )
 from ..utils import file_url_to_local_path
 
-
 logger = logging.getLogger(__name__)
 
 # ANSI colour helpers (degrade gracefully if not a tty)
@@ -318,18 +317,91 @@ class ConsoleChannel(BaseChannel):
                 )
         return media_message
 
-    def _extract_token_usage(
+    async def _emit_trailing_usage(
         self,
-        session_id: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
-        from ....token_usage import TokenRecordingModelWrapper
+        session_id: str,
+        language: Optional[str],
+    ) -> AsyncGenerator[str, None]:
+        """Emit post-turn usage as a HEARTBEAT message + a chat-note message.
 
-        if not session_id:
+        The runner's ``finally`` / cancel paths populate the per-session
+        usage entry before this generator runs. The chat library's response
+        builder explicitly skips heartbeat messages, so the badge fires via
+        ``responseParser`` without producing an extra UI card.
+        """
+        runner = getattr(self._workspace, "runner", None)
+        turn, ctx = (
+            runner.get_pending_usage_for_stream(session_id)
+            if runner is not None
+            else (None, None)
+        )
+        if turn is None and ctx is None:
+            return
+
+        if turn:
+            logger.info("Usage for session %s: %s", session_id, turn)
+            if ctx:
+                self._print_status_line(turn, ctx)
+
+        usage_meta: Dict[str, Any] = {"session_id": session_id}
+        if ctx:
+            usage_meta["context_usage"] = ctx
+        signal = Message(
+            type=MessageType.HEARTBEAT,
+            status=RunStatus.Completed,
+            role="assistant",
+            content=[],
+            usage=turn,
+            metadata=usage_meta,
+        )
+        yield f"data: {signal.model_dump_json()}\n\n"
+
+        note = self._usage_stats_chat_message(turn, ctx, language)
+        if note is not None:
+            yield f"data: {note.model_dump_json()}\n\n"
+
+    def _print_status_line(
+        self,
+        turn: Dict[str, Any],
+        ctx: Dict[str, Any],
+    ) -> None:
+        """Print a one-line terminal summary of turn + context usage."""
+        from ....token_usage import fmt_tokens
+
+        pt = turn.get("prompt_tokens", 0)
+        ct = turn.get("completion_tokens", 0)
+        tt = turn.get("total_tokens", 0)
+        est = int(ctx.get("estimated_tokens", 0) or 0)
+        mx = int(ctx.get("max_input_length", 0) or 0)
+        ratio = ctx.get("context_usage_ratio", 0) or 0
+        turn_line = (
+            f"{_GREEN}Turn {_BOLD}{fmt_tokens(tt)}{_RESET} "
+            f"(in {fmt_tokens(pt)} · out {fmt_tokens(ct)})"
+        )
+        ctx_line = (
+            f" · Context {_BOLD}{fmt_tokens(est)}{_RESET} / "
+            f"{fmt_tokens(mx)} ({ratio:.1f}%)"
+        )
+        self._safe_print(f"📝 {turn_line}{ctx_line}")
+
+    @staticmethod
+    def _usage_stats_chat_message(
+        turn: Optional[Dict[str, Any]],
+        ctx: Optional[Dict[str, Any]],
+        language: Optional[str] = None,
+    ) -> Optional[Message]:
+        from ....token_usage import format_usage_chat_note
+
+        body = format_usage_chat_note(turn, ctx, language)
+        if not body:
             return None
-
-        usage = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
-        logger.info("Usage for session %s (cleaned up): %s", session_id, usage)
-        return usage
+        msg = Message(
+            type=MessageType.MESSAGE,
+            role="assistant",
+            content=[TextContent(type=ContentType.TEXT, text=body)],
+        )
+        completed = getattr(msg, "completed", None)
+        return completed() if callable(completed) else msg
 
     async def stream_one(self, payload: Any) -> AsyncGenerator[str, None]:
         """Process one payload and yield SSE-formatted events"""
@@ -365,6 +437,7 @@ class ConsoleChannel(BaseChannel):
         try:
             send_meta = getattr(request, "channel_meta", None) or {}
             send_meta.setdefault("bot_prefix", self.bot_prefix)
+            language = send_meta.get("language")
             last_response = None
             event_count = 0
 
@@ -392,11 +465,6 @@ class ConsoleChannel(BaseChannel):
                         for message in event_output:
                             event.output.append(message)
 
-                if obj == "response":
-                    usage_data = self._extract_token_usage(session_id)
-                    if usage_data and hasattr(event, "usage"):
-                        setattr(event, "usage", usage_data)
-
                 data = self._serialize_event_for_sse(event)
                 yield f"data: {data}\n\n"
 
@@ -406,6 +474,15 @@ class ConsoleChannel(BaseChannel):
 
                 elif obj == "response":
                     last_response = event
+
+            # Stream completed normally — runner's ``finally`` has populated
+            # the per-session usage entry. Emit usage as a HEARTBEAT message
+            # the chat library skips, plus a chat-note message that renders.
+            async for sse in self._emit_trailing_usage(
+                session_id,
+                language,
+            ):
+                yield sse
 
             logger.info(
                 "console stream done: event_count=%s has_response=%s",

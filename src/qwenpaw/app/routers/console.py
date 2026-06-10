@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Console APIs: push messages, chat, and file upload for chat."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +9,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import AsyncGenerator, Union
+from typing import Any, AsyncGenerator, Optional, Union
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
@@ -19,7 +20,6 @@ from ...utils.logging import LOG_FILE_PATH
 from ..agent_context import get_agent_for_request
 from ..runner.title_generator import generate_and_update_title
 from ..utils import check_upload_size
-
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,32 @@ class MarkInboxReadRequest(BaseModel):
 
 
 MAX_DEBUG_LOG_LINES = 1000
+
+
+def _usage_snapshot_after_console_stop(
+    workspace: Any,
+    *,
+    session_id: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Read the turn + context usage produced by the cancelled run.
+
+    The runner populates its per-session usage entry from both the cancel
+    path and ``finally``, and the stop endpoint waits for the producer to
+    finish via ``await_producer_cleanup`` before calling this — so by the
+    time we read, the snapshot is final. Falls back to the wrapper's peek
+    for the (rare) case where the runner never reached the finalize block.
+    """
+    from ...token_usage import TokenRecordingModelWrapper
+
+    runner = getattr(workspace, "runner", None)
+    turn, ctx = (
+        runner.get_pending_usage_for_stream(session_id)
+        if runner is not None
+        else (None, None)
+    )
+    if turn is None:
+        turn = TokenRecordingModelWrapper.peek_usage_for_session(session_id)
+    return (dict(turn) if turn else None, dict(ctx) if ctx else None)
 
 
 def _safe_filename(name: str) -> str:
@@ -69,7 +95,44 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
     return first_text[:10], first_text
 
 
-def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
+# Languages supported by ``format_usage_chat_note`` (token_usage/manager.py).
+_SUPPORTED_LANGS = frozenset({"zh", "ja", "ru", "pt", "en"})
+
+
+def _normalize_language(raw: Any) -> str:
+    """2-letter prefix when supported, else "en"."""
+    if not isinstance(raw, str) or not raw:
+        return "en"
+    prefix = raw.strip().lower()[:2]
+    return prefix if prefix in _SUPPORTED_LANGS else "en"
+
+
+def _console_request_ui_language(
+    request_data: Union[AgentRequest, dict],
+    *,
+    accept_language: str | None = None,
+) -> str:
+    """Locale for usage stats: body ``language`` > Accept-Language > en."""
+    if isinstance(request_data, dict):
+        raw = request_data.get("language") or request_data.get("locale")
+    else:
+        raw = getattr(request_data, "language", None) or getattr(
+            request_data,
+            "locale",
+            None,
+        )
+    if raw:
+        return _normalize_language(raw)
+    if accept_language:
+        return _normalize_language(accept_language.split(",", 1)[0])
+    return "en"
+
+
+def _extract_session_and_payload(
+    request_data: Union[AgentRequest, dict],
+    *,
+    accept_language: str | None = None,
+):
     """Extract run_key (ChatSpec.id), session_id, and native payload.
 
     run_key must be ChatSpec.id (chat_id) so it matches list_chats/get_chat.
@@ -100,6 +163,10 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
         "meta": {
             "session_id": session_id,
             "user_id": sender_id,
+            "language": _console_request_ui_language(
+                request_data,
+                accept_language=accept_language,
+            ),
         },
     }
     return native_payload
@@ -154,7 +221,10 @@ async def post_console_chat(
             detail="Channel Console not found",
         )
     try:
-        native_payload = _extract_session_and_payload(request_data)
+        native_payload = _extract_session_and_payload(
+            request_data,
+            accept_language=request.headers.get("accept-language"),
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     session_id = console_channel.resolve_session_id(
@@ -232,45 +302,71 @@ async def post_console_chat(
 async def post_console_chat_stop(
     request: Request,
     chat_id: str = Query(..., description="Chat id (ChatSpec.id) to stop"),
+    language: Optional[str] = Query(
+        None,
+        description="Usage-note language; falls back to Accept-Language / en.",
+    ),
 ) -> dict:
     """Stop the running chat. Only stops when called."""
-    logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
     workspace = await get_agent_for_request(request)
-
-    # Try to stop with the provided chat_id first
-    logger.debug(
-        "[STOP API] Got workspace, calling task_tracker.request_stop...",
+    resolved_language = _console_request_ui_language(
+        {"language": language} if language else {},
+        accept_language=request.headers.get("accept-language"),
     )
+
+    chat_manager = getattr(workspace.runner, "chat_manager", None)
+    spec = await chat_manager.get_chat(chat_id) if chat_manager else None
+    session_for_usage = spec.session_id if spec else ""
+
     stopped = await workspace.task_tracker.request_stop(chat_id)
+    stop_run_key = chat_id
 
-    # If not found, the chat_id might be a session_id (timestamp)
-    # Try to resolve it to the actual chat UUID
-    if not stopped:
-        logger.debug(
-            "[STOP API] chat_id not found in tracker, trying to resolve "
-            "from session_id...",
+    # If the id is a session_id (timestamp), resolve it to the chat UUID.
+    if not stopped and chat_manager:
+        resolved_chat_id = await chat_manager.get_chat_id_by_session(
+            session_id=chat_id,
+            channel="console",
         )
-        chat_manager = getattr(workspace.runner, "_chat_manager", None)
-        if chat_manager:
-            resolved_chat_id = await chat_manager.get_chat_id_by_session(
-                session_id=chat_id,
-                channel="console",
+        if resolved_chat_id:
+            stopped = await workspace.task_tracker.request_stop(
+                resolved_chat_id,
             )
-            if resolved_chat_id:
-                logger.debug(
-                    "[STOP API] Resolved session_id=%s to chat_id=%s",
-                    chat_id[:12] if len(chat_id) >= 12 else chat_id,
-                    resolved_chat_id,
-                )
-                stopped = await workspace.task_tracker.request_stop(
-                    resolved_chat_id,
-                )
+            stop_run_key = resolved_chat_id
+            if not session_for_usage:
+                resolved_spec = await chat_manager.get_chat(resolved_chat_id)
+                if resolved_spec:
+                    session_for_usage = resolved_spec.session_id
 
-    logger.debug(
-        "[STOP API] task_tracker.request_stop returned: stopped=%s",
-        stopped,
-    )
-    return {"stopped": stopped}
+    # Let producer + runner ``finally`` finish so usage/context snapshots exist
+    # before we read them (especially on 2nd+ turns when teardown is slower).
+    await workspace.task_tracker.await_producer_cleanup(stop_run_key)
+
+    # Even when stopped=False, the run may have just finished/cancelled before
+    # this API checks the tracker — still emit a best-effort usage snapshot.
+    # When chat_manager can't resolve, fall back to the original chat_id.
+    usage_out: dict[str, Any] | None = None
+    ctx_out: dict[str, Any] | None = None
+    usage_note: str | None = None
+    usage_session = session_for_usage or chat_id
+    if usage_session:
+        usage_out, ctx_out = _usage_snapshot_after_console_stop(
+            workspace,
+            session_id=usage_session,
+        )
+        if usage_out is not None or ctx_out is not None:
+            from ...token_usage import format_usage_chat_note
+
+            usage_note = format_usage_chat_note(
+                usage_out,
+                ctx_out,
+                resolved_language,
+            )
+    return {
+        "stopped": stopped,
+        "usage": usage_out,
+        "context_usage": ctx_out,
+        "usage_note": usage_note,
+    }
 
 
 @router.post("/upload", response_model=dict, summary="Upload file for chat")

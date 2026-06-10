@@ -23,6 +23,7 @@ import { useTranslation } from "react-i18next";
 import type { ChatStatus } from "../../../../api/types/chat";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
+import { sessionKeyMatches } from "../../utils";
 import { useCodingMode } from "../../../../stores/codingModeStore";
 import ChatSessionItem from "../ChatSessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
@@ -280,53 +281,37 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
   const handleSessionClick = useCallback(
     (sessionId: string) => {
-      // Block clicks while a switch is in progress.
       if (sessionApi.isSessionSwitching) return;
-      if (sessionId === currentSessionId) return;
 
-      // Lock immediately (synchronous) before any async work.
+      const clickedEntry = sessions.find((s) => s.id === sessionId) as
+        | ExtendedChatSession
+        | undefined;
+      const isSameSession =
+        sessionId === currentSessionId ||
+        (!!currentSessionId &&
+          !!clickedEntry &&
+          sessionKeyMatches(clickedEntry, currentSessionId));
+      if (isSameSession) return;
+
       sessionApi.isSessionSwitching = true;
+      sessionApi.clearLastSelectedIds();
       setSwitchingSessionId(sessionId);
 
-      // 1) Pre-load session data (network request happens here).
-      // 2) Navigate to the correct URL (using realId if available).
-      // 3) Only THEN set currentSessionId so the library's useAsyncEffect
-      //    hits the result cache instead of making another request.
-      // 4) Keep lock held until the next React render cycle completes.
       sessionApi
         .preloadSession(sessionId)
-        .then(({ realId }) => {
-          // Issue #4987: In coding mode, skip URL navigation to /chat/<id>.
-          // The redirect effect in ChatPage would immediately navigate back
-          // to /coding before session data loads, causing the switch to fail.
-          // Instead, just set the session directly — the UI stays on /coding.
+        .then(({ session, realId }) => {
+          const targetId = realId || session.id || sessionId;
+          // URL is the single entry point; ChatSessionInitializer applies SDK state.
           if (!codingMode) {
-            const targetUrl = `/chat/${realId || sessionId}`;
-            sessionApi.lastNavigatedChatId = realId || sessionId;
-            navigate(targetUrl, { replace: true });
+            navigate(`/chat/${targetId}`, { replace: true });
           }
-          // Now set currentSessionId — the library's getSession will hit cache.
-          setCurrentSessionId(sessionId);
-        })
-        .catch(() => {
-          // On error, still try to switch normally.
-          setCurrentSessionId(sessionId);
-        })
-        .then(() => {
-          // Wait two animation frames so React commits + runs effects,
-          // ensuring ChatSessionInitializer's effect has been skipped.
-          return new Promise<void>((resolve) => {
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => resolve());
-            });
-          });
         })
         .finally(() => {
           sessionApi.finishSessionSwitch();
           setSwitchingSessionId(null);
         });
     },
-    [currentSessionId, setCurrentSessionId, navigate, codingMode],
+    [sessions, currentSessionId, navigate, codingMode],
   );
 
   /** Delete a session: call deleteChat API then refresh the list */
@@ -503,29 +488,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     ],
   );
 
-  return (
-    <Drawer
-      open={props.open}
-      onClose={props.pinned ? undefined : props.onClose}
-      destroyOnHidden={!props.pinned}
-      placement="right"
-      width={360}
-      closable={false}
-      title={null}
-      mask={!props.pinned}
-      styles={{
-        header: { display: "none" },
-        body: {
-          padding: 0,
-          display: "flex",
-          flexDirection: "column",
-          height: "100%",
-          overflow: "hidden",
-        },
-        mask: { background: "transparent" },
-      }}
-      className={styles.drawer}
-    >
+  const panelContent = (
+    <>
       {/* Header bar */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
@@ -607,6 +571,33 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         items={contextMenuItems}
         onClose={sharedContextMenu.hide}
       />
+    </>
+  );
+
+  return (
+    <Drawer
+      open={props.open}
+      onClose={props.pinned ? undefined : props.onClose}
+      destroyOnHidden={!props.pinned}
+      placement="right"
+      width={360}
+      closable={false}
+      title={null}
+      mask={!props.pinned}
+      styles={{
+        header: { display: "none" },
+        body: {
+          padding: 0,
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          overflow: "hidden",
+        },
+        mask: { background: "transparent" },
+      }}
+      className={styles.drawer}
+    >
+      {panelContent}
     </Drawer>
   );
 };

@@ -215,6 +215,134 @@ export function toDisplayUrl(url: string | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
+// Session key matching
+// ---------------------------------------------------------------------------
+
+/** Match a runner session_id against a key (UUID/timestamp).
+ *  Accepts an exact match or `key` appearing as a whole `_`-delimited segment
+ *  (the `<name>_<timestamp>` shape). Deliberately avoids arbitrary substring
+ *  containment, which could mis-route one session to another's backend id.
+ */
+export function sessionIdMatchesKey(
+  sessionId: string | undefined,
+  key: string,
+): boolean {
+  if (!key) return false;
+  const sid = sessionId || "";
+  return (
+    sid === key ||
+    sid.endsWith(`_${key}`) ||
+    sid.startsWith(`${key}_`) ||
+    sid.includes(`_${key}_`)
+  );
+}
+
+/** Match a session list row by display id, backend UUID, or runner session_id. */
+export function sessionKeyMatches(
+  entry: { id?: string; realId?: string; sessionId?: string },
+  key: string,
+): boolean {
+  if (!key) return false;
+  if (entry.id === key || entry.realId === key) return true;
+  return sessionIdMatchesKey(entry.sessionId, key);
+}
+
+/** Build the inline response-card output item that carries a usage note.
+ *  Shared by the live stop path (Chat page) and the reload path (sessionApi).
+ */
+export const USAGE_NOTE_META_KEY = "qwenpaw_usage_note";
+
+/** Matches the prefix produced by ``format_usage_chat_note`` on the backend. */
+function isUsageNoteMarkdown(text: string): boolean {
+  return text.trimStart().startsWith("📊 **");
+}
+
+export function buildUsageNoteOutputItem(
+  note: string,
+): Record<string, unknown> {
+  return {
+    id: `stop-usage-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+    type: "message",
+    role: "assistant",
+    content: [{ type: "text", text: note, status: "completed" }],
+    status: "completed",
+    metadata: { [USAGE_NOTE_META_KEY]: true },
+  };
+}
+
+const RESPONSE_CARD = "AgentScopeRuntimeResponseCard";
+
+function getResponseCardData(
+  cards: unknown,
+): Record<string, unknown> | null {
+  if (!Array.isArray(cards)) return null;
+  const card = cards.find(
+    (c) => (c as { code?: string })?.code === RESPONSE_CARD,
+  ) as { data?: Record<string, unknown> } | undefined;
+  return card?.data ?? null;
+}
+
+function outputItemHasUsageNote(item: Record<string, unknown>): boolean {
+  const meta = item?.metadata;
+  if (meta && typeof meta === "object" && !Array.isArray(meta)) {
+    if ((meta as Record<string, unknown>)[USAGE_NOTE_META_KEY]) return true;
+  }
+  const content = item?.content;
+  if (typeof content === "string") return isUsageNoteMarkdown(content);
+  if (Array.isArray(content)) {
+    return content.some(
+      (c: Record<string, unknown>) =>
+        typeof c?.text === "string" && isUsageNoteMarkdown(c.text),
+    );
+  }
+  return false;
+}
+
+/** Check if a message already contains a usage note in its response cards. */
+export function messageHasUsageNote(msg: {
+  cards?: Array<{ code?: string; data?: Record<string, unknown> }>;
+}): boolean {
+  return (
+    msg.cards?.some((card) => {
+      if (card?.code !== RESPONSE_CARD) return false;
+      const output = card?.data?.output;
+      if (!Array.isArray(output)) return false;
+      return output.some((item: Record<string, unknown>) =>
+        outputItemHasUsageNote(item),
+      );
+    }) ?? false
+  );
+}
+
+export function appendUsageNoteToResponseCard(
+  data: Record<string, unknown>,
+  note: string,
+): void {
+  if (!Array.isArray(data.output)) data.output = [];
+  (data.output as Array<Record<string, unknown>>).push(
+    buildUsageNoteOutputItem(note),
+  );
+}
+
+/** Patch the last assistant message in-place; returns true if note is present. */
+export function patchLastAssistantUsageNote(
+  messages: Array<{ role?: string; cards?: unknown }>,
+  note: string,
+): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== "assistant" || !msg.cards) continue;
+    if (messageHasUsageNote(msg as Parameters<typeof messageHasUsageNote>[0]))
+      return true;
+    const data = getResponseCardData(msg.cards);
+    if (!data) continue;
+    appendUsageNoteToResponseCard(data, note);
+    return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // DOM utilities
 // ---------------------------------------------------------------------------
 

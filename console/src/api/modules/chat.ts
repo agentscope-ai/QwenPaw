@@ -18,6 +18,14 @@ export interface ChatUploadResponse {
 
 const FILES_PREVIEW = "/files/preview";
 
+/** Response from POST /console/chat/stop. */
+export interface ConsoleChatStopResponse {
+  stopped: boolean;
+  usage?: unknown;
+  context_usage?: unknown;
+  usage_note?: string;
+}
+
 export const chatApi = {
   /** Upload a file for chat attachment. Returns URL path for content. */
   uploadFile: async (file: File): Promise<ChatUploadResponse> => {
@@ -91,10 +99,16 @@ export const chatApi = {
       },
     ),
 
-  stopChat: (chatId: string) =>
-    request<void>(`/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`, {
-      method: "POST",
-    }),
+  stopChat: (chatId: string, language?: string) => {
+    const params = new URLSearchParams({ chat_id: chatId });
+    if (language) params.set("language", language);
+    return request<ConsoleChatStopResponse>(
+      `/console/chat/stop?${params.toString()}`,
+      {
+        method: "POST",
+      },
+    );
+  },
 };
 
 export const sessionApi = {

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import sessionApi from "../../sessionApi";
+import { sessionKeyMatches } from "../../utils";
 
 /**
  * URL chatId → context currentSessionId (one direction of bidirectional sync).
@@ -33,6 +34,16 @@ const ChatSessionInitializer: React.FC = () => {
   const lastAppliedChatIdRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
+    if (sessionApi.pendingNewSessionId) {
+      const newId = sessionApi.pendingNewSessionId;
+      sessionApi.pendingNewSessionId = null;
+      lastAppliedChatIdRef.current = undefined;
+      if (currentSessionIdRef.current !== newId) {
+        setCurrentSessionId(newId);
+      }
+      return;
+    }
+
     if (!chatId || !sessions.length) return;
 
     // Issue #4557: Do NOT trigger setCurrentSessionId while a user-initiated
@@ -58,7 +69,12 @@ const ChatSessionInitializer: React.FC = () => {
       return;
     }
 
-    const matching = sessions.find((s) => s.id === chatId);
+    const matching = sessions.find((s) =>
+      sessionKeyMatches(
+        s as { id?: string; realId?: string; sessionId?: string },
+        chatId,
+      ),
+    );
     if (matching && currentSessionIdRef.current !== matching.id) {
       lastAppliedChatIdRef.current = chatId;
       setCurrentSessionId(matching.id);

@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import sys
+from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Coroutine
 
@@ -40,10 +41,21 @@ from ...agents.utils.file_handling import (
 )
 from ...config.config import load_agent_config
 from ...constant import WORKING_DIR
+from ...token_usage import (
+    USAGE_NOTE_META_KEY,
+    TokenRecordingModelWrapper,
+    format_usage_chat_note,
+    snapshot_context_usage_for_agent,
+)
 
 if TYPE_CHECKING:
     from ...agents.memory import BaseMemoryManager
     from ...agents.context import BaseContextManager
+
+    _PendingUsageMap = OrderedDict[
+        str,
+        tuple[dict[str, Any] | None, dict[str, Any] | None],
+    ]
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +118,47 @@ async def _stream_printing_messages_interruptible(
         await _cancel_streaming_agent_task(task)
 
 
+def _reconcile_turn_with_context(
+    turn: dict[str, Any] | None,
+    ctx: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Fill turn usage from the context snapshot when the provider lies.
+
+    Covers two cases for the per-turn *display only* (global billing in
+    :mod:`manager` still trusts provider numbers):
+
+    * No turn usage at all → synthesise from ``estimated_tokens``.
+    * Interrupted OpenAI/vLLM streams that report ``completion_tokens<=1``
+      while memory has the full assistant text → prefer the local text
+      estimate. The ``<=1`` threshold is narrow on purpose: a legitimate
+      streaming reply can't be that short.
+    """
+    if ctx is None:
+        return turn
+    latest_out = int(ctx.get("latest_assistant_tokens", 0) or 0)
+    ctx_est = int(ctx.get("estimated_tokens", 0) or 0)
+    if turn is None and ctx_est > 0:
+        return {
+            "provider_id": "",
+            "model_name": "",
+            "prompt_tokens": max(ctx_est - latest_out, 0),
+            "completion_tokens": latest_out,
+            "total_tokens": ctx_est,
+            "estimated": True,
+        }
+    if turn is not None and latest_out > 0:
+        actual_out = int(turn.get("completion_tokens", 0) or 0)
+        if actual_out <= 1 and latest_out > actual_out:
+            prompt_tokens = int(turn.get("prompt_tokens", 0) or 0)
+            return {
+                **turn,
+                "completion_tokens": latest_out,
+                "total_tokens": prompt_tokens + latest_out,
+                "estimated": True,
+            }
+    return turn
+
+
 class AgentRunner(Runner):
     def __init__(
         self,
@@ -125,6 +178,12 @@ class AgentRunner(Runner):
         self.memory_manager: BaseMemoryManager | None = None
         self.context_manager: BaseContextManager | None = None
         self._task_tracker = task_tracker  # Task tracker for background tasks
+        # Per-session (turn_usage, ctx_usage) snapshot for the console SSE
+        # / stop API. Keyed by session_id so concurrent runs on this shared
+        # runner don't clobber each other; OrderedDict for LRU eviction.
+        self._pending_usage_by_session: _PendingUsageMap = OrderedDict()
+        # Sessions whose turn-usage finalize (memory note + save) already ran.
+        self._usage_finalized_sessions: set[str] = set()
         self._agent_name: str | None = None
 
     @property
@@ -141,6 +200,48 @@ class AgentRunner(Runner):
     def invalidate_agent_name_cache(self) -> None:
         """Clear cached agent_name so next access re-reads config."""
         self._agent_name = None
+
+    # LRU cap; only the least-recently-used slot is dropped, never the
+    # whole map, so concurrent in-flight turns are safe.
+    _PENDING_USAGE_MAX_SESSIONS = 128
+
+    def _reset_pending_usage(self, session_id: str) -> None:
+        """Clear the pending usage slot for *session_id* at turn start."""
+        if not session_id:
+            return
+        store = self._pending_usage_by_session
+        store[session_id] = (None, None)
+        store.move_to_end(session_id)
+        self._usage_finalized_sessions.discard(session_id)
+        while len(store) > self._PENDING_USAGE_MAX_SESSIONS:
+            store.popitem(last=False)
+
+    def get_pending_usage_for_stream(
+        self,
+        session_id: str,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """Return the last (turn, context) usage snapshot for *session_id*."""
+        store = self._pending_usage_by_session
+        value = store.get(session_id) if session_id else None
+        if value is None:
+            return (None, None)
+        store.move_to_end(session_id)  # touch-on-read for LRU
+        return value
+
+    def _set_pending_usage_for_stream(
+        self,
+        session_id: str,
+        value: tuple[dict[str, Any] | None, dict[str, Any] | None],
+    ) -> None:
+        if not session_id:
+            return
+        self._pending_usage_by_session[session_id] = value
+        self._pending_usage_by_session.move_to_end(session_id)
+
+    @property
+    def chat_manager(self) -> Any:
+        """Public accessor for the ChatManager (set via set_chat_manager)."""
+        return self._chat_manager
 
     def set_chat_manager(self, chat_manager):
         """Set chat manager for auto-registration.
@@ -403,17 +504,16 @@ class AgentRunner(Runner):
 
         set_current_agent_id(self.agent_id)
 
-        # Set session_id in context for token usage tracking
-        set_current_session_id(session_id)
-
         agent = None
         chat = None
         session_state_loaded = False
+        self._reset_pending_usage(session_id)
         _cron_memory_snapshot = None
         try:
             session_id = request.session_id
             user_id = request.user_id
             channel = getattr(request, "channel", DEFAULT_CHANNEL)
+            set_current_session_id(session_id)
             set_current_user_id(user_id)
             set_current_channel(channel)
 
@@ -932,13 +1032,30 @@ class AgentRunner(Runner):
                 logger.info(
                     "Auto-denied %d pending approval(s) for root session %s",
                     cancelled_count,
-                    root_session_id[:8]
-                    if len(root_session_id) >= 8
-                    else root_session_id,
+                    (
+                        root_session_id[:8]
+                        if len(root_session_id) >= 8
+                        else root_session_id
+                    ),
                 )
 
             if agent is not None:
                 await agent.interrupt()
+                # Snapshot usage now: we've caught CancelledError so awaits
+                # work normally here, but in ``finally`` they may re-raise
+                # CancelledError before we get a chance to populate the
+                # per-session usage entry for the stop API. Swallow any stray
+                # cancellation here so the AgentException below is what
+                # propagates.
+                await self._finalize_turn_usage(
+                    agent=agent,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    request=request,
+                    session_state_loaded=session_state_loaded,
+                    reraise_cancel=False,
+                )
             raise AgentException("Task has been cancelled!") from exc
         except AppBaseException:
             raise
@@ -977,7 +1094,7 @@ class AgentRunner(Runner):
                     ) + converted.args[1:]
             raise converted from e
         finally:
-            if agent is not None and session_state_loaded:
+            if agent is not None:
                 # For isolated cron: restore the full history (snapshot) plus
                 # the new messages produced by this execution
                 if (
@@ -996,15 +1113,105 @@ class AgentRunner(Runner):
                         session_id,
                     )
 
-                await self.session.save_session_state(
+                # Idempotent: re-run only when the cancel path didn't snapshot.
+                await self._finalize_turn_usage(
+                    agent=agent,
                     session_id=session_id,
                     user_id=user_id,
                     channel=channel,
-                    agent=agent,
+                    request=request,
+                    session_state_loaded=session_state_loaded,
                 )
 
             if self._chat_manager is not None and chat is not None:
                 await self._chat_manager.touch_chat(chat.id)
+
+    async def _finalize_turn_usage(
+        self,
+        *,
+        agent: Any,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        request: Any,
+        session_state_loaded: bool,
+        reraise_cancel: bool = True,
+    ) -> None:
+        """Snapshot turn + context usage and persist the chat note.
+
+        Called from both the cancel path and ``finally``. Idempotent via
+        ``_usage_finalized_sessions``: a session is marked finalized only
+        after the usage note is successfully written to ``agent.memory``
+        (or when there is no note body). If ``memory.add`` fails or is
+        cancelled, ``finally`` may retry. The note is tagged with
+        ``USAGE_NOTE_META_KEY`` so ``AgentContext.get_memory`` strips it
+        from the model prompt.
+        """
+        if session_id in self._usage_finalized_sessions:
+            return
+
+        prev_turn, _ = self.get_pending_usage_for_stream(session_id)
+
+        channel_meta = getattr(request, "channel_meta", None) or {}
+        language = channel_meta.get("language") or "en"
+
+        # Pop synchronously so cancellation can't lose the turn count.
+        turn = prev_turn
+        if turn is None:
+            turn = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
+            self._set_pending_usage_for_stream(session_id, (turn, None))
+
+        ctx: dict[str, Any] | None = None
+        try:
+            ctx = await snapshot_context_usage_for_agent(agent, self.agent_id)
+        except asyncio.CancelledError:
+            if reraise_cancel:
+                raise
+            logger.debug("ctx snapshot cancelled", exc_info=True)
+        except Exception:
+            logger.debug("ctx snapshot skipped", exc_info=True)
+
+        turn = _reconcile_turn_with_context(turn, ctx)
+        self._set_pending_usage_for_stream(session_id, (turn, ctx))
+
+        if not session_state_loaded:
+            return
+
+        body = format_usage_chat_note(turn, ctx, language)
+        memory_note_persisted = not body
+        if body:
+            try:
+                await agent.memory.add(
+                    Msg(
+                        name="assistant",
+                        role="assistant",
+                        content=[TextBlock(type="text", text=body)],
+                        metadata={USAGE_NOTE_META_KEY: True},
+                    ),
+                )
+                memory_note_persisted = True
+            except asyncio.CancelledError:
+                if reraise_cancel:
+                    raise
+                logger.debug("memory.add usage note cancelled", exc_info=True)
+            except Exception:
+                logger.debug("memory.add usage note skipped", exc_info=True)
+        try:
+            await self.session.save_session_state(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+                agent=agent,
+            )
+        except asyncio.CancelledError:
+            if reraise_cancel:
+                raise
+            logger.debug("save_session_state cancelled", exc_info=True)
+        except Exception:
+            logger.debug("save_session_state skipped", exc_info=True)
+
+        if memory_note_persisted:
+            self._usage_finalized_sessions.add(session_id)
 
     async def init_handler(self, *args, **kwargs):
         """

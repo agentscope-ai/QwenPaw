@@ -29,6 +29,8 @@ const {
   mockDeleteChat,
   mockUpdateChat,
   mockGetSessionList,
+  mockNavigate,
+  mockPreloadSession,
 } = vi.hoisted(() => ({
   mockCreateSession: vi.fn().mockResolvedValue(undefined),
   mockSetCurrentSessionId: vi.fn(),
@@ -36,6 +38,12 @@ const {
   mockDeleteChat: vi.fn().mockResolvedValue(undefined),
   mockUpdateChat: vi.fn().mockResolvedValue(undefined),
   mockGetSessionList: vi.fn().mockResolvedValue([]),
+  mockNavigate: vi.fn(),
+  mockPreloadSession: vi
+    .fn()
+    .mockImplementation((sessionId: string) =>
+      Promise.resolve({ session: { id: sessionId }, realId: null }),
+    ),
 }));
 
 vi.mock("@agentscope-ai/chat", () => ({
@@ -65,15 +73,16 @@ vi.mock("../../sessionApi", () => ({
   default: {
     getSessionList: mockGetSessionList,
     isSessionSwitching: false,
-    preloadSession: vi.fn().mockResolvedValue({ session: {}, realId: null }),
+    preloadSession: mockPreloadSession,
     finishSessionSwitch: vi.fn(),
+    clearLastSelectedIds: vi.fn(),
     lastNavigatedChatId: null,
   },
 }));
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
-  return { ...actual, useNavigate: () => vi.fn() };
+  return { ...actual, useNavigate: () => mockNavigate };
 });
 
 vi.mock("react-i18next", () => ({
@@ -213,7 +222,7 @@ describe("ChatSessionDrawer", () => {
     );
   });
 
-  it("clicking a session item calls setCurrentSessionId", async () => {
+  it("clicking a session item preloads and navigates", async () => {
     withSession();
     const user = userEvent.setup();
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
@@ -221,7 +230,9 @@ describe("ChatSessionDrawer", () => {
       expect(screen.getByText("Session One")).toBeInTheDocument(),
     );
     await user.click(screen.getByText("Session One"));
-    expect(mockSetCurrentSessionId).toHaveBeenCalledWith("s1");
+    await waitFor(() => expect(mockPreloadSession).toHaveBeenCalledWith("s1"));
+    expect(mockNavigate).toHaveBeenCalledWith("/chat/s1", { replace: true });
+    expect(mockSetCurrentSessionId).not.toHaveBeenCalled();
   });
 
   it("clicking the close button calls onClose", async () => {

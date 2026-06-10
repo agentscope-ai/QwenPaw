@@ -24,7 +24,10 @@ import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import { useCodingMode } from "../../stores/codingModeStore";
-import { useChatAnywhereInput } from "@agentscope-ai/chat";
+import {
+  useChatAnywhereInput,
+  useChatAnywhereSessionsState,
+} from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
@@ -34,6 +37,8 @@ import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { planApi } from "../../api/modules/plan";
+import TokenUsageBadge from "./components/TokenUsageBadge";
+import { useTokenUsageSnapshot } from "./useTokenUsageSnapshot";
 import {
   useChatScalarSnapshot,
   useChatListSnapshot,
@@ -710,6 +715,32 @@ export default function ChatPage() {
     const match = location.pathname.match(/^\/chat\/(.+)$/);
     return match?.[1];
   }, [location.pathname]);
+
+  const isChatActiveRef = useRef(false);
+  isChatActiveRef.current =
+    location.pathname === "/" || location.pathname.startsWith("/chat");
+  const isChatActive = useCallback(() => isChatActiveRef.current, []);
+
+  const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+  const chatIdRef = useRef(chatId);
+  chatIdRef.current = chatId;
+  const { sessions } = useChatAnywhereSessionsState();
+  const {
+    tokenSnapshot,
+    applyUsageFromStreamChunk,
+    handleStopChat,
+    reloadTokenSnapshot,
+    onRealIdResolved,
+    clearBadge,
+  } = useTokenUsageSnapshot({
+    chatId,
+    chatIdRef,
+    chatRef,
+    language: i18n.language,
+    sessions,
+    isChatActive,
+  });
+
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const [rateLimitAlternatives, setRateLimitAlternatives] = useState<
     Array<{
@@ -770,12 +801,6 @@ export default function ChatPage() {
       cancelled = true;
     };
   }, [selectedAgent]);
-
-  const isChatActiveRef = useRef(false);
-  isChatActiveRef.current =
-    location.pathname === "/" || location.pathname.startsWith("/chat");
-
-  const isChatActive = useCallback(() => isChatActiveRef.current, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -956,9 +981,7 @@ export default function ChatPage() {
   const lastSessionIdRef = useRef<string | null>(null);
   /** Tracks the stale auto-selected session ID that was skipped on init, so we can suppress its late-arriving onSessionSelected callback. */
   const staleAutoSelectedIdRef = useRef<string | null>(null);
-  const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
-  const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   const pendingClearHistoryRef = useRef(false);
   const whisperSpeechRef = useRef<WhisperSpeechButtonRef>(null);
   const [whisperEnabled, setWhisperEnabled] = useState(false);
@@ -1020,7 +1043,6 @@ export default function ChatPage() {
     document.addEventListener("keydown", handleShortcut);
     return () => document.removeEventListener("keydown", handleShortcut);
   }, [isChatActive, whisperEnabled]);
-  chatIdRef.current = chatId;
   navigateRef.current = navigate;
 
   const scheduleHistoryClear = useCallback(() => {
@@ -1040,12 +1062,15 @@ export default function ChatPage() {
   // Register session API event callbacks for URL synchronization
 
   useEffect(() => {
-    sessionApi.onSessionIdResolved = (realId) => {
+    sessionApi.onSessionIdResolved = (tempId, resolvedRealId) => {
       if (!isChatActiveRef.current) return;
+      // handleSessionClick owns navigation while a user-initiated switch is in progress.
+      if (sessionApi.isSessionSwitching) return;
       // Update URL when realId is resolved, regardless of current chatId
       // (chatId may be undefined if URL was cleared in onSessionCreated)
-      lastSessionIdRef.current = realId;
-      navigateRef.current(`/chat/${realId}`, { replace: true });
+      lastSessionIdRef.current = resolvedRealId;
+      onRealIdResolved(tempId, resolvedRealId);
+      navigateRef.current(`/chat/${resolvedRealId}`, { replace: true });
     };
 
     sessionApi.onSessionRemoved = (removedId) => {
@@ -1057,6 +1082,7 @@ export default function ChatPage() {
       );
       if (chatIdRef.current === removedId || currentRealId === removedId) {
         lastSessionIdRef.current = null;
+        clearBadge();
         navigateRef.current("/chat", { replace: true });
       }
     };
@@ -1101,15 +1127,18 @@ export default function ChatPage() {
 
       if (targetId !== lastSessionIdRef.current) {
         lastSessionIdRef.current = targetId;
+        reloadTokenSnapshot(targetId);
         sessionApi.lastNavigatedChatId = targetId;
         navigateRef.current(`/chat/${targetId}`, { replace: true });
       }
     };
 
-    sessionApi.onSessionCreated = () => {
+    sessionApi.onSessionCreated = (tempId) => {
       if (!isChatActiveRef.current) return;
       // Clear URL when creating new session, wait for realId resolution to update
       lastSessionIdRef.current = null;
+      sessionApi.pendingNewSessionId = tempId;
+      clearBadge();
       navigateRef.current("/chat", { replace: true });
     };
 
@@ -1210,6 +1239,7 @@ export default function ChatPage() {
         session_id: window.currentSessionId || session?.session_id || "",
         user_id: window.currentUserId || session?.user_id || DEFAULT_USER_ID,
         channel: window.currentChannel || session?.channel || DEFAULT_CHANNEL,
+        language: i18n.resolvedLanguage || i18n.language,
         stream: true,
         ...biz_params,
       };
@@ -1238,7 +1268,7 @@ export default function ChatPage() {
 
       return response;
     },
-    [selectedAgent],
+    [i18n.language, i18n.resolvedLanguage, selectedAgent],
   );
 
   const handleFileUpload = useCallback(
@@ -1605,7 +1635,7 @@ export default function ChatPage() {
         ...defaultConfig.api,
         fetch: customFetch,
         responseParser: (chunk: string) => {
-          const payload = JSON.parse(chunk) as Record<string, unknown>;
+          const payload = applyUsageFromStreamChunk(chunk);
 
           if (payload.type === "rate_limited") {
             const alts =
@@ -1629,13 +1659,7 @@ export default function ChatPage() {
         },
         onFileCardClick,
         cancel(data: { session_id: string }) {
-          const resolvedChatId =
-            sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
-          if (resolvedChatId) {
-            chatApi.stopChat(resolvedChatId).catch((err) => {
-              console.error("Failed to stop chat:", err);
-            });
-          }
+          handleStopChat(data.session_id);
         },
         async reconnect(data: { session_id: string; signal?: AbortSignal }) {
           const headers: Record<string, string> = {
@@ -1651,6 +1675,7 @@ export default function ChatPage() {
               session_id: window.currentSessionId || data.session_id,
               user_id: window.currentUserId || DEFAULT_USER_ID,
               channel: window.currentChannel || DEFAULT_CHANNEL,
+              language: i18n.resolvedLanguage || i18n.language,
             }),
             signal: data.signal,
           });
@@ -1739,6 +1764,8 @@ export default function ChatPage() {
     extLists,
     scheduleHistoryClear,
     planEnabled,
+    applyUsageFromStreamChunk,
+    handleStopChat,
     consoleSkills,
     selectedAgent,
     onFileCardClick,
@@ -1756,163 +1783,162 @@ export default function ChatPage() {
         flexDirection: "column",
       }}
     >
-      <div className={styles.chatMessagesArea}>
+      <div
+        className={styles.chatMessagesArea}
+        style={{ position: "relative" }}
+      >
         <AgentScopeRuntimeWebUI
           ref={chatRef}
           key={refreshKey}
           options={options}
         />
+        <TokenUsageBadge snapshot={tokenSnapshot} />
       </div>
 
-      {/* Rate-limit guidance banner */}
-      {rateLimitAlternatives.length > 0 && (
-        <div className={styles.rateLimitBanner}>
-          <span className={styles.rateLimitText}>
-            {t("chat.rateLimitMessage")}
-          </span>
-          <div className={styles.rateLimitActions}>
-            {rateLimitAlternatives.slice(0, 3).map((alt) => (
+        {/* Rate-limit guidance banner */}
+        {rateLimitAlternatives.length > 0 && (
+          <div className={styles.rateLimitBanner}>
+            <span className={styles.rateLimitText}>
+              {t("chat.rateLimitMessage")}
+            </span>
+            <div className={styles.rateLimitActions}>
+              {rateLimitAlternatives.slice(0, 3).map((alt) => (
+                <Button
+                  key={`${alt.provider_id}/${alt.model_id}`}
+                  size="small"
+                  type="default"
+                  onClick={async () => {
+                    try {
+                      await providerApi.setActiveLlm({
+                        provider_id: alt.provider_id,
+                        model: alt.model_id,
+                        scope: "agent",
+                        agent_id: selectedAgent,
+                      });
+                      window.dispatchEvent(new CustomEvent("model-switched"));
+                      message.success(
+                        t("chat.rateLimitSwitched", { model: alt.model_name }),
+                      );
+                      setRateLimitAlternatives([]);
+                    } catch {
+                      message.error(t("modelSelector.switchFailed"));
+                    }
+                  }}
+                >
+                  {alt.model_name}
+                </Button>
+              ))}
               <Button
-                key={`${alt.provider_id}/${alt.model_id}`}
                 size="small"
-                type="default"
-                onClick={async () => {
-                  try {
-                    await providerApi.setActiveLlm({
-                      provider_id: alt.provider_id,
-                      model: alt.model_id,
-                      scope: "agent",
-                      agent_id: selectedAgent,
-                    });
-                    window.dispatchEvent(new CustomEvent("model-switched"));
-                    message.success(
-                      t("chat.rateLimitSwitched", { model: alt.model_name }),
-                    );
-                    setRateLimitAlternatives([]);
-                  } catch {
-                    message.error(t("modelSelector.switchFailed"));
-                  }
-                }}
+                type="link"
+                onClick={() => setRateLimitAlternatives([])}
               >
-                {alt.model_name}
+                {t("common.close")}
               </Button>
-            ))}
-            <Button
-              size="small"
-              type="link"
-              onClick={() => setRateLimitAlternatives([])}
-            >
-              {t("common.close")}
-            </Button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Render approval cards as overlays */}
-      {Array.from(approvalRequests.values()).map((request) => (
-        <div
-          key={request.requestId}
-          data-approval-id={request.requestId}
-          style={{
-            position: "fixed",
-            bottom: 80,
-            right: 24,
-            zIndex: 1000,
-            maxWidth: 480,
-            width: "calc(100vw - 48px)",
-          }}
-        >
-          <ApprovalCard
-            requestId={request.requestId}
-            agentId={request.agentId}
-            toolName={request.toolName}
-            severity={request.severity}
-            findingsCount={request.findingsCount}
-            findingsSummary={request.findingsSummary}
-            toolParams={request.toolParams}
-            createdAt={request.createdAt}
-            timeoutSeconds={request.timeoutSeconds}
-            sessionId={request.sessionId}
-            rootSessionId={request.rootSessionId}
-            onApprove={handleApprove}
-            onDeny={handleDeny}
-            onCancel={() => {
-              const sessionId =
-                request.rootSessionId || window.currentSessionId || "";
-              const resolvedChatId =
-                sessionApi.getRealIdForSession(sessionId) ??
-                chatIdRef.current ??
-                sessionId;
-
-              if (resolvedChatId) {
-                console.log("[Chat] Calling stopChat with:", resolvedChatId);
-                chatApi
-                  .stopChat(resolvedChatId)
-                  .then(() => {
-                    console.log("[Chat] stopChat succeeded");
+        {/* Render approval cards as overlays */}
+        {Array.from(approvalRequests.values()).map((request) => (
+          <div
+            key={request.requestId}
+            data-approval-id={request.requestId}
+            style={{
+              position: "fixed",
+              bottom: 80,
+              right: 24,
+              zIndex: 1000,
+              maxWidth: 480,
+              width: "calc(100vw - 48px)",
+            }}
+          >
+            <ApprovalCard
+              requestId={request.requestId}
+              agentId={request.agentId}
+              toolName={request.toolName}
+              severity={request.severity}
+              findingsCount={request.findingsCount}
+              findingsSummary={request.findingsSummary}
+              toolParams={request.toolParams}
+              createdAt={request.createdAt}
+              timeoutSeconds={request.timeoutSeconds}
+              sessionId={request.sessionId}
+              rootSessionId={request.rootSessionId}
+              onApprove={handleApprove}
+              onDeny={handleDeny}
+              onCancel={() => {
+                // Use handleStopChat so badge/note handling matches the
+                // standard cancel path (instead of bare chatApi.stopChat).
+                const sessionId =
+                  request.rootSessionId ||
+                  window.currentSessionId ||
+                  chatIdRef.current ||
+                  "";
+                if (!sessionId) return;
+                handleStopChat(sessionId)
+                  .then(() =>
                     setApprovals((prev) =>
                       prev.filter(
                         (item) =>
                           item.root_session_id !== request.rootSessionId,
                       ),
-                    );
-                  })
-                  .catch((err) => {
-                    console.error("[Chat] stopChat failed:", err);
-                  });
-              } else {
-                console.warn("[Chat] No chat_id resolved, cannot cancel task");
-              }
-            }}
-          />
-        </div>
-      ))}
-
-      <Modal
-        open={showModelPrompt}
-        closable={false}
-        footer={null}
-        width={480}
-        styles={{
-          content: isDark
-            ? { background: "#1f1f1f", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }
-            : undefined,
-        }}
-      >
-        <Result
-          icon={<ExclamationCircleOutlined style={{ color: "#faad14" }} />}
-          title={
-            <span
-              style={{ color: isDark ? "rgba(255,255,255,0.88)" : undefined }}
-            >
-              {t("modelConfig.promptTitle")}
-            </span>
-          }
-          subTitle={
-            <span
-              style={{ color: isDark ? "rgba(255,255,255,0.55)" : undefined }}
-            >
-              {t("modelConfig.promptMessage")}
-            </span>
-          }
-          extra={[
-            <Button key="skip" onClick={() => setShowModelPrompt(false)}>
-              {t("modelConfig.skipButton")}
-            </Button>,
-            <Button
-              key="configure"
-              type="primary"
-              icon={<SettingOutlined />}
-              onClick={() => {
-                setShowModelPrompt(false);
-                navigate("/models");
+                    ),
+                  )
+                  .catch(() => undefined);
               }}
-            >
-              {t("modelConfig.configureButton")}
-            </Button>,
-          ]}
-        />
-      </Modal>
+            />
+          </div>
+        ))}
+
+        <Modal
+          open={showModelPrompt}
+          closable={false}
+          footer={null}
+          width={480}
+          styles={{
+            content: isDark
+              ? {
+                  background: "#1f1f1f",
+                  boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                }
+              : undefined,
+          }}
+        >
+          <Result
+            icon={<ExclamationCircleOutlined style={{ color: "#faad14" }} />}
+            title={
+              <span
+                style={{ color: isDark ? "rgba(255,255,255,0.88)" : undefined }}
+              >
+                {t("modelConfig.promptTitle")}
+              </span>
+            }
+            subTitle={
+              <span
+                style={{ color: isDark ? "rgba(255,255,255,0.55)" : undefined }}
+              >
+                {t("modelConfig.promptMessage")}
+              </span>
+            }
+            extra={[
+              <Button key="skip" onClick={() => setShowModelPrompt(false)}>
+                {t("modelConfig.skipButton")}
+              </Button>,
+              <Button
+                key="configure"
+                type="primary"
+                icon={<SettingOutlined />}
+                onClick={() => {
+                  setShowModelPrompt(false);
+                  navigate("/models");
+                }}
+              >
+                {t("modelConfig.configureButton")}
+              </Button>,
+            ]}
+          />
+        </Modal>
     </div>
   );
 }

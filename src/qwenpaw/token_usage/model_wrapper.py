@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Model wrapper that records token usage from LLM responses."""
 
+from collections import OrderedDict
 from datetime import date, datetime, timezone
 from typing import Any, AsyncGenerator, Literal, Type
 
@@ -16,7 +17,10 @@ from .manager import get_token_usage_manager
 class TokenRecordingModelWrapper(ChatModelBase):
     """Wraps a ChatModelBase to record token usage on each call."""
 
-    _usage_by_session: dict[str, dict[str, Any]] = {}
+    # Class-level accumulator capped by LRU. ``_finalize_turn_usage`` pops
+    # entries at turn end; LRU only kicks in on crash/orphan paths.
+    _USAGE_BY_SESSION_MAX = 256
+    _usage_by_session: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
 
     def __init__(self, provider_id: str, model: ChatModelBase) -> None:
         super().__init__(
@@ -48,25 +52,38 @@ class TokenRecordingModelWrapper(ChatModelBase):
         # Fire-and-forget: synchronous put_nowait, ~100 ns, no await needed.
         get_token_usage_manager().enqueue(event)
 
-        usage_data = {
-            "provider_id": self._provider_id,
-            "model_name": self.model_name,
-            "prompt_tokens": pt,
-            "completion_tokens": ct,
-            "total_tokens": pt + ct,
-        }
-        self._store_usage(usage_data)
+        self._store_usage(pt, ct)
+
+    @classmethod
+    def peek_usage_for_session(cls, session_id: str) -> dict[str, Any] | None:
+        v = cls._usage_by_session.get(session_id)
+        return dict(v) if v else None
 
     @classmethod
     def pop_usage_for_session(cls, session_id: str) -> dict[str, Any] | None:
         return cls._usage_by_session.pop(session_id, None)
 
-    def _store_usage(self, usage: dict[str, Any] | None) -> None:
+    def _store_usage(self, pt: int, ct: int) -> None:
+        """Accumulate live usage for the current session (LRU-bounded)."""
         from ..app.agent_context import get_current_session_id
 
         session_id = get_current_session_id()
-        if session_id and usage:
-            TokenRecordingModelWrapper._usage_by_session[session_id] = usage
+        if not session_id or (pt <= 0 and ct <= 0):
+            return
+        store = self._usage_by_session
+        prev = store.get(session_id) or {}
+        new_pt = int(prev.get("prompt_tokens", 0) or 0) + int(pt or 0)
+        new_ct = int(prev.get("completion_tokens", 0) or 0) + int(ct or 0)
+        store[session_id] = {
+            "provider_id": self._provider_id,
+            "model_name": self.model_name,
+            "prompt_tokens": new_pt,
+            "completion_tokens": new_ct,
+            "total_tokens": new_pt + new_ct,
+        }
+        store.move_to_end(session_id)
+        while len(store) > self._USAGE_BY_SESSION_MAX:
+            store.popitem(last=False)
 
     async def __call__(
         self,

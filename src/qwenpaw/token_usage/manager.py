@@ -6,7 +6,7 @@ import logging
 import threading
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -310,3 +310,82 @@ class TokenUsageManager:
 def get_token_usage_manager() -> TokenUsageManager:
     """Return the process-wide singleton ``TokenUsageManager``."""
     return TokenUsageManager.get_instance()
+
+
+# Marker placed on a usage-note ``Msg.metadata`` so the agent memory keeps it
+# for display/reload but excludes it from the prompt sent to the model.
+USAGE_NOTE_META_KEY = "qwenpaw_usage_note"
+
+
+def fmt_tokens(n: int) -> str:
+    return f"{n / 1000:.1f}K" if n >= 1000 else str(n)
+
+
+# (title, turn-template, turn-template-estimated, context-template).
+# Templates use {tt}/{pt}/{ct} for turn tokens, {est}/{mx}/{ratio} for context.
+_USAGE_NOTE_I18N: dict[str, tuple[str, str, str, str]] = {
+    "zh": (
+        "用量统计",
+        "本轮 **{tt}** tok （in {pt} · out {ct}）",
+        "本轮约 **{tt}** tok （in {pt} · out {ct}）",
+        "上下文 **{est}** / **{mx}** （{ratio:.1f}%）",
+    ),
+    "ja": (
+        "使用量統計",
+        "このターン **{tt}** tok （入力 {pt} · 出力 {ct}）",
+        "このターン約 **{tt}** tok （入力 {pt} · 出力 {ct}）",
+        "コンテキスト **{est}** / **{mx}** （{ratio:.1f}%）",
+    ),
+    "ru": (
+        "Статистика использования",
+        "Ход **{tt}** tok (in {pt} · out {ct})",
+        "Ход примерно **{tt}** tok (in {pt} · out {ct})",
+        "Контекст **{est}** / **{mx}** ({ratio:.1f}%)",
+    ),
+    "pt": (
+        "Estatísticas de uso",
+        "Turno **{tt}** tok (in {pt} · out {ct})",
+        "Turno aprox. **{tt}** tok (in {pt} · out {ct})",
+        "Contexto **{est}** / **{mx}** ({ratio:.1f}%)",
+    ),
+    "en": (
+        "Usage statistics",
+        "This turn **{tt}** tok (in {pt} · out {ct})",
+        "~This turn **{tt}** tok (in {pt} · out {ct})",
+        "Context **{est}** / **{mx}** ({ratio:.1f}%)",
+    ),
+}
+
+
+def _lang(language: str | None) -> str:
+    prefix = (language or "").lower()[:2]
+    return prefix if prefix in _USAGE_NOTE_I18N else "en"
+
+
+def format_usage_chat_note(
+    turn: dict[str, Any] | None,
+    ctx: dict[str, Any] | None,
+    language: str | None = "zh",
+) -> str:
+    title, turn_tpl, turn_tpl_est, ctx_tpl = _USAGE_NOTE_I18N[_lang(language)]
+    lines: list[str] = []
+    if turn:
+        tpl = turn_tpl_est if turn.get("estimated") else turn_tpl
+        lines.append(
+            tpl.format(
+                tt=fmt_tokens(int(turn.get("total_tokens", 0) or 0)),
+                pt=fmt_tokens(int(turn.get("prompt_tokens", 0) or 0)),
+                ct=fmt_tokens(int(turn.get("completion_tokens", 0) or 0)),
+            ),
+        )
+    if ctx:
+        lines.append(
+            ctx_tpl.format(
+                est=fmt_tokens(int(ctx.get("estimated_tokens", 0) or 0)),
+                mx=fmt_tokens(int(ctx.get("max_input_length", 0) or 0)),
+                ratio=float(ctx.get("context_usage_ratio", 0) or 0),
+            ),
+        )
+    if not lines:
+        return ""
+    return f"📊 **{title}**\n" + "\n".join(lines)

@@ -20,6 +20,22 @@ from ..utils.estimate_token_counter import EstimatedTokenCounter
 logger = logging.getLogger(__name__)
 
 
+def _is_usage_note_msg(msg: Msg, meta_key: str) -> bool:
+    """True when *msg* is a token-usage note that must not reach the model.
+
+    The note is kept in memory (so reload can re-render it) but tagged via
+    ``Msg.metadata`` so the prompt excludes it. Tolerates the
+    ``metadata.metadata`` nesting the runtime sometimes introduces.
+    """
+    metadata = getattr(msg, "metadata", None)
+    if not isinstance(metadata, dict):
+        return False
+    if metadata.get(meta_key):
+        return True
+    inner = metadata.get("metadata")
+    return isinstance(inner, dict) and bool(inner.get(meta_key))
+
+
 class AgentContext(InMemoryMemory):
     """Extended InMemoryMemory with bugfixes and summary support."""
 
@@ -149,10 +165,13 @@ class AgentContext(InMemoryMemory):
         Returns:
             List of filtered messages
         """
+        from ...token_usage import USAGE_NOTE_META_KEY
+
         filtered_content = [
             (msg, marks)
             for msg, marks in self.content
             if _MemoryMark.COMPRESSED not in marks
+            and not _is_usage_note_msg(msg, USAGE_NOTE_META_KEY)
         ]
 
         if prepend_summary and self._compressed_summary:

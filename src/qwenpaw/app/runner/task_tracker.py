@@ -245,6 +245,31 @@ class TaskTracker:
             logger.debug("[STOP] task.cancel() called for run_key=%s", run_key)
             return True
 
+    async def await_producer_cleanup(
+        self,
+        run_key: str,
+        *,
+        timeout: float = 5.0,
+        poll_interval: float = 0.02,
+    ) -> None:
+        """Wait until the producer for *run_key* has torn down.
+
+        After :meth:`request_stop`, the streaming task still runs ``finally``
+        (e.g. runner ``query_handler`` cleanup that fills usage snapshots).
+        Callers that need a consistent post-stop view (token usage) should wait
+        briefly for that cleanup without holding :attr:`lock`.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            async with self._lock:
+                state = self._runs.get(run_key)
+            if state is None:
+                return
+            if state.task.done():
+                return
+            await asyncio.sleep(poll_interval)
+
     async def attach_or_start(
         self,
         run_key: str,
@@ -295,6 +320,7 @@ class TaskTracker:
                                 q.put_nowait(sse)
                 except asyncio.CancelledError:
                     logger.debug("run cancelled run_key=%s", run_key)
+                    raise
                 except Exception:
                     logger.exception("run error run_key=%s", run_key)
                     err_sse = (
