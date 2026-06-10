@@ -9,6 +9,7 @@ dependencies = [
     "agentscope-runtime==1.1.6",
     "httpx>=0.27.0",
     "packaging>=24.0",
+    "aiohttp>=3.9.0,<=3.14.0",
     "discord-py>=2.3",
     "dingtalk-stream>=0.24.3",
     "alibabacloud-dingtalk>=2.2.42",
