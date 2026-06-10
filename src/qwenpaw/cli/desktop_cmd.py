@@ -168,17 +168,12 @@ def desktop_cmd(
     # Setup logger for desktop command (separate from backend subprocess)
     setup_logger(log_level)
 
-    # NOTE: The desktop subprocess architecture means there is an inherent
-    # TOCTOU window: we pick a port here, but the backend subprocess binds
-    # it later.  Unlike the Tauri entry point (which passes the pre-bound
-    # socket directly to uvicorn), pywebview launches the backend as a
-    # child process that cannot inherit a socket.  The window is small and
-    # the fallback on bind failure is a clear error, so this is acceptable.
+    # get_stable_port() returns (port, socket) — the socket is kept open
+    # to hold the port until the subprocess is about to bind it, minimizing
+    # the TOCTOU window.  We close it just before Popen so the child can
+    # bind the same port.
     port_file = str(WORKING_DIR / "desktop_port")
-    port, reused_socket = get_stable_port(port_file, host)
-    # We cannot pass the socket to the subprocess; close it if returned.
-    if reused_socket:
-        reused_socket.close()
+    port, held_socket = get_stable_port(port_file, host)
     url = f"http://{host}:{port}"
     click.echo(f"Starting QwenPaw app on {url} (port {port})")
     logger.info("Server subprocess starting...")
@@ -203,6 +198,12 @@ def desktop_cmd(
         False  # Track if we intentionally terminated the process
     )
     try:
+        # Release the held socket just before spawning the subprocess so
+        # the child can bind the same port.  This keeps the TOCTOU window
+        # as small as possible (only between close() and the child's bind).
+        if held_socket:
+            held_socket.close()
+
         proc = subprocess.Popen(
             [
                 sys.executable,
