@@ -460,29 +460,6 @@ class DingTalkChannel(BaseChannel):
                 "🤔Thinking",
             )
 
-        # Pre-create AI Card before LLM call so user sees it immediately.
-        # The card is stored on request._precreated_card for streaming hooks
-        # and on_event_message_completed to reuse.
-        if self._ai_card_enabled() and conversation_id:
-            try:
-                card = await self._create_ai_card(
-                    conversation_id,
-                    meta=meta,
-                    inbound=True,
-                )
-                if card:
-                    setattr(request, "_precreated_card", card)
-                    logger.info(
-                        "dingtalk _before_consume_process: "
-                        "AI card pre-created for conversation=%s",
-                        conversation_id,
-                    )
-            except Exception:
-                logger.exception(
-                    "dingtalk _before_consume_process: "
-                    "card pre-creation failed, will retry in hooks",
-                )
-
     async def _on_consume_error(
         self,
         request: "AgentRequest",
@@ -514,6 +491,14 @@ class DingTalkChannel(BaseChannel):
                 session_webhook,
                 full_err.strip(),
                 bot_prefix="",
+            )
+        # Safety net: clean up any leftover pre-created card on error path
+        unused_card = getattr(request, "_precreated_card", None)
+        if unused_card:
+            setattr(request, "_precreated_card", None)
+            logger.info(
+                "dingtalk _on_consume_error: "
+                "dropped unused pre-created card on error path",
             )
         # Release dedup msg_id so future retries are accepted
         msg_ids = meta.get("_message_ids")
@@ -2098,7 +2083,7 @@ class DingTalkChannel(BaseChannel):
         stream_type: str,
         accumulated_text: str = "",
     ) -> None:
-        """Card mode: reuse pre-created card or create a new AI Card."""
+        """Card mode: create a new AI Card."""
         conversation_id = str(send_meta.get("conversation_id") or "")
         if not conversation_id or not self._ai_card_enabled():
             return
@@ -2112,19 +2097,12 @@ class DingTalkChannel(BaseChannel):
             state["at_sent"] = True
 
         try:
-            # Reuse pre-created card from _before_consume_process if available
-            card = getattr(request, "_precreated_card", None)
-            if card:
-                # Consume: first streaming segment uses pre-created card
-                setattr(request, "_precreated_card", None)
-            else:
-                # Later segments (e.g. reasoning→message) need new card
-                card = await self._create_ai_card(
-                    conversation_id,
-                    meta=send_meta,
-                    inbound=True,
-                    force=True,
-                )
+            card = await self._create_ai_card(
+                conversation_id,
+                meta=send_meta,
+                inbound=True,
+                force=True,
+            )
             if card:
                 prefix = "💭 " if stream_type == "reasoning" else ""
                 initial_text = f"{at_prefix}{prefix}..."
@@ -2254,23 +2232,19 @@ class DingTalkChannel(BaseChannel):
             # Get or initialize the active card for this request
             card = state.get("nonstream_card")
             if not card:
-                card = getattr(request, "_precreated_card", None)
-                if card:
-                    setattr(request, "_precreated_card", None)
-                else:
-                    try:
-                        card = await self._create_ai_card(
-                            conversation_id,
-                            meta=send_meta,
-                            inbound=True,
-                        )
-                    except Exception:
-                        logger.exception(
-                            "dingtalk on_event_message_completed: "
-                            "card creation failed, fallback to markdown",
-                        )
-                        await self._mark_card_failed(conversation_id)
-                        card = None
+                try:
+                    card = await self._create_ai_card(
+                        conversation_id,
+                        meta=send_meta,
+                        inbound=True,
+                    )
+                except Exception:
+                    logger.exception(
+                        "dingtalk on_event_message_completed: "
+                        "card creation failed, fallback to markdown",
+                    )
+                    await self._mark_card_failed(conversation_id)
+                    card = None
                 if card:
                     state["nonstream_card"] = card
                     state["card_full_text"] = ""
@@ -2624,22 +2598,17 @@ class DingTalkChannel(BaseChannel):
                     await self._mark_card_failed(conversation_id)
                 state.pop("nonstream_card", None)
 
-        # Also finalize any unused pre-created card (e.g. no messages produced)
+        # Safety net: clean up any leftover pre-created card reference.
+        # Since pre-creation was removed, this should never trigger.
+        # If it does (e.g. future code re-introduces pre-creation),
+        # do NOT finalize with placeholder text — just drop the reference.
         unused_card = getattr(request, "_precreated_card", None)
         if unused_card:
             setattr(request, "_precreated_card", None)
-            try:
-                await self._stream_ai_card(
-                    unused_card,
-                    self._build_ai_card_initial_text(),
-                    finalize=True,
-                )
-            except Exception:
-                logger.debug(
-                    "dingtalk _on_process_completed: "
-                    "unused card finalize failed",
-                    exc_info=True,
-                )
+            logger.info(
+                "dingtalk _on_process_completed: "
+                "dropped unused pre-created card (agent produced no output)",
+            )
 
         if incoming_msg_id and conversation_id:
             await self._send_emotion(
