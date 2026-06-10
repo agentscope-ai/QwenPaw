@@ -245,28 +245,36 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     auto_register_from_env()
 
-    try:
-        from ..utils.telemetry import (
-            collect_and_upload_telemetry,
-            has_telemetry_been_collected,
-            is_telemetry_opted_out,
-        )
+    # Telemetry runs in a background thread to avoid blocking startup.
+    def _maybe_collect_telemetry():
+        try:
+            from ..utils.telemetry import (
+                collect_and_upload_telemetry,
+                has_telemetry_been_collected,
+                is_telemetry_opted_out,
+            )
 
-        if not is_telemetry_opted_out(
-            WORKING_DIR,
-        ) and not has_telemetry_been_collected(WORKING_DIR):
-            collect_and_upload_telemetry(WORKING_DIR)
-    except Exception:
-        logger.debug(
-            "Telemetry collection skipped due to error",
-            exc_info=True,
-        )
+            if not is_telemetry_opted_out(
+                WORKING_DIR,
+            ) and not has_telemetry_been_collected(WORKING_DIR):
+                collect_and_upload_telemetry(WORKING_DIR)
+        except Exception:
+            logger.debug(
+                "Telemetry collection skipped due to error",
+                exc_info=True,
+            )
 
+    asyncio.get_event_loop().run_in_executor(
+        None,
+        _maybe_collect_telemetry,
+    )
+
+    # Migrations offloaded to thread pool — they do heavy file I/O.
     logger.debug("Checking for legacy config migration...")
-    migrate_legacy_workspace_to_default_agent()
-    ensure_default_agent_exists()
-    migrate_legacy_skills_to_skill_pool()
-    ensure_qa_agent_exists()
+    await asyncio.to_thread(migrate_legacy_workspace_to_default_agent)
+    await asyncio.to_thread(ensure_default_agent_exists)
+    await asyncio.to_thread(migrate_legacy_skills_to_skill_pool)
+    await asyncio.to_thread(ensure_qa_agent_exists)
 
     # Create core managers (instant — no I/O)
     logger.debug("Initializing MultiAgentManager...")
