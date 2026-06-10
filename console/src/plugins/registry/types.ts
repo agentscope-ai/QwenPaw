@@ -100,6 +100,8 @@ export interface MenuItem {
   icon?: React.ComponentType<any> | React.ReactNode;
   /** Route id to navigate to when clicked. If absent, item is non-interactive (group header / divider). */
   route?: string;
+  /** External URL to open in a new tab when clicked. Mutually exclusive with `route`. */
+  href?: string;
   /** Hide this entry when callback returns false. Defaults to always visible. */
   visible?: () => boolean;
   /** Render as group header (children appear nested under it). */
