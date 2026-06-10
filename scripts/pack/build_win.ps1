@@ -112,6 +112,11 @@ if (Test-Path $CondaUnpack) {
     }
     
     # Verify the fix worked
+    # Use certifi CA bundle to avoid ssl.SSLError from
+    # corrupted certs in Windows certificate store on CI
+    $env:SSL_CERT_FILE = (
+      & $pythonExe -c "import certifi; print(certifi.where())"
+    )
     Write-Host "[build_win] Verifying fix..."
     & $pythonExe -c "from huggingface_hub import file_download; print('✓ huggingface_hub import OK')"
     if ($LASTEXITCODE -ne 0) {
