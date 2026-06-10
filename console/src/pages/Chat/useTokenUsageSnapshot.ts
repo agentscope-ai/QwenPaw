@@ -73,9 +73,7 @@ function usageSessionIdsMatch(a: string, b: string): boolean {
     realId: sessionApi.getRealIdForSession(id) ?? undefined,
     sessionId: id,
   });
-  return (
-    sessionKeyMatches(entry(a), b) || sessionKeyMatches(entry(b), a)
-  );
+  return sessionKeyMatches(entry(a), b) || sessionKeyMatches(entry(b), a);
 }
 
 function snapshotValuesUnchanged(
@@ -99,7 +97,9 @@ function getResponseCardData(
   cards: IAgentScopeRuntimeWebUIMessage["cards"],
 ): Record<string, unknown> | null {
   const card = (
-    cards as Array<{ code?: string; data?: Record<string, unknown> }> | undefined
+    cards as
+      | Array<{ code?: string; data?: Record<string, unknown> }>
+      | undefined
   )?.find((c) => c?.code === "AgentScopeRuntimeResponseCard");
   return card?.data ?? null;
 }

@@ -272,9 +272,7 @@ export function buildUsageNoteOutputItem(
 
 const RESPONSE_CARD = "AgentScopeRuntimeResponseCard";
 
-function getResponseCardData(
-  cards: unknown,
-): Record<string, unknown> | null {
+function getResponseCardData(cards: unknown): Record<string, unknown> | null {
   if (!Array.isArray(cards)) return null;
   const card = cards.find(
     (c) => (c as { code?: string })?.code === RESPONSE_CARD,

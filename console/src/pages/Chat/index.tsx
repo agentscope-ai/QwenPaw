@@ -1783,10 +1783,7 @@ export default function ChatPage() {
         flexDirection: "column",
       }}
     >
-      <div
-        className={styles.chatMessagesArea}
-        style={{ position: "relative" }}
-      >
+      <div className={styles.chatMessagesArea} style={{ position: "relative" }}>
         <AgentScopeRuntimeWebUI
           ref={chatRef}
           key={refreshKey}
@@ -1795,150 +1792,149 @@ export default function ChatPage() {
         <TokenUsageBadge snapshot={tokenSnapshot} />
       </div>
 
-        {/* Rate-limit guidance banner */}
-        {rateLimitAlternatives.length > 0 && (
-          <div className={styles.rateLimitBanner}>
-            <span className={styles.rateLimitText}>
-              {t("chat.rateLimitMessage")}
-            </span>
-            <div className={styles.rateLimitActions}>
-              {rateLimitAlternatives.slice(0, 3).map((alt) => (
-                <Button
-                  key={`${alt.provider_id}/${alt.model_id}`}
-                  size="small"
-                  type="default"
-                  onClick={async () => {
-                    try {
-                      await providerApi.setActiveLlm({
-                        provider_id: alt.provider_id,
-                        model: alt.model_id,
-                        scope: "agent",
-                        agent_id: selectedAgent,
-                      });
-                      window.dispatchEvent(new CustomEvent("model-switched"));
-                      message.success(
-                        t("chat.rateLimitSwitched", { model: alt.model_name }),
-                      );
-                      setRateLimitAlternatives([]);
-                    } catch {
-                      message.error(t("modelSelector.switchFailed"));
-                    }
-                  }}
-                >
-                  {alt.model_name}
-                </Button>
-              ))}
+      {/* Rate-limit guidance banner */}
+      {rateLimitAlternatives.length > 0 && (
+        <div className={styles.rateLimitBanner}>
+          <span className={styles.rateLimitText}>
+            {t("chat.rateLimitMessage")}
+          </span>
+          <div className={styles.rateLimitActions}>
+            {rateLimitAlternatives.slice(0, 3).map((alt) => (
               <Button
+                key={`${alt.provider_id}/${alt.model_id}`}
                 size="small"
-                type="link"
-                onClick={() => setRateLimitAlternatives([])}
-              >
-                {t("common.close")}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Render approval cards as overlays */}
-        {Array.from(approvalRequests.values()).map((request) => (
-          <div
-            key={request.requestId}
-            data-approval-id={request.requestId}
-            style={{
-              position: "fixed",
-              bottom: 80,
-              right: 24,
-              zIndex: 1000,
-              maxWidth: 480,
-              width: "calc(100vw - 48px)",
-            }}
-          >
-            <ApprovalCard
-              requestId={request.requestId}
-              agentId={request.agentId}
-              toolName={request.toolName}
-              severity={request.severity}
-              findingsCount={request.findingsCount}
-              findingsSummary={request.findingsSummary}
-              toolParams={request.toolParams}
-              createdAt={request.createdAt}
-              timeoutSeconds={request.timeoutSeconds}
-              sessionId={request.sessionId}
-              rootSessionId={request.rootSessionId}
-              onApprove={handleApprove}
-              onDeny={handleDeny}
-              onCancel={() => {
-                // Use handleStopChat so badge/note handling matches the
-                // standard cancel path (instead of bare chatApi.stopChat).
-                const sessionId =
-                  request.rootSessionId ||
-                  window.currentSessionId ||
-                  chatIdRef.current ||
-                  "";
-                if (!sessionId) return;
-                handleStopChat(sessionId)
-                  .then(() =>
-                    setApprovals((prev) =>
-                      prev.filter(
-                        (item) =>
-                          item.root_session_id !== request.rootSessionId,
-                      ),
-                    ),
-                  )
-                  .catch(() => undefined);
-              }}
-            />
-          </div>
-        ))}
-
-        <Modal
-          open={showModelPrompt}
-          closable={false}
-          footer={null}
-          width={480}
-          styles={{
-            content: isDark
-              ? {
-                  background: "#1f1f1f",
-                  boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-                }
-              : undefined,
-          }}
-        >
-          <Result
-            icon={<ExclamationCircleOutlined style={{ color: "#faad14" }} />}
-            title={
-              <span
-                style={{ color: isDark ? "rgba(255,255,255,0.88)" : undefined }}
-              >
-                {t("modelConfig.promptTitle")}
-              </span>
-            }
-            subTitle={
-              <span
-                style={{ color: isDark ? "rgba(255,255,255,0.55)" : undefined }}
-              >
-                {t("modelConfig.promptMessage")}
-              </span>
-            }
-            extra={[
-              <Button key="skip" onClick={() => setShowModelPrompt(false)}>
-                {t("modelConfig.skipButton")}
-              </Button>,
-              <Button
-                key="configure"
-                type="primary"
-                icon={<SettingOutlined />}
-                onClick={() => {
-                  setShowModelPrompt(false);
-                  navigate("/models");
+                type="default"
+                onClick={async () => {
+                  try {
+                    await providerApi.setActiveLlm({
+                      provider_id: alt.provider_id,
+                      model: alt.model_id,
+                      scope: "agent",
+                      agent_id: selectedAgent,
+                    });
+                    window.dispatchEvent(new CustomEvent("model-switched"));
+                    message.success(
+                      t("chat.rateLimitSwitched", { model: alt.model_name }),
+                    );
+                    setRateLimitAlternatives([]);
+                  } catch {
+                    message.error(t("modelSelector.switchFailed"));
+                  }
                 }}
               >
-                {t("modelConfig.configureButton")}
-              </Button>,
-            ]}
+                {alt.model_name}
+              </Button>
+            ))}
+            <Button
+              size="small"
+              type="link"
+              onClick={() => setRateLimitAlternatives([])}
+            >
+              {t("common.close")}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Render approval cards as overlays */}
+      {Array.from(approvalRequests.values()).map((request) => (
+        <div
+          key={request.requestId}
+          data-approval-id={request.requestId}
+          style={{
+            position: "fixed",
+            bottom: 80,
+            right: 24,
+            zIndex: 1000,
+            maxWidth: 480,
+            width: "calc(100vw - 48px)",
+          }}
+        >
+          <ApprovalCard
+            requestId={request.requestId}
+            agentId={request.agentId}
+            toolName={request.toolName}
+            severity={request.severity}
+            findingsCount={request.findingsCount}
+            findingsSummary={request.findingsSummary}
+            toolParams={request.toolParams}
+            createdAt={request.createdAt}
+            timeoutSeconds={request.timeoutSeconds}
+            sessionId={request.sessionId}
+            rootSessionId={request.rootSessionId}
+            onApprove={handleApprove}
+            onDeny={handleDeny}
+            onCancel={() => {
+              // Use handleStopChat so badge/note handling matches the
+              // standard cancel path (instead of bare chatApi.stopChat).
+              const sessionId =
+                request.rootSessionId ||
+                window.currentSessionId ||
+                chatIdRef.current ||
+                "";
+              if (!sessionId) return;
+              handleStopChat(sessionId)
+                .then(() =>
+                  setApprovals((prev) =>
+                    prev.filter(
+                      (item) => item.root_session_id !== request.rootSessionId,
+                    ),
+                  ),
+                )
+                .catch(() => undefined);
+            }}
           />
-        </Modal>
+        </div>
+      ))}
+
+      <Modal
+        open={showModelPrompt}
+        closable={false}
+        footer={null}
+        width={480}
+        styles={{
+          content: isDark
+            ? {
+                background: "#1f1f1f",
+                boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+              }
+            : undefined,
+        }}
+      >
+        <Result
+          icon={<ExclamationCircleOutlined style={{ color: "#faad14" }} />}
+          title={
+            <span
+              style={{ color: isDark ? "rgba(255,255,255,0.88)" : undefined }}
+            >
+              {t("modelConfig.promptTitle")}
+            </span>
+          }
+          subTitle={
+            <span
+              style={{ color: isDark ? "rgba(255,255,255,0.55)" : undefined }}
+            >
+              {t("modelConfig.promptMessage")}
+            </span>
+          }
+          extra={[
+            <Button key="skip" onClick={() => setShowModelPrompt(false)}>
+              {t("modelConfig.skipButton")}
+            </Button>,
+            <Button
+              key="configure"
+              type="primary"
+              icon={<SettingOutlined />}
+              onClick={() => {
+                setShowModelPrompt(false);
+                navigate("/models");
+              }}
+            >
+              {t("modelConfig.configureButton")}
+            </Button>,
+          ]}
+        />
+      </Modal>
     </div>
   );
 }
