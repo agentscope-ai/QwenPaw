@@ -28,6 +28,7 @@ import {
   routeIdToPath,
   toAntdItems,
 } from "./registry/adapter";
+import type { FlatMenuEntry } from "./registry/adapter";
 import type { MenuItem } from "../plugins/registry/types";
 import type { ReactNode } from "react";
 
@@ -164,7 +165,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
   const collapsedNavItems = useMemo(() => {
     // Sticky chat is its own carve-out (lives outside menu data — see builtinMenu.ts).
-    const stickyChat = {
+    const stickyChat: FlatMenuEntry = {
       key: "core.chat",
       icon: <SparkChatTabFill size={18} />,
       path: chatPath,
