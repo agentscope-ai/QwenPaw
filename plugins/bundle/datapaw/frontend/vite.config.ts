@@ -137,6 +137,8 @@ export default defineConfig({
       // Console source uses the `@/` alias heavily — keep prefix matching
       // so `@/api/foo` resolves to `<absSrc>/api/foo`.
       { find: "@", replacement: path.resolve(r("./src")) },
+      // The host-chat embed reuses small pieces from the lightweight plugin UI.
+      { find: "@datapaw/ui", replacement: path.resolve(r("../ui/src")) },
 
       // Externalise React to the host so we never have two Reacts.
       // The shim files re-export every public React API from

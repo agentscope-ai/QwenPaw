@@ -32,6 +32,108 @@ function notifyPlanToolInStream(
   handlePlanToolStreamRefresh({ name, phase });
 }
 
+function stringifyToolValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value == null) return '';
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+function inspectToolData(
+  data: any,
+  metadata: { node_id?: string; graph_id?: string } | undefined,
+  onToolCall: ((data: { call_id: string; name: string; arguments: string }, metadata?: { node_id?: string; graph_id?: string }) => void) | undefined,
+  onToolResult: ((data: { call_id: string; name: string; output: string }, metadata?: { node_id?: string; graph_id?: string }) => void) | undefined,
+  onPlanTool: ((event: PlanToolStreamEvent) => void) | undefined,
+  toolNameByCallId: Map<string, string>,
+): void {
+  if (!data || typeof data !== 'object') return;
+  const callId = String(data.call_id || data.id || '');
+  const name =
+    (typeof data.name === 'string' && data.name) ||
+    (callId ? toolNameByCallId.get(callId) : '') ||
+    '';
+
+  if (data.output !== undefined) {
+    if (!name) return;
+    const resultData = {
+      call_id: callId,
+      name,
+      output: stringifyToolValue(data.output),
+    };
+    if (isTaskCardRefreshTool(resultData.name)) {
+      console.info("[datapaw:sse] tool result", {
+        name: resultData.name,
+        callId: resultData.call_id,
+        hasMetadata: Boolean(metadata),
+      });
+    }
+    notifyPlanToolInStream(resultData.name, "result", onPlanTool);
+    onToolResult?.(resultData, metadata);
+    return;
+  }
+
+  if (data.arguments !== undefined || data.input !== undefined) {
+    if (!name) return;
+    if (callId) toolNameByCallId.set(callId, name);
+    const toolData = {
+      call_id: callId,
+      name,
+      arguments: stringifyToolValue(data.arguments ?? data.input),
+    };
+    if (isTaskCardRefreshTool(toolData.name)) {
+      console.info("[datapaw:sse] tool call", {
+        name: toolData.name,
+        callId: toolData.call_id,
+        hasMetadata: Boolean(metadata),
+      });
+    }
+    notifyPlanToolInStream(toolData.name, "call", onPlanTool);
+    onToolCall?.(toolData, metadata);
+  }
+}
+
+function inspectToolFrame(
+  parsed: any,
+  onToolCall: ((data: { call_id: string; name: string; arguments: string }, metadata?: { node_id?: string; graph_id?: string }) => void) | undefined,
+  onToolResult: ((data: { call_id: string; name: string; output: string }, metadata?: { node_id?: string; graph_id?: string }) => void) | undefined,
+  onPlanTool: ((event: PlanToolStreamEvent) => void) | undefined,
+  toolNameByCallId: Map<string, string>,
+): void {
+  if (!parsed || typeof parsed !== 'object') return;
+
+  if (parsed.object === 'content' && parsed.type === 'data') {
+    inspectToolData(parsed.data, parsed.metadata, onToolCall, onToolResult, onPlanTool, toolNameByCallId);
+    return;
+  }
+
+  const type = typeof parsed.type === 'string' ? parsed.type.toLowerCase() : '';
+  const isMessageLike = parsed.object === 'message' || Array.isArray(parsed.content);
+  if (
+    isMessageLike &&
+    (type === 'plugin_call' || type === 'plugin_call_output') &&
+    Array.isArray(parsed.content)
+  ) {
+    for (const contentItem of parsed.content) {
+      if (contentItem?.type === 'data') {
+        inspectToolData(contentItem.data, parsed.metadata, onToolCall, onToolResult, onPlanTool, toolNameByCallId);
+      }
+    }
+  }
+
+  if (parsed.object === 'response' && Array.isArray(parsed.output)) {
+    for (const outputMessage of parsed.output) {
+      inspectToolFrame(outputMessage, onToolCall, onToolResult, onPlanTool, toolNameByCallId);
+    }
+  }
+}
+
 export function createInterceptedStream(
   originalBody: ReadableStream<Uint8Array>,
   onLiveText?: (text: string, metadata?: { node_id?: string; graph_id?: string }, msg_id?: string) => void,
@@ -48,6 +150,7 @@ export function createInterceptedStream(
   // Track whether the previous line was a filtered task_status data line,
   // so we can also suppress its trailing blank-line separator.
   let lastLineWasFiltered = false;
+  const toolNameByCallId = new Map<string, string>();
 
   /**
    * Process a single complete line from the SSE stream.
@@ -55,6 +158,10 @@ export function createInterceptedStream(
    * or an empty string if the line should be filtered out.
    */
   function processLine(line: string): string {
+    if (line.endsWith('\r')) {
+      line = line.slice(0, -1);
+    }
+
     // Blank line = SSE event delimiter.
     // If the previous data line was filtered, swallow this blank line too.
     if (line === '') {
@@ -88,97 +195,9 @@ export function createInterceptedStream(
             typeof parsed.text === 'string'
           ) {
             onLiveText(parsed.text, parsed.metadata, parsed.msg_id);
-            schedulePinTaskCardDuringStream();
           }
 
-          // 拦截工具调用事件 (tool_use - 有 arguments)
-          if (
-            onToolCall &&
-            parsed &&
-            parsed.object === 'content' &&
-            parsed.type === 'data' &&
-            parsed.data?.name &&
-            (parsed.data.arguments !== undefined || parsed.data.input !== undefined)
-          ) {
-            const toolData = {
-              call_id: parsed.data.call_id || parsed.data.id || '',
-              name: parsed.data.name,
-              arguments: parsed.data.arguments || parsed.data.input || '',
-            };
-            // 如果 arguments 是对象，转为 JSON 字符串
-            if (typeof toolData.arguments === 'object' && toolData.arguments !== null) {
-              toolData.arguments = JSON.stringify(toolData.arguments, null, 2);
-            }
-            notifyPlanToolInStream(toolData.name, "call", onPlanTool);
-            onToolCall(toolData, parsed.metadata);
-          }
-
-          // 拦截工具结果事件 (tool_result - 有 output)
-          if (
-            onToolResult &&
-            parsed &&
-            parsed.object === 'content' &&
-            parsed.type === 'data' &&
-            parsed.data?.name &&
-            parsed.data.output !== undefined
-          ) {
-            const resultData = {
-              call_id: parsed.data.call_id || parsed.data.id || '',
-              name: parsed.data.name,
-              output: typeof parsed.data.output === 'object' ? JSON.stringify(parsed.data.output, null, 2) : (parsed.data.output || ''),
-            };
-            notifyPlanToolInStream(resultData.name, "result", onPlanTool);
-            onToolResult(resultData, parsed.metadata);
-          }
-
-          // 拦截完整消息格式的工具调用 (object="message", type 包含 "plugin_call")
-          if (
-            onToolCall &&
-            parsed &&
-            parsed.object === 'message' &&
-            parsed.type &&
-            (parsed.type === 'plugin_call' || parsed.type === 'PLUGIN_CALL') &&
-            Array.isArray(parsed.content)
-          ) {
-            for (const contentItem of parsed.content) {
-              if (contentItem?.type === 'data' && contentItem?.data?.name) {
-                const d = contentItem.data;
-                const toolData = {
-                  call_id: d.call_id || d.id || '',
-                  name: d.name,
-                  arguments: typeof d.arguments === 'object' ? JSON.stringify(d.arguments, null, 2) : (d.arguments || d.input || ''),
-                };
-                if (typeof toolData.arguments === 'object' && toolData.arguments !== null) {
-                  toolData.arguments = JSON.stringify(toolData.arguments, null, 2);
-                }
-                notifyPlanToolInStream(toolData.name, "call", onPlanTool);
-                onToolCall(toolData, parsed.metadata);
-              }
-            }
-          }
-
-          // 拦截完整消息格式的工具结果 (object="message", type 包含 "plugin_call_output")
-          if (
-            onToolResult &&
-            parsed &&
-            parsed.object === 'message' &&
-            parsed.type &&
-            (parsed.type === 'plugin_call_output' || parsed.type === 'PLUGIN_CALL_OUTPUT') &&
-            Array.isArray(parsed.content)
-          ) {
-            for (const contentItem of parsed.content) {
-              if (contentItem?.type === 'data' && contentItem?.data) {
-                const d = contentItem.data;
-                const resultData = {
-                  call_id: d.call_id || d.id || '',
-                  name: d.name || '',
-                  output: typeof d.output === 'object' ? JSON.stringify(d.output, null, 2) : (d.output || ''),
-                };
-                notifyPlanToolInStream(resultData.name, "result", onPlanTool);
-                onToolResult(resultData, parsed.metadata);
-              }
-            }
-          }
+          inspectToolFrame(parsed, onToolCall, onToolResult, onPlanTool, toolNameByCallId);
 
           // 拦截思考内容事件（不从流中移除）
           if (
