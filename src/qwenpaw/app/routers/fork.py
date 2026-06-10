@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import subprocess
 from pathlib import Path
 from typing import Optional
 from uuid import uuid4
@@ -176,7 +175,7 @@ def _write_fork_session(
     )
 
 
-def _create_worktree(
+async def _create_worktree(
     project_dir: Path,
     worktree_id: str,
 ) -> tuple[Path, str]:
@@ -188,25 +187,34 @@ def _create_worktree(
     worktree_path = project_dir / _WORKTREE_BASE / worktree_id
     worktree_path.parent.mkdir(parents=True, exist_ok=True)
 
-    result = subprocess.run(
-        [
-            "git",
-            "worktree",
-            "add",
-            str(worktree_path),
-            "-b",
-            branch,
-        ],
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        "worktree",
+        "add",
+        str(worktree_path),
+        "-b",
+        branch,
         cwd=str(project_dir),
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
-    if result.returncode != 0:
+    try:
+        _, stderr = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=60,
+        )
+    except asyncio.TimeoutError as exc:
+        proc.kill()
+        await proc.wait()
         raise HTTPException(
             status_code=500,
-            detail=f"git worktree add failed: {result.stderr.strip()}",
+            detail="git worktree add timed out (60s)",
+        ) from exc
+    if proc.returncode != 0:
+        detail = stderr.decode("utf-8", errors="replace").strip()
+        raise HTTPException(
+            status_code=500,
+            detail=f"git worktree add failed: {detail}",
         )
 
     logger.info(
@@ -310,8 +318,7 @@ async def fork_agent(
     worktree_branch = ""
 
     if project_dir is not None:
-        wt_path, wt_branch = await asyncio.to_thread(
-            _create_worktree,
+        wt_path, wt_branch = await _create_worktree(
             project_dir,
             fork_id,
         )

@@ -1788,7 +1788,9 @@
       "duplicate": "このパスは既にリストに存在します",
       "saveSuccess": "ファイルガード設定を保存しました",
       "saveFailed": "ファイルガード設定の保存に失敗しました",
-      "loadFailed": "ファイルガード設定の読み込みに失敗しました"
+      "loadFailed": "ファイルガード設定の読み込みに失敗しました",
+      "allowPreviewOutsideWorkspace": "コンソールでワークスペース外ファイルのプレビューを許可",
+      "allowPreviewOutsideWorkspaceDesc": "コンソールでワークスペースディレクトリ外のファイルをプレビューできるようにします。機密ファイル保護は引き続き有効です。"
     },
     "allowNoAuthHosts": {
       "title": "認証不要ホスト",
@@ -2156,7 +2158,18 @@
     "kindBundle": "バンドル",
     "kindTool": "ツール",
     "filterByName": "名前で絞り込み",
-    "filterByKind": "タグで絞り込み"
+    "filterByKind": "タグで絞り込み",
+    "marketTitle": "Plugin Market",
+    "marketEmpty": "No plugins found in market",
+    "marketLoadFailed": "Failed to load plugin market",
+    "marketUnavailable": "Plugin Market is currently under maintenance, please try again later",
+    "marketAll": "All",
+    "marketSearch": "Search plugins...",
+    "marketCategory": "Filter by category",
+    "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
+    "marketDetails": "Details",
+    "marketDownloads": "Downloads",
+    "marketDeveloper": "Developer"
   },
   "plan": {
     "title": "プラン",
@@ -2335,5 +2348,14 @@
     "timeout": "{{seconds}} 秒以内にバックエンドの起動に失敗しました。",
     "timeoutHint": "バックエンドの起動に失敗しました。再試行するか、アプリケーションのログを確認してください。",
     "retry": "再試行"
+  },
+  "preview": {
+    "error": {
+      "SENSITIVE_FILE_BLOCKED": "このファイルはファイルガードによりブロックされています（機密ファイル保護）。",
+      "OUTSIDE_WORKSPACE": "このファイルはワークスペースの範囲外です。設定 → セキュリティ → ファイルガード で「コンソールでワークスペース外ファイルのプレビューを許可」を有効にしてください。",
+      "FORBIDDEN": "アクセス拒否：このファイルをプレビューする権限がありません。",
+      "NOT_FOUND": "ファイルが見つかりません。移動または削除された可能性があります。",
+      "LOAD_FAILED": "ファイルプレビューの読み込みに失敗しました。"
+    }
   }
 }

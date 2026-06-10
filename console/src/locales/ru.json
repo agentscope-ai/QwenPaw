@@ -1803,7 +1803,9 @@
       "duplicate": "Этот путь уже есть в списке",
       "saveSuccess": "Настройки защиты файлов сохранены",
       "saveFailed": "Не удалось сохранить настройки защиты файлов",
-      "loadFailed": "Не удалось загрузить настройки защиты файлов"
+      "loadFailed": "Не удалось загрузить настройки защиты файлов",
+      "allowPreviewOutsideWorkspace": "Разрешить предпросмотр файлов вне рабочего пространства",
+      "allowPreviewOutsideWorkspaceDesc": "Разрешить предпросмотр файлов за пределами рабочей директории в консоли. Защита конфиденциальных файлов остаётся активной."
     },
     "allowNoAuthHosts": {
       "title": "Хосты без аутентификации",
@@ -2171,7 +2173,18 @@
     "kindBundle": "Пакет",
     "kindTool": "Инструмент",
     "filterByName": "Фильтр по имени",
-    "filterByKind": "Фильтр по типу"
+    "filterByKind": "Фильтр по типу",
+    "marketTitle": "Plugin Market",
+    "marketEmpty": "No plugins found in market",
+    "marketLoadFailed": "Failed to load plugin market",
+    "marketUnavailable": "Plugin Market is currently under maintenance, please try again later",
+    "marketAll": "All",
+    "marketSearch": "Search plugins...",
+    "marketCategory": "Filter by category",
+    "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
+    "marketDetails": "Details",
+    "marketDownloads": "Downloads",
+    "marketDeveloper": "Developer"
   },
   "plan": {
     "title": "План",
@@ -2350,5 +2363,14 @@
     "timeout": "Не удалось запустить сервер за {{seconds}} секунд.",
     "timeoutHint": "Не удалось запустить бэкенд. Повторите попытку или проверьте журналы приложения.",
     "retry": "Повторить"
+  },
+  "preview": {
+    "error": {
+      "SENSITIVE_FILE_BLOCKED": "Этот файл заблокирован защитой файлов (защита конфиденциальных файлов).",
+      "OUTSIDE_WORKSPACE": "Этот файл находится за пределами рабочего пространства. Включите «Разрешить предпросмотр файлов вне рабочего пространства» в Настройки → Безопасность → Защита файлов.",
+      "FORBIDDEN": "Доступ запрещён: недостаточно прав для предпросмотра этого файла.",
+      "NOT_FOUND": "Файл не найден. Возможно, он был перемещён или удалён.",
+      "LOAD_FAILED": "Не удалось загрузить предпросмотр файла."
+    }
   }
 }

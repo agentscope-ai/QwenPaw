@@ -883,6 +883,52 @@ async def serve_plugin_ui_file(
     return FileResponse(str(full_path))
 
 
+# ── Plugin market proxy ───────────────────────────────────────────────────
+
+_PLUGIN_MARKET_BASE_URL = "https://platform.agentscope.io"
+_PLUGIN_MARKET_TIMEOUT = 15
+
+
+@router.get(
+    "/market/search",
+    summary="Search plugins from AgentScope Platform",
+)
+async def search_market_plugins(
+    page_number: int = 1,
+    page_size: int = 20,
+    search: Optional[str] = None,
+    category: Optional[str] = None,
+):
+    """Proxy plugin search to AgentScope Platform to avoid CORS."""
+    import httpx
+
+    params: dict = {
+        "page_number": page_number,
+        "page_size": page_size,
+    }
+    if search:
+        params["search"] = search
+    if category:
+        params["category"] = category
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=_PLUGIN_MARKET_TIMEOUT,
+        ) as client:
+            resp = await client.get(
+                f"{_PLUGIN_MARKET_BASE_URL}/openapi/v1/plugins",
+                params=params,
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as exc:
+        logger.warning("Plugin market search failed: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch from plugin market: {exc}",
+        ) from exc
+
+
 # ── Internal async helpers ────────────────────────────────────────────────
 
 
