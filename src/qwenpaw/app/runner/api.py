@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
 from __future__ import annotations
+import logging
 from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from agentscope.memory import InMemoryMemory
+
+from agentscope.message import Msg
+from agentscope.state import AgentState
 
 from .session import SafeJSONSession
 from .manager import ChatManager
@@ -13,7 +16,9 @@ from .models import (
     ChatUpdate,
     ChatHistory,
 )
-from .utils import agentscope_msg_to_message
+from .utils import agentscope_msg_to_message, parse_legacy_memory_state
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
@@ -167,11 +172,27 @@ async def get_chat(
     status = await workspace.task_tracker.get_status(chat_id)
     if not state:
         return ChatHistory(messages=[], status=status)
-    memory_state = state.get("agent", {}).get("memory", {})
-    memory = InMemoryMemory()
-    memory.load_state_dict(memory_state, strict=False)
 
-    memories = await memory.get_memory(prepend_summary=True)
+    agent_raw = state.get("agent", {})
+    memories: list[Msg] = []
+
+    state_raw = agent_raw.get("state")
+    if isinstance(state_raw, dict):
+        try:
+            agent_state = AgentState.model_validate(state_raw)
+            memories = list(agent_state.context)
+        except Exception:
+            logger.debug(
+                "Failed to parse agent.state, falling back to legacy",
+                exc_info=True,
+            )
+
+    # Legacy fallback: 1.x ``agent.memory`` format.
+    if not memories:
+        memory_raw = agent_raw.get("memory", {})
+        if memory_raw:
+            memories, _summary = parse_legacy_memory_state(memory_raw)
+
     messages = agentscope_msg_to_message(memories)
     return ChatHistory(messages=messages, status=status)
 

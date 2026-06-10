@@ -110,7 +110,7 @@ class TestResolveLocalPath:
         f = tmp_path / "empty.txt"
         f.write_text("", encoding="utf-8")
         parsed = urllib.parse.urlparse(f.as_uri())
-        from agentscope_runtime.engine.schemas.exception import (
+        from qwenpaw.exceptions import (
             AgentRuntimeErrorException,
         )
 

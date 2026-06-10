@@ -377,7 +377,7 @@ class TestIMessageChannelUtilityMethods:
         imessage_channel,
     ):
         """_extract_url_and_filename should handle image type correctly."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             ImageContent,
             ContentType,
         )
@@ -404,7 +404,7 @@ class TestIMessageChannelUtilityMethods:
         imessage_channel,
     ):
         """_extract_url_and_filename should handle video type correctly."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             VideoContent,
             ContentType,
         )
@@ -431,7 +431,7 @@ class TestIMessageChannelUtilityMethods:
         imessage_channel,
     ):
         """_get_file_extension should extract extension from filename."""
-        from agentscope_runtime.engine.schemas.agent_schemas import ContentType
+        from qwenpaw.schemas import ContentType
 
         ext = imessage_channel._get_file_extension(
             ContentType.IMAGE,
@@ -444,7 +444,7 @@ class TestIMessageChannelUtilityMethods:
         imessage_channel,
     ):
         """_get_file_extension returns default ext based on content type."""
-        from agentscope_runtime.engine.schemas.agent_schemas import ContentType
+        from qwenpaw.schemas import ContentType
 
         assert (
             imessage_channel._get_file_extension(ContentType.IMAGE, "photo")
@@ -587,7 +587,7 @@ class TestIMessageChannelSend:
     ):
         """send_content_parts should handle text-only parts."""
         from qwenpaw.app.channels.imessage.channel import IMessageChannel
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             TextContent,
             ContentType,
         )
@@ -648,7 +648,7 @@ class TestIMessageChannelMedia:
     ):
         """send_media should not perform operations when disabled."""
         from qwenpaw.app.channels.imessage.channel import IMessageChannel
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             ImageContent,
             ContentType,
         )
@@ -787,7 +787,7 @@ class TestIMessageChannelMedia:
     ):
         """_handle_data_url should handle valid base64 data URL."""
         from qwenpaw.app.channels.imessage.channel import IMessageChannel
-        from agentscope_runtime.engine.schemas.agent_schemas import ContentType
+        from qwenpaw.schemas import ContentType
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -822,7 +822,7 @@ class TestIMessageChannelMedia:
     ):
         """_handle_data_url should handle invalid base64 data."""
         from qwenpaw.app.channels.imessage.channel import IMessageChannel
-        from agentscope_runtime.engine.schemas.agent_schemas import ContentType
+        from qwenpaw.schemas import ContentType
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -852,7 +852,7 @@ class TestIMessageChannelMedia:
     ):
         """_handle_data_url should handle oversized base64 data."""
         from qwenpaw.app.channels.imessage.channel import IMessageChannel
-        from agentscope_runtime.engine.schemas.agent_schemas import ContentType
+        from qwenpaw.schemas import ContentType
 
         # Set small limit for testing
         channel = IMessageChannel(
@@ -886,7 +886,7 @@ class TestIMessageChannelMedia:
     ):
         """_handle_data_url should handle non-base64 format data URL."""
         from qwenpaw.app.channels.imessage.channel import IMessageChannel
-        from agentscope_runtime.engine.schemas.agent_schemas import ContentType
+        from qwenpaw.schemas import ContentType
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -920,7 +920,7 @@ class TestIMessageChannelRequestBuilder:
     ):
         """build_agent_request_from_native should build request from native."""
         from qwenpaw.app.channels.imessage.channel import IMessageChannel
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             TextContent,
             ContentType,
         )

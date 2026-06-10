@@ -7,7 +7,8 @@ from typing import Optional
 
 import aiofiles
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from .utils import (
     truncate_text_output,
@@ -68,7 +69,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
     file_path: str,
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
-) -> ToolResponse:
+) -> ToolChunk:
     """Read a file. Relative paths resolve from WORKING_DIR.
 
     Use start_line/end_line to read a specific line range (output includes
@@ -88,7 +89,9 @@ async def read_file(  # pylint: disable=too-many-return-statements
         try:
             start_line = int(start_line)
         except (ValueError, TypeError):
-            return ToolResponse(
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -101,7 +104,9 @@ async def read_file(  # pylint: disable=too-many-return-statements
         try:
             end_line = int(end_line)
         except (ValueError, TypeError):
-            return ToolResponse(
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -113,7 +118,9 @@ async def read_file(  # pylint: disable=too-many-return-statements
     file_path = _resolve_file_path(file_path)
 
     if not os.path.exists(file_path):
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -123,7 +130,9 @@ async def read_file(  # pylint: disable=too-many-return-statements
         )
 
     if not os.path.isfile(file_path):
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -142,7 +151,9 @@ async def read_file(  # pylint: disable=too-many-return-statements
         e = min(total, end_line if end_line is not None else total)
 
         if s > total:
-            return ToolResponse(
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -152,7 +163,9 @@ async def read_file(  # pylint: disable=too-many-return-statements
             )
 
         if s > e:
-            return ToolResponse(
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -191,12 +204,16 @@ async def read_file(  # pylint: disable=too-many-return-statements
             )
             text = text + notice
 
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[TextBlock(type="text", text=text)],
         )
 
     except Exception as e:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -209,7 +226,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
 async def write_file(
     file_path: str,
     content: str,
-) -> ToolResponse:
+) -> ToolChunk:
     """Create or overwrite a file. Relative paths resolve from WORKING_DIR.
 
     Args:
@@ -220,7 +237,9 @@ async def write_file(
     """
 
     if not file_path:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -235,7 +254,9 @@ async def write_file(
     try:
         async with aiofiles.open(file_path, "w", encoding=encoding) as file:
             await file.write(content)
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",
@@ -244,7 +265,9 @@ async def write_file(
             ],
         )
     except Exception as e:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -259,7 +282,7 @@ async def edit_file(
     file_path: str,
     old_text: str,
     new_text: str,
-) -> ToolResponse:
+) -> ToolChunk:
     """Find-and-replace text in a file. All occurrences of old_text are
     replaced with new_text. Relative paths resolve from WORKING_DIR.
 
@@ -273,7 +296,9 @@ async def edit_file(
     """
 
     if not file_path:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -285,7 +310,9 @@ async def edit_file(
     resolved_path = _resolve_file_path(file_path)
 
     if not os.path.exists(resolved_path):
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -295,7 +322,9 @@ async def edit_file(
         )
 
     if not os.path.isfile(resolved_path):
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -307,7 +336,9 @@ async def edit_file(
     try:
         content = await read_file_safe(resolved_path)
     except Exception as e:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -317,7 +348,9 @@ async def edit_file(
         )
 
     if old_text not in content:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -333,11 +366,13 @@ async def edit_file(
     )
 
     if write_response.content and len(write_response.content) > 0:
-        write_text = write_response.content[0].get("text", "")
+        write_text = getattr(write_response.content[0], "text", "")
         if write_text.startswith("Error:"):
             return write_response
 
-    return ToolResponse(
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
         content=[
             TextBlock(
                 type="text",
@@ -350,7 +385,7 @@ async def edit_file(
 async def append_file(
     file_path: str,
     content: str,
-) -> ToolResponse:
+) -> ToolChunk:
     """Append content to the end of a file. Relative paths resolve from
     WORKING_DIR.
 
@@ -362,7 +397,9 @@ async def append_file(
     """
 
     if not file_path:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -377,7 +414,9 @@ async def append_file(
     try:
         async with aiofiles.open(file_path, "a", encoding=encoding) as file:
             await file.write(content)
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",
@@ -386,7 +425,9 @@ async def append_file(
             ],
         )
     except Exception as e:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",

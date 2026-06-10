@@ -11,15 +11,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from ..constant import WORKING_DIR
+from ..runtime import GuardedFunctionTool
 from .tools import ast_tool
 from .tools._lsp_servers import detect_available_lsp_languages
 from .tools.lsp_tool import make_lsp_tool
-
-if TYPE_CHECKING:
-    from agentscope.tool import Toolkit
 
 logger = logging.getLogger(__name__)
 
@@ -136,15 +133,15 @@ class CodingModeMixin:
     """Mixin that adds Coding Mode features to a ReActAgent.
 
     At runtime this class is mixed into ``QwenPawAgent`` and combined
-    with ``ToolGuardMixin`` and ``ReActAgent`` via MRO. Currently only
-    overrides ``_build_sys_prompt`` to inject a coding persona block.
+    with ``Agent`` via MRO. Currently only overrides ``_build_sys_prompt``
+    to inject a coding persona block.
     """
 
     # ------------------------------------------------------------------
     # System prompt injection
     # ------------------------------------------------------------------
 
-    def _build_sys_prompt(self) -> str:  # noqa: D102
+    def _build_sys_prompt(self) -> str:
         """Append the Coding Mode persona block to the base system prompt."""
         base: str = super()._build_sys_prompt()  # type: ignore[misc]
         if not self._coding_mode_enabled():
@@ -187,7 +184,7 @@ class CodingModeMixin:
             cm = config.coding_mode
             if cm and cm.project_dir:
                 return cm.project_dir
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
         # Fallback to stale in-memory config
@@ -220,32 +217,35 @@ class CodingModeMixin:
     # Tool registration hook (called from QwenPawAgent._create_toolkit)
     # ------------------------------------------------------------------
 
-    def _register_coding_mode_tools(
+    def _collect_coding_mode_tools(
         self,
-        toolkit: "Toolkit",
-        namesake_strategy: str = "skip",
-    ) -> None:
-        """Register Coding Mode tools (`lsp`, `ast_search`) on the toolkit.
+        agent_id: str | None = None,
+        request_context: dict[str, str] | None = None,
+    ) -> list:
+        """Collect Coding Mode tool instances (`lsp`, `ast_search`).
 
-        Both tools are smart-discovered: they only get registered if
-        their underlying dependency is reachable (an LSP server / the
-        ``ast-grep`` CLI). Failure to register either tool is logged but
-        never raised — Coding Mode must still work without them.
+        Returns a list of ``FunctionTool`` instances to be included in
+        the ``Toolkit(tools=[...])`` constructor.  Both tools are
+        smart-discovered and missing dependencies are logged, not raised.
         """
         if not self._coding_mode_enabled():
-            return
+            return []
+
         project_dir = Path(
             self._get_coding_project_dir()
             or str(getattr(self, "_workspace_dir", "") or WORKING_DIR),
         )
+        result: list = []
 
         try:
             available = detect_available_lsp_languages(project_dir)
             if available:
-                toolkit.register_tool_function(
-                    make_lsp_tool(available),
-                    namesake_strategy=namesake_strategy,
-                    async_execution=True,
+                result.append(
+                    GuardedFunctionTool(
+                        make_lsp_tool(available),
+                        agent_id=agent_id,
+                        request_context=request_context,
+                    ),
                 )
                 logger.info(
                     "Registered Coding Mode lsp tool with languages: %s",
@@ -262,10 +262,12 @@ class CodingModeMixin:
 
         try:
             if ast_tool.is_ast_grep_available():
-                toolkit.register_tool_function(
-                    ast_tool.ast_search,
-                    namesake_strategy=namesake_strategy,
-                    async_execution=True,
+                result.append(
+                    GuardedFunctionTool(
+                        ast_tool.ast_search,
+                        agent_id=agent_id,
+                        request_context=request_context,
+                    ),
                 )
                 logger.info("Registered Coding Mode ast_search tool")
             else:
@@ -274,3 +276,5 @@ class CodingModeMixin:
                 )
         except Exception as exc:  # pylint: disable=broad-except
             logger.warning(f"Failed to register ast_search tool: {exc}")
+
+        return result

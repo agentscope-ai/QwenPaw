@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from typing import Any, Dict, Optional
 
 import aiohttp
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     TextContent,
     ImageContent,
     VideoContent,

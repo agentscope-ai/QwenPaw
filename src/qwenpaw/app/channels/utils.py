@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-return-statements
 """
-Bridge between channels and AgentApp process: factory to build
+Bridge between channels and agent processing: factory to build
 ProcessHandler from runner. Shared helpers for channels (e.g. file URL).
 """
 from __future__ import annotations
@@ -264,7 +264,7 @@ def make_process_from_runner(runner: Any):
 
     Each channel does: native -> build_agent_request_from_native()
         -> process(request) -> send on each completed message.
-    process is runner.stream_query, same as AgentApp's /process endpoint.
+    process is runner.stream_query (POST /api/console/chat).
 
     Usage::
         process = make_process_from_runner(runner)

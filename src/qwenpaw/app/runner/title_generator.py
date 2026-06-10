@@ -8,9 +8,11 @@ the active chat model for a concise title and persists it via
 ``ChatManager.patch_chat``. Failures are logged and swallowed so title
 generation never affects the user-facing request.
 
-The LLM call mirrors ``app/routers/skills_stream.py``: build raw
-role/content dicts, await ``model(messages)`` directly without a formatter,
-and tolerate the same ``(ValueError, AppBaseException)`` factory failures.
+The LLM call mirrors ``app/routers/skills_stream.py``: build a list of
+``agentscope.message.Msg`` (2.0's ``ChatModelBase.__call__`` no longer
+accepts plain dicts — the formatter is now built-in and asserts on
+``Msg`` instances), await ``model(messages)`` directly, and tolerate the
+same ``(ValueError, AppBaseException)`` factory failures.
 """
 from __future__ import annotations
 
@@ -18,7 +20,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from agentscope_runtime.engine.schemas.exception import AppBaseException
+from qwenpaw.exceptions import AppBaseException
 
 from .models import ChatUpdate
 
@@ -181,9 +183,19 @@ async def generate_and_update_title(
             )
             return
 
+        from agentscope.message import Msg, TextBlock
+
         messages = [
-            {"role": "system", "content": TITLE_PROMPT},
-            {"role": "user", "content": message},
+            Msg(
+                name="system",
+                role="system",
+                content=[TextBlock(type="text", text=TITLE_PROMPT)],
+            ),
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(type="text", text=message)],
+            ),
         ]
 
         raw_title = await asyncio.wait_for(

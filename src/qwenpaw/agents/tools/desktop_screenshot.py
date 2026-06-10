@@ -8,14 +8,17 @@ import subprocess
 import time
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
 
 
-def _tool_error(msg: str) -> ToolResponse:
-    return ToolResponse(
+def _tool_error(msg: str) -> ToolChunk:
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
         content=[
             TextBlock(
                 type="text",
@@ -29,8 +32,10 @@ def _tool_error(msg: str) -> ToolResponse:
     )
 
 
-def _tool_ok(path: str, message: str) -> ToolResponse:
-    return ToolResponse(
+def _tool_ok(path: str, message: str) -> ToolChunk:
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
         content=[
             TextBlock(
                 type="text",
@@ -48,7 +53,7 @@ def _tool_ok(path: str, message: str) -> ToolResponse:
     )
 
 
-def _capture_mss(path: str) -> ToolResponse:
+def _capture_mss(path: str) -> ToolChunk:
     """Full-screen capture using mss (Windows, Linux, macOS)."""
     try:
         import mss
@@ -71,7 +76,7 @@ def _capture_mss(path: str) -> ToolResponse:
 def _capture_macos_screencapture(
     path: str,
     capture_window: bool,
-) -> ToolResponse:
+) -> ToolChunk:
     """macOS: screencapture (supports window selection with -w)."""
     cmd = ["screencapture", "-x", path]
     if capture_window:
@@ -103,7 +108,7 @@ def _capture_macos_screencapture(
 async def desktop_screenshot(
     path: str = "",
     capture_window: bool = False,
-) -> ToolResponse:
+) -> ToolChunk:
     """Capture a screenshot of the entire desktop (all monitors)
         or a single window.
 
@@ -122,7 +127,7 @@ async def desktop_screenshot(
             (capture_window is ignored).
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             JSON with "ok", "path" (saved file path), and optional "message"
             or "error".
     """

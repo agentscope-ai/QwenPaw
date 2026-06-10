@@ -133,8 +133,8 @@ class TaskTracker:
         :meth:`has_active_tasks` and :meth:`wait_all_done`.
 
         This is used for tasks managed outside of QwenPaw's own streaming
-        pipeline (e.g. background tasks dispatched through
-        ``agentscope_runtime``'s ``AgentApp``).  The caller **must** call
+        pipeline (e.g. background tasks dispatched through a third-party
+        scheduler).  The caller **must** call
         :meth:`unregister_external_task` when the task completes.
 
         Args:

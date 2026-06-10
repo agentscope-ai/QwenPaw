@@ -6,7 +6,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     ModelNotFoundException,
 )
 

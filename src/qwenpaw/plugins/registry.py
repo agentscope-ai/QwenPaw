@@ -495,6 +495,39 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._workspace_created_hooks.copy()
 
+    def remove_hooks_by_name(
+        self,
+        plugin_id: str,
+        hook_names: List[str],
+    ) -> None:
+        """Remove specific hooks registered by a plugin.
+
+        Removes hooks matching the given ``hook_names`` from all hook
+        lists (startup, shutdown, uninstall, workspace_created).
+
+        Args:
+            plugin_id: Plugin identifier that owns the hooks.
+            hook_names: Hook names to remove.
+        """
+        names_set = set(hook_names)
+
+        def _filter(hooks: list) -> list:
+            return [
+                h
+                for h in hooks
+                if not (h.plugin_id == plugin_id and h.hook_name in names_set)
+            ]
+
+        self._startup_hooks = _filter(self._startup_hooks)
+        self._shutdown_hooks = _filter(self._shutdown_hooks)
+        self._uninstall_hooks = _filter(self._uninstall_hooks)
+        self._workspace_created_hooks = _filter(
+            self._workspace_created_hooks,
+        )
+        logger.info(
+            f"Removed hooks {hook_names} for plugin '{plugin_id}'",
+        )
+
     def register_prompt_section(
         self,
         plugin_id: str,
@@ -554,6 +587,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
     def get_prompt_sections(self) -> List[PromptSectionRegistration]:
         """Return a copy of registered prompt sections."""
         return list(self._prompt_sections)
+
 
     def register_control_command(
         self,

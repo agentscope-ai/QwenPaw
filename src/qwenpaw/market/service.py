@@ -92,7 +92,7 @@ async def _run_one(
     kwargs = _supported_kwargs(provider.search, lang=lang)
     try:
         return await provider.search(query, limit, page, **kwargs)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning(
             "Market provider %s failed for query=%r: %s",
             key,

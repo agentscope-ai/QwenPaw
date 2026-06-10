@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import aiohttp
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     FileContent,
     ImageContent,
     ContentType,
@@ -44,7 +44,7 @@ from .utils import download_file
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+    from qwenpaw.schemas import AgentRequest
 
 
 # Class-level registry to track active connections per agent_id
@@ -1064,7 +1064,7 @@ class XiaoYiChannel(BaseChannel):
         - kind="reasoningText": For thinking/reasoning content
         - kind="text": For regular text content
         """
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             MessageType,
         )
 
@@ -1417,7 +1417,7 @@ class XiaoYiChannel(BaseChannel):
         send_meta: Dict[str, Any],
     ) -> None:
         """Run process and send events. Override to send final message."""
-        from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
+        from qwenpaw.schemas import RunStatus
 
         last_response = None
         session_id = send_meta.get("session_id") or to_handle

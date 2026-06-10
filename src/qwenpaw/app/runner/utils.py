@@ -8,7 +8,7 @@ from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import Msg
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     Message,
     TextContent,
     ImageContent,
@@ -20,13 +20,41 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     FunctionCallOutput,
     MessageType,
 )
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     AgentRuntimeErrorException,
 )
 
 from ...config import load_config
 
 logger = logging.getLogger(__name__)
+
+
+def parse_legacy_memory_state(
+    memory_raw: dict,
+) -> tuple[List[Msg], str]:
+    """Parse a 1.x ``InMemoryMemory.state_dict()`` payload.
+
+    1.x stored ``{"content": [[msg_dict, marks], ...],
+    "_compressed_summary": str}``.  2.0 keeps messages on
+    ``AgentState.context`` instead, so this helper exists only for
+    sessions on disk that pre-date the migration.  ``marks`` are dropped
+    (only ``HINT`` / ``COMPRESSED`` were used and neither is reachable
+    from the new state schema).
+
+    Returns ``(messages, summary)``; either may be empty.
+    """
+    messages: List[Msg] = []
+    for item in memory_raw.get("content", []) or []:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            payload = item[0]
+        else:
+            payload = item
+        if isinstance(payload, dict):
+            messages.append(Msg.from_dict(payload))
+        elif isinstance(payload, Msg):
+            messages.append(payload)
+    summary = memory_raw.get("_compressed_summary") or ""
+    return messages, summary
 
 
 def build_env_context(
@@ -175,11 +203,24 @@ def _build_media_message_from_block(
     output = block.get("output")
     media_message = None
     if isinstance(output, list):
+
+        def _resolve_media_type(item):
+            if not isinstance(item, dict):
+                return None
+            t = item.get("type")
+            if t in ("image", "audio", "video", "file"):
+                return t
+            if t == "data":
+                src = item.get("source") or {}
+                mt = src.get("media_type", "") if isinstance(src, dict) else ""
+                for prefix in ("image", "audio", "video"):
+                    if mt.startswith(f"{prefix}/"):
+                        return prefix
+                return "file"
+            return None
+
         media_items = [
-            item
-            for item in output
-            if isinstance(item, dict)
-            and item.get("type") in ("image", "audio", "video", "file")
+            item for item in output if _resolve_media_type(item) is not None
         ]
         if media_items:
             media_message = Message(
@@ -189,7 +230,7 @@ def _build_media_message_from_block(
             media_message.metadata = metadata
 
             for item in media_items:
-                itype = item.get("type")
+                itype = _resolve_media_type(item)
 
                 if itype == "image":
                     kwargs = {}
@@ -395,10 +436,30 @@ def agentscope_msg_to_message(
         current_type = None
 
         for block in msg.content:
-            if isinstance(block, dict):
-                btype = block.get("type", "text")
-            else:
+            # Normalize pydantic block models to dict so the rest of
+            # this conversion (which uses .get) handles both shapes.
+            if hasattr(block, "model_dump"):
+                block = block.model_dump()
+            if not isinstance(block, dict):
                 continue
+            btype = block.get("type", "text")
+
+            # DataBlock (2.0): map type="data" to concrete media type
+            if btype == "data":
+                source = block.get("source") or {}
+                mt = (
+                    source.get("media_type", "")
+                    if isinstance(source, dict)
+                    else ""
+                )
+                if mt.startswith("image/"):
+                    btype = "image"
+                elif mt.startswith("audio/"):
+                    btype = "audio"
+                elif mt.startswith("video/"):
+                    btype = "video"
+                else:
+                    btype = "file"
 
             if btype == "text":
                 if current_type != MessageType.MESSAGE:
@@ -436,7 +497,7 @@ def agentscope_msg_to_message(
                 )
                 current_message.add_content(new_content=text_content)
 
-            elif btype == "tool_use":
+            elif btype in ("tool_use", "tool_call"):
                 if current_message:
                     results.append(current_message.completed())
 

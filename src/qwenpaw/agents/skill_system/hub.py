@@ -22,7 +22,7 @@ import frontmatter
 import httpx
 import yaml
 
-from agentscope_runtime.engine.schemas.exception import ConfigurationException
+from qwenpaw.exceptions import ConfigurationException
 from ...exceptions import SkillsError
 from ...constant import EnvVarLoader
 from .models import SkillConflictError
@@ -1765,7 +1765,7 @@ async def _fetch_bundle_from_aliyun_url(
             pathname=f"/openapi/skills/{quote(skill_id, safe='')}",
             method="GET",
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise SkillsError(
             message=f"Aliyun GetSkillContent failed: {exc}",
         ) from exc

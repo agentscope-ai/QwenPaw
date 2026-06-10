@@ -683,7 +683,7 @@ class TestWecomChannelBuildAgentRequest:
 
     def test_build_agent_request_from_native_basic(self, wecom_channel):
         """build_agent_request_from_native creates proper AgentRequest."""
-        from agentscope_runtime.engine.schemas.agent_schemas import TextContent
+        from qwenpaw.schemas import TextContent
 
         payload = {
             "channel_id": "wecom",
@@ -1041,7 +1041,7 @@ class TestWecomChannelSendMethods:
     ):
         """send_content_parts should send text content."""
         wecom_channel._client = mock_ws_client
-        from agentscope_runtime.engine.schemas.agent_schemas import TextContent
+        from qwenpaw.schemas import TextContent
 
         parts = [TextContent(type="text", text="Hello World")]
         meta = {"wecom_frame": {"test": "frame"}}
@@ -1063,7 +1063,7 @@ class TestWecomChannelSendMethods:
         """send_content_parts should apply bot prefix."""
         wecom_channel._client = mock_ws_client
         wecom_channel.bot_prefix = "[Bot]"
-        from agentscope_runtime.engine.schemas.agent_schemas import TextContent
+        from qwenpaw.schemas import TextContent
 
         parts = [TextContent(type="text", text="Hello")]
 
@@ -1085,7 +1085,7 @@ class TestWecomChannelSendMethods:
     ):
         """send_content_parts should use send_message when no frame."""
         wecom_channel._client = mock_ws_client
-        from agentscope_runtime.engine.schemas.agent_schemas import TextContent
+        from qwenpaw.schemas import TextContent
 
         parts = [TextContent(type="text", text="Hello")]
 
@@ -1463,7 +1463,7 @@ class TestWecomChannelEdgeCases:
         wecom_channel._client = mock_ws_client
         wecom_channel._upload_media = AsyncMock(return_value="media_123")
 
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             ImageContent,
         )
 
@@ -1492,7 +1492,7 @@ class TestWecomChannelEdgeCases:
         amr_file = tmp_path / "test.amr"
         amr_file.write_bytes(b"amr data")
 
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AudioContent,
         )
 
