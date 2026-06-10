@@ -117,6 +117,14 @@ if (Test-Path $CondaUnpack) {
     if ($LASTEXITCODE -ne 0) {
       throw "CRITICAL: huggingface_hub still has import errors after reinstall. See issue.md"
     }
+    $certFile = (& $pythonExe -c "import certifi; print(certifi.where())").Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $certFile -or -not (Test-Path $certFile)) {
+      throw "CRITICAL: failed to resolve certifi certificate bundle for discord.py import verification."
+    }
+    $env:SSL_CERT_FILE = $certFile
+    $env:REQUESTS_CA_BUNDLE = $certFile
+    $env:CURL_CA_BUNDLE = $certFile
+    Write-Host "[build_win] Using certifi bundle for import verification: $certFile"
     & $pythonExe -c "import discord; print('✓ discord.py import OK')"
     if ($LASTEXITCODE -ne 0) {
       throw "CRITICAL: discord.py still has import errors after reinstall."
