@@ -17,13 +17,15 @@ const TaskGraphCard: React.FC<{ data: TaskGraphCardData }> = ({ data }) => {
   if (!data?.plan) return null;
 
   return (
-    <TaskGraphPanel
-      plan={data.plan}
-      onNodeClick={actions?.onNodeClick ?? (() => {})}
-      onPlanCorrection={actions?.onPlanCorrection}
-      onMoreMenuClick={actions?.onMoreMenuClick}
-      showActions={data.showActions ?? true}
-    />
+    <div data-datapaw-task-graph-card>
+      <TaskGraphPanel
+        plan={data.plan}
+        onNodeClick={actions?.onNodeClick ?? (() => {})}
+        onPlanCorrection={actions?.onPlanCorrection}
+        onMoreMenuClick={actions?.onMoreMenuClick}
+        showActions={data.showActions ?? true}
+      />
+    </div>
   );
 };
 

@@ -8,18 +8,28 @@
  * - All other content is passed through unchanged.
  * - On any error the stream degrades to full pass-through so the chat is never blocked.
  */
-/** Session-level plan tools (no node_id) — trigger task-card fetch from chat SSE. */
-export type PlanToolStreamEvent = { name: string; phase: "call" | "result" };
+import { handlePlanToolStreamRefresh } from "./lib/taskCardStreamRefresh";
+import {
+  isTaskCardRefreshTool,
+  type PlanToolStreamEvent,
+} from "./lib/planToolStream";
 
-const TASK_CARD_PLAN_TOOLS = new Set(["create_plan", "finish_plan"]);
+export type { PlanToolStreamEvent } from "./lib/planToolStream";
+/** Legacy alias — ui task-card still listens for create_plan via onPlanTool. */
+const TASK_CARD_STREAM_TOOL = "create_plan";
 
 function notifyPlanToolInStream(
   name: string | undefined,
   phase: PlanToolStreamEvent["phase"],
   onPlanTool?: (event: PlanToolStreamEvent) => void,
 ): void {
-  if (!onPlanTool || !name || !TASK_CARD_PLAN_TOOLS.has(name)) return;
-  onPlanTool({ name, phase });
+  if (!name || !isTaskCardRefreshTool(name)) return;
+
+  if (onPlanTool && name === TASK_CARD_STREAM_TOOL) {
+    onPlanTool({ name, phase });
+  }
+
+  handlePlanToolStreamRefresh({ name, phase });
 }
 
 export function createInterceptedStream(
@@ -78,6 +88,7 @@ export function createInterceptedStream(
             typeof parsed.text === 'string'
           ) {
             onLiveText(parsed.text, parsed.metadata, parsed.msg_id);
+            schedulePinTaskCardDuringStream();
           }
 
           // 拦截工具调用事件 (tool_use - 有 arguments)

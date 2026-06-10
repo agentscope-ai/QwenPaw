@@ -1,10 +1,11 @@
 import type { HostBundle } from "../types";
-import { getSessionId } from "../lib/agent";
-import { fetchTasksSummary } from "../lib/api";
+
+const IN_PROGRESS = "in_progress";
 
 /**
- * create_plan tool render — keep minimal UI only.
- * The full task card is injected separately (single datapaw_task_graph message).
+ * create_plan tool render — loading indicator only.
+ * GET /api/tasks is triggered exclusively from chat SSE when name === create_plan
+ * (see patches/task-card.ts handlePlanToolInStream).
  */
 export function createCreatePlanRender(host: HostBundle) {
   const { React, antd } = host;
@@ -16,28 +17,14 @@ export function createCreatePlanRender(host: HostBundle) {
   }: {
     data: { status?: string };
   }) {
-    const [loading, setLoading] = useState(data?.status === "IN_PROGRESS");
+    const isLoading = data?.status === IN_PROGRESS;
+    const [showSpinner, setShowSpinner] = useState(isLoading);
 
     useEffect(() => {
-      if (data?.status !== "IN_PROGRESS") {
-        setLoading(false);
-        return;
-      }
-      const sessionId = getSessionId();
-      if (!sessionId) {
-        setLoading(false);
-        return;
-      }
-      let cancelled = false;
-      void fetchTasksSummary(sessionId).finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-      return () => {
-        cancelled = true;
-      };
-    }, [data?.status]);
+      setShowSpinner(isLoading);
+    }, [isLoading]);
 
-    if (!loading) return null;
+    if (!showSpinner) return null;
 
     return React.createElement(
       "div",

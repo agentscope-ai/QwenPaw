@@ -1,4 +1,3 @@
-import { createInterceptedStream } from "@/pages/Chat/sseIntercept";
 import { DATAPAW_AGENT_ID } from "../lib/constants";
 import { isDatapawAgentSelected } from "../lib/agent";
 import {
@@ -10,6 +9,18 @@ import {
 import { handlePlanToolInStream } from "./task-card";
 
 let installed = false;
+
+type CreateInterceptedStream = typeof import("@/pages/Chat/sseIntercept").createInterceptedStream;
+
+let createInterceptedStream: CreateInterceptedStream | null = null;
+
+async function ensureInterceptedStream(): Promise<CreateInterceptedStream> {
+  if (!createInterceptedStream) {
+    const mod = await import("@/pages/Chat/sseIntercept");
+    createInterceptedStream = mod.createInterceptedStream;
+  }
+  return createInterceptedStream;
+}
 
 function isConsoleChatUrl(url: string): boolean {
   return url.includes("/console/chat");
@@ -51,7 +62,8 @@ export function installFetchPatch(): void {
     const response = await originalFetch(input, effectiveInit);
 
     if (datapawActive && response.body) {
-      const interceptedBody = createInterceptedStream(
+      const intercept = await ensureInterceptedStream();
+      const interceptedBody = intercept(
         response.body,
         handleLiveText,
         handleToolCall,

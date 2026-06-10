@@ -5,6 +5,7 @@ import { patchHostSessionApi } from "../hostSessionApiPatch";
 import { installFetchPatch } from "./fetch-patch";
 import { setupHostChatIntegration } from "../plugin-host";
 import { PLUGIN_ID } from "../plugin/constants";
+import { registerTaskCardSenderPrefix } from "./task-card-dock";
 
 function wrapWithI18n(Component: ComponentType<any>) {
   return function Wrapped(props: any) {
@@ -31,8 +32,9 @@ export function setupDataPawHostChat(): void {
   });
 
   setupHostChatIntegration();
+  registerTaskCardSenderPrefix();
 
   console.info(
-    `[${PLUGIN_ID}] Host /chat integration ready (task cards via Chat injectTaskGraphCard)`,
+    `[${PLUGIN_ID}] Host /chat integration ready (task card above input via sender.addPrefix)`,
   );
 }

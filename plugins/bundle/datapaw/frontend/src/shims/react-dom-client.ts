@@ -12,9 +12,30 @@ if (!RD) {
   );
 }
 
-// react-dom/client first appeared in React 18; the host exposes the full
-// ReactDOM object so `createRoot` lives directly on it.
-export const createRoot = RD.createRoot;
-export const hydrateRoot = RD.hydrateRoot;
+type CreateRootFn = typeof import("react-dom/client").createRoot;
+type HydrateRootFn = typeof import("react-dom/client").hydrateRoot;
+
+function legacyCreateRoot(container: Element | DocumentFragment) {
+  return {
+    render(children: unknown) {
+      RD.render(children, container);
+    },
+    unmount() {
+      RD.unmountComponentAtNode(container as Element);
+    },
+  };
+}
+
+// Host exposes `react-dom` default export; `createRoot` may live on
+// `react-dom/client` instead of the legacy ReactDOM namespace.
+export const createRoot: CreateRootFn =
+  typeof RD.createRoot === "function"
+    ? RD.createRoot.bind(RD)
+    : (legacyCreateRoot as CreateRootFn);
+
+export const hydrateRoot: HydrateRootFn =
+  typeof RD.hydrateRoot === "function"
+    ? RD.hydrateRoot.bind(RD)
+    : (legacyCreateRoot as HydrateRootFn);
 
 export default { createRoot, hydrateRoot };

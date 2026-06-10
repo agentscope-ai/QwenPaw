@@ -1,7 +1,7 @@
 {
   "id": "datapaw",
   "name": "DataPaw",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "general",
   "description": "DataPaw —— QwenPaw 数据分析增强插件。基于 DAG 任务图分阶段推进复杂数据分析；本版本提供任务面板后端能力（DAG REST API + 节点状态 SSE 推送），配套前端面板将在后续版本提供。安装完成后请刷新页面以加载插件。",
   "description_i18n": {
@@ -10,6 +10,7 @@
   },
   "author": "DataPaw Team",
   "entry": {
+    "frontend": "ui/dist/index.js",
     "backend": "plugin.py"
   },
   "dependencies": [],

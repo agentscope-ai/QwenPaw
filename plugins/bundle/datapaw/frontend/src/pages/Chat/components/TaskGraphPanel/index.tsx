@@ -73,7 +73,7 @@ export default function TaskGraphPanel({
   );
 
   const handleMoreMenuClick = useCallback<NonNullable<MenuProps['onClick']>>(
-    ({ gitkey }) => {
+    ({ key }) => {
       onMoreMenuClick?.(String(key));
     },
     [onMoreMenuClick],
@@ -144,7 +144,7 @@ export default function TaskGraphPanel({
   }, [handleMoreMenuClick, moreMenuItems, onPlanCorrection, plan, showActions, t]);
 
   return (
-    <div className={styles.taskPlan}>
+    <div className={styles.taskPlan} data-datapaw-task-graph-card>
       <Table<TaskRow>
         className={styles.taskTable}
         columns={columns}

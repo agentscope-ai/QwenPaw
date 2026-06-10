@@ -1,6 +1,13 @@
 const STYLE_ID = "datapaw-task-graph-panel-style";
 
 const CSS = `
+[data-datapaw-task-graph-card] {
+  width: 100%;
+}
+.datapaw-task-card-sender-prefix {
+  flex-shrink: 0;
+  width: 100%;
+}
 .datapaw-task-plan {
   margin-top: 8px;
   margin-bottom: 8px;

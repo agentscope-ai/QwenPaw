@@ -6,6 +6,7 @@ import {
   removeTaskCardForSession,
 } from "../lib/task-card-storage";
 import type { PlanSnapshot } from "../task-graph/types";
+import { isTaskGraphMessageId } from "../lib/pin-task-card";
 
 const PATCHED = Symbol("datapawSessionApiPatched");
 
@@ -21,13 +22,6 @@ function getSessionApiInstance(): Record<string, unknown> | null {
   ).QwenPaw?.modules?.["Chat/sessionApi/index"];
   const api = mod?.default;
   return (api as Record<string, unknown>) ?? null;
-}
-
-function isTaskGraphMessageId(id: unknown): boolean {
-  return (
-    typeof id === "string" &&
-    (id === TASK_GRAPH_MESSAGE_ID || id.startsWith("task_graph_"))
-  );
 }
 
 function resolveStorageSessionIds(sessionId: string): string[] {
@@ -61,6 +55,18 @@ function mergeTaskCardIntoSession(
   const messages = session.messages ?? [];
   if (messages.some((m) => m.id === TASK_GRAPH_MESSAGE_ID)) return;
   session.messages = [...messages, stored];
+}
+
+function sortTaskCardsLast(
+  messages: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const regular: Array<Record<string, unknown>> = [];
+  const taskCards: Array<Record<string, unknown>> = [];
+  for (const msg of messages) {
+    if (isTaskGraphMessageId(msg.id)) taskCards.push(msg);
+    else regular.push(msg);
+  }
+  return [...regular, ...taskCards];
 }
 
 export function patchHostSessionApi(): boolean {
@@ -127,7 +133,9 @@ export function patchHostSessionApi(): boolean {
             messages.push(msg);
           }
         }
-        session.messages = messages;
+        session.messages = sortTaskCardsLast(messages);
+      } else if (session.messages?.length) {
+        session.messages = sortTaskCardsLast(session.messages);
       }
 
       return session;

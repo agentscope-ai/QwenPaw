@@ -28,11 +28,9 @@ import ChatSenderToolbar from "./components/ChatSenderToolbar";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { createInterceptedStream, type PlanToolStreamEvent } from './sseIntercept';
-import TaskGraphCard from './components/TaskGraphPanel/TaskGraphCard';
 import TaskNodeDrawer from './components/TaskGraphPanel/TaskNodeDrawer';
 import PlanDetailModal from './components/TaskGraphPanel/PlanDetailModal';
 import ArtifactManageDrawer from './components/TaskGraphPanel/ArtifactManageDrawer';
-import { TaskGraphActionsProvider } from './components/TaskGraphPanel/TaskGraphActionsContext';
 import { FetchDataToolAdapter } from './components/FetchDataBlock';
 import type { StreamEvent } from './components/TaskGraphPanel/types';
 import { useTaskGraphChat } from './hooks/useTaskGraphChat';
@@ -483,12 +481,9 @@ export default function ChatPage() {
   const {
     currentPlan,
     taskPanel,
-    taskGraphActionsRef,
-    contextActions,
     getAllFiles: getAllFilesFromPlan,
     clearTaskGraph,
   } = useTaskGraphChat({
-    chatRef,
     sessionId: taskSessionId,
     userId: taskUserId,
     enabled: isChatActive() && !!taskSessionId,
@@ -700,11 +695,9 @@ export default function ChatPage() {
     setNodeStreamEventsMap({ ...nodeStreamEventsMapRef.current });
   }, []);
 
-  /** Chat SSE 出现 create_plan 时拉取 /api/tasks，有 current_plan 则注入任务卡片 */
+  /** Chat SSE 出现 plan/graph 工具时拉取 /api/tasks 刷新任务卡片 */
   const handlePlanToolInStream = useCallback(
     (event: PlanToolStreamEvent) => {
-      if (event.name !== "create_plan" && event.name !== "finish_plan") return;
-
       const fetchTaskCard = (delayMs: number) => {
         window.setTimeout(() => {
           const sid =
@@ -712,7 +705,7 @@ export default function ChatPage() {
             window.currentSessionId ||
             null;
           if (!sid) {
-            console.warn("[TaskGraph] create_plan in stream but session id missing");
+            console.warn("[TaskGraph] plan tool in stream but session id missing");
             return;
           }
           void taskPanel.refreshSummary(sid);
@@ -760,57 +753,6 @@ export default function ChatPage() {
   }, []);
 
   const handleNodeClickRef = useRef<(nodeId: string) => void>(() => {});
-
-  const handlePlanCorrectionSubmit = useCallback(
-    async (yaml: string) => {
-      const result = await taskPanel.handlePlanCorrection(yaml);
-      if (result.ok) {
-        message.success(result.detail || t('taskGraph.planUpdateSuccess'));
-        return;
-      }
-      if (result.agentRunning) {
-        message.warning(t('taskGraph.agentRunning'));
-        return;
-      }
-      message.error('error' in result ? result.error : t('taskGraph.planUpdateFailed'));
-    },
-    [message, t, taskPanel],
-  );
-
-  const handleTaskGraphMoreMenu = useCallback(
-    async (key: string) => {
-      try {
-        if (key === 'view-plan') {
-          await taskPanel.openPlanDetail();
-          return;
-        }
-        if (key === 'download-sop') {
-          await taskPanel.handleDownloadSop();
-          message.success(t('taskGraph.downloadStarted'));
-          return;
-        }
-        if (key === 'download-dag') {
-          await taskPanel.handleDownloadDag();
-          message.success(t('taskGraph.downloadStarted'));
-          return;
-        }
-        if (key === 'artifact-manage') {
-          setArtifactDrawerOpen(true);
-        }
-      } catch {
-        message.error(t('taskGraph.actionFailed'));
-      }
-    },
-    [message, t, taskPanel],
-  );
-
-  taskGraphActionsRef.current = {
-    onNodeClick: (nodeId: string) => handleNodeClickRef.current(nodeId),
-    onPlanCorrection: handlePlanCorrectionSubmit,
-    onMoreMenuClick: (key) => {
-      void handleTaskGraphMoreMenu(key);
-    },
-  };
 
   const customFetch = useCallback(
     async (data: {
@@ -1105,9 +1047,6 @@ export default function ChatPage() {
         ],
         replace: true,
       },
-      cards: {
-        task_graph: TaskGraphCard,
-      },
       customToolRenderConfig: {
         // 主 Chat 消息气泡中的 fetch_data 工具调用使用通用的表格化渲染组件
         fetch_data: FetchDataToolAdapter,
@@ -1134,15 +1073,13 @@ export default function ChatPage() {
         flexDirection: "column",
       }}
     >
-      <TaskGraphActionsProvider value={contextActions}>
-        <div className={styles.chatMessagesArea}>
-          <AgentScopeRuntimeWebUI
-            ref={chatRef}
-            key={refreshKey}
-            options={options}
-          />
-        </div>
-      </TaskGraphActionsProvider>
+      <div className={styles.chatMessagesArea}>
+        <AgentScopeRuntimeWebUI
+          ref={chatRef}
+          key={refreshKey}
+          options={options}
+        />
+      </div>
 
       <Modal
         open={showModelPrompt}

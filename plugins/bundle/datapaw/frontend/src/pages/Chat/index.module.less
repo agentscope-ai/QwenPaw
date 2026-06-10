@@ -22,14 +22,15 @@
   cursor: not-allowed !important;
 }
 
-/* Chat messages scrollable area */
+/* Chat area — internal AgentScopeRuntimeWebUI handles message list scroll; dock stays above input */
 .chatMessagesArea {
   flex: 1;
   min-height: 0;
   height: 100%;
   width: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 
   :global {
     [class*="chat-anywhere-default-header-right"] {

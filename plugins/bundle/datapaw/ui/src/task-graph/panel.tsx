@@ -123,7 +123,7 @@ export function TaskGraphPanel({
 
   return React.createElement(
     "div",
-    { className: "datapaw-task-plan" },
+    { className: "datapaw-task-plan", "data-datapaw-task-graph-card": true },
     React.createElement(
       "div",
       { className: "datapaw-task-plan-title" },

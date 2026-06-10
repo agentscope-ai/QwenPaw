@@ -1,4 +1,15 @@
 export function getHostSessionApi(): Record<string, unknown> | null {
+  const bridge = (
+    window as {
+      QwenPaw?: {
+        host?: { chatBridge?: { _sessionApi?: Record<string, unknown> } };
+      };
+    }
+  ).QwenPaw?.host?.chatBridge;
+  if (bridge?._sessionApi) {
+    return bridge._sessionApi;
+  }
+
   const api = (
     window as { QwenPaw?: { modules?: Record<string, Record<string, unknown>> } }
   ).QwenPaw?.modules?.["Chat/sessionApi/index"]?.default;

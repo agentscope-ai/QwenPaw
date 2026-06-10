@@ -1,17 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import type { IAgentScopeRuntimeWebUIRef } from "@agentscope-ai/chat";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { TaskArtifact } from "../../../api/modules/tasks";
-import {
-  buildTaskGraphCardMessage,
-  type TaskGraphCardActions,
-} from "../components/TaskGraphPanel/buildTaskGraphCard";
 import type { PlanSnapshot } from "../components/TaskGraphPanel/types";
 import type { TaskGraphActions } from "../components/TaskGraphPanel/TaskGraphActionsContext";
-import sessionApi from "../sessionApi";
 import { useTaskPanel } from "./useTaskPanel";
+import {
+  setCurrentPlan,
+  getCurrentPlan,
+} from "../../../../../ui/src/lib/plan-store";
+import {
+  saveTaskCardForSession,
+  removeTaskCardForSession,
+} from "../../../../../ui/src/lib/task-card-storage";
 
 export interface UseTaskGraphChatOptions {
-  chatRef: RefObject<IAgentScopeRuntimeWebUIRef | null>;
   sessionId: string | null;
   userId: string;
   enabled: boolean;
@@ -19,73 +20,44 @@ export interface UseTaskGraphChatOptions {
 }
 
 export function useTaskGraphChat({
-  chatRef,
   sessionId,
   userId,
   enabled,
   onPlanReplaced,
 }: UseTaskGraphChatOptions) {
-  const [currentPlan, setCurrentPlan] = useState<PlanSnapshot | null>(null);
+  const [currentPlan, setLocalPlan] = useState<PlanSnapshot | null>(
+    () => getCurrentPlan(),
+  );
   const [taskArtifacts, setTaskArtifacts] = useState<TaskArtifact[]>([]);
   const activePlanIdRef = useRef<string | null>(null);
-
-  const safeRemoveMessageById = useCallback((msgId: string) => {
-    try {
-      chatRef.current?.messages?.removeMessage?.({ id: msgId } as { id: string });
-    } catch (e) {
-      console.warn("[TaskGraph] removeMessage failed:", msgId, e);
-    }
-  }, [chatRef]);
-
-  const removeTaskCard = useCallback(
-    (planId: string) => {
-      const msgId = `task_graph_${planId}`;
-      sessionApi.removePersistentMessage(msgId);
-      safeRemoveMessageById(msgId);
-      chatRef.current?.messages?.updateMessage?.({
-        id: msgId,
-        role: "assistant",
-        cards: [],
-        msgStatus: "finished",
-      });
-    },
-    [chatRef, safeRemoveMessageById],
-  );
-
-  const upsertTaskCard = useCallback(
-    (plan: PlanSnapshot, actions: TaskGraphCardActions) => {
-      const msgStatus = plan.state === "done" ? "finished" : "generating";
-      const cardMsg = buildTaskGraphCardMessage(plan, actions, msgStatus);
-      sessionApi.setPersistentMessage(cardMsg);
-      safeRemoveMessageById(cardMsg.id);
-      chatRef.current?.messages?.updateMessage?.(cardMsg);
-    },
-    [chatRef, safeRemoveMessageById],
-  );
 
   const handlePlanChange = useCallback(
     (plan: PlanSnapshot | null) => {
       const prevId = activePlanIdRef.current;
 
       if (!plan) {
-        if (prevId) {
-          removeTaskCard(prevId);
-          activePlanIdRef.current = null;
+        if (prevId && sessionId) {
+          removeTaskCardForSession(sessionId);
         }
+        activePlanIdRef.current = null;
+        setLocalPlan(null);
         setCurrentPlan(null);
         setTaskArtifacts([]);
         return;
       }
 
       if (prevId && prevId !== plan.id) {
-        removeTaskCard(prevId);
         onPlanReplaced?.();
       }
 
       activePlanIdRef.current = plan.id;
+      setLocalPlan(plan);
       setCurrentPlan(plan);
+      if (sessionId) {
+        saveTaskCardForSession(sessionId, plan);
+      }
     },
-    [onPlanReplaced, removeTaskCard],
+    [onPlanReplaced, sessionId],
   );
 
   const taskPanel = useTaskPanel({
@@ -96,33 +68,21 @@ export function useTaskGraphChat({
     onArtifactsChange: setTaskArtifacts,
   });
 
-  const taskGraphActionsRef = useRef<TaskGraphCardActions>({
-    onNodeClick: () => {},
-  });
-
-  const syncCardToChat = useCallback(() => {
-    if (!currentPlan) return;
-    upsertTaskCard(currentPlan, taskGraphActionsRef.current);
-  }, [currentPlan, upsertTaskCard]);
-
-  useEffect(() => {
-    syncCardToChat();
-  }, [syncCardToChat]);
-
   const clearTaskGraph = useCallback(() => {
-    if (activePlanIdRef.current) {
-      removeTaskCard(activePlanIdRef.current);
-      activePlanIdRef.current = null;
+    if (sessionId) {
+      removeTaskCardForSession(sessionId);
     }
+    activePlanIdRef.current = null;
+    setLocalPlan(null);
     setCurrentPlan(null);
     setTaskArtifacts([]);
-  }, [removeTaskCard]);
+  }, [sessionId]);
 
   const contextActions: TaskGraphActions = useMemo(
     () => ({
-      onNodeClick: (nodeId) => taskGraphActionsRef.current.onNodeClick(nodeId),
-      onPlanCorrection: (yaml) => taskGraphActionsRef.current.onPlanCorrection?.(yaml),
-      onMoreMenuClick: (key) => taskGraphActionsRef.current.onMoreMenuClick?.(key),
+      onNodeClick: () => {},
+      onPlanCorrection: () => {},
+      onMoreMenuClick: () => {},
     }),
     [],
   );
@@ -157,10 +117,8 @@ export function useTaskGraphChat({
     currentPlan,
     taskArtifacts,
     taskPanel,
-    taskGraphActionsRef,
     contextActions,
     getAllFiles,
     clearTaskGraph,
-    syncCardToChat,
   };
 }

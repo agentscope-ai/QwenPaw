@@ -47,6 +47,27 @@ declare global {
     priority?: number;
   }
 
+  interface QwenPawDisposable {
+    dispose(): void;
+  }
+
+  interface QwenPawChatSender {
+    addPrefix(
+      pluginId: string,
+      node: ReactNS.ReactNode,
+      opts?: { id?: string; order?: number },
+    ): QwenPawDisposable;
+  }
+
+  interface QwenPawChatNamespace {
+    sender: QwenPawChatSender;
+    card?: (
+      pluginId: string,
+      cardName: string,
+      render: ReactNS.FC<Record<string, unknown>>,
+    ) => QwenPawDisposable;
+  }
+
   interface QwenPawGlobal {
     host: QwenPawHost;
     /** Mutable host module registry (used by hot-patch plugins). */
@@ -63,6 +84,8 @@ declare global {
       pluginId: string,
       bundles: Record<string, Record<string, unknown>>,
     ) => void;
+    /** Chat-surface customization (welcome, sender prefix, cards, …). */
+    chat?: QwenPawChatNamespace;
   }
 
   interface Window {

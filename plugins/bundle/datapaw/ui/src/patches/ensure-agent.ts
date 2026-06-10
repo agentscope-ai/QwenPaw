@@ -55,5 +55,4 @@ export function ensureDefaultAgent(): void {
   console.info(
     `[datapaw] Set default agent to ${DATAPAW_AGENT_ID} for first-time user`,
   );
-  window.location.reload();
 }

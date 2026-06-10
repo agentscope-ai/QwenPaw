@@ -29,7 +29,8 @@
     "noUncheckedSideEffectImports": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@datapaw/ui/*": ["../ui/src/*"]
     },
     "types": ["node", "vite/client"]
   },

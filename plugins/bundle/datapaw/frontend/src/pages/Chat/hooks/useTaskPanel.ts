@@ -45,6 +45,8 @@ export function useTaskPanel({
   const [planDetailLoading, setPlanDetailLoading] = useState(false);
   const onPlanChangeRef = useRef(onPlanChange);
   const onArtifactsChangeRef = useRef(onArtifactsChange);
+  const dagAbortRef = useRef<AbortController | null>(null);
+  const dagSessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     onPlanChangeRef.current = onPlanChange;
@@ -62,6 +64,39 @@ export function useTaskPanel({
     onPlanChangeRef.current(plan);
   }, []);
 
+  const stopDagSubscription = useCallback(() => {
+    dagAbortRef.current?.abort();
+    dagAbortRef.current = null;
+    dagSessionIdRef.current = null;
+  }, []);
+
+  const ensureDagSubscription = useCallback(
+    (sid: string) => {
+      if (!enabled) return;
+      if (dagSessionIdRef.current === sid && dagAbortRef.current) return;
+
+      stopDagSubscription();
+      dagSessionIdRef.current = sid;
+      const abort = new AbortController();
+      dagAbortRef.current = abort;
+
+      void tasksApi
+        .subscribeDagEvents(
+          sid,
+          userId,
+          (snapshot) => {
+            if (!abort.signal.aborted) applySnapshot(snapshot);
+          },
+          abort.signal,
+        )
+        .catch((error) => {
+          if (abort.signal.aborted) return;
+          console.warn("[TaskPanel] DAG SSE unavailable:", error);
+        });
+    },
+    [applySnapshot, enabled, stopDagSubscription, userId],
+  );
+
   const refreshSummary = useCallback(async (
     overrideSessionId?: string | null,
   ): Promise<PlanSnapshot | null> => {
@@ -76,6 +111,7 @@ export function useTaskPanel({
         artifacts: [],
       });
       if (plan?.id) {
+        ensureDagSubscription(sid);
         const files = await tasksApi.listFiles(sid, userId, {
           graph_id: plan.id,
         });
@@ -88,10 +124,11 @@ export function useTaskPanel({
       console.warn("[TaskPanel] refresh summary failed:", error);
       return null;
     }
-  }, [applySnapshot, sessionId, userId]);
+  }, [applySnapshot, ensureDagSubscription, sessionId, userId]);
 
   useEffect(() => {
     if (!enabled || !sessionId) {
+      stopDagSubscription();
       setHistoricalPlans([]);
       setArtifacts([]);
       onPlanChangeRef.current(null);
@@ -99,35 +136,10 @@ export function useTaskPanel({
       return;
     }
 
-    let cancelled = false;
-    const abort = new AbortController();
-
-    const bootstrap = async () => {
-      await refreshSummary();
-      if (cancelled) return;
-
-      try {
-        await tasksApi.subscribeDagEvents(
-          sessionId,
-          userId,
-          (snapshot) => {
-            if (!cancelled) applySnapshot(snapshot);
-          },
-          abort.signal,
-        );
-      } catch (error) {
-        if (cancelled || abort.signal.aborted) return;
-        console.warn("[TaskPanel] DAG SSE unavailable:", error);
-      }
-    };
-
-    void bootstrap();
-
     return () => {
-      cancelled = true;
-      abort.abort();
+      stopDagSubscription();
     };
-  }, [applySnapshot, enabled, refreshSummary, sessionId, userId]);
+  }, [enabled, sessionId, stopDagSubscription]);
 
   const handlePlanCorrection = useCallback(
     async (yaml: string) => {
