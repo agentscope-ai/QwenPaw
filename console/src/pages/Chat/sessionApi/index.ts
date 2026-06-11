@@ -331,8 +331,7 @@ const resolveRealId = (
   // 3) Fallback: only local placeholder exists (backend list not merged yet).
   if (!realSession) {
     realSession = sessionList.find(
-      (s) =>
-        s.id === tempSessionId && !(s as ExtendedSession).realId,
+      (s) => s.id === tempSessionId && !(s as ExtendedSession).realId,
     );
   }
 
