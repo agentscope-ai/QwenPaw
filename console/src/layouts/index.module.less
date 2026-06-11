@@ -87,7 +87,7 @@
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 // AionUi: 260px wide, bg-bg-2, border-r border-border-base, flex column
 .sider {
-  background: @bg-2 !important;
+  background: @bg-1 !important;
   border-right: 1px solid @border-base !important;
   overflow: auto;
   height: calc(100vh - @titlebar-height);
@@ -521,7 +521,7 @@
 .updateViewReleasesBtn {
   background: @brand !important;
   border-color: @brand !important;
-  color: #fff !important;
+  color: @text-white !important;
 
   &:hover {
     background: @aou-7 !important;
@@ -590,17 +590,7 @@
     border-bottom-color: @border-base-dark !important;
     color: @text-primary-dark;
 
-    :global(.qwenpaw-btn-text),
-    :global(.ant-btn-text) {
-      color: @text-secondary-dark !important;
-
-      &:hover {
-        color: @text-primary-dark !important;
-        background: @bg-hover-dark !important;
-      }
-
-      .anticon, svg { color: inherit !important; }
-    }
+    // btn-text hoisted out — nested :global() is invalid in Less CSS Modules
 
     :global(.anticon) {
       color: @text-secondary-dark;
@@ -621,7 +611,7 @@
   }
 
   .sider {
-    background: @bg-2-dark !important;
+    background: @bg-1-dark !important;
     border-right-color: @border-base-dark !important;
   }
 
@@ -688,4 +678,17 @@
     border-color: @border-base-dark;
     color: @text-secondary-dark;
   }
+}
+
+// Header btn-text dark overrides — hoisted to top-level to avoid illegal nested :global()
+:global(html.dark-mode) .header :global(.qwenpaw-btn-text),
+:global(html.dark-mode) .header :global(.ant-btn-text) {
+  color: @text-secondary-dark !important;
+
+  &:hover {
+    color: @text-primary-dark !important;
+    background: @bg-hover-dark !important;
+  }
+
+  .anticon, svg { color: inherit !important; }
 }
