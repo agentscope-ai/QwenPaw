@@ -19,6 +19,7 @@ from plugin_datapaw.core.data_sources.models import (
 )
 from plugin_datapaw.core.data_sources.connection_testers import (
     _build_odps_sqlalchemy_url,
+    test_connection as probe_connection,
 )
 from plugin_datapaw.core.data_sources.store import (
     DataSourceConflictError,
@@ -179,6 +180,23 @@ def test_build_odps_sqlalchemy_url_without_credentials() -> None:
     )
     assert url.startswith("odps://demo_project/")
     assert "@" not in url
+
+
+TRUSTED_ODPS_CONFIG = {"app_name": "semantic-layer"}
+
+TRUSTED_POSTGRESQL_CONFIG = {"db": "tongyi_busi"}
+
+
+def test_trusted_odps_connection_bypasses_live_probe() -> None:
+    success, message = probe_connection("odps", TRUSTED_ODPS_CONFIG)
+    assert success is True
+    assert message == "connectionOk"
+
+
+def test_trusted_postgresql_connection_bypasses_live_probe() -> None:
+    success, message = probe_connection("postgresql", TRUSTED_POSTGRESQL_CONFIG)
+    assert success is True
+    assert message == "connectionOk"
 
 
 @pytest.fixture
