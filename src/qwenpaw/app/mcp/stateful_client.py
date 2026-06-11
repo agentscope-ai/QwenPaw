@@ -98,8 +98,6 @@ class _LazyClientSession:
         **kwargs: Any,
     ) -> Any:
         # pylint: disable=protected-access
-        # _validate_connection / _name_alias_to_real are internal hooks on the
-        # owning client that this proxy must reach by necessity.
         self._client._validate_connection()
         real_name = self._client._name_alias_to_real.get(name, name)
         # Forward ``arguments`` as keyword to match how
@@ -277,7 +275,6 @@ def _unregister_stdio_pids(pids: set[int]) -> None:
             pgid = _stdio_pgids.get(pid)
             if not pid_alive and pgid is not None and _killpg is not None:
                 try:
-                    # _killpg guarded non-None above; pylint can't narrow it.
                     _killpg(pgid, 0)  # pylint: disable=not-callable
                     pgroup_alive = True
                 except (
@@ -334,7 +331,6 @@ async def kill_orphaned_mcp_children(
         pgid = pgids.get(pid)
         if pgid is not None and _killpg is not None:
             try:
-                # _killpg guarded non-None above; pylint can't narrow it.
                 _killpg(pgid, sig)  # pylint: disable=not-callable
                 return
             except (
@@ -877,9 +873,6 @@ class _MCPClientMixin:
         through :class:`_LazyClientSession`, so the server still receives the
         real (un-sanitized) MCP tool name.
         """
-        # Accepted for signature compatibility; the cached MCPTool already
-        # carries its own timeout, so this shim ignores the override.
-        del execution_timeout
         self._validate_connection()
 
         if self._cached_tools is None:
