@@ -6,3 +6,7 @@ openpyxl>=3.0
 pyarrow>=14.0
 matplotlib>=3.7
 seaborn>=0.13
+pymysql>=1.1
+psycopg2-binary>=2.9
+pyodps>=0.12
+sqlalchemy>=2.0
