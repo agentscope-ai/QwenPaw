@@ -5,7 +5,8 @@
   "description": "Emit QwenPaw backend lifecycle events to QwenPaw Pet Desktop.",
   "description_i18n": {
     "zh-CN": "将 QwenPaw 后端生命周期事件同步至 QwenPaw Pet 桌面宠物。",
-    "en-US": "Emit QwenPaw backend lifecycle events to QwenPaw Pet Desktop."
+    "en-US": "Emit QwenPaw backend lifecycle events to QwenPaw Pet Desktop.",
+    "pt-BR": "Emite eventos do ciclo de vida do backend do QwenPaw para o QwenPaw Pet Desktop."
   },
   "author": "QwenPaw Pet",
   "entry": {

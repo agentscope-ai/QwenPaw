@@ -6,7 +6,8 @@
   "description": "CloudPaw —— QwenPaw 云能力增强插件。用自然语言描述需求，自动完成从资源创建到应用部署的全流程。安装后请完成以下配置：1) 在「环境变量」中配置阿里云 AK-SK（ALIBABA_CLOUD_ACCESS_KEY_ID / ALIBABA_CLOUD_ACCESS_KEY_SECRET）；2) 安装完成后请刷新当前页面以加载插件。",
   "description_i18n": {
     "zh-CN": "CloudPaw —— QwenPaw 云能力增强插件。用自然语言描述需求，自动完成从资源创建到应用部署的全流程。安装后请完成以下配置：1) 在「环境变量」中配置阿里云 AK-SK（ALIBABA_CLOUD_ACCESS_KEY_ID / ALIBABA_CLOUD_ACCESS_KEY_SECRET）；2) 安装完成后请刷新当前页面以加载插件。",
-    "en-US": "CloudPaw plugin for QwenPaw — Alibaba Cloud deployment orchestration with ROS templates, multi-agent collaboration, Terraform integration, and ACP support. After install: 1) Set Alibaba Cloud credentials (ALIBABA_CLOUD_ACCESS_KEY_ID / ALIBABA_CLOUD_ACCESS_KEY_SECRET) in Environment Variables; 2) Refresh the page to load the plugin."
+    "en-US": "CloudPaw plugin for QwenPaw — Alibaba Cloud deployment orchestration with ROS templates, multi-agent collaboration, Terraform integration, and ACP support. After install: 1) Set Alibaba Cloud credentials (ALIBABA_CLOUD_ACCESS_KEY_ID / ALIBABA_CLOUD_ACCESS_KEY_SECRET) in Environment Variables; 2) Refresh the page to load the plugin.",
+    "pt-BR": "CloudPaw — Plugin de capacidades de nuvem para QwenPaw. Descreva seus requisitos em linguagem natural e automatize todo o fluxo, desde a criação de recursos até a implantação de aplicações. Após instalar: 1) Configure as credenciais da Alibaba Cloud (ALIBABA_CLOUD_ACCESS_KEY_ID / ALIBABA_CLOUD_ACCESS_KEY_SECRET) em Variáveis de Ambiente; 2) Atualize a página para carregar o plugin."
   },
   "author": "CloudPaw Team",
   "entry": {
