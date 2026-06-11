@@ -97,6 +97,7 @@ class _LazyClientSession:
         arguments: dict | None = None,
         **kwargs: Any,
     ) -> Any:
+        # pylint: disable=protected-access
         self._client._validate_connection()
         real_name = self._client._name_alias_to_real.get(name, name)
         # Forward ``arguments`` as keyword to match how
@@ -274,7 +275,7 @@ def _unregister_stdio_pids(pids: set[int]) -> None:
             pgid = _stdio_pgids.get(pid)
             if not pid_alive and pgid is not None and _killpg is not None:
                 try:
-                    _killpg(pgid, 0)
+                    _killpg(pgid, 0)  # pylint: disable=not-callable
                     pgroup_alive = True
                 except (
                     ProcessLookupError,
@@ -330,7 +331,7 @@ async def kill_orphaned_mcp_children(
         pgid = pgids.get(pid)
         if pgid is not None and _killpg is not None:
             try:
-                _killpg(pgid, sig)
+                _killpg(pgid, sig)  # pylint: disable=not-callable
                 return
             except (
                 ProcessLookupError,
@@ -685,8 +686,6 @@ class _MCPClientMixin:
         ``self.session`` at call time (so cached tools survive reconnects) and
         defensively re-translates sanitized names back to real ones.
         """
-        from agentscope.tool import MCPTool
-
         execution_timeout = getattr(self, "read_timeout_seconds", None)
         session_proxy = _LazyClientSession(self)
 
@@ -783,7 +782,8 @@ class _MCPClientMixin:
             # session proxy (which reads it at call time) routes correctly.
             self._name_alias_to_real = alias_to_real
             self._cached_tools = self._build_mcp_tools(
-                rewritten, alias_to_real
+                rewritten,
+                alias_to_real,
             )
             return self._cached_tools
 
@@ -858,7 +858,7 @@ class _MCPClientMixin:
             self._handle_transport_error(exc)
             raise
 
-    async def get_callable_function(
+    async def get_callable_function(  # pylint: disable=unused-argument
         self,
         func_name: str,
         execution_timeout: float | None = None,

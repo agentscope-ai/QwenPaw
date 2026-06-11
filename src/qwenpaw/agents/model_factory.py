@@ -1172,4 +1172,3 @@ def _create_formatter_instance(
 __all__ = [
     "create_model_and_formatter",
 ]
-

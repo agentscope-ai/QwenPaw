@@ -597,7 +597,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             if recent_messages:
                 self.add_summarize_task(messages=recent_messages)
 
-    async def dream(
+    async def dream(  # pylint: disable=too-many-statements
         self,
         *,
         runner: Any = None,

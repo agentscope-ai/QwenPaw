@@ -97,6 +97,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         request_context: Optional[dict[str, str]] = None,
         workspace_dir: Path | None = None,
         task_tracker: Any | None = None,
+        plan_notebook: Any | None = None,
     ):
         """Initialize QwenPawAgent.
 
@@ -122,6 +123,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._mcp_clients = mcp_clients or []
         self._workspace_dir = workspace_dir
         self._task_tracker = task_tracker
+        self.plan_notebook = plan_notebook
 
         # Extract configuration from agent_config
         running_config = agent_config.running
@@ -573,7 +575,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                             pass
 
     async def _acting(self, tool_call):
-        """Check plan tool gate, then delegate to the 2.0 async-generator _acting.
+        """Check plan tool gate, then delegate to the 2.0 _acting generator.
 
         AgentScope 2.0 invokes ``_acting`` as an async generator yielding
         ``ToolChunk | ToolResponse`` (1.x returned a single result), so this
@@ -585,7 +587,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         tool_name = str(
             tool_call.get("name", "")
             if isinstance(tool_call, dict)
-            else getattr(tool_call, "name", "") or ""
+            else getattr(tool_call, "name", "") or "",
         )
 
         if tool_name in self._PLAN_TOOLS_WITH_JSON_ARGS:
@@ -972,13 +974,15 @@ class QwenPawAgent(CodingModeMixin, Agent):
     async def reply(
         self,
         msg: Msg | list[Msg] | None = None,
-        structured_model: Type[BaseModel] | None = None,
     ) -> Msg:
         """Override reply to process file blocks and handle commands.
 
+        agentscope 2.0 ``Agent.reply(self, inputs=...)`` takes a single
+        positional argument; the 1.x ``structured_model`` parameter was
+        dropped (structured output now flows through the model layer).
+
         Args:
             msg: Input message(s) from user
-            structured_model: Optional pydantic model for structured output
 
         Returns:
             Response message
@@ -1012,7 +1016,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         # Process file and media blocks in messages
         if msg is not None:
-            from .utils import process_file_and_media_blocks_in_message
+            from .utils.message_processing import (
+                process_file_and_media_blocks_in_message,
+            )
 
             await process_file_and_media_blocks_in_message(msg)
 
@@ -1030,7 +1036,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         # Normal message processing
         logger.info(
-            "QwenPawAgent.reply: max_iters=%s", self.react_config.max_iters
+            "QwenPawAgent.reply: max_iters=%s",
+            self.react_config.max_iters,
         )
 
         request_context = getattr(self, "_request_context", {}) or {}
@@ -1039,8 +1046,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         from .skill_system import apply_skill_config_env_overrides
 
         with apply_skill_config_env_overrides(workspace_dir, channel_name):
-            # AgentScope 2.0 Agent.reply(inputs=...) takes a single positional
-            # argument and has no ``structured_model`` parameter (1.x had both).
+            # agentscope 2.0 Agent.reply(inputs=...) takes one positional
+            # argument; the 1.x ``structured_model`` kwarg no longer exists.
             return await super().reply(msg)
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
