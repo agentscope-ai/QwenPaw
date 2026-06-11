@@ -59,6 +59,7 @@ from ...agents.skill_system.store import (
     read_skill_from_dir,
     read_skill_manifest,
     read_skill_pool_manifest,
+    resolve_pool_skill_dir,
     suggest_conflict_name,
 )
 from ...security.skill_scanner import SkillScanError
@@ -126,6 +127,8 @@ class SkillSpec(SkillInfo):
 
 class PoolSkillSpec(SkillInfo):
     protected: bool = False
+    external: bool = False
+    external_path: str = ""
     commit_text: str = ""
     sync_status: str = ""
     latest_version_text: str = ""
@@ -560,17 +563,22 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
             )
         try:
             source = entry.get("source", "customized")
-            skill_dir = pool_dir / skill_name
+            skill_dir = resolve_pool_skill_dir(skill_name) or (
+                pool_dir / skill_name
+            )
             skill = read_skill_from_dir(skill_dir, source)
             if skill is None:
                 continue
             info = sync_info.get(skill_name, {})
             dump = skill.model_dump(exclude={"version_text"})
             dump["tags"] = entry.get("tags") or []
+            is_external = bool(entry.get("external", False))
             specs.append(
                 PoolSkillSpec(
                     **dump,
                     protected=bool(entry.get("protected", False)),
+                    external=is_external,
+                    external_path=str(skill_dir) if is_external else "",
                     version_text=str(entry.get("version_text", "") or ""),
                     commit_text=str(entry.get("commit_text", "") or ""),
                     sync_status=str(info.get("sync_status", "") or ""),
@@ -995,6 +1003,8 @@ def _preflight_download_conflicts(
             overwrite=overwrite,
         )
         if not result.get("success"):
+            if result.get("reason") == "not_found":
+                raise HTTPException(status_code=404, detail=result)
             conflicts.append(result)
     return conflicts
 
@@ -1060,6 +1070,40 @@ def _build_download_plan(
     return plan
 
 
+def _download_one_or_raise(
+    hub_service: SkillPoolService,
+    plan: dict[str, Any],
+    execution_plan: list[dict[str, Any]],
+    *,
+    skill_name: str,
+    overwrite: bool,
+) -> dict[str, str]:
+    """Download into one workspace; on failure roll back all and raise.
+
+    A missing pool skill is a target-independent 404; any other failure is
+    a per-target 409 conflict.
+    """
+    result = hub_service.download_to_workspace(
+        skill_name=skill_name,
+        workspace_dir=plan["workspace_dir"],
+        overwrite=overwrite,
+    )
+    if not result.get("success"):
+        for rollback in reversed(execution_plan):
+            _restore_workspace_skill(rollback["snapshot"])
+        if result.get("reason") == "not_found":
+            raise HTTPException(status_code=404, detail=result)
+        raise HTTPException(
+            status_code=409,
+            detail={"downloaded": [], "conflicts": [result]},
+        )
+    return {
+        "workspace_id": str(plan["workspace_id"]),
+        "workspace_name": str(result.get("workspace_name", "") or ""),
+        "name": str(result.get("name", "")),
+    }
+
+
 @router.post("/pool/download")
 async def download_pool_skill_to_workspaces(
     body: DownloadFromPoolRequest,
@@ -1077,29 +1121,14 @@ async def download_pool_skill_to_workspaces(
     downloaded: list[dict[str, str]] = []
     try:
         for plan in execution_plan:
-            result = hub_service.download_to_workspace(
-                skill_name=body.skill_name,
-                workspace_dir=plan["workspace_dir"],
-                overwrite=body.overwrite,
-            )
-            if not result.get("success"):
-                for rollback in reversed(execution_plan):
-                    _restore_workspace_skill(rollback["snapshot"])
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "downloaded": [],
-                        "conflicts": [result],
-                    },
-                )
             downloaded.append(
-                {
-                    "workspace_id": str(plan["workspace_id"]),
-                    "workspace_name": str(
-                        result.get("workspace_name", "") or "",
-                    ),
-                    "name": str(result.get("name", "")),
-                },
+                _download_one_or_raise(
+                    hub_service,
+                    plan,
+                    execution_plan,
+                    skill_name=body.skill_name,
+                    overwrite=body.overwrite,
+                ),
             )
     except HTTPException:
         raise

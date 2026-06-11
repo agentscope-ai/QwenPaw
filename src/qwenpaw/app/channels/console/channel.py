@@ -265,7 +265,6 @@ class ConsoleChannel(BaseChannel):
         channel_id = payload.get("channel_id") or self.channel
         sender_id = payload.get("sender_id") or ""
         content_parts = payload.get("content_parts") or []
-        content_parts = self._resolve_console_upload_refs(content_parts)
         meta = payload.get("meta") or {}
         session_id = self.resolve_session_id(sender_id, meta)
         request = self.build_agent_request_from_user_content(
@@ -392,11 +391,6 @@ class ConsoleChannel(BaseChannel):
                     if event_output is not None:
                         for message in event_output:
                             event.output.append(message)
-                            media_message = await self._extract_media_message(
-                                message,
-                            )
-                            if media_message:
-                                event.output.append(media_message)
 
                 if obj == "response":
                     usage_data = self._extract_token_usage(session_id)
@@ -407,13 +401,6 @@ class ConsoleChannel(BaseChannel):
                 yield f"data: {data}\n\n"
 
                 if obj == "message" and status == RunStatus.Completed:
-                    media_message = await self._extract_media_message(event)
-                    if media_message:
-                        media_json = self._serialize_event_for_sse(
-                            media_message,
-                        )
-                        yield f"data: {media_json}\n\n"
-
                     parts = self._message_to_content_parts(event)
                     self._print_parts(parts, ev_type)
 

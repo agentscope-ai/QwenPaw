@@ -6,18 +6,6 @@ from __future__ import annotations
 import pytest
 
 
-_AGENT_PROFILE_TOP_LEVEL_KEYS = (
-    "channels",
-    "mcp",
-    "heartbeat",
-    "running",
-    "llm_routing",
-    "system_prompt_files",
-    "tools",
-    "plan",
-)
-
-
 @pytest.mark.integration
 @pytest.mark.p1
 def test_agent_scoped_workspace_language_put_get_roundtrip(app_server) -> None:

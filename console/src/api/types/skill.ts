@@ -27,6 +27,8 @@ export interface PoolSkillSpec {
   content: string;
   source: string;
   protected: boolean;
+  external?: boolean;
+  external_path?: string;
   commit_text?: string;
   sync_status?: SkillSyncStatus | "";
   latest_version_text?: string;
