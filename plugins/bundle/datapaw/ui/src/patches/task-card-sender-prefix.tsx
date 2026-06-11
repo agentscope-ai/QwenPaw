@@ -5,12 +5,11 @@
  */
 import { PLUGIN_ID } from "../lib/constants";
 import { isDatapawAgentSelected } from "../lib/agent";
-import { getCurrentPlan, subscribeCurrentPlan } from "../lib/plan-store";
+import { getDisplayPlan, subscribeCurrentPlan } from "../lib/plan-store";
 import { resolveBackendSessionId } from "../lib/session-id";
 import { refreshTaskCard } from "./task-card";
 import { TaskGraphPanel } from "../task-graph/panel";
 import { createPlanCorrectionPopover } from "../task-graph/plan-correction-popover";
-import { createArtifactManageDrawerBridge } from "../task-graph/artifact-manage-drawer-bridge";
 import { createTaskNodeDrawerBridge } from "../task-graph/task-node-drawer-bridge";
 import { tTaskGraph } from "../task-graph/i18n";
 import type { HostBundle } from "../types";
@@ -52,17 +51,15 @@ export function createTaskCardSenderPrefix(host: HostBundle) {
   const { React } = host;
   const { useMemo, useState, useSyncExternalStore } = React;
   const PlanCorrectionPopover = createPlanCorrectionPopover(host);
-  const ArtifactManageDrawer = createArtifactManageDrawerBridge(host);
   const TaskNodeDrawer = createTaskNodeDrawerBridge(host);
 
   return function TaskCardSenderPrefix() {
     const datapawAgent = useDatapawAgentSelected(React);
     const plan = useSyncExternalStore(
       subscribeCurrentPlan,
-      getCurrentPlan,
+      getDisplayPlan,
       () => null,
     );
-    const [artifactOpen, setArtifactOpen] = useState(false);
     const [drawerNodeId, setDrawerNodeId] = useState<string | null>(null);
 
     const streamRevision = useSyncExternalStore(
@@ -149,17 +146,9 @@ export function createTaskCardSenderPrefix(host: HostBundle) {
           PlanCorrectionPopover,
           showActions: true,
           onPlanCorrection: handlePlanCorrection,
-          onArtifactManage: () => setArtifactOpen(true),
           onNodeClick: (nodeId: string) => setDrawerNodeId(nodeId),
         }),
       ),
-      React.createElement(ArtifactManageDrawer, {
-        open: artifactOpen,
-        onClose: () => setArtifactOpen(false),
-        sessionId,
-        userId,
-        graphId: plan.id,
-      }),
       drawerNode
         ? React.createElement(TaskNodeDrawer, {
             node: drawerNode,

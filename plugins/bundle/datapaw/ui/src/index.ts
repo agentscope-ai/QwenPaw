@@ -3,12 +3,14 @@
  *
  * - registerToolRender: fetch_data
  * - response.append: append task graph between assistant response content and actions
+ * - chat cards.task_graph: persistent task plan row in the message stream
  * - SSE intercept on /console/chat: create_plan → GET /api/tasks → plan-store
  */
 
 import { PLUGIN_ID } from "./lib/constants";
 import { injectTaskGraphStyles } from "./task-graph/styles";
 import { createFetchDataRender } from "./renders/fetch-data";
+import { createTaskGraphCard } from "./task-graph/card";
 import { createTaskGraphAppend } from "./renders/task-graph-append";
 import { installFetchPatch } from "./patches/fetch-patch";
 import { ensureDefaultAgent } from "./patches/ensure-agent";
@@ -16,7 +18,12 @@ import { patchWelcomeAndTheme } from "./patches/welcome-theme";
 import {
   installChatBridge,
   scheduleSessionTaskPlanSync,
+  resyncTaskCardFromPlanStore,
 } from "./patches/task-card";
+import {
+  patchHostSessionApi,
+  setSessionApiPatchedListener,
+} from "./patches/session-api";
 import { installConsoleLogoPatch } from "./patches/console-logo";
 import { registerChatArtifactsButton } from "./patches/chat-artifacts-button";
 import { registerDatapawNavigation } from "./patches/datapaw-navigation";
@@ -43,6 +50,10 @@ function buildPlugin() {
   const QP = (window as {
     QwenPaw?: {
       registerToolRender?: (
+        id: string,
+        renders: Record<string, unknown>,
+      ) => void;
+      registerCardRender?: (
         id: string,
         renders: Record<string, unknown>,
       ) => void;
@@ -73,6 +84,27 @@ function buildPlugin() {
     console.warn("[datapaw:task-graph] response append/render unavailable");
   }
 
+  const TaskGraphCard = createTaskGraphCard(bundle);
+  QP?.registerCardRender?.(PLUGIN_ID, {
+    task_graph: TaskGraphCard,
+  });
+
+  setSessionApiPatchedListener(() => {
+    resyncTaskCardFromPlanStore();
+  });
+
+  if (!patchHostSessionApi()) {
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      attempts += 1;
+      if (patchHostSessionApi() || attempts >= 50) {
+        window.clearInterval(timer);
+        if (attempts < 50) resyncTaskCardFromPlanStore();
+      }
+    }, 200);
+  } else {
+    resyncTaskCardFromPlanStore();
+  }
   installChatBridge();
   scheduleSessionTaskPlanSync();
   registerDatapawNavigation(bundle);
@@ -82,6 +114,9 @@ function buildPlugin() {
   ensureDefaultAgent();
   patchWelcomeAndTheme();
 
+  console.info(
+    `[${PLUGIN_ID}] Plugin UI registered (task_graph card + response append + SSE hook)`,
+  );
 }
 
 buildPlugin();

@@ -112,6 +112,7 @@ export default function ArtifactManageDrawer({
             </div>
           ) : (
             <ArtifactFileList
+              type="ArtifactManage"
               files={files}
               onPreview={setViewingFile}
               onDownload={handleDownload}

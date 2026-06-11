@@ -5,7 +5,11 @@ import {
   subscribeDagEvents,
   type TasksSummaryResponse,
 } from "../lib/api";
-import { setCurrentPlan } from "../lib/plan-store";
+import {
+  clearStickyPlan,
+  getDisplayPlan,
+  setCurrentPlan,
+} from "../lib/plan-store";
 import { toPlainJson } from "../lib/plain";
 import { resolveBackendSessionId, getHostSessionApi } from "../lib/session-id";
 import {
@@ -15,11 +19,17 @@ import {
 import { resetNodeStreamEvents } from "../lib/node-stream-events";
 import { isDatapawAgentSelected } from "../lib/agent";
 import {
+  TASK_GRAPH_MESSAGE_ID,
   buildTaskCardMessage,
+  loadTaskCardPlan,
   saveTaskCardForSession,
   removeTaskCardForSession,
 } from "../lib/task-card-storage";
-import { isTaskGraphMessageId } from "../lib/pin-task-card";
+import {
+  isTaskGraphMessageId,
+  schedulePinTaskCardDomToBottom,
+  installTaskCardBottomPin,
+} from "../lib/pin-task-card";
 
 export { TASK_GRAPH_MESSAGE_ID } from "../lib/task-card-storage";
 
@@ -35,6 +45,9 @@ type ChatRefHolder = {
 let chatRefHolder: ChatRefHolder = { current: null };
 let activePlanId: string | null = null;
 let injectInFlight = false;
+let chatSyncRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let chatSyncAttempts = 0;
+const MAX_CHAT_SYNC_ATTEMPTS = 40;
 let dagAbort: AbortController | null = null;
 let dagSessionId: string | null = null;
 let sessionSyncScheduled = false;
@@ -50,14 +63,97 @@ function logTaskGraphDebug(
   console.info("[datapaw:task-graph-debug]", event, payload ?? {});
 }
 
-/** Remove legacy task_graph messages still present in the chat stream. */
+function pushTaskCardToLiveChat(
+  message: ReturnType<typeof buildTaskCardMessage>,
+): boolean {
+  const msgsApi = chatRefHolder.current?.messages;
+  const updateMessage = msgsApi?.updateMessage as
+    | ((msg: Record<string, unknown> & { id: string }) => void)
+    | undefined;
+  if (typeof updateMessage !== "function") return false;
+
+  updateMessage(message);
+  schedulePinTaskCardDomToBottom();
+  return true;
+}
+
+function scheduleTaskCardChatSync(
+  message: ReturnType<typeof buildTaskCardMessage>,
+): void {
+  if (pushTaskCardToLiveChat(message)) {
+    chatSyncAttempts = 0;
+    if (chatSyncRetryTimer) {
+      window.clearTimeout(chatSyncRetryTimer);
+      chatSyncRetryTimer = null;
+    }
+    return;
+  }
+
+  if (chatSyncAttempts >= MAX_CHAT_SYNC_ATTEMPTS) return;
+  chatSyncAttempts += 1;
+  if (chatSyncRetryTimer) return;
+
+  chatSyncRetryTimer = window.setTimeout(() => {
+    chatSyncRetryTimer = null;
+    scheduleTaskCardChatSync(message);
+  }, 200);
+}
+
+function syncTaskCardMessage(plan: PlanSnapshot): void {
+  if (!isDatapawAgentSelected()) return;
+
+  const message = buildTaskCardMessage(plan);
+  const sessionApi = getHostSessionApi();
+  const setPersistent = sessionApi?.setPersistentMessage as
+    | ((msg: Record<string, unknown>) => void)
+    | undefined;
+  if (typeof setPersistent === "function") {
+    setPersistent(message);
+  }
+
+  chatSyncAttempts = 0;
+  scheduleTaskCardChatSync(message);
+
+  console.info("[datapaw:task-card] synced task card message", {
+    planId: plan.id,
+    messageId: TASK_GRAPH_MESSAGE_ID,
+  });
+}
+
+/** Re-inject the current plan into chat after sessionApi patch or chat mount. */
+export function resyncTaskCardFromPlanStore(): void {
+  const plan = getDisplayPlan();
+  if (plan) syncTaskCardMessage(plan);
+}
+
+function removeTaskCardFromChat(): void {
+  const sessionApi = getHostSessionApi();
+  const removePersistent = sessionApi?.removePersistentMessage as
+    | ((id: string) => void)
+    | undefined;
+  if (typeof removePersistent === "function") {
+    removePersistent(TASK_GRAPH_MESSAGE_ID);
+  }
+
+  const msgsApi = chatRefHolder.current?.messages;
+  const removeMessage = msgsApi?.removeMessage;
+  if (typeof removeMessage === "function") {
+    removeMessage({ id: TASK_GRAPH_MESSAGE_ID });
+  }
+}
+
+/** Remove duplicate legacy task_graph_* rows (keep the canonical datapaw_task_graph). */
 function purgeLegacyTaskGraphMessages(): void {
   const msgsApi = chatRefHolder.current?.messages;
   const getMessages = msgsApi?.getMessages;
   const removeMessage = msgsApi?.removeMessage;
   if (typeof getMessages === "function" && typeof removeMessage === "function") {
     for (const msg of getMessages()) {
-      if (msg.id && isTaskGraphMessageId(msg.id)) {
+      if (
+        msg.id &&
+        msg.id !== TASK_GRAPH_MESSAGE_ID &&
+        isTaskGraphMessageId(msg.id)
+      ) {
         logTaskGraphDebug("purge-legacy-message", { messageId: msg.id });
         removeMessage({ id: msg.id });
       }
@@ -70,6 +166,23 @@ function syncPersistentTaskCard(plan: PlanSnapshot): void {
   const setPersistent = sessionApi?.setPersistentMessage as
     | ((message: Record<string, unknown>) => void)
     | undefined;
+  const getPersistent = sessionApi?.getPersistentMessages as
+    | (() => Array<Record<string, unknown>>)
+    | undefined;
+  const removePersistent = sessionApi?.removePersistentMessage as
+    | ((id: string) => void)
+    | undefined;
+  if (typeof getPersistent === "function" && typeof removePersistent === "function") {
+    for (const msg of getPersistent()) {
+      if (
+        msg.id &&
+        msg.id !== TASK_GRAPH_MESSAGE_ID &&
+        isTaskGraphMessageId(msg.id)
+      ) {
+        removePersistent(String(msg.id));
+      }
+    }
+  }
   if (typeof setPersistent !== "function") return;
   logTaskGraphDebug("set-persistent-message", {
     planId: plan.id,
@@ -99,7 +212,12 @@ function ensureDagEventsSubscription(sessionId: string): void {
     sid,
     "default",
     (plan) => {
-      if (plan) applyCurrentPlan(plan, sid);
+      if (plan) {
+        applyCurrentPlan(plan, sid);
+        return;
+      }
+      // finish_plan archives the graph: current_plan becomes null in DAG SSE.
+      void fetchAndApplyTaskPlan(sid);
     },
     dagAbort.signal,
   ).catch(() => {
@@ -113,6 +231,7 @@ function clearCurrentPlan(
 ): void {
   const sid = resolveBackendSessionId(sessionId);
   activePlanId = null;
+  clearStickyPlan();
   setCurrentPlan(null);
   activePlanSourceSessionId = null;
   stopDagEventsSubscription();
@@ -121,6 +240,7 @@ function clearCurrentPlan(
     removeCache: opts.removeCache !== false,
   });
   if (opts.removeCache !== false && sid) removeTaskCardForSession(sid);
+  removeTaskCardFromChat();
 }
 
 function applyCurrentPlan(
@@ -174,6 +294,7 @@ function applyCurrentPlan(
   }
 
   purgeLegacyTaskGraphMessages();
+  syncTaskCardMessage(plainPlan);
 }
 
 export function installChatBridge(): void {
@@ -197,9 +318,11 @@ export function installChatBridge(): void {
   const bindRef = (ref: ChatRefHolder) => {
     chatRefHolder = ref;
     purgeLegacyTaskGraphMessages();
+    resyncTaskCardFromPlanStore();
   };
 
   bridge.setChatRef = bindRef;
+  installTaskCardBottomPin(() => chatRefHolder.current?.messages ?? null);
 
   if (bridge._ref) {
     bindRef(bridge._ref);
@@ -302,7 +425,26 @@ async function syncTaskPlanForCurrentSession(sessionId: string): Promise<void> {
       activePlanId,
       activePlanSourceSessionId,
     });
-    if (!ok) clearCurrentPlan(sessionId, { removeCache: false });
+    if (ok) return;
+
+    const cached = loadTaskCardPlan(sessionId);
+    if (cached) {
+      logTaskGraphDebug("sync-session-plan-cache-hit", {
+        sessionId,
+        planId: cached.id,
+        planState: cached.state,
+      });
+      applyCurrentPlan(cached, sessionId);
+      return;
+    }
+    if (getDisplayPlan()) {
+      console.info("[datapaw:task-card] keep sticky plan after empty summary", {
+        sessionId,
+        planId: getDisplayPlan()?.id,
+      });
+      return;
+    }
+    clearCurrentPlan(sessionId, { removeCache: false });
   } catch (error) {
     if (token === sessionSyncToken) {
       console.warn("[datapaw] Failed to sync task plan for session:", error);
@@ -336,6 +478,7 @@ export function scheduleSessionTaskPlanSync(): void {
     if (!sessionId || sessionId === lastSyncedSessionId) return;
 
     lastSyncedSessionId = sessionId;
+    activePlanId = null;
     resetNodeStreamEvents();
     purgeLegacyTaskGraphMessages();
     logTaskGraphDebug("schedule-session-sync", { sessionId });

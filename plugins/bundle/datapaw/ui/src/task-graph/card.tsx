@@ -1,9 +1,12 @@
 import type { PlanSnapshot } from "./types";
 import { TaskGraphPanel } from "./panel";
-import { createArtifactManageDrawerBridge } from "./artifact-manage-drawer-bridge";
+import { createPlanCorrectionPopover } from "./plan-correction-popover";
 import { createTaskNodeDrawerBridge } from "./task-node-drawer-bridge";
 import { resolveBackendSessionId } from "../lib/session-id";
-import { getCurrentPlan, subscribeCurrentPlan } from "../lib/plan-store";
+import { refreshTaskCard } from "../patches/task-card";
+import { putPlanSop } from "../lib/api";
+import { tTaskGraph } from "./i18n";
+import { getDisplayPlan, subscribeCurrentPlan } from "../lib/plan-store";
 import type { HostBundle } from "../types";
 import {
   EMPTY_NODE_STREAM_EVENTS,
@@ -27,17 +30,16 @@ export interface TaskGraphCardData {
 export function createTaskGraphCard(host: HostBundle) {
   const { React } = host;
   const { useMemo, useState, useSyncExternalStore } = React;
-  const ArtifactManageDrawer = createArtifactManageDrawerBridge(host);
+  const PlanCorrectionPopover = createPlanCorrectionPopover(host);
   const TaskNodeDrawer = createTaskNodeDrawerBridge(host);
 
   return function TaskGraphCard({ data }: { data: TaskGraphCardData }) {
-    const [artifactOpen, setArtifactOpen] = useState(false);
     const [drawerNodeId, setDrawerNodeId] = useState<string | null>(null);
 
     const initialPlan = data?.plan ? toPlainJson(data.plan) : null;
     const planFromStore = useSyncExternalStore(
       subscribeCurrentPlan,
-      getCurrentPlan,
+      getDisplayPlan,
       () => initialPlan,
     );
     const plan = planFromStore ?? initialPlan;
@@ -92,6 +94,26 @@ export function createTaskGraphCard(host: HostBundle) {
 
     const showActions = data.showActions ?? false;
 
+    const handlePlanCorrection = async (yaml: string) => {
+      if (!sessionId) {
+        host.antd.message?.error?.(tTaskGraph("noSession"));
+        return;
+      }
+      try {
+        const result = await putPlanSop(sessionId, yaml);
+        await refreshTaskCard(sessionId);
+        host.antd.message?.success?.(
+          result.detail || tTaskGraph("planUpdateSuccess"),
+        );
+      } catch (error) {
+        const msg =
+          error instanceof Error
+            ? error.message
+            : tTaskGraph("planUpdateFailed");
+        host.antd.message?.error?.(msg || tTaskGraph("planUpdateFailed"));
+      }
+    };
+
     return React.createElement(
       React.Fragment,
       null,
@@ -102,18 +124,12 @@ export function createTaskGraphCard(host: HostBundle) {
           plan,
           React: host.React,
           antd: host.antd,
+          PlanCorrectionPopover,
           showActions,
-          onArtifactManage: showActions ? () => setArtifactOpen(true) : undefined,
+          onPlanCorrection: showActions ? handlePlanCorrection : undefined,
           onNodeClick: (nodeId: string) => setDrawerNodeId(nodeId),
         }),
       ),
-      React.createElement(ArtifactManageDrawer, {
-        open: artifactOpen,
-        onClose: () => setArtifactOpen(false),
-        sessionId,
-        userId,
-        graphId: plan.id,
-      }),
       drawerNode
         ? React.createElement(TaskNodeDrawer, {
             node: drawerNode,

@@ -16,7 +16,7 @@ import { isDatapawAgentSelected } from "./fetch-patch";
 import { PLUGIN_ID } from "../plugin/constants";
 import { tasksApi } from "../api/modules/tasks";
 import {
-  getCurrentPlan,
+  getDisplayPlan,
   setCurrentPlan,
   subscribeCurrentPlan,
 } from "@datapaw/ui/lib/plan-store";
@@ -59,7 +59,7 @@ export function TaskCardDockPrefix() {
   const datapawAgent = useDatapawAgentSelected();
   const plan = useSyncExternalStore(
     subscribeCurrentPlan,
-    () => getCurrentPlan() as PlanSnapshot | null,
+    () => getDisplayPlan() as PlanSnapshot | null,
     () => null,
   );
   const [drawerNodeId, setDrawerNodeId] = useState<string | null>(null);
@@ -69,7 +69,7 @@ export function TaskCardDockPrefix() {
     const sid = resolveBackendSessionId();
     if (!sid) return;
     const cached = loadCachedPlan(sid);
-    if (cached && !getCurrentPlan()) {
+    if (cached && !getDisplayPlan()) {
       setCurrentPlan(cached as UiPlanSnapshot);
     }
   }, [datapawAgent]);

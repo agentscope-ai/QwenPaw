@@ -997,6 +997,7 @@ export default function ChatPage() {
     const hostBridge = window.QwenPaw?.host?.chatBridge;
     if (!hostBridge) return;
     hostBridge._ref = chatRef;
+    hostBridge._sessionApi = sessionApi;
     hostBridge.setChatRef?.(chatRef);
   }, []);
 

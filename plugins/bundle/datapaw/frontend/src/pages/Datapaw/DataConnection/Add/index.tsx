@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { dataSourceApi } from "../../../../api/modules/dataSource";
 import type {
   DataSourceConnectionConfig,
+  DataSourceCreatePayload,
   DataSourceType,
 } from "../../../../api/types/dataSource";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
@@ -35,15 +36,32 @@ function navigateInHost(path: string): void {
 
 interface AddFormValues {
   type: DataSourceType;
+  name: string;
   host?: string;
   port?: number | string;
   user?: string;
   password?: string;
   db?: string;
-  filePath?: string;
+  endpoint?: string;
+  project_name?: string;
+  access_id?: string;
+  access_key?: string;
+  app_name?: string;
 }
 
-function toPayload(values: AddFormValues) {
+function toPayload(values: AddFormValues): DataSourceCreatePayload {
+  const name = values.name.trim();
+  if (values.type === "odps") {
+    const config: DataSourceConnectionConfig = {
+      endpoint: values.endpoint?.trim(),
+      project_name: values.project_name?.trim(),
+      access_id: values.access_id?.trim(),
+      access_key: values.access_key,
+      app_name: values.app_name?.trim(),
+    };
+    return { type: values.type, name, config };
+  }
+
   const port =
     values.port === undefined || values.port === null || values.port === ""
       ? undefined
@@ -54,9 +72,16 @@ function toPayload(values: AddFormValues) {
     user: values.user?.trim(),
     password: values.password,
     db: values.db?.trim(),
-    filePath: values.filePath?.trim(),
   };
-  return { type: values.type, config };
+  return { type: values.type, name, config };
+}
+
+function resolveApiErrorCode(error: unknown): string {
+  if (error instanceof Error) {
+    const idx = error.message.indexOf(" - ");
+    return idx === -1 ? error.message : error.message.slice(0, idx);
+  }
+  return "createFailed";
 }
 
 function resolveErrorMessage(t: (key: string) => string, code: string): string {
@@ -95,7 +120,11 @@ function AddDataSourcePage() {
     try {
       const values = await form.validateFields();
       setTesting(true);
-      const result = await dataSourceApi.testConnection(toPayload(values));
+      const payload = toPayload(values);
+      const result = await dataSourceApi.testConnection({
+        type: payload.type,
+        config: payload.config,
+      });
       if (result.success) {
         message.success(
           t("dataConnection.testSuccess", {
@@ -120,15 +149,13 @@ function AddDataSourcePage() {
       message.success(t("dataConnection.addSuccess"));
       navigateInHost(routeBase);
     } catch (error) {
-      const code =
-        error instanceof Error ? error.message : "createFailed";
-      message.error(resolveErrorMessage(t, code));
+      message.error(resolveErrorMessage(t, resolveApiErrorCode(error)));
     } finally {
       setSubmitting(false);
     }
   };
 
-  const isCsv = selectedType === "csv";
+  const isOdps = selectedType === "odps";
 
   return (
     <div className={styles.addPage}>
@@ -165,19 +192,90 @@ function AddDataSourcePage() {
             />
           </Form.Item>
 
-          {isCsv ? (
-            <Form.Item
-              name="filePath"
-              label={t("dataConnection.filePath")}
-              rules={[
-                {
-                  required: true,
-                  message: t("dataConnection.filePathRequired"),
-                },
-              ]}
-            >
-              <Input placeholder={t("dataConnection.filePathPlaceholder")} />
-            </Form.Item>
+          <Form.Item
+            name="name"
+            label={t("dataConnection.name")}
+            rules={[
+              { required: true, message: t("dataConnection.nameRequired") },
+            ]}
+          >
+            <Input placeholder={t("dataConnection.namePlaceholder")} />
+          </Form.Item>
+
+          {isOdps ? (
+            <>
+              <Form.Item
+                name="endpoint"
+                label={t("dataConnection.endpoint")}
+                rules={[
+                  {
+                    required: true,
+                    message: t("dataConnection.endpointRequired"),
+                  },
+                ]}
+              >
+                <Input placeholder={t("dataConnection.endpointPlaceholder")} />
+              </Form.Item>
+
+              <Form.Item
+                name="project_name"
+                label={t("dataConnection.projectName")}
+                rules={[
+                  {
+                    required: true,
+                    message: t("dataConnection.projectNameRequired"),
+                  },
+                ]}
+              >
+                <Input placeholder={t("dataConnection.projectNamePlaceholder")} />
+              </Form.Item>
+
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item
+                    name="access_id"
+                    label={t("dataConnection.accessId")}
+                    rules={[
+                      {
+                        required: true,
+                        message: t("dataConnection.accessIdRequired"),
+                      },
+                    ]}
+                  >
+                    <Input placeholder={t("dataConnection.accessIdPlaceholder")} />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item
+                    name="access_key"
+                    label={t("dataConnection.accessKey")}
+                    rules={[
+                      {
+                        required: true,
+                        message: t("dataConnection.accessKeyRequired"),
+                      },
+                    ]}
+                  >
+                    <Input.Password
+                      placeholder={t("dataConnection.accessKeyPlaceholder")}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Form.Item
+                name="app_name"
+                label={t("dataConnection.appName")}
+                rules={[
+                  {
+                    required: true,
+                    message: t("dataConnection.appNameRequired"),
+                  },
+                ]}
+              >
+                <Input placeholder={t("dataConnection.appNamePlaceholder")} />
+              </Form.Item>
+            </>
           ) : (
             <>
               <Row gutter={16}>
@@ -233,6 +331,12 @@ function AddDataSourcePage() {
                   <Form.Item
                     name="password"
                     label={t("dataConnection.password")}
+                    rules={[
+                      {
+                        required: true,
+                        message: t("dataConnection.passwordRequired"),
+                      },
+                    ]}
                   >
                     <Input.Password
                       placeholder={t("dataConnection.passwordPlaceholder")}

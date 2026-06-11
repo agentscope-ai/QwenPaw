@@ -6,41 +6,36 @@ import type {
   DataSourceTestResult,
 } from "../../types/dataSource";
 
-const STORAGE_KEY = "qwenpaw_data_source_records_v2";
+const STORAGE_KEY = "qwenpaw_data_source_records_v3";
 
 const DEFAULT_RECORDS: DataSourceRecord[] = [
   {
     id: "mysql-user-db",
     type: "mysql",
-    name: "user_db",
+    name: "用户库",
     config: {
       host: "127.0.0.1",
       port: 3306,
       user: "root",
+      password: "se********345",
       db: "user_db",
     },
     createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
   },
   {
     id: "pg-analytics",
     type: "postgresql",
-    name: "analytics_warehouse",
+    name: "分析库",
     config: {
       host: "127.0.0.1",
       port: 5432,
       user: "postgres",
+      password: "se********345",
       db: "analytics_warehouse",
     },
     createdAt: "2026-01-02T00:00:00.000Z",
-  },
-  {
-    id: "api-crm",
-    type: "api",
-    name: "crm_events",
-    config: {
-      host: "https://api.example.com",
-    },
-    createdAt: "2026-01-03T00:00:00.000Z",
+    updatedAt: "2026-01-02T00:00:00.000Z",
   },
 ];
 
@@ -59,26 +54,20 @@ function writeRecords(items: DataSourceRecord[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
 }
 
-function resolveName(payload: DataSourceCreatePayload): string {
-  if (payload.type === "csv") {
-    const path = payload.config.filePath?.trim() || "";
-    const segments = path.split(/[/\\]/);
-    return segments[segments.length - 1] || path || "csv_source";
-  }
-  return payload.config.db?.trim() || `${payload.type}_source`;
-}
-
 function validateConfig(payload: DataSourceTestPayload): string | null {
-  if (payload.type === "csv") {
-    if (!payload.config.filePath?.trim()) {
-      return "filePathRequired";
-    }
+  if (payload.type === "odps") {
+    if (!payload.config.endpoint?.trim()) return "endpointRequired";
+    if (!payload.config.project_name?.trim()) return "projectNameRequired";
+    if (!payload.config.access_id?.trim()) return "accessIdRequired";
+    if (!payload.config.access_key?.trim()) return "accessKeyRequired";
+    if (!payload.config.app_name?.trim()) return "appNameRequired";
     return null;
   }
 
   if (!payload.config.host?.trim()) return "hostRequired";
   if (!payload.config.port) return "portRequired";
   if (!payload.config.user?.trim()) return "userRequired";
+  if (!payload.config.password?.trim()) return "passwordRequired";
   if (!payload.config.db?.trim()) return "dbRequired";
   return null;
 }
@@ -95,21 +84,31 @@ export const mockDataSourceApi = {
 
   create: async (payload: DataSourceCreatePayload): Promise<DataSourceRecord> => {
     await sleep(300);
+    if (!payload.name?.trim()) {
+      throw new Error("nameRequired");
+    }
+
+    const items = readRecords();
+    if (items.some((item) => item.name === payload.name.trim())) {
+      throw new Error("nameConflict");
+    }
+
     const errorKey = validateConfig(payload);
     if (errorKey) {
       throw new Error(errorKey);
     }
 
+    const now = new Date().toISOString();
     const record: DataSourceRecord = {
       id: `${payload.type}-${Date.now()}`,
       type: payload.type,
-      name: resolveName(payload),
+      name: payload.name.trim(),
       config: { ...payload.config },
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     };
 
-    const items = [record, ...readRecords()];
-    writeRecords(items);
+    writeRecords([record, ...items]);
     return record;
   },
 
@@ -145,6 +144,10 @@ export const mockDataSourceApi = {
 
   remove: async (id: string): Promise<void> => {
     await sleep(200);
-    writeRecords(readRecords().filter((item) => item.id !== id));
+    const items = readRecords();
+    if (!items.some((item) => item.id === id)) {
+      throw new Error("notFound");
+    }
+    writeRecords(items.filter((item) => item.id !== id));
   },
 };

@@ -177,9 +177,13 @@ function AppInner() {
             <Route
               path="/*"
               element={
-                <AuthGuard>
+                isPluginEmbed() ? (
                   <MainLayout />
-                </AuthGuard>
+                ) : (
+                  <AuthGuard>
+                    <MainLayout />
+                  </AuthGuard>
+                )
               }
             />
           </Routes>

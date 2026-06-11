@@ -10,6 +10,12 @@ import { isTaskGraphMessageId } from "../lib/pin-task-card";
 
 const PATCHED = Symbol("datapawSessionApiPatched");
 
+let onSessionApiPatched: (() => void) | null = null;
+
+export function setSessionApiPatchedListener(listener: (() => void) | null): void {
+  onSessionApiPatched = listener;
+}
+
 function onHostChatRoute(): boolean {
   if (typeof window === "undefined") return false;
   const path = window.location.pathname;
@@ -224,7 +230,7 @@ export function patchHostSessionApi(): boolean {
 
       mergeTaskCardIntoSession(sessionId, session);
 
-  if (onHostChatRoute() && persistentMessages.length > 0) {
+      if (onHostChatRoute() && persistentMessages.length > 0) {
         const messages = session.messages ?? [];
         const merged = mergePersistentMessages(messages, persistentMessages);
         session.messages = sortTaskCardsLast(merged);
@@ -237,5 +243,7 @@ export function patchHostSessionApi(): boolean {
   }
 
   (api as { [PATCHED]?: boolean })[PATCHED] = true;
+  console.info("[datapaw] Patched host sessionApi for task card persistence");
+  onSessionApiPatched?.();
   return true;
 }

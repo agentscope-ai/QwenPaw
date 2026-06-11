@@ -738,7 +738,25 @@
   max-width: 260px;
 }
 
+.fileMeta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.filePath {
+  font-size: 12px;
+  color: var(--colorTextTertiary, #9ca3af);
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .fileSize {
+  flex-shrink: 0;
   font-size: 12px;
   color: var(--colorTextTertiary, #9ca3af);
 }

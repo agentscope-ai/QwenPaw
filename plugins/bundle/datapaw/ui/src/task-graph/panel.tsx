@@ -1,6 +1,7 @@
 import type { PlanSnapshot } from "./types";
 import { getStatusConfig, isClickable } from "./constants";
 import { tTaskGraph } from "./i18n";
+import { createHighlightIcon } from "../lib/icons";
 import type { HostBundle } from "../types";
 
 const STATUS_COL_WIDTH = 108;
@@ -22,18 +23,19 @@ export interface TaskGraphPanelProps {
   showActions?: boolean;
   onNodeClick?: (nodeId: string) => void;
   onPlanCorrection?: (yaml: string) => void;
-  onArtifactManage?: () => void;
 }
 
 export function TaskGraphPanel({
   plan,
   React,
   antd,
+  PlanCorrectionPopover,
   showActions = false,
   onNodeClick,
-  onArtifactManage,
+  onPlanCorrection,
 }: TaskGraphPanelProps) {
   const { Table, Button } = antd;
+  const HighlightIcon = createHighlightIcon(React);
 
   const rows = Object.values(plan.nodes).map((node, index) => ({
     key: node.node_id,
@@ -75,20 +77,21 @@ export function TaskGraphPanel({
   ];
 
   const actions =
-    showActions && onArtifactManage
+    showActions && PlanCorrectionPopover
       ? React.createElement(
           "div",
           { className: "datapaw-header-actions" },
           React.createElement(
-            Button,
-            {
-              className: "datapaw-artifact-btn",
-              onClick: (event: { stopPropagation: () => void }) => {
-                event.stopPropagation();
-                onArtifactManage();
+            PlanCorrectionPopover,
+            { plan, onConfirm: onPlanCorrection },
+            React.createElement(
+              Button,
+              {
+                className: "datapaw-correction-btn",
+                icon: React.createElement(HighlightIcon, { size: 14 }),
               },
-            },
-            tTaskGraph("artifactManage"),
+              tTaskGraph("planCorrection"),
+            ),
           ),
         )
       : null;

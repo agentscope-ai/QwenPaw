@@ -2,11 +2,11 @@ import { httpDataSourceApi } from "./http";
 import { mockDataSourceApi } from "./mock";
 
 /**
- * Toggle HTTP backend vs local mock.
- * Set `VITE_DATA_SOURCE_USE_HTTP=true` in `.env` when backend routes are ready.
+ * Uses the host `/api/datapaw/data-sources` backend by default.
+ * Set `VITE_DATA_SOURCE_USE_MOCK=true` for local mock without a server.
  */
-const USE_HTTP = import.meta.env.VITE_DATA_SOURCE_USE_HTTP === "true";
+const USE_MOCK = import.meta.env.VITE_DATA_SOURCE_USE_MOCK === "true";
 
-export const dataSourceApi = USE_HTTP ? httpDataSourceApi : mockDataSourceApi;
+export const dataSourceApi = USE_MOCK ? mockDataSourceApi : httpDataSourceApi;
 
 export { mockDataSourceApi, httpDataSourceApi };
