@@ -1,0 +1,197 @@
+# When a beta/pre-release is published on GitHub, automatically create a
+# Release Duty Issue and assign it to the current on-call person based on
+# the round-robin roster in .github/beta-duty-roster.yml.
+
+name: Beta Release Duty Issue
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  create-duty-issue:
+    # Only run for pre-releases or tags containing beta/alpha/rc
+    if: |
+      github.event.release.prerelease == true ||
+      contains(github.event.release.tag_name, 'beta') ||
+      contains(github.event.release.tag_name, 'alpha') ||
+      contains(github.event.release.tag_name, 'rc')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Compute on-call assignee
+        id: roster
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - << 'EOF'
+          import os
+          import yaml
+          import hashlib
+
+          roster_path = ".github/beta-duty-roster.yml"
+          with open(roster_path) as f:
+              data = yaml.safe_load(f)
+
+          rotation = data.get("rotation", [])
+          if not rotation:
+              print("No rotation entries found, skipping assignee")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+                  out.write("assignee=\n")
+          else:
+              tag = os.environ.get("RELEASE_TAG", "")
+              # Use a hash of the tag to pick a consistent slot
+              idx = int(hashlib.md5(tag.encode()).hexdigest(), 16) % len(rotation)
+              assignee = rotation[idx]["github"]
+              print(f"Tag: {tag}, Slot: {idx}, Assignee: {assignee}")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+                  out.write(f"assignee={assignee}\n")
+          EOF
+
+      - name: Compute due time (4h from now)
+        id: due
+        run: |
+          due=$(date -u -d '+4 hours' '+%Y-%m-%d %H:%M UTC' 2>/dev/null || \
+                date -u -v+4H '+%Y-%m-%d %H:%M UTC')
+          echo "due=${due}" >> "$GITHUB_OUTPUT"
+
+      - name: Create Duty Issue
+        uses: actions/github-script@v7
+        env:
+          ASSIGNEE: ${{ steps.roster.outputs.assignee }}
+          DUE_TIME: ${{ steps.due.outputs.due }}
+        with:
+          script: |
+            const tag     = context.payload.release.tag_name;
+            const version = tag.replace(/^v/, '');
+            const releaseUrl = context.payload.release.html_url;
+            const assignee  = process.env.ASSIGNEE || '';
+            const dueTime   = process.env.DUE_TIME;
+
+            const body = `## 版本信息
+
+            - **Release 版本：** ${tag}
+            - **Release 链接：** ${releaseUrl}
+            - **值班截止时间：** ${dueTime}（Release 发布后 4 小时内完成）
+
+            ## 验收标准
+
+            每个平台需通过以下所有检查点：
+            - **安装**：按文档步骤安装，无报错退出
+            - **启动**：服务/应用正常启动，界面可访问
+            - **配置模型**：在 UI 中填入 API Key 并选择模型，配置保存成功
+            - **基础对话**：发送一条消息，收到正常回复（非报错）
+
+            ---
+
+            ## PyPI
+
+            **安装命令：**
+            \`\`\`bash
+            python -m venv /tmp/qwenpaw-test && source /tmp/qwenpaw-test/bin/activate
+            pip install qwenpaw==${version}
+            qwenpaw
+            \`\`\`
+
+            - [ ] 安装成功（\`pip install\` 无错误）
+            - [ ] 启动成功（\`qwenpaw\` 命令正常启动，浏览器可访问）
+            - [ ] 配置模型成功（填入 API Key，选择模型，保存无报错）
+            - [ ] 基础对话成功（发送消息，收到正常回复）
+
+            **验证环境：** OS: &nbsp; / Python: &nbsp; / 备注:
+
+            ---
+
+            ## Docker
+
+            **安装命令：**
+            \`\`\`bash
+            docker run --rm -p 7860:7860 agentscope/qwenpaw:${tag}
+            \`\`\`
+
+            - [ ] 拉取镜像成功（\`docker pull\` 无错误）
+            - [ ] 启动成功（容器正常运行，\`http://localhost:7860\` 可访问）
+            - [ ] 配置模型成功（填入 API Key，选择模型，保存无报错）
+            - [ ] 基础对话成功（发送消息，收到正常回复）
+
+            **验证环境：** OS: &nbsp; / Docker: &nbsp; / 架构: &nbsp; / 备注:
+
+            ---
+
+            ## macOS Desktop
+
+            **安装步骤：**
+            1. 前往 [Release 页面](${releaseUrl})
+            2. 下载 \`QwenPaw-${version}-macOS.zip\`
+            3. 解压，将 \`QwenPaw.app\` 拖入应用程序文件夹，打开应用
+
+            - [ ] 下载并解压成功
+            - [ ] 启动成功（应用正常打开，无崩溃）
+            - [ ] 配置模型成功（填入 API Key，选择模型，保存无报错）
+            - [ ] 基础对话成功（发送消息，收到正常回复）
+
+            **验证环境：** macOS 版本: &nbsp; / 芯片: &nbsp; / 备注:
+
+            ---
+
+            ## Windows Desktop
+
+            **安装步骤：**
+            1. 前往 [Release 页面](${releaseUrl})
+            2. 下载 \`QwenPaw-Setup-${version}.exe\`
+            3. 双击安装，按向导完成，启动 QwenPaw
+
+            - [ ] 下载并安装成功（安装向导无报错）
+            - [ ] 启动成功（应用正常打开，无崩溃）
+            - [ ] 配置模型成功（填入 API Key，选择模型，保存无报错）
+            - [ ] 基础对话成功（发送消息，收到正常回复）
+
+            **验证环境：** Windows 版本: &nbsp; / 备注:
+
+            ---
+
+            ## 最终结论
+
+            | 平台 | 结果 | 值班人 |
+            |------|------|--------|
+            | PyPI | ⬜ PENDING | |
+            | Docker | ⬜ PENDING | |
+            | macOS Desktop | ⬜ PENDING | |
+            | Windows Desktop | ⬜ PENDING | |
+
+            **全部 PASS：** 关闭本 Issue，打 \`verified\` 标签，Release 正常推进。
+
+            **有 FAIL：** 评论附上复现步骤和日志，打 \`installation-bug\` 标签，@maintainer 决策是否阻断。
+            `;
+
+            const issueParams = {
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              title: `[Release Duty] QwenPaw ${tag} Beta 安装验证`,
+              body:  body,
+              labels: ['release-duty', 'beta'],
+            };
+
+            if (assignee) {
+              issueParams.assignees = [assignee];
+            }
+
+            const { data: issue } = await github.rest.issues.create(issueParams);
+            console.log(`Created duty issue #${issue.number}: ${issue.html_url}`);
+            core.summary.addRaw(`Created [Release Duty Issue #${issue.number}](${issue.html_url})`);
+            await core.summary.write();
