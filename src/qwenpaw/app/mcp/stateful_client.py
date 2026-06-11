@@ -32,7 +32,7 @@ from mcp.client.stdio import StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 
-from agentscope.mcp import MCPToolFunction, StatefulClientBase
+from agentscope.tool import MCPTool
 
 # OpenAI / Anthropic tool-call APIs reject any tools[].name that contains
 # characters outside this set. MCP, by contrast, allows '.', '/', ':' etc.,
@@ -63,33 +63,33 @@ def _sanitize_tool_name(raw: str, taken: set[str]) -> str:
     return candidate
 
 
-class _SessionAliasProxy:
-    """Wrap a ``ClientSession`` to translate sanitized tool names back to
-    the real MCP names on ``call_tool``.
+class _LazyClientSession:
+    """Session-like proxy that resolves the client's *live* ``ClientSession``
+    lazily on every call.
 
-    The toolkit dispatch path (``MCPToolFunction.__call__``) calls
-    ``self.session.call_tool(self.name, ...)`` directly on the underlying
-    ``mcp.ClientSession``, bypassing any ``call_tool`` override on this
-    client. Wrapping the session at the point we hand it to
-    ``MCPToolFunction`` is the only place the translation can happen
-    without forking ``MCPToolFunction`` itself. All other session
-    attributes are forwarded as-is via ``__getattr__``.
+    agentscope 2.0's ``Toolkit`` registers the ``MCPTool`` objects returned by
+    :meth:`_MCPClientMixin.list_tools` and dispatches through
+    ``MCPTool.__call__`` → ``self._session.call_tool(self._tool.name, ...)``.
+    Those ``MCPTool`` objects are built **once** and cached across reconnects,
+    but ``self.session`` is rebound to a fresh ``ClientSession`` every time the
+    client reloads / reconnects. Snapshotting the session at build time would
+    leave cached tools dispatching through a dead session after a reload.
+
+    This proxy instead holds a reference to the *client* and reads
+    ``client.session`` at call time, so cached tools always reach the current
+    live session. It also defensively translates sanitized tool names back to
+    the real MCP names (harmless: real names pass through unchanged), covering
+    any path that still hands it a sanitized name.
+
+    All other session attributes are forwarded to the live session via
+    ``__getattr__``.
     """
 
-    def __init__(
-        self,
-        session: ClientSession,
-        alias_to_real: dict[str, str],
-    ) -> None:
-        # Snapshot the mapping by reference; the client rebinds
-        # ``_name_alias_to_real`` to a fresh dict on reconnect, so this
-        # proxy keeps routing in-flight functions through the mapping
-        # that was current when the function was constructed.
-        self._session = session
-        self._alias_to_real = alias_to_real
+    def __init__(self, client: "_MCPClientMixin") -> None:
+        self._client = client
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._session, name)
+        return getattr(self._client.session, name)
 
     async def call_tool(
         self,
@@ -97,11 +97,12 @@ class _SessionAliasProxy:
         arguments: dict | None = None,
         **kwargs: Any,
     ) -> Any:
-        real_name = self._alias_to_real.get(name, name)
+        self._client._validate_connection()
+        real_name = self._client._name_alias_to_real.get(name, name)
         # Forward ``arguments`` as keyword to match how
-        # ``MCPToolFunction.__call__`` invokes this method (and how the
+        # ``MCPTool.__call__`` invokes this method (and how the
         # underlying ``ClientSession.call_tool`` is normally called).
-        return await self._session.call_tool(
+        return await self._client.session.call_tool(
             real_name,
             arguments=arguments,
             **kwargs,
@@ -658,6 +659,61 @@ class _MCPClientMixin:
             )
         return sanitized, alias_to_real
 
+    def _build_mcp_tools(
+        self,
+        sanitized_tools: list,
+        alias_to_real: dict[str, str],
+    ) -> list:
+        """Wrap sanitized ``mcp.types.Tool`` objects as ``MCPTool`` instances.
+
+        agentscope 2.0's ``Toolkit`` registers the objects returned by
+        :meth:`list_tools` directly (``RegisteredTool(tool=tool)``) and reads
+        ``tool.name`` / ``tool.is_mcp`` / ``tool.is_state_injected`` on them,
+        then dispatches via ``tool(**kwargs)``.  Therefore ``list_tools`` MUST
+        return ``ToolBase`` (``MCPTool``) instances — raw ``mcp.types.Tool``
+        schemas are not callable and lack those attributes.
+
+        Each *sanitized_tools* entry has a model-safe ``.name`` (matching
+        ``^[a-zA-Z0-9_-]+$``).  ``MCPTool.__call__`` dispatches
+        ``session.call_tool(self._tool.name, ...)``, so we hand it a tool
+        whose ``.name`` is the **real** MCP name (server-side dispatch must use
+        the un-sanitized name).  We then override the namespaced
+        ``MCPTool.name`` to ``mcp__{server}__{sanitized}`` so the model still
+        sees only model-safe names.
+
+        The session is a :class:`_LazyClientSession` that resolves
+        ``self.session`` at call time (so cached tools survive reconnects) and
+        defensively re-translates sanitized names back to real ones.
+        """
+        from agentscope.tool import MCPTool
+
+        execution_timeout = getattr(self, "read_timeout_seconds", None)
+        session_proxy = _LazyClientSession(self)
+
+        tools: list = []
+        for sani_tool in sanitized_tools:
+            sani_name = sani_tool.name
+            real_name = alias_to_real.get(sani_name, sani_name)
+            # MCPTool dispatches ``session.call_tool(self._tool.name)``, so the
+            # wrapped tool must carry the real MCP name.
+            real_tool = (
+                sani_tool
+                if real_name == sani_name
+                else sani_tool.model_copy(update={"name": real_name})
+            )
+            mcp_tool = MCPTool(
+                mcp_name=self.name,
+                tool=real_tool,
+                session=session_proxy,
+                timeout=execution_timeout,
+            )
+            # MCPTool sets ``name = mcp__{server}__{real_name}``; force the
+            # model-facing name back onto the sanitized form so tool-call APIs
+            # keep accepting it even when the real MCP name has invalid chars.
+            mcp_tool.name = f"mcp__{self.name}__{sani_name}"
+            tools.append(mcp_tool)
+        return tools
+
     async def list_tools(self):
         """Return whitelisted tools from the MCP server.
 
@@ -686,8 +742,6 @@ class _MCPClientMixin:
                 or if the reconnect does not complete within
                 ``_LIST_TOOLS_RECONNECT_WAIT`` seconds.
         """
-        from agentscope.tool import MCPTool
-
         if not self.is_connected:
             has_task = self._lifecycle_task is not None and not (
                 self._lifecycle_task.done()
@@ -725,17 +779,23 @@ class _MCPClientMixin:
                     k: v for k, v in alias_to_real.items() if k in whitelist
                 }
 
-            self._cached_tools = rewritten
+            # Record the alias map *before* building tools so the lazy
+            # session proxy (which reads it at call time) routes correctly.
             self._name_alias_to_real = alias_to_real
-            return rewritten
+            self._cached_tools = self._build_mcp_tools(
+                rewritten, alias_to_real
+            )
+            return self._cached_tools
 
         # Reconnect didn't land in time.  Fall back to the cache from the
         # last successful list_tools call (preserved across transient
         # reconnects on purpose — see ``_handle_transport_error`` and
-        # ``_run_lifecycle``).  The returned MCPTool wrappers will have
-        # ``session=None``, so any ``call_tool`` issued this turn will
-        # raise — but agentscope ReAct catches per-tool errors and records
-        # them as tool results, so the user's turn survives.
+        # ``_run_lifecycle``).  The cached ``MCPTool`` wrappers resolve the
+        # session lazily through ``_LazyClientSession``, so once the client
+        # reconnects they dispatch through the fresh live session; while the
+        # client is still disconnected any ``call_tool`` raises — but
+        # agentscope ReAct catches per-tool errors and records them as tool
+        # results, so the user's turn survives.
         # This shape mirrors how agentscope 1.x worked: schemas captured
         # once and reused, only ``call_tool`` was sensitive to liveness.
         if self._cached_tools is not None:
@@ -801,49 +861,37 @@ class _MCPClientMixin:
     async def get_callable_function(
         self,
         func_name: str,
-        wrap_tool_result: bool = True,
         execution_timeout: float | None = None,
-    ) -> MCPToolFunction:
-        """Build the ``MCPToolFunction`` agentscope dispatches through, with
-        a session that translates sanitized names back to MCP-real names.
+    ) -> MCPTool:
+        """Return the cached ``MCPTool`` for *func_name*.
 
-        The agentscope toolkit reads ``mcp_tool.name`` from our
-        :meth:`list_tools` (already sanitized) and passes it here as
-        ``func_name``. Without intervention, ``MCPToolFunction.__call__``
-        would dispatch the sanitized name to a server that only knows the
-        real name, returning "Unknown tool".
-
-        We construct ``MCPToolFunction`` ourselves rather than delegating
-        to the inherited implementation so the proxy is wired in at
-        construction time — the returned function then exposes the
-        sanitized ``name`` (correct for the model) and dispatches the real
-        MCP name (correct for the server) without any post-hoc mutation.
+        agentscope 2.0's ``Toolkit`` registers the ``MCPTool`` objects from
+        :meth:`list_tools` directly and never calls this method, so it exists
+        only as a convenience / compatibility shim. ``func_name`` may be either
+        the namespaced ``mcp__{server}__{tool}`` name (as exposed to the model)
+        or the bare sanitized tool name. The returned ``MCPTool`` dispatches
+        through :class:`_LazyClientSession`, so the server still receives the
+        real (un-sanitized) MCP tool name.
         """
         self._validate_connection()
 
         if self._cached_tools is None:
             await self.list_tools()
 
+        namespaced = (
+            func_name
+            if func_name.startswith(f"mcp__{self.name}__")
+            else f"mcp__{self.name}__{func_name}"
+        )
         target_tool = next(
-            (t for t in self._cached_tools if t.name == func_name),
+            (t for t in self._cached_tools if t.name == namespaced),
             None,
         )
         if target_tool is None:
             raise ValueError(
                 f"Tool '{func_name}' not found in MCP server '{self.name}'",
             )
-
-        session: Any = self.session
-        if self._name_alias_to_real:
-            session = _SessionAliasProxy(session, self._name_alias_to_real)
-
-        return MCPToolFunction(
-            mcp_name=self.name,
-            tool=target_tool,
-            wrap_tool_result=wrap_tool_result,
-            session=session,
-            timeout=execution_timeout,
-        )
+        return target_tool
 
     async def close(self, ignore_errors: bool = True) -> None:
         """Close the MCP client and stop its lifecycle task.

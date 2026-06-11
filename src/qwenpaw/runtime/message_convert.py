@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Message conversion between AgentRequest and agentscope Msg."""
+
 from __future__ import annotations
 
 import logging
@@ -26,13 +27,17 @@ def _media_type_to_block_type(media_type: str | None) -> str:
 
 
 def _get_last_user_text(msgs: List[Any]) -> str | None:
-    """Extract the text of the last user message from a list of ``Msg``."""
-    if not msgs:
-        return None
-    last = msgs[-1]
-    if hasattr(last, "get_text_content"):
-        return last.get_text_content()
-    return None
+    """Extract the text of the last user message from a list of ``Msg``.
+
+    Delegates to the single canonical implementation in
+    :mod:`qwenpaw.app.runner.command_dispatch` (imported lazily to avoid an
+    import cycle) so both command entry points share one behavior.
+    """
+    from ..app.runner.command_dispatch import (
+        _get_last_user_text as _impl,
+    )
+
+    return _impl(msgs)
 
 
 def _ensure_url_scheme(url: str) -> str:

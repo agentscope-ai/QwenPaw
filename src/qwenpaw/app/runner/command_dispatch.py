@@ -6,10 +6,11 @@ all command categories (daemon, control, conversation, skill) in
 priority order and returns the response text, or ``None`` to fall
 through to the model.
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any, TYPE_CHECKING
+from typing import Any, AsyncIterator, TYPE_CHECKING
 
 from . import control_commands
 from .control_commands.base import ControlContext
@@ -18,12 +19,14 @@ from .daemon_commands import (
     DaemonCommandHandlerMixin,
     parse_daemon_query,
 )
+from ...agents.command_handler import CommandHandler
 from ...config.config import load_agent_config
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from agentscope.message import Msg
+    from .runner import AgentRunner
 
 
 async def dispatch_command(
@@ -250,3 +253,193 @@ def _parse_skill_query(query: str) -> tuple[str, str] | None:
     name = parts[0].lower()
     user_input = parts[1] if len(parts) > 1 else ""
     return (name, user_input) if name else None
+
+
+# ---------------------------------------------------------------------------
+# query_handler bridge (AgentRunner.query_handler in runner.py).
+#
+# The command path in ``AgentRunner.query_handler`` runs *before* the agent
+# object is constructed, so it cannot hand an agent to ``dispatch_command``
+# directly. ``run_command_path`` builds the agent the same way the live
+# stream_query path does (via ``runtime.agent_factory.build_agent``) and
+# bridges ``dispatch_command``'s ``Msg | None`` onto the ``(Msg, last)``
+# async-iterator that ``query_handler`` expects.
+# ---------------------------------------------------------------------------
+
+
+def _get_last_user_text(msgs) -> str | None:
+    """Extract last user message text from msgs (runtime message list)."""
+    if not msgs or len(msgs) == 0:
+        return None
+    last = msgs[-1]
+    if hasattr(last, "get_text_content"):
+        return last.get_text_content()
+    if isinstance(last, dict):
+        content = last.get("content") or last.get("text")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    return block.get("text")
+    return None
+
+
+def _is_conversation_command(query: str | None) -> bool:
+    """True if query is a conversation command (/compact, /new, etc.).
+
+    ``/plan <description>`` (with arguments) is NOT a command — it passes
+    through the runner to activate plan mode.
+    """
+    if not query or not query.startswith("/"):
+        return False
+    stripped = query.strip().lstrip("/")
+    parts = stripped.split(" ", 1)
+    cmd = parts[0] if parts else ""
+    if cmd == "plan" and len(parts) > 1 and parts[1].strip():
+        return False
+    return cmd in CommandHandler.SYSTEM_COMMANDS
+
+
+def _is_control_command(query: str | None) -> bool:
+    """True if query is a control command (/stop, /approval, etc.)."""
+    return control_commands.is_control_command(query)
+
+
+def _is_command(query: str | None) -> bool:
+    """True if query is any known command.
+
+    Priority order: daemon > control > conversation. ``/plan <description>``
+    (with arguments) is NOT a command — it passes through to the runner to
+    activate plan mode.
+    """
+    if not query or not query.startswith("/"):
+        return False
+    if parse_daemon_query(query) is not None:
+        return True
+    if _is_control_command(query):
+        return True
+    return _is_conversation_command(query)
+
+
+async def run_command_path(
+    request,
+    msgs,
+    runner: "AgentRunner",
+) -> AsyncIterator[tuple]:
+    """Run command path and yield ``(msg, last)`` for each response.
+
+    Thin adapter over :func:`dispatch_command`. It obtains an agent the same
+    way the live stream_query path does (builds via
+    ``runtime.agent_factory.build_agent`` and loads persisted session state),
+    then bridges ``dispatch_command``'s ``Msg | None`` onto the ``(Msg, bool)``
+    stream that ``AgentRunner.query_handler`` consumes.
+
+    Args:
+        request: AgentRequest (session_id, user_id, channel, etc.)
+        msgs: List of messages from runtime (last is user input)
+        runner: AgentRunner (session, memory_manager, context_manager, etc.)
+
+    Yields:
+        ``(Msg, bool)`` compatible with ``query_handler`` stream.
+    """
+    query = _get_last_user_text(msgs)
+    if not query:
+        return
+
+    from agentscope.message import Msg, TextBlock
+
+    session_id = getattr(request, "session_id", "") or ""
+    user_id = getattr(request, "user_id", "") or ""
+    channel = getattr(request, "channel", "") or ""
+
+    # Daemon-restart hint: yield first so the user sees it before the
+    # restart actually runs (parity with the 1.x command path).
+    parsed = parse_daemon_query(query)
+    if parsed is not None and parsed[0] == "restart":
+        yield (
+            Msg(
+                name=runner.agent_name,
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            "**Restart in progress**\n\n"
+                            "- Reloading agent with zero-downtime. "
+                            "Please wait."
+                        ),
+                    ),
+                ],
+            ),
+            True,
+        )
+
+    # Build the agent the same way the live query path does: with MCP
+    # clients (so /skill and control commands see the same tools) and the
+    # request_context payload.
+    from ...runtime.agent_factory import build_agent
+
+    mcp_clients = None
+    mcp_mgr = getattr(runner, "_mcp_manager", None)
+    if mcp_mgr is not None:
+        try:
+            mcp_clients = await mcp_mgr.get_clients()
+        except Exception:
+            logger.debug(
+                "run_command_path: failed to get MCP clients",
+                exc_info=True,
+            )
+
+    request_context: dict[str, str] = {
+        "session_id": session_id,
+        "user_id": user_id,
+        "channel": channel,
+        "agent_id": runner.agent_id,
+    }
+    payload_context = getattr(request, "request_context", None)
+    if isinstance(payload_context, dict):
+        request_context.update(payload_context)
+
+    agent = build_agent(
+        session_id,
+        agent_id=runner.agent_id,
+        workspace_dir=runner.workspace_dir,
+        mcp_clients=mcp_clients or None,
+        request_context=request_context,
+        memory_manager=runner.memory_manager,
+        context_manager=runner.context_manager,
+    )
+
+    # Load persisted session state (needed by conversation commands that
+    # touch memory, e.g. /compact, /new, /clear).
+    session = getattr(runner, "session", None)
+    if session is not None:
+        try:
+            await session.load_session_state(
+                session_id=session_id,
+                user_id=user_id or session_id,
+                channel=channel,
+                agent=agent,
+            )
+        except KeyError as e:
+            logger.debug(
+                "run_command_path: session load skipped "
+                "(schema mismatch): %s",
+                e,
+            )
+        except Exception:
+            logger.debug(
+                "run_command_path: session load failed",
+                exc_info=True,
+            )
+
+    msg = await dispatch_command(
+        query,
+        agent=agent,
+        runner=runner,
+        request=request,
+        msgs=msgs,
+    )
+    if msg is not None:
+        yield msg, True

@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import httpx
 from agentscope.message import TextBlock
-from agentscope.tool import ToolChunk
+from agentscope.tool import ToolChunk, ToolResponse
 from agentscope.message import ToolResultState
 
 from ...config.utils import read_last_api
