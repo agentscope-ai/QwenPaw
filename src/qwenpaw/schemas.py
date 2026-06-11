@@ -249,6 +249,10 @@ class AgentRequest(BaseModel):
     user_id: Optional[str] = None
     stream: bool = True
     metadata: Optional[Dict[str, Any]] = None
+    # Mirror agentscope_runtime BaseRequest.id: the runtime's
+    # Runner.stream_query builds AgentResponse(id=request.id), so this
+    # field must exist or attribute access raises AttributeError.
+    id: Optional[str] = None
 
 
 class AgentResponse(BaseModel):
