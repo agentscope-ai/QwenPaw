@@ -27,10 +27,14 @@ from .settings import router as settings_router
 from .plugins import router as plugins_router
 from .frontend_plugin import router as frontend_plugin_router
 from .backup import router as backup_router
-# NOTE(agentscope-2.0 migration): the `plan` router/package was a 1.x wrapper over
-# agentscope.plan and was dropped in the 2.0 migration (no `app/routers/plan.py`
-# nor `qwenpaw/plan/` exists). Disabled to unblock imports; re-implement on the
-# 2.0 planning model if/when plan endpoints are needed.
+# NOTE(agentscope-2.0 migration): `agentscope.plan` (Plan / PlanNotebook /
+# DefaultPlanToHint) was removed in 2.0 in favour of the task tools under
+# `agentscope.tool._task`. The `plan` router and the `qwenpaw.plan` package are
+# restored here as a 2.0-safe shim: every reference to the removed
+# `agentscope.plan` API is import-guarded (try/except / lazy), so the endpoints
+# import and serve cleanly and the plan feature degrades to inert (no live
+# PlanNotebook) until it is re-implemented on the 2.0 task model.
+from .plan import router as plan_router
 from .fork import router as fork_router
 from .git import router as git_router
 from .coding_project import router as coding_project_router
@@ -63,7 +67,7 @@ router.include_router(settings_router)
 router.include_router(plugins_router)
 router.include_router(frontend_plugin_router)
 router.include_router(backup_router)
-# router.include_router(plan_router)  # disabled: see note above (2.0 migration)
+router.include_router(plan_router)
 router.include_router(fork_router)
 router.include_router(git_router)
 router.include_router(coding_project_router)
