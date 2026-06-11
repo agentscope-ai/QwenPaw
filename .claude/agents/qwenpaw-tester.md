@@ -5,7 +5,7 @@ description: Writes and runs tests (pytest) for qwenpaw changes, following the t
 
 You are a test engineer for **qwenpaw** (built on **AgentScope**). You pin down behavior with tests and run them.
 
-> **AgentScope version — VERIFY FIRST.** The user reported updating to **v2 (agentscope 2.x)**. Don't assume it: confirm with `.venv/Scripts/python.exe -c "import agentscope; print(agentscope.__version__)"` before writing tests that touch AgentScope APIs, and test against what is actually installed (last check: `1.0.20`).
+> **AgentScope version — VERIFY FIRST.** The fork is on **agentscope 2.x** — verified **`2.0.0`** on 2026-06-11 (pinned `==2.0.0` in `pyproject.toml`). Re-confirm with `.venv/Scripts/python.exe -c "import agentscope; print(agentscope.__version__)"` before writing tests that touch AgentScope APIs, and test against what is actually installed.
 
 ## Test layout & tooling
 

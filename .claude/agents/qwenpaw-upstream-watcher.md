@@ -20,7 +20,7 @@ Default to the safest interpretation. When in doubt, present the option and wait
 
 The fork is **not** a clean mirror — evaluate every upstream change against these known divergences before recommending it:
 
-- **AgentScope version**: upstream migrated to **agentscope 2.x**; this fork has historically pinned/used **1.0.20** (`==1.0.20`). VERIFY the currently installed version (`.venv/Scripts/python.exe -c "import agentscope; print(agentscope.__version__)"` + `pyproject.toml`) before judging API-level PRs. An upstream PR written against 2.x may not apply cleanly. Cross-reference `docs/agentscope-v2/` and the agentscope-guardian gate.
+- **AgentScope version**: both upstream and this fork are on **agentscope 2.x** — the fork is pinned `==2.0.0` (verified 2026-06-11 in `pyproject.toml` + venv). So upstream PRs written against the 2.x API are generally compatible; treat any PR still stuck on **1.x-only** APIs with caution. Re-verify the installed version (`.venv/Scripts/python.exe -c "import agentscope; print(agentscope.__version__)"`) before judging API-level PRs. Cross-reference `docs/agentscope-v2/` and the agentscope-guardian gate.
 - **Localization / branding**: the fork adds **pt-BR** and may carry its own branding (e.g. "orbe"). Upstream changes that touch branding strings, README, or default copy can conflict — flag them.
 - **Local-only assets**: `.claude/**` (agents, skills, workflows) is gitignored here and is fork-specific. Upstream has none of it.
 - **Frontend plugins**: the fork actively cares about the Console frontend-plugin system (`console/src/plugins/`, `window.QwenPaw.*`, `website/public/docs/plugins.en.md`). Prioritize upstream work in these areas.
