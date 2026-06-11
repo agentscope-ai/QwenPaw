@@ -1,6 +1,6 @@
 import "@/i18n";
-import App from "@/App";
 import React from "react";
+import { DataPawRoute } from "../datapaw-route";
 import { DATAPAW_AGENT_ID, PLUGIN_ID } from "../lib/constants";
 import { isDatapawAgentSelected } from "../lib/agent";
 import type { HostBundle } from "../types";
@@ -10,10 +10,6 @@ const DATA_CONNECTION_ROUTE_ID = "datapaw.data-connection";
 const DATA_CONNECTION_ADD_ROUTE_ID = "datapaw.data-connection.add";
 const DATAPAW_GROUP_ID = "datapaw.group";
 const SEMANTIC_WEAVING_URL = "https://bailian.console.aliyun.com/";
-
-function DataPawRoute() {
-  return React.createElement(App);
-}
 
 function datapawAgentVisible(): boolean {
   const hostSelectedAgent = (
@@ -84,7 +80,7 @@ export function registerDatapawNavigation(host: HostBundle): void {
         visible: datapawAgentVisible,
       },
       {
-        id: "datapaw.data-connection.menu",
+        id: DATA_CONNECTION_ROUTE_ID,
         location: "primary.agentScoped",
         parentId: DATAPAW_GROUP_ID,
         label: "Data Connection",
@@ -112,8 +108,6 @@ export function registerDatapawNavigation(host: HostBundle): void {
         visible: datapawAgentVisible,
       },
     ]);
-
-    console.info("[datapaw:navigation] registered DataPaw menu and routes");
     return;
   }
 

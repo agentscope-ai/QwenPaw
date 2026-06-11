@@ -66,7 +66,6 @@ function tryPatchHostChat(): boolean {
   });
 
   chatMod.default = DatapawHostChat;
-  console.info(`[${PLUGIN_ID}] Patched host Chat/index for /chat integration`);
   return true;
 }
 

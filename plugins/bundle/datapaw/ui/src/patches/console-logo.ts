@@ -51,6 +51,4 @@ export function installConsoleLogoPatch(host: HostBundle): void {
     },
     { id: "datapaw-header-logo", order: 10 },
   );
-
-  console.info("[datapaw:logo] header.logo slot replacement registered");
 }

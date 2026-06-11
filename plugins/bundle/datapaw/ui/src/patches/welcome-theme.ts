@@ -55,6 +55,4 @@ export function patchWelcomeAndTheme(): void {
       },
     };
   };
-
-  console.info("[datapaw] Patched welcome config & theme via configProvider");
 }

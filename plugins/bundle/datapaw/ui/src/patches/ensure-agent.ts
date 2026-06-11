@@ -51,8 +51,4 @@ export function ensureDefaultAgent(): void {
 
   writeAgentToStorage();
   window.addEventListener("beforeunload", writeAgentToStorage, { once: true });
-
-  console.info(
-    `[datapaw] Set default agent to ${DATAPAW_AGENT_ID} for first-time user`,
-  );
 }

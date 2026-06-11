@@ -166,8 +166,5 @@ export function registerTaskCardSenderPrefix(): { dispose: () => void } | void {
     { id: SENDER_PREFIX_ID, order: 0 },
   );
 
-  console.info(
-    `[${PLUGIN_ID}] Task card registered above chat input (sender.addPrefix)`,
-  );
   return disposable;
 }

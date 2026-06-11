@@ -45,6 +45,105 @@ function loadStoredCardMessage(
   return null;
 }
 
+function isStandaloneTaskGraphMessage(
+  message: Record<string, unknown>,
+): boolean {
+  const cards = message.cards as Array<{ code?: string }> | undefined;
+  return Boolean(
+    message.id &&
+      cards?.length === 1 &&
+      cards[0]?.code === "task_graph" &&
+      (String(message.id).startsWith("task_graph_") ||
+        message.id === TASK_GRAPH_MESSAGE_ID),
+  );
+}
+
+function getTaskGraphAnchorMessageId(
+  message: Record<string, unknown>,
+): string | null {
+  const cards = message.cards as
+    | Array<{ code?: string; data?: { plan?: { anchor_message_id?: string } } }>
+    | undefined;
+  const taskGraphCard = cards?.find((card) => card.code === "task_graph");
+  const anchorMessageId = taskGraphCard?.data?.plan?.anchor_message_id;
+  return typeof anchorMessageId === "string" && anchorMessageId
+    ? anchorMessageId
+    : null;
+}
+
+function findAssistantResponseIndex(
+  messages: Array<Record<string, unknown>>,
+  anchorMessageId?: string | null,
+): number {
+  if (anchorMessageId) {
+    const anchoredIndex = messages.findIndex((message) => {
+      const cards = message.cards as
+        | Array<{
+            code?: string;
+            data?: { output?: Array<{ id?: string }> };
+          }>
+        | undefined;
+
+      return (
+        message.role === "assistant" &&
+        cards?.some((card) =>
+          card.code === "AgentScopeRuntimeResponseCard"
+            ? card.data?.output?.some((item) => item.id === anchorMessageId)
+            : false,
+        )
+      );
+    });
+    if (anchoredIndex >= 0) return anchoredIndex;
+  }
+
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === "assistant") return i;
+  }
+
+  return -1;
+}
+
+function mergePersistentMessages(
+  messages: Array<Record<string, unknown>>,
+  persistentMessages: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const next = messages.filter(
+    (message) => !isStandaloneTaskGraphMessage(message),
+  );
+  const seenIds = new Set<string>();
+  const candidates = [...messages, ...persistentMessages].filter(
+    (message) => {
+      if (!isStandaloneTaskGraphMessage(message)) return false;
+      const id = String(message.id);
+      if (seenIds.has(id)) return false;
+      seenIds.add(id);
+      return true;
+    },
+  );
+
+  for (const message of candidates) {
+    const anchorMessageId = getTaskGraphAnchorMessageId(message);
+    const targetIndex = findAssistantResponseIndex(next, anchorMessageId);
+    if (targetIndex < 0) {
+      next.push(message);
+      continue;
+    }
+
+    const target = next[targetIndex];
+    const targetCards = Array.isArray(target.cards) ? [...target.cards] : [];
+    const sourceCards = Array.isArray(message.cards) ? message.cards : [];
+    if (targetCards.some((card) => card.code === "task_graph")) {
+      continue;
+    }
+    next[targetIndex] = {
+      ...target,
+      cards: [...targetCards, ...sourceCards],
+    };
+  }
+
+  return next;
+}
+
 function mergeTaskCardIntoSession(
   sessionId: string,
   session: { messages?: Array<Record<string, unknown>> },
@@ -53,8 +152,7 @@ function mergeTaskCardIntoSession(
   const stored = loadStoredCardMessage(sessionId);
   if (!stored) return;
   const messages = session.messages ?? [];
-  if (messages.some((m) => m.id === TASK_GRAPH_MESSAGE_ID)) return;
-  session.messages = [...messages, stored];
+  session.messages = mergePersistentMessages(messages, [stored]);
 }
 
 function sortTaskCardsLast(
@@ -126,14 +224,10 @@ export function patchHostSessionApi(): boolean {
 
       mergeTaskCardIntoSession(sessionId, session);
 
-      if (onHostChatRoute() && persistentMessages.length > 0) {
+  if (onHostChatRoute() && persistentMessages.length > 0) {
         const messages = session.messages ?? [];
-        for (const msg of persistentMessages) {
-          if (!messages.some((m) => m.id === msg.id)) {
-            messages.push(msg);
-          }
-        }
-        session.messages = sortTaskCardsLast(messages);
+        const merged = mergePersistentMessages(messages, persistentMessages);
+        session.messages = sortTaskCardsLast(merged);
       } else if (session.messages?.length) {
         session.messages = sortTaskCardsLast(session.messages);
       }
@@ -143,6 +237,5 @@ export function patchHostSessionApi(): boolean {
   }
 
   (api as { [PATCHED]?: boolean })[PATCHED] = true;
-  console.info("[datapaw] Patched host sessionApi for task card persistence");
   return true;
 }

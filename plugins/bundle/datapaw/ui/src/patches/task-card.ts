@@ -15,6 +15,7 @@ import {
 import { resetNodeStreamEvents } from "../lib/node-stream-events";
 import { isDatapawAgentSelected } from "../lib/agent";
 import {
+  buildTaskCardMessage,
   saveTaskCardForSession,
   removeTaskCardForSession,
 } from "../lib/task-card-storage";
@@ -39,6 +40,15 @@ let dagSessionId: string | null = null;
 let sessionSyncScheduled = false;
 let lastSyncedSessionId: string | null = null;
 let sessionSyncToken = 0;
+let activePlanSourceSessionId: string | null = null;
+const taskPlanSourceBySession = new Map<string, string>();
+
+function logTaskGraphDebug(
+  event: string,
+  payload?: Record<string, unknown>,
+): void {
+  console.info("[datapaw:task-graph-debug]", event, payload ?? {});
+}
 
 /** Remove legacy task_graph messages still present in the chat stream. */
 function purgeLegacyTaskGraphMessages(): void {
@@ -48,25 +58,25 @@ function purgeLegacyTaskGraphMessages(): void {
   if (typeof getMessages === "function" && typeof removeMessage === "function") {
     for (const msg of getMessages()) {
       if (msg.id && isTaskGraphMessageId(msg.id)) {
+        logTaskGraphDebug("purge-legacy-message", { messageId: msg.id });
         removeMessage({ id: msg.id });
       }
     }
   }
+}
 
+function syncPersistentTaskCard(plan: PlanSnapshot): void {
   const sessionApi = getHostSessionApi();
-  const getPersistent = sessionApi?.getPersistentMessages as
-    | (() => Array<{ id?: string }>)
+  const setPersistent = sessionApi?.setPersistentMessage as
+    | ((message: Record<string, unknown>) => void)
     | undefined;
-  const removePersistent = sessionApi?.removePersistentMessage as
-    | ((id: string) => void)
-    | undefined;
-  if (typeof getPersistent === "function" && typeof removePersistent === "function") {
-    for (const msg of getPersistent()) {
-      if (msg.id && isTaskGraphMessageId(msg.id)) {
-        removePersistent(msg.id);
-      }
-    }
-  }
+  if (typeof setPersistent !== "function") return;
+  logTaskGraphDebug("set-persistent-message", {
+    planId: plan.id,
+    planState: plan.state,
+    anchorMessageId: plan.anchor_message_id ?? null,
+  });
+  setPersistent(buildTaskCardMessage(plan) as Record<string, unknown>);
 }
 
 function stopDagEventsSubscription(): void {
@@ -77,7 +87,7 @@ function stopDagEventsSubscription(): void {
 
 function ensureDagEventsSubscription(sessionId: string): void {
   if (!isDatapawAgentSelected()) return;
-  const sid = resolveBackendSessionId(sessionId) || sessionId;
+  const sid = sessionId || resolveBackendSessionId(sessionId);
   if (!sid) return;
   if (dagSessionId === sid && dagAbort) return;
 
@@ -101,24 +111,34 @@ function clearCurrentPlan(
   sessionId?: string | null,
   opts: { removeCache?: boolean } = { removeCache: true },
 ): void {
+  const sid = resolveBackendSessionId(sessionId);
   activePlanId = null;
   setCurrentPlan(null);
+  activePlanSourceSessionId = null;
   stopDagEventsSubscription();
-  const sid = resolveBackendSessionId(sessionId);
+  logTaskGraphDebug("clear-current-plan", {
+    sessionId: sid,
+    removeCache: opts.removeCache !== false,
+  });
   if (opts.removeCache !== false && sid) removeTaskCardForSession(sid);
 }
 
 function applyCurrentPlan(
   plan: PlanSnapshot,
   sessionId?: string | null,
+  sourceSessionId?: string | null,
 ): void {
   const plainPlan = toPlainJson(plan);
   const sid = resolveBackendSessionId(sessionId);
+  const sourceSid = sourceSessionId || sessionId || sid;
   const planChanged = Boolean(activePlanId && activePlanId !== plainPlan.id);
-  console.info("[datapaw:task-card] applyCurrentPlan", {
+
+  logTaskGraphDebug("apply-current-plan", {
     sessionId: sid,
+    sourceSessionId: sourceSid,
     planId: plainPlan.id,
-    planName: plainPlan.name,
+    planState: plainPlan.state,
+    anchorMessageId: plainPlan.anchor_message_id ?? null,
     previousPlanId: activePlanId,
     planChanged,
   });
@@ -129,11 +149,28 @@ function applyCurrentPlan(
   }
 
   activePlanId = plainPlan.id;
+  activePlanSourceSessionId = sourceSid ?? null;
   setCurrentPlan(plainPlan);
 
-  if (sid) {
-    saveTaskCardForSession(sid, plainPlan);
-    ensureDagEventsSubscription(sid);
+  const storageSessionIds = new Set(
+    [sourceSid, sid, sessionId].filter(Boolean) as string[],
+  );
+  if (sourceSid) {
+    for (const aliasSessionId of storageSessionIds) {
+      taskPlanSourceBySession.set(aliasSessionId, sourceSid);
+    }
+  }
+  for (const storageSessionId of storageSessionIds) {
+    saveTaskCardForSession(storageSessionId, plainPlan);
+    logTaskGraphDebug("save-task-card-storage", {
+      sessionId: storageSessionId,
+      planId: plainPlan.id,
+    });
+  }
+
+  if (sourceSid) {
+    syncPersistentTaskCard(plainPlan);
+    ensureDagEventsSubscription(sourceSid);
   }
 
   purgeLegacyTaskGraphMessages();
@@ -174,25 +211,50 @@ export async function refreshTaskCard(
   sessionId?: string | null,
 ): Promise<boolean> {
   const sid = resolveBackendSessionId(sessionId);
-  console.info("[datapaw:task-card] refreshTaskCard", {
-    inputSessionId: sessionId,
+  logTaskGraphDebug("refresh-task-card", {
+    inputSessionId: sessionId ?? null,
     resolvedSessionId: sid,
   });
   if (!sid) return false;
   return fetchAndApplyTaskPlan(sid);
 }
 
+function getTaskPlanSessionCandidates(sessionId?: string | null): string[] {
+  const baseIds = new Set<string>();
+  if (sessionId) baseIds.add(sessionId);
+  const resolved = resolveBackendSessionId(sessionId);
+  if (resolved) baseIds.add(resolved);
+  const current = (window as Window & { currentSessionId?: string })
+    .currentSessionId;
+  if (current) baseIds.add(current);
+
+  const ids = new Set(baseIds);
+  for (const baseId of baseIds) {
+    const sourceId = taskPlanSourceBySession.get(baseId);
+    if (sourceId) ids.add(sourceId);
+  }
+  return [...ids];
+}
+
 async function fetchAndApplyTaskPlan(sessionId: string): Promise<boolean> {
-  const summary = await fetchTasksSummary(sessionId);
-  const plan = await resolvePlanFromSummary(sessionId, summary);
-  if (!plan) return false;
-  applyCurrentPlan(plan, sessionId);
-  console.info(
-    "[datapaw] Task plan updated:",
-    plan.id,
-    plan.name,
-  );
-  return true;
+  const candidates = getTaskPlanSessionCandidates(sessionId);
+  for (const candidateSessionId of candidates) {
+    const summary = await fetchTasksSummary(candidateSessionId);
+    const plan = await resolvePlanFromSummary(candidateSessionId, summary);
+    logTaskGraphDebug("tasks-summary", {
+      requestedSessionId: sessionId,
+      sessionId: candidateSessionId,
+      candidates,
+      hasCurrentPlan: Boolean(summary?.current_plan),
+      historicalCount: summary?.historical_plans?.length ?? 0,
+      resolvedPlanId: plan?.id ?? null,
+      resolvedPlanState: plan?.state ?? null,
+    });
+    if (!plan) continue;
+    applyCurrentPlan(plan, sessionId, candidateSessionId);
+    return true;
+  }
+  return false;
 }
 
 function getLatestHistoricalPlanId(
@@ -220,20 +282,27 @@ async function resolvePlanFromSummary(
 
 async function syncTaskPlanForCurrentSession(sessionId: string): Promise<void> {
   const token = ++sessionSyncToken;
-  console.info("[datapaw:task-card] sync session task plan", { sessionId });
+  logTaskGraphDebug("sync-session-plan-start", { sessionId, token });
 
   try {
-    const summary = await fetchTasksSummary(sessionId);
-    if (token !== sessionSyncToken || lastSyncedSessionId !== sessionId) return;
-
-    const plan = await resolvePlanFromSummary(sessionId, summary);
-    if (!plan) {
-      console.info("[datapaw:task-card] no task plan for session", {
+    if (token !== sessionSyncToken || lastSyncedSessionId !== sessionId) {
+      logTaskGraphDebug("sync-session-plan-stale", {
         sessionId,
+        token,
+        currentToken: sessionSyncToken,
+        lastSyncedSessionId,
       });
       return;
     }
-    applyCurrentPlan(plan, sessionId);
+
+    const ok = await fetchAndApplyTaskPlan(sessionId);
+    logTaskGraphDebug("sync-session-plan-result", {
+      sessionId,
+      synced: ok,
+      activePlanId,
+      activePlanSourceSessionId,
+    });
+    if (!ok) clearCurrentPlan(sessionId, { removeCache: false });
   } catch (error) {
     if (token === sessionSyncToken) {
       console.warn("[datapaw] Failed to sync task plan for session:", error);
@@ -268,8 +337,8 @@ export function scheduleSessionTaskPlanSync(): void {
 
     lastSyncedSessionId = sessionId;
     resetNodeStreamEvents();
-    clearCurrentPlan(sessionId, { removeCache: false });
     purgeLegacyTaskGraphMessages();
+    logTaskGraphDebug("schedule-session-sync", { sessionId });
     void syncTaskPlanForCurrentSession(sessionId);
   };
 
@@ -279,12 +348,12 @@ export function scheduleSessionTaskPlanSync(): void {
 
 async function injectTaskPlanAfterCreatePlan(): Promise<void> {
   if (injectInFlight) {
-    console.info("[datapaw:task-card] inject skipped: in flight");
+    logTaskGraphDebug("inject-after-create-plan-skip", { reason: "in-flight" });
     return;
   }
 
   const sessionId = resolveBackendSessionId();
-  console.info("[datapaw:task-card] inject after create_plan", { sessionId });
+  logTaskGraphDebug("inject-after-create-plan-start", { sessionId });
   if (!sessionId) {
     console.warn("[datapaw] create_plan in stream but session id missing");
     return;
@@ -306,11 +375,15 @@ async function injectTaskPlanAfterCreatePlan(): Promise<void> {
     console.warn("[datapaw] Failed to load task plan after create_plan:", error);
   } finally {
     injectInFlight = false;
+    logTaskGraphDebug("inject-after-create-plan-finish", { sessionId });
   }
 }
 
 export function handlePlanToolInStream(event: PlanToolStreamEvent): void {
-  console.info("[datapaw:task-card] plan tool event", event);
+  logTaskGraphDebug("plan-tool-stream-event", {
+    name: event.name,
+    phase: event.phase,
+  });
   if (!isDatapawAgentSelected()) return;
   if (event.name !== TASK_CARD_STREAM_TOOL) return;
 

@@ -458,14 +458,18 @@ export default function ChatPage() {
   const taskUserId = window.currentUserId || DEFAULT_USER_ID;
 
   useEffect(() => {
-    setTaskSessionId(resolveBackendSessionId(chatId));
+    const resolved = resolveBackendSessionId(chatId);
+    setTaskSessionId(resolved);
   }, [chatId]);
 
   useEffect(() => {
     const syncSessionId = () => {
       const sid = resolveBackendSessionId(chatIdRef.current);
       if (sid) {
-        setTaskSessionId((prev) => (prev === sid ? prev : sid));
+        setTaskSessionId((prev) => {
+          if (prev === sid) return prev;
+          return sid;
+        });
       }
     };
     syncSessionId();
@@ -499,7 +503,7 @@ export default function ChatPage() {
   // Register session API event callbacks for URL synchronization
 
   useEffect(() => {
-    sessionApi.onSessionIdResolved = (realId) => {
+    sessionApi.onSessionIdResolved = (tempId, realId) => {
       if (!isChatActiveRef.current) return;
       setTaskSessionId(realId);
       // Update URL when realId is resolved, regardless of current chatId

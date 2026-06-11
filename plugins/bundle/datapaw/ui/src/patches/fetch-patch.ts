@@ -81,7 +81,4 @@ export function installFetchPatch(): void {
     return response;
   };
 
-  console.info(
-    "[datapaw] Installed fetch patch (X-Agent-Id + chat SSE intercept for task drawer)",
-  );
 }

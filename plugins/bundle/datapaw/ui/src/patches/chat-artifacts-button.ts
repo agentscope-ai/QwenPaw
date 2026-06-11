@@ -80,5 +80,4 @@ export function registerChatArtifactsButton(host: HostBundle): void {
     React.createElement(DataPawArtifactsButton),
     { id: "datapaw-artifacts", order: 45 },
   );
-  console.info("[datapaw:artifacts] right header button registered");
 }

@@ -1,11 +1,18 @@
 import { createTaskGraphCard } from "../task-graph/card";
 import { getCurrentPlan, subscribeCurrentPlan } from "../lib/plan-store";
 import type { HostBundle } from "../types";
-
-let lastRenderLogKey = "";
 let latestResponseId: string | null = null;
 let nextResponseInstanceId = 0;
 const latestResponseListeners = new Set<() => void>();
+const seenMessageIds = new Set<string>();
+let responseTrackingPlanKey = "";
+
+function logTaskGraphDebug(
+  event: string,
+  payload?: Record<string, unknown>,
+): void {
+  console.info("[datapaw:task-graph-debug]", event, payload ?? {});
+}
 
 function subscribeLatestResponse(listener: () => void): () => void {
   latestResponseListeners.add(listener);
@@ -20,6 +27,12 @@ function setLatestResponseId(responseId: string | null): void {
   if (!responseId || latestResponseId === responseId) return;
   latestResponseId = responseId;
   latestResponseListeners.forEach((listener) => listener());
+}
+
+function resetResponseTrackingIfNeeded(planKey: string): void {
+  if (responseTrackingPlanKey === planKey) return;
+  responseTrackingPlanKey = planKey;
+  seenMessageIds.clear();
 }
 
 function getResponseId(data: unknown): string | null {
@@ -43,6 +56,35 @@ function getResponseId(data: unknown): string | null {
     return `created:${record.created_at}`;
   }
   return null;
+}
+
+function collectResponseMessageIds(
+  data: unknown,
+  ids = new Set<string>(),
+): Set<string> {
+  if (!data || typeof data !== "object") return ids;
+  const record = data as Record<string, unknown>;
+
+  for (const key of ["id", "msg_id", "message_id"]) {
+    const value = record[key];
+    if (typeof value === "string" && value) ids.add(value);
+  }
+
+  const output = record.output;
+  if (Array.isArray(output)) {
+    for (const item of output) {
+      collectResponseMessageIds(item, ids);
+    }
+  }
+
+  for (const key of ["message", "response", "data", "raw"]) {
+    const nested = record[key];
+    if (nested && typeof nested === "object") {
+      collectResponseMessageIds(nested, ids);
+    }
+  }
+
+  return ids;
 }
 
 export function createTaskGraphAppend(host: HostBundle) {
@@ -72,6 +114,14 @@ export function createTaskGraphAppend(host: HostBundle) {
     }
     const responseDataId = getResponseId(ctx.data);
     const responseId = responseDataId ?? instanceIdRef.current;
+    const anchorMessageId = plan?.anchor_message_id ?? null;
+    const responseMessageIds = collectResponseMessageIds(ctx.data);
+    resetResponseTrackingIfNeeded(
+      `${plan?.id ?? "no-plan"}:${anchorMessageId ?? "no-anchor"}`,
+    );
+    for (const messageId of responseMessageIds) {
+      seenMessageIds.add(messageId);
+    }
 
     useEffect(() => {
       setLatestResponseId(responseId);
@@ -80,34 +130,41 @@ export function createTaskGraphAppend(host: HostBundle) {
     const isLatestResponse =
       Boolean(responseId && latestId && responseId === latestId) ||
       (!latestId && ctx.isLast !== false);
+    const isAnchoredResponse = Boolean(
+      anchorMessageId && responseMessageIds.has(anchorMessageId),
+    );
+    const hasSeenAnchor = Boolean(
+      anchorMessageId && seenMessageIds.has(anchorMessageId),
+    );
+    const shouldRenderGraph = plan
+      ? isAnchoredResponse ||
+        (!hasSeenAnchor && isLatestResponse) ||
+        (!anchorMessageId && isLatestResponse)
+      : false;
+
+    logTaskGraphDebug("response-append-render", {
+      responseId,
+      responseDataId,
+      isLast: ctx.isLast ?? null,
+      latestId,
+      isLatestResponse,
+      hasPlan: Boolean(plan),
+      planId: plan?.id ?? null,
+      planState: plan?.state ?? null,
+      anchorMessageId,
+      responseMessageIds: [...responseMessageIds],
+      isAnchoredResponse,
+      hasSeenAnchor,
+      shouldRenderGraph,
+    });
 
     const fallback = ctx.fallback?.() ?? null;
     const graph =
-      isLatestResponse && plan
+      shouldRenderGraph && plan
         ? React.createElement(TaskGraphCard, {
             data: { plan, showActions: true },
           })
         : null;
-
-    const logKey = [
-      ctx.isLast ? "last" : "not-last",
-      responseId ?? "no-response-id",
-      latestId ?? "no-latest-id",
-      isLatestResponse ? "latest" : "not-latest",
-      plan?.id ?? "no-plan",
-    ].join(":");
-    if (logKey !== lastRenderLogKey) {
-      lastRenderLogKey = logKey;
-      console.info("[datapaw:task-graph] response render", {
-        isLast: ctx.isLast,
-        responseId,
-        latestId,
-        isLatestResponse,
-        hasPlan: Boolean(plan),
-        planId: plan?.id,
-        willRenderGraph: Boolean(graph),
-      });
-    }
 
     return React.createElement(React.Fragment, null, fallback, graph);
   };

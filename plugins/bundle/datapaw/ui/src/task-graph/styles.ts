@@ -57,13 +57,6 @@ html.dark-mode .datapaw-task-plan-title {
 .datapaw-task-plan .datapaw-task-table .qwenpaw-table-content table {
   table-layout: fixed;
 }
-.datapaw-task-plan .datapaw-task-table .ant-table-body,
-.datapaw-task-plan .datapaw-task-table .qwenpaw-table-body {
-  height: 180px !important;
-  max-height: 180px !important;
-  overflow-y: auto !important;
-  overscroll-behavior: contain;
-}
 .datapaw-task-plan .datapaw-task-table .ant-table-thead > tr > th,
 .datapaw-task-plan .datapaw-task-table .qwenpaw-table-thead > tr > th {
   background: #fafafa !important;

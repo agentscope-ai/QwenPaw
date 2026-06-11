@@ -32,7 +32,4 @@ export function setupDataPawHostChat(): void {
 
   setupHostChatIntegration();
 
-  console.info(
-    `[${PLUGIN_ID}] Host /chat integration ready`,
-  );
 }

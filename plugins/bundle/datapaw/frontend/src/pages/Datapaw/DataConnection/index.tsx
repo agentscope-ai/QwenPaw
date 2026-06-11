@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
 import { Button, Card, Modal, Table } from "@agentscope-ai/design";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
@@ -11,11 +10,22 @@ import { DATA_CONNECTION_TYPE_META } from "./types";
 import { useDataConnections } from "./useDataConnections";
 import styles from "./index.module.less";
 
+function getDataConnectionRouteBase(): string {
+  return window.location.pathname.startsWith("/plugin/datapaw/")
+    ? "/plugin/datapaw/datapaw/data-connection"
+    : "/datapaw/data-connection";
+}
+
+function navigateInHost(path: string): void {
+  window.history.pushState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
 function DataConnectionPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const { message } = useAppMessage();
   const { connections, loading, removeConnection } = useDataConnections();
+  const routeBase = getDataConnectionRouteBase();
 
   const handleDelete = (record: DataSourceRecord) => {
     Modal.confirm({
@@ -97,7 +107,7 @@ function DataConnectionPage() {
         <Button
           type="primary"
           icon={<PlusOutlined />}
-          onClick={() => navigate("/datapaw/data-connection/add")}
+          onClick={() => navigateInHost(`${routeBase}/add`)}
         >
           {t("dataConnection.add")}
         </Button>

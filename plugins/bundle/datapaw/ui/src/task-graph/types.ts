@@ -50,9 +50,14 @@ export interface TaskNode {
 
 export interface PlanSnapshot {
   id: string;
+  anchor_message_id?: string;
+  user_query?: string;
   name: string;
   description?: string;
   expected_outcome?: string;
   state: string;
+  created_at?: string;
+  finished_at?: string | null;
+  outcome?: string | null;
   nodes: Record<string, TaskNode>;
 }

@@ -2,7 +2,7 @@
  * DataPaw frontend plugin for QwenPaw (CloudPaw-style).
  *
  * - registerToolRender: fetch_data
- * - response.render: wrap assistant response and append task graph under the latest response
+ * - response.append: append task graph between assistant response content and actions
  * - SSE intercept on /console/chat: create_plan → GET /api/tasks → plan-store
  */
 
@@ -48,6 +48,10 @@ function buildPlugin() {
       ) => void;
       chat?: {
         response?: {
+          append?: (
+            pluginId: string,
+            render: unknown,
+          ) => unknown;
           render?: (
             pluginId: string,
             render: unknown,
@@ -61,11 +65,12 @@ function buildPlugin() {
     fetch_data: createFetchDataRender(bundle),
   });
 
-  if (QP?.chat?.response?.render) {
+  if (QP?.chat?.response?.append) {
+    QP.chat.response.append(PLUGIN_ID, createTaskGraphAppend(bundle));
+  } else if (QP?.chat?.response?.render) {
     QP.chat.response.render(PLUGIN_ID, createTaskGraphAppend(bundle));
-    console.info("[datapaw:task-graph] response.render registered");
   } else {
-    console.warn("[datapaw:task-graph] response.render unavailable");
+    console.warn("[datapaw:task-graph] response append/render unavailable");
   }
 
   installChatBridge();
@@ -77,9 +82,6 @@ function buildPlugin() {
   ensureDefaultAgent();
   patchWelcomeAndTheme();
 
-  console.info(
-    `[${PLUGIN_ID}] Plugin UI registered (tool renders + response.render + SSE hook)`,
-  );
 }
 
 buildPlugin();

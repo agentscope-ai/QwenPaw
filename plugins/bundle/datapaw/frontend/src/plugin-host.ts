@@ -64,10 +64,6 @@ function ensureDefaultAgent(): void {
 
   writeAgentToStorage();
   window.addEventListener("beforeunload", writeAgentToStorage, { once: true });
-
-  console.info(
-    `[${PLUGIN_ID}] Set default agent to ${DATAPAW_AGENT_ID} for first-time user`,
-  );
   window.location.reload();
 }
 
@@ -120,7 +116,6 @@ function registerDatapawLocales(): void {
       for (const [lng, resource] of Object.entries(bundles)) {
         i18n.addResourceBundle(lng, "translation", resource, true, true);
       }
-      console.info(`[${PLUGIN_ID}] i18n bundles merged via i18next`);
     })
     .catch(() => {
       console.warn(`[${PLUGIN_ID}] failed to merge i18n bundles`);

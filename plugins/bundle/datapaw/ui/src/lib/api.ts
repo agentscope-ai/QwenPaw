@@ -48,7 +48,6 @@ export async function fetchTasksSummary(
   const url = getApiUrl(
     `/tasks/${encoded}?user_id=${encodeURIComponent(userId)}`,
   );
-  console.info("[datapaw:tasks-api] GET summary", { sessionId, userId, url });
   const res = await fetch(url, { headers: buildAuthHeaders() });
   if (!res.ok) {
     console.warn("[datapaw:tasks-api] GET summary failed", {
@@ -57,14 +56,7 @@ export async function fetchTasksSummary(
     });
     return null;
   }
-  const data = await res.json();
-  console.info("[datapaw:tasks-api] GET summary ok", {
-    sessionId,
-    hasPlan: Boolean(data?.current_plan),
-    planId: data?.current_plan?.id,
-    planName: data?.current_plan?.name,
-  });
-  return data;
+  return res.json();
 }
 
 export async function fetchHistoricalTaskPlan(
@@ -77,11 +69,6 @@ export async function fetchHistoricalTaskPlan(
   const url = getApiUrl(
     `/tasks/${encodedSession}/history/${encodedPlan}?user_id=${encodeURIComponent(userId)}`,
   );
-  console.info("[datapaw:tasks-api] GET historical plan", {
-    sessionId,
-    planId,
-    url,
-  });
   const res = await fetch(url, { headers: buildAuthHeaders() });
   if (!res.ok) {
     console.warn("[datapaw:tasks-api] GET historical plan failed", {
@@ -92,13 +79,13 @@ export async function fetchHistoricalTaskPlan(
     return null;
   }
   const data = await res.json();
-  const plan = data?.plan ?? null;
-  console.info("[datapaw:tasks-api] GET historical plan ok", {
-    sessionId,
-    planId,
-    hasPlan: Boolean(plan),
-    planName: plan?.name,
-  });
+  const plan = data?.plan
+    ? {
+        ...data.plan,
+        anchor_message_id:
+          data.plan.anchor_message_id ?? data.anchor_message_id,
+      }
+    : null;
   return plan;
 }
 

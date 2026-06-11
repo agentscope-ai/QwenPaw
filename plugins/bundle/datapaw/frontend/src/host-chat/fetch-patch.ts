@@ -62,8 +62,6 @@ export function installFetchPatch(): void {
 
     return originalFetch(input, init);
   };
-
-  console.info("[datapaw] Installed /console/chat X-Agent-Id header patch");
 }
 
 /** @deprecated DOM panel uses fetch body intercept; kept for task-panel compile. */

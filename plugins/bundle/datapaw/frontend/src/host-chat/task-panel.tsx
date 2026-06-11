@@ -261,5 +261,4 @@ export function mountTaskPanel(): void {
     </PluginI18nProvider>,
   );
 
-  console.info("[datapaw] Task graph inline mount (chat message list)");
 }

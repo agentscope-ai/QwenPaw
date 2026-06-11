@@ -32,8 +32,4 @@ export function bootstrapDatapawPlugin(): void {
   ]);
 
   setupDataPawHostChat();
-
-  console.info(
-    `[${PLUGIN_ID}] Plugin ready — route ${PLUGIN_ROUTE_BASE}/* + host /chat integration`,
-  );
 }

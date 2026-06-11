@@ -204,8 +204,4 @@ export function registerTaskCardSenderPrefix(host: HostBundle): void {
     id: SENDER_PREFIX_ID,
     order: 0,
   });
-
-  console.info(
-    `[${PLUGIN_ID}] Task card registered above chat input (sender.addPrefix)`,
-  );
 }

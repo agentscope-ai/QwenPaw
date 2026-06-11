@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { Row, Col } from "antd";
-import { useNavigate } from "react-router-dom";
 import {
   Button,
   Card,
@@ -22,6 +21,17 @@ import {
   FORM_DATA_SOURCE_TYPES,
 } from "../types";
 import styles from "./index.module.less";
+
+function getDataConnectionRouteBase(): string {
+  return window.location.pathname.startsWith("/plugin/datapaw/")
+    ? "/plugin/datapaw/datapaw/data-connection"
+    : "/datapaw/data-connection";
+}
+
+function navigateInHost(path: string): void {
+  window.history.pushState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
 
 interface AddFormValues {
   type: DataSourceType;
@@ -57,11 +67,11 @@ function resolveErrorMessage(t: (key: string) => string, code: string): string {
 
 function AddDataSourcePage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const { message } = useAppMessage();
   const [form] = Form.useForm<AddFormValues>();
   const [testing, setTesting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const routeBase = getDataConnectionRouteBase();
 
   const selectedType = Form.useWatch("type", form) ?? "mysql";
 
@@ -108,7 +118,7 @@ function AddDataSourcePage() {
       setSubmitting(true);
       await dataSourceApi.create(toPayload(values));
       message.success(t("dataConnection.addSuccess"));
-      navigate("/datapaw/data-connection");
+      navigateInHost(routeBase);
     } catch (error) {
       const code =
         error instanceof Error ? error.message : "createFailed";
@@ -254,7 +264,7 @@ function AddDataSourcePage() {
             >
               {t("common.confirm")}
             </Button>
-            <Button onClick={() => navigate("/datapaw/data-connection")}>
+            <Button onClick={() => navigateInHost(routeBase)}>
               {t("common.cancel")}
             </Button>
           </div>

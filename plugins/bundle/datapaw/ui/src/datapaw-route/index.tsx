@@ -1,0 +1,27 @@
+/**
+ * DataPaw plugin in-host route shell.
+ *
+ * The host registers two exact-match routes via `QwenPaw.route.add`:
+ *   - /plugin/datapaw/datapaw/data-connection
+ *   - /plugin/datapaw/datapaw/data-connection/add
+ * Both render this component (see patches/datapaw-navigation.ts). MainLayout
+ * then mounts each registered path as <Route path={r.path} element={...} />
+ * (no `/*` wildcard), so this component must NOT use a nested <Routes> with
+ * absolute paths — react-router-dom v7 rejects that pattern. Instead we
+ * inspect window.location.pathname directly and render the matching page.
+ *
+ * NOTE: do NOT import `@/App` here — that would pull the whole console fork
+ * (Login/Settings/Control/Agent/...) into the plugin bundle.
+ */
+import DataConnectionPage from "@/pages/Datapaw/DataConnection";
+import AddDataSourcePage from "@/pages/Datapaw/DataConnection/Add";
+
+const BASE = "/plugin/datapaw/datapaw/data-connection";
+
+export function DataPawRoute() {
+  const pathname = window.location.pathname;
+  if (pathname === `${BASE}/add`) {
+    return <AddDataSourcePage />;
+  }
+  return <DataConnectionPage />;
+}

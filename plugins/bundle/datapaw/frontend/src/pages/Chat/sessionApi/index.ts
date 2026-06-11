@@ -10,6 +10,7 @@ import api, {
   type Message,
 } from "../../../api";
 import { toDisplayUrl } from "../utils";
+import { loadTaskCardMessage } from "../../../../../ui/src/lib/task-card-storage";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -143,6 +144,141 @@ function normalizeOutputMessageContent(content: unknown): unknown {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return content;
   return (content as ContentItem[]).map(resolveContentItemUrl);
+}
+
+function logTaskGraphDebug(
+  event: string,
+  payload?: Record<string, unknown>,
+): void {
+  console.info("[datapaw:task-graph-debug]", event, payload ?? {});
+}
+
+function isStandaloneTaskGraphMessage(
+  message: IAgentScopeRuntimeWebUIMessage,
+): boolean {
+  const cards = message.cards as Array<{ code?: string }> | undefined;
+  return Boolean(
+    message.id &&
+      cards?.length === 1 &&
+      cards[0]?.code === "task_graph" &&
+      (String(message.id).startsWith("task_graph_") ||
+        message.id === "datapaw_task_graph"),
+  );
+}
+
+function getTaskGraphAnchorMessageId(
+  message: IAgentScopeRuntimeWebUIMessage,
+): string | null {
+  const cards = message.cards as
+    | Array<{ code?: string; data?: { plan?: { anchor_message_id?: string } } }>
+    | undefined;
+  const taskGraphCard = cards?.find((card) => card.code === "task_graph");
+  const anchorMessageId = taskGraphCard?.data?.plan?.anchor_message_id;
+  return typeof anchorMessageId === "string" && anchorMessageId
+    ? anchorMessageId
+    : null;
+}
+
+function findAssistantResponseIndex(
+  messages: IAgentScopeRuntimeWebUIMessage[],
+  anchorMessageId?: string | null,
+): number {
+  if (anchorMessageId) {
+    const anchoredIndex = messages.findIndex((message) => {
+      const cards = message.cards as
+        | Array<{
+            code?: string;
+            data?: { output?: Array<{ id?: string }> };
+          }>
+        | undefined;
+
+      return (
+        message.role === ROLE_ASSISTANT &&
+        cards?.some((card) =>
+          card.code === CARD_RESPONSE
+            ? card.data?.output?.some((item) => item.id === anchorMessageId)
+            : false,
+        )
+      );
+    });
+    if (anchoredIndex >= 0) return anchoredIndex;
+  }
+
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === ROLE_ASSISTANT) return i;
+  }
+
+  return -1;
+}
+
+function mergePersistentMessages(
+  messages: IAgentScopeRuntimeWebUIMessage[],
+  persistentMessages: IAgentScopeRuntimeWebUIMessage[],
+): IAgentScopeRuntimeWebUIMessage[] {
+  const next = messages.filter(
+    (message) => !isStandaloneTaskGraphMessage(message),
+  );
+  const seenIds = new Set<string>();
+  const candidates = [...messages, ...persistentMessages].filter(
+    (message) => {
+      if (!isStandaloneTaskGraphMessage(message)) return false;
+      const id = String(message.id);
+      if (seenIds.has(id)) return false;
+      seenIds.add(id);
+      return true;
+    },
+  );
+
+  for (const message of candidates) {
+    const anchorMessageId = getTaskGraphAnchorMessageId(message);
+    const targetIndex = findAssistantResponseIndex(next, anchorMessageId);
+    logTaskGraphDebug("session-merge-candidate", {
+      messageId: message.id ?? null,
+      anchorMessageId,
+      targetIndex,
+      messageCount: messages.length,
+      persistentCount: persistentMessages.length,
+    });
+    if (targetIndex < 0) {
+      next.push(message);
+      continue;
+    }
+
+    const target = next[targetIndex];
+    const targetCards = Array.isArray(target.cards) ? [...target.cards] : [];
+    const sourceCards = Array.isArray(message.cards) ? message.cards : [];
+    if (targetCards.some((card) => card.code === "task_graph")) {
+      logTaskGraphDebug("session-merge-skip-existing-card", {
+        messageId: message.id ?? null,
+        targetIndex,
+      });
+      continue;
+    }
+    next[targetIndex] = {
+      ...target,
+      cards: [...targetCards, ...sourceCards],
+    };
+    logTaskGraphDebug("session-merge-attached", {
+      messageId: message.id ?? null,
+      anchorMessageId,
+      targetIndex,
+      targetMessageId: target.id ?? null,
+    });
+  }
+
+  return next;
+}
+
+function dedupePersistentMessages(
+  messages: IAgentScopeRuntimeWebUIMessage[],
+): IAgentScopeRuntimeWebUIMessage[] {
+  const seenIds = new Set<string>();
+  return messages.filter((message) => {
+    if (!message.id) return true;
+    if (seenIds.has(message.id)) return false;
+    seenIds.add(message.id);
+    return true;
+  });
 }
 
 /**
@@ -347,9 +483,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   preferredChatId: string | null = null;
 
   /**
-   * Persistent messages that are always appended to session messages after
-   * getSession loads history from backend. Used to inject task graph cards
-   * that are not persisted to backend but should survive session reloads.
+   * Persistent messages that are merged into the matching assistant response
+   * when getSession loads history from backend. Used to inject task graph
+   * cards that are not persisted to backend but should survive reloads.
    */
   private persistentMessages: IAgentScopeRuntimeWebUIMessage[] = [];
 
@@ -358,6 +494,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * exists, it is replaced. Pass null/undefined cards to remove the message.
    */
   setPersistentMessage(message: IAgentScopeRuntimeWebUIMessage): void {
+    if (isStandaloneTaskGraphMessage(message)) {
+      logTaskGraphDebug("session-api-set-persistent", {
+        messageId: message.id,
+        anchorMessageId: getTaskGraphAnchorMessageId(message),
+      });
+    }
     const idx = this.persistentMessages.findIndex((m) => m.id === message.id);
     if (idx > -1) {
       this.persistentMessages[idx] = message;
@@ -370,6 +512,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * Remove a persistent message by id.
    */
   removePersistentMessage(id: string): void {
+    if (id === "datapaw_task_graph" || id.startsWith("task_graph_")) {
+      logTaskGraphDebug("session-api-remove-persistent", { messageId: id });
+    }
     this.persistentMessages = this.persistentMessages.filter((m) => m.id !== id);
   }
 
@@ -377,12 +522,46 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * Clear all persistent messages.
    */
   clearPersistentMessages(): void {
+    logTaskGraphDebug("session-api-clear-persistent", {
+      count: this.persistentMessages.length,
+    });
     this.persistentMessages = [];
   }
 
   /** Snapshot of persistent messages (e.g. task graph cards) for UI flush after SSE. */
   getPersistentMessages(): IAgentScopeRuntimeWebUIMessage[] {
     return [...this.persistentMessages];
+  }
+
+  private resolveTaskCardStorageIds(sessionId: string): string[] {
+    const ids = new Set<string>();
+    if (sessionId) ids.add(sessionId);
+    const realId = this.getRealIdForSession(sessionId);
+    if (realId) ids.add(realId);
+    if (window.currentSessionId) ids.add(window.currentSessionId);
+    return [...ids];
+  }
+
+  private getPersistentMessagesForSession(
+    sessionId: string,
+  ): IAgentScopeRuntimeWebUIMessage[] {
+    const storageIds = this.resolveTaskCardStorageIds(sessionId);
+    const stored = storageIds
+      .map((id) => loadTaskCardMessage(id))
+      .find(Boolean) as IAgentScopeRuntimeWebUIMessage | null;
+
+    const merged = dedupePersistentMessages([
+      ...(stored ? [stored] : []),
+      ...this.persistentMessages,
+    ]);
+    logTaskGraphDebug("session-api-persistent-for-session", {
+      sessionId,
+      storageIds,
+      hasStored: Boolean(stored),
+      memoryPersistentCount: this.persistentMessages.length,
+      mergedPersistentCount: merged.length,
+    });
+    return merged;
   }
 
   /**
@@ -613,14 +792,17 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         const generating = isGenerating(chatHistory);
         const messages = convertMessages(chatHistory.messages || []);
         this.patchLastUserMessage(messages, generating, fromList.realId);
-        messages.push(...this.persistentMessages);
+        const mergedMessages = mergePersistentMessages(
+          messages,
+          this.getPersistentMessagesForSession(fromList.realId),
+        );
         const session: ExtendedSession = {
           id: sessionId,
           name: fromList.name || DEFAULT_SESSION_NAME,
           sessionId: fromList.sessionId || sessionId,
           userId: fromList.userId || DEFAULT_USER_ID,
           channel: fromList.channel || DEFAULT_CHANNEL,
-          messages,
+          messages: mergedMessages,
           meta: fromList.meta || {},
           realId: fromList.realId,
           generating,
@@ -653,14 +835,17 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         const generating = isGenerating(chatHistory);
         const messages = convertMessages(chatHistory.messages || []);
         this.patchLastUserMessage(messages, generating, refreshed.realId);
-        messages.push(...this.persistentMessages);
+        const mergedMessages = mergePersistentMessages(
+          messages,
+          this.getPersistentMessagesForSession(refreshed.realId),
+        );
         const session: ExtendedSession = {
           id: sessionId,
           name: refreshed.name || DEFAULT_SESSION_NAME,
           sessionId: refreshed.sessionId || sessionId,
           userId: refreshed.userId || DEFAULT_USER_ID,
           channel: refreshed.channel || DEFAULT_CHANNEL,
-          messages,
+          messages: mergedMessages,
           meta: refreshed.meta || {},
           realId: refreshed.realId,
           generating,
@@ -686,14 +871,17 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const generating = isGenerating(chatHistory);
     const messages = convertMessages(chatHistory.messages || []);
     this.patchLastUserMessage(messages, generating, sessionId);
-    messages.push(...this.persistentMessages);
+    const mergedMessages = mergePersistentMessages(
+      messages,
+      this.getPersistentMessagesForSession(sessionId),
+    );
     const session: ExtendedSession = {
       id: sessionId,
       name: fromList?.name || sessionId,
       sessionId: fromList?.sessionId || sessionId,
       userId: fromList?.userId || DEFAULT_USER_ID,
       channel: fromList?.channel || DEFAULT_CHANNEL,
-      messages,
+      messages: mergedMessages,
       meta: fromList?.meta || {},
       generating,
     };

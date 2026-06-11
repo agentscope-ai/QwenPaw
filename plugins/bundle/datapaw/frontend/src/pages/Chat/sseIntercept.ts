@@ -67,13 +67,6 @@ function inspectToolData(
       name,
       output: stringifyToolValue(data.output),
     };
-    if (isTaskCardRefreshTool(resultData.name)) {
-      console.info("[datapaw:sse] tool result", {
-        name: resultData.name,
-        callId: resultData.call_id,
-        hasMetadata: Boolean(metadata),
-      });
-    }
     notifyPlanToolInStream(resultData.name, "result", onPlanTool);
     onToolResult?.(resultData, metadata);
     return;
@@ -87,13 +80,6 @@ function inspectToolData(
       name,
       arguments: stringifyToolValue(data.arguments ?? data.input),
     };
-    if (isTaskCardRefreshTool(toolData.name)) {
-      console.info("[datapaw:sse] tool call", {
-        name: toolData.name,
-        callId: toolData.call_id,
-        hasMetadata: Boolean(metadata),
-      });
-    }
     notifyPlanToolInStream(toolData.name, "call", onPlanTool);
     onToolCall?.(toolData, metadata);
   }
