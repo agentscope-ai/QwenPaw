@@ -15,6 +15,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Us-blueviolet.svg?logo=discord)](https://discord.gg/eYMpfnkG8h)
 [![X](https://img.shields.io/badge/X-Follow_Us-black.svg?logo=x)](https://x.com/agentscope_ai)
 [![DingTalk](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
+[![AgentScope Platform](https://img.shields.io/badge/%E2%98%81_AgentScope_Platform-%F0%9F%90%BE_7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
 
 [[ドキュメント](https://qwenpaw.agentscope.io/)] [[English](README.md)] [[中文](README_zh.md)] [[Русский](README_ru.md)]
 
@@ -57,6 +58,8 @@
 ---
 
 ## ニュース
+
+- [2026-06-11] **AgentScope プラットフォーム公開** — QwenPaw の無料デプロイ、プラグイン共有、Skill マーケットに対応。[今すぐ試す →](https://platform.agentscope.io/)
 
 - [2026-06-10] **v1.1.11 — 無料モデル OAuth & プラグインマーケット** | ゼロコンフィグ無料モデルのワンクリック OAuth 認証、AgentScope Platform 連携プラグインマーケット。
 

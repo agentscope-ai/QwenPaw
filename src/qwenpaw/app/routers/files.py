@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import mimetypes
+import os
 from pathlib import Path
 from urllib.parse import unquote
 from fastapi import APIRouter, HTTPException
-from starlette.responses import Response
+from starlette.responses import FileResponse
 
 from qwenpaw.constant import WORKING_DIR
 from qwenpaw.security.tool_guard.guardians.file_guardian import (
@@ -85,15 +85,7 @@ async def preview_file(
         raise HTTPException(status_code=403, detail=reason)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Not found")
-    # Use plain Response instead of FileResponse to avoid
-    # "Response content shorter than Content-Length" error caused by
-    # BaseHTTPMiddleware sending an extra empty body chunk.
-    media_type = (
-        mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-    )
-    content = path.read_bytes()
-    return Response(
-        content=content,
-        media_type=media_type,
-        headers={"content-disposition": f'inline; filename="{path.name}"'},
-    )
+
+    if not os.access(path, os.R_OK):
+        raise HTTPException(status_code=500, detail="Permission denied")
+    return FileResponse(path, filename=path.name)

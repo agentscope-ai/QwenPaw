@@ -1,17 +1,23 @@
 ---
 name: dev-team
-description: Run the qwenpaw developer team (code -> review -> test) on a specific change. Use when the user wants a feature/fix implemented in qwenpaw with built-in review and tests, grounded in the AgentScope v2 knowledge base (docs/agentscope-v2/) and respecting the agentscope-guardian gate. Trigger on requests like "use the dev team to ...", "implement X in qwenpaw with review and tests", "/dev-team ...".
+description: Run the qwenpaw developer team (plan -> code -> review -> test) on a specific change. Surface-aware: backend changes (src/qwenpaw, Python/AgentScope) go through the agentscope-guardian gate and qwenpaw-coder + pytest; frontend UI/UX changes (console/, React/TS) go through qwenpaw-frontend-designer + vitest, ungated. Use when the user wants a feature/fix/UI change implemented in qwenpaw with built-in review and tests. Trigger on requests like "use the dev team to ...", "implement X in qwenpaw with review and tests", "redesign/restyle this Console screen with the team", "/dev-team ...".
 ---
 
 # QwenPaw Dev Team
 
-Orchestrates a multi-agent pipeline that implements a change to qwenpaw the way a small team would: a guardian plan/approval, a coder, a reviewer (with fix loops), and a tester (with fix loops). Every stage is grounded in `docs/agentscope-v2/` and `docs/qwenpaw/` and obeys the guardian gate.
+Orchestrates a multi-agent pipeline that implements a change to qwenpaw the way a small team would: a lead/guardian plan, an implementer, a reviewer (with fix loops), and a tester (with fix loops). The pipeline is **surface-aware** and routes work to the right specialist:
+
+- **Backend** (`src/qwenpaw/**`, Python/AgentScope) → grounded in `docs/agentscope-v2/`, gated by the guardian, implemented by `qwenpaw-coder`, tested with pytest.
+- **Frontend** (`console/**`, TS/React UI/UX) → grounded in `website/public/docs/plugins.en.md` + `console/src/` patterns, **not** guardian-gated, implemented by `qwenpaw-frontend-designer`, tested with vitest.
+- **Mixed** → both, in the same run.
+
+(There is no `docs/qwenpaw/` directory — the plan stage classifies the surface and reads the right sources.)
 
 ## Components
 
-- **Subagents** (`.claude/agents/`): `qwenpaw-coder`, `qwenpaw-reviewer`, `qwenpaw-tester`.
-- **Orchestrator** (`.claude/workflows/dev-team.js`): guardian → code ↔ review (loop) → test ↔ fix (loop).
-- **Gate**: edits to `src/qwenpaw/**` / agentscope-importing `.py` are blocked until the guardian stage records approval (`scripts/agentscope_guardian_approve.py`). The pipeline handles this itself.
+- **Subagents** (`.claude/agents/`): `qwenpaw-coder` (backend), `qwenpaw-frontend-designer` (UI/UX), `qwenpaw-reviewer` (surface-aware), `qwenpaw-tester` (pytest + vitest).
+- **Orchestrator** (`.claude/workflows/dev-team.js`): plan/classify → code ↔ review (loop) → test ↔ fix (loop). The Code phase is routed to the coder and/or the frontend-designer by detected surface.
+- **Gate** (backend only): edits to `src/qwenpaw/**` / agentscope-importing `.py` are blocked until the plan stage records approval (`scripts/agentscope_guardian_approve.py`). Frontend `console/**` files are not gated. The pipeline handles this itself.
 
 ## How to run
 

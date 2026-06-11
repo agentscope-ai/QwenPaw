@@ -87,10 +87,10 @@ KB REFERENCES: <which docs/agentscope-v2/ files you relied on>
 
 - Never approve an API you could not find in the KB or the live v2 docs.
 - Prefer the patterns already used in `src/qwenpaw/` when the KB allows several.
-- **Verify the AgentScope version FIRST.** The user reported updating to **v2 (agentscope 2.x)**,
-  but do not assume it — run `.venv/Scripts/python.exe -c "import agentscope; print(agentscope.__version__)"`
-  and check `pyproject.toml` at the start of every review. Review against what is **actually installed**
-  (last check: `1.0.20`, pinned `==1.0.20`). If installed is 2.x, this KB applies directly; if still 1.x,
-  flag the mismatch and reconcile per `_guardian-checklist.md` §0. Flag any legacy (0.x) usage too.
+- **Verify the AgentScope version FIRST.** The fork is on **v2 (agentscope 2.x)** — verified **`2.0.0`**
+  on 2026-06-11 (pinned `==2.0.0` in `pyproject.toml`). Still re-confirm at the start of every review —
+  run `.venv/Scripts/python.exe -c "import agentscope; print(agentscope.__version__)"` and check
+  `pyproject.toml` — and review against what is **actually installed**. Since it is 2.x, this KB applies
+  directly; flag any legacy (1.x/0.x) usage and reconcile per `_guardian-checklist.md` §0.
 - If the user explicitly authorizes skipping review, they can set
   `QWENPAW_GUARDIAN_OFF=1`; note that you did not review the change.

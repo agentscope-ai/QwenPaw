@@ -129,6 +129,9 @@ src/.hypothesis/
 # Cursor IDE
 .cursor/
 
+# Codex IDE
+.codex/
+
 # Worktrees
 .worktrees/
 .qwenpaw/worktrees/
@@ -145,3 +148,5 @@ e2e/__pycache__/
 
 # knowledge-base related
 graphify-out/
+local-docs/
+docs-site/

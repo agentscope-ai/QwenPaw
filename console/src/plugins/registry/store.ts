@@ -109,6 +109,11 @@ class MenuRegistryImpl {
     }
   }
 
+  refresh(): void {
+    this.invalidate();
+    notify();
+  }
+
   snapshot(location?: MenuLocation): MenuItem[] {
     if (!location) {
       return this.allSnapshot;

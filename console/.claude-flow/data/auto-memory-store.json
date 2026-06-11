@@ -1,0 +1,86 @@
+[
+  {
+    "id": "task-review-phase0-phase1",
+    "key": "review-phase0-phase1",
+    "content": "Task completed: review-phase0-phase1",
+    "namespace": "tasks",
+    "type": "task-outcome",
+    "metadata": {
+      "success": true,
+      "quality": 0.85
+    },
+    "createdAt": 1781161441451
+  },
+  {
+    "id": "task-phase2-agent-pages",
+    "key": "phase2-agent-pages",
+    "content": "Task completed: phase2-agent-pages",
+    "namespace": "tasks",
+    "type": "task-outcome",
+    "metadata": {
+      "success": true,
+      "quality": 0.85
+    },
+    "createdAt": 1781162778590
+  },
+  {
+    "id": "task-settings-migration-phase2",
+    "key": "settings-migration-phase2",
+    "content": "Task completed: settings-migration-phase2",
+    "namespace": "tasks",
+    "type": "task-outcome",
+    "metadata": {
+      "success": true,
+      "quality": 0.85
+    },
+    "createdAt": 1781165459251
+  },
+  {
+    "id": "task-review-fixes-phase-0-1",
+    "key": "review-fixes-phase-0-1",
+    "content": "Task completed: review-fixes-phase-0-1",
+    "namespace": "tasks",
+    "type": "task-outcome",
+    "metadata": {
+      "success": true,
+      "quality": 0.85
+    },
+    "createdAt": 1781166537956
+  },
+  {
+    "id": "task-chat-slice-migration",
+    "key": "chat-slice-migration",
+    "content": "Task completed: chat-slice-migration",
+    "namespace": "tasks",
+    "type": "task-outcome",
+    "metadata": {
+      "success": true,
+      "quality": 0.85
+    },
+    "createdAt": 1781166769474
+  },
+  {
+    "id": "task-phase2-control-coding-misc",
+    "key": "phase2-control-coding-misc",
+    "content": "Task completed: phase2-control-coding-misc",
+    "namespace": "tasks",
+    "type": "task-outcome",
+    "metadata": {
+      "success": true,
+      "quality": 0.85
+    },
+    "createdAt": 1781167837641
+  },
+  {
+    "id": "task-phase3-cosmetic-cleanup",
+    "key": "phase3-cosmetic-cleanup",
+    "content": "Task completed: phase3-cosmetic-cleanup",
+    "namespace": "tasks",
+    "type": "task-outcome",
+    "metadata": {
+      "success": true,
+      "quality": 0.85
+    },
+    "createdAt": 1781168893797
+  }
+]
