@@ -503,24 +503,6 @@ class ExpectedCapabilityRegistry:
                 note="Kimi K2.5 supports image and video input",
             ),
         )
-        for mid in (
-            "kimi-k2-0905-preview",
-            "kimi-k2-0711-preview",
-            "kimi-k2-turbo-preview",
-            "kimi-k2-thinking",
-            "kimi-k2-thinking-turbo",
-        ):
-            self._register(
-                ExpectedCapability(
-                    provider_id="kimi-cn",
-                    model_id=mid,
-                    expected_image=False,
-                    expected_video=False,
-                    doc_url=_kimi_doc,
-                    note="K2 series (non-K2.5) is text-only",
-                ),
-            )
-
         # ---------------------------------------------------------------
         # 7. Kimi (International)
         #    https://platform.moonshot.ai/docs/intro
@@ -536,23 +518,6 @@ class ExpectedCapabilityRegistry:
                 note="Kimi K2.5 supports image and video input",
             ),
         )
-        for mid in (
-            "kimi-k2-0905-preview",
-            "kimi-k2-0711-preview",
-            "kimi-k2-turbo-preview",
-            "kimi-k2-thinking",
-            "kimi-k2-thinking-turbo",
-        ):
-            self._register(
-                ExpectedCapability(
-                    provider_id="kimi-intl",
-                    model_id=mid,
-                    expected_image=False,
-                    expected_video=False,
-                    doc_url=_kimi_intl_doc,
-                    note="K2 series (non-K2.5) is text-only",
-                ),
-            )
 
         # ---------------------------------------------------------------
         # 8. DeepSeek
