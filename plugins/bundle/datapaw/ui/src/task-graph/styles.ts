@@ -11,6 +11,7 @@ const CSS = `
 .datapaw-task-plan {
   margin-top: 8px;
   margin-bottom: 8px;
+  max-height: 240px;
   background: var(--colorBgContainer, #fff);
   border-radius: 8px;
   border: 1px solid var(--colorBorder, #e8e8e8);
@@ -25,7 +26,8 @@ html.dark-mode .datapaw-task-plan {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 20px 12px;
+  height: 60px;
+  padding: 0 20px;
   font-size: 15px;
   font-weight: 600;
   line-height: 22px;
@@ -57,13 +59,16 @@ html.dark-mode .datapaw-task-plan-title {
 }
 .datapaw-task-plan .datapaw-task-table .ant-table-body,
 .datapaw-task-plan .datapaw-task-table .qwenpaw-table-body {
-  max-height: 240px !important;
+  height: 180px !important;
+  max-height: 180px !important;
   overflow-y: auto !important;
+  overscroll-behavior: contain;
 }
 .datapaw-task-plan .datapaw-task-table .ant-table-thead > tr > th,
 .datapaw-task-plan .datapaw-task-table .qwenpaw-table-thead > tr > th {
   background: #fafafa !important;
   border-bottom: none !important;
+  border-radius: 0 !important;
   font-size: 14px;
   font-weight: 600;
   color: rgba(0, 0, 0, 0.88);

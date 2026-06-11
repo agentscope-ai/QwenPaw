@@ -114,7 +114,7 @@ export function TaskGraphPanel({
       pagination: false,
       tableLayout: "fixed",
       size: "small",
-      scroll: { y: 240 },
+      scroll: { y: 180 },
       onRow: (record: (typeof rows)[number]) => ({
         onClick: () => {
           if (onNodeClick && isClickable(String(record.state ?? ""))) {
