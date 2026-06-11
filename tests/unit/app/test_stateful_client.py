@@ -52,6 +52,7 @@ class _FakeSession:
     async def list_tools(self):
         return mcp_types.ListToolsResult(tools=self._tools)
 
+    # pylint: disable=unused-argument
     async def call_tool(self, name, arguments=None, **kwargs):
         self.calls.append((name, arguments))
         return _FakeCallResult()

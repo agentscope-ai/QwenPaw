@@ -31,7 +31,7 @@ def _norm(path: str) -> str:
 def main() -> int:
     if len(sys.argv) < 2:
         sys.stderr.write(
-            "usage: agentscope_guardian_approve.py <file_path> ...\n"
+            "usage: agentscope_guardian_approve.py <file_path> ...\n",
         )
         return 1
     os.makedirs(os.path.dirname(MARKER), exist_ok=True)
@@ -40,7 +40,7 @@ def main() -> int:
         for raw in sys.argv[1:]:
             fh.write(f"{_norm(raw)}\t{now}\n")
     print(
-        f"[agentscope-guardian] approved: {', '.join(_norm(p) for p in sys.argv[1:])}"
+        f"[agentscope-guardian] approved: {', '.join(_norm(p) for p in sys.argv[1:])}",
     )
     return 0
 
