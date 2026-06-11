@@ -597,6 +597,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             if recent_messages:
                 self.add_summarize_task(messages=recent_messages)
 
+<<<<<<< HEAD
     @staticmethod
     def _backup_memory_file(workspace_path: Path) -> None:
         """Snapshot MEMORY.md into ``<workspace>/backup`` before optimizing.
@@ -621,6 +622,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             logger.debug("No existing MEMORY.md file to backup")
 
     async def dream(
+=======
+    async def dream(  # pylint: disable=too-many-statements
+>>>>>>> origin/main
         self,
         *,
         runner: Any = None,

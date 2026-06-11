@@ -137,9 +137,13 @@ def _find_windows_wrapper_ancestor_pids(pids: set[int]) -> set[int]:
                 break
 
             parent_pid = info[0]
+<<<<<<< HEAD
             if parent_pid is None or parent_pid == 0:
                 break
             if parent_pid in visited:
+=======
+            if parent_pid is None or parent_pid == 0 or parent_pid in visited:
+>>>>>>> origin/main
                 break
             visited.add(parent_pid)
 

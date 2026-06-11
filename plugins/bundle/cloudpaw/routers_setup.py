@@ -27,6 +27,7 @@ def build_plugin_routers():
         (prd_router, "/prd"),
         (a2a_router, "/a2a"),
     ]
+<<<<<<< HEAD
 
 
 def _reorder_catch_all(app) -> None:
@@ -97,3 +98,5 @@ def _inject_routers(routers: list) -> None:
     if hasattr(app, "middleware_stack"):
         app.middleware_stack = None
         logger.info("Reset middleware_stack to pick up new routes")
+=======
+>>>>>>> origin/main

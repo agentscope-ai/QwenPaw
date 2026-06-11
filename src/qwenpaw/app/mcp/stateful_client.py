@@ -98,8 +98,11 @@ class _LazyClientSession:
         **kwargs: Any,
     ) -> Any:
         # pylint: disable=protected-access
+<<<<<<< HEAD
         # _validate_connection / _name_alias_to_real are internal hooks on the
         # owning client that this proxy must reach by necessity.
+=======
+>>>>>>> origin/main
         self._client._validate_connection()
         real_name = self._client._name_alias_to_real.get(name, name)
         # Forward ``arguments`` as keyword to match how
@@ -277,7 +280,10 @@ def _unregister_stdio_pids(pids: set[int]) -> None:
             pgid = _stdio_pgids.get(pid)
             if not pid_alive and pgid is not None and _killpg is not None:
                 try:
+<<<<<<< HEAD
                     # _killpg guarded non-None above; pylint can't narrow it.
+=======
+>>>>>>> origin/main
                     _killpg(pgid, 0)  # pylint: disable=not-callable
                     pgroup_alive = True
                 except (
@@ -334,7 +340,10 @@ async def kill_orphaned_mcp_children(
         pgid = pgids.get(pid)
         if pgid is not None and _killpg is not None:
             try:
+<<<<<<< HEAD
                 # _killpg guarded non-None above; pylint can't narrow it.
+=======
+>>>>>>> origin/main
                 _killpg(pgid, sig)  # pylint: disable=not-callable
                 return
             except (
@@ -862,7 +871,7 @@ class _MCPClientMixin:
             self._handle_transport_error(exc)
             raise
 
-    async def get_callable_function(
+    async def get_callable_function(  # pylint: disable=unused-argument
         self,
         func_name: str,
         execution_timeout: float | None = None,

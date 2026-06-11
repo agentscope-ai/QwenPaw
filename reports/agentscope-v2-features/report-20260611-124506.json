@@ -1,0 +1,42 @@
+{
+  "generated_at": "20260611-124506",
+  "installed_agentscope": "2.0.0",
+  "results": [
+    {
+      "feature": "1. streaming (reply_stream + AgentEvent)",
+      "ok": true,
+      "note": "8 eventos; tipos: ['ModelCallEndEvent', 'ModelCallStartEvent', 'ReplyEndEvent', 'ReplyStartEvent', 'TextBlockDeltaEvent', 'TextBlockEndEvent', 'TextBlockStartEvent']",
+      "error": ""
+    },
+    {
+      "feature": "2. tool-call events (ToolCall*/ToolResult*)",
+      "ok": true,
+      "note": "ToolCall=True ToolResult=True; tipos tool: ['ToolCallDeltaEvent', 'ToolCallEndEvent', 'ToolCallStartEvent', 'ToolResultEndEvent', 'ToolResultStartEvent', 'ToolResultTextDeltaEvent']",
+      "error": ""
+    },
+    {
+      "feature": "3. thinking blocks (ThinkingBlock*)",
+      "ok": true,
+      "note": "ThinkingBlock events: ['ThinkingBlockDeltaEvent', 'ThinkingBlockEndEvent', 'ThinkingBlockStartEvent']",
+      "error": ""
+    },
+    {
+      "feature": "4. structured output (generate_structured_output)",
+      "ok": true,
+      "note": "obj estruturado: {\"nome\": \"Tóquio\", \"pais\": \"Japão\", \"populacao_milhoes\": 37.4}",
+      "error": ""
+    },
+    {
+      "feature": "5. agent state (AgentState round-trip)",
+      "ok": true,
+      "note": "state_dict 2.0=True; round-trip carregou=True",
+      "error": ""
+    },
+    {
+      "feature": "6. middleware (MiddlewareBase wiring)",
+      "ok": true,
+      "note": "middlewares: ['BootstrapMiddleware', 'LightContextManager', 'RequestSetupMiddleware']",
+      "error": ""
+    }
+  ]
+}

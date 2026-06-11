@@ -43,3 +43,14 @@ COVERAGE NOTES: <what is covered; any case still untested and why>
 ```
 
 Report results faithfully — if something is flaky, skipped, or you couldn't run it, say so with the reason.
+
+## Definition of Done — SOP handoff (MetaGPT-style)
+
+Follow the standardized procedure and consume the upstream artifacts (the coder's `SUGGESTED TEST CASES` and the reviewer's `MISSING TESTS`) — don't invent coverage in a vacuum. You are *done* only when:
+
+- [ ] **Consumed the handoff** — covered the reviewer's `MISSING TESTS` and the coder's `SUGGESTED TEST CASES` (or stated, with reason, why a case was skipped).
+- [ ] **Right runner for the surface** — pytest (`.venv/Scripts/python.exe -m pytest`) for backend, vitest (from `console/`) for frontend; matched the existing test style/fixtures.
+- [ ] **Deterministic** — network/model/LLM calls mocked; no real providers hit.
+- [ ] **Actually ran** the new/affected tests and captured **real** output (no asserted-but-unrun results).
+- [ ] **Failures triaged correctly** — a wrong test is fixed; wrong code is reported back to the coder, never silently patched.
+- [ ] **Handoff artifact** → the `TESTS ADDED / RESULT / FAILURES / COVERAGE NOTES` block above, so the orchestrator gets a known-shape verdict (`PASS`/`FAIL`).

@@ -67,6 +67,13 @@ class DashScopeProvider(OpenAIProvider):
             if key in effective:
                 param_kwargs[key] = effective[key]
 
+        # DashScope "thinking" models (e.g. ``qwen3-*-thinking-*``) reject the
+        # request unless ``enable_thinking`` is True, so force it on when not
+        # explicitly configured. These models also require streaming, which is
+        # already the default below (``stream=True``).
+        if "thinking" in model_id.lower():
+            param_kwargs.setdefault("thinking_enable", True)
+
         merged_headers = self._build_default_headers()
         dashscope_meta = json.dumps(
             {
