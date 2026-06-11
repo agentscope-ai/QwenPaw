@@ -5,7 +5,11 @@ import {
   subscribeDagEvents,
   type TasksSummaryResponse,
 } from "../lib/api";
-import { setCurrentPlan } from "../lib/plan-store";
+import {
+  clearStickyPlan,
+  getDisplayPlan,
+  setCurrentPlan,
+} from "../lib/plan-store";
 import { toPlainJson } from "../lib/plain";
 import { resolveBackendSessionId, getHostSessionApi } from "../lib/session-id";
 import {
@@ -15,10 +19,17 @@ import {
 import { resetNodeStreamEvents } from "../lib/node-stream-events";
 import { isDatapawAgentSelected } from "../lib/agent";
 import {
+  TASK_GRAPH_MESSAGE_ID,
+  buildTaskCardMessage,
+  loadTaskCardPlan,
   saveTaskCardForSession,
   removeTaskCardForSession,
 } from "../lib/task-card-storage";
-import { isTaskGraphMessageId } from "../lib/pin-task-card";
+import {
+  isTaskGraphMessageId,
+  schedulePinTaskCardDomToBottom,
+  installTaskCardBottomPin,
+} from "../lib/pin-task-card";
 
 export { TASK_GRAPH_MESSAGE_ID } from "../lib/task-card-storage";
 
@@ -40,14 +51,61 @@ let sessionSyncScheduled = false;
 let lastSyncedSessionId: string | null = null;
 let sessionSyncToken = 0;
 
-/** Remove legacy task_graph messages still present in the chat stream. */
+function syncTaskCardMessage(plan: PlanSnapshot): void {
+  if (!isDatapawAgentSelected()) return;
+
+  const message = buildTaskCardMessage(plan);
+  const sessionApi = getHostSessionApi();
+  const setPersistent = sessionApi?.setPersistentMessage as
+    | ((msg: Record<string, unknown>) => void)
+    | undefined;
+  if (typeof setPersistent === "function") {
+    setPersistent(message);
+  }
+
+  const msgsApi = chatRefHolder.current?.messages;
+  const updateMessage = msgsApi?.updateMessage as
+    | ((msg: Record<string, unknown> & { id: string }) => void)
+    | undefined;
+  if (typeof updateMessage === "function") {
+    updateMessage(message);
+  }
+
+  schedulePinTaskCardDomToBottom();
+  console.info("[datapaw:task-card] synced task card message", {
+    planId: plan.id,
+    messageId: TASK_GRAPH_MESSAGE_ID,
+  });
+}
+
+function removeTaskCardFromChat(): void {
+  const sessionApi = getHostSessionApi();
+  const removePersistent = sessionApi?.removePersistentMessage as
+    | ((id: string) => void)
+    | undefined;
+  if (typeof removePersistent === "function") {
+    removePersistent(TASK_GRAPH_MESSAGE_ID);
+  }
+
+  const msgsApi = chatRefHolder.current?.messages;
+  const removeMessage = msgsApi?.removeMessage;
+  if (typeof removeMessage === "function") {
+    removeMessage({ id: TASK_GRAPH_MESSAGE_ID });
+  }
+}
+
+/** Remove duplicate legacy task_graph_* rows (keep the canonical datapaw_task_graph). */
 function purgeLegacyTaskGraphMessages(): void {
   const msgsApi = chatRefHolder.current?.messages;
   const getMessages = msgsApi?.getMessages;
   const removeMessage = msgsApi?.removeMessage;
   if (typeof getMessages === "function" && typeof removeMessage === "function") {
     for (const msg of getMessages()) {
-      if (msg.id && isTaskGraphMessageId(msg.id)) {
+      if (
+        msg.id &&
+        msg.id !== TASK_GRAPH_MESSAGE_ID &&
+        isTaskGraphMessageId(msg.id)
+      ) {
         removeMessage({ id: msg.id });
       }
     }
@@ -62,7 +120,11 @@ function purgeLegacyTaskGraphMessages(): void {
     | undefined;
   if (typeof getPersistent === "function" && typeof removePersistent === "function") {
     for (const msg of getPersistent()) {
-      if (msg.id && isTaskGraphMessageId(msg.id)) {
+      if (
+        msg.id &&
+        msg.id !== TASK_GRAPH_MESSAGE_ID &&
+        isTaskGraphMessageId(msg.id)
+      ) {
         removePersistent(msg.id);
       }
     }
@@ -89,7 +151,12 @@ function ensureDagEventsSubscription(sessionId: string): void {
     sid,
     "default",
     (plan) => {
-      if (plan) applyCurrentPlan(plan, sid);
+      if (plan) {
+        applyCurrentPlan(plan, sid);
+        return;
+      }
+      // finish_plan archives the graph: current_plan becomes null in DAG SSE.
+      void fetchAndApplyTaskPlan(sid);
     },
     dagAbort.signal,
   ).catch(() => {
@@ -102,10 +169,12 @@ function clearCurrentPlan(
   opts: { removeCache?: boolean } = { removeCache: true },
 ): void {
   activePlanId = null;
+  clearStickyPlan();
   setCurrentPlan(null);
   stopDagEventsSubscription();
   const sid = resolveBackendSessionId(sessionId);
   if (opts.removeCache !== false && sid) removeTaskCardForSession(sid);
+  removeTaskCardFromChat();
 }
 
 function applyCurrentPlan(
@@ -137,6 +206,7 @@ function applyCurrentPlan(
   }
 
   purgeLegacyTaskGraphMessages();
+  syncTaskCardMessage(plainPlan);
 }
 
 export function installChatBridge(): void {
@@ -160,9 +230,12 @@ export function installChatBridge(): void {
   const bindRef = (ref: ChatRefHolder) => {
     chatRefHolder = ref;
     purgeLegacyTaskGraphMessages();
+    const plan = getDisplayPlan();
+    if (plan) syncTaskCardMessage(plan);
   };
 
   bridge.setChatRef = bindRef;
+  installTaskCardBottomPin(() => chatRefHolder.current?.messages ?? null);
 
   if (bridge._ref) {
     bindRef(bridge._ref);
@@ -228,6 +301,18 @@ async function syncTaskPlanForCurrentSession(sessionId: string): Promise<void> {
 
     const plan = await resolvePlanFromSummary(sessionId, summary);
     if (!plan) {
+      const cached = loadTaskCardPlan(sessionId);
+      if (cached) {
+        applyCurrentPlan(cached, sessionId);
+        return;
+      }
+      if (getDisplayPlan()) {
+        console.info("[datapaw:task-card] keep sticky plan after empty summary", {
+          sessionId,
+          planId: getDisplayPlan()?.id,
+        });
+        return;
+      }
       console.info("[datapaw:task-card] no task plan for session", {
         sessionId,
       });
@@ -267,9 +352,10 @@ export function scheduleSessionTaskPlanSync(): void {
     if (!sessionId || sessionId === lastSyncedSessionId) return;
 
     lastSyncedSessionId = sessionId;
+    activePlanId = null;
     resetNodeStreamEvents();
-    clearCurrentPlan(sessionId, { removeCache: false });
-    purgeLegacyTaskGraphMessages();
+    clearStickyPlan();
+    setCurrentPlan(null);
     void syncTaskPlanForCurrentSession(sessionId);
   };
 

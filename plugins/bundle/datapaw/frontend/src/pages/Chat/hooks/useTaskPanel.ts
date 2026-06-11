@@ -6,6 +6,8 @@ import {
   type TaskArtifact,
 } from "../../../api/modules/tasks";
 import type { PlanSnapshot } from "../components/TaskGraphPanel/types";
+import { resolveTaskPlan } from "../lib/resolveTaskPlan";
+import { getDisplayPlan } from "../../../../../ui/src/lib/plan-store";
 import { parseErrorDetail } from "../../../utils/error";
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -61,6 +63,9 @@ export function useTaskPanel({
     const nextArtifacts = snapshot.artifacts ?? [];
     setArtifacts(nextArtifacts);
     onArtifactsChangeRef.current?.(nextArtifacts);
+    if (!plan && getDisplayPlan()) {
+      return;
+    }
     onPlanChangeRef.current(plan);
   }, []);
 
@@ -105,7 +110,7 @@ export function useTaskPanel({
     try {
       const summary = await tasksApi.getSummary(sid, userId);
       setHistoricalPlans(summary.historical_plans ?? []);
-      const plan = summary.current_plan ?? null;
+      const plan = await resolveTaskPlan(sid, userId, summary);
       applySnapshot({
         current_plan: plan,
         artifacts: [],

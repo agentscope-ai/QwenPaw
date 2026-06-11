@@ -5,6 +5,7 @@ import drawerStyles from "./TaskNodeDrawer.module.less";
 export type ArtifactFileListItem = ArtifactFileLike & { _nodeName?: string };
 
 export interface ArtifactFileListProps {
+  type: string;
   files: ArtifactFileListItem[];
   onPreview: (file: ArtifactFileListItem) => void;
   onDownload: (file: ArtifactFileListItem) => void;
@@ -15,6 +16,7 @@ export interface ArtifactFileListProps {
  * 与 TaskNodeDrawer「文件」Tab 相同的文件列表展示与操作按钮。
  */
 export default function ArtifactFileList({
+  type = 'default',
   files,
   onPreview,
   onDownload,
@@ -36,7 +38,7 @@ export default function ArtifactFileList({
         <li key={file.path || file.name} className={drawerStyles.fileItem}>
           <div className={drawerStyles.fileInfo}>
             <span className={drawerStyles.fileName}>{file.name}</span>
-            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <div className={drawerStyles.fileMeta}>
               {file._nodeName ? (
                 <span
                   style={{
@@ -45,9 +47,15 @@ export default function ArtifactFileList({
                     background: "var(--color-fill-tertiary, #f3f4f6)",
                     padding: "1px 6px",
                     borderRadius: "4px",
+                    flexShrink: 0,
                   }}
                 >
                   {file._nodeName}
+                </span>
+              ) : null}
+              {type !== "default" && file.path ? (
+                <span className={drawerStyles.filePath} title={file.path}>
+                  {file.path}
                 </span>
               ) : null}
               <span className={drawerStyles.fileSize}>

@@ -126,33 +126,25 @@ export default function MainLayout() {
       ? "data-connection"
       : "chat");
 
-  const pageBody = (
-    <div className="page-content">
-      <ChunkErrorBoundary resetKey={currentPath}>
-        <Suspense
-          fallback={
-            <Spin
-              tip={t("common.loading")}
-              style={{ display: "block", margin: "20vh auto" }}
-            />
-          }
-        >
-          <MainRoutes />
-        </Suspense>
-      </ChunkErrorBoundary>
-    </div>
+  const routeOutlet = (
+    <ChunkErrorBoundary resetKey={currentPath}>
+      <Suspense
+        fallback={
+          <Spin
+            tip={t("common.loading")}
+            style={{ display: "block", margin: "20vh auto" }}
+          />
+        }
+      >
+        <MainRoutes />
+      </Suspense>
+    </ChunkErrorBoundary>
   );
 
-  // Embedded under host `/plugin/datapaw/*` — host already renders the top bar.
+  // Host console already renders header/sidebar + `.page-content`; mount routes
+  // directly to avoid nested chrome (e.g. data-connection from host menu).
   if (embed) {
-    return (
-      <Layout className={`${styles.mainLayout} ${styles.pluginEmbed}`}>
-        <Layout>
-          <Sidebar selectedKey={selectedKey} />
-          <Content className="page-container">{pageBody}</Content>
-        </Layout>
-      </Layout>
-    );
+    return <div className={styles.pluginEmbed}>{routeOutlet}</div>;
   }
 
   return (
@@ -162,7 +154,7 @@ export default function MainLayout() {
         <Sidebar selectedKey={selectedKey} />
         <Content className="page-container">
           <ConsoleCronBubble />
-          {pageBody}
+          <div className="page-content">{routeOutlet}</div>
         </Content>
       </Layout>
     </Layout>
