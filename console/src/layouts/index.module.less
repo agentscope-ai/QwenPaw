@@ -1,16 +1,22 @@
+@import "../styles/aionui-tokens.less";
+
 // ─── MainLayout ───────────────────────────────────────────────────────────────
 .mainLayout {
   height: 100vh;
+  background: @bg-1;
 }
 
-// ─── Header ───────────────────────────────────────────────────────────────────
+// ─── Header / TitleBar ────────────────────────────────────────────────────────
+// AionUi: 36px, bg-bg-2, border-b border-border-base — compact titlebar style
 .header {
-  height: 56px;
-  padding: 0 28px;
+  height: @titlebar-height;
+  padding: 0 8px 0 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #f9f8f4;
+  background: @bg-2;
+  border-bottom: 1px solid @border-base;
+  line-height: @titlebar-height;
 
   :global {
     .qwenpaw-space-item {
@@ -22,49 +28,83 @@
 }
 
 .headerTitle {
-  font-size: 18px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   min-width: 90px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: @text-primary;
+}
+
+// ─── Logo area ────────────────────────────────────────────────────────────────
+.logoWrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.logoImg {
+  height: 18px;
+  width: auto;
+}
+
+.logoDivider {
+  width: 1px;
+  height: 14px;
+  background: @border-base;
+  margin: 0 6px;
+}
+
+.headerDivider {
+  width: 1px;
+  height: 14px;
+  background: @border-base;
+  margin: 0 2px;
+}
+
+.versionBadge {
+  font-size: 12px;
+  color: @text-muted;
+  font-weight: 600;
+  line-height: 1;
+  position: relative;
+  top: 1px;
+}
+
+.versionBadgeClickable {
+  cursor: pointer;
+
+  &:hover {
+    color: @brand;
+  }
+}
+
+.versionBadgeDefault {
+  cursor: default;
 }
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
+// AionUi: 260px wide, bg-bg-2, border-r border-border-base, flex column
 .sider {
-  background: #f9f8f4 !important;
+  background: @bg-2 !important;
+  border-right: 1px solid @border-base !important;
   overflow: auto;
-  height: calc(100vh - 64px);
-  padding: 0 16px;
+  height: calc(100vh - @titlebar-height);
+  padding: 0 8px;
   display: flex;
   flex-direction: column;
 
-  // Hide scrollbar in browser
-  &::-webkit-scrollbar {
-    display: none;
-    /* Safari and Chrome */
-  }
-
-  &::-moz-scrollbar {
-    display: none;
-    /* Firefox */
-  }
-
-  &::-ms-scrollbar {
-    display: none;
-    /* IE/Edge */
-  }
-
   scrollbar-width: none;
-  /* Firefox */
   -ms-overflow-style: none;
-  /* IE and Edge */
 
-  // Agent-scoped section: selector + Chat + Control + Workspace
+  &::-webkit-scrollbar { display: none; }
+
+  // Agent-scoped section — AionUi uses bg-bg-3/aou-1 tint instead of amber
   .agentScopedSection {
-    background: rgba(43, 18, 0, 0.02);
-    border-radius: 12px;
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    background: @aou-1;
+    border-radius: 10px;
+    border: 1px solid @border-base;
     padding: 4px;
 
     :global {
@@ -73,67 +113,56 @@
       }
     }
   }
+
   // AgentSelector + Chat container - sticky at top
   .agentSelectorContainer {
     position: sticky;
     top: 0;
     z-index: 10;
     margin-bottom: 4px;
-    // Opaque background so scrolled content is hidden behind
-    background: #f9f7f3;
-    border-radius: 12px 12px 0 0;
+    background: @aou-1;
+    border-radius: 10px 10px 0 0;
   }
 
-  // Sticky Chat button — matches menu item appearance
+  // Sticky Chat button — AionUi NavRow style
   .stickyChatButton {
     display: flex;
     align-items: center;
     gap: 10px;
     width: 100%;
-    height: 40px;
-    padding: 0 8px;
+    height: @nav-row-height;
+    padding: 0 10px;
     border: none;
-    border-radius: 8px;
+    border-radius: @sidebar-radius;
     background: transparent;
-    color: rgba(0, 0, 0, 0.88);
-    font-size: 14px;
+    color: @text-secondary;
+    font-size: @nav-font-size;
     cursor: pointer;
-    transition: background 0.2s;
-    padding-left: 12px;
+    transition: background 0.15s, color 0.15s;
 
     &:hover {
-      background: rgba(0, 0, 0, 0.06);
+      background: @bg-hover;
+      color: @text-primary;
     }
   }
 
   .stickyChatButtonActive {
-    background: rgba(43, 18, 0, 0.08);
+    background: @bg-active;
+    color: @text-primary;
   }
 
   // Menu takes remaining space
   .sideMenu {
     flex: 1;
     overflow-y: auto;
-
-    // Hide scrollbar for menu too
-    &::-webkit-scrollbar {
-      display: none;
-    }
-
-    &::-moz-scrollbar {
-      display: none;
-    }
-
-    &::-ms-scrollbar {
-      display: none;
-    }
-
     scrollbar-width: none;
     -ms-overflow-style: none;
+
+    &::-webkit-scrollbar { display: none; }
   }
 
   &.siderCollapsed {
-    padding: 0 8px;
+    padding: 0 6px;
 
     .agentSelectorContainer {
       display: flex;
@@ -142,13 +171,12 @@
 
     .collapseToggleContainer {
       justify-content: center;
-      width: calc(100% + 16px);
-      margin: 0 -8px;
+      width: calc(100% + 12px);
+      margin: 0 -6px;
       padding: 8px 0;
     }
 
     :global {
-      /* Center icon in collapsed menu items */
       .qwenpaw-menu-item,
       .qwenpaw-menu-submenu .qwenpaw-menu-item {
         padding-left: 0 !important;
@@ -159,20 +187,17 @@
         overflow: visible !important;
       }
 
-      /* Ensure icon container allows badge overflow */
       .qwenpaw-menu-item-icon,
       .qwenpaw-menu-item .anticon {
         overflow: visible !important;
       }
 
-      /* Hide label text in collapsed mode */
       .qwenpaw-menu-title-content,
       .qwenpaw-menu-item > span:not([role]):not(.qwenpaw-badge),
       .qwenpaw-menu-item-only-child > span:not(.qwenpaw-badge) {
         display: none !important;
       }
 
-      /* Hide group labels */
       .qwenpaw-menu-submenu-title {
         display: none !important;
       }
@@ -184,52 +209,43 @@
       border-inline-end: 0 !important;
     }
 
-    /* Group title (一级菜单分组) */
+    // Group labels — AionUi: 12px muted text
     .qwenpaw-menu-submenu-title {
-      font-family: "PingFang SC", sans-serif !important;
-      font-size: 12px !important;
+      font-size: @section-label-font-size !important;
       font-weight: 500 !important;
-      line-height: 32px !important;
-      letter-spacing: normal !important;
-      color: rgba(26, 23, 22, 0.25) !important;
-      padding-left: 8px !important;
+      line-height: 28px !important;
+      color: @text-muted !important;
+      padding-left: 10px !important;
 
-      /* No hover effect for group titles */
       &:hover {
         background: transparent !important;
-        color: rgba(26, 23, 22, 0.25) !important;
+        color: @text-muted !important;
       }
     }
 
-    /* Hide submenu arrow */
     .qwenpaw-menu-submenu-arrow {
       display: none !important;
     }
 
-    /* Always expand submenus */
-    .qwenpaw-menu-submenu {
-      > .qwenpaw-menu {
-        display: block !important;
-      }
+    .qwenpaw-menu-submenu > .qwenpaw-menu {
+      display: block !important;
     }
 
-    /* Menu item padding - align all items */
     .qwenpaw-menu-item {
-      padding-left: 8px !important;
+      padding-left: 10px !important;
+      border-radius: @sidebar-radius !important;
     }
 
-    /* Remove submenu indent - align with parent */
     .qwenpaw-menu-submenu .qwenpaw-menu-item {
-      padding-left: 8px !important;
+      padding-left: 10px !important;
     }
 
-    /* Selected item */
+    // Selected item — AionUi: bg-active, text-primary
     .qwenpaw-menu-item-selected {
-      background: rgba(43, 18, 0, 0.08) !important;
-      color: inherit !important;
+      background: @bg-active !important;
+      color: @text-primary !important;
       display: flex !important;
       align-items: center !important;
-      justify-content: center !important;
 
       .qwenpaw-menu-title-content {
         display: flex !important;
@@ -237,131 +253,78 @@
       }
     }
 
-    /* Selected submenu item - keep text color unchanged */
     .qwenpaw-menu-submenu .qwenpaw-menu-item-selected {
-      color: inherit !important;
+      color: @text-primary !important;
     }
   }
 }
 
+// ─── Sidebar dark ─────────────────────────────────────────────────────────────
 .siderDark {
-  background: #1a1a1a !important;
-  border-right-color: rgba(255, 255, 255, 0.08) !important;
+  background: @bg-2-dark !important;
+  border-right-color: @border-base-dark !important;
 
-  // Agent-scoped section (dark mode)
   .agentScopedSection {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.08);
+    background: @brand-light-dark;
+    border-color: @border-base-dark;
   }
 
-  // Sticky container background (dark mode)
   .agentSelectorContainer {
-    background: #1e1e1e;
+    background: @brand-light-dark;
   }
 
-  // Chat button (dark mode)
   .stickyChatButton {
-    color: rgba(255, 255, 255, 0.75);
+    color: @text-secondary-dark;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: rgba(255, 255, 255, 0.95);
+      background: @bg-hover-dark;
+      color: @text-primary-dark;
     }
   }
 
   .stickyChatButtonActive {
-    background: rgba(255, 127, 22, 0.5);
-    color: #ff7f16;
+    background: @bg-active-dark;
+    color: @text-primary-dark;
   }
 
   :global {
     .qwenpaw-menu {
-      background: #1a1a1a !important;
+      background: @bg-2-dark !important;
       border-inline-end: 0 !important;
     }
 
-    /* Group title (sub-menu label) */
     .qwenpaw-menu-submenu-title {
-      color: rgba(255, 255, 255, 0.45) !important;
+      color: @text-muted-dark !important;
 
-      /* No hover effect for group titles in dark mode */
       &:hover {
         background: transparent !important;
-        color: rgba(255, 255, 255, 0.45) !important;
+        color: @text-muted-dark !important;
       }
     }
 
-    /* Regular menu item */
     .qwenpaw-menu-item {
-      color: rgba(255, 255, 255, 0.75) !important;
+      color: @text-secondary-dark !important;
     }
 
-    /* Hover state - only for menu items, not group titles */
     .qwenpaw-menu-item:hover {
-      background: rgba(255, 255, 255, 0.1) !important;
-      color: rgba(255, 255, 255, 0.95) !important;
+      background: @bg-hover-dark !important;
+      color: @text-primary-dark !important;
     }
 
-    /* Selected item */
     .qwenpaw-menu-item-selected {
-      background: rgba(255, 127, 22, 0.5) !important;
-      color: #ff7f16 !important;
+      background: @bg-active-dark !important;
+      color: @text-primary-dark !important;
     }
   }
 }
 
-.logoWrapper {
-  display: flex;
-  align-items: center;
-}
-
-.logoImg {
-  height: 16px;
-  width: auto;
-}
-
-.logoDivider {
-  width: 16px;
-  height: 0px;
-  transform: rotate(90deg);
-  border-top: 1px solid rgba(234, 232, 231, 1);
-  margin: 0 8px;
-}
-
-.headerDivider {
-  width: 16px;
-  height: 0px;
-  transform: rotate(90deg);
-  z-index: 4;
-  border-top: 1px solid rgba(234, 232, 231, 1);
-}
-
-.versionBadge {
-  font-size: 12px;
-  color: #1a171673;
-  font-weight: 600;
-  line-height: 1;
-  position: relative;
-  top: 3px;
-}
-
-.versionBadgeClickable {
-  cursor: pointer;
-}
-
-.versionBadgeDefault {
-  cursor: default;
-}
-
-.collapseBtn {
-  margin: auto;
-  color: #ff7f16;
-}
-
-// ─── Auth actions (account + logout) ──────────────────────────────────────────
+// ─── Auth actions (account + logout) ─────────────────────────────────────────
 .authActions {
-  padding: 12px 16px;
-  border-top: 1px solid #f0f0f0;
+  padding: 8px;
+  border-top: 1px solid @border-base;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .authBtn {
@@ -369,11 +332,13 @@
   align-items: center;
   gap: 8px;
   justify-content: flex-start;
-  color: rgba(0, 0, 0, 0.65);
+  color: @text-secondary;
+  border-radius: @sidebar-radius;
+  height: @nav-row-height;
 
   &:hover {
-    color: rgba(0, 0, 0, 0.88) !important;
-    background: rgba(0, 0, 0, 0.04) !important;
+    color: @text-primary !important;
+    background: @bg-hover !important;
   }
 }
 
@@ -381,78 +346,78 @@
   justify-content: center;
 }
 
-.authBtn + .authBtn {
-  margin-top: 4px;
-}
-
-/* Collapse Toggle Button */
+// ─── Collapse toggle ──────────────────────────────────────────────────────────
 .collapseToggleContainer {
   flex-shrink: 0;
   z-index: 10;
-  width: calc(100% + 32px);
-  margin: 0 -16px;
-  padding: 8px 16px;
+  width: calc(100% + 16px);
+  margin: 0 -8px;
+  padding: 6px 8px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  border-top: 1px solid @border-base;
 }
 
 .collapseToggle {
-  color: rgba(0, 0, 0, 0.45);
-  border-radius: 8px;
-  transition: all 0.2s;
+  color: @text-muted;
+  border-radius: @sidebar-radius;
+  transition: all 0.15s;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.06) !important;
-    color: #ff7f16 !important;
+    background: @bg-hover !important;
+    color: @text-primary !important;
   }
 }
 
-/* Collapsed nav (icon-only group list) */
+.collapseBtn {
+  margin: auto;
+  color: @brand;
+}
+
+// ─── Collapsed icon-only nav ───────────────────────────────────────────────────
 .collapsedNav {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   padding: 4px 0;
   overflow-y: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
 
-  &::-webkit-scrollbar {
-    display: none;
-  }
+  &::-webkit-scrollbar { display: none; }
 }
 
 .collapsedNavItem {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
+  border-radius: @sidebar-radius;
   border: none;
   background: transparent;
   cursor: pointer;
-  color: rgba(0, 0, 0, 0.55);
-  transition: all 0.15s;
+  color: @text-muted;
+  transition: background 0.15s, color 0.15s;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.06);
-    color: rgba(0, 0, 0, 0.88);
+    background: @bg-hover;
+    color: @text-primary;
   }
 }
 
 .collapsedNavItemActive {
-  background: rgba(43, 18, 0, 0.08) !important;
-  color: rgba(0, 0, 0, 0.88) !important;
+  background: @bg-active !important;
+  color: @text-primary !important;
 }
 
 @media (max-width: 768px) {
   .sider {
-    height: calc(100vh - 56px);
-    padding: 0 8px;
+    height: calc(100vh - @titlebar-height);
+    padding: 0 6px;
     flex: 0 0 auto !important;
     max-width: 240px !important;
 
@@ -465,31 +430,13 @@
       }
     }
   }
-
-  .collapsedNav {
-    gap: 2px;
-    padding: 2px 0;
-  }
-
-  .collapsedNavItem {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-  }
-
-  .collapseToggleContainer {
-    width: calc(100% + 16px);
-    margin: 0 -8px;
-    padding: 8px 0;
-    justify-content: center;
-  }
 }
 
 // ─── Update Modal ─────────────────────────────────────────────────────────────
 .updateModal {
   :global(.qwenpaw-modal-content) {
     padding: 0 !important;
-    border-radius: 12px !important;
+    border-radius: @card-radius !important;
     overflow: visible !important;
     box-shadow: none !important;
     border: none !important;
@@ -516,7 +463,7 @@
 .updateModalBanner {
   background: url("/public/qwenpawBack.png") no-repeat center top;
   background-size: contain;
-  padding: 48px 28px 0px;
+  padding: 48px 28px 0;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -535,13 +482,13 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: #fff;
-  border: 1px solid rgba(43, 18, 0, 0.12);
+  background: @bg-base;
+  border: 1px solid @border-base;
   border-radius: 20px;
   padding: 3px 12px;
   font-size: 12px;
   font-weight: 500;
-  color: rgba(26, 23, 22, 0.65);
+  color: @text-secondary;
   width: fit-content;
 }
 
@@ -549,12 +496,11 @@
   font-size: 32px;
   font-weight: 500;
   line-height: 64.78px;
-  letter-spacing: normal;
-  color: #ff7f16;
+  color: @brand;
 }
 
 .updateModalTitle {
-  color: #ff7f16;
+  color: @brand;
 }
 
 .updateModalBody {
@@ -573,26 +519,26 @@
 }
 
 .updateViewReleasesBtn {
-  background: #ff7f16 !important;
-  border-color: #ff7f16 !important;
+  background: @brand !important;
+  border-color: @brand !important;
   color: #fff !important;
 
   &:hover {
-    background: #d45b0a !important;
-    border-color: #d45b0a !important;
+    background: @aou-7 !important;
+    border-color: @aou-7 !important;
   }
 }
 
 .updateModalPrimaryBtn {
-  background: #ff7f16;
-  border-color: #ff7f16;
+  background: @brand;
+  border-color: @brand;
 }
 
-// ─── Code block inside update modal ──────────────────────────────────────────
+// ─── Code block ───────────────────────────────────────────────────────────────
 .codeBlock {
   position: relative;
-  background: #f5f5f5;
-  border: 1px solid #e8e8e8;
+  background: @bg-2;
+  border: 1px solid @border-base;
   border-radius: 6px;
   padding: 12px 40px 12px 16px;
   overflow-x: auto;
@@ -600,24 +546,23 @@
 }
 
 .codeBlockInner {
-  font-family: monospace;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 13px;
 }
 
 .codeInline {
-  background: #f5f5f5;
+  background: @bg-2;
   border-radius: 3px;
   padding: 1px 5px;
-  font-family: monospace;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 13px;
 }
 
-// ─── CopyButton ───────────────────────────────────────────────────────────────
 .copyBtn {
   position: absolute;
   top: 8px;
   right: 8px;
-  transition: color 0.2s;
+  transition: color 0.15s;
   background: none;
   border: none;
   padding: 2px 4px;
@@ -626,115 +571,117 @@
   border-radius: 4px;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.06);
+    background: @bg-active;
   }
 }
 
 .copyBtnCopied {
-  color: #52c41a;
+  color: @success;
 }
 
 .copyBtnDefault {
-  color: #999;
+  color: @text-muted;
 }
 
-/* ─── Dark mode overrides ─────────────────────────────────────────────────── */
+// ─── Dark mode overrides ──────────────────────────────────────────────────────
 :global(.dark-mode) {
   .header {
-    background: #1a1a1a !important;
-    border-bottom-color: rgba(255, 255, 255, 0.08) !important;
-    color: rgba(255, 255, 255, 0.85);
+    background: @bg-2-dark !important;
+    border-bottom-color: @border-base-dark !important;
+    color: @text-primary-dark;
 
-    /* Text buttons (Docs / FAQ / GitHub / Changelog) */
     :global(.qwenpaw-btn-text),
     :global(.ant-btn-text) {
-      color: rgba(255, 255, 255, 0.75) !important;
+      color: @text-secondary-dark !important;
 
       &:hover {
-        color: #fff !important;
-        background: rgba(255, 255, 255, 0.08) !important;
+        color: @text-primary-dark !important;
+        background: @bg-hover-dark !important;
       }
 
-      .anticon,
-      svg {
-        color: inherit !important;
-      }
+      .anticon, svg { color: inherit !important; }
     }
 
-    /* Fallback: any icon or text directly inside header */
     :global(.anticon) {
-      color: rgba(255, 255, 255, 0.75);
+      color: @text-secondary-dark;
     }
   }
 
   .headerTitle {
-    color: rgba(255, 255, 255, 0.85);
+    color: @text-primary-dark;
   }
 
-  .sider {
-    background: #1a1a1a !important;
-    border-right-color: rgba(255, 255, 255, 0.08) !important;
-  }
-
-  .siderTop {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  .logoDivider,
+  .headerDivider {
+    background: @border-base-dark;
   }
 
   .versionBadge {
-    color: #ff7f16;
+    color: @text-muted-dark;
   }
 
-  .collapseBtn {
-    color: #ff7f16;
+  .sider {
+    background: @bg-2-dark !important;
+    border-right-color: @border-base-dark !important;
   }
 
   .authActions {
-    border-top-color: rgba(255, 255, 255, 0.08);
+    border-top-color: @border-base-dark;
   }
 
   .authBtn {
-    color: rgba(255, 255, 255, 0.75);
+    color: @text-secondary-dark;
 
     &:hover {
-      color: rgba(255, 255, 255, 0.9) !important;
-      background: rgba(255, 255, 255, 0.06) !important;
+      color: @text-primary-dark !important;
+      background: @bg-hover-dark !important;
     }
   }
 
   .collapseToggle {
-    color: rgba(255, 255, 255, 0.45);
+    color: @text-muted-dark;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
-      color: #ff7f16;
+      background: @bg-hover-dark !important;
+      color: @text-primary-dark !important;
     }
   }
 
+  .collapseToggleContainer {
+    border-top-color: @border-base-dark;
+  }
+
   .collapsedNavItem {
-    color: rgba(255, 255, 255, 0.5);
+    color: @text-muted-dark;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
-      color: rgba(255, 255, 255, 0.88);
+      background: @bg-hover-dark;
+      color: @text-primary-dark;
     }
   }
 
   .collapsedNavItemActive {
-    background: rgba(255, 127, 22, 0.5) !important;
-    color: rgba(255, 255, 255, 0.88) !important;
+    background: @bg-active-dark !important;
+    color: @text-primary-dark !important;
   }
 
   .codeBlock {
-    background: #2a2a2a;
-    border-color: rgba(255, 255, 255, 0.1);
+    background: @bg-3-dark;
+    border-color: @border-base-dark;
   }
 
   .codeInline {
-    background: #2a2a2a;
-    color: rgba(255, 255, 255, 0.85);
+    background: @bg-3-dark;
+    color: @text-primary-dark;
   }
 
   .copyBtnDefault {
-    color: rgba(255, 255, 255, 0.3);
+    color: @text-muted-dark;
+  }
+
+  .updateModalVersionTag {
+    background: @bg-2-dark;
+    border-color: @border-base-dark;
+    color: @text-secondary-dark;
   }
 }

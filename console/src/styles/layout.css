@@ -1,14 +1,65 @@
+/* AionUi design tokens — light */
+:root {
+  --bg-base:   #ffffff;
+  --bg-1:      #f9fafb;
+  --bg-2:      #f2f3f5;
+  --bg-3:      #e5e6eb;
+  --bg-4:      #c9cdd4;
+  --bg-hover:  #f3f4f6;
+  --bg-active: #e5e6eb;
+  --text-primary:   #000000;
+  --text-secondary: #454d5f;
+  --text-muted:     #86909c;
+  --brand:          #7583b2;
+  --border-base:    #e5e6eb;
+  --titlebar-height: 36px;
+}
+
+/* AionUi design tokens — dark */
+html.dark-mode {
+  --bg-1:      #1a1a1a;
+  --bg-2:      #262626;
+  --bg-3:      #333333;
+  --bg-hover:  #1f1f1f;
+  --bg-active: #2d2d2d;
+  --text-primary:   #ffffff;
+  --text-secondary: #ced3da;
+  --text-muted:     #929292;
+  --brand:          #a1aacb;
+  --border-base:    #333333;
+}
+
 html,
 body {
   height: 100%;
   overflow: hidden;
   margin: 0;
   padding: 0;
-  background: #f9f8f4;
+  background: var(--bg-1);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thin scrollbars matching AionUi */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg-3) transparent;
+}
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background-color: var(--bg-3);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--bg-4);
 }
 
 .qwenpaw-layout {
-  background: #f9f8f4;
+  background: var(--bg-1);
 }
 
 /* ─── Dark mode global token overrides ─────────────────────────────────────── */
@@ -17,45 +68,44 @@ html.dark-mode {
 }
 
 html.dark-mode body {
-  background: #141414;
-  color: rgba(255, 255, 255, 0.85);
+  background: var(--bg-1);
+  color: var(--text-primary);
 }
 
-/* Ant Design layout background in dark mode */
 html.dark-mode .ant-layout,
 html.dark-mode .qwenpaw-layout {
-  background: #141414 !important;
+  background: var(--bg-1) !important;
 }
 
 html.dark-mode .ant-layout-content,
 html.dark-mode .qwenpaw-layout-content {
-  background: #141414 !important;
+  background: var(--bg-1) !important;
 }
 
 /* Page content area background */
 html.dark-mode .page-content {
-  background: #141414;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--bg-1);
+  border: 1px solid var(--border-base);
 }
 
 /* Card components — @agentscope-ai/design uses qwenpaw prefix */
 html.dark-mode .qwenpaw-card,
 html.dark-mode .ant-card {
   background: #1f1f1f !important;
-  border-color: rgba(255, 255, 255, 0.1) !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  border-color: var(--border-base) !important;
+  color: var(--text-primary) !important;
 }
 
 html.dark-mode .qwenpaw-card-head,
 html.dark-mode .ant-card-head {
   background: #1f1f1f !important;
-  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  border-bottom-color: var(--border-base) !important;
+  color: var(--text-primary) !important;
 }
 
 html.dark-mode .qwenpaw-card-head-title,
 html.dark-mode .ant-card-head-title {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--text-primary) !important;
 }
 
 /* @agentscope-ai/design Card custom title (sparkPrefix-title inside card-wrapper) */
@@ -997,12 +1047,10 @@ html.dark-mode .qwenpaw-sender-content {
 .page-content {
   flex: 1 1 auto;
   overflow: auto;
-  background-color: #fff;
+  background-color: var(--bg-base, #ffffff);
   border-radius: 8px;
-  /* 8px */
   box-sizing: border-box;
-  border: 1px solid #eae9e7;
-  /* #EAE9E7 */
+  border: 1px solid var(--border-base, #e5e6eb);
 }
 
 .table-container {
