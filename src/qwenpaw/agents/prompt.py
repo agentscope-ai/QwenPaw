@@ -9,7 +9,7 @@ import logging
 import re
 from pathlib import Path
 
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     ConfigurationException,
 )
 

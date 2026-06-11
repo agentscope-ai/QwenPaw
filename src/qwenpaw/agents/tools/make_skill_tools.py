@@ -7,7 +7,8 @@ import logging
 import re
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from ...config.context import get_current_workspace_dir
 from ...exceptions import SkillsError
@@ -131,9 +132,13 @@ def _format_ref_verification(refs: list[dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
-def _tool_text_response(text: str) -> ToolResponse:
-    """Wrap text in a single-TextBlock ToolResponse."""
-    return ToolResponse(content=[TextBlock(type="text", text=text)])
+def _tool_text_response(text: str) -> ToolChunk:
+    """Wrap text in a single-TextBlock ToolChunk."""
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
+        content=[TextBlock(type="text", text=text)],
+    )
 
 
 def _parse_extra_files(
@@ -159,7 +164,7 @@ async def materialize_skill(
     description: str,
     body: str,
     extra_files: dict[str, str] | str | None = None,
-) -> ToolResponse:
+) -> ToolChunk:
     """Persist a confirmed skill proposal into the workspace.
 
     Runs format validation and the security scanner, writes

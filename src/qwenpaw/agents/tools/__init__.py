@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-from agentscope.tool import (
-    execute_python_code,
-    view_text_file,
-    write_text_file,
-)
-
+# Note: ``execute_python_code`` / ``view_text_file`` / ``write_text_file``
+# are intentionally not re-exported — qwenpaw's react_agent does not
+# register them. The literal names still appear in
+# ``security/tool_guard`` guardians for backward compatibility with
+# pre-existing allowlists.
 from .file_io import (
     read_file,
     write_file,
@@ -37,10 +36,7 @@ from .make_skill_tools import materialize_skill  # noqa: F401
 from .run_tool_batch import run_tool_batch  # noqa: F401
 
 __all__ = [
-    "execute_python_code",
     "execute_shell_command",
-    "view_text_file",
-    "write_text_file",
     "read_file",
     "write_file",
     "edit_file",

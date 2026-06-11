@@ -4,66 +4,37 @@
 import os
 import mimetypes
 import unicodedata
-from urllib.parse import quote
+from urllib.parse import unquote
 
-from agentscope.tool import ToolResponse
-from agentscope.message import (
-    TextBlock,
-    ImageBlock,
-    AudioBlock,
-    VideoBlock,
-)
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
+from agentscope.message import TextBlock, DataBlock, URLSource
 
-from ..schema import FileBlock
 from .file_io import _resolve_file_path
 
 
 def _path_to_file_url(path: str) -> str:
-    """Convert a local file path to a proper file:// URL (RFC 8089).
+    """Convert a local file path to a ``file://`` URL.
 
-    On Windows, converts:
-      C:\\path\\file.txt      →  file:///C:/path/file.txt
-      \\\\server\\share\\f.txt  →  file://server/share/f.txt
-
-    Non-ASCII characters and ``%`` are percent-encoded so the URL is
-    always valid ASCII and round-trips correctly through url2pathname.
+    Does NOT percent-encode non-ASCII characters because agentscope's
+    DashScope formatter extracts the local path from the URL without
+    ``unquote()``, causing ``FileNotFoundError`` for files with
+    non-ASCII names (e.g. Chinese characters).
     """
-    # Normalize to absolute path
     abs_path = os.path.abspath(path)
-
-    # Convert backslashes to forward slashes (Windows)
     if os.name == "nt":
         abs_path = abs_path.replace("\\", "/")
 
-    # Percent-encode non-ASCII and special characters.
-    # ``%`` must NOT be in *safe* — otherwise a literal ``%25`` in a
-    # filename would survive un-encoded and be mis-decoded later.
-    encoded_path = quote(abs_path, safe="/:@")
-
-    # RFC 8089: file:///  (authority is empty → three slashes)
     if os.name == "nt":
-        # UNC path: //server/share/… → file://server/share/…
-        if encoded_path.startswith("//"):
-            return f"file:{encoded_path}"
-        # Local drive: C:/… → file:///C:/…
-        return f"file:///{encoded_path}"
-    # POSIX: abs_path already starts with "/" → file:///…
-    return f"file://{encoded_path}"
-
-
-def _auto_as_type(mt: str) -> str:
-    if mt.startswith("image/"):
-        return "image"
-    if mt.startswith("audio/"):
-        return "audio"
-    if mt.startswith("video/"):
-        return "video"
-    return "file"
+        if abs_path.startswith("//"):
+            return f"file:{abs_path}"
+        return f"file:///{abs_path}"
+    return f"file://{abs_path}"
 
 
 async def send_file_to_user(
     file_path: str,
-) -> ToolResponse:
+) -> ToolChunk:
     """Send a file to the user.
 
     Args:
@@ -71,33 +42,35 @@ async def send_file_to_user(
             Path to the file to send.
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             The tool response containing the file or an error message.
     """
 
-    # Normalize the path: expand ~ and fix Unicode normalization differences
-    # (e.g. macOS stores filenames as NFD but paths from the LLM arrive as NFC,
-    # causing os.path.exists to return False for files that do exist).
+    # Decode percent-encoded chars (model may pass URL-encoded paths from context)
+    # then normalize Unicode (macOS NFD vs NFC).
+    file_path = unquote(file_path)
     file_path = os.path.expanduser(unicodedata.normalize("NFC", file_path))
 
     # Resolve relative paths to absolute paths based on workspace directory
     file_path = _resolve_file_path(file_path)
 
     if not os.path.exists(file_path):
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
-                    type="text",
                     text=f"Error: The file {file_path} does not exist.",
                 ),
             ],
         )
 
     if not os.path.isfile(file_path):
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
-                    type="text",
                     text=f"Error: The path {file_path} is not a file.",
                 ),
             ],
@@ -108,51 +81,31 @@ async def send_file_to_user(
     if mime_type is None:
         # Default to application/octet-stream for unknown types
         mime_type = "application/octet-stream"
-    as_type = _auto_as_type(mime_type)
 
     try:
-        # Use local file URL instead of base64
         file_url = _path_to_file_url(file_path)
-        source = {"type": "url", "url": file_url}
 
-        if as_type == "image":
-            return ToolResponse(
-                content=[
-                    ImageBlock(type="image", source=source),
-                    TextBlock(type="text", text="File sent successfully."),
-                ],
-            )
-        if as_type == "audio":
-            return ToolResponse(
-                content=[
-                    AudioBlock(type="audio", source=source),
-                    TextBlock(type="text", text="File sent successfully."),
-                ],
-            )
-        if as_type == "video":
-            return ToolResponse(
-                content=[
-                    VideoBlock(type="video", source=source),
-                    TextBlock(type="text", text="File sent successfully."),
-                ],
-            )
-
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
-                FileBlock(
-                    type="file",
-                    source=source,
-                    filename=os.path.basename(file_path),
+                DataBlock(
+                    source=URLSource(
+                        url=file_url,
+                        media_type=mime_type,
+                    ),
+                    name=os.path.basename(file_path),
                 ),
-                TextBlock(type="text", text="File sent successfully."),
+                TextBlock(text="File sent successfully."),
             ],
         )
 
     except Exception as e:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
-                    type="text",
                     text=f"Error: Send file failed due to \n{e}",
                 ),
             ],

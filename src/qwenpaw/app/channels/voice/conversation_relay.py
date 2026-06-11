@@ -6,13 +6,13 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from fastapi import WebSocketDisconnect
+
+from qwenpaw.schemas import (
     ContentType,
     MessageType,
     RunStatus,
 )
-
-from fastapi import WebSocketDisconnect
 
 from .session import CallSessionManager
 
@@ -163,7 +163,7 @@ class ConversationRelayHandler:
 
     def _build_agent_request(self, text: str) -> Any:
         """Build an AgentRequest from user speech text."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AgentRequest,
             Message,
             Role,
