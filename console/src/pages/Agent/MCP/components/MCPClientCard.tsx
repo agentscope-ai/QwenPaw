@@ -1,24 +1,38 @@
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  Card,
-  Button,
-  Modal,
-  Tooltip,
-  Input,
-  Empty,
-  Tag,
-  Switch,
-} from "@agentscope-ai/design";
-import { Spin } from "antd";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { MCPClientInfo, MCPToolInfo } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import React, { useState, useCallback } from "react";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import {
-  EyeOutlined,
-  EyeInvisibleOutlined,
-  ToolOutlined,
-} from "@ant-design/icons";
-import { ShieldCheck, ShieldAlert, ShieldX, KeyRound } from "lucide-react";
+  Eye,
+  EyeOff,
+  Wrench,
+  ShieldCheck,
+  ShieldAlert,
+  ShieldX,
+  KeyRound,
+  Loader2,
+} from "lucide-react";
 import api from "../../../../api";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { MCPOAuthSection } from "./MCPOAuthSection";
@@ -74,7 +88,6 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   const [oauthAuthEndpoint, setOauthAuthEndpoint] = useState("");
   const [oauthTokenEndpoint, setOauthTokenEndpoint] = useState("");
 
-  // Determine if MCP client is remote or local based on command
   const isRemote =
     client.transport === "streamable_http" || client.transport === "sse";
   const clientType = isRemote ? "Remote" : "Local";
@@ -113,8 +126,6 @@ export const MCPClientCard = React.memo(function MCPClientCard({
     try {
       const parsed = JSON.parse(editedJson);
       const { key: _key, ...updates } = parsed;
-
-      // Send all updates directly to backend, let backend handle env masking check
       const success = await onUpdate(client.key, updates);
       if (success) {
         setJsonModalOpen(false);
@@ -190,320 +201,313 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   return (
     <>
       <Card
-        hoverable
         onClick={handleCardClick}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         className={`${styles.mcpCard} ${
           client.enabled ? styles.enabledCard : ""
-        } ${isHovered ? styles.hover : styles.normal}`}
+        } ${isHovered ? styles.hover : styles.normal} cursor-pointer`}
       >
-        <div className={styles.cardHeader}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              minWidth: 0,
-            }}
-          >
-            <Tooltip title={client.name}>
-              <h3 className={styles.mcpTitle}>{client.name}</h3>
-            </Tooltip>
-            <span
-              className={`${styles.typeBadge} ${
-                isRemote ? styles.remote : styles.local
-              }`}
-            >
-              {clientType}
-            </span>
-            {hasOauth && isOauthExpired && (
-              <Tooltip title={t("mcp.oauth.expired")}>
-                <ShieldAlert
-                  size={13}
-                  style={{ color: "#e67e22", flexShrink: 0 }}
-                />
-              </Tooltip>
-            )}
-            {hasOauth && isOauthAuthorized && (
-              <Tooltip title={t("mcp.oauth.authorized")}>
-                <ShieldCheck
-                  size={13}
-                  style={{ color: "#27ae60", flexShrink: 0 }}
-                />
-              </Tooltip>
-            )}
-            {hasOauth && !isOauthAuthorized && !isOauthExpired && (
-              <Tooltip title={t("mcp.oauth.notAuthorized")}>
-                <ShieldX
-                  size={13}
-                  style={{ color: "#7f8c8d", flexShrink: 0 }}
-                />
-              </Tooltip>
-            )}
-          </div>
-          <div className={styles.statusContainer}>
-            <span className={styles.statusDot} />
-            <span className={styles.statusText}>
-              {client.enabled ? t("common.enabled") : t("common.disabled")}
-            </span>
-          </div>
-        </div>
-
-        <p className={styles.mcpDescription}>{client.description || "-"}</p>
-
-        <div className={styles.cardFooter}>
-          <Button
-            className={styles.toolsButton}
-            onClick={handleShowTools}
-            icon={<ToolOutlined />}
-            disabled={!client.enabled || toolsLoading}
-            loading={toolsLoading}
-          >
-            {t("mcp.tools")}
-          </Button>
-          {isRemote && (
-            <Button
-              className={styles.toggleButton}
-              onClick={(e) => {
-                e.stopPropagation();
-                setOauthModalOpen(true);
-              }}
-              style={
-                isOauthAuthorized
-                  ? {
-                      color: "#27ae60",
-                      borderColor: "#27ae60",
-                      background: "rgba(39,174,96,0.06)",
-                    }
-                  : isOauthExpired
-                  ? {
-                      color: "#e67e22",
-                      borderColor: "#e67e22",
-                      background: "rgba(230,126,34,0.06)",
-                    }
-                  : undefined
-              }
-            >
+        <CardContent className="p-0">
+          <div className={styles.cardHeader}>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h3 className={styles.mcpTitle} title={client.name}>
+                {client.name}
+              </h3>
               <span
-                style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                className={`${styles.typeBadge} ${
+                  isRemote ? styles.remote : styles.local
+                }`}
+              >
+                {clientType}
+              </span>
+              {hasOauth && isOauthExpired && (
+                <span title={t("mcp.oauth.expired")}>
+                  <ShieldAlert size={13} className="text-orange-500 shrink-0" />
+                </span>
+              )}
+              {hasOauth && isOauthAuthorized && (
+                <span title={t("mcp.oauth.authorized")}>
+                  <ShieldCheck size={13} className="text-green-600 shrink-0" />
+                </span>
+              )}
+              {hasOauth && !isOauthAuthorized && !isOauthExpired && (
+                <span title={t("mcp.oauth.notAuthorized")}>
+                  <ShieldX
+                    size={13}
+                    className="text-muted-foreground shrink-0"
+                  />
+                </span>
+              )}
+            </div>
+            <div className={styles.statusContainer}>
+              <span className={styles.statusDot} />
+              <span className={styles.statusText}>
+                {client.enabled ? t("common.enabled") : t("common.disabled")}
+              </span>
+            </div>
+          </div>
+
+          <p className={styles.mcpDescription}>{client.description || "-"}</p>
+
+          <div className={styles.cardFooter}>
+            <Button
+              variant="outline"
+              size="sm"
+              className={styles.toolsButton}
+              onClick={handleShowTools}
+              disabled={!client.enabled || toolsLoading}
+            >
+              {toolsLoading ? (
+                <Loader2 size={14} className="animate-spin mr-1" />
+              ) : (
+                <Wrench size={14} className="mr-1" />
+              )}
+              {t("mcp.tools")}
+            </Button>
+            {isRemote && (
+              <Button
+                variant="outline"
+                size="sm"
+                className={styles.toggleButton}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOauthModalOpen(true);
+                }}
+                style={
+                  isOauthAuthorized
+                    ? {
+                        color: "#27ae60",
+                        borderColor: "#27ae60",
+                        background: "rgba(39,174,96,0.06)",
+                      }
+                    : isOauthExpired
+                    ? {
+                        color: "#e67e22",
+                        borderColor: "#e67e22",
+                        background: "rgba(230,126,34,0.06)",
+                      }
+                    : undefined
+                }
               >
                 {isOauthAuthorized ? (
-                  <ShieldCheck size={13} />
+                  <ShieldCheck size={13} className="mr-1" />
                 ) : isOauthExpired ? (
-                  <ShieldAlert size={13} />
+                  <ShieldAlert size={13} className="mr-1" />
                 ) : (
-                  <KeyRound size={13} />
+                  <KeyRound size={13} className="mr-1" />
                 )}
                 {isOauthAuthorized
                   ? t("mcp.oauth.authorized")
                   : isOauthExpired
                   ? t("mcp.oauth.expired")
                   : t("mcp.oauth.authorize")}
-              </span>
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className={styles.toggleButton}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleClick(e);
+              }}
+            >
+              {client.enabled ? (
+                <EyeOff size={14} className="mr-1" />
+              ) : (
+                <Eye size={14} className="mr-1" />
+              )}
+              {client.enabled ? t("common.disable") : t("common.enable")}
             </Button>
-          )}
-          <Button
-            className={styles.toggleButton}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleToggleClick(e);
-            }}
-            icon={client.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
-          >
-            {client.enabled ? t("common.disable") : t("common.enable")}
-          </Button>
-          <Button
-            className={styles.deleteButton}
-            danger
-            onClick={(e) => {
-              e.stopPropagation();
-              handleDeleteClick(e);
-            }}
-          >
-            {t("common.delete")}
-          </Button>
-        </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              className={styles.deleteButton}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDeleteClick(e);
+              }}
+            >
+              {t("common.delete")}
+            </Button>
+          </div>
+        </CardContent>
       </Card>
 
-      <Modal
-        title={t("common.confirm")}
-        open={deleteModalOpen}
-        onOk={confirmDelete}
-        onCancel={() => setDeleteModalOpen(false)}
-        okText={t("common.confirm")}
-        cancelText={t("common.cancel")}
-        okButtonProps={{ danger: true }}
-      >
-        <p>{t("mcp.deleteConfirm")}</p>
-      </Modal>
-
-      <Modal
-        title={`${client.name} - ${t("mcp.tools")}`}
-        open={toolsModalOpen}
-        onCancel={() => setToolsModalOpen(false)}
-        footer={
-          <div style={{ textAlign: "right" }}>
-            <Button
-              onClick={() => setToolsModalOpen(false)}
-              style={{ marginRight: 8 }}
+      <AlertDialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("common.confirm")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("mcp.deleteConfirm")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmDelete}
             >
+              {t("common.confirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={toolsModalOpen} onOpenChange={setToolsModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{`${client.name} - ${t("mcp.tools")}`}</DialogTitle>
+          </DialogHeader>
+          {toolsLoading ? (
+            <div className={styles.toolsLoading}>
+              <Loader2 className="animate-spin" />
+            </div>
+          ) : toolsError ? (
+            <div className={styles.toolsError}>{toolsError}</div>
+          ) : tools.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("mcp.noTools")}</p>
+          ) : (
+            <div className={styles.toolsList}>
+              {tools.map((tool) => (
+                <div key={tool.name} className={styles.toolItem}>
+                  <div className={styles.toolHeader}>
+                    <Switch
+                      checked={toolToggles[tool.name] ?? tool.enabled}
+                      onCheckedChange={(checked) =>
+                        handleToolToggle(tool.name, checked)
+                      }
+                    />
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full border ${
+                        toolToggles[tool.name] ?? tool.enabled
+                          ? "border-blue-300 bg-blue-50 text-blue-700"
+                          : "border-muted bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {tool.name}
+                    </span>
+                  </div>
+                  {tool.description && (
+                    <p className={styles.toolDescription}>{tool.description}</p>
+                  )}
+                  {tool.input_schema &&
+                    Object.keys(tool.input_schema).length > 0 && (
+                      <details className={styles.toolSchema}>
+                        <summary>{t("mcp.toolSchema")}</summary>
+                        <pre className={styles.toolSchemaContent}>
+                          {JSON.stringify(tool.input_schema, null, 2)}
+                        </pre>
+                      </details>
+                    )}
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setToolsModalOpen(false)}>
               {t("common.close")}
             </Button>
             {tools.length > 0 && (
-              <Button
-                type="primary"
-                onClick={handleSaveToolWhitelist}
-                loading={toolsSaving}
-              >
+              <Button onClick={handleSaveToolWhitelist} disabled={toolsSaving}>
+                {toolsSaving && (
+                  <Loader2 size={14} className="animate-spin mr-1" />
+                )}
                 {t("common.save")}
               </Button>
             )}
-          </div>
-        }
-        width={700}
-      >
-        {toolsLoading ? (
-          <div className={styles.toolsLoading}>
-            <Spin />
-          </div>
-        ) : toolsError ? (
-          <div className={styles.toolsError}>{toolsError}</div>
-        ) : tools.length === 0 ? (
-          <Empty description={t("mcp.noTools")} />
-        ) : (
-          <div className={styles.toolsList}>
-            {tools.map((tool) => (
-              <div key={tool.name} className={styles.toolItem}>
-                <div className={styles.toolHeader}>
-                  <Switch
-                    size="small"
-                    checked={toolToggles[tool.name] ?? tool.enabled}
-                    onChange={(checked) => handleToolToggle(tool.name, checked)}
-                  />
-                  <Tag
-                    color={
-                      toolToggles[tool.name] ?? tool.enabled
-                        ? "blue"
-                        : "default"
-                    }
-                  >
-                    {tool.name}
-                  </Tag>
-                </div>
-                {tool.description && (
-                  <p className={styles.toolDescription}>{tool.description}</p>
-                )}
-                {tool.input_schema &&
-                  Object.keys(tool.input_schema).length > 0 && (
-                    <details className={styles.toolSchema}>
-                      <summary>{t("mcp.toolSchema")}</summary>
-                      <pre className={styles.toolSchemaContent}>
-                        {JSON.stringify(tool.input_schema, null, 2)}
-                      </pre>
-                    </details>
-                  )}
-              </div>
-            ))}
-          </div>
-        )}
-      </Modal>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <Modal
-        title={`${client.name} - Configuration`}
-        open={jsonModalOpen}
-        onCancel={() => setJsonModalOpen(false)}
-        footer={
-          <div style={{ textAlign: "right" }}>
-            <Button
-              onClick={() => setJsonModalOpen(false)}
-              style={{ marginRight: 8 }}
+      <Dialog open={jsonModalOpen} onOpenChange={setJsonModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{`${client.name} - Configuration`}</DialogTitle>
+          </DialogHeader>
+          <div className={styles.maskedFieldHint}>
+            {t("mcp.maskedFieldHint")}
+          </div>
+          {isEditing ? (
+            <Textarea
+              value={editedJson}
+              onChange={(e) => setEditedJson(e.target.value)}
+              rows={15}
+              style={{
+                fontFamily: "Monaco, Courier New, monospace",
+                fontSize: 13,
+              }}
+            />
+          ) : (
+            <pre
+              style={{
+                backgroundColor: isDark ? "#1f1f1f" : "#f5f5f5",
+                color: isDark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.88)",
+                padding: 16,
+                borderRadius: 8,
+                maxHeight: 400,
+                overflow: "auto",
+              }}
             >
+              {clientJson}
+            </pre>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setJsonModalOpen(false)}>
               {t("common.cancel")}
             </Button>
             {isEditing ? (
-              <Button type="primary" onClick={handleSaveJson}>
-                {t("common.save")}
-              </Button>
+              <Button onClick={handleSaveJson}>{t("common.save")}</Button>
             ) : (
-              <Button type="primary" onClick={() => setIsEditing(true)}>
+              <Button onClick={() => setIsEditing(true)}>
                 {t("common.edit")}
               </Button>
             )}
-          </div>
-        }
-        width={700}
-      >
-        <div className={styles.maskedFieldHint}>{t("mcp.maskedFieldHint")}</div>
-        {isEditing ? (
-          <Input.TextArea
-            value={editedJson}
-            onChange={(e) => setEditedJson(e.target.value)}
-            autoSize={{ minRows: 15, maxRows: 25 }}
-            style={{
-              fontFamily: "Monaco, Courier New, monospace",
-              fontSize: 13,
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={oauthModalOpen} onOpenChange={setOauthModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              <span className="flex items-center gap-2">
+                {isOauthAuthorized ? (
+                  <ShieldCheck size={16} className="text-green-600" />
+                ) : isOauthExpired ? (
+                  <ShieldAlert size={16} className="text-orange-500" />
+                ) : (
+                  <ShieldX size={16} className="text-muted-foreground" />
+                )}
+                {`${client.name} — ${t("mcp.oauth.manage")}`}
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+          <MCPOAuthSection
+            url={client.url}
+            clientKey={client.key}
+            oauthEnabled
+            currentOAuthStatus={oauthStatus}
+            clientId={oauthClientId}
+            scope={oauthScope}
+            authEndpoint={oauthAuthEndpoint}
+            tokenEndpoint={oauthTokenEndpoint}
+            onClientIdChange={setOauthClientId}
+            onScopeChange={setOauthScope}
+            onAuthEndpointChange={setOauthAuthEndpoint}
+            onTokenEndpointChange={setOauthTokenEndpoint}
+            onAuthChanged={() => {
+              onRefresh?.();
             }}
           />
-        ) : (
-          <pre
-            style={{
-              backgroundColor: isDark ? "#1f1f1f" : "#f5f5f5",
-              color: isDark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.88)",
-              padding: 16,
-              borderRadius: 8,
-              maxHeight: 400,
-              overflow: "auto",
-            }}
-          >
-            {clientJson}
-          </pre>
-        )}
-      </Modal>
-
-      {/* Dedicated OAuth modal — opened only via the Authorize button */}
-      <Modal
-        title={
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {isOauthAuthorized ? (
-              <ShieldCheck size={16} style={{ color: "#27ae60" }} />
-            ) : isOauthExpired ? (
-              <ShieldAlert size={16} style={{ color: "#e67e22" }} />
-            ) : (
-              <ShieldX size={16} style={{ color: "#7f8c8d" }} />
-            )}
-            {`${client.name} — ${t("mcp.oauth.manage")}`}
-          </div>
-        }
-        open={oauthModalOpen}
-        onCancel={() => setOauthModalOpen(false)}
-        footer={
-          <div style={{ textAlign: "right" }}>
-            <Button onClick={() => setOauthModalOpen(false)}>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOauthModalOpen(false)}>
               {t("common.close")}
             </Button>
-          </div>
-        }
-        width={560}
-      >
-        <MCPOAuthSection
-          url={client.url}
-          clientKey={client.key}
-          oauthEnabled
-          currentOAuthStatus={oauthStatus}
-          clientId={oauthClientId}
-          scope={oauthScope}
-          authEndpoint={oauthAuthEndpoint}
-          tokenEndpoint={oauthTokenEndpoint}
-          onClientIdChange={setOauthClientId}
-          onScopeChange={setOauthScope}
-          onAuthEndpointChange={setOauthAuthEndpoint}
-          onTokenEndpointChange={setOauthTokenEndpoint}
-          onAuthChanged={() => {
-            onRefresh?.();
-          }}
-        />
-      </Modal>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 });

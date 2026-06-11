@@ -4,9 +4,10 @@
  * (agents, global config, skill pool, secrets). Extracted from CreateBackupModal
  * so it can be unit-tested and potentially reused independently.
  */
-import { Checkbox, Radio } from "antd";
 import { useTranslation } from "react-i18next";
 import type { AgentSummary } from "@/api/types/agents";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import AgentMultiSelect from "./AgentMultiSelect";
 import styles from "./BackupScopeForm.module.less";
 
@@ -39,40 +40,50 @@ export default function BackupScopeForm({ value, onChange, agents }: Props) {
     <div className={styles.form}>
       <div className={styles.section}>
         <div className={styles.sectionLabel}>{t("backup.backupMode")}</div>
-        <Radio.Group
-          value={value.backupMode}
-          onChange={(e) => set({ backupMode: e.target.value })}
-          className={styles.radioGroup}
-        >
-          <Radio value="full">
-            <strong>{t("backup.fullBackup")}</strong>
-            <div className={styles.radioDesc}>{t("backup.fullBackupDesc")}</div>
-          </Radio>
-          <Radio value="partial">
-            <strong>{t("backup.partialBackup")}</strong>
-            <div className={styles.radioDesc}>
-              {t("backup.partialBackupDesc")}
-            </div>
-          </Radio>
-        </Radio.Group>
+        <div className={`${styles.radioGroup} flex flex-col gap-3`}>
+          {(["full", "partial"] as const).map((mode) => (
+            <label key={mode} className="flex cursor-pointer items-start gap-2">
+              <input
+                type="radio"
+                name="backupMode"
+                value={mode}
+                checked={value.backupMode === mode}
+                onChange={() => set({ backupMode: mode })}
+                className="mt-1 accent-primary"
+              />
+              <span>
+                <strong>
+                  {mode === "full"
+                    ? t("backup.fullBackup")
+                    : t("backup.partialBackup")}
+                </strong>
+                <div className={styles.radioDesc}>
+                  {mode === "full"
+                    ? t("backup.fullBackupDesc")
+                    : t("backup.partialBackupDesc")}
+                </div>
+              </span>
+            </label>
+          ))}
+        </div>
       </div>
 
       {value.backupMode === "partial" && (
         <div className={styles.partialOptions}>
-          <Checkbox
-            checked={value.selectedAgents.length > 0}
-            indeterminate={
-              value.selectedAgents.length > 0 &&
-              value.selectedAgents.length < agents.length
-            }
-            onChange={(e) => {
-              set({
-                selectedAgents: e.target.checked ? agents.map((a) => a.id) : [],
-              });
-            }}
-          >
-            {t("backup.scopeAgents")}
-          </Checkbox>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="scope-agents"
+              checked={value.selectedAgents.length > 0}
+              onCheckedChange={(checked) => {
+                set({
+                  selectedAgents: checked ? agents.map((a) => a.id) : [],
+                });
+              }}
+            />
+            <Label htmlFor="scope-agents" className="cursor-pointer">
+              {t("backup.scopeAgents")}
+            </Label>
+          </div>
 
           {value.selectedAgents.length > 0 && (
             <div className={styles.agentSelect}>
@@ -84,27 +95,43 @@ export default function BackupScopeForm({ value, onChange, agents }: Props) {
             </div>
           )}
 
-          <Checkbox
-            checked={value.globalConfig}
-            onChange={(e) => set({ globalConfig: e.target.checked })}
-          >
-            {t("backup.scopeGlobalConfig")}
-          </Checkbox>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="scope-global-config"
+              checked={value.globalConfig}
+              onCheckedChange={(checked) => set({ globalConfig: !!checked })}
+            />
+            <Label htmlFor="scope-global-config" className="cursor-pointer">
+              {t("backup.scopeGlobalConfig")}
+            </Label>
+          </div>
 
-          <Checkbox
-            checked={value.includeSkillPool}
-            onChange={(e) => set({ includeSkillPool: e.target.checked })}
-          >
-            {t("backup.scopeSkillPool")}
-          </Checkbox>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="scope-skill-pool"
+              checked={value.includeSkillPool}
+              onCheckedChange={(checked) =>
+                set({ includeSkillPool: !!checked })
+              }
+            />
+            <Label htmlFor="scope-skill-pool" className="cursor-pointer">
+              {t("backup.scopeSkillPool")}
+            </Label>
+          </div>
 
           <div>
-            <Checkbox
-              checked={value.includeSecrets}
-              onChange={(e) => set({ includeSecrets: e.target.checked })}
-            >
-              {t("backup.scopeSecrets")}
-            </Checkbox>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="scope-secrets"
+                checked={value.includeSecrets}
+                onCheckedChange={(checked) =>
+                  set({ includeSecrets: !!checked })
+                }
+              />
+              <Label htmlFor="scope-secrets" className="cursor-pointer">
+                {t("backup.scopeSecrets")}
+              </Label>
+            </div>
             <div className={styles.secretsHint}>
               {t("backup.scopeSecretsHint")}
             </div>

@@ -1,4 +1,4 @@
-import { Modal } from "@agentscope-ai/design";
+import { createRoot } from "react-dom/client";
 import React from "react";
 import type {
   SecurityScanErrorResponse,
@@ -84,45 +84,135 @@ function renderFindings(findings: BlockedSkillFinding[], t: TFunction) {
   );
 }
 
+interface ScanDialogProps {
+  title: string;
+  description: string;
+  findings: BlockedSkillFinding[];
+  t: TFunction;
+  onClose: () => void;
+}
+
+function ScanDialog({
+  title,
+  description,
+  findings,
+  t,
+  onClose,
+}: ScanDialogProps) {
+  return React.createElement(
+    "div",
+    {
+      style: {
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "rgba(0,0,0,0.5)",
+      },
+      onClick: (e: React.MouseEvent) => {
+        if (e.target === e.currentTarget) onClose();
+      },
+    },
+    React.createElement(
+      "div",
+      {
+        style: {
+          background: "#fff",
+          borderRadius: 8,
+          padding: "24px",
+          width: 640,
+          maxWidth: "90vw",
+          maxHeight: "80vh",
+          overflow: "auto",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.15)",
+        },
+      },
+      React.createElement(
+        "h3",
+        { style: { margin: "0 0 12px", fontSize: 16 } },
+        title,
+      ),
+      React.createElement(
+        "p",
+        { style: { margin: "0 0 8px", color: "#555" } },
+        description,
+      ),
+      renderFindings(findings, t),
+      React.createElement(
+        "div",
+        { style: { marginTop: 16, textAlign: "right" } },
+        React.createElement(
+          "button",
+          {
+            onClick: onClose,
+            style: {
+              background: "#FF7F16",
+              color: "#fff",
+              border: "none",
+              borderRadius: 6,
+              padding: "6px 16px",
+              cursor: "pointer",
+              fontSize: 14,
+            },
+          },
+          "OK",
+        ),
+      ),
+    ),
+  );
+}
+
+function showScanDialog(
+  title: string,
+  description: string,
+  findings: BlockedSkillFinding[],
+  t: TFunction,
+) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  const close = () => {
+    root.unmount();
+    container.remove();
+  };
+
+  root.render(
+    React.createElement(ScanDialog, {
+      title,
+      description,
+      findings,
+      t,
+      onClose: close,
+    }),
+  );
+}
+
 export function showScanErrorModal(
   scanError: SecurityScanErrorResponse,
   t: TFunction,
 ) {
   const findings = scanError.findings || [];
-  Modal.error({
-    title: t("security.skillScanner.scanError.title"),
-    width: 640,
-    content: React.createElement(
-      "div",
-      null,
-      React.createElement(
-        "p",
-        null,
-        t("security.skillScanner.scanError.description"),
-      ),
-      renderFindings(findings, t),
-    ),
-  });
+  showScanDialog(
+    t("security.skillScanner.scanError.title"),
+    t("security.skillScanner.scanError.description"),
+    findings,
+    t,
+  );
 }
 
 export function showScanWarnModal(
   findings: BlockedSkillFinding[],
   t: TFunction,
 ) {
-  Modal.warning({
-    title: t("security.skillScanner.scanError.title"),
-    width: 640,
-    content: React.createElement(
-      "div",
-      null,
-      React.createElement(
-        "p",
-        null,
-        t("security.skillScanner.scanError.warnDescription"),
-      ),
-      renderFindings(findings, t),
-    ),
-  });
+  showScanDialog(
+    t("security.skillScanner.scanError.title"),
+    t("security.skillScanner.scanError.warnDescription"),
+    findings,
+    t,
+  );
 }
 
 /**

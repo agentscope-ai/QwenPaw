@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { VideoCameraOutlined } from "@ant-design/icons";
+import { Film } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, MediaPreview } from "../shared";
 import { shortFileName, getMediaInfo } from "../shared/utils";
@@ -28,7 +28,7 @@ const ViewVideoCard: React.FC<ViewVideoCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<VideoCameraOutlined />}
+      icon={<Film size={13} />}
       title={title}
     >
       {media && <MediaPreview media={media} />}

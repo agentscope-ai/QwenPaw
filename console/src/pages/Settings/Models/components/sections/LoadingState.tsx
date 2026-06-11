@@ -1,4 +1,4 @@
-import { Button } from "@agentscope-ai/design";
+import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
 

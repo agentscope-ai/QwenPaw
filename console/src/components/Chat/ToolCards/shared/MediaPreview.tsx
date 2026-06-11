@@ -6,11 +6,7 @@
  */
 
 import React, { useCallback, useState } from "react";
-import { Attachments } from "@agentscope-ai/chat";
-import { Audio, Video } from "@agentscope-ai/design";
-import { Image, ConfigProvider, Alert } from "antd";
-import type { Locale } from "antd/es/locale";
-import { DownloadOutlined } from "@ant-design/icons";
+import { Download, AlertTriangle, FileText } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { MediaInfo } from "./utils";
 import { openExternalLink } from "../../../../utils/openExternalLink";
@@ -59,7 +55,10 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
   if (error) {
     return (
       <div className={styles.toolCallMediaPreview}>
-        <Alert type="warning" showIcon message={error} />
+        <div className="flex items-center gap-2 rounded-md border border-yellow-200 bg-yellow-50 dark-mode:border-yellow-800 dark-mode:bg-yellow-950 px-3 py-2 text-sm text-yellow-800 dark-mode:text-yellow-200">
+          <AlertTriangle size={14} className="shrink-0" />
+          {error}
+        </div>
       </div>
     );
   }
@@ -67,45 +66,44 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
   return (
     <div className={styles.toolCallMediaPreview}>
       {media.type === "image" && (
-        <ConfigProvider locale={{ Image: { preview: "" } } as Locale}>
-          <div className={styles.toolCallImage}>
-            <Image
-              src={media.url}
-              style={{ width: "100%", objectFit: "contain" }}
-              preview={{ transitionName: "" }}
-              onError={handleMediaError}
-            />
-          </div>
-        </ConfigProvider>
+        <div className={styles.toolCallImage}>
+          <img
+            src={media.url}
+            alt={media.name || "image"}
+            style={{ width: "100%", objectFit: "contain" }}
+            onError={handleMediaError}
+          />
+        </div>
       )}
       {media.type === "video" && (
         <div className={styles.bubbleVideo}>
-          <Video src={media.url} controls onError={handleMediaError} />
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <video
+            src={media.url}
+            controls
+            className="w-full h-full object-contain"
+            onError={handleMediaError}
+          />
         </div>
       )}
       {media.type === "audio" && (
         <div className={styles.bubbleAudio}>
-          <Audio src={media.url} onError={handleMediaError} />
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <audio src={media.url} controls onError={handleMediaError} />
         </div>
       )}
       {media.type === "file" && (
         <div className={styles.bubbleFile}>
-          <Attachments.FileCard
-            item={
-              {
-                uid: media.name,
-                name: media.name,
-                url: media.url,
-                status: "done",
-              } as any
-            }
-          />
+          <div className="flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm min-w-[160px]">
+            <FileText size={16} className="shrink-0 text-muted-foreground" />
+            <span className="truncate">{media.name || "file"}</span>
+          </div>
           {media.url && (
             <div
               className={styles.bubbleFileDownload}
               onClick={() => openExternalLink(media.url)}
             >
-              <DownloadOutlined />
+              <Download size={16} />
             </div>
           )}
         </div>

@@ -1,6 +1,16 @@
 import { useState, useCallback, useMemo } from "react";
-import { Button, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 import api from "../../../api";
 import { useEnvVars } from "./useEnvVars";
@@ -9,11 +19,6 @@ import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import styles from "./index.module.less";
 
-/* ------------------------------------------------------------------ */
-/* Helpers                                                             */
-/* ------------------------------------------------------------------ */
-
-/** Reindex selected set after a splice at `idx`. */
 function shiftIndices(prev: Set<number>, removedIdx: number): Set<number> {
   const next = new Set<number>();
   prev.forEach((i) => {
@@ -23,9 +28,11 @@ function shiftIndices(prev: Set<number>, removedIdx: number): Set<number> {
   return next;
 }
 
-/* ------------------------------------------------------------------ */
-/* Main Page                                                           */
-/* ------------------------------------------------------------------ */
+type DeleteConfirm = {
+  title: string;
+  content: string;
+  onOk: () => Promise<void>;
+};
 
 function EnvironmentsPage() {
   const { t } = useTranslation();
@@ -35,8 +42,9 @@ function EnvironmentsPage() {
   const [saving, setSaving] = useState(false);
   const [keyErrors, setKeyErrors] = useState<Record<number, string>>({});
   const [selected, setSelected] = useState<Set<number>>(new Set());
-
-  /* ---- derived state ---- */
+  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm | null>(
+    null,
+  );
 
   const workingRows: Row[] = useMemo(
     () => rows ?? envVars.map((e) => ({ key: e.key, value: e.value })),
@@ -48,14 +56,10 @@ function EnvironmentsPage() {
   const allSelected =
     workingRows.length > 0 && workingRows.every((_, i) => selected.has(i));
 
-  /* ---- ensure we have a mutable local copy ---- */
-
   const ensureLocal = useCallback((): Row[] => {
     if (rows) return [...rows];
     return envVars.map((e) => ({ key: e.key, value: e.value }));
   }, [rows, envVars]);
-
-  /* ---- selection ---- */
 
   const toggleSelect = useCallback((idx: number) => {
     setSelected((prev) => {
@@ -73,8 +77,6 @@ function EnvironmentsPage() {
       setSelected(new Set(workingRows.map((_, i) => i)));
     }
   }, [allSelected, workingRows]);
-
-  /* ---- row mutations ---- */
 
   const updateRow = useCallback(
     (idx: number, field: "key" | "value", val: string) => {
@@ -116,7 +118,6 @@ function EnvironmentsPage() {
     (idx: number) => {
       const row = workingRows[idx];
 
-      // New (unsaved) row — just remove from local state, no API call needed
       if (row.isNew) {
         const next = ensureLocal();
         next.splice(idx, 1);
@@ -125,33 +126,20 @@ function EnvironmentsPage() {
         return;
       }
 
-      // Persisted row — confirm then call DELETE API immediately
-      Modal.confirm({
+      setDeleteConfirm({
         title: t("environments.deleteVariable"),
         content: t("environments.deleteConfirm", { name: row.key }),
-        okText: t("common.delete"),
-        okButtonProps: { danger: true },
-        cancelText: t("common.cancel"),
         onOk: async () => {
-          try {
-            await api.deleteEnv(row.key);
-            message.success(t("environments.deleteSuccess", { name: row.key }));
-            // Refresh from server so local state is in sync
-            setRows(null);
-            setSelected(new Set());
-            setKeyErrors({});
-            fetchAll();
-          } catch (err) {
-            const errMsg =
-              err instanceof Error
-                ? err.message
-                : t("environments.deleteFailed");
-            message.error(errMsg);
-          }
+          await api.deleteEnv(row.key);
+          message.success(t("environments.deleteSuccess", { name: row.key }));
+          setRows(null);
+          setSelected(new Set());
+          setKeyErrors({});
+          fetchAll();
         },
       });
     },
-    [workingRows, ensureLocal, envVars.length, fetchAll],
+    [workingRows, ensureLocal, envVars.length, fetchAll, t, message],
   );
 
   const removeSelected = useCallback(() => {
@@ -160,7 +148,6 @@ function EnvironmentsPage() {
     const names = indices.map((i) => workingRows[i]?.key).filter(Boolean);
     const hasPersistedRows = indices.some((i) => !workingRows[i]?.isNew);
 
-    // All selected rows are new — just remove from local state
     if (!hasPersistedRows) {
       const next = ensureLocal().filter((_, i) => !selected.has(i));
       setRows(next.length === 0 && envVars.length === 0 ? null : next);
@@ -173,41 +160,38 @@ function EnvironmentsPage() {
         ? names.map((n) => `"${n}"`).join(", ")
         : `${names.length} variables`;
 
-    Modal.confirm({
+    setDeleteConfirm({
       title: t("environments.deleteSelected"),
       content: t("environments.deleteSelectedConfirm", { label }),
-      okText: t("common.delete"),
-      okButtonProps: { danger: true },
-      cancelText: t("common.cancel"),
       onOk: async () => {
-        try {
-          const persistedKeysToDelete = indices
-            .map((i) => workingRows[i])
-            .filter((row) => row && !row.isNew)
-            .map((row) => row.key.trim())
-            .filter(Boolean);
+        const persistedKeysToDelete = indices
+          .map((i) => workingRows[i])
+          .filter((row) => row && !row.isNew)
+          .map((row) => row.key.trim())
+          .filter(Boolean);
 
-          if (persistedKeysToDelete.length > 0) {
-            await Promise.all(
-              persistedKeysToDelete.map((key) => api.deleteEnv(key)),
-            );
-          }
-
-          message.success(t("environments.deleteSuccess", { name: label }));
-          setRows(null);
-          setSelected(new Set());
-          setKeyErrors({});
-          fetchAll();
-        } catch (err) {
-          const errMsg =
-            err instanceof Error ? err.message : t("environments.deleteFailed");
-          message.error(errMsg);
+        if (persistedKeysToDelete.length > 0) {
+          await Promise.all(
+            persistedKeysToDelete.map((key) => api.deleteEnv(key)),
+          );
         }
+
+        message.success(t("environments.deleteSuccess", { name: label }));
+        setRows(null);
+        setSelected(new Set());
+        setKeyErrors({});
+        fetchAll();
       },
     });
-  }, [selected, workingRows, ensureLocal, envVars.length, fetchAll]);
-
-  /* ---- validate & save ---- */
+  }, [
+    selected,
+    workingRows,
+    ensureLocal,
+    envVars.length,
+    fetchAll,
+    t,
+    message,
+  ]);
 
   const validate = useCallback((): boolean => {
     const errors: Record<number, string> = {};
@@ -225,7 +209,7 @@ function EnvironmentsPage() {
     }
     setKeyErrors(errors);
     return Object.keys(errors).length === 0;
-  }, [workingRows]);
+  }, [workingRows, t]);
 
   const handleSave = useCallback(async () => {
     if (!validate()) return;
@@ -248,7 +232,7 @@ function EnvironmentsPage() {
     } finally {
       setSaving(false);
     }
-  }, [validate, workingRows, fetchAll]);
+  }, [validate, workingRows, fetchAll, t, message]);
 
   const handleReset = useCallback(() => {
     setRows(null);
@@ -256,17 +240,13 @@ function EnvironmentsPage() {
     setSelected(new Set());
   }, []);
 
-  /* ---- render ---- */
-
   return (
     <div className={styles.environmentsPage}>
-      {/* ---- Page header ---- */}
       <PageHeader
         parent={t("environments.parent")}
         current={t("environments.environments")}
       />
 
-      {/* ---- Content ---- */}
       {loading ? (
         <div className={styles.centerState}>
           <span className={styles.stateText}>{t("environments.loading")}</span>
@@ -274,13 +254,17 @@ function EnvironmentsPage() {
       ) : error ? (
         <div className={styles.centerState}>
           <span className={styles.stateTextError}>{error}</span>
-          <Button size="small" onClick={fetchAll} style={{ marginTop: 12 }}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={fetchAll}
+            className="mt-3"
+          >
             {t("environments.retry")}
           </Button>
         </div>
       ) : (
         <div className={styles.tableCard}>
-          {/* ---- Toolbar ---- */}
           <Toolbar
             workingRowsLength={workingRows.length}
             allSelected={allSelected}
@@ -295,7 +279,6 @@ function EnvironmentsPage() {
             onSave={handleSave}
           />
 
-          {/* ---- Rows ---- */}
           <div className={styles.rowList}>
             {workingRows.map((row, idx) => (
               <EnvRow
@@ -314,10 +297,45 @@ function EnvironmentsPage() {
             {workingRows.length === 0 && <EmptyState />}
           </div>
 
-          {/* ---- Add button ---- */}
           <AddButton onClick={addRow} />
         </div>
       )}
+
+      <AlertDialog
+        open={!!deleteConfirm}
+        onOpenChange={(open) => !open && setDeleteConfirm(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{deleteConfirm?.title}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteConfirm?.content}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                if (!deleteConfirm) return;
+                try {
+                  await deleteConfirm.onOk();
+                } catch (err) {
+                  const errMsg =
+                    err instanceof Error
+                      ? err.message
+                      : t("environments.deleteFailed");
+                  message.error(errMsg);
+                } finally {
+                  setDeleteConfirm(null);
+                }
+              }}
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

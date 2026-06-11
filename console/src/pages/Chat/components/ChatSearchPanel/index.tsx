@@ -1,8 +1,12 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import { Drawer, Input, List, Typography, Empty, Spin } from "antd";
-import type { InputRef } from "antd";
-import { IconButton } from "@agentscope-ai/design";
-import { SparkOperateRightLine, SparkSearchLine } from "@agentscope-ai/icons";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import { Loader2, Search, ChevronRight, X } from "lucide-react";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -64,7 +68,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   /** Search progress text, e.g. "3/50" */
   const [searchProgress, setSearchProgress] = useState("");
-  const inputRef = useRef<InputRef>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Monotonic id so slow list/getChat responses cannot overwrite a newer search. */
   const searchSeqRef = useRef(0);
@@ -256,118 +260,135 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
   );
 
   return (
-    <Drawer
+    <Sheet
       open={open}
-      onClose={onClose}
-      destroyOnHidden
-      placement="right"
-      width={360}
-      closable={false}
-      title={null}
-      styles={{
-        header: { display: "none" },
-        body: {
-          padding: 0,
-          display: "flex",
-          flexDirection: "column",
-          height: "100%",
-          overflow: "hidden",
-        },
-        mask: { background: "transparent" },
+      onOpenChange={(v) => {
+        if (!v) onClose();
       }}
-      className={styles.drawer}
     >
-      {/* Header bar */}
-      <div className={styles.header}>
-        <div className={styles.headerLeft}>
-          <span className={styles.headerTitle}>{t("chat.search.title")}</span>
-        </div>
-        <div className={styles.headerRight}>
-          <IconButton
-            bordered={false}
-            icon={<SparkOperateRightLine />}
-            onClick={onClose}
-          />
-        </div>
-      </div>
-
-      {/* Search input */}
-      <div className={styles.searchSection}>
-        <Input
-          ref={inputRef}
-          placeholder={t("chat.search.placeholder")}
-          prefix={<SparkSearchLine style={{ color: "rgba(0,0,0,0.25)" }} />}
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          allowClear
-          className={styles.searchInput}
-        />
-      </div>
-
-      {/* Results count / search progress */}
-      {searchQuery.trim() && (
-        <div className={styles.resultsCount}>
-          <Typography.Text type="secondary">
-            {loading && searchProgress
-              ? t("chat.search.searching", {
-                  progress: searchProgress,
-                })
-              : loading
-              ? t("chat.search.loading")
-              : t("chat.search.resultsCount", {
-                  count: searchResults.length,
-                })}
-          </Typography.Text>
-        </div>
-      )}
-
-      {/* Results list */}
-      <div className={styles.listWrapper}>
-        <div className={styles.topGradient} />
-        <div className={styles.list}>
-          {loading && searchResults.length === 0 ? (
-            <div
-              style={{ display: "flex", justifyContent: "center", padding: 40 }}
+      <SheetContent
+        side="right"
+        className={`w-[360px] p-0 flex flex-col h-full overflow-hidden ${
+          styles.drawer ?? ""
+        }`}
+      >
+        <SheetHeader className="sr-only">
+          <SheetTitle>{t("chat.search.title") || "Search"}</SheetTitle>
+          <SheetDescription>
+            {t("chat.search.title") || "Search chat sessions"}
+          </SheetDescription>
+        </SheetHeader>
+        {/* Header bar */}
+        <div className={styles.header}>
+          <div className={styles.headerLeft}>
+            <span className={styles.headerTitle}>{t("chat.search.title")}</span>
+          </div>
+          <div className={styles.headerRight}>
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              onClick={onClose}
             >
-              <Spin />
-            </div>
-          ) : searchQuery.trim() && !loading && searchResults.length === 0 ? (
-            <Empty
-              description={t("chat.search.noResults")}
-              style={{ marginTop: 40 }}
-            />
-          ) : (
-            <List
-              dataSource={searchResults}
-              renderItem={(item) => (
-                <div
-                  className={styles.searchResultItem}
-                  onClick={() => handleResultClick(item)}
-                >
-                  <div className={styles.resultHeader}>
-                    <span className={styles.resultChatName}>
-                      {item.chatName}
-                    </span>
-                    <span className={styles.resultRole}>{item.roleLabel}</span>
-                  </div>
-                  <div className={styles.resultContent}>
-                    <Typography.Text ellipsis style={{ fontSize: 13 }}>
-                      {item.matchedText}
-                    </Typography.Text>
-                  </div>
-                  {item.timestamp && (
-                    <div className={styles.resultTime}>
-                      {formatTimestamp(item.timestamp)}
-                    </div>
-                  )}
-                </div>
-              )}
-            />
-          )}
+              <ChevronRight size={16} />
+            </button>
+          </div>
         </div>
-        <div className={styles.bottomGradient} />
-      </div>
-    </Drawer>
+
+        {/* Search input */}
+        <div className={styles.searchSection}>
+          <div className="relative flex items-center">
+            <Search
+              size={14}
+              className="absolute left-3 text-muted-foreground pointer-events-none"
+            />
+            <input
+              ref={inputRef}
+              placeholder={t("chat.search.placeholder")}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={`${styles.searchInput} pl-8 pr-8`}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="absolute right-3 text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => {
+                  setSearchQuery("");
+                  inputRef.current?.focus();
+                }}
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Results count / search progress */}
+        {searchQuery.trim() && (
+          <div className={styles.resultsCount}>
+            <span className="text-sm text-muted-foreground">
+              {loading && searchProgress
+                ? t("chat.search.searching", { progress: searchProgress })
+                : loading
+                ? t("chat.search.loading")
+                : t("chat.search.resultsCount", {
+                    count: searchResults.length,
+                  })}
+            </span>
+          </div>
+        )}
+
+        {/* Results list */}
+        <div className={styles.listWrapper}>
+          <div className={styles.topGradient} />
+          <div className={styles.list}>
+            {loading && searchResults.length === 0 ? (
+              <div className="flex justify-center p-10">
+                <Loader2
+                  size={20}
+                  className="animate-spin text-muted-foreground"
+                />
+              </div>
+            ) : searchQuery.trim() && !loading && searchResults.length === 0 ? (
+              <div className="flex flex-col items-center justify-center mt-10 text-sm text-muted-foreground gap-2">
+                <Search size={32} className="opacity-30" />
+                {t("chat.search.noResults")}
+              </div>
+            ) : (
+              <div>
+                {searchResults.map((item, idx) => (
+                  <div
+                    key={`${item.chatId}-${item.messageId ?? idx}`}
+                    className={styles.searchResultItem}
+                    onClick={() => handleResultClick(item)}
+                  >
+                    <div className={styles.resultHeader}>
+                      <span className={styles.resultChatName}>
+                        {item.chatName}
+                      </span>
+                      <span className={styles.resultRole}>
+                        {item.roleLabel}
+                      </span>
+                    </div>
+                    <div className={styles.resultContent}>
+                      <span className="text-[13px] line-clamp-2">
+                        {item.matchedText}
+                      </span>
+                    </div>
+                    {item.timestamp && (
+                      <div className={styles.resultTime}>
+                        {formatTimestamp(item.timestamp)}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className={styles.bottomGradient} />
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 };
 

@@ -26,16 +26,14 @@ describe("ThemeToggleButton", () => {
 
   it("shows sun icon when light mode is active", () => {
     renderWithTheme("light");
-    expect(
-      document.querySelector('[data-icon="SparkSunLine"]'),
-    ).toBeInTheDocument();
+    // Component uses lucide Sun icon after shadcn migration
+    expect(document.querySelector(".lucide-sun")).toBeInTheDocument();
   });
 
   it("shows moon icon when dark mode is active", () => {
     renderWithTheme("dark");
-    expect(
-      document.querySelector('[data-icon="SparkMoonLine"]'),
-    ).toBeInTheDocument();
+    // Component uses lucide Moon icon after shadcn migration
+    expect(document.querySelector(".lucide-moon")).toBeInTheDocument();
   });
 
   it("shows sun-moon icon when system mode is active", () => {

@@ -1,14 +1,25 @@
+import { Controller } from "react-hook-form";
+import type { UseFormReturn } from "react-hook-form";
 import {
-  Drawer,
-  Form,
-  Input,
-  Switch,
-  Button,
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+} from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import {
   Select,
-  InputNumber,
-} from "@agentscope-ai/design";
-import { LinkOutlined } from "@ant-design/icons";
-import type { FormInstance } from "antd";
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Link } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   ACP_DEFAULT_STDIO_BUFFER_LIMIT_BYTES,
@@ -19,17 +30,19 @@ import { getWebsiteLang } from "../../../../layouts/constants";
 import styles from "../../../Control/Channels/index.module.less";
 import { openExternalLink } from "../../../../utils/openExternalLink";
 
-interface ACPDrawerProps {
+export type ACPFormValues = Record<string, unknown>;
+
+export interface ACPDrawerProps {
   open: boolean;
   activeKey: string | null;
   isCreateMode?: boolean;
-  form: FormInstance<Record<string, unknown>>;
+  form: UseFormReturn<ACPFormValues>;
   saving: boolean;
   initialValues?: ACPAgentConfig;
   canEditKey?: boolean;
   canDelete?: boolean;
   onClose: () => void;
-  onSubmit: (values: Record<string, unknown>) => void;
+  onSubmit: (values: ACPFormValues) => void;
   onDelete?: () => void;
 }
 
@@ -79,7 +92,6 @@ function findInvalidEnvLine(value: unknown): string | null {
     .split("\n")
     .map((item) => item.trim())
     .filter(Boolean);
-
   for (const line of lines) {
     const index = line.indexOf("=");
     if (index <= 0 || !line.slice(0, index).trim()) {
@@ -95,7 +107,7 @@ export function stringifyArgs(args: string[] = []): string {
 
 export function stringifyEnv(env: Record<string, string> = {}): string {
   return Object.entries(env)
-    .map(([key, value]) => `${key}=${value}`)
+    .map(([key, value]) => key + "=" + value)
     .join("\n");
 }
 
@@ -105,7 +117,6 @@ export function ACPDrawer({
   isCreateMode = false,
   form,
   saving,
-  initialValues,
   canEditKey = false,
   canDelete = false,
   onClose,
@@ -113,160 +124,227 @@ export function ACPDrawer({
   onDelete,
 }: ACPDrawerProps) {
   const { t, i18n } = useTranslation();
+  const {
+    register,
+    handleSubmit,
+    control,
+    formState: { errors },
+  } = form;
+
+  const title = isCreateMode
+    ? t("acp.createTitle")
+    : activeKey
+    ? t("acp.editTitle") + ": " + activeKey
+    : t("acp.editTitle");
 
   return (
-    <Drawer
-      title={
-        isCreateMode
-          ? t("acp.createTitle")
-          : activeKey
-          ? `${t("acp.editTitle")}: ${activeKey}`
-          : t("acp.editTitle")
-      }
-      open={open}
-      onClose={onClose}
-      width={520}
-      footer={
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
+    <Sheet open={open} onOpenChange={(v: boolean) => !v && onClose()}>
+      <SheetContent
+        side="right"
+        className="w-[520px] sm:max-w-[520px] flex flex-col overflow-y-auto"
+      >
+        <SheetHeader>
+          <SheetTitle>{title}</SheetTitle>
+        </SheetHeader>
+
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="flex-1 overflow-y-auto space-y-4 py-4"
+          id="acp-drawer-form"
+        >
+          <div className="space-y-1">
+            <Label htmlFor="agentKey">{t("acp.agentKey")}</Label>
+            <Input
+              id="agentKey"
+              placeholder="my_custom_runner"
+              disabled={!canEditKey}
+              {...register("agentKey", {
+                required: t("acp.agentKeyRequired") as string,
+                pattern: {
+                  value: /^[A-Za-z0-9_-]+$/,
+                  message: t("acp.agentKeyInvalid") as string,
+                },
+              })}
+            />
+            {errors.agentKey && (
+              <p className="text-sm text-destructive">
+                {errors.agentKey.message as string}
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <Controller
+              name="enabled"
+              control={control}
+              render={({ field }) => (
+                <Switch
+                  id="enabled"
+                  checked={Boolean(field.value)}
+                  onCheckedChange={field.onChange}
+                />
+              )}
+            />
+            <Label htmlFor="enabled">{t("acp.enabled")}</Label>
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="command">{t("acp.command")}</Label>
+            <Input
+              id="command"
+              placeholder="qwen"
+              {...register("command", {
+                required: t("acp.commandRequired") as string,
+              })}
+            />
+            {errors.command && (
+              <p className="text-sm text-destructive">
+                {errors.command.message as string}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="argsText">{t("acp.args")}</Label>
+            <Textarea id="argsText" rows={4} {...register("argsText")} />
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="envText">{t("acp.env")}</Label>
+            <Textarea
+              id="envText"
+              rows={4}
+              {...register("envText", {
+                validate: (value: unknown) => {
+                  const invalidLine = findInvalidEnvLine(value);
+                  if (invalidLine) {
+                    return t("acp.envInvalidLine", {
+                      line: invalidLine,
+                    }) as string;
+                  }
+                  return true;
+                },
+              })}
+            />
+            {errors.envText && (
+              <p className="text-sm text-destructive">
+                {errors.envText.message as string}
+              </p>
+            )}
+          </div>
+
+          <div className={styles.formTopActions}>
+            <button
+              type="button"
+              className={
+                styles.dingtalkDocBtn +
+                " inline-flex items-center gap-1 text-sm"
+              }
+              style={{ color: "var(--primary)" }}
+              onClick={() => openExternalLink(getACPDocsUrl(i18n.language))}
+              title={t("acp.docsHelp")}
+            >
+              <Link size={12} />
+              {t("acp.docs")}
+            </button>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <Controller
+              name="trusted"
+              control={control}
+              render={({ field }) => (
+                <Switch
+                  id="trusted"
+                  checked={Boolean(field.value)}
+                  onCheckedChange={field.onChange}
+                />
+              )}
+            />
+            <Label htmlFor="trusted">{t("acp.trusted")}</Label>
+          </div>
+
+          <div className="space-y-1">
+            <Label>{t("acp.toolParseMode")}</Label>
+            <Controller
+              name="tool_parse_mode"
+              control={control}
+              rules={{
+                required: t("acp.toolParseModeRequired") as string,
+              }}
+              render={({ field }) => (
+                <Select
+                  value={field.value as string}
+                  onValueChange={field.onChange}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TOOL_PARSE_MODE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            {errors.tool_parse_mode && (
+              <p className="text-sm text-destructive">
+                {errors.tool_parse_mode.message as string}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="stdio_buffer_limit_bytes">
+              {t("acp.stdioBufferLimit")}
+            </Label>
+            <Input
+              id="stdio_buffer_limit_bytes"
+              type="number"
+              min={1}
+              step={1024}
+              placeholder={String(ACP_DEFAULT_STDIO_BUFFER_LIMIT_BYTES)}
+              {...register("stdio_buffer_limit_bytes", {
+                required: t("acp.stdioBufferLimitRequired") as string,
+                min: {
+                  value: 1,
+                  message: t("acp.stdioBufferLimitMin") as string,
+                },
+                valueAsNumber: true,
+              })}
+            />
+            {errors.stdio_buffer_limit_bytes && (
+              <p className="text-sm text-destructive">
+                {errors.stdio_buffer_limit_bytes.message as string}
+              </p>
+            )}
+          </div>
+        </form>
+
+        <SheetFooter className="flex justify-between pt-4 border-t">
           <div>
-            {canDelete ? (
-              <Button danger onClick={onDelete}>
+            {canDelete && (
+              <Button variant="destructive" type="button" onClick={onDelete}>
                 {t("common.delete")}
               </Button>
-            ) : null}
+            )}
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <Button onClick={onClose}>{t("common.cancel")}</Button>
-            <Button
-              type="primary"
-              loading={saving}
-              onClick={() => form.submit()}
-            >
+          <div className="flex gap-2">
+            <Button variant="outline" type="button" onClick={onClose}>
+              {t("common.cancel")}
+            </Button>
+            <Button type="submit" form="acp-drawer-form" disabled={saving}>
+              {saving && (
+                <span className="mr-2 h-4 w-4 animate-spin border-2 border-current border-t-transparent rounded-full inline-block" />
+              )}
               {t("common.save")}
             </Button>
           </div>
-        </div>
-      }
-      destroyOnHidden
-    >
-      <Form
-        form={form}
-        layout="vertical"
-        initialValues={initialValues}
-        onFinish={onSubmit}
-      >
-        <Form.Item
-          name="agentKey"
-          label={t("acp.agentKey")}
-          rules={[
-            { required: true, message: t("acp.agentKeyRequired") },
-            {
-              pattern: /^[A-Za-z0-9_-]+$/,
-              message: t("acp.agentKeyInvalid"),
-            },
-          ]}
-        >
-          <Input placeholder="my_custom_runner" disabled={!canEditKey} />
-        </Form.Item>
-
-        <Form.Item
-          name="enabled"
-          label={t("acp.enabled")}
-          valuePropName="checked"
-        >
-          <Switch />
-        </Form.Item>
-
-        <Form.Item
-          name="command"
-          label={t("acp.command")}
-          rules={[{ required: true, message: t("acp.commandRequired") }]}
-        >
-          <Input placeholder="qwen" />
-        </Form.Item>
-
-        <Form.Item
-          name="argsText"
-          label={t("acp.args")}
-          tooltip={t("acp.argsHelp")}
-        >
-          <Input.TextArea autoSize={{ minRows: 4, maxRows: 8 }} />
-        </Form.Item>
-
-        <Form.Item
-          name="envText"
-          label={t("acp.env")}
-          tooltip={t("acp.envHelp")}
-          rules={[
-            {
-              validator: async (_, value) => {
-                const invalidLine = findInvalidEnvLine(value);
-                if (invalidLine) {
-                  throw new Error(
-                    t("acp.envInvalidLine", { line: invalidLine }),
-                  );
-                }
-              },
-            },
-          ]}
-        >
-          <Input.TextArea autoSize={{ minRows: 4, maxRows: 8 }} />
-        </Form.Item>
-
-        <div className={styles.formTopActions}>
-          <Button
-            type="text"
-            size="small"
-            icon={<LinkOutlined />}
-            onClick={() => openExternalLink(getACPDocsUrl(i18n.language))}
-            title={t("acp.docsHelp")}
-            className={styles.dingtalkDocBtn}
-            style={{ color: "#FF7F16" }}
-          >
-            {t("acp.docs")}
-          </Button>
-        </div>
-
-        <Form.Item
-          name="trusted"
-          label={t("acp.trusted")}
-          valuePropName="checked"
-        >
-          <Switch />
-        </Form.Item>
-
-        <Form.Item
-          name="tool_parse_mode"
-          label={t("acp.toolParseMode")}
-          rules={[{ required: true, message: t("acp.toolParseModeRequired") }]}
-        >
-          <Select options={TOOL_PARSE_MODE_OPTIONS} />
-        </Form.Item>
-
-        <Form.Item
-          name="stdio_buffer_limit_bytes"
-          label={t("acp.stdioBufferLimit")}
-          tooltip={t("acp.stdioBufferLimitHelp")}
-          rules={[
-            {
-              required: true,
-              message: t("acp.stdioBufferLimitRequired"),
-            },
-            {
-              type: "number",
-              min: 1,
-              message: t("acp.stdioBufferLimitMin"),
-            },
-          ]}
-        >
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            step={1024}
-            placeholder={String(ACP_DEFAULT_STDIO_BUFFER_LIMIT_BYTES)}
-          />
-        </Form.Item>
-      </Form>
-    </Drawer>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }

@@ -1,5 +1,10 @@
 import { memo, useCallback, useMemo, useRef, useState } from "react";
-import { Button, Tooltip } from "@agentscope-ai/design";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
 import { PageHeader } from "@/components/PageHeader";
@@ -34,7 +39,7 @@ const InstallQueuePanel = memo(function InstallQueuePanel({
     <div className={styles.queueDrawer}>
       <div className={styles.queueHeader}>
         <span>{t("market.installQueue")}</span>
-        <Button size="small" onClick={onClearCompleted}>
+        <Button size="sm" variant="outline" onClick={onClearCompleted}>
           {t("market.clearCompleted")}
         </Button>
       </div>
@@ -80,30 +85,30 @@ const ProviderChips = memo(function ProviderChips({
           .filter(Boolean)
           .join(" ");
         return (
-          <Tooltip
-            key={p.key}
-            title={
-              p.available
-                ? undefined
-                : p.reason ?? t("market.providerUnavailable")
-            }
-          >
-            <span
-              className={klass}
-              onClick={p.available ? () => onToggle(p.key) : undefined}
-              role="button"
-              tabIndex={p.available ? 0 : -1}
-              onKeyDown={(e) => {
-                if (p.available && (e.key === "Enter" || e.key === " ")) {
-                  e.preventDefault();
-                  onToggle(p.key);
-                }
-              }}
-              aria-pressed={active}
-              aria-disabled={!p.available}
-            >
-              {p.label}
-            </span>
+          <Tooltip key={p.key}>
+            <TooltipTrigger asChild>
+              <span
+                className={klass}
+                onClick={p.available ? () => onToggle(p.key) : undefined}
+                role="button"
+                tabIndex={p.available ? 0 : -1}
+                onKeyDown={(e) => {
+                  if (p.available && (e.key === "Enter" || e.key === " ")) {
+                    e.preventDefault();
+                    onToggle(p.key);
+                  }
+                }}
+                aria-pressed={active}
+                aria-disabled={!p.available}
+              >
+                {p.label}
+              </span>
+            </TooltipTrigger>
+            {!p.available && (
+              <TooltipContent>
+                {p.reason ?? t("market.providerUnavailable")}
+              </TooltipContent>
+            )}
           </Tooltip>
         );
       })}
@@ -192,9 +197,8 @@ function MarketPage() {
               aria-label={t("market.searchPlaceholder")}
             />
             <Button
-              type="primary"
               className={styles.searchButton}
-              loading={market.loading && market.results.length === 0}
+              disabled={market.loading && market.results.length === 0}
             >
               {t("common.search")}
             </Button>
@@ -225,7 +229,7 @@ function MarketPage() {
         ) : market.results.length === 0 &&
           (market.globalError || market.errors.length > 0) ? (
           <EmptyState text={t("market.noResults")}>
-            <Button onClick={market.retry} loading={market.loading}>
+            <Button onClick={market.retry} disabled={market.loading}>
               {t("market.retry")}
             </Button>
           </EmptyState>
@@ -249,7 +253,7 @@ function MarketPage() {
             </div>
             <div className={styles.loadMoreRow}>
               {market.hasMore ? (
-                <Button onClick={market.loadMore} loading={market.loading}>
+                <Button onClick={market.loadMore} disabled={market.loading}>
                   {t("market.loadMore")}
                 </Button>
               ) : (

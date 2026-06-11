@@ -1,11 +1,7 @@
 import type { ReactNode } from "react";
-import { Spin, Typography } from "antd";
+import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
-
-const { Text } = Typography;
-
-// ── Helpers ───────────────────────────────────────────────────────────────
 
 function escapeRegExp(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -35,8 +31,6 @@ function highlightLine(line: string, needle: string): ReactNode {
   return parts;
 }
 
-// ── Component ─────────────────────────────────────────────────────────────
-
 interface LogViewerProps {
   lines: string[];
   query: string;
@@ -47,21 +41,26 @@ export function LogViewer({ lines, query, loading }: LogViewerProps) {
   const { t } = useTranslation();
 
   return (
-    <Spin spinning={loading} tip={t("common.loading", "Loading")}>
+    <div className="relative">
+      {loading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/60 z-10">
+          <Loader2 className="animate-spin" />
+        </div>
+      )}
       <div className={styles.logViewer}>
         {lines.length ? (
           lines.map((line, idx) => (
             <div key={idx}>{highlightLine(line, query)}</div>
           ))
         ) : (
-          <Text type="secondary">
+          <span className="text-muted-foreground text-sm">
             {t(
               "debug.backend.placeholder",
               "Backend log output will appear here.",
             )}
-          </Text>
+          </span>
         )}
       </div>
-    </Spin>
+    </div>
   );
 }

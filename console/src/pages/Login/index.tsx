@@ -1,12 +1,15 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Form, Input } from "antd";
+import { Lock, User, Loader2 } from "lucide-react";
 import { useAppMessage } from "../../hooks/useAppMessage";
-import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import { authApi } from "../../api/modules/auth";
 import { setAuthToken } from "../../api/config";
 import { useTheme } from "../../contexts/ThemeContext";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -17,6 +20,8 @@ export default function LoginPage() {
   const [isRegister, setIsRegister] = useState(false);
   const [hasUsers, setHasUsers] = useState(true);
   const { message } = useAppMessage();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
 
   useEffect(() => {
     authApi
@@ -34,7 +39,9 @@ export default function LoginPage() {
       .catch(() => {});
   }, [navigate]);
 
-  const onFinish = async (values: { username: string; password: string }) => {
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!username.trim() || !password.trim()) return;
     setLoading(true);
     try {
       const raw = searchParams.get("redirect") || "/chat";
@@ -42,14 +49,14 @@ export default function LoginPage() {
         raw.startsWith("/") && !raw.startsWith("//") ? raw : "/chat";
 
       if (isRegister) {
-        const res = await authApi.register(values.username, values.password);
+        const res = await authApi.register(username, password);
         if (res.token) {
           setAuthToken(res.token);
           message.success(t("login.registerSuccess"));
           navigate(redirect, { replace: true });
         }
       } else {
-        const res = await authApi.login(values.username, values.password);
+        const res = await authApi.login(username, password);
         if (res.token) {
           setAuthToken(res.token);
           navigate(redirect, { replace: true });
@@ -73,100 +80,86 @@ export default function LoginPage() {
 
   return (
     <div
-      style={{
-        height: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: isDark
-          ? "linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)"
-          : "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)",
-      }}
+      className={cn(
+        "h-screen flex items-center justify-center",
+        isDark
+          ? "[background:linear-gradient(135deg,#0f0c29_0%,#302b63_50%,#24243e_100%)]"
+          : "[background:linear-gradient(135deg,#f5f7fa_0%,#c3cfe2_100%)]",
+      )}
     >
-      <div
-        style={{
-          width: 400,
-          padding: 32,
-          borderRadius: 12,
-          background: isDark ? "#1f1f1f" : "#fff",
-          boxShadow: isDark
-            ? "0 4px 24px rgba(0,0,0,0.4)"
-            : "0 4px 24px rgba(0,0,0,0.1)",
-        }}
-      >
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
+      <div className="w-[400px] p-8 rounded-xl shadow-2xl bg-card">
+        <div className="text-center mb-8">
           <img
             src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
             alt="QwenPaw"
-            style={{ height: 48, marginBottom: 12 }}
+            className="h-12 mx-auto mb-3"
           />
-          <h2 style={{ margin: 0, fontWeight: 600, fontSize: 20 }}>
+          <h2 className="m-0 font-semibold text-xl">
             {isRegister ? t("login.registerTitle") : t("login.title")}
           </h2>
           {!hasUsers && (
-            <p
-              style={{
-                margin: "8px 0 0",
-                color: isDark ? "rgba(255,255,255,0.45)" : "#666",
-                fontSize: 13,
-              }}
-            >
+            <p className="mt-2 mb-0 text-[13px] text-muted-foreground">
               {t("login.firstUserHint")}
             </p>
           )}
         </div>
 
-        <Form
-          layout="vertical"
-          onFinish={onFinish}
+        <form
+          onSubmit={onSubmit}
+          className="flex flex-col gap-4"
           autoComplete="off"
-          size="large"
         >
-          <Form.Item
-            name="username"
-            rules={[{ required: true, message: t("login.usernameRequired") }]}
-          >
-            <Input
-              prefix={
-                <UserOutlined
-                  style={{
-                    color: isDark ? "rgba(255,255,255,0.45)" : undefined,
-                  }}
-                />
-              }
-              placeholder={t("login.usernamePlaceholder")}
-              autoFocus
-            />
-          </Form.Item>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="login-username" className="sr-only">
+              {t("login.usernamePlaceholder")}
+            </Label>
+            <div className="relative">
+              <User
+                size={16}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                id="login-username"
+                className="pl-9 h-11"
+                placeholder={t("login.usernamePlaceholder")}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoFocus
+                required
+              />
+            </div>
+          </div>
 
-          <Form.Item
-            name="password"
-            rules={[{ required: true, message: t("login.passwordRequired") }]}
-          >
-            <Input.Password
-              prefix={
-                <LockOutlined
-                  style={{
-                    color: isDark ? "rgba(255,255,255,0.45)" : undefined,
-                  }}
-                />
-              }
-              placeholder={t("login.passwordPlaceholder")}
-            />
-          </Form.Item>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="login-password" className="sr-only">
+              {t("login.passwordPlaceholder")}
+            </Label>
+            <div className="relative">
+              <Lock
+                size={16}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                id="login-password"
+                type="password"
+                className="pl-9 h-11"
+                placeholder={t("login.passwordPlaceholder")}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+          </div>
 
-          <Form.Item style={{ marginBottom: 0, marginTop: 8 }}>
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={loading}
-              block
-              style={{ height: 44, borderRadius: 8, fontWeight: 500 }}
-            >
-              {isRegister ? t("login.register") : t("login.submit")}
-            </Button>
-          </Form.Item>
-        </Form>
+          <Button
+            type="submit"
+            className="h-11 rounded-lg font-medium w-full mt-2"
+            disabled={loading}
+          >
+            {loading && <Loader2 size={16} className="animate-spin mr-2" />}
+            {isRegister ? t("login.register") : t("login.submit")}
+          </Button>
+        </form>
       </div>
     </div>
   );

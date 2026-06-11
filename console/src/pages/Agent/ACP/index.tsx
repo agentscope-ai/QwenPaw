@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Form, Modal } from "@agentscope-ai/design";
+import { useForm } from "react-hook-form";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
 import api from "../../../api";
@@ -16,6 +27,7 @@ import {
   parseEnvText,
   stringifyArgs,
   stringifyEnv,
+  type ACPFormValues,
 } from "./components/ACPDrawer";
 import styles from "../../Control/Channels/index.module.less";
 
@@ -43,7 +55,9 @@ function ACPPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isCreateMode, setIsCreateMode] = useState(false);
-  const [form] = Form.useForm<Record<string, unknown>>();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  const form = useForm<ACPFormValues>({ defaultValues: {} });
 
   const fetchACP = useCallback(async () => {
     setLoading(true);
@@ -51,7 +65,7 @@ function ACPPage() {
       const data = await api.getACPConfig();
       setAgents(data?.agents || {});
     } catch (error) {
-      console.error("❌ Failed to load ACP config:", error);
+      console.error("Failed to load ACP config:", error);
     } finally {
       setLoading(false);
     }
@@ -98,7 +112,7 @@ function ACPPage() {
     setIsCreateMode(false);
     setActiveKey(key);
     setDrawerOpen(true);
-    form.setFieldsValue({
+    form.reset({
       ...config,
       agentKey: key,
       argsText: stringifyArgs(config?.args),
@@ -113,8 +127,7 @@ function ACPPage() {
     setIsCreateMode(true);
     setActiveKey(null);
     setDrawerOpen(true);
-    form.resetFields();
-    form.setFieldsValue({
+    form.reset({
       agentKey: "",
       enabled: true,
       command: "",
@@ -130,10 +143,10 @@ function ACPPage() {
     setDrawerOpen(false);
     setActiveKey(null);
     setIsCreateMode(false);
-    form.resetFields();
+    form.reset({});
   };
 
-  const handleSubmit = async (values: Record<string, unknown>) => {
+  const handleSubmit = async (values: ACPFormValues) => {
     const targetKey = String(values.agentKey || activeKey || "").trim();
     if (!targetKey) return;
     const existingConfig: Partial<ACPAgentConfig> =
@@ -178,37 +191,33 @@ function ACPPage() {
         isCreateMode ? t("acp.createSuccess") : t("acp.configSaved"),
       );
     } catch (error) {
-      console.error("❌ Failed to update ACP config:", error);
+      console.error("Failed to update ACP config:", error);
       message.error(t("acp.configFailed"));
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDelete = () => {
+  const handleDeleteClick = () => {
     if (!activeKey || isBuiltinACPAgent(activeKey)) return;
+    setDeleteDialogOpen(true);
+  };
 
-    Modal.confirm({
-      title: t("acp.deleteTitle", { name: activeKey }),
-      content: t("acp.deleteConfirm"),
-      okText: t("common.delete"),
-      cancelText: t("common.cancel"),
-      okButtonProps: { danger: true },
-      async onOk() {
-        try {
-          const nextAgents = { ...agents };
-          delete nextAgents[activeKey];
-          await api.updateACPConfig({ agents: nextAgents });
-          await fetchACP();
-          handleClose();
-          message.success(t("acp.deleteSuccess"));
-        } catch (error) {
-          console.error("❌ Failed to delete ACP config:", error);
-          message.error(t("acp.deleteFailed"));
-          throw error;
-        }
-      },
-    });
+  const handleConfirmDelete = async () => {
+    if (!activeKey) return;
+    try {
+      const nextAgents = { ...agents };
+      delete nextAgents[activeKey];
+      await api.updateACPConfig({ agents: nextAgents });
+      await fetchACP();
+      handleClose();
+      message.success(t("acp.deleteSuccess"));
+    } catch (error) {
+      console.error("Failed to delete ACP config:", error);
+      message.error(t("acp.deleteFailed"));
+    } finally {
+      setDeleteDialogOpen(false);
+    }
   };
 
   const FILTER_TABS: { key: FilterType; label: string }[] = [
@@ -226,9 +235,10 @@ function ACPPage() {
             {FILTER_TABS.map(({ key, label }) => (
               <button
                 key={key}
-                className={`${styles.filterTab} ${
-                  filter === key ? styles.filterTabActive : ""
-                }`}
+                className={
+                  styles.filterTab +
+                  (filter === key ? " " + styles.filterTabActive : "")
+                }
                 onClick={() => setFilter(key)}
               >
                 {label}
@@ -236,11 +246,7 @@ function ACPPage() {
             ))}
           </div>
         }
-        extra={
-          <Button type="primary" onClick={handleCreateClick}>
-            {t("acp.create")}
-          </Button>
-        }
+        extra={<Button onClick={handleCreateClick}>{t("acp.create")}</Button>}
       />
       <div className={styles.channelsContainer}>
         {loading ? (
@@ -261,6 +267,7 @@ function ACPPage() {
           </div>
         )}
       </div>
+
       <ACPDrawer
         open={drawerOpen}
         activeKey={activeKey}
@@ -272,8 +279,30 @@ function ACPPage() {
         canDelete={!isCreateMode && !isBuiltinACPAgent(activeKey || "")}
         onClose={handleClose}
         onSubmit={handleSubmit}
-        onDelete={handleDelete}
+        onDelete={handleDeleteClick}
       />
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("acp.deleteTitle", { name: activeKey })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("acp.deleteConfirm")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleConfirmDelete}
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

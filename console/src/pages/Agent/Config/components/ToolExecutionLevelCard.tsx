@@ -1,9 +1,8 @@
-import { Card, Radio, Alert, Space, Typography } from "antd";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Shield, CheckCircle, AlertTriangle, Ban } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/lib/utils";
 import styles from "../index.module.less";
-
-const { Text, Paragraph } = Typography;
 
 export type ToolExecutionLevel = "STRICT" | "SMART" | "AUTO" | "OFF";
 
@@ -60,66 +59,68 @@ export function ToolExecutionLevelCard({
   ];
 
   return (
-    <Card
-      className={styles.formCard}
-      title={
-        <Space>
+    <Card className={styles.formCard}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
           <Shield size={18} />
           {t("agentConfig.toolExecutionLevel.title")}
-        </Space>
-      }
-    >
-      <Alert
-        type="info"
-        message={t("agentConfig.toolExecutionLevel.alertMessage")}
-        style={{ marginBottom: 24 }}
-        showIcon
-      />
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="mb-6 p-3 rounded-md bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 text-sm flex items-start gap-2">
+          <Shield size={16} className="mt-0.5 shrink-0" />
+          <span>{t("agentConfig.toolExecutionLevel.alertMessage")}</span>
+        </div>
 
-      <Radio.Group
-        value={level}
-        onChange={(e) => onChange(e.target.value as ToolExecutionLevel)}
-        disabled={disabled}
-        style={{ width: "100%" }}
-      >
-        <Space direction="vertical" size={16} style={{ width: "100%" }}>
+        <div className="space-y-4">
           {levelOptions.map((option) => (
             <Card
               key={option.value}
-              className={styles.levelOptionCard}
+              className={cn(
+                "cursor-pointer transition-all",
+                styles.levelOptionCard,
+                level === option.value ? "ring-2" : "ring-1 ring-border",
+              )}
               style={{
                 borderColor: level === option.value ? option.color : undefined,
                 borderWidth: level === option.value ? 2 : 1,
-                cursor: "pointer",
-                transition: "all 0.3s",
+                outline:
+                  level === option.value
+                    ? `2px solid ${option.color}`
+                    : undefined,
+                outlineOffset: -1,
               }}
               onClick={() => !disabled && onChange(option.value)}
-              hoverable
             >
-              <Radio value={option.value} style={{ width: "100%" }}>
-                <div style={{ marginLeft: 12 }}>
-                  <Space align="start" size={12}>
-                    <div style={{ color: option.color, marginTop: 2 }}>
-                      {option.icon}
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <input
+                    type="radio"
+                    checked={level === option.value}
+                    onChange={() => !disabled && onChange(option.value)}
+                    disabled={disabled}
+                    className="mt-1"
+                  />
+                  <div
+                    style={{ color: option.color }}
+                    className="mt-0.5 shrink-0"
+                  >
+                    {option.icon}
+                  </div>
+                  <div>
+                    <div className="font-semibold text-[15px]">
+                      {option.label}
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <Text strong style={{ fontSize: 15 }}>
-                        {option.label}
-                      </Text>
-                      <Paragraph
-                        type="secondary"
-                        style={{ margin: "4px 0 0 0", fontSize: 13 }}
-                      >
-                        {option.description}
-                      </Paragraph>
-                    </div>
-                  </Space>
+                    <p className="text-muted-foreground text-[13px] mt-1">
+                      {option.description}
+                    </p>
+                  </div>
                 </div>
-              </Radio>
+              </CardContent>
             </Card>
           ))}
-        </Space>
-      </Radio.Group>
+        </div>
+      </CardContent>
     </Card>
   );
 }

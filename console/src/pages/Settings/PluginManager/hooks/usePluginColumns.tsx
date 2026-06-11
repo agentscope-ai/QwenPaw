@@ -1,10 +1,14 @@
 import { useTranslation } from "react-i18next";
-import { Tag, Tooltip, Button, Space, Typography } from "antd";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Package, Trash2, CheckCircle, XCircle } from "lucide-react";
 import type { PluginType, PluginInfo } from "@/api/modules/plugin";
 import { PluginTypeTag } from "../components/PluginTypeTag";
-
-const { Text } = Typography;
 
 interface UsePluginColumnsOptions {
   uninstallingId: string | null;
@@ -23,17 +27,17 @@ export function usePluginColumns({
       dataIndex: "name",
       key: "name",
       render: (name: string, record: PluginInfo) => (
-        <Space direction="vertical" size={2}>
-          <Space size={8}>
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-2">
             <Package size={16} style={{ flexShrink: 0 }} />
-            <Text strong>{name}</Text>
-          </Space>
+            <span className="font-medium">{name}</span>
+          </div>
           {record.description && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <span className="text-xs text-muted-foreground">
               {record.description}
-            </Text>
+            </span>
           )}
-        </Space>
+        </div>
       ),
     },
     {
@@ -49,9 +53,7 @@ export function usePluginColumns({
       key: "version",
       width: 100,
       render: (version: string) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {version}
-        </Text>
+        <span className="text-xs text-muted-foreground">{version}</span>
       ),
     },
     {
@@ -60,9 +62,9 @@ export function usePluginColumns({
       key: "author",
       width: 140,
       render: (author: string) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
+        <span className="text-xs text-muted-foreground">
           {author || t("pluginManager.unknown")}
-        </Text>
+        </span>
       ),
     },
     {
@@ -72,21 +74,21 @@ export function usePluginColumns({
       width: 110,
       render: (loaded: boolean) =>
         loaded ? (
-          <Tag
-            icon={<CheckCircle size={12} />}
-            color="success"
-            style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+          <Badge
+            variant="outline"
+            className="inline-flex items-center gap-1 text-xs text-green-600 border-green-300"
           >
+            <CheckCircle size={12} />
             {t("pluginManager.statusLoaded")}
-          </Tag>
+          </Badge>
         ) : (
-          <Tag
-            icon={<XCircle size={12} />}
-            color="default"
-            style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+          <Badge
+            variant="outline"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground"
           >
+            <XCircle size={12} />
             {t("pluginManager.statusUnloaded")}
-          </Tag>
+          </Badge>
         ),
     },
     {
@@ -94,15 +96,19 @@ export function usePluginColumns({
       key: "actions",
       width: 100,
       render: (_: unknown, record: PluginInfo) => (
-        <Tooltip title={t("pluginManager.uninstall")}>
-          <Button
-            type="text"
-            danger
-            size="small"
-            icon={<Trash2 size={14} />}
-            loading={uninstallingId === record.id}
-            onClick={() => onUninstall(record)}
-          />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+              disabled={uninstallingId === record.id}
+              onClick={() => onUninstall(record)}
+            >
+              <Trash2 size={14} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("pluginManager.uninstall")}</TooltipContent>
         </Tooltip>
       ),
     },

@@ -1,11 +1,14 @@
 import React, { createContext, useContext } from "react";
-import { MenuOutlined } from "@ant-design/icons";
+import { GripVertical } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { TableRow } from "@/components/ui/table";
 import styles from "../index.module.less";
 
 type SortableHandleContextValue = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   attributes: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   listeners: any;
   disabled: boolean;
 };
@@ -16,10 +19,12 @@ const SortableHandleContext = createContext<SortableHandleContextValue | null>(
 
 interface SortableAgentRowProps
   extends React.HTMLAttributes<HTMLTableRowElement> {
-  "data-row-key": string;
+  id: string;
+  children?: React.ReactNode;
 }
 
 export function SortableAgentRow({
+  id,
   children,
   className,
   style,
@@ -32,9 +37,7 @@ export function SortableAgentRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({
-    id: props["data-row-key"],
-  });
+  } = useSortable({ id });
 
   const sortableStyle: React.CSSProperties = {
     ...style,
@@ -48,47 +51,38 @@ export function SortableAgentRow({
 
   return (
     <SortableHandleContext.Provider
-      value={{
-        attributes,
-        listeners,
-        disabled: false,
-      }}
+      value={{ attributes, listeners, disabled: false }}
     >
-      <tr
+      <TableRow
         {...props}
         ref={setNodeRef}
         className={rowClassName}
         style={sortableStyle}
       >
         {children}
-      </tr>
+      </TableRow>
     </SortableHandleContext.Provider>
   );
 }
 
 export function DragHandle({ disabled = false }: { disabled?: boolean }) {
   const context = useContext(SortableHandleContext);
-  if (!context) {
-    return null;
-  }
+  if (!context) return null;
 
   const dragBindings = disabled
     ? {}
-    : {
-        ...context.attributes,
-        ...context.listeners,
-      };
+    : { ...context.attributes, ...context.listeners };
 
   return (
     <button
       type="button"
       className={styles.dragHandleButton}
-      onClick={(event) => event.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
       tabIndex={disabled ? -1 : 0}
       aria-disabled={disabled}
       {...dragBindings}
     >
-      <MenuOutlined />
+      <GripVertical size={14} />
     </button>
   );
 }

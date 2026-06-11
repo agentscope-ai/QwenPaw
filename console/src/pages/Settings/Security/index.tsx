@@ -1,4 +1,5 @@
-import { Button, Tabs } from "@agentscope-ai/design";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTranslation } from "react-i18next";
 import { useSecurityPage } from "./useSecurityPage";
 import {
@@ -18,7 +19,12 @@ function SecurityPage() {
   const {
     activeTab,
     setActiveTab,
-    form,
+    formEnabled,
+    setFormEnabled,
+    formGuardedTools,
+    setFormGuardedTools,
+    formDeniedTools,
+    setFormDeniedTools,
     config,
     enabled,
     setEnabled,
@@ -39,7 +45,6 @@ function SecurityPage() {
     editModal,
     setEditModal,
     editingRule,
-    editForm,
     handleEditSave,
     previewRule,
     setPreviewRule,
@@ -52,7 +57,6 @@ function SecurityPage() {
     fetchAll,
   } = useSecurityPage();
 
-  // Loading state
   if (loading) {
     return (
       <div className={styles.securityPage}>
@@ -63,13 +67,12 @@ function SecurityPage() {
     );
   }
 
-  // Error state
   if (error) {
     return (
       <div className={styles.securityPage}>
         <div className={styles.centerState}>
           <span className={styles.stateTextError}>{error}</span>
-          <Button size="small" onClick={fetchAll} style={{ marginTop: 12 }}>
+          <Button size="sm" onClick={fetchAll} className="mt-3">
             {t("environments.retry")}
           </Button>
         </div>
@@ -86,98 +89,97 @@ function SecurityPage() {
 
       <div className={styles.content}>
         <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
           className={styles.mainTabs}
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          items={[
-            {
-              key: "toolGuard",
-              label: (
-                <span className={styles.tabLabel}>
-                  {t("security.toolGuardTitle")}
-                </span>
-              ),
-              children: (
-                <ToolGuardTab
-                  form={form}
-                  config={config}
-                  enabled={enabled}
-                  setEnabled={setEnabled}
-                  toolOptions={toolOptions}
-                  mergedRules={mergedRules}
-                  toggleRule={toggleRule}
-                  toggleAutoDeny={toggleAutoDeny}
-                  onPreviewRule={setPreviewRule}
-                  onEditRule={openEditRule}
-                  onDeleteRule={deleteCustomRule}
-                  openAddRule={openAddRule}
-                  shellEvasionChecks={shellEvasionChecks}
-                  toggleShellEvasionCheck={toggleShellEvasionCheck}
-                />
-              ),
-            },
-            {
-              key: "fileGuard",
-              label: (
-                <span className={styles.tabLabel}>
-                  {t("security.fileGuard.title")}
-                </span>
-              ),
-              children: (
-                <div className={styles.tabContent}>
-                  <div className={styles.sectionFileGuardContainer}>
-                    <p className={styles.tabDescription}>
-                      {t("security.fileGuard.description")}
-                    </p>
-                    <FileGuardSection onSave={onFileGuardHandlersReady} />
-                  </div>
-                </div>
-              ),
-            },
-            {
-              key: "skillScanner",
-              label: (
-                <span className={styles.tabLabel}>
-                  {t("security.skillScanner.title")}
-                </span>
-              ),
-              children: (
-                <div className={styles.tabContent}>
-                  <div className={styles.sectionSkillScannerContainer}>
-                    <p className={styles.tabDescription}>
-                      {t("security.skillScanner.description")}
-                    </p>
-                    <SkillScannerSection />
-                  </div>
-                </div>
-              ),
-            },
-            {
-              key: "allowNoAuthHosts",
-              label: (
-                <span className={styles.tabLabel}>
-                  {t("security.allowNoAuthHosts.title")}
-                </span>
-              ),
-              children: (
-                <AllowNoAuthHostsTab onSave={onAllowNoAuthHostsHandlersReady} />
-              ),
-            },
-          ]}
-        />
+        >
+          <TabsList>
+            <TabsTrigger value="toolGuard">
+              <span className={styles.tabLabel}>
+                {t("security.toolGuardTitle")}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="fileGuard">
+              <span className={styles.tabLabel}>
+                {t("security.fileGuard.title")}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="skillScanner">
+              <span className={styles.tabLabel}>
+                {t("security.skillScanner.title")}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="allowNoAuthHosts">
+              <span className={styles.tabLabel}>
+                {t("security.allowNoAuthHosts.title")}
+              </span>
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="toolGuard">
+            <ToolGuardTab
+              config={config}
+              enabled={enabled}
+              setEnabled={setEnabled}
+              formEnabled={formEnabled}
+              setFormEnabled={setFormEnabled}
+              formGuardedTools={formGuardedTools}
+              setFormGuardedTools={setFormGuardedTools}
+              formDeniedTools={formDeniedTools}
+              setFormDeniedTools={setFormDeniedTools}
+              toolOptions={toolOptions}
+              mergedRules={mergedRules}
+              toggleRule={toggleRule}
+              toggleAutoDeny={toggleAutoDeny}
+              onPreviewRule={setPreviewRule}
+              onEditRule={openEditRule}
+              onDeleteRule={deleteCustomRule}
+              openAddRule={openAddRule}
+              shellEvasionChecks={shellEvasionChecks}
+              toggleShellEvasionCheck={toggleShellEvasionCheck}
+            />
+          </TabsContent>
+
+          <TabsContent value="fileGuard">
+            <div className={styles.tabContent}>
+              <div className={styles.sectionFileGuardContainer}>
+                <p className={styles.tabDescription}>
+                  {t("security.fileGuard.description")}
+                </p>
+                <FileGuardSection onSave={onFileGuardHandlersReady} />
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="skillScanner">
+            <div className={styles.tabContent}>
+              <div className={styles.sectionSkillScannerContainer}>
+                <p className={styles.tabDescription}>
+                  {t("security.skillScanner.description")}
+                </p>
+                <SkillScannerSection />
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="allowNoAuthHosts">
+            <AllowNoAuthHostsTab onSave={onAllowNoAuthHostsHandlersReady} />
+          </TabsContent>
+        </Tabs>
       </div>
 
       {activeTab === "toolGuard" && (
         <div className={styles.footerButtons}>
           <Button
+            variant="outline"
             onClick={handleReset}
             disabled={saving}
-            style={{ marginRight: 8 }}
+            className="mr-2"
           >
             {t("common.reset")}
           </Button>
-          <Button type="primary" onClick={handleSave} loading={saving}>
-            {t("common.save")}
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? t("common.saving") : t("common.save")}
           </Button>
         </div>
       )}
@@ -185,18 +187,18 @@ function SecurityPage() {
       {activeTab === "fileGuard" && fileGuardHandlers && (
         <div className={styles.footerButtons}>
           <Button
+            variant="outline"
             onClick={fileGuardHandlers.reset}
             disabled={fileGuardHandlers.saving}
-            style={{ marginRight: 8 }}
+            className="mr-2"
           >
             {t("common.reset")}
           </Button>
           <Button
-            type="primary"
-            onClick={fileGuardHandlers.save}
-            loading={fileGuardHandlers.saving}
+            onClick={() => void fileGuardHandlers.save()}
+            disabled={fileGuardHandlers.saving}
           >
-            {t("common.save")}
+            {fileGuardHandlers.saving ? t("common.saving") : t("common.save")}
           </Button>
         </div>
       )}
@@ -204,18 +206,20 @@ function SecurityPage() {
       {activeTab === "allowNoAuthHosts" && allowNoAuthHostsHandlers && (
         <div className={styles.footerButtons}>
           <Button
+            variant="outline"
             onClick={allowNoAuthHostsHandlers.reset}
             disabled={allowNoAuthHostsHandlers.saving}
-            style={{ marginRight: 8 }}
+            className="mr-2"
           >
             {t("common.reset")}
           </Button>
           <Button
-            type="primary"
-            onClick={allowNoAuthHostsHandlers.save}
-            loading={allowNoAuthHostsHandlers.saving}
+            onClick={() => void allowNoAuthHostsHandlers.save()}
+            disabled={allowNoAuthHostsHandlers.saving}
           >
-            {t("common.save")}
+            {allowNoAuthHostsHandlers.saving
+              ? t("common.saving")
+              : t("common.save")}
           </Button>
         </div>
       )}
@@ -229,7 +233,6 @@ function SecurityPage() {
         ]}
         onOk={handleEditSave}
         onCancel={() => setEditModal(false)}
-        form={editForm}
       />
 
       <PreviewModal rule={previewRule} onClose={() => setPreviewRule(null)} />

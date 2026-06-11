@@ -1,13 +1,17 @@
 /**
  * First step in the restore flow: asks the user whether they want to create
- * an automatic snapshot before overwriting data. Three outcomes:
- *   - Cancel     → abort entirely
- *   - No backup  → proceed straight to RestoreBackupModal
- *   - Yes backup → open SilentBackupModal first, then RestoreBackupModal
+ * an automatic snapshot before overwriting data.
  */
-import { Button, Modal } from "antd";
 import { useTranslation } from "react-i18next";
 import type { BackupMeta } from "@/api/types/backup";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 interface Props {
   target: BackupMeta | null;
@@ -25,29 +29,29 @@ export default function PreRestoreConfirmModal({
   const { t } = useTranslation();
 
   return (
-    <Modal
-      open={!!target}
-      title={t("backup.preRestoreBackupTitle")}
-      centered
-      width={520}
-      onCancel={onCancel}
-      footer={[
-        <Button key="cancel" onClick={onCancel}>
-          {t("common.cancel")}
-        </Button>,
-        <Button key="no" onClick={() => target && onNoBackup(target)}>
-          {t("backup.preRestoreBackupNo")}
-        </Button>,
-        <Button
-          key="yes"
-          type="primary"
-          onClick={() => target && onYesBackup(target)}
-        >
-          {t("backup.preRestoreBackupYes")}
-        </Button>,
-      ]}
-    >
-      <p style={{ lineHeight: 1.6 }}>{t("backup.preRestoreBackupContent")}</p>
-    </Modal>
+    <Dialog open={!!target} onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t("backup.preRestoreBackupTitle")}</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm leading-relaxed">
+          {t("backup.preRestoreBackupContent")}
+        </p>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => target && onNoBackup(target)}
+          >
+            {t("backup.preRestoreBackupNo")}
+          </Button>
+          <Button onClick={() => target && onYesBackup(target)}>
+            {t("backup.preRestoreBackupYes")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

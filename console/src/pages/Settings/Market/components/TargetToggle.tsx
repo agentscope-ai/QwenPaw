@@ -1,4 +1,4 @@
-import { Button } from "@agentscope-ai/design";
+import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
 import type { InstallTarget } from "../useMarketInstall";
 import styles from "./TargetToggle.module.less";
@@ -14,15 +14,15 @@ export function TargetToggle({ target, onChange, size }: TargetToggleProps) {
   return (
     <div className={styles.targetToggle}>
       <Button
-        size={size}
-        type={target === "pool" ? "primary" : "default"}
+        size={size === "small" ? "sm" : size === "large" ? "lg" : "default"}
+        variant={target === "pool" ? "default" : "outline"}
         onClick={() => onChange("pool")}
       >
         {t("market.targetPool")}
       </Button>
       <Button
-        size={size}
-        type={target === "workspace" ? "primary" : "default"}
+        size={size === "small" ? "sm" : size === "large" ? "lg" : "default"}
+        variant={target === "workspace" ? "default" : "outline"}
         onClick={() => onChange("workspace")}
       >
         {t("market.targetWorkspace")}

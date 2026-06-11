@@ -1,4 +1,3 @@
-import { Card } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { formatCompact } from "../../../../utils/formatNumber";
 import styles from "../index.module.less";
@@ -20,28 +19,28 @@ export function SummaryCards({
 
   return (
     <div className={styles.summaryCards}>
-      <Card className={styles.card}>
+      <div className={`${styles.card} border rounded-lg p-4`}>
         <div className={styles.cardValue}>{formatCompact(totalCalls)}</div>
         <div className={styles.cardLabel}>{t("tokenUsage.totalCalls")}</div>
-      </Card>
-      <Card className={styles.card}>
+      </div>
+      <div className={`${styles.card} border rounded-lg p-4`}>
         <div className={styles.cardValue}>
           {formatCompact(totalPromptTokens)}
         </div>
         <div className={styles.cardLabel}>{t("tokenUsage.promptTokens")}</div>
-      </Card>
-      <Card className={styles.card}>
+      </div>
+      <div className={`${styles.card} border rounded-lg p-4`}>
         <div className={styles.cardValue}>
           {formatCompact(totalCompletionTokens)}
         </div>
         <div className={styles.cardLabel}>
           {t("tokenUsage.completionTokens")}
         </div>
-      </Card>
-      <Card className={styles.card}>
+      </div>
+      <div className={`${styles.card} border rounded-lg p-4`}>
         <div className={styles.cardValue}>{formatCompact(totalTokens)}</div>
         <div className={styles.cardLabel}>{t("tokenUsage.totalTokens")}</div>
-      </Card>
+      </div>
     </div>
   );
 }

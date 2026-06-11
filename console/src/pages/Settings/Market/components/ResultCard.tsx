@@ -1,5 +1,11 @@
 import { memo, useCallback, useState } from "react";
-import { Button, Card, Tooltip } from "@agentscope-ai/design";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useTranslation } from "react-i18next";
 import type { MarketResult } from "../../../../api/modules/market";
 import type { InstallTarget } from "../useMarketInstall";
@@ -36,7 +42,6 @@ export const ResultCard = memo(function ResultCard({
 
   return (
     <Card
-      hoverable
       className={styles.skillCard}
       onClick={onOpenDetail}
       onMouseEnter={showFooter}
@@ -49,8 +54,11 @@ export const ResultCard = memo(function ResultCard({
       </div>
 
       <div className={styles.titleRow}>
-        <Tooltip title={item.name}>
-          <h3 className={styles.skillTitle}>{item.name}</h3>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <h3 className={styles.skillTitle}>{item.name}</h3>
+          </TooltipTrigger>
+          <TooltipContent>{item.name}</TooltipContent>
         </Tooltip>
       </div>
 
@@ -70,8 +78,7 @@ export const ResultCard = memo(function ResultCard({
             size="small"
           />
           <Button
-            type="primary"
-            size="small"
+            size="sm"
             onClick={onInstall}
             className={styles.installButton}
           >

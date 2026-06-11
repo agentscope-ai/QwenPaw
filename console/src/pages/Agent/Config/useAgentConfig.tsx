@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Form, Modal } from "@agentscope-ai/design";
+import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import type { AgentsRunningConfig } from "../../../api/types";
@@ -10,12 +10,24 @@ import {
   MEMORY_MANAGER_BACKEND_MAPPINGS,
 } from "../../../constants/backendMappings";
 import type { ToolExecutionLevel } from "./components/ToolExecutionLevelCard";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+export type AgentConfigFormValues = Record<string, unknown>;
 
 export function useAgentConfig() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { selectedAgent } = useAgentStore();
-  const [form] = Form.useForm();
+  const form = useForm<AgentConfigFormValues>({ defaultValues: {} });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +38,10 @@ export function useAgentConfig() {
   const [approvalLevel, setApprovalLevel] =
     useState<ToolExecutionLevel>("AUTO");
   const originalConfigRef = useRef<AgentsRunningConfig | null>(null);
+
+  // Language confirm dialog state
+  const [langConfirmOpen, setLangConfirmOpen] = useState(false);
+  const [pendingLang, setPendingLang] = useState<string | null>(null);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -48,7 +64,7 @@ export function useAgentConfig() {
         config.memory_manager_backend in MEMORY_MANAGER_BACKEND_MAPPINGS
           ? config.memory_manager_backend
           : "remelight";
-      form.setFieldsValue({
+      form.reset({
         max_iters: config.max_iters,
         auto_continue_on_text_only: config.auto_continue_on_text_only ?? false,
         shell_command_timeout: config.shell_command_timeout ?? 60.0,
@@ -73,10 +89,7 @@ export function useAgentConfig() {
           timeout_seconds: 30.0,
         },
       });
-
-      // Store original config for complete save
       originalConfigRef.current = config;
-
       setLanguage(langResp.language);
       setTimezone(tzResp.timezone || "UTC");
     } catch (err) {
@@ -93,72 +106,63 @@ export function useAgentConfig() {
   }, [fetchConfig]);
 
   const handleSave = useCallback(async () => {
+    const isValid = await form.trigger();
+    if (!isValid) return;
+    const values = form.getValues();
+    setSaving(true);
     try {
-      const values = await form.validateFields();
-      setSaving(true);
-
-      // Merge form values with original config to ensure complete config
       const configToSave: AgentsRunningConfig = {
         ...originalConfigRef.current!,
-        ...(values as AgentsRunningConfig),
+        ...(values as unknown as AgentsRunningConfig),
         approval_level: approvalLevel,
       };
-
       await api.updateAgentRunningConfig(configToSave);
-
-      // Update original config after successful save
       originalConfigRef.current = configToSave;
       message.success(t("agentConfig.saveSuccess"));
     } catch (err) {
-      if (err instanceof Error && "errorFields" in err) return;
       const errMsg =
         err instanceof Error ? err.message : t("agentConfig.saveFailed");
       message.error(errMsg);
     } finally {
       setSaving(false);
     }
-  }, [form, t, selectedAgent, approvalLevel]);
+  }, [form, t, approvalLevel]);
 
   const handleLanguageChange = useCallback(
     (value: string): void => {
       if (value === language) return;
-      Modal.confirm({
-        title: t("agentConfig.languageConfirmTitle"),
-        content: (
-          <span style={{ whiteSpace: "pre-line" }}>
-            {t("agentConfig.languageConfirmContent")}
-          </span>
-        ),
-        okText: t("agentConfig.languageConfirmOk"),
-        cancelText: t("common.cancel"),
-        onOk: async () => {
-          setSavingLang(true);
-          try {
-            const resp = await api.updateAgentLanguage(value);
-            setLanguage(resp.language);
-            if (resp.copied_files && resp.copied_files.length > 0) {
-              message.success(
-                t("agentConfig.languageSaveSuccessWithFiles", {
-                  count: resp.copied_files.length,
-                }),
-              );
-            } else {
-              message.success(t("agentConfig.languageSaveSuccess"));
-            }
-          } catch (err) {
-            const errMsg =
-              err instanceof Error
-                ? err.message
-                : t("agentConfig.languageSaveFailed");
-            message.error(errMsg);
-          } finally {
-            setSavingLang(false);
-          }
-        },
-      });
+      setPendingLang(value);
+      setLangConfirmOpen(true);
     },
-    [language, t],
+    [language],
   );
+
+  const confirmLanguageChange = useCallback(async () => {
+    if (!pendingLang) return;
+    setSavingLang(true);
+    try {
+      const resp = await api.updateAgentLanguage(pendingLang);
+      setLanguage(resp.language);
+      if (resp.copied_files && resp.copied_files.length > 0) {
+        message.success(
+          t("agentConfig.languageSaveSuccessWithFiles", {
+            count: resp.copied_files.length,
+          }),
+        );
+      } else {
+        message.success(t("agentConfig.languageSaveSuccess"));
+      }
+    } catch (err) {
+      const errMsg =
+        err instanceof Error
+          ? err.message
+          : t("agentConfig.languageSaveFailed");
+      message.error(errMsg);
+    } finally {
+      setSavingLang(false);
+      setPendingLang(null);
+    }
+  }, [pendingLang, t]);
 
   const handleTimezoneChange = useCallback(
     async (value: string) => {
@@ -181,6 +185,29 @@ export function useAgentConfig() {
     [timezone, t],
   );
 
+  const languageConfirmDialog = (
+    <AlertDialog open={langConfirmOpen} onOpenChange={setLangConfirmOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {t("agentConfig.languageConfirmTitle")}
+          </AlertDialogTitle>
+          <AlertDialogDescription style={{ whiteSpace: "pre-line" }}>
+            {t("agentConfig.languageConfirmContent")}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => setPendingLang(null)}>
+            {t("common.cancel")}
+          </AlertDialogCancel>
+          <AlertDialogAction onClick={confirmLanguageChange}>
+            {t("agentConfig.languageConfirmOk")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
   return {
     form,
     loading,
@@ -196,5 +223,6 @@ export function useAgentConfig() {
     handleSave,
     handleLanguageChange,
     handleTimezoneChange,
+    languageConfirmDialog,
   };
 }

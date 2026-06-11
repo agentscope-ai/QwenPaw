@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DatePicker } from "antd";
 import { useTranslation } from "react-i18next";
 import dayjs, { type Dayjs } from "dayjs";
-import { useTheme } from "../../../contexts/ThemeContext";
 import api from "../../../api";
 import type { TokenUsageRecord } from "../../../api/types/tokenUsage";
 import { useAppMessage } from "../../../hooks/useAppMessage";
@@ -23,7 +21,6 @@ import styles from "./index.module.less";
 function TokenUsagePage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
-  const { isDark } = useTheme();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [records, setRecords] = useState<TokenUsageRecord[]>([]);
@@ -55,10 +52,21 @@ function TokenUsagePage() {
     fetchData();
   }, [fetchData]);
 
-  const handleDateChange = (dates: [Dayjs | null, Dayjs | null] | null) => {
-    if (!dates || !dates[0] || !dates[1]) return;
-    setStartDate(dates[0]);
-    setEndDate(dates[1]);
+  const handleStartDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const d = dayjs(e.target.value);
+    if (d.isValid() && !d.isAfter(endDate, "day")) setStartDate(d);
+  };
+
+  const handleEndDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const d = dayjs(e.target.value);
+    const today = dayjs();
+    if (
+      d.isValid() &&
+      !d.isAfter(today, "day") &&
+      !d.isBefore(startDate, "day")
+    ) {
+      setEndDate(d);
+    }
   };
 
   const aggregatedData = useDataAggregation(records);
@@ -67,14 +75,14 @@ function TokenUsagePage() {
     byDateModel: aggregatedData?.by_date_model ?? null,
     startDate,
     endDate,
-    isDark,
+    isDark: false,
   });
 
   const tokenTypeConfig = useTokenTypeConfig({
     byDate: aggregatedData?.by_date ?? null,
     startDate,
     endDate,
-    isDark,
+    isDark: false,
   });
 
   const byModelData = useMemo(() => {
@@ -132,13 +140,22 @@ function TokenUsagePage() {
       {pageHeader}
 
       <div className={styles.content}>
-        <div className={styles.toolbar}>
-          <DatePicker.RangePicker
-            value={[startDate, endDate]}
-            onChange={handleDateChange}
-            disabledDate={(current) =>
-              current && current.isAfter(dayjs(), "day")
-            }
+        <div className={`${styles.toolbar} flex items-center gap-2`}>
+          <input
+            type="date"
+            value={startDate.format("YYYY-MM-DD")}
+            max={endDate.format("YYYY-MM-DD")}
+            onChange={handleStartDateChange}
+            className="h-8 rounded-md border px-2 text-sm bg-background"
+          />
+          <span className="text-sm text-muted-foreground">—</span>
+          <input
+            type="date"
+            value={endDate.format("YYYY-MM-DD")}
+            min={startDate.format("YYYY-MM-DD")}
+            max={dayjs().format("YYYY-MM-DD")}
+            onChange={handleEndDateChange}
+            className="h-8 rounded-md border px-2 text-sm bg-background"
           />
         </div>
 

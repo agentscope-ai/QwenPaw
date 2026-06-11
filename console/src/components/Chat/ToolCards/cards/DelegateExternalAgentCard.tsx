@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { ApiOutlined } from "@ant-design/icons";
+import { Webhook } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
 import { stringifyResult } from "../shared/utils";
@@ -27,7 +27,7 @@ const DelegateExternalAgentCard: React.FC<DelegateExternalAgentCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<ApiOutlined />}
+      icon={<Webhook size={13} />}
       title={title}
     >
       {resultText && <DefaultBlock title="Output" content={resultText} />}

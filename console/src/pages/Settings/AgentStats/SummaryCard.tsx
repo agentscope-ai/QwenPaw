@@ -1,5 +1,9 @@
-import { Card } from "@agentscope-ai/design";
-import { Tooltip } from "antd";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { formatCompact } from "../../../utils/formatNumber";
 import styles from "./index.module.less";
 
@@ -12,10 +16,15 @@ interface SummaryCardProps {
 export function SummaryCard({ value, label, tooltip }: SummaryCardProps) {
   return (
     <Card className={styles.card}>
-      <div className={styles.cardValue}>{formatCompact(value ?? 0)}</div>
-      <Tooltip title={tooltip} placement="bottom">
-        <div className={styles.cardLabel}>{label}</div>
-      </Tooltip>
+      <CardContent className="p-3">
+        <div className={styles.cardValue}>{formatCompact(value ?? 0)}</div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className={styles.cardLabel}>{label}</div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{tooltip}</TooltipContent>
+        </Tooltip>
+      </CardContent>
     </Card>
   );
 }

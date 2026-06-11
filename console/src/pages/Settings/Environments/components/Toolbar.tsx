@@ -1,6 +1,7 @@
-import { Checkbox, Button } from "@agentscope-ai/design";
-import { SparkDeleteLine } from "@agentscope-ai/icons";
+import { Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@/components/ui/button";
 import styles from "../index.module.less";
 
 interface ToolbarProps {
@@ -40,8 +41,8 @@ export function Toolbar({
         {workingRowsLength > 0 && (
           <Checkbox
             checked={allSelected}
-            indeterminate={indeterminate}
-            onChange={onToggleSelectAll}
+            data-state={indeterminate ? "indeterminate" : undefined}
+            onCheckedChange={onToggleSelectAll}
           />
         )}
         <span className={styles.toolbarCount}>
@@ -60,26 +61,26 @@ export function Toolbar({
       <div className={styles.toolbarRight}>
         {someSelected && (
           <Button
-            danger
-            size="small"
-            icon={<SparkDeleteLine />}
+            variant="destructive"
+            size="sm"
             onClick={onRemoveSelected}
             disabled={saving}
           >
+            <Trash2 className="mr-1 h-3 w-3" />
             {t("common.delete")} ({selectedSize})
           </Button>
         )}
         {dirty && (
           <>
-            <Button size="small" onClick={onReset} disabled={saving}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onReset}
+              disabled={saving}
+            >
               {t("common.reset")}
             </Button>
-            <Button
-              type="primary"
-              size="small"
-              loading={saving}
-              onClick={onSave}
-            >
+            <Button size="sm" disabled={saving} onClick={onSave}>
               {t("common.save")}
             </Button>
           </>

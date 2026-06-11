@@ -1,5 +1,17 @@
 import React, { useState } from "react";
-import { Card, Button, Modal, Input } from "@agentscope-ai/design";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { ProviderInfo } from "../../../../../api/types";
 import api from "../../../../../api";
 import { providerApi } from "../../../../../api/modules/provider";
@@ -28,32 +40,30 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
   const [oauthModalOpen, setOauthModalOpen] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [apiKeySaving, setApiKeySaving] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const needsOAuth =
     provider.supports_oauth && !provider.api_key && !provider.oauth_connected;
 
   const handleDeleteProvider = (e: React.MouseEvent) => {
     e.stopPropagation();
-    Modal.confirm({
-      title: t("models.deleteProvider"),
-      content: t("models.deleteProviderConfirm", { name: provider.name }),
-      okText: t("common.delete"),
-      okButtonProps: { danger: true },
-      cancelText: t("models.cancel"),
-      onOk: async () => {
-        try {
-          await api.deleteCustomProvider(provider.id);
-          message.success(t("models.providerDeleted", { name: provider.name }));
-          onSaved();
-        } catch (error) {
-          const errMsg =
-            error instanceof Error
-              ? error.message
-              : t("models.providerDeleteFailed");
-          message.error(errMsg);
-        }
-      },
-    });
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    try {
+      await api.deleteCustomProvider(provider.id);
+      message.success(t("models.providerDeleted", { name: provider.name }));
+      onSaved();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.providerDeleteFailed");
+      message.error(errMsg);
+    } finally {
+      setDeleteDialogOpen(false);
+    }
   };
 
   const totalCount = provider.models.length + provider.extra_models.length;
@@ -89,169 +99,187 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
     : "none";
 
   return (
-    <Card hoverable className={styles.providerCard}>
-      {/* Card Header with Icon and Status */}
-      <div className={styles.cardHeaderRow}>
-        <ProviderIcon providerId={provider.id} size={32} />
-        <div className={styles.cardStatusHeader}>
-          <span
-            className={styles.statusDot}
-            style={{
-              backgroundColor: statusDotColor,
-              boxShadow: statusDotShadow,
-            }}
-          />
-          <span
-            className={`${styles.statusText} ${
-              statusType === "enabled"
-                ? styles.enabled
-                : statusType === "partial"
-                ? styles.partial
-                : styles.disabled
-            }`}
-          >
-            {statusLabel}
-          </span>
-        </div>
-      </div>
-
-      {/* Title Row */}
-      <div className={styles.cardTitleRow}>
-        <span className={styles.cardName}>{provider.name}</span>
-        {providerTag}
-      </div>
-
-      {/* Info Section */}
-      <div className={styles.cardInfo}>
-        <div className={styles.infoRow}>
-          <span className={styles.infoLabel}>Base URL:</span>
-          {provider.base_url ? (
-            <span className={styles.infoValue} title={provider.base_url}>
-              {provider.base_url}
+    <>
+      <Card className={styles.providerCard}>
+        <div className={styles.cardHeaderRow}>
+          <ProviderIcon providerId={provider.id} size={32} />
+          <div className={styles.cardStatusHeader}>
+            <span
+              className={styles.statusDot}
+              style={{
+                backgroundColor: statusDotColor,
+                boxShadow: statusDotShadow,
+              }}
+            />
+            <span
+              className={`${styles.statusText} ${
+                statusType === "enabled"
+                  ? styles.enabled
+                  : statusType === "partial"
+                  ? styles.partial
+                  : styles.disabled
+              }`}
+            >
+              {statusLabel}
             </span>
-          ) : (
-            <span className={styles.infoEmpty}>{t("models.notSet")}</span>
-          )}
+          </div>
         </div>
-        <div className={styles.infoRow}>
-          <span className={styles.infoLabel}>API Key:</span>
-          {provider.api_key ? (
-            <span className={styles.infoValue}>{provider.api_key}</span>
-          ) : provider.require_api_key === false ? (
-            <span className={styles.infoEmpty}>{t("models.notRequired")}</span>
-          ) : (
-            <div className={styles.inlineKeyInput}>
-              <Input.Password
-                size="small"
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                placeholder={
-                  provider.api_key_prefix
-                    ? `${provider.api_key_prefix}...`
-                    : "sk-..."
-                }
-                style={{ flex: 1 }}
-              />
-              <Button
-                type="primary"
-                size="small"
-                loading={apiKeySaving}
-                disabled={!apiKeyInput.trim()}
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  setApiKeySaving(true);
-                  try {
-                    await providerApi.configureProvider(provider.id, {
-                      api_key: apiKeyInput.trim(),
-                    });
-                    message.success(t("models.saved"));
-                    setApiKeyInput("");
-                    onSaved();
-                  } catch (err) {
-                    const msg =
-                      err instanceof Error
-                        ? err.message
-                        : t("models.failedToSave");
-                    message.error(msg);
-                  } finally {
-                    setApiKeySaving(false);
-                  }
-                }}
-              >
-                {t("models.saveApiKey")}
-              </Button>
-            </div>
-          )}
-        </div>
-        <div className={styles.infoRow}>
-          <span className={styles.infoLabel}>Model:</span>
-          <span className={styles.infoValue}>
-            {totalCount > 0
-              ? t("models.modelsCount", { count: totalCount })
-              : t("models.noModels")}
-          </span>
-        </div>
-      </div>
 
-      <div className={styles.cardActions}>
-        {needsOAuth && (
+        <div className={styles.cardTitleRow}>
+          <span className={styles.cardName}>{provider.name}</span>
+          {providerTag}
+        </div>
+
+        <div className={styles.cardInfo}>
+          <div className={styles.infoRow}>
+            <span className={styles.infoLabel}>Base URL:</span>
+            {provider.base_url ? (
+              <span className={styles.infoValue} title={provider.base_url}>
+                {provider.base_url}
+              </span>
+            ) : (
+              <span className={styles.infoEmpty}>{t("models.notSet")}</span>
+            )}
+          </div>
+          <div className={styles.infoRow}>
+            <span className={styles.infoLabel}>API Key:</span>
+            {provider.api_key ? (
+              <span className={styles.infoValue}>{provider.api_key}</span>
+            ) : provider.require_api_key === false ? (
+              <span className={styles.infoEmpty}>
+                {t("models.notRequired")}
+              </span>
+            ) : (
+              <div className={styles.inlineKeyInput}>
+                <Input
+                  type="password"
+                  size={undefined}
+                  className="flex-1 h-7 text-xs"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  placeholder={
+                    provider.api_key_prefix
+                      ? `${provider.api_key_prefix}...`
+                      : "sk-..."
+                  }
+                />
+                <Button
+                  size="sm"
+                  disabled={!apiKeyInput.trim() || apiKeySaving}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setApiKeySaving(true);
+                    try {
+                      await providerApi.configureProvider(provider.id, {
+                        api_key: apiKeyInput.trim(),
+                      });
+                      message.success(t("models.saved"));
+                      setApiKeyInput("");
+                      onSaved();
+                    } catch (err) {
+                      const msg =
+                        err instanceof Error
+                          ? err.message
+                          : t("models.failedToSave");
+                      message.error(msg);
+                    } finally {
+                      setApiKeySaving(false);
+                    }
+                  }}
+                >
+                  {t("models.saveApiKey")}
+                </Button>
+              </div>
+            )}
+          </div>
+          <div className={styles.infoRow}>
+            <span className={styles.infoLabel}>Model:</span>
+            <span className={styles.infoValue}>
+              {totalCount > 0
+                ? t("models.modelsCount", { count: totalCount })
+                : t("models.noModels")}
+            </span>
+          </div>
+        </div>
+
+        <div className={styles.cardActions}>
+          {needsOAuth && (
+            <Button
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOauthModalOpen(true);
+              }}
+              className={styles.actionBtn}
+            >
+              {t("models.connect")}
+            </Button>
+          )}
           <Button
-            type="primary"
-            size="small"
+            variant="outline"
+            size="sm"
             onClick={(e) => {
               e.stopPropagation();
-              setOauthModalOpen(true);
+              onOpenModels(provider);
             }}
             className={styles.actionBtn}
           >
-            {t("models.connect")}
+            {t("models.models")}
           </Button>
-        )}
-        <Button
-          type="default"
-          size="small"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenModels(provider);
-          }}
-          className={styles.actionBtn}
-        >
-          {t("models.models")}
-        </Button>
-        <Button
-          type="default"
-          size="small"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenConfig(provider);
-          }}
-          className={styles.actionBtn}
-        >
-          {t("models.settings")}
-        </Button>
-        {provider.is_custom && (
           <Button
-            type="default"
-            size="small"
-            danger
-            onClick={handleDeleteProvider}
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenConfig(provider);
+            }}
             className={styles.actionBtn}
           >
-            {t("common.delete")}
+            {t("models.settings")}
           </Button>
-        )}
-      </div>
+          {provider.is_custom && (
+            <Button
+              variant="outline"
+              size="sm"
+              className={`${styles.actionBtn} text-destructive border-destructive hover:bg-destructive/10`}
+              onClick={handleDeleteProvider}
+            >
+              {t("common.delete")}
+            </Button>
+          )}
+        </div>
 
-      <OAuthConfirmModal
-        open={oauthModalOpen}
-        providerId={provider.id}
-        providerName={provider.name}
-        onSuccess={() => {
-          setOauthModalOpen(false);
-          onSaved();
-        }}
-        onCancel={() => setOauthModalOpen(false)}
-      />
-    </Card>
+        <OAuthConfirmModal
+          open={oauthModalOpen}
+          providerId={provider.id}
+          providerName={provider.name}
+          onSuccess={() => {
+            setOauthModalOpen(false);
+            onSaved();
+          }}
+          onCancel={() => setOauthModalOpen(false)}
+        />
+      </Card>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("models.deleteProvider")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("models.deleteProviderConfirm", { name: provider.name })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("models.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmDelete}
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 });

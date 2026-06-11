@@ -1,322 +1,302 @@
-import {
-  Form,
-  Card,
-  Switch,
-  InputNumber,
-  Input,
-  Collapse,
-  Alert,
-} from "@agentscope-ai/design";
+import { useFormContext, useWatch, Controller } from "react-hook-form";
 import { useTranslation } from "react-i18next";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { AlertTriangle } from "lucide-react";
 import { SliderWithValue } from "./SliderWithValue";
 import styles from "../index.module.less";
 
 export function ReMeLightMemoryCard() {
   const { t } = useTranslation();
+  const { register, control } = useFormContext();
 
-  const baseUrl = Form.useWatch([
-    "reme_light_memory_config",
-    "embedding_model_config",
-    "base_url",
-  ]);
-  const modelName = Form.useWatch([
-    "reme_light_memory_config",
-    "embedding_model_config",
-    "model_name",
-  ]);
+  const baseUrl = useWatch({
+    control,
+    name: "reme_light_memory_config.embedding_model_config.base_url",
+  });
+  const modelName = useWatch({
+    control,
+    name: "reme_light_memory_config.embedding_model_config.model_name",
+  });
   const embeddingEnabled = !!(baseUrl?.trim() && modelName?.trim());
 
   return (
-    <Card
-      className={styles.formCard}
-      title={t("agentConfig.remeLightMemoryTitle")}
-    >
-      <Form.Item
-        label={t("agentConfig.summarizeWhenCompact")}
-        name={["reme_light_memory_config", "summarize_when_compact"]}
-        valuePropName="checked"
-        tooltip={t("agentConfig.summarizeWhenCompactTooltip")}
-      >
-        <Switch />
-      </Form.Item>
+    <Card className={styles.formCard}>
+      <CardHeader>
+        <CardTitle>{t("agentConfig.remeLightMemoryTitle")}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Label title={t("agentConfig.summarizeWhenCompactTooltip")}>
+            {t("agentConfig.summarizeWhenCompact")}
+          </Label>
+          <Controller
+            control={control}
+            name="reme_light_memory_config.summarize_when_compact"
+            render={({ field }) => (
+              <Switch
+                checked={Boolean(field.value)}
+                onCheckedChange={field.onChange}
+              />
+            )}
+          />
+        </div>
 
-      <Form.Item
-        label={t("agentConfig.autoMemoryInterval")}
-        name={["reme_light_memory_config", "auto_memory_interval"]}
-        tooltip={t("agentConfig.autoMemoryIntervalTooltip")}
-      >
-        <InputNumber
-          style={{ width: "100%" }}
-          min={1}
-          step={1}
-          placeholder={t("agentConfig.autoMemoryIntervalPlaceholder")}
-        />
-      </Form.Item>
+        <div className="space-y-1">
+          <Label title={t("agentConfig.autoMemoryIntervalTooltip")}>
+            {t("agentConfig.autoMemoryInterval")}
+          </Label>
+          <Input
+            type="number"
+            min={1}
+            step={1}
+            placeholder={t("agentConfig.autoMemoryIntervalPlaceholder")}
+            {...register("reme_light_memory_config.auto_memory_interval", {
+              valueAsNumber: true,
+            })}
+          />
+        </div>
 
-      <Form.Item
-        label={t("agentConfig.dreamCron")}
-        name={["reme_light_memory_config", "dream_cron"]}
-        tooltip={t("agentConfig.dreamCronTooltip")}
-      >
-        <Input placeholder={t("agentConfig.dreamCronPlaceholder")} />
-      </Form.Item>
+        <div className="space-y-1">
+          <Label title={t("agentConfig.dreamCronTooltip")}>
+            {t("agentConfig.dreamCron")}
+          </Label>
+          <Input
+            placeholder={t("agentConfig.dreamCronPlaceholder")}
+            {...register("reme_light_memory_config.dream_cron")}
+          />
+        </div>
 
-      <Form.Item
-        label={t("agentConfig.rebuildMemoryIndexOnStart")}
-        name={["reme_light_memory_config", "rebuild_memory_index_on_start"]}
-        valuePropName="checked"
-        tooltip={t("agentConfig.rebuildMemoryIndexOnStartTooltip")}
-      >
-        <Switch />
-      </Form.Item>
+        <div className="flex items-center justify-between">
+          <Label title={t("agentConfig.rebuildMemoryIndexOnStartTooltip")}>
+            {t("agentConfig.rebuildMemoryIndexOnStart")}
+          </Label>
+          <Controller
+            control={control}
+            name="reme_light_memory_config.rebuild_memory_index_on_start"
+            render={({ field }) => (
+              <Switch
+                checked={Boolean(field.value)}
+                onCheckedChange={field.onChange}
+              />
+            )}
+          />
+        </div>
 
-      <Form.Item
-        label={t("agentConfig.recursiveFileWatcher")}
-        name={["reme_light_memory_config", "recursive_file_watcher"]}
-        valuePropName="checked"
-        tooltip={t("agentConfig.recursiveFileWatcherTooltip")}
-      >
-        <Switch />
-      </Form.Item>
+        <div className="flex items-center justify-between">
+          <Label title={t("agentConfig.recursiveFileWatcherTooltip")}>
+            {t("agentConfig.recursiveFileWatcher")}
+          </Label>
+          <Controller
+            control={control}
+            name="reme_light_memory_config.recursive_file_watcher"
+            render={({ field }) => (
+              <Switch
+                checked={Boolean(field.value)}
+                onCheckedChange={field.onChange}
+              />
+            )}
+          />
+        </div>
 
-      <Collapse
-        items={[
-          {
-            key: "autoMemorySearch",
-            label: t("agentConfig.autoMemorySearchCollapseLabel"),
-            children: (
-              <>
-                <Form.Item
-                  label={t("agentConfig.autoMemorySearch")}
-                  name={[
-                    "reme_light_memory_config",
-                    "auto_memory_search_config",
-                    "enabled",
-                  ]}
-                  valuePropName="checked"
-                  tooltip={t("agentConfig.autoMemorySearchTooltip")}
-                >
-                  <Switch />
-                </Form.Item>
-
-                <Form.Item
-                  label={t("agentConfig.autoMaxResults")}
-                  name={[
-                    "reme_light_memory_config",
-                    "auto_memory_search_config",
-                    "max_results",
-                  ]}
-                  rules={[
-                    {
-                      required: true,
-                      message: t("agentConfig.autoMaxResultsRequired"),
-                    },
-                    {
-                      type: "number",
-                      min: 1,
-                      message: t("agentConfig.autoMaxResultsMin"),
-                    },
-                  ]}
-                  tooltip={t("agentConfig.autoMaxResultsTooltip")}
-                >
-                  <InputNumber style={{ width: "100%" }} min={1} step={1} />
-                </Form.Item>
-
-                <Form.Item
-                  label={t("agentConfig.autoMinScore")}
-                  name={[
-                    "reme_light_memory_config",
-                    "auto_memory_search_config",
-                    "min_score",
-                  ]}
-                  rules={[
-                    {
-                      required: true,
-                      message: t("agentConfig.autoMinScoreRequired"),
-                    },
-                  ]}
-                  tooltip={t("agentConfig.autoMinScoreTooltip")}
-                >
-                  <SliderWithValue
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    marks={{ 0: "0", 0.5: "0.5", 1: "1" }}
-                  />
-                </Form.Item>
-              </>
-            ),
-          },
-          {
-            key: "embeddingConfig",
-            label: t("agentConfig.embeddingConfigCollapseLabel"),
-            children: (
-              <>
-                <Alert
-                  type="warning"
-                  showIcon
-                  message={`${t("agentConfig.embeddingEnableHint")} ${t(
-                    "agentConfig.embeddingRestartWarning",
-                  )}`}
-                  style={{ marginBottom: 16 }}
+        <Accordion type="multiple">
+          <AccordionItem value="autoMemorySearch">
+            <AccordionTrigger>
+              {t("agentConfig.autoMemorySearchCollapseLabel")}
+            </AccordionTrigger>
+            <AccordionContent className="space-y-4 pt-2">
+              <div className="flex items-center justify-between">
+                <Label title={t("agentConfig.autoMemorySearchTooltip")}>
+                  {t("agentConfig.autoMemorySearch")}
+                </Label>
+                <Controller
+                  control={control}
+                  name="reme_light_memory_config.auto_memory_search_config.enabled"
+                  render={({ field }) => (
+                    <Switch
+                      checked={Boolean(field.value)}
+                      onCheckedChange={field.onChange}
+                    />
+                  )}
                 />
+              </div>
+              <div className="space-y-1">
+                <Label title={t("agentConfig.autoMaxResultsTooltip")}>
+                  {t("agentConfig.autoMaxResults")}
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  {...register(
+                    "reme_light_memory_config.auto_memory_search_config.max_results",
+                    { valueAsNumber: true },
+                  )}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label title={t("agentConfig.autoMinScoreTooltip")}>
+                  {t("agentConfig.autoMinScore")}
+                </Label>
+                <Controller
+                  control={control}
+                  name="reme_light_memory_config.auto_memory_search_config.min_score"
+                  render={({ field }) => (
+                    <SliderWithValue
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={field.value}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
 
-                <Form.Item
-                  label={t("agentConfig.embeddingBaseUrl")}
-                  name={[
-                    "reme_light_memory_config",
-                    "embedding_model_config",
-                    "base_url",
-                  ]}
-                  tooltip={t("agentConfig.embeddingBaseUrlTooltip")}
-                >
-                  <Input
-                    placeholder={t("agentConfig.embeddingBaseUrlPlaceholder")}
-                  />
-                </Form.Item>
+          <AccordionItem value="embeddingConfig">
+            <AccordionTrigger>
+              {t("agentConfig.embeddingConfigCollapseLabel")}
+            </AccordionTrigger>
+            <AccordionContent className="space-y-4 pt-2">
+              <div className="flex items-start gap-2 rounded-md border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  {t("agentConfig.embeddingEnableHint")}{" "}
+                  {t("agentConfig.embeddingRestartWarning")}
+                </span>
+              </div>
 
-                <Form.Item
-                  label={t("agentConfig.embeddingModelName")}
-                  name={[
-                    "reme_light_memory_config",
-                    "embedding_model_config",
-                    "model_name",
-                  ]}
-                  tooltip={t("agentConfig.embeddingModelNameTooltip")}
-                >
-                  <Input
-                    placeholder={t("agentConfig.embeddingModelNamePlaceholder")}
-                  />
-                </Form.Item>
+              <div className="space-y-1">
+                <Label title={t("agentConfig.embeddingBaseUrlTooltip")}>
+                  {t("agentConfig.embeddingBaseUrl")}
+                </Label>
+                <Input
+                  placeholder={t("agentConfig.embeddingBaseUrlPlaceholder")}
+                  {...register(
+                    "reme_light_memory_config.embedding_model_config.base_url",
+                  )}
+                />
+              </div>
 
-                <Form.Item
-                  label={t("agentConfig.embeddingApiKey")}
-                  name={[
-                    "reme_light_memory_config",
-                    "embedding_model_config",
-                    "api_key",
-                  ]}
-                  tooltip={t("agentConfig.embeddingApiKeyTooltip")}
-                >
-                  <Input.Password
-                    placeholder={t("agentConfig.embeddingApiKeyPlaceholder")}
-                  />
-                </Form.Item>
+              <div className="space-y-1">
+                <Label title={t("agentConfig.embeddingModelNameTooltip")}>
+                  {t("agentConfig.embeddingModelName")}
+                </Label>
+                <Input
+                  placeholder={t("agentConfig.embeddingModelNamePlaceholder")}
+                  {...register(
+                    "reme_light_memory_config.embedding_model_config.model_name",
+                  )}
+                />
+              </div>
 
-                <Form.Item
-                  label={t("agentConfig.embeddingDimensions")}
-                  name={[
-                    "reme_light_memory_config",
-                    "embedding_model_config",
-                    "dimensions",
-                  ]}
-                  rules={[
-                    {
-                      required: true,
-                      message: t("agentConfig.embeddingDimensionsRequired"),
-                    },
-                    {
-                      type: "number",
-                      min: 1,
-                      message: t("agentConfig.embeddingDimensionsMin"),
-                    },
-                  ]}
-                  tooltip={t("agentConfig.embeddingDimensionsTooltip")}
-                >
-                  <InputNumber
-                    style={{ width: "100%" }}
-                    min={1}
-                    step={256}
-                    disabled={!embeddingEnabled}
-                  />
-                </Form.Item>
+              <div className="space-y-1">
+                <Label title={t("agentConfig.embeddingApiKeyTooltip")}>
+                  {t("agentConfig.embeddingApiKey")}
+                </Label>
+                <Input
+                  type="password"
+                  placeholder={t("agentConfig.embeddingApiKeyPlaceholder")}
+                  {...register(
+                    "reme_light_memory_config.embedding_model_config.api_key",
+                  )}
+                />
+              </div>
 
-                <Form.Item
-                  label={t("agentConfig.embeddingEnableCache")}
-                  name={[
-                    "reme_light_memory_config",
-                    "embedding_model_config",
-                    "enable_cache",
-                  ]}
-                  valuePropName="checked"
-                  tooltip={t("agentConfig.embeddingEnableCacheTooltip")}
-                >
-                  <Switch disabled={!embeddingEnabled} />
-                </Form.Item>
+              <div className="space-y-1">
+                <Label title={t("agentConfig.embeddingDimensionsTooltip")}>
+                  {t("agentConfig.embeddingDimensions")}
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  step={256}
+                  disabled={!embeddingEnabled}
+                  {...register(
+                    "reme_light_memory_config.embedding_model_config.dimensions",
+                    { valueAsNumber: true },
+                  )}
+                />
+              </div>
 
-                <Form.Item
-                  label={t("agentConfig.embeddingMaxCacheSize")}
-                  name={[
-                    "reme_light_memory_config",
-                    "embedding_model_config",
-                    "max_cache_size",
-                  ]}
-                  rules={[
-                    {
-                      required: true,
-                      message: t("agentConfig.embeddingMaxCacheSizeRequired"),
-                    },
-                  ]}
-                  tooltip={t("agentConfig.embeddingMaxCacheSizeTooltip")}
-                >
-                  <InputNumber
-                    style={{ width: "100%" }}
-                    min={1}
-                    step={100}
-                    disabled={!embeddingEnabled}
-                  />
-                </Form.Item>
+              <div className="flex items-center justify-between">
+                <Label title={t("agentConfig.embeddingEnableCacheTooltip")}>
+                  {t("agentConfig.embeddingEnableCache")}
+                </Label>
+                <Controller
+                  control={control}
+                  name="reme_light_memory_config.embedding_model_config.enable_cache"
+                  render={({ field }) => (
+                    <Switch
+                      checked={Boolean(field.value)}
+                      onCheckedChange={field.onChange}
+                      disabled={!embeddingEnabled}
+                    />
+                  )}
+                />
+              </div>
 
-                <Form.Item
-                  label={t("agentConfig.embeddingMaxInputLength")}
-                  name={[
-                    "reme_light_memory_config",
-                    "embedding_model_config",
-                    "max_input_length",
-                  ]}
-                  rules={[
-                    {
-                      required: true,
-                      message: t("agentConfig.embeddingMaxInputLengthRequired"),
-                    },
-                  ]}
-                  tooltip={t("agentConfig.embeddingMaxInputLengthTooltip")}
-                >
-                  <InputNumber
-                    style={{ width: "100%" }}
-                    min={1}
-                    step={1024}
-                    disabled={!embeddingEnabled}
-                  />
-                </Form.Item>
+              <div className="space-y-1">
+                <Label title={t("agentConfig.embeddingMaxCacheSizeTooltip")}>
+                  {t("agentConfig.embeddingMaxCacheSize")}
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  step={100}
+                  disabled={!embeddingEnabled}
+                  {...register(
+                    "reme_light_memory_config.embedding_model_config.max_cache_size",
+                    { valueAsNumber: true },
+                  )}
+                />
+              </div>
 
-                <Form.Item
-                  label={t("agentConfig.embeddingMaxBatchSize")}
-                  name={[
-                    "reme_light_memory_config",
-                    "embedding_model_config",
-                    "max_batch_size",
-                  ]}
-                  rules={[
-                    {
-                      required: true,
-                      message: t("agentConfig.embeddingMaxBatchSizeRequired"),
-                    },
-                  ]}
-                  tooltip={t("agentConfig.embeddingMaxBatchSizeTooltip")}
-                >
-                  <InputNumber
-                    style={{ width: "100%" }}
-                    min={1}
-                    step={1}
-                    disabled={!embeddingEnabled}
-                  />
-                </Form.Item>
-              </>
-            ),
-          },
-        ]}
-      />
+              <div className="space-y-1">
+                <Label title={t("agentConfig.embeddingMaxInputLengthTooltip")}>
+                  {t("agentConfig.embeddingMaxInputLength")}
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1024}
+                  disabled={!embeddingEnabled}
+                  {...register(
+                    "reme_light_memory_config.embedding_model_config.max_input_length",
+                    { valueAsNumber: true },
+                  )}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label title={t("agentConfig.embeddingMaxBatchSizeTooltip")}>
+                  {t("agentConfig.embeddingMaxBatchSize")}
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  disabled={!embeddingEnabled}
+                  {...register(
+                    "reme_light_memory_config.embedding_model_config.max_batch_size",
+                    { valueAsNumber: true },
+                  )}
+                />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </CardContent>
     </Card>
   );
 }

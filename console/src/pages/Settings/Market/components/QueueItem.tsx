@@ -1,5 +1,5 @@
 import { memo, useCallback } from "react";
-import { Button } from "@agentscope-ai/design";
+import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
 import type { InstallQueueItem } from "../useMarketInstall";
 import { sourceLabel } from "./SkillIcon";
@@ -62,12 +62,12 @@ export const QueueItem = memo(function QueueItem({
       )}
       <div className={styles.queueItemActions}>
         {canCancel && (
-          <Button size="small" onClick={handleCancel}>
+          <Button size="sm" onClick={handleCancel}>
             {t("common.cancel")}
           </Button>
         )}
         {canRetry && (
-          <Button size="small" type="primary" onClick={handleRetry}>
+          <Button size="sm" onClick={handleRetry}>
             {t("market.retry")}
           </Button>
         )}

@@ -1,17 +1,32 @@
 import { useEffect, useMemo, useState } from "react";
-import { Card, Empty, Button } from "@agentscope-ai/design";
-import { Spin, Tooltip } from "antd";
-import { DatePicker } from "antd";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Loader2, PackageOpen } from "lucide-react";
 import type { Dayjs } from "dayjs";
 import dayjs from "dayjs";
 import { useTranslation } from "react-i18next";
-import { Column, Pie } from "@ant-design/plots";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartTooltip,
+  Legend,
+  PieChart,
+  Pie,
+  Cell,
+} from "recharts";
 import api from "../../../api";
 import type { AgentStatsSummary } from "../../../api/types/agentStats";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { formatCompact } from "../../../utils/formatNumber";
-import { useTheme } from "../../../contexts/ThemeContext";
 import { useAgentStore } from "../../../stores/agentStore";
 import { SummaryCard } from "./SummaryCard";
 import styles from "./index.module.less";
@@ -30,9 +45,10 @@ type ChartDataItem = {
   toolCalls: number;
 };
 
-interface ColumnSeries {
-  key: keyof ChartDataItem;
+interface BarSeriesConfig {
+  dataKey: keyof ChartDataItem;
   label: string;
+  color: string;
 }
 
 function formatDateLabel(dateStr: string, crossesYear: boolean): string {
@@ -40,65 +56,129 @@ function formatDateLabel(dateStr: string, crossesYear: boolean): string {
   return crossesYear ? date.format("YY/MM-DD") : date.format("MM-DD");
 }
 
-function getColumnConfig(
-  chartData: ChartDataItem[],
-  series: ColumnSeries[],
-  colors: string[],
-  isDarkMode: boolean,
-  crossesYear: boolean,
-  options?: {
-    yAxisFormatter?: (v: number) => string;
-    tooltipFormatter?: (v: number) => string;
-  },
-) {
-  const config: Record<string, unknown> = {
-    data: chartData.flatMap((d) =>
-      series.map((s) => ({
-        date: d.date,
-        value: d[s.key],
-        category: s.label,
-      })),
-    ),
-    xField: "date",
-    yField: "value",
-    seriesField: "category",
-    colorField: "category",
-    isGroup: true,
-    height: 150,
-    autoFit: true,
-    theme: isDarkMode ? "dark" : "light",
-    legend: { position: "bottom" as const },
-    meta: {
-      color: { range: colors },
-    },
-    axis: {
-      x: {
-        labelFormatter: (d: string) => formatDateLabel(d, crossesYear),
-      },
-      ...(options?.yAxisFormatter
-        ? { y: { labelFormatter: options.yAxisFormatter } }
-        : {}),
-    },
-    tooltip: {
-      title: "date",
-      items: [
-        (datum: { date: string; value: number; category: string }) => ({
-          name: datum.category,
-          value: options?.tooltipFormatter
-            ? options.tooltipFormatter(datum.value)
-            : datum.value?.toLocaleString(),
-        }),
-      ],
-    },
-  };
+const PIE_COLORS = ["#1890ff", "#52c41a", "#faad14", "#f5222d"];
 
-  return config;
+interface TrendCardProps {
+  title: string;
+  tooltip: string;
+  data: ChartDataItem[];
+  series: BarSeriesConfig[];
+  crossesYear: boolean;
+  yFormatter?: (v: number) => string;
+}
+
+function TrendCard({
+  title,
+  tooltip,
+  data,
+  series,
+  crossesYear,
+  yFormatter,
+}: TrendCardProps) {
+  const barData = data.map((d) => {
+    const row: Record<string, string | number> = {
+      date: formatDateLabel(d.date, crossesYear),
+    };
+    series.forEach((s) => {
+      row[s.label] = d[s.dataKey];
+    });
+    return row;
+  });
+
+  return (
+    <div className={`${styles.chartCard} border rounded-lg p-4`}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            className={`${styles.chartTitle} cursor-default text-sm font-semibold mb-2`}
+          >
+            {title}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{tooltip}</TooltipContent>
+      </Tooltip>
+      <div className={styles.chartContainerShort}>
+        <ResponsiveContainer width="100%" height={150}>
+          <BarChart
+            data={barData}
+            margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke="rgba(128,128,128,0.15)"
+            />
+            <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+            <YAxis
+              tick={{ fontSize: 10 }}
+              width={40}
+              tickFormatter={yFormatter ?? ((v: number) => v.toString())}
+            />
+            <RechartTooltip
+              formatter={(value: number, name: string) => [
+                yFormatter ? yFormatter(value) : value.toLocaleString(),
+                name,
+              ]}
+            />
+            <Legend wrapperStyle={{ fontSize: 10 }} />
+            {series.map((s) => (
+              <Bar key={s.label} dataKey={s.label} fill={s.color} />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+interface PieCardProps {
+  title: string;
+  tooltip: string;
+  data: Array<{ channel: string; value: number }>;
+}
+
+function PieCard({ title, tooltip, data }: PieCardProps) {
+  return (
+    <div className={`${styles.chartCard} border rounded-lg p-4`}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            className={`${styles.chartTitle} cursor-default text-sm font-semibold mb-2`}
+          >
+            {title}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{tooltip}</TooltipContent>
+      </Tooltip>
+      <div className={styles.pieChartContainer}>
+        <ResponsiveContainer width="100%" height={280}>
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="channel"
+              cx="50%"
+              cy="50%"
+              outerRadius={90}
+              label={({ channel, value }: { channel: string; value: number }) =>
+                `${channel}: ${value}`
+              }
+            >
+              {data.map((_entry, idx) => (
+                <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+              ))}
+            </Pie>
+            <RechartTooltip />
+            <Legend />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
 }
 
 function AgentStatsPage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
-  const { isDark: isDarkMode } = useTheme();
   const { selectedAgent } = useAgentStore();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -126,26 +206,36 @@ function AgentStatsPage() {
     }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchData(startDate, endDate);
   }, [selectedAgent]);
 
-  const handleDateChange = (dates: [Dayjs | null, Dayjs | null] | null) => {
-    const newStart = dates?.[0] || startDate;
-    const newEnd = dates?.[1] || endDate;
-    if (dates?.[0]) setStartDate(newStart);
-    if (dates?.[1]) setEndDate(newEnd);
-    if (dates?.[0] && dates?.[1]) {
-      fetchData(newStart, newEnd);
+  const handleStartDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const d = dayjs(e.target.value);
+    if (d.isValid() && !d.isAfter(endDate, "day")) setStartDate(d);
+  };
+
+  const handleEndDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const d = dayjs(e.target.value);
+    const today = dayjs();
+    if (
+      d.isValid() &&
+      !d.isAfter(today, "day") &&
+      !d.isBefore(startDate, "day")
+    ) {
+      setEndDate(d);
     }
   };
+
+  const handleApplyDates = () => fetchData(startDate, endDate);
 
   const crossesYear = useMemo(
     () => startDate.year() !== endDate.year(),
     [startDate, endDate],
   );
 
-  const chartData = useMemo(() => {
+  const chartData = useMemo((): ChartDataItem[] => {
     if (!data?.by_date) return [];
     return data.by_date.map((d) => ({
       date: d.date,
@@ -169,115 +259,23 @@ function AgentStatsPage() {
       (data.total_llm_calls ?? 0) > 0 ||
       (data.total_tool_calls ?? 0) > 0);
 
-  const messageColumnConfig = useMemo(
+  const chatPieData = useMemo(
     () =>
-      getColumnConfig(
-        chartData,
-        [
-          { key: "userMessages", label: t("agentStats.userMessages") },
-          {
-            key: "assistantMessages",
-            label: t("agentStats.assistantMessages"),
-          },
-        ],
-        ["#3b82f6", "#f97316"],
-        isDarkMode,
-        crossesYear,
-      ),
-    [chartData, t, isDarkMode, crossesYear],
-  );
-
-  const chatColumnConfig = useMemo(
-    () =>
-      getColumnConfig(
-        chartData,
-        [
-          { key: "chats", label: t("agentStats.newSessions") },
-          { key: "activeSessions", label: t("agentStats.activeSessions") },
-        ],
-        ["#ff7f16", "#3b82f6"],
-        isDarkMode,
-        crossesYear,
-      ),
-    [chartData, t, isDarkMode, crossesYear],
-  );
-
-  const tokenColumnConfig = useMemo(
-    () =>
-      getColumnConfig(
-        chartData,
-        [
-          { key: "promptTokens", label: t("agentStats.promptTokens") },
-          { key: "completionTokens", label: t("agentStats.completionTokens") },
-        ],
-        ["#8b5cf6", "#10b981"],
-        isDarkMode,
-        crossesYear,
-        {
-          yAxisFormatter: formatCompact,
-          tooltipFormatter: formatCompact,
-        },
-      ),
-    [chartData, t, isDarkMode, crossesYear],
-  );
-
-  const llmToolColumnConfig = useMemo(
-    () =>
-      getColumnConfig(
-        chartData,
-        [
-          { key: "llmCalls", label: t("agentStats.llmCalls") },
-          { key: "toolCalls", label: t("agentStats.toolCalls") },
-        ],
-        ["#ec4899", "#14b8a6"],
-        isDarkMode,
-        crossesYear,
-      ),
-    [chartData, t, isDarkMode, crossesYear],
-  );
-
-  const pieCommon = useMemo(
-    () => ({
-      height: 280,
-      autoFit: true,
-      angleField: "value" as const,
-      colorField: "channel" as const,
-      color: ["#1890ff", "#52c41a", "#faad14", "#f5222d"],
-      padding: 40,
-      label: {
-        text: (d: { channel: string; value: number }) =>
-          `${d.channel}: ${d.value}`,
-        position: "spider" as const,
-        connector: true,
-        transform: [{ type: "overlapDodgeY" }, { type: "exceedAdjust" }],
-      },
-      legend: { position: "bottom" as const },
-      theme: isDarkMode ? "dark" : "light",
-    }),
-    [isDarkMode],
-  );
-
-  const chatPieConfig = useMemo(() => {
-    if (!data?.channel_stats?.length) return null;
-    return {
-      ...pieCommon,
-      data: data.channel_stats.map((item) => ({
+      data?.channel_stats?.map((item) => ({
         channel: item.channel,
         value: Number(item.session_count),
-      })),
-    };
-  }, [data?.channel_stats, pieCommon]);
+      })) ?? null,
+    [data?.channel_stats],
+  );
 
-  const messagePieConfig = useMemo(() => {
-    if (!data?.channel_stats?.length) return null;
-    return {
-      ...pieCommon,
-      data: data.channel_stats.map((item) => ({
+  const messagePieData = useMemo(
+    () =>
+      data?.channel_stats?.map((item) => ({
         channel: item.channel,
         value: Number(item.total_messages),
-      })),
-    };
-  }, [data?.channel_stats, pieCommon]);
+      })) ?? null,
+    [data?.channel_stats],
+  );
 
   return (
     <div className={styles.page}>
@@ -286,31 +284,48 @@ function AgentStatsPage() {
         {error && !data ? (
           <div className={styles.error}>
             <p>{error}</p>
-            <Button
-              type="primary"
-              onClick={() => fetchData(startDate, endDate)}
-            >
+            <Button onClick={() => fetchData(startDate, endDate)}>
               {t("agentStats.retry")}
             </Button>
           </div>
         ) : loading && !data ? (
           <div className={styles.loading}>
-            <Spin size="large" />
+            <Loader2 className="animate-spin" size={32} />
             <p>{t("common.loading")}</p>
           </div>
         ) : (
           <>
-            <div className={styles.filters}>
-              <DatePicker.RangePicker
-                value={[startDate, endDate]}
-                onChange={handleDateChange}
-                className={styles.datePicker}
+            <div className={`${styles.filters} flex items-center gap-2`}>
+              <input
+                type="date"
+                value={startDate.format("YYYY-MM-DD")}
+                max={endDate.format("YYYY-MM-DD")}
+                onChange={handleStartDateChange}
                 disabled={loading}
-                disabledDate={(current) =>
-                  current && current.isAfter(dayjs(), "day")
-                }
+                className="h-8 rounded-md border px-2 text-sm bg-background disabled:opacity-50"
               />
-              {loading && <Spin size="small" />}
+              <span className="text-sm text-muted-foreground">—</span>
+              <input
+                type="date"
+                value={endDate.format("YYYY-MM-DD")}
+                min={startDate.format("YYYY-MM-DD")}
+                max={dayjs().format("YYYY-MM-DD")}
+                onChange={handleEndDateChange}
+                disabled={loading}
+                className="h-8 rounded-md border px-2 text-sm bg-background disabled:opacity-50"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleApplyDates}
+                disabled={loading}
+              >
+                {loading ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  t("common.apply", "Apply")
+                )}
+              </Button>
             </div>
 
             {hasData ? (
@@ -349,128 +364,105 @@ function AgentStatsPage() {
                 </div>
 
                 <div className={styles.trendRow}>
-                  <Card
-                    className={styles.chartCard}
-                    title={
-                      <Tooltip
-                        title={t("agentStats.messageTrendTooltip")}
-                        placement="bottom"
-                      >
-                        <span className={styles.chartTitle}>
-                          {t("agentStats.messageTrend")}
-                        </span>
-                      </Tooltip>
-                    }
-                  >
-                    <div className={styles.chartContainerShort}>
-                      <Column {...messageColumnConfig} />
-                    </div>
-                  </Card>
-
-                  <Card
-                    className={styles.chartCard}
-                    title={
-                      <Tooltip
-                        title={t("agentStats.sessionTrendTooltip")}
-                        placement="bottom"
-                      >
-                        <span className={styles.chartTitle}>
-                          {t("agentStats.sessionTrend")}
-                        </span>
-                      </Tooltip>
-                    }
-                  >
-                    <div className={styles.chartContainerShort}>
-                      <Column {...chatColumnConfig} />
-                    </div>
-                  </Card>
-
-                  <Card
-                    className={styles.chartCard}
-                    title={
-                      <Tooltip
-                        title={t("agentStats.tokenTrendTooltip")}
-                        placement="bottom"
-                      >
-                        <span className={styles.chartTitle}>
-                          {t("agentStats.tokenTrend")}
-                        </span>
-                      </Tooltip>
-                    }
-                  >
-                    <div className={styles.chartContainerShort}>
-                      <Column {...tokenColumnConfig} />
-                    </div>
-                  </Card>
-
-                  <Card
-                    className={styles.chartCard}
-                    title={
-                      <Tooltip
-                        title={t("agentStats.llmAndToolTrendTooltip")}
-                        placement="bottom"
-                      >
-                        <span className={styles.chartTitle}>
-                          {t("agentStats.llmAndToolTrend")}
-                        </span>
-                      </Tooltip>
-                    }
-                  >
-                    <div className={styles.chartContainerShort}>
-                      <Column {...llmToolColumnConfig} />
-                    </div>
-                  </Card>
+                  <TrendCard
+                    title={t("agentStats.messageTrend")}
+                    tooltip={t("agentStats.messageTrendTooltip")}
+                    data={chartData}
+                    series={[
+                      {
+                        dataKey: "userMessages",
+                        label: t("agentStats.userMessages"),
+                        color: "#3b82f6",
+                      },
+                      {
+                        dataKey: "assistantMessages",
+                        label: t("agentStats.assistantMessages"),
+                        color: "#5b4b8a",
+                      },
+                    ]}
+                    crossesYear={crossesYear}
+                  />
+                  <TrendCard
+                    title={t("agentStats.sessionTrend")}
+                    tooltip={t("agentStats.sessionTrendTooltip")}
+                    data={chartData}
+                    series={[
+                      {
+                        dataKey: "chats",
+                        label: t("agentStats.newSessions"),
+                        color: "#5b4b8a",
+                      },
+                      {
+                        dataKey: "activeSessions",
+                        label: t("agentStats.activeSessions"),
+                        color: "#3b82f6",
+                      },
+                    ]}
+                    crossesYear={crossesYear}
+                  />
+                  <TrendCard
+                    title={t("agentStats.tokenTrend")}
+                    tooltip={t("agentStats.tokenTrendTooltip")}
+                    data={chartData}
+                    series={[
+                      {
+                        dataKey: "promptTokens",
+                        label: t("agentStats.promptTokens"),
+                        color: "#8b5cf6",
+                      },
+                      {
+                        dataKey: "completionTokens",
+                        label: t("agentStats.completionTokens"),
+                        color: "#10b981",
+                      },
+                    ]}
+                    crossesYear={crossesYear}
+                    yFormatter={formatCompact}
+                  />
+                  <TrendCard
+                    title={t("agentStats.llmAndToolTrend")}
+                    tooltip={t("agentStats.llmAndToolTrendTooltip")}
+                    data={chartData}
+                    series={[
+                      {
+                        dataKey: "llmCalls",
+                        label: t("agentStats.llmCalls"),
+                        color: "#ec4899",
+                      },
+                      {
+                        dataKey: "toolCalls",
+                        label: t("agentStats.toolCalls"),
+                        color: "#14b8a6",
+                      },
+                    ]}
+                    crossesYear={crossesYear}
+                  />
                 </div>
 
-                {(chatPieConfig || messagePieConfig) && (
+                {chatPieData?.length || messagePieData?.length ? (
                   <div className={styles.pieChartsRow}>
-                    {chatPieConfig && (
-                      <Card
-                        className={styles.chartCard}
-                        title={
-                          <Tooltip
-                            title={t("agentStats.sessionsByChannelTooltip")}
-                            placement="bottom"
-                          >
-                            <span className={styles.chartTitle}>
-                              {t("agentStats.sessionsByChannel")}
-                            </span>
-                          </Tooltip>
-                        }
-                      >
-                        <div className={styles.pieChartContainer}>
-                          <Pie {...chatPieConfig} />
-                        </div>
-                      </Card>
-                    )}
-
-                    {messagePieConfig && (
-                      <Card
-                        className={styles.chartCard}
-                        title={
-                          <Tooltip
-                            title={t("agentStats.messagesByChannelTooltip")}
-                            placement="bottom"
-                          >
-                            <span className={styles.chartTitle}>
-                              {t("agentStats.messagesByChannel")}
-                            </span>
-                          </Tooltip>
-                        }
-                      >
-                        <div className={styles.pieChartContainer}>
-                          <Pie {...messagePieConfig} />
-                        </div>
-                      </Card>
-                    )}
+                    {chatPieData?.length ? (
+                      <PieCard
+                        title={t("agentStats.sessionsByChannel")}
+                        tooltip={t("agentStats.sessionsByChannelTooltip")}
+                        data={chatPieData}
+                      />
+                    ) : null}
+                    {messagePieData?.length ? (
+                      <PieCard
+                        title={t("agentStats.messagesByChannel")}
+                        tooltip={t("agentStats.messagesByChannelTooltip")}
+                        data={messagePieData}
+                      />
+                    ) : null}
                   </div>
-                )}
+                ) : null}
               </>
             ) : (
-              <Empty
-                description={t("agentStats.noData")}
-                style={{ marginTop: 48 }}
-              />
+              <div className="flex flex-col items-center justify-center gap-3 mt-12 text-muted-foreground">
+                <PackageOpen size={48} strokeWidth={1} />
+                <span className="text-sm">{t("agentStats.noData")}</span>
+              </div>
             )}
           </>
         )}

@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Modal, Select, Tooltip } from "@agentscope-ai/design";
-import { CheckOutlined } from "@ant-design/icons";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type {
   PoolSkillSpec,
@@ -57,173 +69,205 @@ export function BroadcastModal({
     onCancel();
   };
 
+  const canConfirm =
+    selectedSkillNames.length > 0 && selectedWorkspaceIds.length > 0;
+
   return (
-    <Modal
+    <Dialog
       open={open}
-      onCancel={handleCancel}
-      onOk={() => onConfirm(selectedSkillNames, selectedWorkspaceIds)}
-      okButtonProps={{
-        disabled:
-          selectedSkillNames.length === 0 || selectedWorkspaceIds.length === 0,
+      onOpenChange={(v) => {
+        if (!v) handleCancel();
       }}
-      title={t("skillPool.broadcast")}
-      width={640}
     >
-      <div style={{ display: "grid", gap: 12 }}>
-        <div className={styles.pickerSection}>
-          <div className={styles.pickerHeader}>
-            <div className={styles.pickerLabel}>
-              {t("skills.selectPoolItem")}
+      <DialogContent className="max-w-[640px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{t("skillPool.broadcast")}</DialogTitle>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-3">
+          <div className={styles.pickerSection}>
+            <div className={styles.pickerHeader}>
+              <div className={styles.pickerLabel}>
+                {t("skills.selectPoolItem")}
+              </div>
+              <div className={styles.bulkActions}>
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    setSelectedSkillNames(filteredSkills.map((s) => s.name))
+                  }
+                >
+                  {t("agent.selectAll")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSelectedSkillNames(builtinSkillNames)}
+                >
+                  {t("agent.selectBuiltin")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSelectedSkillNames([])}
+                >
+                  {t("skills.clearSelection")}
+                </Button>
+              </div>
             </div>
-            <div className={styles.bulkActions}>
-              <Button
-                size="small"
-                type="primary"
-                onClick={() =>
-                  setSelectedSkillNames(filteredSkills.map((s) => s.name))
-                }
+          </div>
+
+          {allTags.length > 0 && (
+            <div className="relative">
+              <button
+                className={`${styles.tagSelect} border rounded-md px-2 py-1 text-sm w-full text-left`}
+                onClick={() => setFilterOpen((v) => !v)}
               >
-                {t("agent.selectAll")}
-              </Button>
-              <Button
-                size="small"
-                onClick={() => setSelectedSkillNames(builtinSkillNames)}
-              >
-                {t("agent.selectBuiltin")}
-              </Button>
-              <Button size="small" onClick={() => setSelectedSkillNames([])}>
-                {t("skills.clearSelection")}
-              </Button>
+                {searchTags.length > 0
+                  ? searchTags.join(", ")
+                  : t("skills.filterByTag")}
+              </button>
+              {filterOpen && (
+                <div className="absolute z-50 bg-popover border rounded-md shadow-md mt-1 w-full">
+                  <SkillFilterDropdown
+                    allTags={allTags}
+                    searchTags={searchTags}
+                    setSearchTags={setSearchTags}
+                    styles={styles}
+                  />
+                </div>
+              )}
             </div>
+          )}
+
+          <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
+            {filteredSkills.map((skill) => {
+              const selected = selectedSkillNames.includes(skill.name);
+              return (
+                <div
+                  key={skill.name}
+                  className={`${styles.pickerCard} ${
+                    styles.compactPickerCard
+                  } ${selected ? styles.pickerCardSelected : ""}`}
+                  onClick={() =>
+                    setSelectedSkillNames(
+                      selected
+                        ? selectedSkillNames.filter((n) => n !== skill.name)
+                        : [...selectedSkillNames, skill.name],
+                    )
+                  }
+                >
+                  {selected && (
+                    <span
+                      className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}
+                    >
+                      <Check size={12} />
+                    </span>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div
+                        className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
+                      >
+                        {skill.name}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>{skill.name}</TooltipContent>
+                  </Tooltip>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className={styles.pickerSection}>
+            <div className={styles.pickerHeader}>
+              <div className={styles.pickerLabel}>
+                {t("skillPool.selectWorkspaces")}
+              </div>
+              <div className={styles.bulkActions}>
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    setSelectedWorkspaceIds(workspaces.map((ws) => ws.agent_id))
+                  }
+                >
+                  {t("skillPool.allWorkspaces")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSelectedWorkspaceIds([])}
+                >
+                  {t("skills.clearSelection")}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
+            {workspaces.map((workspace) => {
+              const selected = selectedWorkspaceIds.includes(
+                workspace.agent_id,
+              );
+              return (
+                <div
+                  key={workspace.agent_id}
+                  className={`${styles.pickerCard} ${
+                    styles.compactPickerCard
+                  } ${selected ? styles.pickerCardSelected : ""}`}
+                  onClick={() =>
+                    setSelectedWorkspaceIds(
+                      selected
+                        ? selectedWorkspaceIds.filter(
+                            (id) => id !== workspace.agent_id,
+                          )
+                        : [...selectedWorkspaceIds, workspace.agent_id],
+                    )
+                  }
+                >
+                  {selected && (
+                    <span
+                      className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}
+                    >
+                      <Check size={12} />
+                    </span>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div
+                        className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
+                      >
+                        {getAgentDisplayName(
+                          {
+                            id: workspace.agent_id,
+                            name: workspace.agent_name ?? "",
+                          },
+                          t,
+                        )}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>{`ID: ${workspace.agent_id}`}</TooltipContent>
+                  </Tooltip>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        <Select
-          mode="multiple"
-          className={styles.tagSelect}
-          placeholder={t("skills.filterByTag")}
-          value={searchTags}
-          onChange={setSearchTags}
-          open={filterOpen}
-          onOpenChange={setFilterOpen}
-          allowClear
-          maxTagCount="responsive"
-          notFoundContent={<></>}
-          popupRender={() =>
-            allTags.length > 0 ? (
-              <SkillFilterDropdown
-                allTags={allTags}
-                searchTags={searchTags}
-                setSearchTags={setSearchTags}
-                styles={styles}
-              />
-            ) : (
-              <div className={styles.tagSelectEmpty}>{t("skills.noTags")}</div>
-            )
-          }
-        />
-
-        <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
-          {filteredSkills.map((skill) => {
-            const selected = selectedSkillNames.includes(skill.name);
-            return (
-              <div
-                key={skill.name}
-                className={`${styles.pickerCard} ${styles.compactPickerCard} ${
-                  selected ? styles.pickerCardSelected : ""
-                }`}
-                onClick={() =>
-                  setSelectedSkillNames(
-                    selected
-                      ? selectedSkillNames.filter((n) => n !== skill.name)
-                      : [...selectedSkillNames, skill.name],
-                  )
-                }
-              >
-                {selected && (
-                  <span
-                    className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}
-                  >
-                    <CheckOutlined />
-                  </span>
-                )}
-                <Tooltip title={skill.name}>
-                  <div
-                    className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
-                  >
-                    {skill.name}
-                  </div>
-                </Tooltip>
-              </div>
-            );
-          })}
-        </div>
-        <div className={styles.pickerSection}>
-          <div className={styles.pickerHeader}>
-            <div className={styles.pickerLabel}>
-              {t("skillPool.selectWorkspaces")}
-            </div>
-            <div className={styles.bulkActions}>
-              <Button
-                size="small"
-                type="primary"
-                onClick={() =>
-                  setSelectedWorkspaceIds(workspaces.map((ws) => ws.agent_id))
-                }
-              >
-                {t("skillPool.allWorkspaces")}
-              </Button>
-              <Button size="small" onClick={() => setSelectedWorkspaceIds([])}>
-                {t("skills.clearSelection")}
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
-          {workspaces.map((workspace) => {
-            const selected = selectedWorkspaceIds.includes(workspace.agent_id);
-            return (
-              <div
-                key={workspace.agent_id}
-                className={`${styles.pickerCard} ${styles.compactPickerCard} ${
-                  selected ? styles.pickerCardSelected : ""
-                }`}
-                onClick={() =>
-                  setSelectedWorkspaceIds(
-                    selected
-                      ? selectedWorkspaceIds.filter(
-                          (id) => id !== workspace.agent_id,
-                        )
-                      : [...selectedWorkspaceIds, workspace.agent_id],
-                  )
-                }
-              >
-                {selected && (
-                  <span
-                    className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}
-                  >
-                    <CheckOutlined />
-                  </span>
-                )}
-                <Tooltip title={`ID: ${workspace.agent_id}`}>
-                  <div
-                    className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
-                  >
-                    {getAgentDisplayName(
-                      {
-                        id: workspace.agent_id,
-                        name: workspace.agent_name ?? "",
-                      },
-                      t,
-                    )}
-                  </div>
-                </Tooltip>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </Modal>
+        <DialogFooter>
+          <Button variant="outline" onClick={handleCancel}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            disabled={!canConfirm}
+            onClick={() =>
+              void onConfirm(selectedSkillNames, selectedWorkspaceIds)
+            }
+          >
+            {t("common.confirm")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

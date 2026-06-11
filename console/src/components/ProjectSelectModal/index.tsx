@@ -10,7 +10,6 @@
  */
 
 import { useState, useRef, useEffect } from "react";
-import { Modal, Tabs, Input, Button, Alert, List } from "antd";
 import {
   ChevronRight,
   Folder,
@@ -19,8 +18,11 @@ import {
   GitBranch,
   HardDrive,
   Home,
+  Info,
+  Loader2,
   PlusCircle,
   RotateCcw,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -30,7 +32,15 @@ import {
   type ProjectListItem,
 } from "../../api/modules/codingProject";
 import { useProjectDir } from "../../stores/codingModeStore";
-import styles from "./index.module.less";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 interface ProjectSelectModalProps {
   open: boolean;
@@ -51,6 +61,39 @@ interface CloneEvent {
 }
 
 // ---------------------------------------------------------------------------
+// InfoAlert helper – replaces antd Alert
+// ---------------------------------------------------------------------------
+
+type AlertType = "info" | "warning" | "error";
+
+function InfoAlert({ type, message }: { type: AlertType; message: string }) {
+  const iconMap: Record<AlertType, React.ReactNode> = {
+    info: <Info size={14} className="text-blue-500 shrink-0 mt-0.5" />,
+    warning: (
+      <TriangleAlert size={14} className="text-yellow-500 shrink-0 mt-0.5" />
+    ),
+    error: (
+      <TriangleAlert size={14} className="text-destructive shrink-0 mt-0.5" />
+    ),
+  };
+  const bgMap: Record<AlertType, string> = {
+    info: "bg-blue-50 border-blue-200 dark-mode:bg-blue-950/30 dark-mode:border-blue-800",
+    warning:
+      "bg-yellow-50 border-yellow-200 dark-mode:bg-yellow-950/30 dark-mode:border-yellow-800",
+    error:
+      "bg-red-50 border-red-200 dark-mode:bg-red-950/30 dark-mode:border-red-800",
+  };
+  return (
+    <div
+      className={`flex gap-2 p-3 rounded-md border text-sm mb-3 ${bgMap[type]}`}
+    >
+      {iconMap[type]}
+      <span>{message}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Tab: Workspace
 // ---------------------------------------------------------------------------
 
@@ -63,26 +106,19 @@ function WorkspaceTab({
 }) {
   const { t } = useTranslation();
   return (
-    <div className={styles.tabContent}>
-      <Alert
-        type="info"
-        showIcon
-        message={t("codingMode.workspaceDesc")}
-        className={styles.workspaceAlert}
-      />
+    <div className="flex flex-col gap-3 mt-3">
+      <InfoAlert type="info" message={t("codingMode.workspaceDesc")} />
       {workspaceDir && (
-        <div className={styles.currentInfo}>
-          <span className={styles.currentLabel}>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">
             {t("codingMode.workingDir")}:
           </span>
-          <code className={styles.currentPath}>{workspaceDir}</code>
+          <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">
+            {workspaceDir}
+          </code>
         </div>
       )}
-      <Button
-        type="primary"
-        onClick={() => onSelect(null)}
-        className={styles.actionBtn}
-      >
+      <Button onClick={() => onSelect(null)}>
         {t("codingMode.confirmBtn")}
       </Button>
     </div>
@@ -155,31 +191,35 @@ function CloneTab({ onDone }: { onDone: (path: string) => void }) {
   };
 
   return (
-    <div className={styles.tabContent}>
-      <label className={styles.fieldLabel}>{t("codingMode.cloneUrl")}</label>
-      <Input
-        placeholder={t("codingMode.cloneUrlPlaceholder")}
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        disabled={cloning}
-        className={styles.input}
-      />
-      <label className={styles.fieldLabel}>{t("codingMode.cloneName")}</label>
-      <Input
-        placeholder={t("codingMode.cloneNamePlaceholder")}
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        disabled={cloning}
-        className={styles.input}
-      />
-      {error && (
-        <Alert type="error" message={error} className={styles.alert} showIcon />
-      )}
+    <div className="flex flex-col gap-3 mt-3">
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-muted-foreground">
+          {t("codingMode.cloneUrl")}
+        </label>
+        <Input
+          placeholder={t("codingMode.cloneUrlPlaceholder")}
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          disabled={cloning}
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-muted-foreground">
+          {t("codingMode.cloneName")}
+        </label>
+        <Input
+          placeholder={t("codingMode.cloneNamePlaceholder")}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          disabled={cloning}
+        />
+      </div>
+      {error && <InfoAlert type="error" message={error} />}
       {logs.length > 0 && (
-        <div className={styles.logBox}>
+        <div className="bg-muted rounded-md p-3 max-h-36 overflow-y-auto text-xs font-mono">
           {logs.map((l, i) => (
             // eslint-disable-next-line react/no-array-index-key
-            <div key={i} className={styles.logLine}>
+            <div key={i} className="leading-relaxed">
               {l}
             </div>
           ))}
@@ -187,12 +227,10 @@ function CloneTab({ onDone }: { onDone: (path: string) => void }) {
         </div>
       )}
       <Button
-        type="primary"
         onClick={() => void handleClone()}
-        loading={cloning}
-        disabled={!url.trim()}
-        className={styles.actionBtn}
+        disabled={cloning || !url.trim()}
       >
+        {cloning && <Loader2 size={14} className="animate-spin mr-2" />}
         {cloning ? t("codingMode.cloning") : t("codingMode.cloneBtn")}
       </Button>
     </div>
@@ -346,13 +384,8 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
   };
 
   return (
-    <div className={styles.tabContent}>
-      <Alert
-        type="info"
-        showIcon
-        message={t("codingMode.importCopyDesc")}
-        className={styles.alert}
-      />
+    <div className="flex flex-col gap-3 mt-3">
+      <InfoAlert type="info" message={t("codingMode.importCopyDesc")} />
       <input
         ref={dirInputRef}
         type="file"
@@ -365,47 +398,35 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
 
       {localSel ? (
         <>
-          <div className={styles.selectionCard}>
-            <FolderOpen size={18} />
-            <span className={styles.selectionName}>{localSel.name}</span>
-            <Button
-              type="text"
-              size="small"
-              icon={<X size={14} />}
+          <div className="flex items-center gap-2 p-2 rounded-md border bg-muted/40">
+            <FolderOpen size={16} className="text-muted-foreground" />
+            <span className="flex-1 text-sm truncate">{localSel.name}</span>
+            <button
+              type="button"
+              className="p-0.5 rounded hover:bg-muted"
               onClick={() => {
                 setLocalSel(null);
                 setError(null);
               }}
-            />
+            >
+              <X size={13} />
+            </button>
           </div>
-          <Alert
-            type="warning"
-            showIcon
-            message={t("codingMode.importCopyNote")}
-            className={styles.alert}
-          />
-          {error && (
-            <Alert
-              type="error"
-              message={error}
-              showIcon
-              className={styles.alert}
-            />
-          )}
-          <Button
-            type="primary"
-            block
-            loading={loading}
-            onClick={() => void handleImport()}
-          >
+          <InfoAlert type="warning" message={t("codingMode.importCopyNote")} />
+          {error && <InfoAlert type="error" message={error} />}
+          <Button disabled={loading} onClick={() => void handleImport()}>
+            {loading && <Loader2 size={14} className="animate-spin mr-2" />}
             {loading ? t("codingMode.importing") : t("codingMode.openBtn")}
           </Button>
         </>
       ) : (
         <div
-          className={`${styles.dropZone} ${
-            dragOver ? styles.dropZoneActive : ""
-          }`}
+          className={`flex flex-col items-center justify-center gap-2 p-8 rounded-lg border-2 border-dashed cursor-pointer transition-colors
+            ${
+              dragOver
+                ? "border-primary bg-primary/5"
+                : "border-border hover:border-muted-foreground/50 hover:bg-muted/30"
+            }`}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={(e) => void handleDrop(e)}
@@ -414,11 +435,15 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
           tabIndex={0}
           onKeyDown={(e) => e.key === "Enter" && dirInputRef.current?.click()}
         >
-          <FolderOpen size={36} strokeWidth={1.2} className={styles.dropIcon} />
-          <span className={styles.dropPrimary}>
+          <FolderOpen
+            size={36}
+            strokeWidth={1.2}
+            className="text-muted-foreground"
+          />
+          <span className="text-sm font-medium">
             {t("codingMode.dropPrimary")}
           </span>
-          <span className={styles.dropSecondary}>
+          <span className="text-xs text-muted-foreground">
             {t("codingMode.dropSecondary")}
           </span>
         </div>
@@ -463,79 +488,64 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
 
   useEffect(() => {
     navigate("~");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const breadcrumbParts = data?.current.split("/").filter(Boolean) ?? [];
 
   return (
-    <div className={styles.tabContent}>
-      <Alert
-        type="info"
-        showIcon
-        message={t("codingMode.openDirDesc")}
-        className={styles.alert}
-      />
+    <div className="flex flex-col gap-3 mt-3">
+      <InfoAlert type="info" message={t("codingMode.openDirDesc")} />
 
       {/* Quick-access shortcuts */}
-      <div className={styles.browseShortcuts}>
+      <div className="flex gap-1">
         <Button
-          size="small"
-          type="text"
-          icon={<Home size={13} />}
+          variant="ghost"
+          size="sm"
           onClick={() => navigate("~")}
+          className="h-7 text-xs gap-1"
         >
+          <Home size={12} />
           {t("codingMode.openDirHome")}
         </Button>
         <Button
-          size="small"
-          type="text"
-          icon={<RotateCcw size={13} />}
+          variant="ghost"
+          size="sm"
           onClick={() => navigate(browsePath)}
+          className="h-7 text-xs gap-1"
         >
+          <RotateCcw size={12} />
           {t("codingMode.openDirRefresh")}
         </Button>
       </div>
 
       {/* Breadcrumb */}
       {data && (
-        <div className={styles.browseBreadcrumb}>
-          <span
-            className={styles.breadcrumbSeg}
+        <div className="flex items-center flex-wrap gap-0.5 text-xs text-muted-foreground">
+          <button
+            type="button"
+            className="hover:text-foreground"
             onClick={() => navigate("/")}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                navigate("/");
-              }
-            }}
           >
             /
-          </span>
+          </button>
           {breadcrumbParts.map((seg, i) => {
             const segPath = "/" + breadcrumbParts.slice(0, i + 1).join("/");
             const isLast = i === breadcrumbParts.length - 1;
             return (
-              <span key={segPath} className={styles.breadcrumbItem}>
-                <ChevronRight size={11} className={styles.breadcrumbSep} />
-                <span
-                  className={`${styles.breadcrumbSeg} ${
-                    isLast ? styles.breadcrumbCurrent : ""
-                  }`}
+              <span key={segPath} className="flex items-center gap-0.5">
+                <ChevronRight size={10} />
+                <button
+                  type="button"
+                  className={
+                    isLast
+                      ? "text-foreground font-medium"
+                      : "hover:text-foreground"
+                  }
                   onClick={() => !isLast && navigate(segPath)}
-                  role={isLast ? undefined : "button"}
-                  tabIndex={isLast ? undefined : 0}
-                  onKeyDown={(e) => {
-                    if (!isLast && (e.key === "Enter" || e.key === " ")) {
-                      e.preventDefault();
-                      navigate(segPath);
-                    }
-                  }}
+                  disabled={isLast}
                 >
                   {seg}
-                </span>
+                </button>
               </span>
             );
           })}
@@ -543,62 +553,49 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
       )}
 
       {/* Directory listing */}
-      <div className={styles.browseList} ref={listRef}>
+      <div
+        ref={listRef}
+        className="border rounded-md overflow-y-auto max-h-52 divide-y"
+      >
         {loading && (
-          <div className={styles.browseEmpty}>
+          <div className="flex items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
+            <Loader2 size={14} className="animate-spin" />
             {t("codingMode.openDirLoading")}
           </div>
         )}
         {error && (
-          <Alert
-            type="error"
-            message={error}
-            showIcon
-            className={styles.alert}
-          />
+          <div className="p-2">
+            <InfoAlert type="error" message={error} />
+          </div>
         )}
         {!loading && !error && data && (
           <>
             {data.parent && (
-              <div
-                className={styles.browseItem}
+              <button
+                type="button"
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 text-left"
                 onClick={() => navigate(data.parent!)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    navigate(data.parent!);
-                  }
-                }}
               >
-                <Folder size={15} className={styles.browseItemIcon} />
-                <span className={styles.browseItemName}>..</span>
-              </div>
+                <Folder size={14} className="text-muted-foreground" />
+                <span>..</span>
+              </button>
             )}
             {data.dirs.length === 0 && !data.parent && (
-              <div className={styles.browseEmpty}>
+              <div className="p-4 text-sm text-center text-muted-foreground">
                 {t("codingMode.openDirEmpty")}
               </div>
             )}
             {data.dirs.map((dir) => (
-              <div
+              <button
+                type="button"
                 key={dir.path}
-                className={styles.browseItem}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 text-left"
                 onClick={() => navigate(dir.path)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    navigate(dir.path);
-                  }
-                }}
               >
-                <Folder size={15} className={styles.browseItemIcon} />
-                <span className={styles.browseItemName}>{dir.name}</span>
-                <ChevronRight size={13} className={styles.browseItemChevron} />
-              </div>
+                <Folder size={14} className="text-muted-foreground" />
+                <span className="flex-1 truncate">{dir.name}</span>
+                <ChevronRight size={12} className="text-muted-foreground" />
+              </button>
             ))}
           </>
         )}
@@ -606,11 +603,7 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
 
       {/* Confirm button */}
       {data && !loading && data.selectable !== false && (
-        <Button
-          type="primary"
-          onClick={() => onSelect(data.current)}
-          className={styles.actionBtn}
-        >
+        <Button onClick={() => onSelect(data.current)}>
           {t("codingMode.openDirBtn")}
         </Button>
       )}
@@ -645,24 +638,23 @@ function NewProjectTab({ onDone }: { onDone: (path: string) => void }) {
   };
 
   return (
-    <div className={styles.tabContent}>
-      <label className={styles.fieldLabel}>{t("codingMode.newName")}</label>
-      <Input
-        placeholder={t("codingMode.newNamePlaceholder")}
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        className={styles.input}
-      />
-      {error && (
-        <Alert type="error" message={error} className={styles.alert} showIcon />
-      )}
+    <div className="flex flex-col gap-3 mt-3">
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-muted-foreground">
+          {t("codingMode.newName")}
+        </label>
+        <Input
+          placeholder={t("codingMode.newNamePlaceholder")}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </div>
+      {error && <InfoAlert type="error" message={error} />}
       <Button
-        type="primary"
         onClick={() => void handleCreate()}
-        loading={loading}
-        disabled={!name.trim()}
-        className={styles.actionBtn}
+        disabled={loading || !name.trim()}
       >
+        {loading && <Loader2 size={14} className="animate-spin mr-2" />}
         {t("codingMode.createBtn")}
       </Button>
     </div>
@@ -682,27 +674,66 @@ function RecentProjects({
 }) {
   if (projects.length === 0) return null;
   return (
-    <div className={styles.recentWrap}>
-      <div className={styles.recentTitle}>Recent</div>
-      <List
-        size="small"
-        dataSource={projects}
-        renderItem={(item) => (
-          <List.Item
-            className={`${styles.recentItem} ${
-              item.is_active ? styles.recentItemActive : ""
-            }`}
+    <div className="mt-4 border-t pt-3">
+      <div className="text-xs font-medium text-muted-foreground mb-2">
+        Recent
+      </div>
+      <div className="flex flex-col divide-y border rounded-md overflow-hidden">
+        {projects.map((item) => (
+          <button
+            key={item.path}
+            type="button"
+            className={`flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-muted/50 transition-colors
+              ${item.is_active ? "bg-primary/5 font-medium" : ""}`}
             onClick={() => onSelect(item.path)}
           >
-            <GitBranch size={13} className={styles.recentIcon} />
-            <span className={styles.recentName}>{item.name}</span>
-            <span className={styles.recentPath}>{item.path}</span>
-          </List.Item>
-        )}
-      />
+            <GitBranch size={12} className="text-muted-foreground shrink-0" />
+            <span className="truncate">{item.name}</span>
+            <span className="ml-auto text-xs text-muted-foreground truncate max-w-[180px]">
+              {item.path}
+            </span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Tab definitions
+// ---------------------------------------------------------------------------
+
+type TabKey = "workspace" | "clone" | "opendir" | "local" | "new";
+
+interface TabDef {
+  key: TabKey;
+  icon: React.ReactNode;
+  labelKey: string;
+}
+
+const TAB_DEFS: TabDef[] = [
+  {
+    key: "workspace",
+    icon: <HardDrive size={13} />,
+    labelKey: "codingMode.tabWorkspace",
+  },
+  {
+    key: "clone",
+    icon: <GitBranch size={13} />,
+    labelKey: "codingMode.tabClone",
+  },
+  {
+    key: "opendir",
+    icon: <FolderSymlink size={13} />,
+    labelKey: "codingMode.tabOpenDir",
+  },
+  {
+    key: "local",
+    icon: <FolderOpen size={13} />,
+    labelKey: "codingMode.tabLocal",
+  },
+  { key: "new", icon: <PlusCircle size={13} />, labelKey: "codingMode.tabNew" },
+];
 
 // ---------------------------------------------------------------------------
 // Main Modal
@@ -716,8 +747,7 @@ export default function ProjectSelectModal({
   const { t } = useTranslation();
   const { setProjectDir } = useProjectDir();
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
-  const [activeTab, setActiveTab] = useState("workspace");
-  // The agent's default workspace directory (fetched from backend)
+  const [activeTab, setActiveTab] = useState<TabKey>("workspace");
   const [workspaceDir, setWorkspaceDir] = useState<string | null>(null);
 
   const handleOpen = () => {
@@ -725,7 +755,6 @@ export default function ProjectSelectModal({
       .list()
       .then(setProjects)
       .catch(() => undefined);
-    // GET returns workspace_dir field alongside the active project
     codingProjectApi
       .get()
       .then((info) => {
@@ -734,9 +763,13 @@ export default function ProjectSelectModal({
       .catch(() => undefined);
   };
 
+  // Trigger data fetch when modal opens
+  useEffect(() => {
+    if (open) handleOpen();
+  }, [open]);
+
   const handleConfirm = async (path: string | null) => {
     if (path !== undefined) {
-      // For workspace default (path === null), explicitly reset on backend too
       if (path === null) {
         try {
           await codingProjectApi.set(null);
@@ -760,7 +793,6 @@ export default function ProjectSelectModal({
   };
 
   const handleCloneDone = async (path: string) => {
-    // After clone, the server already set the active project; update store.
     setProjectDir(path);
     onConfirm(path);
   };
@@ -775,85 +807,69 @@ export default function ProjectSelectModal({
     onConfirm(path);
   };
 
-  const tabItems = [
-    {
-      key: "workspace",
-      label: (
-        <span className={styles.tabLabel}>
-          <HardDrive size={13} />
-          {t("codingMode.tabWorkspace")}
-        </span>
-      ),
-      children: (
-        <WorkspaceTab
-          workspaceDir={workspaceDir}
-          onSelect={() => void handleConfirm(null)}
-        />
-      ),
-    },
-    {
-      key: "clone",
-      label: (
-        <span className={styles.tabLabel}>
-          <GitBranch size={13} />
-          {t("codingMode.tabClone")}
-        </span>
-      ),
-      children: <CloneTab onDone={(p) => void handleCloneDone(p)} />,
-    },
-    {
-      key: "opendir",
-      label: (
-        <span className={styles.tabLabel}>
-          <FolderSymlink size={13} />
-          {t("codingMode.tabOpenDir")}
-        </span>
-      ),
-      children: <OpenDirTab onSelect={(p) => void handlePathSelected(p)} />,
-    },
-    {
-      key: "local",
-      label: (
-        <span className={styles.tabLabel}>
-          <FolderOpen size={13} />
-          {t("codingMode.tabLocal")}
-        </span>
-      ),
-      children: <LocalPathTab onSelect={handleLocalDone} />,
-    },
-    {
-      key: "new",
-      label: (
-        <span className={styles.tabLabel}>
-          <PlusCircle size={13} />
-          {t("codingMode.tabNew")}
-        </span>
-      ),
-      children: <NewProjectTab onDone={handleNewDone} />,
-    },
-  ];
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case "workspace":
+        return (
+          <WorkspaceTab
+            workspaceDir={workspaceDir}
+            onSelect={() => void handleConfirm(null)}
+          />
+        );
+      case "clone":
+        return <CloneTab onDone={(p) => void handleCloneDone(p)} />;
+      case "opendir":
+        return <OpenDirTab onSelect={(p) => void handlePathSelected(p)} />;
+      case "local":
+        return <LocalPathTab onSelect={handleLocalDone} />;
+      case "new":
+        return <NewProjectTab onDone={handleNewDone} />;
+    }
+  };
 
   return (
-    <Modal
-      open={open}
-      title={t("codingMode.selectProject")}
-      onCancel={onClose}
-      footer={null}
-      width={560}
-      afterOpenChange={(isOpen) => isOpen && handleOpen()}
-      className={styles.modal}
-    >
-      <p className={styles.desc}>{t("codingMode.selectProjectDesc")}</p>
-      <Tabs
-        activeKey={activeTab}
-        onChange={setActiveTab}
-        items={tabItems}
-        size="small"
-      />
-      <RecentProjects
-        projects={projects}
-        onSelect={(p) => void handlePathSelected(p)}
-      />
-    </Modal>
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="w-[560px] max-w-[95vw] max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{t("codingMode.selectProject")}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("codingMode.selectProjectDesc")}
+          </DialogDescription>
+        </DialogHeader>
+
+        <p className="text-sm text-muted-foreground -mt-1">
+          {t("codingMode.selectProjectDesc")}
+        </p>
+
+        {/* Tabs */}
+        <div className="flex gap-0.5 border-b">
+          {TAB_DEFS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap
+                ${
+                  activeTab === tab.key
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+            >
+              {tab.icon}
+              {t(tab.labelKey)}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Content */}
+        {renderTabContent()}
+
+        {/* Recent projects */}
+        <RecentProjects
+          projects={projects}
+          onSelect={(p) => void handlePathSelected(p)}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }

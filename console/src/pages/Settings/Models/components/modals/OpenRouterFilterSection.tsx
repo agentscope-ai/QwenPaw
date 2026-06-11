@@ -1,16 +1,21 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Input, Switch, Tag } from "@agentscope-ai/design";
-import { FilterOutlined, GiftOutlined, PlusOutlined } from "@ant-design/icons";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import {
-  SparkImageuploadLine,
-  SparkAudiouploadLine,
-  SparkVideouploadLine,
-  SparkFilePdfLine,
-  SparkTextLine,
-  SparkTextImageLine,
-} from "@agentscope-ai/icons";
+  Filter,
+  Gift,
+  Plus,
+  Image,
+  Music,
+  Video,
+  FileText,
+  Type,
+  ImagePlay,
+} from "lucide-react";
 import type { ExtendedModelInfo } from "../../../../../api/types";
 import styles from "./OpenRouterFilterSection.module.less";
 
@@ -37,7 +42,7 @@ const inputModalityOptions = (t: ReturnType<typeof useTranslation>["t"]) => [
   {
     label: (
       <>
-        <SparkImageuploadLine /> {t("models.modalityVision")}
+        <Image className="inline h-3 w-3 mr-1" /> {t("models.modalityVision")}
       </>
     ),
     value: "image",
@@ -45,7 +50,7 @@ const inputModalityOptions = (t: ReturnType<typeof useTranslation>["t"]) => [
   {
     label: (
       <>
-        <SparkAudiouploadLine /> {t("models.modalityAudio")}
+        <Music className="inline h-3 w-3 mr-1" /> {t("models.modalityAudio")}
       </>
     ),
     value: "audio",
@@ -53,7 +58,7 @@ const inputModalityOptions = (t: ReturnType<typeof useTranslation>["t"]) => [
   {
     label: (
       <>
-        <SparkVideouploadLine /> {t("models.modalityVideo")}
+        <Video className="inline h-3 w-3 mr-1" /> {t("models.modalityVideo")}
       </>
     ),
     value: "video",
@@ -61,7 +66,7 @@ const inputModalityOptions = (t: ReturnType<typeof useTranslation>["t"]) => [
   {
     label: (
       <>
-        <SparkFilePdfLine /> {t("models.modalityFile")}
+        <FileText className="inline h-3 w-3 mr-1" /> {t("models.modalityFile")}
       </>
     ),
     value: "file",
@@ -164,13 +169,13 @@ export function OpenRouterFilterSection({
   return (
     <div className={styles.section}>
       <Button
-        type={showFilters ? "primary" : "default"}
-        icon={<PlusOutlined />}
+        variant={showFilters ? "default" : "outline"}
         onClick={onToggleFilters}
         className={`${styles.toggleButton} ${
           showFilters ? styles.toggleButtonExpanded : ""
         }`}
       >
+        <Plus className="mr-2 h-4 w-4" />
         {t("models.addModels") || "Add Models"}
       </Button>
 
@@ -192,16 +197,16 @@ export function OpenRouterFilterSection({
                     className={styles.providerSearchInput}
                   />
                   <Button
-                    type="text"
-                    size="small"
+                    variant="ghost"
+                    size="sm"
                     onClick={handleSelectAllProviders}
                     disabled={filteredProviders.length === 0}
                   >
                     {t("models.selectAllProviders")}
                   </Button>
                   <Button
-                    type="text"
-                    size="small"
+                    variant="ghost"
+                    size="sm"
                     onClick={handleClearProviders}
                     disabled={filteredProviders.length === 0}
                   >
@@ -223,9 +228,8 @@ export function OpenRouterFilterSection({
                     <div key={provider} className={styles.providerRow}>
                       <span className={styles.providerName}>{provider}</span>
                       <Switch
-                        size="small"
                         checked={checked}
-                        onChange={(value) =>
+                        onCheckedChange={(value) =>
                           handleToggleProvider(provider, value)
                         }
                       />
@@ -249,9 +253,8 @@ export function OpenRouterFilterSection({
                       {option.label}
                     </span>
                     <Switch
-                      size="small"
                       checked={checked}
-                      onChange={(value) =>
+                      onCheckedChange={(value) =>
                         handleToggleModality(option.value, value)
                       }
                     />
@@ -265,16 +268,18 @@ export function OpenRouterFilterSection({
             <div className={styles.freeOnlyLabel}>
               {t("models.filterFreeOnly") || "Free Models Only:"}
             </div>
-            <Switch checked={showFreeOnly} onChange={onShowFreeOnlyChange} />
+            <Switch
+              checked={showFreeOnly}
+              onCheckedChange={onShowFreeOnlyChange}
+            />
           </div>
 
           <Button
-            type="primary"
-            icon={<FilterOutlined />}
+            disabled={loadingFilters}
             onClick={onFetchModels}
-            loading={loadingFilters}
             className={styles.fetchButton}
           >
+            <Filter className="mr-2 h-4 w-4" />
             {t("models.filterModels") || "Filter Models"}
           </Button>
 
@@ -294,19 +299,14 @@ export function OpenRouterFilterSection({
                     <div className={styles.modelNameRow}>
                       <span>{model.name}</span>
                       {model.is_free && (
-                        <Tag
-                          style={{
-                            fontSize: 11,
-                            lineHeight: "16px",
-                            marginRight: 0,
-                            ...freeTagStyle,
-                          }}
+                        <Badge
+                          variant="outline"
+                          className="text-xs"
+                          style={freeTagStyle}
                         >
-                          <GiftOutlined
-                            style={{ fontSize: 10, marginRight: 3 }}
-                          />
+                          <Gift className="mr-1 h-3 w-3" />
                           {t("models.free")}
-                        </Tag>
+                        </Badge>
                       )}
                     </div>
                     <div
@@ -316,34 +316,31 @@ export function OpenRouterFilterSection({
                     >
                       <span>{model.provider}</span>
                       {model.input_modalities?.includes("text") && (
-                        <SparkTextLine style={{ fontSize: 12 }} />
+                        <Type className="h-3 w-3" />
                       )}
                       {model.input_modalities?.includes("image") && (
-                        <SparkImageuploadLine style={{ fontSize: 12 }} />
+                        <Image className="h-3 w-3" />
                       )}
                       {model.input_modalities?.includes("audio") && (
-                        <SparkAudiouploadLine style={{ fontSize: 12 }} />
+                        <Music className="h-3 w-3" />
                       )}
                       {model.input_modalities?.includes("video") && (
-                        <SparkVideouploadLine style={{ fontSize: 12 }} />
+                        <Video className="h-3 w-3" />
                       )}
                       {model.input_modalities?.includes("file") && (
-                        <SparkFilePdfLine style={{ fontSize: 12 }} />
+                        <FileText className="h-3 w-3" />
                       )}
                       {model.output_modalities?.includes("image") && (
-                        <SparkTextImageLine
-                          style={{
-                            fontSize: 12,
-                            color: isDark ? "#7dd3fc" : "#722ed1",
-                          }}
+                        <ImagePlay
+                          className="h-3 w-3"
+                          style={{ color: isDark ? "#7dd3fc" : "#722ed1" }}
                         />
                       )}
                       <ModelPricing model={model} />
                     </div>
                   </div>
                   <Button
-                    size="small"
-                    type="primary"
+                    size="sm"
                     onClick={() => onAddModel(model)}
                     disabled={saving}
                   >

@@ -1,11 +1,11 @@
 /**
- * Renders a row of Ant Design Tags summarising what a backup covers:
+ * Renders a row of badges summarising what a backup covers:
  * agent count, global config, skill pool, and secrets (highlighted in orange).
  * Used in the BackupTable scope column and potentially elsewhere.
  */
-import { Tag } from "antd";
 import { useTranslation } from "react-i18next";
 import type { BackupMeta } from "@/api/types/backup";
+import { Badge } from "@/components/ui/badge";
 import styles from "./ScopeTags.module.less";
 
 interface Props {
@@ -18,11 +18,21 @@ export default function ScopeTags({ scope, agentCount }: Props) {
   return (
     <div className={styles.scopeTags}>
       {scope.include_agents && agentCount ? (
-        <Tag>{t("backup.agents", { count: agentCount })}</Tag>
+        <Badge variant="secondary">
+          {t("backup.agents", { count: agentCount })}
+        </Badge>
       ) : null}
-      {scope.include_global_config && <Tag>{t("backup.globalConfig")}</Tag>}
-      {scope.include_skill_pool && <Tag>{t("backup.skillPool")}</Tag>}
-      {scope.include_secrets && <Tag color="orange">{t("backup.secrets")}</Tag>}
+      {scope.include_global_config && (
+        <Badge variant="secondary">{t("backup.globalConfig")}</Badge>
+      )}
+      {scope.include_skill_pool && (
+        <Badge variant="secondary">{t("backup.skillPool")}</Badge>
+      )}
+      {scope.include_secrets && (
+        <Badge className="bg-orange-100 text-orange-700 border-orange-200 dark-mode:bg-orange-950 dark-mode:text-orange-300">
+          {t("backup.secrets")}
+        </Badge>
+      )}
     </div>
   );
 }

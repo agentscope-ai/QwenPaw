@@ -17,33 +17,35 @@ describe("SkillVisual", () => {
 
   it("renders file icon when no emoji provided", () => {
     const { container } = render(<SkillVisual name="report.pdf" />);
-    expect(container.querySelector("[role='img']")).toBeInTheDocument();
+    // Component uses lucide-react SVG icons after shadcn migration
+    expect(container.querySelector("svg")).toBeInTheDocument();
   });
 });
 
 describe("getFileIcon", () => {
-  const cases: [string, string][] = [
-    ["file_reader", "FileTextFilled"],
-    ["news", "FileTextFilled"],
-    ["docx", "FileWordFilled"],
-    ["xlsx", "FileExcelFilled"],
-    ["pptx", "FilePptFilled"],
-    ["pdf", "FilePdfFilled"],
-    ["cron", "CalendarFilled"],
-    ["report.txt", "FileTextFilled"],
-    ["archive.zip", "FileZipFilled"],
-    ["photo.jpg", "FileImageFilled"],
-    ["script.py", "CodeFilled"],
-    ["unknown.xyz", "FileTextFilled"],
+  const cases = [
+    "file_reader",
+    "news",
+    "docx",
+    "xlsx",
+    "pptx",
+    "pdf",
+    "cron",
+    "report.txt",
+    "archive.zip",
+    "photo.jpg",
+    "script.py",
+    "unknown.xyz",
   ];
 
-  it.each(cases)("getFileIcon('%s') renders correct icon", (input) => {
+  it.each(cases)("getFileIcon('%s') renders an svg icon", (input) => {
     const { container } = render(<>{getFileIcon(input)}</>);
-    expect(container.querySelector("[role='img']")).toBeInTheDocument();
+    // Component uses lucide-react SVG icons after shadcn migration
+    expect(container.querySelector("svg")).toBeInTheDocument();
   });
 
   it("handles extra whitespace and mixed case in skill key", () => {
     const { container } = render(<>{getFileIcon("  CRON  ")}</>);
-    expect(container.querySelector("[role='img']")).toBeInTheDocument();
+    expect(container.querySelector("svg")).toBeInTheDocument();
   });
 });

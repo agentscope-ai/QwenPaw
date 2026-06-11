@@ -1,7 +1,7 @@
-import { Button } from "@agentscope-ai/design";
-import { Alert, Spin } from "antd";
+import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
 import { useVoiceTranscription } from "./useVoiceTranscription";
 import {
   AudioModeCard,
@@ -34,7 +34,7 @@ function VoiceTranscriptionPage() {
     return (
       <div className={styles.page}>
         <div className={styles.centerState}>
-          <Spin />
+          <Loader2 className="animate-spin" />
         </div>
       </div>
     );
@@ -48,16 +48,19 @@ function VoiceTranscriptionPage() {
           { title: t("voiceTranscription.title") },
         ]}
       />
-      <Alert
-        type="info"
-        showIcon
-        message={t("voiceTranscription.transcriptionInfoTitle")}
-        description={
-          isLocalWhisper
-            ? t("voiceTranscription.transcriptionInfoDescLocal")
-            : t("voiceTranscription.transcriptionInfoDesc")
-        }
-      />
+      <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark-mode:border-blue-800 dark-mode:bg-blue-950 dark-mode:text-blue-200">
+        <span>ℹ</span>
+        <div>
+          <div className="font-medium">
+            {t("voiceTranscription.transcriptionInfoTitle")}
+          </div>
+          <div className="mt-1">
+            {isLocalWhisper
+              ? t("voiceTranscription.transcriptionInfoDescLocal")
+              : t("voiceTranscription.transcriptionInfoDesc")}
+          </div>
+        </div>
+      </div>
       <div className={styles.content}>
         <AudioModeCard
           audioMode={audioMode}
@@ -87,13 +90,15 @@ function VoiceTranscriptionPage() {
 
       <div className={styles.footerButtons}>
         <Button
+          variant="outline"
           onClick={fetchSettings}
           disabled={saving}
-          style={{ marginRight: 8 }}
+          className="mr-2"
         >
           {t("common.reset")}
         </Button>
-        <Button type="primary" onClick={handleSave} loading={saving}>
+        <Button onClick={handleSave} disabled={saving}>
+          {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {t("common.save")}
         </Button>
       </div>

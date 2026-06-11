@@ -194,7 +194,8 @@ describe("ChatSessionDrawer", () => {
 
   it("renders title chat.allChats when open=true", () => {
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
-    expect(screen.getByText("chat.allChats")).toBeInTheDocument();
+    // Title is rendered both as an sr-only SheetTitle (a11y) and the visible header.
+    expect(screen.getAllByText("chat.allChats").length).toBeGreaterThan(0);
   });
 
   it("clicking new chat calls createSession", async () => {
@@ -228,10 +229,9 @@ describe("ChatSessionDrawer", () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     renderWithProviders(<ChatSessionDrawer open onClose={onClose} />);
+    // Component uses lucide ChevronRight icon after shadcn migration
     await user.click(
-      document
-        .querySelector('[data-icon="SparkOperateRightLine"]')!
-        .closest("button")!,
+      document.querySelector(".lucide-chevron-right")!.closest("button")!,
     );
     expect(onClose).toHaveBeenCalledOnce();
   });

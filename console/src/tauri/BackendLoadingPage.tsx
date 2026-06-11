@@ -1,11 +1,10 @@
-import { Progress } from "antd";
 import { type CSSProperties } from "react";
 import { useTheme } from "../contexts/ThemeContext";
 import { useTranslation } from "react-i18next";
 import styles from "./BackendLoadingPage.module.less";
 import { type BackendReadyStatus } from "./useBackendReadyPolling";
 
-const BRAND_COLOR = "#ff7f16";
+const BRAND_COLOR = "var(--primary)";
 const ERROR_COLOR = "#ff4d4f";
 
 interface BackendLoadingPageProps {
@@ -15,6 +14,70 @@ interface BackendLoadingPageProps {
   errorMessage?: string;
   onRetry?: () => void;
 }
+
+// ── Circular progress (SVG-based, replaces antd Progress type="dashboard") ─
+
+interface CircularProgressProps {
+  percent: number;
+  hasFailed: boolean;
+  isDark: boolean;
+}
+
+function CircularProgress({
+  percent,
+  hasFailed,
+  isDark,
+}: CircularProgressProps) {
+  const size = 160;
+  const strokeWidth = 8;
+  const radius = (size - strokeWidth) / 2;
+  // The gauge covers 270° (bottom-gap dashboard style), starting at 135°
+  const GAP_DEGREES = 90;
+  const ARC_DEGREES = 360 - GAP_DEGREES;
+  const circumference = 2 * Math.PI * radius;
+  const arcLength = (ARC_DEGREES / 360) * circumference;
+  const filledLength = (percent / 100) * arcLength;
+  const trailColor = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+  const strokeColor = hasFailed ? ERROR_COLOR : BRAND_COLOR;
+  // Rotate so gap is at the bottom-centre (start at 135°)
+  const rotateOffset = 135;
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      style={{ transform: `rotate(${rotateOffset}deg)` }}
+      aria-hidden="true"
+    >
+      {/* Trail arc */}
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke={trailColor}
+        strokeWidth={strokeWidth}
+        strokeDasharray={`${arcLength} ${circumference - arcLength}`}
+        strokeLinecap="round"
+      />
+      {/* Filled arc */}
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke={strokeColor}
+        strokeWidth={strokeWidth}
+        strokeDasharray={`${filledLength} ${circumference - filledLength}`}
+        strokeLinecap="round"
+        style={{ transition: "stroke-dasharray 0.4s ease" }}
+      />
+    </svg>
+  );
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BackendLoadingPage({
   status,
@@ -40,7 +103,7 @@ export default function BackendLoadingPage({
 
   const percent = Math.min(Math.round((elapsed / totalSec) * 100), 100);
   const style = {
-    "--qwenpaw-brand-color": BRAND_COLOR,
+    "--qwenpaw-brand-color": "var(--primary)",
     "--qwenpaw-error-color": ERROR_COLOR,
   } as CSSProperties;
 
@@ -54,19 +117,26 @@ export default function BackendLoadingPage({
       <div className={styles.card}>
         <img src="/qwenpaw.png" alt="QwenPaw" className={styles.logo} />
 
-        <Progress
-          type="dashboard"
-          percent={percent}
-          status={hasFailed ? "exception" : "active"}
-          strokeColor={BRAND_COLOR}
-          trailColor={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"}
-          gapPosition="bottom"
-          format={() => (
-            <div className={styles.progressLabel}>{`${elapsed}s`}</div>
-          )}
-          size={160}
-          strokeWidth={8}
-        />
+        {/* Circular progress replacing antd Progress type="dashboard" */}
+        <div className="relative inline-flex items-center justify-center">
+          <CircularProgress
+            percent={percent}
+            hasFailed={hasFailed}
+            isDark={isDark}
+          />
+          {/* Centre label */}
+          <div
+            className={styles.progressLabel}
+            style={{
+              position: "absolute",
+              fontSize: 18,
+              fontWeight: 600,
+              lineHeight: 1,
+            }}
+          >
+            {`${elapsed}s`}
+          </div>
+        </div>
 
         <p
           className={`${styles.statusText} ${

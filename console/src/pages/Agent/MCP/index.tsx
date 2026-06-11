@@ -1,6 +1,22 @@
 import { useState, useCallback } from "react";
-import { Button, Empty, Modal, Input, Select } from "@agentscope-ai/design";
-import { Tabs } from "antd";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus } from "lucide-react";
 import type { MCPClientInfo } from "../../../api/types";
 import { MCPClientCard } from "./components";
@@ -56,10 +72,6 @@ function normalizeClientData(key: string, rawData: Record<string, unknown>) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Form-mode state defaults
-// ---------------------------------------------------------------------------
-
 const defaultForm = {
   key: "",
   name: "",
@@ -86,7 +98,6 @@ function MCPPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"json" | "form">("json");
 
-  // JSON-import state
   const [newClientJson, setNewClientJson] = useState(`{
   "mcpServers": {
     "example-client": {
@@ -99,7 +110,6 @@ function MCPPage() {
   }
 }`);
 
-  // Form state
   const [form, setForm] = useState({ ...defaultForm });
 
   const setField = useCallback(
@@ -138,7 +148,6 @@ function MCPPage() {
     await deleteClient(client);
   };
 
-  // ---------- JSON import ----------
   const handleCreateFromJson = async () => {
     try {
       const parsed = JSON.parse(newClientJson) as Record<string, unknown>;
@@ -197,7 +206,6 @@ function MCPPage() {
     }
   };
 
-  // ---------- Form create ----------
   const handleCreateFromForm = async () => {
     const key = form.key.trim();
     const name = form.name.trim();
@@ -222,13 +230,11 @@ function MCPPage() {
       return;
     }
 
-    // Parse args: split on newlines, commas, or spaces
     const args = form.args
       .split(/[\n, ]+/)
       .map((s) => s.trim())
       .filter(Boolean);
 
-    // Parse env (KEY=VALUE lines)
     const env: Record<string, string> = {};
     form.env
       .split("\n")
@@ -267,11 +273,8 @@ function MCPPage() {
       <PageHeader
         items={[{ title: t("nav.agent") }, { title: t("mcp.title") }]}
         extra={
-          <Button
-            type="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setCreateModalOpen(true)}
-          >
+          <Button onClick={() => setCreateModalOpen(true)}>
+            <Plus size={14} className="mr-1" />
             {t("mcp.create")}
           </Button>
         }
@@ -283,7 +286,7 @@ function MCPPage() {
         </div>
       ) : clients.length === 0 ? (
         <div className={styles.emptyState}>
-          <Empty description={t("mcp.emptyState")} />
+          <p className="text-sm text-muted-foreground">{t("mcp.emptyState")}</p>
         </div>
       ) : (
         <div className={styles.mcpGrid}>
@@ -300,26 +303,183 @@ function MCPPage() {
         </div>
       )}
 
-      <Modal
-        title={t("mcp.create")}
+      <Dialog
         open={createModalOpen}
-        onCancel={() => {
-          setCreateModalOpen(false);
-          resetModal();
+        onOpenChange={(open) => {
+          if (!open) {
+            setCreateModalOpen(false);
+            resetModal();
+          }
         }}
-        footer={
-          <div className={styles.modalFooter}>
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{t("mcp.create")}</DialogTitle>
+          </DialogHeader>
+
+          <Tabs
+            value={activeTab}
+            onValueChange={(k) => setActiveTab(k as "json" | "form")}
+          >
+            <TabsList>
+              <TabsTrigger value="json">{t("mcp.tab.json")}</TabsTrigger>
+              <TabsTrigger value="form">{t("mcp.tab.form")}</TabsTrigger>
+            </TabsList>
+            <TabsContent value="json">
+              <div>
+                <div className={styles.importHint}>
+                  <p className={styles.importHintTitle}>
+                    {t("mcp.formatSupport")}:
+                  </p>
+                  <ul className={styles.importHintList}>
+                    <li>
+                      {t("mcp.standardFormat")}:{" "}
+                      <code>{`{ "mcpServers": { "key": {...} } }`}</code>
+                    </li>
+                    <li>
+                      {t("mcp.directFormat")}: <code>{`{ "key": {...} }`}</code>
+                    </li>
+                    <li>
+                      {t("mcp.singleFormat")}:{" "}
+                      <code>{`{ "key": "...", "name": "...", "command": "..." }`}</code>
+                    </li>
+                  </ul>
+                </div>
+                <Textarea
+                  value={newClientJson}
+                  onChange={(e) => setNewClientJson(e.target.value)}
+                  rows={15}
+                  className={styles.jsonTextArea}
+                />
+              </div>
+            </TabsContent>
+            <TabsContent value="form">
+              <div className="flex flex-col gap-3">
+                <div className="flex gap-3">
+                  <div className="flex-1 flex flex-col gap-1">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      {t("mcp.form.key")}
+                      <span className="text-destructive"> *</span>
+                    </label>
+                    <Input
+                      placeholder={t("mcp.form.keyPlaceholder")}
+                      value={form.key}
+                      onChange={(e) => setField("key", e.target.value)}
+                    />
+                  </div>
+                  <div className="flex-1 flex flex-col gap-1">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      {t("mcp.form.name")}
+                      <span className="text-destructive"> *</span>
+                    </label>
+                    <Input
+                      placeholder={t("mcp.form.namePlaceholder")}
+                      value={form.name}
+                      onChange={(e) => setField("name", e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {t("mcp.form.transport")}
+                  </label>
+                  <Select
+                    value={form.transport}
+                    onValueChange={(v) =>
+                      setField("transport", v as MCPTransport)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="streamable_http">
+                        Streamable HTTP
+                      </SelectItem>
+                      <SelectItem value="sse">SSE</SelectItem>
+                      <SelectItem value="stdio">Stdio</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {isHttpTransport ? (
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      {t("mcp.form.url")}
+                      <span className="text-destructive"> *</span>
+                    </label>
+                    <Input
+                      placeholder="https://mcp.example.com/mcp"
+                      value={form.url}
+                      onChange={(e) => setField("url", e.target.value)}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        {t("mcp.form.command")}
+                        <span className="text-destructive"> *</span>
+                      </label>
+                      <Input
+                        placeholder="npx"
+                        value={form.command}
+                        onChange={(e) => setField("command", e.target.value)}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        {t("mcp.form.args")}
+                      </label>
+                      <Input
+                        placeholder="-y @example/mcp-server"
+                        value={form.args}
+                        onChange={(e) => setField("args", e.target.value)}
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {t("mcp.form.description")}
+                  </label>
+                  <Input
+                    placeholder={t("mcp.form.descriptionPlaceholder")}
+                    value={form.description}
+                    onChange={(e) => setField("description", e.target.value)}
+                  />
+                </div>
+
+                {form.transport === "stdio" && (
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      {t("mcp.form.env")}
+                    </label>
+                    <Textarea
+                      placeholder={t("mcp.form.envPlaceholder")}
+                      value={form.env}
+                      onChange={(e) => setField("env", e.target.value)}
+                      rows={3}
+                    />
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
+
+          <DialogFooter>
             <Button
+              variant="outline"
               onClick={() => {
                 setCreateModalOpen(false);
                 resetModal();
               }}
-              style={{ marginRight: 8 }}
             >
               {t("common.cancel")}
             </Button>
             <Button
-              type="primary"
               onClick={
                 activeTab === "json"
                   ? handleCreateFromJson
@@ -328,185 +488,11 @@ function MCPPage() {
             >
               {t("common.create")}
             </Button>
-          </div>
-        }
-        width={800}
-      >
-        <Tabs
-          activeKey={activeTab}
-          onChange={(k) => setActiveTab(k as "json" | "form")}
-          items={[
-            {
-              key: "json",
-              label: t("mcp.tab.json"),
-              children: (
-                <div>
-                  <div className={styles.importHint}>
-                    <p className={styles.importHintTitle}>
-                      {t("mcp.formatSupport")}:
-                    </p>
-                    <ul className={styles.importHintList}>
-                      <li>
-                        {t("mcp.standardFormat")}:{" "}
-                        <code>{`{ "mcpServers": { "key": {...} } }`}</code>
-                      </li>
-                      <li>
-                        {t("mcp.directFormat")}:{" "}
-                        <code>{`{ "key": {...} }`}</code>
-                      </li>
-                      <li>
-                        {t("mcp.singleFormat")}:{" "}
-                        <code>{`{ "key": "...", "name": "...", "command": "..." }`}</code>
-                      </li>
-                    </ul>
-                  </div>
-                  <Input.TextArea
-                    value={newClientJson}
-                    onChange={(e) => setNewClientJson(e.target.value)}
-                    autoSize={{ minRows: 15, maxRows: 25 }}
-                    className={styles.jsonTextArea}
-                  />
-                </div>
-              ),
-            },
-            {
-              key: "form",
-              label: t("mcp.tab.form"),
-              children: (
-                <div
-                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
-                >
-                  {/* Key + Name */}
-                  <div style={rowStyle}>
-                    <div style={fieldStyle}>
-                      <label style={labelStyle}>
-                        {t("mcp.form.key")}
-                        <span style={{ color: "#c0392b" }}> *</span>
-                      </label>
-                      <Input
-                        placeholder={t("mcp.form.keyPlaceholder")}
-                        value={form.key}
-                        onChange={(e) => setField("key", e.target.value)}
-                      />
-                    </div>
-                    <div style={fieldStyle}>
-                      <label style={labelStyle}>
-                        {t("mcp.form.name")}
-                        <span style={{ color: "#c0392b" }}> *</span>
-                      </label>
-                      <Input
-                        placeholder={t("mcp.form.namePlaceholder")}
-                        value={form.name}
-                        onChange={(e) => setField("name", e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Transport */}
-                  <div>
-                    <label style={labelStyle}>{t("mcp.form.transport")}</label>
-                    <Select
-                      value={form.transport}
-                      onChange={(v) => setField("transport", v as MCPTransport)}
-                      style={{ width: "100%" }}
-                      options={[
-                        {
-                          label: "Streamable HTTP",
-                          value: "streamable_http",
-                        },
-                        { label: "SSE", value: "sse" },
-                        { label: "Stdio", value: "stdio" },
-                      ]}
-                    />
-                  </div>
-
-                  {/* URL (HTTP/SSE) or Command (stdio) */}
-                  {isHttpTransport ? (
-                    <div>
-                      <label style={labelStyle}>
-                        {t("mcp.form.url")}
-                        <span style={{ color: "#c0392b" }}> *</span>
-                      </label>
-                      <Input
-                        placeholder="https://mcp.example.com/mcp"
-                        value={form.url}
-                        onChange={(e) => setField("url", e.target.value)}
-                      />
-                    </div>
-                  ) : (
-                    <>
-                      <div>
-                        <label style={labelStyle}>
-                          {t("mcp.form.command")}
-                          <span style={{ color: "#c0392b" }}> *</span>
-                        </label>
-                        <Input
-                          placeholder="npx"
-                          value={form.command}
-                          onChange={(e) => setField("command", e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label style={labelStyle}>{t("mcp.form.args")}</label>
-                        <Input
-                          placeholder="-y @example/mcp-server"
-                          value={form.args}
-                          onChange={(e) => setField("args", e.target.value)}
-                        />
-                      </div>
-                    </>
-                  )}
-
-                  {/* Description */}
-                  <div>
-                    <label style={labelStyle}>
-                      {t("mcp.form.description")}
-                    </label>
-                    <Input
-                      placeholder={t("mcp.form.descriptionPlaceholder")}
-                      value={form.description}
-                      onChange={(e) => setField("description", e.target.value)}
-                    />
-                  </div>
-
-                  {/* Env (only for stdio) */}
-                  {form.transport === "stdio" && (
-                    <div>
-                      <label style={labelStyle}>{t("mcp.form.env")}</label>
-                      <Input.TextArea
-                        placeholder={t("mcp.form.envPlaceholder")}
-                        value={form.env}
-                        onChange={(e) => setField("env", e.target.value)}
-                        autoSize={{ minRows: 2, maxRows: 5 }}
-                      />
-                    </div>
-                  )}
-                </div>
-              ),
-            },
-          ]}
-        />
-      </Modal>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-
-const rowStyle: React.CSSProperties = {
-  display: "flex",
-  gap: 12,
-};
-
-const fieldStyle: React.CSSProperties = {
-  flex: 1,
-  display: "flex",
-  flexDirection: "column",
-  gap: 4,
-};
-
-const labelStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "#555",
-  fontWeight: 500,
-};
 
 export default MCPPage;

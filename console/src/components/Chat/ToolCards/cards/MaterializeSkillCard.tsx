@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { ThunderboltOutlined } from "@ant-design/icons";
+import { Zap } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
 import { stringifyResult } from "../shared/utils";
@@ -27,7 +27,7 @@ const MaterializeSkillCard: React.FC<MaterializeSkillCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<ThunderboltOutlined />}
+      icon={<Zap size={13} />}
       title={title}
     >
       {resultText && <DefaultBlock title="Output" content={resultText} />}

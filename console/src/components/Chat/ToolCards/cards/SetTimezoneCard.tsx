@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { GlobalOutlined } from "@ant-design/icons";
+import { Globe } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell } from "../shared";
 
@@ -30,7 +30,7 @@ const SetTimezoneCard: React.FC<SetTimezoneCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<GlobalOutlined />}
+      icon={<Globe size={13} />}
       title={title}
       inlineResult={inlineResult}
     />

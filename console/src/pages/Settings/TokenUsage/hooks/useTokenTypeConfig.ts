@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import dayjs, { type Dayjs } from "dayjs";
-import { formatCompact } from "../../../../utils/formatNumber";
 
 interface UseTokenTypeConfigProps {
   byDate: Record<
@@ -16,22 +15,32 @@ interface UseTokenTypeConfigProps {
   isDark: boolean;
 }
 
-const TYPE_COLORS: Record<string, string> = {
+export const TYPE_COLORS: Record<string, string> = {
   "Prompt Tokens": "#1677ff",
   "Completion Tokens": "#52c41a",
   "Total Tokens": "#fa8c16",
 };
 
+const TOKEN_TYPE_KEYS = [
+  "Prompt Tokens",
+  "Completion Tokens",
+  "Total Tokens",
+] as const;
+
+export interface TokenTypeChartData {
+  /** Pivoted rows: { date, "Prompt Tokens": n, "Completion Tokens": n, "Total Tokens": n } */
+  chartData: Array<Record<string, string | number>>;
+  typeKeys: string[];
+  dateFormatter: (d: string) => string;
+}
+
 export function useTokenTypeConfig({
   byDate,
   startDate,
   endDate,
-  isDark,
-}: UseTokenTypeConfigProps) {
+}: UseTokenTypeConfigProps): TokenTypeChartData | null {
   return useMemo(() => {
     if (!byDate || Object.keys(byDate).length === 0) return null;
-
-    const isDarkMode = isDark;
 
     const allDates: string[] = [];
     let current = startDate.clone();
@@ -40,109 +49,26 @@ export function useTokenTypeConfig({
       current = current.add(1, "day");
     }
 
-    const allTypes = [
-      "Prompt Tokens",
-      "Completion Tokens",
-      "Total Tokens",
-    ] as const;
-    const colors = allTypes.map((type) => TYPE_COLORS[type]);
-
-    const chartData: Array<{
-      date: string;
-      type: string;
-      value: number;
-    }> = [];
-
-    allDates.forEach((date) => {
-      const dayStats = byDate[date] || {
+    const chartData = allDates.map((date) => {
+      const d = byDate[date] ?? {
         prompt_tokens: 0,
         completion_tokens: 0,
         call_count: 0,
       };
-
-      const typeValues: Record<string, number> = {
-        "Prompt Tokens": dayStats.prompt_tokens,
-        "Completion Tokens": dayStats.completion_tokens,
-        "Total Tokens": dayStats.prompt_tokens + dayStats.completion_tokens,
-      };
-
-      allTypes.forEach((type) => {
-        chartData.push({
-          date,
-          type,
-          value: typeValues[type] || 0,
-        });
-      });
+      return {
+        date,
+        "Prompt Tokens": d.prompt_tokens,
+        "Completion Tokens": d.completion_tokens,
+        "Total Tokens": d.prompt_tokens + d.completion_tokens,
+      } as Record<string, string | number>;
     });
 
-    const tickCount = Math.min(10, Math.max(3, allDates.length));
-
-    return {
-      data: chartData,
-      xField: "date",
-      yField: "value",
-      seriesField: "type",
-      colorField: "type",
-      smooth: true,
-      autoFit: true,
-      height: 300,
-      theme: isDarkMode ? "dark" : "light",
-      style: {
-        lineWidth: 3,
-        fillOpacity: 0,
-      },
-      tooltip: {
-        title: "date",
-        items: [
-          (datum: { date: string; value: number; type: string }) => ({
-            name: datum.type,
-            value: formatCompact(datum.value),
-          }),
-        ],
-      },
-      axis: {
-        x: {
-          range: [0, 1],
-          nice: true,
-          tickCount,
-          labelFormatter: (d: string) => {
-            const date = dayjs(d);
-            const crossesYear = startDate.year() !== endDate.year();
-            return crossesYear ? date.format("YY/MM-DD") : date.format("MM-DD");
-          },
-          grid: null,
-        },
-        y: {
-          labelFormatter: (v: number) => {
-            if (v >= 1_000_000) {
-              return `${(v / 1_000_000).toFixed(1)}M`;
-            } else if (v >= 1_000) {
-              return `${(v / 1_000).toFixed(0)}K`;
-            }
-            return v.toString();
-          },
-          grid: {
-            line: {
-              style: {
-                stroke: isDarkMode
-                  ? "rgba(255, 255, 255, 0.05)"
-                  : "rgba(0, 0, 0, 0.04)",
-              },
-            },
-          },
-        },
-      },
-      legend: {
-        position: "top" as const,
-        itemMarker: "circle",
-        itemName: {
-          style: {
-            fill: isDarkMode ? "rgba(255, 255, 255, 0.85)" : "#333",
-            fontSize: 12,
-          },
-        },
-      },
-      color: colors,
+    const crossesYear = startDate.year() !== endDate.year();
+    const dateFormatter = (d: string) => {
+      const parsed = dayjs(d);
+      return crossesYear ? parsed.format("YY/MM-DD") : parsed.format("MM-DD");
     };
-  }, [byDate, startDate, endDate, isDark]);
+
+    return { chartData, typeKeys: [...TOKEN_TYPE_KEYS], dateFormatter };
+  }, [byDate, startDate, endDate]);
 }

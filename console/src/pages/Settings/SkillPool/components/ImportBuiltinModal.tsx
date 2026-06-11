@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Modal, Tooltip } from "@agentscope-ai/design";
-import { CheckOutlined } from "@ant-design/icons";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type {
   BuiltinImportSpec,
@@ -103,111 +115,140 @@ export function ImportBuiltinModal({
   };
 
   return (
-    <Modal
+    <Dialog
       open={open}
-      onCancel={handleCancel}
-      onOk={handleConfirm}
-      title={t("skillPool.importBuiltin")}
-      okButtonProps={{
-        disabled: selected.size === 0,
-        loading,
+      onOpenChange={(v) => {
+        if (!v) handleCancel();
       }}
-      width={720}
     >
-      <div style={{ display: "grid", gap: 12 }}>
-        {notice?.has_updates ? (
-          <div className={styles.builtinNoticeSummary}>
-            <div className={styles.builtinNoticeTitle}>
-              {t("skillPool.builtinNoticeSummary", {
-                count: notice.total_changes,
-              })}
-            </div>
-            <div className={styles.builtinNoticeList}>
-              {noticeLines.map((line) => (
-                <div key={line}>{line}</div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        <div className={skillStyles.pickerLabel}>
-          {t("skillPool.importBuiltinHint")}
-        </div>
-        <div className={styles.importToolbar}>
-          <Button
-            size="small"
-            type="primary"
-            onClick={() =>
-              setSelected(new Set(sources.map((item) => item.name)))
-            }
-          >
-            {t("agent.selectAll")}
-          </Button>
-          <Button size="small" onClick={() => setSelected(new Set())}>
-            {t("skills.clearSelection")}
-          </Button>
-          <span className={styles.importToolbarDivider} />
-          <Tooltip title={t("skillPool.langDefaultTooltip")}>
-            <Button
-              size="small"
-              type={language === "default" ? "primary" : "default"}
-              onClick={() => setLanguage("default")}
-            >
-              {t("skillPool.langDefault")}
-            </Button>
-          </Tooltip>
-          <Button
-            size="small"
-            type={language === "zh" ? "primary" : "default"}
-            onClick={() => setLanguage("zh")}
-          >
-            中文
-          </Button>
-          <Button
-            size="small"
-            type={language === "en" ? "primary" : "default"}
-            onClick={() => setLanguage("en")}
-          >
-            English
-          </Button>
-        </div>
-        <div className={skillStyles.pickerGrid}>
-          {sources.map((item) => {
-            const isSelected = selected.has(item.name);
-            const resolvedLang = resolveLanguage(item);
-            const langSpec = item.languages?.[resolvedLang];
-            const status = langSpec?.status || item.status;
-            return (
-              <div
-                key={item.name}
-                className={`${skillStyles.pickerCard} ${
-                  isSelected ? skillStyles.pickerCardSelected : ""
-                }`}
-                onClick={() => toggleSelection(item.name)}
-              >
-                {isSelected && (
-                  <span className={skillStyles.pickerCheck}>
-                    <CheckOutlined />
-                  </span>
-                )}
-                <Tooltip title={item.name}>
-                  <div className={skillStyles.pickerCardTitle}>{item.name}</div>
-                </Tooltip>
-                <div className={skillStyles.pickerCardMeta}>
-                  {t("skillPool.sourceVersion")}:{" "}
-                  {langSpec?.version_text || item.version_text || "-"}
-                </div>
-                <div className={skillStyles.pickerCardMeta}>
-                  {t("skillPool.currentVersion")}:{" "}
-                  {item.current_version_text || "-"}
-                </div>
-                <div className={skillStyles.pickerCardMeta}>
-                  {getImportStatusLabel(status)}
-                </div>
+      <DialogContent className="max-w-[720px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{t("skillPool.importBuiltin")}</DialogTitle>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-3">
+          {notice?.has_updates ? (
+            <div className={styles.builtinNoticeSummary}>
+              <div className={styles.builtinNoticeTitle}>
+                {t("skillPool.builtinNoticeSummary", {
+                  count: notice.total_changes,
+                })}
               </div>
-            );
-          })}
+              <div className={styles.builtinNoticeList}>
+                {noticeLines.map((line) => (
+                  <div key={line}>{line}</div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div className={skillStyles.pickerLabel}>
+            {t("skillPool.importBuiltinHint")}
+          </div>
+
+          <div className={styles.importToolbar}>
+            <Button
+              size="sm"
+              onClick={() =>
+                setSelected(new Set(sources.map((item) => item.name)))
+              }
+            >
+              {t("agent.selectAll")}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setSelected(new Set())}
+            >
+              {t("skills.clearSelection")}
+            </Button>
+            <span className={styles.importToolbarDivider} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="sm"
+                  variant={language === "default" ? "default" : "outline"}
+                  onClick={() => setLanguage("default")}
+                >
+                  {t("skillPool.langDefault")}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t("skillPool.langDefaultTooltip")}
+              </TooltipContent>
+            </Tooltip>
+            <Button
+              size="sm"
+              variant={language === "zh" ? "default" : "outline"}
+              onClick={() => setLanguage("zh")}
+            >
+              中文
+            </Button>
+            <Button
+              size="sm"
+              variant={language === "en" ? "default" : "outline"}
+              onClick={() => setLanguage("en")}
+            >
+              English
+            </Button>
+          </div>
+
+          <div className={skillStyles.pickerGrid}>
+            {sources.map((item) => {
+              const isSelectedItem = selected.has(item.name);
+              const resolvedLang = resolveLanguage(item);
+              const langSpec = item.languages?.[resolvedLang];
+              const status = langSpec?.status || item.status;
+              return (
+                <div
+                  key={item.name}
+                  className={`${skillStyles.pickerCard} ${
+                    isSelectedItem ? skillStyles.pickerCardSelected : ""
+                  }`}
+                  onClick={() => toggleSelection(item.name)}
+                >
+                  {isSelectedItem && (
+                    <span className={skillStyles.pickerCheck}>
+                      <Check size={12} />
+                    </span>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className={skillStyles.pickerCardTitle}>
+                        {item.name}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>{item.name}</TooltipContent>
+                  </Tooltip>
+                  <div className={skillStyles.pickerCardMeta}>
+                    {t("skillPool.sourceVersion")}:{" "}
+                    {langSpec?.version_text || item.version_text || "-"}
+                  </div>
+                  <div className={skillStyles.pickerCardMeta}>
+                    {t("skillPool.currentVersion")}:{" "}
+                    {item.current_version_text || "-"}
+                  </div>
+                  <div className={skillStyles.pickerCardMeta}>
+                    {getImportStatusLabel(status)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      </div>
-    </Modal>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={handleCancel} disabled={loading}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            disabled={selected.size === 0 || loading}
+            onClick={() => void handleConfirm()}
+          >
+            {loading ? t("common.loading") : t("common.confirm")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

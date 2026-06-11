@@ -1,7 +1,21 @@
-import { memo } from "react";
-import { Button, Modal, Tooltip } from "@agentscope-ai/design";
-import { CloseOutlined, DownloadOutlined } from "@ant-design/icons";
-import { Progress } from "antd";
+import { memo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Download, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type {
   LocalDownloadProgress,
@@ -32,6 +46,7 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
   onCancel,
 }: LocalRuntimePanelProps) {
   const { t } = useTranslation();
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const installable = serverStatus?.installable ?? true;
   const installed = Boolean(serverStatus?.installed);
   const isDownloading = isDownloadActive(progress);
@@ -77,17 +92,7 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
   const canTriggerUpdate = hasUpdate && !isDownloading;
 
   const handleConfirmUpdate = () => {
-    Modal.confirm({
-      title: t("models.localRuntimeUpdateConfirmTitle"),
-      content: isRunning
-        ? t("models.localRuntimeUpdateConfirmContentWithServer", {
-            model: serverStatus?.model_name ?? t("models.localLlamacppName"),
-          })
-        : t("models.localRuntimeUpdateConfirmContent"),
-      okText: t("common.confirm"),
-      cancelText: t("common.cancel"),
-      onOk: onStart,
-    });
+    setUpdateDialogOpen(true);
   };
 
   return (
@@ -113,22 +118,30 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
             {t("models.localEngineInstallStateLabel")}
           </span>
           {canTriggerUpdate ? (
-            <Tooltip title={t("models.localRuntimeUpdateAction")}>
-              <button
-                type="button"
-                className={`${styles.localStatusBadge} ${styles.localStatusBadgeAction} ${styles.localStatusBadgeButton}`}
-                onClick={handleConfirmUpdate}
-              >
-                {installBadge.label}
-              </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className={`${styles.localStatusBadge} ${styles.localStatusBadgeAction} ${styles.localStatusBadgeButton}`}
+                  onClick={handleConfirmUpdate}
+                >
+                  {installBadge.label}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t("models.localRuntimeUpdateAction")}
+              </TooltipContent>
             </Tooltip>
           ) : !installable && serverStatus?.message ? (
-            <Tooltip title={serverStatus.message}>
-              <span
-                className={`${styles.localStatusBadge} ${installBadge.className}`}
-              >
-                {installBadge.label}
-              </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className={`${styles.localStatusBadge} ${installBadge.className}`}
+                >
+                  {installBadge.label}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{serverStatus.message}</TooltipContent>
             </Tooltip>
           ) : (
             <span
@@ -143,12 +156,15 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
             {t("models.localEngineRunStateLabel")}
           </span>
           {serverStatus?.message && !serverStatus.available ? (
-            <Tooltip title={serverStatus.message}>
-              <span
-                className={`${styles.localStatusBadge} ${runBadge.className}`}
-              >
-                {runBadge.label}
-              </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className={`${styles.localStatusBadge} ${runBadge.className}`}
+                >
+                  {runBadge.label}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{serverStatus.message}</TooltipContent>
             </Tooltip>
           ) : isRunning && serverStatus?.model_name ? (
             <div className={styles.localEngineStatusValue}>
@@ -178,12 +194,8 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
             </span>
           ) : null}
           {!isDownloading && !installed ? (
-            <Button
-              type="primary"
-              icon={<DownloadOutlined />}
-              onClick={onStart}
-              disabled={!installable}
-            >
+            <Button onClick={onStart} disabled={!installable}>
+              <Download className="mr-2 h-4 w-4" />
               {t("models.localInstallLlamacpp")}
             </Button>
           ) : null}
@@ -194,23 +206,31 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
         <div className={styles.localRuntimeDownloadRow}>
           <div className={styles.localRuntimeProgressBlock}>
             <div className={styles.localRuntimeProgressBarRow}>
-              <Progress
-                className={styles.localRuntimeProgress}
-                percent={progressPercent ?? 0}
-                showInfo={false}
-                status="active"
-                strokeColor="#ff7f16"
-                strokeWidth={10}
-              />
-              <Tooltip title={t("models.localCancelDownloadAction")}>
-                <Button
-                  danger
-                  size="small"
-                  icon={<CloseOutlined />}
-                  loading={isCanceling}
-                  disabled={isCanceling}
-                  onClick={onCancel}
+              <div
+                className={`${styles.localRuntimeProgress} flex-1 h-2 rounded-full bg-muted overflow-hidden`}
+              >
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${progressPercent ?? 0}%`,
+                    backgroundColor: "var(--primary)",
+                  }}
                 />
+              </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={isCanceling}
+                    onClick={onCancel}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("models.localCancelDownloadAction")}
+                </TooltipContent>
               </Tooltip>
             </div>
             {progressText ? (
@@ -221,6 +241,35 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
           </div>
         </div>
       ) : null}
+
+      <AlertDialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("models.localRuntimeUpdateConfirmTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {isRunning
+                ? t("models.localRuntimeUpdateConfirmContentWithServer", {
+                    model:
+                      serverStatus?.model_name ?? t("models.localLlamacppName"),
+                  })
+                : t("models.localRuntimeUpdateConfirmContent")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setUpdateDialogOpen(false);
+                onStart();
+              }}
+            >
+              {t("common.confirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 });

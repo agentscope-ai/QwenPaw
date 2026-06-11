@@ -1,20 +1,31 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
-  Button,
-  Input,
-  InputNumber,
-  Modal,
   Select,
-  Tooltip,
-} from "@agentscope-ai/design";
-import { useAppMessage } from "../../../../../hooks/useAppMessage.ts";
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
-  CloseOutlined,
-  DownloadOutlined,
-  DownOutlined,
-  SaveOutlined,
-} from "@ant-design/icons";
-import { Progress } from "antd";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Save, ChevronDown } from "lucide-react";
+import { useAppMessage } from "../../../../../hooks/useAppMessage.ts";
 import type {
   LocalModelConfig,
   ProviderInfo,
@@ -162,6 +173,19 @@ export function LocalModelManageModal({
   const [savedServerPort, setSavedServerPort] = useState<number | null>(null);
   const [generateKwargsText, setGenerateKwargsText] = useState("");
   const [savedGenerateKwargsText, setSavedGenerateKwargsText] = useState("");
+
+  // AlertDialog states
+  const [cancelLlamacppDialog, setCancelLlamacppDialog] = useState(false);
+  const [cancelModelDialog, setCancelModelDialog] = useState<string | null>(
+    null,
+  );
+  const [deleteModelDialog, setDeleteModelDialog] =
+    useState<LocalModelInfo | null>(null);
+  const [switchServerDialog, setSwitchServerDialog] = useState<{
+    current: string;
+    next: LocalModelInfo;
+  } | null>(null);
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const modelDownloadRef = useRef<LocalDownloadProgress | null>(null);
   const previousLlamacppStatusRef = useRef<string | null>(null);
@@ -191,18 +215,15 @@ export function LocalModelManageModal({
       if (!trimmed) {
         return undefined;
       }
-
       let parsed: unknown;
       try {
         parsed = JSON.parse(trimmed);
       } catch {
         throw new Error(t("models.generateConfigInvalidJson"));
       }
-
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         throw new Error(t("models.generateConfigMustBeObject"));
       }
-
       return parsed as Record<string, unknown>;
     },
     [t],
@@ -220,9 +241,7 @@ export function LocalModelManageModal({
   }, [generateKwargsText, parseGenerateConfig, t]);
 
   const getLocalModelDisplayName = (modelId: string | null) => {
-    if (!modelId) {
-      return null;
-    }
+    if (!modelId) return null;
     return localModels.find((model) => model.id === modelId)?.name ?? modelId;
   };
 
@@ -288,7 +307,6 @@ export function LocalModelManageModal({
   const refreshUpdateStatus = useCallback(
     async (nextServerStatus?: LocalServerStatus | null) => {
       const effectiveServerStatus = nextServerStatus ?? serverStatus;
-
       if (
         !effectiveServerStatus?.installable ||
         !effectiveServerStatus.installed
@@ -301,7 +319,6 @@ export function LocalModelManageModal({
         );
         return fallbackStatus;
       }
-
       try {
         const nextUpdateStatus = await api.getLocalServerUpdateStatus();
         setServerUpdateStatus((prev) =>
@@ -319,9 +336,7 @@ export function LocalModelManageModal({
 
   const refreshStatus = useCallback(
     async (showLoading = false) => {
-      if (showLoading) {
-        setLoadingStatus(true);
-      }
+      if (showLoading) setLoadingStatus(true);
       try {
         const [nextServerStatus, nextLlamacppDownload, nextModelDownload] =
           await Promise.all([
@@ -408,9 +423,7 @@ export function LocalModelManageModal({
       } catch {
         return null;
       } finally {
-        if (showLoading) {
-          setLoadingStatus(false);
-        }
+        if (showLoading) setLoadingStatus(false);
       }
     },
     [fetchLocalModels, refreshUpdateStatus, stopPolling, t],
@@ -428,10 +441,7 @@ export function LocalModelManageModal({
       initializedOpenRef.current = false;
       return;
     }
-
-    if (initializedOpenRef.current) {
-      return;
-    }
+    if (initializedOpenRef.current) return;
     initializedOpenRef.current = true;
 
     setAdvancedOpen(false);
@@ -474,7 +484,6 @@ export function LocalModelManageModal({
       message.error(t("models.localMaxContextLengthRequired"));
       return;
     }
-
     if (maxContextLength < MIN_LOCAL_MAX_CONTEXT_LENGTH) {
       message.error(
         t("models.localMaxContextLengthMin", {
@@ -483,7 +492,6 @@ export function LocalModelManageModal({
       );
       return;
     }
-
     setAdvancedSaving(true);
     try {
       await api.configureLocalModelSettings({
@@ -518,12 +526,9 @@ export function LocalModelManageModal({
       );
       return;
     }
-
     setAdvancedSaving(true);
     try {
-      await api.configureLocalModelSettings({
-        port: serverPort,
-      });
+      await api.configureLocalModelSettings({ port: serverPort });
       setSavedServerPort(serverPort);
       message.success(t("models.localAdvancedConfigSaved"));
       await onSavedRef.current();
@@ -540,7 +545,6 @@ export function LocalModelManageModal({
 
   const handleSaveGenerateKwargs = useCallback(async () => {
     let parsed: Record<string, unknown> = {};
-
     try {
       parsed = parseGenerateConfig(generateKwargsText) ?? {};
     } catch (error) {
@@ -551,15 +555,11 @@ export function LocalModelManageModal({
       );
       return;
     }
-
     const trimmed = generateKwargsText.trim();
     const normalizedText = trimmed ? JSON.stringify(parsed, null, 2) : "";
-
     setAdvancedSaving(true);
     try {
-      await api.configureLocalModelSettings({
-        generate_kwargs: parsed,
-      });
+      await api.configureLocalModelSettings({ generate_kwargs: parsed });
       setGenerateKwargsText(normalizedText);
       setSavedGenerateKwargsText(normalizedText);
       message.success(t("models.localAdvancedConfigSaved"));
@@ -611,38 +611,27 @@ export function LocalModelManageModal({
   }, [llamacppDownload, refreshStatus, startPolling, t]);
 
   const handleCancelLlamacppDownload = useCallback(() => {
-    Modal.confirm({
-      title: t("models.localCancelDownloadTitle"),
-      content: t("models.localCancelDownloadConfirm", {
-        repo: t("models.localLlamacppName"),
-      }),
-      okText: t("models.localCancelDownloadAction"),
-      okButtonProps: { danger: true },
-      cancelText: t("common.close"),
-      onOk: async () => {
-        try {
-          setLlamacppDownload((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  status: "canceling",
-                }
-              : prev,
-          );
-          await api.cancelLlamacppDownload();
-          message.success(t("models.localDownloadCancelled"));
-          await refreshStatus();
-          startPolling();
-        } catch (error) {
-          const errMsg =
-            error instanceof Error
-              ? error.message
-              : t("models.localCancelDownloadFailed");
-          message.error(errMsg);
-        }
-      },
-    });
-  }, [refreshStatus, startPolling, t]);
+    setCancelLlamacppDialog(true);
+  }, []);
+
+  const confirmCancelLlamacpp = async () => {
+    setCancelLlamacppDialog(false);
+    try {
+      setLlamacppDownload((prev) =>
+        prev ? { ...prev, status: "canceling" } : prev,
+      );
+      await api.cancelLlamacppDownload();
+      message.success(t("models.localDownloadCancelled"));
+      await refreshStatus();
+      startPolling();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.localCancelDownloadFailed");
+      message.error(errMsg);
+    }
+  };
 
   const handleStartModelDownload = useCallback(
     async (model: LocalModelInfo) => {
@@ -680,12 +669,10 @@ export function LocalModelManageModal({
 
   const handleStartCustomModelDownload = useCallback(async () => {
     const trimmedRepoId = customModelRepoId.trim();
-
     if (!trimmedRepoId) {
       message.warning(t("models.localRepoIdRequired"));
       return;
     }
-
     await handleStartModelDownload({
       id: trimmedRepoId,
       name: trimmedRepoId,
@@ -695,49 +682,35 @@ export function LocalModelManageModal({
     });
   }, [customModelRepoId, customModelSource, handleStartModelDownload, t]);
 
-  const handleCancelModelDownload = useCallback(
-    (modelName: string) => {
-      Modal.confirm({
-        title: t("models.localCancelDownloadTitle"),
-        content: t("models.localCancelDownloadConfirm", { repo: modelName }),
-        okText: t("models.localCancelDownloadAction"),
-        okButtonProps: { danger: true },
-        cancelText: t("common.close"),
-        onOk: async () => {
-          try {
-            setModelDownloadState((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    status: "canceling",
-                  }
-                : prev,
-            );
-            await api.cancelLocalModelDownload();
-            message.success(t("models.localDownloadCancelled"));
-            await refreshStatus();
-            startPolling();
-          } catch (error) {
-            const errMsg =
-              error instanceof Error
-                ? error.message
-                : t("models.localCancelDownloadFailed");
-            message.error(errMsg);
-          }
-        },
-      });
-    },
-    [refreshStatus, setModelDownloadState, startPolling, t],
-  );
+  const handleCancelModelDownload = useCallback((modelName: string) => {
+    setCancelModelDialog(modelName);
+  }, []);
+
+  const confirmCancelModelDownload = async () => {
+    setCancelModelDialog(null);
+    try {
+      setModelDownloadState((prev) =>
+        prev ? { ...prev, status: "canceling" } : prev,
+      );
+      await api.cancelLocalModelDownload();
+      message.success(t("models.localDownloadCancelled"));
+      await refreshStatus();
+      startPolling();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.localCancelDownloadFailed");
+      message.error(errMsg);
+    }
+  };
 
   const handleStartServer = useCallback(
     async (model: LocalModelInfo) => {
       const run = async () => {
         setStartingModelName(model.id);
         try {
-          await api.startLocalServer({
-            model_id: model.id,
-          });
+          await api.startLocalServer({ model_id: model.id });
           await refreshStatus();
           onSaved();
         } catch (error) {
@@ -756,15 +729,9 @@ export function LocalModelManageModal({
         serverStatus.model_name &&
         serverStatus.model_name !== model.id
       ) {
-        Modal.confirm({
-          title: t("models.localServerSwitchTitle"),
-          content: t("models.localServerSwitchConfirm", {
-            current: getLocalModelDisplayName(serverStatus.model_name),
-            next: model.name,
-          }),
-          okText: t("models.localSwitchModel"),
-          cancelText: t("models.cancel"),
-          onOk: run,
+        setSwitchServerDialog({
+          current: serverStatus.model_name,
+          next: model,
         });
         return;
       }
@@ -773,6 +740,26 @@ export function LocalModelManageModal({
     },
     [localModels, onSaved, refreshStatus, serverStatus, t],
   );
+
+  const confirmSwitchServer = async () => {
+    if (!switchServerDialog) return;
+    const model = switchServerDialog.next;
+    setSwitchServerDialog(null);
+    setStartingModelName(model.id);
+    try {
+      await api.startLocalServer({ model_id: model.id });
+      await refreshStatus();
+      onSaved();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.localServerStartFailed");
+      message.error(errMsg);
+    } finally {
+      setStartingModelName(null);
+    }
+  };
 
   const handleStopServer = useCallback(async () => {
     setStoppingServer(true);
@@ -791,37 +778,28 @@ export function LocalModelManageModal({
     }
   }, [onSaved, refreshStatus, t]);
 
-  const handleDeleteModel = useCallback(
-    (model: LocalModelInfo) => {
-      Modal.confirm({
-        title: t("models.localDeleteModel"),
-        content: t("models.localDeleteConfirm", { name: model.name }),
-        okText: t("common.delete"),
-        okButtonProps: { danger: true },
-        cancelText: t("common.cancel"),
-        onOk: async () => {
-          setDeletingModelName(model.id);
-          try {
-            await api.deleteLocalModel(model.id);
-            message.success(
-              t("models.localModelDeleted", { name: model.name }),
-            );
-            await fetchLocalModels();
-            onSaved();
-          } catch (error) {
-            const errMsg =
-              error instanceof Error
-                ? error.message
-                : t("models.localDeleteFailed");
-            message.error(errMsg);
-          } finally {
-            setDeletingModelName(null);
-          }
-        },
-      });
-    },
-    [fetchLocalModels, message, onSaved, t],
-  );
+  const handleDeleteModel = useCallback((model: LocalModelInfo) => {
+    setDeleteModelDialog(model);
+  }, []);
+
+  const confirmDeleteModel = async () => {
+    if (!deleteModelDialog) return;
+    const model = deleteModelDialog;
+    setDeleteModelDialog(null);
+    setDeletingModelName(model.id);
+    try {
+      await api.deleteLocalModel(model.id);
+      message.success(t("models.localModelDeleted", { name: model.name }));
+      await fetchLocalModels();
+      onSaved();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error ? error.message : t("models.localDeleteFailed");
+      message.error(errMsg);
+    } finally {
+      setDeletingModelName(null);
+    }
+  };
 
   const handleClose = () => {
     onClose();
@@ -850,352 +828,486 @@ export function LocalModelManageModal({
     getLocalModelDisplayName(modelDownload?.model_name ?? null) ||
     t("models.localDownloadPending");
   const currentModelDownloadPercent = getProgressPercent(modelDownload);
-  // Removed isAdvancedDirty, now handled per-field
 
   return (
-    <Modal
-      title={t("models.localModelsTitle", { provider: provider.name })}
-      open={open}
-      onCancel={handleClose}
-      footer={null}
-      width={800}
-      destroyOnHidden
-    >
-      {(loadingLocal || loadingStatus || loadingLocalConfig) &&
-      localModels.length === 0 ? (
-        <div className={styles.modelListEmpty}>{t("common.loading")}</div>
-      ) : null}
+    <>
+      <Dialog
+        open={open}
+        onOpenChange={(v) => {
+          if (!v) handleClose();
+        }}
+      >
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {t("models.localModelsTitle", { provider: provider.name })}
+            </DialogTitle>
+          </DialogHeader>
 
-      <section className={styles.localSection}>
-        <LocalRuntimePanel
-          serverStatus={serverStatus}
-          hasUpdate={Boolean(serverUpdateStatus?.has_update)}
-          progress={llamacppDownload}
-          onStart={handleStartLlamacppDownload}
-          onCancel={handleCancelLlamacppDownload}
-          onStop={handleStopServer}
-          stopping={stoppingServer}
-        />
-        {!isRuntimeInstalled ? (
-          <div className={styles.localLockedPanel}>
-            <div className={styles.localLockedPanelTitle}>
-              {isRuntimeInstallable
-                ? t("models.localRuntimeMissing")
-                : t("models.localRuntimeUnsupported")}
-            </div>
-            <div className={styles.localLockedPanelDescription}>
-              <div>{runtimeLockedMessage}</div>
-              {!isRuntimeInstallable ? (
-                <div>{t("models.localAlternativeRuntimeHint")}</div>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-      </section>
-
-      {isRuntimeInstalled ? (
-        <section className={styles.localSection}>
-          <div className={styles.localSectionHeader}>
-            <div>
-              <div className={styles.localSectionTitle}>
-                {t("models.localModelsSectionTitle")}
-              </div>
-            </div>
-          </div>
-
-          {isRuntimeInstalled && isModelDownloading ? (
-            <div className={styles.localSectionInfoRow}>
-              <div className={styles.localSectionInfoContent}>
-                <span className={styles.localSectionInfoLabel}>
-                  {t("models.localCurrentDownloadTitle")}
-                </span>
-                <span className={styles.localSectionInfoValue}>
-                  {currentModelDownloadName}
-                </span>
-                <div className={styles.localRuntimeDownloadRow}>
-                  <div className={styles.localRuntimeProgressBlock}>
-                    <div className={styles.localRuntimeProgressBarRow}>
-                      <Progress
-                        className={styles.localRuntimeProgress}
-                        percent={currentModelDownloadPercent ?? 0}
-                        showInfo={false}
-                        status="active"
-                        strokeColor="#ff7f16"
-                        strokeWidth={10}
-                      />
-                      <Tooltip title={t("models.localCancelDownloadAction")}>
-                        <Button
-                          danger
-                          size="small"
-                          icon={<CloseOutlined />}
-                          onClick={() =>
-                            handleCancelModelDownload(currentModelDownloadName)
-                          }
-                        />
-                      </Tooltip>
-                    </div>
-                    <span className={styles.localRuntimeProgressMeta}>
-                      {formatProgressText(modelDownload)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
+          {(loadingLocal || loadingStatus || loadingLocalConfig) &&
+          localModels.length === 0 ? (
+            <div className={styles.modelListEmpty}>{t("common.loading")}</div>
           ) : null}
 
-          {isRuntimeInstalled && currentRunningModelName ? (
-            <div className={styles.localSectionInfoRow}>
-              <span className={styles.localSectionInfoLabel}>
-                {t("models.localEngineCurrentModelLabel")}
-              </span>
-              <span className={styles.localSectionInfoValue}>
-                {currentRunningModelDisplayName}
-              </span>
-            </div>
-          ) : null}
-
-          {isRuntimeInstalled && downloadedModelCount === 0 ? (
-            <div className={styles.localSectionNotice}>
-              {t("models.localNoDownloadedModelsHint")}
-            </div>
-          ) : null}
-
-          <div className={styles.modelList}>
-            {serverStatus?.installed && loadingLocal ? (
-              <div className={styles.modelListEmpty}>{t("common.loading")}</div>
-            ) : serverStatus?.installed && localModels.length === 0 ? (
-              <div className={styles.modelListEmpty}>
-                {t("models.localNoRecommendedModels")}
-              </div>
-            ) : null}
-
-            {serverStatus?.installed
-              ? localModels.map((model) => (
-                  <LocalModelRow
-                    key={model.id}
-                    model={model}
-                    currentRunningModelName={currentRunningModelName}
-                    isModelDownloading={isModelDownloading}
-                    isServerBusy={isServerBusy}
-                    startingModelName={startingModelName}
-                    stoppingServer={stoppingServer}
-                    deletingModelName={deletingModelName}
-                    onStartDownload={handleStartModelDownload}
-                    onStartServer={handleStartServer}
-                    onStopServer={handleStopServer}
-                    onDeleteModel={handleDeleteModel}
-                  />
-                ))
-              : null}
-
-            {serverStatus?.installed ? (
-              <div
-                className={`${styles.modelListItem} ${styles.customModelListItem}`}
-              >
-                <div className={styles.customModelHeader}>
-                  <div className={styles.customModelListItemInfo}>
-                    <span className={styles.modelListItemName}>
-                      {t("models.localCustomModelTitle")}
-                    </span>
-                    <span className={styles.customModelHint}>
-                      {t("models.localCustomModelHint")}
-                    </span>
-                  </div>
-                  <Button
-                    type="primary"
-                    size="small"
-                    icon={<DownloadOutlined />}
-                    onClick={() => {
-                      void handleStartCustomModelDownload();
-                    }}
-                    disabled={isCustomDownloadDisabled}
-                  >
-                    {t("common.download")}
-                  </Button>
-                </div>
-                <div className={styles.customModelInputRow}>
-                  <Input
-                    value={customModelRepoId}
-                    onChange={(e) => setCustomModelRepoId(e.target.value)}
-                    onPressEnter={() => {
-                      void handleStartCustomModelDownload();
-                    }}
-                    placeholder={t("models.localRepoIdPlaceholder")}
-                    className={styles.customModelRepoInput}
-                  />
-                  <Select
-                    value={customModelSource}
-                    onChange={(value) =>
-                      setCustomModelSource(value as LocalDownloadSource)
-                    }
-                    className={styles.customModelSourceSelect}
-                    options={[
-                      {
-                        value: "huggingface",
-                        label: t("models.localSourceHuggingFace"),
-                      },
-                      {
-                        value: "modelscope",
-                        label: t("models.localSourceModelScope"),
-                      },
-                    ]}
-                  />
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
-
-      <section className={styles.localAdvancedConfigSection}>
-        <div className={styles.localAdvancedConfigHeader}>
-          <button
-            type="button"
-            className={styles.advancedConfigToggle}
-            onClick={() => setAdvancedOpen((prev) => !prev)}
-          >
-            <span className={styles.advancedConfigToggleLabel}>
-              {t("models.localAdvancedConfigTitle")}
-            </span>
-            <DownOutlined
-              className={
-                advancedOpen
-                  ? styles.localAdvancedConfigChevronOpen
-                  : styles.localAdvancedConfigChevronClosed
-              }
+          <section className={styles.localSection}>
+            <LocalRuntimePanel
+              serverStatus={serverStatus}
+              hasUpdate={Boolean(serverUpdateStatus?.has_update)}
+              progress={llamacppDownload}
+              onStart={handleStartLlamacppDownload}
+              onCancel={handleCancelLlamacppDownload}
+              onStop={handleStopServer}
+              stopping={stoppingServer}
             />
-          </button>
-        </div>
+            {!isRuntimeInstalled ? (
+              <div className={styles.localLockedPanel}>
+                <div className={styles.localLockedPanelTitle}>
+                  {isRuntimeInstallable
+                    ? t("models.localRuntimeMissing")
+                    : t("models.localRuntimeUnsupported")}
+                </div>
+                <div className={styles.localLockedPanelDescription}>
+                  <div>{runtimeLockedMessage}</div>
+                  {!isRuntimeInstallable ? (
+                    <div>{t("models.localAlternativeRuntimeHint")}</div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </section>
 
-        {advancedOpen ? (
-          <div className={styles.localAdvancedConfigFields}>
-            <div
-              className={`${styles.localAdvancedConfigField} ${styles.localAdvancedConfigFieldRow}`}
-            >
-              <div
-                className={`${styles.localAdvancedConfigLabel} ${styles.localAdvancedConfigLabelRow}`}
-              >
-                <span>{t("models.localMaxContextLengthLabel")}</span>
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<SaveOutlined />}
-                  loading={advancedSaving}
-                  disabled={maxContextLength === savedMaxContextLength}
-                  onClick={() => {
-                    if (maxContextLength !== savedMaxContextLength) {
-                      void handleSaveMaxContextLength();
-                    }
-                  }}
-                >
-                  {t("models.save")}
-                </Button>
+          {isRuntimeInstalled ? (
+            <section className={styles.localSection}>
+              <div className={styles.localSectionHeader}>
+                <div>
+                  <div className={styles.localSectionTitle}>
+                    {t("models.localModelsSectionTitle")}
+                  </div>
+                </div>
               </div>
-              <InputNumber
-                min={MIN_LOCAL_MAX_CONTEXT_LENGTH}
-                step={1024}
-                precision={0}
-                value={maxContextLength}
-                onChange={(value) =>
-                  setMaxContextLength(
-                    typeof value === "number"
-                      ? Math.trunc(value)
-                      : DEFAULT_LOCAL_MAX_CONTEXT_LENGTH,
-                  )
-                }
-                className={styles.localAdvancedConfigInput}
-                placeholder={t("models.localMaxContextLengthPlaceholder")}
-              />
-              <div className={styles.localAdvancedConfigHint}>
-                {t("models.localMaxContextLengthHint")}
-              </div>
-            </div>
 
-            <div
-              className={`${styles.localAdvancedConfigField} ${styles.localAdvancedConfigFieldRow}`}
-            >
-              <div
-                className={`${styles.localAdvancedConfigLabel} ${styles.localAdvancedConfigLabelRow}`}
-              >
-                <span>{t("models.localServerPortLabel")}</span>
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<SaveOutlined />}
-                  loading={advancedSaving}
-                  disabled={serverPort === savedServerPort}
-                  onClick={() => {
-                    if (serverPort !== savedServerPort) {
-                      void handleSaveServerPort();
-                    }
-                  }}
-                >
-                  {t("models.save")}
-                </Button>
-              </div>
-              <InputNumber
-                min={MIN_LOCAL_SERVER_PORT}
-                max={MAX_LOCAL_SERVER_PORT}
-                step={1}
-                precision={0}
-                value={serverPort}
-                onChange={(value) =>
-                  setServerPort(
-                    typeof value === "number" ? Math.trunc(value) : null,
-                  )
-                }
-                className={styles.localAdvancedConfigInput}
-                placeholder={t("models.localServerPortPlaceholder")}
-              />
-              <div className={styles.localAdvancedConfigHint}>
-                {t("models.localServerPortHint")}
-              </div>
-            </div>
-
-            <div className={styles.localAdvancedConfigField}>
-              <div
-                className={`${styles.localAdvancedConfigLabel} ${styles.localAdvancedConfigLabelRow}`}
-              >
-                <span>{t("models.modelGenerateConfig")}</span>
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<SaveOutlined />}
-                  loading={advancedSaving}
-                  disabled={
-                    generateKwargsText === savedGenerateKwargsText ||
-                    Boolean(generateKwargsError)
-                  }
-                  onClick={() => {
-                    if (
-                      generateKwargsText !== savedGenerateKwargsText &&
-                      !generateKwargsError
-                    ) {
-                      void handleSaveGenerateKwargs();
-                    }
-                  }}
-                >
-                  {t("models.save")}
-                </Button>
-              </div>
-              <JsonConfigEditor
-                value={generateKwargsText}
-                onChange={setGenerateKwargsText}
-                placeholder={`Example:\n{\n  "temperature": 0.7,\n  "top_p": 0.95\n}`}
-                variant="expanded"
-              />
-              {generateKwargsError ? (
-                <div className={styles.localAdvancedConfigError}>
-                  {generateKwargsError}
+              {isRuntimeInstalled && isModelDownloading ? (
+                <div className={styles.localSectionInfoRow}>
+                  <div className={styles.localSectionInfoContent}>
+                    <span className={styles.localSectionInfoLabel}>
+                      {t("models.localCurrentDownloadTitle")}
+                    </span>
+                    <span className={styles.localSectionInfoValue}>
+                      {currentModelDownloadName}
+                    </span>
+                    <div className={styles.localRuntimeDownloadRow}>
+                      <div className={styles.localRuntimeProgressBlock}>
+                        <div className={styles.localRuntimeProgressBarRow}>
+                          <div
+                            className={`${styles.localRuntimeProgress} flex-1 h-2 rounded-full bg-muted overflow-hidden`}
+                          >
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${currentModelDownloadPercent ?? 0}%`,
+                                backgroundColor: "var(--primary)",
+                              }}
+                            />
+                          </div>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() =>
+                              handleCancelModelDownload(
+                                currentModelDownloadName,
+                              )
+                            }
+                          >
+                            {t("models.localCancelDownloadAction")}
+                          </Button>
+                        </div>
+                        <span className={styles.localRuntimeProgressMeta}>
+                          {formatProgressText(modelDownload)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ) : null}
-              <div className={styles.localAdvancedConfigHint}>
-                {t("models.localGenerateConfigHint")}
+
+              {isRuntimeInstalled && currentRunningModelName ? (
+                <div className={styles.localSectionInfoRow}>
+                  <span className={styles.localSectionInfoLabel}>
+                    {t("models.localEngineCurrentModelLabel")}
+                  </span>
+                  <span className={styles.localSectionInfoValue}>
+                    {currentRunningModelDisplayName}
+                  </span>
+                </div>
+              ) : null}
+
+              {isRuntimeInstalled && downloadedModelCount === 0 ? (
+                <div className={styles.localSectionNotice}>
+                  {t("models.localNoDownloadedModelsHint")}
+                </div>
+              ) : null}
+
+              <div className={styles.modelList}>
+                {serverStatus?.installed && loadingLocal ? (
+                  <div className={styles.modelListEmpty}>
+                    {t("common.loading")}
+                  </div>
+                ) : serverStatus?.installed && localModels.length === 0 ? (
+                  <div className={styles.modelListEmpty}>
+                    {t("models.localNoRecommendedModels")}
+                  </div>
+                ) : null}
+
+                {serverStatus?.installed
+                  ? localModels.map((model) => (
+                      <LocalModelRow
+                        key={model.id}
+                        model={model}
+                        currentRunningModelName={currentRunningModelName}
+                        isModelDownloading={isModelDownloading}
+                        isServerBusy={isServerBusy}
+                        startingModelName={startingModelName}
+                        stoppingServer={stoppingServer}
+                        deletingModelName={deletingModelName}
+                        onStartDownload={handleStartModelDownload}
+                        onStartServer={handleStartServer}
+                        onStopServer={handleStopServer}
+                        onDeleteModel={handleDeleteModel}
+                      />
+                    ))
+                  : null}
+
+                {serverStatus?.installed ? (
+                  <div
+                    className={`${styles.modelListItem} ${styles.customModelListItem}`}
+                  >
+                    <div className={styles.customModelHeader}>
+                      <div className={styles.customModelListItemInfo}>
+                        <span className={styles.modelListItemName}>
+                          {t("models.localCustomModelTitle")}
+                        </span>
+                        <span className={styles.customModelHint}>
+                          {t("models.localCustomModelHint")}
+                        </span>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          void handleStartCustomModelDownload();
+                        }}
+                        disabled={isCustomDownloadDisabled}
+                      >
+                        {t("common.download")}
+                      </Button>
+                    </div>
+                    <div className={styles.customModelInputRow}>
+                      <Input
+                        value={customModelRepoId}
+                        onChange={(e) => setCustomModelRepoId(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter")
+                            void handleStartCustomModelDownload();
+                        }}
+                        placeholder={t("models.localRepoIdPlaceholder")}
+                        className={styles.customModelRepoInput}
+                      />
+                      <Select
+                        value={customModelSource}
+                        onValueChange={(value) =>
+                          setCustomModelSource(value as LocalDownloadSource)
+                        }
+                      >
+                        <SelectTrigger
+                          className={styles.customModelSourceSelect}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="huggingface">
+                            {t("models.localSourceHuggingFace")}
+                          </SelectItem>
+                          <SelectItem value="modelscope">
+                            {t("models.localSourceModelScope")}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ) : null}
               </div>
+            </section>
+          ) : null}
+
+          <section className={styles.localAdvancedConfigSection}>
+            <div className={styles.localAdvancedConfigHeader}>
+              <button
+                type="button"
+                className={styles.advancedConfigToggle}
+                onClick={() => setAdvancedOpen((prev) => !prev)}
+              >
+                <span className={styles.advancedConfigToggleLabel}>
+                  {t("models.localAdvancedConfigTitle")}
+                </span>
+                <ChevronDown
+                  className={
+                    advancedOpen
+                      ? styles.localAdvancedConfigChevronOpen
+                      : styles.localAdvancedConfigChevronClosed
+                  }
+                />
+              </button>
             </div>
-          </div>
-        ) : null}
-      </section>
-    </Modal>
+
+            {advancedOpen ? (
+              <div className={styles.localAdvancedConfigFields}>
+                <div
+                  className={`${styles.localAdvancedConfigField} ${styles.localAdvancedConfigFieldRow}`}
+                >
+                  <div
+                    className={`${styles.localAdvancedConfigLabel} ${styles.localAdvancedConfigLabelRow}`}
+                  >
+                    <span>{t("models.localMaxContextLengthLabel")}</span>
+                    <Button
+                      size="sm"
+                      disabled={
+                        advancedSaving ||
+                        maxContextLength === savedMaxContextLength
+                      }
+                      onClick={() => {
+                        if (maxContextLength !== savedMaxContextLength) {
+                          void handleSaveMaxContextLength();
+                        }
+                      }}
+                    >
+                      <Save className="mr-1 h-3 w-3" />
+                      {t("models.save")}
+                    </Button>
+                  </div>
+                  <Input
+                    type="number"
+                    min={MIN_LOCAL_MAX_CONTEXT_LENGTH}
+                    step={1024}
+                    value={maxContextLength}
+                    onChange={(e) =>
+                      setMaxContextLength(
+                        typeof e.target.valueAsNumber === "number" &&
+                          !isNaN(e.target.valueAsNumber)
+                          ? Math.trunc(e.target.valueAsNumber)
+                          : DEFAULT_LOCAL_MAX_CONTEXT_LENGTH,
+                      )
+                    }
+                    className={styles.localAdvancedConfigInput}
+                    placeholder={t("models.localMaxContextLengthPlaceholder")}
+                  />
+                  <div className={styles.localAdvancedConfigHint}>
+                    {t("models.localMaxContextLengthHint")}
+                  </div>
+                </div>
+
+                <div
+                  className={`${styles.localAdvancedConfigField} ${styles.localAdvancedConfigFieldRow}`}
+                >
+                  <div
+                    className={`${styles.localAdvancedConfigLabel} ${styles.localAdvancedConfigLabelRow}`}
+                  >
+                    <span>{t("models.localServerPortLabel")}</span>
+                    <Button
+                      size="sm"
+                      disabled={
+                        advancedSaving || serverPort === savedServerPort
+                      }
+                      onClick={() => {
+                        if (serverPort !== savedServerPort) {
+                          void handleSaveServerPort();
+                        }
+                      }}
+                    >
+                      <Save className="mr-1 h-3 w-3" />
+                      {t("models.save")}
+                    </Button>
+                  </div>
+                  <Input
+                    type="number"
+                    min={MIN_LOCAL_SERVER_PORT}
+                    max={MAX_LOCAL_SERVER_PORT}
+                    step={1}
+                    value={serverPort ?? ""}
+                    onChange={(e) =>
+                      setServerPort(
+                        e.target.value === ""
+                          ? null
+                          : Math.trunc(e.target.valueAsNumber),
+                      )
+                    }
+                    className={styles.localAdvancedConfigInput}
+                    placeholder={t("models.localServerPortPlaceholder")}
+                  />
+                  <div className={styles.localAdvancedConfigHint}>
+                    {t("models.localServerPortHint")}
+                  </div>
+                </div>
+
+                <div className={styles.localAdvancedConfigField}>
+                  <div
+                    className={`${styles.localAdvancedConfigLabel} ${styles.localAdvancedConfigLabelRow}`}
+                  >
+                    <span>{t("models.modelGenerateConfig")}</span>
+                    <Button
+                      size="sm"
+                      disabled={
+                        advancedSaving ||
+                        generateKwargsText === savedGenerateKwargsText ||
+                        Boolean(generateKwargsError)
+                      }
+                      onClick={() => {
+                        if (
+                          generateKwargsText !== savedGenerateKwargsText &&
+                          !generateKwargsError
+                        ) {
+                          void handleSaveGenerateKwargs();
+                        }
+                      }}
+                    >
+                      <Save className="mr-1 h-3 w-3" />
+                      {t("models.save")}
+                    </Button>
+                  </div>
+                  <JsonConfigEditor
+                    value={generateKwargsText}
+                    onChange={setGenerateKwargsText}
+                    placeholder={`Example:\n{\n  "temperature": 0.7,\n  "top_p": 0.95\n}`}
+                    variant="expanded"
+                  />
+                  {generateKwargsError ? (
+                    <div className={styles.localAdvancedConfigError}>
+                      {generateKwargsError}
+                    </div>
+                  ) : null}
+                  <div className={styles.localAdvancedConfigHint}>
+                    {t("models.localGenerateConfigHint")}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel llamacpp download dialog */}
+      <AlertDialog
+        open={cancelLlamacppDialog}
+        onOpenChange={setCancelLlamacppDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("models.localCancelDownloadTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("models.localCancelDownloadConfirm", {
+                repo: t("models.localLlamacppName"),
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.close")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmCancelLlamacpp}
+            >
+              {t("models.localCancelDownloadAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Cancel model download dialog */}
+      <AlertDialog
+        open={cancelModelDialog !== null}
+        onOpenChange={(v) => {
+          if (!v) setCancelModelDialog(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("models.localCancelDownloadTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("models.localCancelDownloadConfirm", {
+                repo: cancelModelDialog ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.close")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmCancelModelDownload}
+            >
+              {t("models.localCancelDownloadAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete model dialog */}
+      <AlertDialog
+        open={deleteModelDialog !== null}
+        onOpenChange={(v) => {
+          if (!v) setDeleteModelDialog(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("models.localDeleteModel")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("models.localDeleteConfirm", {
+                name: deleteModelDialog?.name ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmDeleteModel}
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Switch server dialog */}
+      <AlertDialog
+        open={switchServerDialog !== null}
+        onOpenChange={(v) => {
+          if (!v) setSwitchServerDialog(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("models.localServerSwitchTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("models.localServerSwitchConfirm", {
+                current: getLocalModelDisplayName(
+                  switchServerDialog?.current ?? null,
+                ),
+                next: switchServerDialog?.next.name ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("models.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmSwitchServer}>
+              {t("models.localSwitchModel")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

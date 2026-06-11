@@ -1,7 +1,7 @@
 import { useAgentsData, FileListPanel, FileEditor } from "./components";
 import styles from "./index.module.less";
-import { UploadOutlined, DownloadOutlined } from "@ant-design/icons";
-import { Button, Tooltip } from "@agentscope-ai/design";
+import { Upload, Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { workspaceApi } from "../../../api/modules/workspace";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -72,7 +72,6 @@ export default function WorkspacePage() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Check if file is zip format
     if (!file.name.toLowerCase().endsWith(".zip")) {
       message.error(t("workspace.zipOnly"));
       if (fileInputRef.current) {
@@ -108,7 +107,6 @@ export default function WorkspacePage() {
         t("workspace.uploadFailed") + ": " + (error as Error).message,
       );
     } finally {
-      // Clear input value to allow re-uploading the same file
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -142,7 +140,9 @@ export default function WorkspacePage() {
                 accept=".zip"
                 title=""
               />
-              <Tooltip
+              <Button
+                size="sm"
+                variant="outline"
                 title={`${t("workspace.coreFilesDesc")} (${
                   useUploadLimitStore.getState().uploadMaxSizeMb !== null
                     ? t("workspace.uploadTooltipWithLimit", {
@@ -150,24 +150,22 @@ export default function WorkspacePage() {
                       })
                     : t("workspace.uploadTooltip")
                 })`}
-                placement="top"
-                mouseEnterDelay={0.5}
+                onClick={handleUploadClick}
               >
-                <Button
-                  size="small"
-                  onClick={handleUploadClick}
-                  icon={<UploadOutlined />}
-                >
-                  {t("common.upload")}
-                </Button>
-              </Tooltip>
+                <Upload size={14} className="mr-1" />
+                {t("common.upload")}
+              </Button>
               <Button
-                size="small"
+                size="sm"
+                variant="outline"
                 onClick={handleDownload}
-                loading={downloading}
                 disabled={downloading}
-                icon={<DownloadOutlined />}
               >
+                {downloading ? (
+                  <span className="animate-pulse mr-1">...</span>
+                ) : (
+                  <Download size={14} className="mr-1" />
+                )}
                 {t("common.download")}
               </Button>
             </div>

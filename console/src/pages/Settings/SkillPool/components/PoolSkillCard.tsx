@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { Button, Card, Checkbox, Tooltip } from "@agentscope-ai/design";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useTranslation } from "react-i18next";
 import dayjs from "dayjs";
 import type { PoolSkillSpec } from "../../../../api/types";
@@ -36,9 +42,10 @@ export function PoolSkillCard({
   const isBuiltin = isSkillBuiltin(skill.source);
 
   return (
-    <Card
-      hoverable
-      className={`${styles.skillCard} ${isSelected ? styles.selectedCard : ""}`}
+    <div
+      className={`${styles.skillCard} ${
+        isSelected ? styles.selectedCard : ""
+      } border rounded-lg p-4 cursor-pointer`}
       onMouseEnter={() => setIsHover(true)}
       onMouseLeave={() => setIsHover(false)}
       onClick={() => {
@@ -48,9 +55,7 @@ export function PoolSkillCard({
           onEdit(skill);
         }
       }}
-      style={{ cursor: "pointer" }}
     >
-      {/* Top row: Icon (left) + Status badge + Checkbox (right) */}
       <div className={styles.cardTopRow}>
         <span className={styles.fileIcon}>
           {getSkillVisual(skill.name, skill.emoji)}
@@ -74,23 +79,26 @@ export function PoolSkillCard({
         </div>
       </div>
 
-      {/* Title + Built-in/Custom tag */}
       <div className={styles.titleRow}>
-        <Tooltip title={skill.name}>
-          <h3 className={styles.skillTitle}>
-            {skill.name}{" "}
-            {isBuiltin ? (
-              <span className={styles.builtinTag}>
-                {t("skillPool.builtin")}
-              </span>
-            ) : (
-              <span className={styles.customTag}>{t("skillPool.custom")}</span>
-            )}
-          </h3>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <h3 className={styles.skillTitle}>
+              {skill.name}{" "}
+              {isBuiltin ? (
+                <span className={styles.builtinTag}>
+                  {t("skillPool.builtin")}
+                </span>
+              ) : (
+                <span className={styles.customTag}>
+                  {t("skillPool.custom")}
+                </span>
+              )}
+            </h3>
+          </TooltipTrigger>
+          <TooltipContent>{skill.name}</TooltipContent>
         </Tooltip>
       </div>
 
-      {/* Updated row */}
       {skill.last_updated && (
         <div className={styles.metaInfoRow}>
           <span className={styles.metaInfoLabel}>
@@ -102,7 +110,6 @@ export function PoolSkillCard({
         </div>
       )}
 
-      {/* Tags row */}
       <div className={styles.metaInfoRow}>
         <span className={styles.metaInfoLabel}>{t("skills.tags")}</span>
         {skill.tags?.length ? (
@@ -118,7 +125,6 @@ export function PoolSkillCard({
         )}
       </div>
 
-      {/* Description */}
       <div className={styles.descriptionSection}>
         <span className={styles.descriptionSectionLabel}>
           {t("skills.skillDescription")}
@@ -126,10 +132,11 @@ export function PoolSkillCard({
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 
-      {/* Footer - only show on hover or batch mode */}
       {(isHover || batchModeEnabled) && (
         <div className={styles.cardFooter}>
           <Button
+            variant="outline"
+            size="sm"
             className={styles.actionButton}
             disabled={batchModeEnabled}
             onClick={(e) => {
@@ -140,7 +147,8 @@ export function PoolSkillCard({
             {t("skillPool.broadcast")}
           </Button>
           <Button
-            danger
+            variant="destructive"
+            size="sm"
             className={styles.deleteButton}
             disabled={batchModeEnabled}
             onClick={(e) => {
@@ -152,6 +160,6 @@ export function PoolSkillCard({
           </Button>
         </div>
       )}
-    </Card>
+    </div>
   );
 }

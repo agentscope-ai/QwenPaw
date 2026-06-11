@@ -1,18 +1,21 @@
 /**
  * Expandable agent selection table used inside RestoreBackupModal.
- * Shows each agent from the backup with its restore action (replace/add),
- * its destination workspace path, and a search box that filters without
- * losing selections outside the current filtered view.
  */
 import { useState, useMemo } from "react";
-import type { Key } from "react";
-import { Checkbox, Input, Tag, Table, Spin, Typography } from "antd";
-import type { TableColumnsType } from "antd";
-import { SearchOutlined, RightOutlined } from "@ant-design/icons";
+import { Search, ChevronRight, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import styles from "./RestoreAgentTable.module.less";
-
-const { Text } = Typography;
 
 export interface AgentRow {
   key: string;
@@ -46,6 +49,8 @@ export default function RestoreAgentTable({
   const { t } = useTranslation();
   const [agentSearch, setAgentSearch] = useState("");
   const [agentsExpanded, setAgentsExpanded] = useState(true);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const filteredAgentRows = useMemo(() => {
     const q = agentSearch.trim().toLowerCase();
@@ -66,108 +71,77 @@ export default function RestoreAgentTable({
     allAgentIds.every((id) => selectedAgents.includes(id));
   const someSelected = selectedAgents.length > 0 && !allSelected;
 
-  /** Selects or clears all agent IDs in the unfiltered list. */
-  const handleSelectAll = (checked: boolean) => {
+  const handleSelectAll = (checked: boolean | string) => {
     onSelectionChange(checked ? [...allAgentIds] : []);
   };
 
-  // When selection changes inside the (possibly filtered) table, preserve
-  // selections that are outside the current filtered view.
-  const handleTableSelectionChange = (keys: Key[]) => {
+  const handleRowToggle = (aid: string, checked: boolean) => {
     const filteredIds = new Set(filteredAgentRows.map((r) => r.aid));
     const kept = selectedAgents.filter((id) => !filteredIds.has(id));
-    onSelectionChange([...kept, ...(keys as string[])]);
+    if (checked) {
+      onSelectionChange([
+        ...kept,
+        ...filteredAgentRows
+          .filter((r) => selectedAgents.includes(r.aid) || r.aid === aid)
+          .map((r) => r.aid),
+      ]);
+    } else {
+      onSelectionChange(kept.filter((id) => id !== aid));
+    }
   };
 
-  /**
-   * Computes the destination workspace path for a new (not-yet-existing) agent.
-   * If the user provided a default directory, appends the agent ID under it;
-   * otherwise falls back to the i18n placeholder shown in the table cell.
-   */
   const getNewAgentDestPath = (aid: string): string => {
     const base = defaultWorkspaceDir.trim();
     if (base) return `${base.replace(/[/\\]+$/, "")}/${aid}`;
     return t("backup.defaultWorkspaceDirDefault", { aid });
   };
 
-  const agentColumns: TableColumnsType<AgentRow> = [
-    {
-      title: t("backup.agentColumnName"),
-      key: "name",
-      render: (_, row) => (
-        <div>
-          <Text strong className={styles.agentName}>
-            {row.name}
-          </Text>
-          {row.name !== row.aid && (
-            <Text type="secondary" className={styles.agentId}>
-              ({row.aid})
-            </Text>
-          )}
-          <Tag
-            color={row.isExisting ? "blue" : "green"}
-            className={styles.agentActionTag}
-          >
-            {row.isExisting
-              ? t("backup.agentActionReplace")
-              : t("backup.agentActionAdd")}
-          </Tag>
-        </div>
-      ),
-    },
-    {
-      title: t("backup.agentColumnWorkspace"),
-      key: "workspace",
-      ellipsis: true,
-      render: (_, row) => (
-        <Text
-          type="secondary"
-          className={styles.agentWorkspaceText}
-          ellipsis={{
-            tooltip: row.isExisting
-              ? row.currentWorkspaceDir
-              : getNewAgentDestPath(row.aid),
-          }}
-        >
-          {row.isExisting
-            ? row.currentWorkspaceDir || row.aid
-            : getNewAgentDestPath(row.aid)}
-        </Text>
-      ),
-    },
-  ];
+  const totalPages = Math.ceil(filteredAgentRows.length / PAGE_SIZE);
+  const pageRows = filteredAgentRows.slice(
+    (page - 1) * PAGE_SIZE,
+    page * PAGE_SIZE,
+  );
 
   return (
     <div>
       <div className={styles.agentsRowHeader}>
-        <Checkbox
-          checked={includeAgents}
-          onChange={(e) => {
-            onIncludeAgentsChange(e.target.checked);
-            setAgentsExpanded(e.target.checked);
-          }}
-        >
-          {t("backup.scopeAgents")}
-          {includeAgents && detailLoading && (
-            <Spin size="small" style={{ marginLeft: 8 }} />
-          )}
-          {includeAgents && !detailLoading && summaryText && (
-            <Text type="secondary" className={styles.agentSummaryText}>
-              — {summaryText}
-            </Text>
-          )}
-        </Checkbox>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="include-agents"
+            checked={includeAgents}
+            onCheckedChange={(checked) => {
+              onIncludeAgentsChange(!!checked);
+              setAgentsExpanded(!!checked);
+            }}
+          />
+          <label
+            htmlFor="include-agents"
+            className="cursor-pointer text-sm font-medium"
+          >
+            {t("backup.scopeAgents")}
+            {includeAgents && detailLoading && (
+              <Loader2 size={12} className="ml-2 inline animate-spin" />
+            )}
+            {includeAgents && !detailLoading && summaryText && (
+              <span className="ml-1 text-muted-foreground text-xs">
+                — {summaryText}
+              </span>
+            )}
+          </label>
+        </div>
         {includeAgents && (
-          <span
+          <button
+            type="button"
             onClick={() => setAgentsExpanded(!agentsExpanded)}
             className={styles.expandToggle}
           >
-            <RightOutlined
-              className={`${styles.expandIcon}${
-                agentsExpanded ? ` ${styles.open}` : ""
+            <ChevronRight
+              size={14}
+              className={`transition-transform ${
+                agentsExpanded ? "rotate-90" : ""
               }`}
             />
-          </span>
+          </button>
         )}
       </div>
 
@@ -175,7 +149,7 @@ export default function RestoreAgentTable({
         <div className={styles.agentsContent}>
           {detailLoading ? (
             <div className={styles.agentsLoading}>
-              <Spin />
+              <Loader2 className="animate-spin" />
               <div className={styles.agentsLoadingText}>
                 {t("backup.loadingAgents")}
               </div>
@@ -183,58 +157,131 @@ export default function RestoreAgentTable({
           ) : (
             <>
               <div className={styles.agentSearchToolbar}>
-                <Input
-                  size="small"
-                  prefix={
-                    <SearchOutlined
-                      style={{ color: "var(--ant-color-text-quaternary)" }}
-                    />
-                  }
-                  placeholder={t("backup.agentSearchPlaceholder")}
-                  value={agentSearch}
-                  onChange={(e) => setAgentSearch(e.target.value)}
-                  allowClear
-                  className={styles.agentSearchInput}
-                />
-                <Text type="secondary" className={styles.selectAllCount}>
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    className={`${styles.agentSearchInput} pl-7 h-7 text-sm`}
+                    placeholder={t("backup.agentSearchPlaceholder")}
+                    value={agentSearch}
+                    onChange={(e) => setAgentSearch(e.target.value)}
+                  />
+                </div>
+                <span
+                  className={`${styles.selectAllCount} text-muted-foreground text-xs`}
+                >
                   ({selectedAgents.length}/{allAgentIds.length})
-                </Text>
+                </span>
               </div>
 
-              <Table<AgentRow>
-                rowKey="aid"
-                dataSource={filteredAgentRows}
-                columns={agentColumns}
-                size="small"
-                rowSelection={{
-                  selectedRowKeys: selectedAgents,
-                  onChange: handleTableSelectionChange,
-                  columnTitle: (
-                    <Checkbox
-                      checked={allSelected}
-                      indeterminate={someSelected}
-                      onChange={(e) => handleSelectAll(e.target.checked)}
-                    />
-                  ),
-                  renderCell: (_checked, _row, _index, originNode) =>
-                    originNode,
-                }}
-                pagination={{
-                  pageSize: 10,
-                  showSizeChanger: false,
-                  showTotal: (total) =>
-                    agentSearch
+              <Table className={styles.agentTable}>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-8">
+                      <Checkbox
+                        checked={allSelected}
+                        onCheckedChange={handleSelectAll}
+                        data-state={someSelected ? "indeterminate" : undefined}
+                      />
+                    </TableHead>
+                    <TableHead>{t("backup.agentColumnName")}</TableHead>
+                    <TableHead>{t("backup.agentColumnWorkspace")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pageRows.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={3}
+                        className="text-center text-muted-foreground py-4"
+                      >
+                        {t("backup.noAgentsInBackup")}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    pageRows.map((row) => (
+                      <TableRow key={row.aid}>
+                        <TableCell className="w-8">
+                          <Checkbox
+                            checked={selectedAgents.includes(row.aid)}
+                            onCheckedChange={(checked) =>
+                              handleRowToggle(row.aid, !!checked)
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span
+                              className={`${styles.agentName} font-medium text-sm`}
+                            >
+                              {row.name}
+                            </span>
+                            {row.name !== row.aid && (
+                              <span
+                                className={`${styles.agentId} text-xs text-muted-foreground`}
+                              >
+                                ({row.aid})
+                              </span>
+                            )}
+                            <Badge
+                              variant="secondary"
+                              className={
+                                row.isExisting
+                                  ? "bg-blue-100 text-blue-700"
+                                  : "bg-green-100 text-green-700"
+                              }
+                            >
+                              {row.isExisting
+                                ? t("backup.agentActionReplace")
+                                : t("backup.agentActionAdd")}
+                            </Badge>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
+                          {row.isExisting
+                            ? row.currentWorkspaceDir || row.aid
+                            : getNewAgentDestPath(row.aid)}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground">
+                  <span>
+                    {agentSearch
                       ? t("backup.agentSearchTotal", {
-                          count: total,
+                          count: filteredAgentRows.length,
                           total: allAgentIds.length,
                         })
-                      : t("backup.agentTotal", { count: total }),
-                  size: "small",
-                  hideOnSinglePage: true,
-                }}
-                locale={{ emptyText: t("backup.noAgentsInBackup") }}
-                className={styles.agentTable}
-              />
+                      : t("backup.agentTotal", {
+                          count: filteredAgentRows.length,
+                        })}
+                  </span>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      disabled={page === 1}
+                      onClick={() => setPage((p) => p - 1)}
+                      className="px-1 disabled:opacity-40"
+                    >
+                      &lt;
+                    </button>
+                    <span>
+                      {page}/{totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={page === totalPages}
+                      onClick={() => setPage((p) => p + 1)}
+                      className="px-1 disabled:opacity-40"
+                    >
+                      &gt;
+                    </button>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>

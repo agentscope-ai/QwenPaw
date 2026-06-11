@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { App } from "antd";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import {
   debugApi,
@@ -21,7 +21,7 @@ export function backendLevelColor(level: BackendLevelFilter): string {
 
 export function useDebugLogs() {
   const { t } = useTranslation();
-  const { message: messageApi } = App.useApp();
+  const { message: messageApi } = useAppMessage();
 
   const [backendLogs, setBackendLogs] =
     useState<BackendDebugLogsResponse | null>(null);

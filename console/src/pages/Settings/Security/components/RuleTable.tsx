@@ -1,25 +1,37 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Table,
-  Tag,
-  Switch,
-  Button,
-  Tooltip,
-  Collapse,
-} from "@agentscope-ai/design";
-import { Space } from "antd";
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Eye, Pencil, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { MergedRule } from "../useToolGuard";
-import { useTheme } from "../../../../contexts/ThemeContext";
 import styles from "../index.module.less";
 
-const SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: "red",
-  HIGH: "orange",
-  MEDIUM: "gold",
-  LOW: "blue",
-  INFO: "default",
+const SEVERITY_CLASS: Record<string, string> = {
+  CRITICAL: "border-red-400 text-red-600",
+  HIGH: "border-orange-400 text-orange-600",
+  MEDIUM: "border-yellow-400 text-yellow-600",
+  LOW: "border-blue-400 text-blue-600",
+  INFO: "",
 };
 
 interface RuleTableProps {
@@ -56,205 +68,218 @@ export function RuleTable({
   onDeleteRule,
 }: RuleTableProps) {
   const { t } = useTranslation();
-  const { isDark } = useTheme();
-  const darkBtnStyle = isDark ? { color: "rgba(255,255,255,0.75)" } : undefined;
 
   const groupedRules = useMemo(() => groupRulesByCategory(rules), [rules]);
-
-  const columns = [
-    {
-      title: t("security.rules.id"),
-      dataIndex: "id",
-      key: "id",
-      width: 280,
-      render: (id: string, record: MergedRule) => (
-        <span style={{ opacity: record.disabled ? 0.4 : 1 }}>{id}</span>
-      ),
-    },
-    {
-      title: t("security.rules.severity"),
-      dataIndex: "severity",
-      key: "severity",
-      width: 100,
-      render: (sev: string, record: MergedRule) => (
-        <Tag
-          color={SEVERITY_COLORS[sev] ?? "default"}
-          style={{ opacity: record.disabled ? 0.4 : 1 }}
-        >
-          {sev}
-        </Tag>
-      ),
-    },
-    {
-      title: t("security.rules.descriptionCol"),
-      dataIndex: "description",
-      key: "description",
-      ellipsis: true,
-      render: (_text: string, record: MergedRule) => {
-        const i18nKey = `security.rules.descriptions.${record.id}`;
-        const translated = t(i18nKey, { defaultValue: "" });
-        const display = translated || record.description;
-        return (
-          <Tooltip title={display}>
-            <span
-              style={{
-                opacity: record.disabled ? 0.4 : 1,
-                display: "block",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {display}
-            </span>
-          </Tooltip>
-        );
-      },
-    },
-    {
-      title: t("security.rules.source"),
-      dataIndex: "source",
-      key: "source",
-      width: 100,
-      render: (source: string, record: MergedRule) => (
-        <Tag
-          color={source === "builtin" ? "rgba(142, 140, 153, 1)" : "green"}
-          style={{ opacity: record.disabled ? 0.4 : 1 }}
-        >
-          {source === "builtin"
-            ? t("security.rules.builtin")
-            : t("security.rules.custom")}
-        </Tag>
-      ),
-    },
-    {
-      title: (
-        <Tooltip title={t("security.rules.autoDenyTooltip")}>
-          <span>{t("security.rules.autoDeny")}</span>
-        </Tooltip>
-      ),
-      key: "autoDeny",
-      width: 100,
-      render: (_: unknown, record: MergedRule) => (
-        <Tooltip
-          title={
-            record.autoDeny
-              ? t("security.rules.autoDenyDisable")
-              : t("security.rules.autoDenyEnable")
-          }
-        >
-          <Switch
-            size="small"
-            checked={record.autoDeny}
-            onChange={() => onToggleAutoDeny(record.id, record.autoDeny)}
-            disabled={!enabled || record.disabled}
-          />
-        </Tooltip>
-      ),
-    },
-    {
-      title: t("security.rules.actions"),
-      key: "actions",
-      width: 100,
-      render: (_: unknown, record: MergedRule) => (
-        <Space size="small">
-          <Tooltip
-            title={
-              record.disabled
-                ? t("security.rules.enable")
-                : t("security.rules.disable")
-            }
-          >
-            <Switch
-              size="small"
-              checked={!record.disabled}
-              onChange={() => onToggleRule(record.id, record.disabled)}
-              disabled={!enabled}
-            />
-          </Tooltip>
-          {record.source === "builtin" && (
-            <Button
-              type="text"
-              size="small"
-              onClick={() => onPreviewRule(record)}
-              disabled={!enabled}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                ...darkBtnStyle,
-              }}
-            >
-              <Eye size={16} />
-            </Button>
-          )}
-          {record.source === "custom" && (
-            <>
-              <Tooltip title={t("security.rules.edit")}>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<Pencil size={14} />}
-                  onClick={() => onEditRule(record)}
-                  disabled={!enabled}
-                  style={darkBtnStyle}
-                />
-              </Tooltip>
-              <Tooltip title={t("security.rules.delete")}>
-                <Button
-                  type="text"
-                  size="small"
-                  danger
-                  icon={<Trash2 size={14} />}
-                  onClick={() => onDeleteRule(record.id)}
-                  disabled={!enabled}
-                />
-              </Tooltip>
-            </>
-          )}
-        </Space>
-      ),
-    },
-  ];
-
   const categoryKeys = Object.keys(groupedRules);
 
-  const collapseItems = categoryKeys.map((category) => {
-    const categoryRules = groupedRules[category];
-    const enabledCount = categoryRules.filter((r) => !r.disabled).length;
-    const totalCount = categoryRules.length;
-    const categoryLabel =
-      t(`security.rules.categories.${category}`, { defaultValue: "" }) ||
-      category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-
-    return {
-      key: category,
-      label: (
-        <span className={styles.collapseCategoryLabel}>
-          {categoryLabel}
-          <Tag style={{ marginLeft: 8 }}>
-            {enabledCount}/{totalCount}
-          </Tag>
-        </span>
-      ),
-      children: (
-        <Table
-          dataSource={categoryRules}
-          columns={columns}
-          rowKey="id"
-          pagination={false}
-          size="small"
-          className={styles.ruleTable}
-        />
-      ),
-    };
-  });
+  const [openItems, setOpenItems] = useState<string[]>(categoryKeys);
 
   return (
-    <Collapse
-      defaultActiveKey={categoryKeys}
-      items={collapseItems}
+    <Accordion
+      type="multiple"
+      value={openItems}
+      onValueChange={setOpenItems}
       className={styles.ruleCollapse}
-    />
+    >
+      {categoryKeys.map((category) => {
+        const categoryRules = groupedRules[category];
+        const enabledCount = categoryRules.filter((r) => !r.disabled).length;
+        const totalCount = categoryRules.length;
+        const categoryLabel =
+          t(`security.rules.categories.${category}`, { defaultValue: "" }) ||
+          category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+        return (
+          <AccordionItem key={category} value={category}>
+            <AccordionTrigger className={styles.collapseCategoryLabel}>
+              <span>
+                {categoryLabel}
+                <Badge variant="outline" className="ml-2 text-xs">
+                  {enabledCount}/{totalCount}
+                </Badge>
+              </span>
+            </AccordionTrigger>
+            <AccordionContent>
+              <Table className={styles.ruleTable}>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead style={{ width: 280 }}>
+                      {t("security.rules.id")}
+                    </TableHead>
+                    <TableHead style={{ width: 100 }}>
+                      {t("security.rules.severity")}
+                    </TableHead>
+                    <TableHead>{t("security.rules.descriptionCol")}</TableHead>
+                    <TableHead style={{ width: 100 }}>
+                      {t("security.rules.source")}
+                    </TableHead>
+                    <TableHead style={{ width: 100 }}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="cursor-default">
+                            {t("security.rules.autoDeny")}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("security.rules.autoDenyTooltip")}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableHead>
+                    <TableHead style={{ width: 120 }}>
+                      {t("security.rules.actions")}
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {categoryRules.map((record) => {
+                    const i18nKey = `security.rules.descriptions.${record.id}`;
+                    const translated = t(i18nKey, { defaultValue: "" });
+                    const display = translated || record.description;
+
+                    return (
+                      <TableRow key={record.id}>
+                        <TableCell>
+                          <span style={{ opacity: record.disabled ? 0.4 : 1 }}>
+                            {record.id}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={`text-xs ${
+                              SEVERITY_CLASS[record.severity] ?? ""
+                            }`}
+                            style={{ opacity: record.disabled ? 0.4 : 1 }}
+                          >
+                            {record.severity}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                className="block overflow-hidden text-ellipsis whitespace-nowrap max-w-[240px]"
+                                style={{ opacity: record.disabled ? 0.4 : 1 }}
+                              >
+                                {display}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>{display}</TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={`text-xs ${
+                              record.source === "builtin"
+                                ? "border-gray-400 text-gray-600"
+                                : "border-green-400 text-green-600"
+                            }`}
+                            style={{ opacity: record.disabled ? 0.4 : 1 }}
+                          >
+                            {record.source === "builtin"
+                              ? t("security.rules.builtin")
+                              : t("security.rules.custom")}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span>
+                                <Switch
+                                  checked={record.autoDeny}
+                                  onCheckedChange={() =>
+                                    onToggleAutoDeny(record.id, record.autoDeny)
+                                  }
+                                  disabled={!enabled || record.disabled}
+                                />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {record.autoDeny
+                                ? t("security.rules.autoDenyDisable")
+                                : t("security.rules.autoDenyEnable")}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>
+                                  <Switch
+                                    checked={!record.disabled}
+                                    onCheckedChange={() =>
+                                      onToggleRule(record.id, record.disabled)
+                                    }
+                                    disabled={!enabled}
+                                  />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {record.disabled
+                                  ? t("security.rules.enable")
+                                  : t("security.rules.disable")}
+                              </TooltipContent>
+                            </Tooltip>
+                            {record.source === "builtin" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0"
+                                onClick={() => onPreviewRule(record)}
+                                disabled={!enabled}
+                              >
+                                <Eye size={16} />
+                              </Button>
+                            )}
+                            {record.source === "custom" && (
+                              <>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 w-7 p-0"
+                                      onClick={() => onEditRule(record)}
+                                      disabled={!enabled}
+                                    >
+                                      <Pencil size={14} />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    {t("security.rules.edit")}
+                                  </TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                      onClick={() => onDeleteRule(record.id)}
+                                      disabled={!enabled}
+                                    >
+                                      <Trash2 size={14} />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    {t("security.rules.delete")}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </AccordionContent>
+          </AccordionItem>
+        );
+      })}
+    </Accordion>
   );
 }

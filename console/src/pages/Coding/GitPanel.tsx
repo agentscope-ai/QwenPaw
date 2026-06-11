@@ -11,17 +11,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Button,
-  Input,
-  message,
-  Modal,
-  Popconfirm,
-  Select,
-  Tabs,
-  Tag,
-  Tooltip,
-} from "antd";
-import {
   GitBranch,
   GitCommit,
   GitMerge,
@@ -40,6 +29,39 @@ import type {
   GitChangedFile,
 } from "../../api/modules/git";
 import { useProjectDir } from "../../stores/codingModeStore";
+import { useAppMessage } from "../../hooks/useAppMessage";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import styles from "./GitPanel.module.less";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -63,6 +85,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function GitPanel() {
   const { projectDir } = useProjectDir();
+  const { message } = useAppMessage();
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [branches, setBranches] = useState<BranchInfo[]>([]);
@@ -77,12 +100,11 @@ export default function GitPanel() {
   } | null>(null);
   const [newBranchModal, setNewBranchModal] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
-  const [msgApi, contextHolder] = message.useMessage();
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  /** Show full list when > FILE_LIMIT items */
   const [showAllUnstaged, setShowAllUnstaged] = useState(false);
   const [showAllStaged, setShowAllStaged] = useState(false);
   const FILE_LIMIT = 50;
+  const [activeTab, setActiveTab] = useState<"changes" | "log">("changes");
 
   const refresh = useCallback(async () => {
     try {
@@ -90,7 +112,6 @@ export default function GitPanel() {
       setStatus(s);
       setBranches(b);
     } catch {
-      // Not a git repo or git not available – silently hide
       setStatus(null);
     }
   }, []);
@@ -103,7 +124,6 @@ export default function GitPanel() {
     }
   }, []);
 
-  // Re-fetch everything when the active coding project changes
   useEffect(() => {
     setStatus(null);
     setLog([]);
@@ -112,26 +132,23 @@ export default function GitPanel() {
   }, [projectDir, refresh, refreshLog]);
 
   useEffect(() => {
-    // Poll every 10 s — reduced from 5 s to cut API load
     pollingRef.current = setInterval(() => void refresh(), 10000);
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, [refresh]);
 
-  // ---- Branch actions -------------------------------------------------------
-
   const handleCheckout = useCallback(
     async (branch: string) => {
       try {
         await gitApi.checkout(branch);
         await refresh();
-        void msgApi.success(`Switched to ${branch}`);
+        message.success(`Switched to ${branch}`);
       } catch (e: unknown) {
-        void msgApi.error(String(e));
+        message.error(String(e));
       }
     },
-    [refresh, msgApi],
+    [refresh, message],
   );
 
   const handleCreateBranch = useCallback(async () => {
@@ -141,13 +158,11 @@ export default function GitPanel() {
       setNewBranchModal(false);
       setNewBranchName("");
       await refresh();
-      void msgApi.success(`Created & switched to ${newBranchName.trim()}`);
+      message.success(`Created & switched to ${newBranchName.trim()}`);
     } catch (e: unknown) {
-      void msgApi.error(String(e));
+      message.error(String(e));
     }
-  }, [newBranchName, refresh, msgApi]);
-
-  // ---- Stage / unstage ------------------------------------------------------
+  }, [newBranchName, refresh, message]);
 
   const handleStage = useCallback(
     async (file: GitChangedFile) => {
@@ -170,22 +185,18 @@ export default function GitPanel() {
     await refresh();
   }, [refresh]);
 
-  // ---- Discard --------------------------------------------------------------
-
   const handleDiscard = useCallback(
     async (file: GitChangedFile) => {
       try {
         await gitApi.discard([file.path]);
         await refresh();
-        void msgApi.success(`Discarded changes in ${file.path}`);
+        message.success(`Discarded changes in ${file.path}`);
       } catch (e: unknown) {
-        void msgApi.error(String(e));
+        message.error(String(e));
       }
     },
-    [refresh, msgApi],
+    [refresh, message],
   );
-
-  // ---- Diff -----------------------------------------------------------------
 
   const handleShowDiff = useCallback(async (file: GitChangedFile) => {
     try {
@@ -216,32 +227,28 @@ export default function GitPanel() {
     }
   }, []);
 
-  // ---- Revert ---------------------------------------------------------------
-
   const handleRevert = useCallback(
     async (commit: CommitInfo) => {
       try {
         await gitApi.revert(commit.hash);
         await refresh();
         await refreshLog();
-        void msgApi.success(`Reverted commit ${commit.hash}`);
+        message.success(`Reverted commit ${commit.hash}`);
       } catch (e: unknown) {
-        void msgApi.error(String(e));
+        message.error(String(e));
       }
     },
-    [refresh, refreshLog, msgApi],
+    [refresh, refreshLog, message],
   );
-
-  // ---- Commit ---------------------------------------------------------------
 
   const handleCommit = useCallback(async () => {
     if (!commitMsg.trim()) {
-      void msgApi.warning("Please enter a commit message");
+      message.warning("Please enter a commit message");
       return;
     }
     const hasStaged = status?.changes.some((f) => f.staged);
     if (!hasStaged) {
-      void msgApi.warning("No staged files. Stage changes before committing.");
+      message.warning("No staged files. Stage changes before committing.");
       return;
     }
     setCommitting(true);
@@ -250,26 +257,22 @@ export default function GitPanel() {
       setCommitMsg("");
       await refresh();
       await refreshLog();
-      void msgApi.success("Committed successfully");
+      message.success("Committed successfully");
     } catch (e: unknown) {
       const raw = e instanceof Error ? e.message : String(e);
       if (raw.includes("nothing to commit")) {
-        void msgApi.warning("Nothing to commit");
+        message.warning("Nothing to commit");
       } else if (raw.includes("nothing added to commit")) {
-        void msgApi.warning(
-          "No staged files. Stage changes before committing.",
-        );
+        message.warning("No staged files. Stage changes before committing.");
       } else {
-        void msgApi.error(raw);
+        message.error(raw);
       }
     } finally {
       setCommitting(false);
     }
-  }, [commitMsg, status, refresh, refreshLog, msgApi]);
+  }, [commitMsg, status, refresh, refreshLog, message]);
 
-  // ---- Render ---------------------------------------------------------------
-
-  if (status === null) return null; // not a git repo
+  if (status === null) return null;
 
   const staged = status.changes.filter((f) => f.staged);
   const unstaged = status.changes.filter((f) => !f.staged);
@@ -282,207 +285,188 @@ export default function GitPanel() {
 
   return (
     <div className={styles.panel}>
-      {contextHolder}
-
       {/* Branch bar */}
       <div className={styles.branchBar}>
         <GitBranch size={13} className={styles.branchIcon} />
-        <Select
-          size="small"
-          className={styles.branchSelect}
-          value={status.branch}
-          onChange={handleCheckout}
-          options={localBranches.map((b) => ({
-            value: b.name,
-            label: b.name,
-          }))}
-          popupRender={(menu) => (
-            <>
-              {menu}
-              <div
-                className={styles.newBranchOption}
-                onClick={() => setNewBranchModal(true)}
-              >
-                <Plus size={12} /> New branch
-              </div>
-            </>
-          )}
-        />
+        <Select value={status.branch} onValueChange={handleCheckout}>
+          <SelectTrigger className="h-6 text-xs flex-1 min-w-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {localBranches.map((b) => (
+              <SelectItem key={b.name} value={b.name} className="text-xs">
+                {b.name}
+              </SelectItem>
+            ))}
+            <div
+              className="flex items-center gap-1 px-2 py-1 text-xs cursor-pointer hover:bg-muted"
+              onClick={() => setNewBranchModal(true)}
+            >
+              <Plus size={12} /> New branch
+            </div>
+          </SelectContent>
+        </Select>
         {status.ahead > 0 && (
-          <Tag color="blue" className={styles.syncTag}>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-600">
             ↑{status.ahead}
-          </Tag>
+          </span>
         )}
         {status.behind > 0 && (
-          <Tag color="orange" className={styles.syncTag}>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-600">
             ↓{status.behind}
-          </Tag>
+          </span>
         )}
-        <Tooltip title="Refresh">
-          <button
-            type="button"
-            className={styles.iconBtn}
-            onClick={() => {
-              setLoading(true);
-              void refresh().finally(() => setLoading(false));
-            }}
-          >
-            <RefreshCw size={12} className={loading ? styles.spinning : ""} />
-          </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={styles.iconBtn}
+              onClick={() => {
+                setLoading(true);
+                void refresh().finally(() => setLoading(false));
+              }}
+            >
+              <RefreshCw size={12} className={loading ? styles.spinning : ""} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Refresh</TooltipContent>
         </Tooltip>
       </div>
 
-      <Tabs
-        size="small"
-        className={styles.tabs}
-        items={[
-          {
-            key: "changes",
-            label: (
-              <span>
-                Changes{" "}
-                {status.changes.length > 0 && (
-                  <span className={styles.badge}>{status.changes.length}</span>
-                )}
-              </span>
-            ),
-            children: (
-              <div className={styles.changesPane}>
-                {/* Staged */}
-                {staged.length > 0 && (
-                  <div className={styles.section}>
-                    <div className={styles.sectionHeader}>
-                      <span>Staged ({staged.length})</span>
-                      <Tooltip title="Unstage all">
-                        <button
-                          type="button"
-                          className={styles.iconBtn}
-                          onClick={() => void gitApi.unstage([]).then(refresh)}
-                        >
-                          <Minus size={11} />
-                        </button>
-                      </Tooltip>
-                    </div>
-                    {visibleStaged.map((f) => (
-                      <FileRow
-                        key={f.path + "-staged"}
-                        file={f}
-                        onStage={() => void handleUnstage(f)}
-                        onDiff={() => void handleShowDiff(f)}
-                        actionIcon={<Minus size={11} />}
-                        actionTip="Unstage"
-                      />
-                    ))}
-                    {!showAllStaged && staged.length > FILE_LIMIT && (
-                      <button
-                        type="button"
-                        className={styles.showMoreBtn}
-                        onClick={() => setShowAllStaged(true)}
-                      >
-                        Show all {staged.length} files…
-                      </button>
-                    )}
-                  </div>
-                )}
+      {/* Tabs */}
+      <div className="flex border-b text-xs">
+        <button
+          className={`px-3 py-1.5 transition-colors ${
+            activeTab === "changes"
+              ? "border-b-2 border-primary font-medium"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={() => setActiveTab("changes")}
+        >
+          Changes{" "}
+          {status.changes.length > 0 && (
+            <span className={styles.badge}>{status.changes.length}</span>
+          )}
+        </button>
+        <button
+          className={`px-3 py-1.5 transition-colors ${
+            activeTab === "log"
+              ? "border-b-2 border-primary font-medium"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={() => setActiveTab("log")}
+        >
+          History
+        </button>
+      </div>
 
-                {/* Unstaged */}
-                {unstaged.length > 0 && (
-                  <div className={styles.section}>
-                    <div className={styles.sectionHeader}>
-                      <span>Changes ({unstaged.length})</span>
-                      <Tooltip title="Stage all">
-                        <button
-                          type="button"
-                          className={styles.iconBtn}
-                          onClick={() => void handleStageAll()}
-                        >
-                          <Plus size={11} />
-                        </button>
-                      </Tooltip>
-                    </div>
-                    {visibleUnstaged.map((f) => (
-                      <FileRow
-                        key={f.path + "-unstaged"}
-                        file={f}
-                        onStage={() => void handleStage(f)}
-                        onDiff={() => void handleShowDiff(f)}
-                        onDiscard={() => void handleDiscard(f)}
-                        actionIcon={<Plus size={11} />}
-                        actionTip="Stage"
-                      />
-                    ))}
-                    {!showAllUnstaged && unstaged.length > FILE_LIMIT && (
-                      <button
-                        type="button"
-                        className={styles.showMoreBtn}
-                        onClick={() => setShowAllUnstaged(true)}
-                      >
-                        Show all {unstaged.length} files…
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {status.changes.length === 0 && (
-                  <p className={styles.empty}>No changes</p>
-                )}
+      {activeTab === "changes" && (
+        <div className={styles.changesPane}>
+          {staged.length > 0 && (
+            <div className={styles.section}>
+              <div className={styles.sectionHeader}>
+                <span>Staged ({staged.length})</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className={styles.iconBtn}
+                      onClick={() => void gitApi.unstage([]).then(refresh)}
+                    >
+                      <Minus size={11} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Unstage all</TooltipContent>
+                </Tooltip>
               </div>
-            ),
-          },
-          {
-            key: "log",
-            label: "History",
-            children: (
-              <div className={styles.logPane}>
-                {log.length === 0 ? (
-                  <p className={styles.empty}>No commits yet</p>
-                ) : (
-                  log.map((c) => (
-                    <div key={c.hash} className={styles.logEntry}>
-                      <div className={styles.logEntryTop}>
-                        <span className={styles.logHash}>{c.hash}</span>
-                        <span className={styles.logMsg}>{c.message}</span>
-                        <div className={styles.logActions}>
-                          <Tooltip title="View diff">
-                            <button
-                              type="button"
-                              className={styles.iconBtn}
-                              onClick={() => void handleShowCommitDiff(c)}
-                            >
-                              <FileDiff size={11} />
-                            </button>
-                          </Tooltip>
-                          <Popconfirm
-                            title={`Revert commit "${c.message}"?`}
-                            description="This creates a new commit that undoes these changes."
-                            onConfirm={() => void handleRevert(c)}
-                            okText="Revert"
-                            cancelText="Cancel"
-                            placement="topRight"
-                          >
-                            <Tooltip title="Revert this commit">
-                              <button type="button" className={styles.iconBtn}>
-                                <Undo2 size={11} />
-                              </button>
-                            </Tooltip>
-                          </Popconfirm>
-                        </div>
-                      </div>
-                      <span className={styles.logMeta}>
-                        {c.author} · {c.date}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            ),
-          },
-        ]}
-      />
+              {visibleStaged.map((f) => (
+                <FileRow
+                  key={f.path + "-staged"}
+                  file={f}
+                  onStage={() => void handleUnstage(f)}
+                  onDiff={() => void handleShowDiff(f)}
+                  actionIcon={<Minus size={11} />}
+                  actionTip="Unstage"
+                />
+              ))}
+              {!showAllStaged && staged.length > FILE_LIMIT && (
+                <button
+                  type="button"
+                  className={styles.showMoreBtn}
+                  onClick={() => setShowAllStaged(true)}
+                >
+                  Show all {staged.length} files…
+                </button>
+              )}
+            </div>
+          )}
 
-      {/* Commit box — outside Tabs so it's always pinned at bottom */}
+          {unstaged.length > 0 && (
+            <div className={styles.section}>
+              <div className={styles.sectionHeader}>
+                <span>Changes ({unstaged.length})</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className={styles.iconBtn}
+                      onClick={() => void handleStageAll()}
+                    >
+                      <Plus size={11} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Stage all</TooltipContent>
+                </Tooltip>
+              </div>
+              {visibleUnstaged.map((f) => (
+                <FileRow
+                  key={f.path + "-unstaged"}
+                  file={f}
+                  onStage={() => void handleStage(f)}
+                  onDiff={() => void handleShowDiff(f)}
+                  onDiscard={() => void handleDiscard(f)}
+                  actionIcon={<Plus size={11} />}
+                  actionTip="Stage"
+                />
+              ))}
+              {!showAllUnstaged && unstaged.length > FILE_LIMIT && (
+                <button
+                  type="button"
+                  className={styles.showMoreBtn}
+                  onClick={() => setShowAllUnstaged(true)}
+                >
+                  Show all {unstaged.length} files…
+                </button>
+              )}
+            </div>
+          )}
+
+          {status.changes.length === 0 && (
+            <p className={styles.empty}>No changes</p>
+          )}
+        </div>
+      )}
+
+      {activeTab === "log" && (
+        <div className={styles.logPane}>
+          {log.length === 0 ? (
+            <p className={styles.empty}>No commits yet</p>
+          ) : (
+            log.map((c) => (
+              <CommitRow
+                key={c.hash}
+                commit={c}
+                onDiff={() => void handleShowCommitDiff(c)}
+                onRevert={() => void handleRevert(c)}
+              />
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Commit box */}
       <div className={styles.commitBox}>
-        <Input.TextArea
+        <Textarea
           rows={2}
           placeholder="Commit message…"
           value={commitMsg}
@@ -495,59 +479,136 @@ export default function GitPanel() {
           }}
         />
         <Button
-          type="primary"
-          size="small"
-          block
-          loading={committing}
+          size="sm"
+          className="w-full mt-1"
+          disabled={committing}
           onClick={handleCommit}
-          icon={<GitCommit size={12} />}
         >
-          Commit
+          <GitCommit size={12} className="mr-1" />
+          {committing ? "Committing…" : "Commit"}
         </Button>
       </div>
 
-      {/* Diff modal */}
-      <Modal
-        open={!!diffFile}
-        title={
-          <span>
-            <FileDiff size={14} style={{ marginRight: 6 }} />
-            {diffFile?.title ?? diffFile?.path}
-          </span>
-        }
-        onCancel={() => setDiffFile(null)}
-        footer={null}
-        width="80vw"
-        styles={{ body: { padding: 0 } }}
-      >
-        {diffFile && <UnifiedDiffView diff={diffFile.diff} />}
-      </Modal>
+      {/* Diff dialog */}
+      <Dialog open={!!diffFile} onOpenChange={(o) => !o && setDiffFile(null)}>
+        <DialogContent className="max-w-[80vw]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-1.5">
+              <FileDiff size={14} />
+              {diffFile?.title ?? diffFile?.path}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="overflow-auto max-h-[70vh]">
+            {diffFile && <UnifiedDiffView diff={diffFile.diff} />}
+          </div>
+        </DialogContent>
+      </Dialog>
 
-      {/* New branch modal */}
-      <Modal
+      {/* New branch dialog */}
+      <Dialog
         open={newBranchModal}
-        title={
-          <span>
-            <GitMerge size={14} style={{ marginRight: 6 }} />
-            New branch
-          </span>
-        }
-        onOk={handleCreateBranch}
-        onCancel={() => {
-          setNewBranchModal(false);
-          setNewBranchName("");
-        }}
-        okText="Create & Switch"
-        width={360}
+        onOpenChange={(o) => !o && setNewBranchModal(false)}
       >
-        <Input
-          placeholder="branch-name"
-          value={newBranchName}
-          onChange={(e) => setNewBranchName(e.target.value)}
-          onPressEnter={handleCreateBranch}
-          autoFocus
-        />
-      </Modal>
+        <DialogContent className="max-w-[360px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-1.5">
+              <GitMerge size={14} />
+              New branch
+            </DialogTitle>
+          </DialogHeader>
+          <Input
+            placeholder="branch-name"
+            value={newBranchName}
+            onChange={(e) => setNewBranchName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && void handleCreateBranch()}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setNewBranchModal(false);
+                setNewBranchName("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleCreateBranch}>Create & Switch</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Commit row with revert confirm
+// ---------------------------------------------------------------------------
+
+interface CommitRowProps {
+  commit: CommitInfo;
+  onDiff: () => void;
+  onRevert: () => void;
+}
+
+function CommitRow({ commit: c, onDiff, onRevert }: CommitRowProps) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  return (
+    <div className={styles.logEntry}>
+      <div className={styles.logEntryTop}>
+        <span className={styles.logHash}>{c.hash}</span>
+        <span className={styles.logMsg}>{c.message}</span>
+        <div className={styles.logActions}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button type="button" className={styles.iconBtn} onClick={onDiff}>
+                <FileDiff size={11} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>View diff</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className={styles.iconBtn}
+                onClick={() => setConfirmOpen(true)}
+              >
+                <Undo2 size={11} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Revert this commit</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+      <span className={styles.logMeta}>
+        {c.author} · {c.date}
+      </span>
+
+      <AlertDialog
+        open={confirmOpen}
+        onOpenChange={(o) => !o && setConfirmOpen(false)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{`Revert commit "${c.message}"?`}</AlertDialogTitle>
+            <AlertDialogDescription>
+              This creates a new commit that undoes these changes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                onRevert();
+                setConfirmOpen(false);
+              }}
+            >
+              Revert
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -574,39 +635,73 @@ function FileRow({
   actionTip,
 }: FileRowProps) {
   const name = file.path.split("/").pop() ?? file.path;
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   return (
     <div className={styles.fileRow}>
       <StatusBadge status={file.status} />
-      <Tooltip title={file.path}>
-        <span className={styles.fileName}>{name}</span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className={styles.fileName}>{name}</span>
+        </TooltipTrigger>
+        <TooltipContent>{file.path}</TooltipContent>
       </Tooltip>
       <div className={styles.fileActions}>
-        <Tooltip title="View diff">
-          <button type="button" className={styles.iconBtn} onClick={onDiff}>
-            <FileDiff size={11} />
-          </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button type="button" className={styles.iconBtn} onClick={onDiff}>
+              <FileDiff size={11} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>View diff</TooltipContent>
         </Tooltip>
         {onDiscard && (
-          <Popconfirm
-            title="Discard changes?"
-            description={`Discard all changes in ${file.path}?`}
-            onConfirm={onDiscard}
-            okText="Discard"
-            cancelText="Cancel"
-            okButtonProps={{ danger: true }}
-            placement="topRight"
-          >
-            <Tooltip title="Discard changes">
-              <button type="button" className={styles.iconBtn}>
-                <RotateCcw size={11} />
-              </button>
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className={styles.iconBtn}
+                  onClick={() => setConfirmDiscard(true)}
+                >
+                  <RotateCcw size={11} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Discard changes</TooltipContent>
             </Tooltip>
-          </Popconfirm>
+            <AlertDialog
+              open={confirmDiscard}
+              onOpenChange={(o) => !o && setConfirmDiscard(false)}
+            >
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Discard changes?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {`Discard all changes in ${file.path}?`}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground"
+                    onClick={() => {
+                      onDiscard();
+                      setConfirmDiscard(false);
+                    }}
+                  >
+                    Discard
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
         )}
-        <Tooltip title={actionTip}>
-          <button type="button" className={styles.iconBtn} onClick={onStage}>
-            {actionIcon}
-          </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button type="button" className={styles.iconBtn} onClick={onStage}>
+              {actionIcon}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{actionTip}</TooltipContent>
         </Tooltip>
       </div>
     </div>
@@ -639,7 +734,7 @@ function UnifiedDiffView({ diff }: { diff: string }) {
         }
         return (
           <div key={i} className={cls}>
-            {line || " "}
+            {line || " "}
           </div>
         );
       })}

@@ -1,10 +1,17 @@
 import { memo, useMemo } from "react";
-import { Button, Drawer } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { MarketResult } from "../../../../api/modules/market";
 import type { InstallTarget } from "../useMarketInstall";
 import { SkillIcon, sourceLabel } from "./SkillIcon";
 import { TargetToggle } from "./TargetToggle";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+} from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 import styles from "./DetailDrawer.module.less";
 
 interface DetailDrawerProps {
@@ -73,56 +80,57 @@ export const DetailDrawer = memo(function DetailDrawer({
   }, [item, t, missing]);
 
   return (
-    <Drawer
-      width={520}
-      placement="right"
-      title={t("market.detail.title")}
-      open={open}
-      onClose={onClose}
-      destroyOnHidden
-      footer={
-        item ? (
-          <div className={styles.drawerFooter}>
-            <TargetToggle target={target} onChange={onTargetChange} />
-            <Button type="primary" onClick={onInstall}>
-              {t("market.install")}
-            </Button>
-          </div>
-        ) : null
-      }
-    >
-      {item && (
-        <>
-          <div className={styles.detailHeader}>
-            <SkillIcon
-              url={item.icon_url}
-              alt={item.name}
-              source={item.source}
-            />
-            <div className={styles.detailHeaderText}>
-              <h3 className={styles.detailTitle}>{item.name}</h3>
-              <div className={styles.detailMeta}>
-                <span className={styles.sourceBadge}>
-                  {sourceLabel(item.source)}
-                </span>
+    <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent
+        side="right"
+        className="w-[520px] max-w-full overflow-y-auto"
+      >
+        <SheetHeader>
+          <SheetTitle>{t("market.detail.title")}</SheetTitle>
+        </SheetHeader>
+
+        {item && (
+          <>
+            <div className={styles.detailHeader}>
+              <SkillIcon
+                url={item.icon_url}
+                alt={item.name}
+                source={item.source}
+              />
+              <div className={styles.detailHeaderText}>
+                <h3 className={styles.detailTitle}>{item.name}</h3>
+                <div className={styles.detailMeta}>
+                  <span className={styles.sourceBadge}>
+                    {sourceLabel(item.source)}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className={styles.detailDescription}>
-            {item.description || t("market.noDescription")}
-          </div>
+            <div className={styles.detailDescription}>
+              {item.description || t("market.noDescription")}
+            </div>
 
-          <dl className={styles.detailRows}>
-            {rows.map(([key, value]) => (
-              <div className={styles.detailRow} key={key}>
-                <dt className={styles.detailKey}>{key}</dt>
-                <dd className={styles.detailValue}>{value}</dd>
-              </div>
-            ))}
-          </dl>
-        </>
-      )}
-    </Drawer>
+            <dl className={styles.detailRows}>
+              {rows.map(([key, value]) => (
+                <div className={styles.detailRow} key={key}>
+                  <dt className={styles.detailKey}>{key}</dt>
+                  <dd className={styles.detailValue}>{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </>
+        )}
+
+        {item && (
+          <SheetFooter>
+            <div className={styles.drawerFooter}>
+              <TargetToggle target={target} onChange={onTargetChange} />
+              <Button onClick={onInstall}>{t("market.install")}</Button>
+            </div>
+          </SheetFooter>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 });

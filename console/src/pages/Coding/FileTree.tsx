@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Spin, Tooltip } from "antd";
+import { Loader2 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   FolderOpen,
   Folder,
@@ -422,32 +427,38 @@ export default function FileTree({ onFileSelect }: FileTreeProps) {
         >
           {projectName}
         </span>
-        <Tooltip title="Switch Project">
-          <button
-            type="button"
-            className={styles.projectSwitchBtn}
-            onClick={() => setProjectModalOpen(true)}
-          >
-            <Settings2 size={12} />
-          </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={styles.projectSwitchBtn}
+              onClick={() => setProjectModalOpen(true)}
+            >
+              <Settings2 size={12} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Switch Project</TooltipContent>
         </Tooltip>
       </div>
 
       <div className={styles.treeHeader}>
         <span className={styles.treeTitle}>Files</span>
-        <Tooltip title="Refresh">
-          <button
-            type="button"
-            className={styles.refreshBtn}
-            onClick={load}
-            disabled={loading}
-          >
-            <RefreshCw size={12} className={loading ? styles.spinning : ""} />
-          </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={styles.refreshBtn}
+              onClick={load}
+              disabled={loading}
+            >
+              <RefreshCw size={12} className={loading ? styles.spinning : ""} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Refresh</TooltipContent>
         </Tooltip>
       </div>
       {loading && nodes.length === 0 ? (
-        <Spin size="small" className={styles.spin} />
+        <Loader2 size={14} className={`animate-spin ${styles.spin}`} />
       ) : (
         <div className={styles.nodeList}>
           {nodes.map((node) => (

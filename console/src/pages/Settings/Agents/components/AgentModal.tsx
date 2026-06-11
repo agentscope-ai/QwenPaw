@@ -1,16 +1,24 @@
 import { useEffect, useState, useMemo } from "react";
 import {
-  Modal,
-  Form,
-  Input,
-  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
   Select,
-  Space,
-  Typography,
-  Empty,
-  Spin,
-} from "antd";
-import { CheckOutlined } from "@ant-design/icons";
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2, Check, PackageOpen } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AgentSummary } from "@/api/types/agents";
 import type { ProviderInfo } from "@/api/types/provider";
@@ -21,18 +29,32 @@ import { providerApi } from "@/api/modules/provider";
 import { providerIcon } from "../../Models/components/providerIcon";
 import styles from "../index.module.less";
 
-const { Text } = Typography;
-
 interface EligibleProvider {
   id: string;
   name: string;
   models: Array<{ id: string; name: string }>;
 }
 
+export interface AgentFormValues {
+  id: string;
+  name: string;
+  description: string;
+  workspace_dir: string;
+  active_model_provider: string | undefined;
+  active_model_model: string | undefined;
+}
+
+export interface AgentFormRef {
+  getValues: () => AgentFormValues;
+  setValues: (vals: Partial<AgentFormValues>) => void;
+  resetFields: () => void;
+  validateFields: () => Promise<AgentFormValues>;
+}
+
 interface AgentModalProps {
   open: boolean;
   editingAgent: AgentSummary | null;
-  form: ReturnType<typeof Form.useForm>[0];
+  formRef: AgentFormRef;
   selectedSkills: string[];
   onSelectedSkillsChange: (skills: string[]) => void;
   onInstalledSkillsLoaded: (skills: string[]) => void;
@@ -40,10 +62,36 @@ interface AgentModalProps {
   onCancel: () => void;
 }
 
+const EMPTY_FORM: AgentFormValues = {
+  id: "",
+  name: "",
+  description: "",
+  workspace_dir: "",
+  active_model_provider: undefined,
+  active_model_model: undefined,
+};
+
+export function useAgentForm(): AgentFormRef {
+  const [values, setValues] = useState<AgentFormValues>(EMPTY_FORM);
+  return {
+    getValues: () => values,
+    setValues: (partial) => {
+      setValues((prev) => ({ ...prev, ...partial }));
+    },
+    resetFields: () => {
+      setValues(EMPTY_FORM);
+    },
+    validateFields: () => {
+      if (!values.name.trim()) return Promise.reject({ name: "required" });
+      return Promise.resolve(values);
+    },
+  };
+}
+
 export function AgentModal({
   open,
   editingAgent,
-  form,
+  formRef,
   selectedSkills,
   onSelectedSkillsChange,
   onInstalledSkillsLoaded,
@@ -56,9 +104,29 @@ export function AgentModal({
   const [loadingSkills, setLoadingSkills] = useState(false);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [loadingProviders, setLoadingProviders] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [nameError, setNameError] = useState("");
 
-  const selectedProviderId = Form.useWatch("active_model_provider", form);
-  const selectedModelId = Form.useWatch("active_model_model", form);
+  // Internal controlled form state — synced to formRef
+  const [formVals, setFormVals] = useState<AgentFormValues>(EMPTY_FORM);
+
+  const setField = <K extends keyof AgentFormValues>(
+    key: K,
+    value: AgentFormValues[K],
+  ) => {
+    const updated = { ...formVals, [key]: value };
+    setFormVals(updated);
+    formRef.setValues({ [key]: value });
+  };
+
+  // Sync when formRef.setValues is called externally (via parent)
+  useEffect(() => {
+    if (open) {
+      const vals = formRef.getValues();
+      setFormVals(vals);
+      setNameError("");
+    }
+  }, [open]);
 
   const eligibleProviders: EligibleProvider[] = useMemo(() => {
     return providers
@@ -79,10 +147,12 @@ export function AgentModal({
   }, [providers]);
 
   const availableModels = useMemo(() => {
-    if (!selectedProviderId) return [];
-    const provider = eligibleProviders.find((p) => p.id === selectedProviderId);
-    return provider?.models ?? [];
-  }, [selectedProviderId, eligibleProviders]);
+    if (!formVals.active_model_provider) return [];
+    return (
+      eligibleProviders.find((p) => p.id === formVals.active_model_provider)
+        ?.models ?? []
+    );
+  }, [formVals.active_model_provider, eligibleProviders]);
 
   useEffect(() => {
     if (!open) return;
@@ -97,7 +167,6 @@ export function AgentModal({
       .finally(() => setLoadingProviders(false));
 
     setLoadingSkills(true);
-
     const fetchPool = skillApi.listSkillPoolSkills();
     const fetchInstalled = editingAgent
       ? skillApi.listSkills(editingAgent.id)
@@ -105,53 +174,53 @@ export function AgentModal({
 
     Promise.all([fetchPool, fetchInstalled])
       .then(([pool, workspaceSkills]) => {
-        const poolSkillNames = new Set(pool.map((skill) => skill.name));
-        const installedSkills = workspaceSkills
-          .filter((skill) => poolSkillNames.has(skill.name))
-          .map((skill) => skill.name);
-
+        const poolSkillNames = new Set(pool.map((s) => s.name));
+        const installed = workspaceSkills
+          .filter((s) => poolSkillNames.has(s.name))
+          .map((s) => s.name);
         setPoolSkills(pool);
-        setInstalledSkills(installedSkills);
-        onInstalledSkillsLoaded(installedSkills);
-        if (editingAgent) {
-          onSelectedSkillsChange(installedSkills);
-        } else {
-          onSelectedSkillsChange([]);
-        }
+        setInstalledSkills(installed);
+        onInstalledSkillsLoaded(installed);
+        onSelectedSkillsChange(editingAgent ? installed : []);
       })
       .finally(() => setLoadingSkills(false));
   }, [editingAgent, onInstalledSkillsLoaded, onSelectedSkillsChange, open]);
 
   const handleProviderChange = (providerId: string) => {
-    form.setFieldsValue({
+    const updated = {
+      ...formVals,
       active_model_provider: providerId,
       active_model_model: undefined,
-    });
+    };
+    setFormVals(updated);
+    formRef.setValues(updated);
+  };
+
+  const handleModelChange = (modelId: string) => {
+    setField("active_model_model", modelId);
   };
 
   const handleClearModel = () => {
-    form.setFieldsValue({
+    const updated = {
+      ...formVals,
       active_model_provider: undefined,
       active_model_model: undefined,
-    });
+    };
+    setFormVals(updated);
+    formRef.setValues(updated);
   };
 
   const toggleSkill = (name: string) => {
-    const isInstalled = editingAgent && installedSkills.includes(name);
-    if (isInstalled) return;
-
-    if (selectedSkills.includes(name)) {
-      onSelectedSkillsChange(selectedSkills.filter((s) => s !== name));
-    } else {
-      onSelectedSkillsChange([...selectedSkills, name]);
-    }
+    if (editingAgent && installedSkills.includes(name)) return;
+    onSelectedSkillsChange(
+      selectedSkills.includes(name)
+        ? selectedSkills.filter((s) => s !== name)
+        : [...selectedSkills, name],
+    );
   };
 
-  const handleSelectAll = () => {
-    const allNames = poolSkills.map((s) => s.name);
-    onSelectedSkillsChange(allNames);
-  };
-
+  const handleSelectAll = () =>
+    onSelectedSkillsChange(poolSkills.map((s) => s.name));
   const handleSelectBuiltin = () => {
     const builtinNames = poolSkills
       .filter((s) => s.source === "builtin")
@@ -160,201 +229,282 @@ export function AgentModal({
       Array.from(new Set([...installedSkills, ...builtinNames])),
     );
   };
-
-  const handleSelectNone = () => {
+  const handleSelectNone = () =>
     onSelectedSkillsChange(editingAgent ? [...installedSkills] : []);
+
+  const handleSave = async () => {
+    if (!formVals.name.trim()) {
+      setNameError(t("agent.nameRequired"));
+      return;
+    }
+    setNameError("");
+    setSaving(true);
+    try {
+      await onSave();
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <Modal
-      title={
-        editingAgent
-          ? t("agent.editTitle", {
-              name: getAgentDisplayName(editingAgent, t),
-            })
-          : t("agent.createTitle")
-      }
+    <Dialog
       open={open}
-      onOk={onSave}
-      onCancel={onCancel}
-      width={640}
-      okText={t("common.save")}
-      cancelText={t("common.cancel")}
+      onOpenChange={(o) => {
+        if (!o) onCancel();
+      }}
     >
-      <Form form={form} layout="vertical" autoComplete="off">
-        <Form.Item name="active_model_provider" hidden>
-          <Input />
-        </Form.Item>
-        <Form.Item name="active_model_model" hidden>
-          <Input />
-        </Form.Item>
-
-        {editingAgent && (
-          <Form.Item name="id" label={t("agent.id")}>
-            <Input disabled />
-          </Form.Item>
-        )}
-        {!editingAgent && (
-          <Form.Item
-            name="id"
-            label={t("agent.idLabel")}
-            help={t("agent.idHelp")}
-            rules={[
-              {
-                pattern: /^[a-zA-Z0-9][a-zA-Z0-9_-]*[a-zA-Z0-9]$/,
-                message: t("agent.idPattern"),
-              },
-            ]}
-          >
-            <Input placeholder={t("agent.idPlaceholder")} />
-          </Form.Item>
-        )}
-        <Form.Item
-          name="name"
-          label={t("agent.name")}
-          rules={[{ required: true, message: t("agent.nameRequired") }]}
-        >
-          <Input placeholder={t("agent.namePlaceholder")} />
-        </Form.Item>
-        <Form.Item name="description" label={t("agent.description")}>
-          <Input.TextArea
-            placeholder={t("agent.descriptionPlaceholder")}
-            rows={3}
-          />
-        </Form.Item>
-        <Form.Item label={t("agent.model")} help={t("agent.modelHelp")}>
-          <Space.Compact style={{ width: "100%" }}>
-            <Select
-              value={selectedProviderId || undefined}
-              onChange={handleProviderChange}
-              placeholder={t("agent.modelPlaceholder")}
-              allowClear
-              onClear={handleClearModel}
-              loading={loadingProviders}
-              style={{ width: "45%", gap: "8px" }}
-              showSearch
-              optionFilterProp="label"
-              options={eligibleProviders.map((p) => ({
-                value: p.id,
-                label: p.name,
-              }))}
-              optionRender={({ value }) => {
-                const p = eligibleProviders.find((ep) => ep.id === value);
-                if (!p) return value;
-                return (
-                  <Space size={6}>
-                    <img
-                      src={providerIcon(p.id)}
-                      alt=""
-                      style={{ width: 16, height: 16 }}
-                    />
-                    <span>{p.name}</span>
-                  </Space>
-                );
-              }}
-              notFoundContent={
-                loadingProviders ? (
-                  <Spin size="small" />
-                ) : (
-                  t("agent.noConfiguredModels")
-                )
-              }
-            />
-            <Select
-              value={selectedModelId || undefined}
-              onChange={(modelId) =>
-                form.setFieldsValue({ active_model_model: modelId })
-              }
-              placeholder={
-                selectedProviderId
-                  ? t("models.model")
-                  : t("agent.modelPlaceholder")
-              }
-              disabled={!selectedProviderId}
-              style={{ width: "55%" }}
-              showSearch
-              optionFilterProp="label"
-              options={availableModels.map((m) => ({
-                value: m.id,
-                label: m.name || m.id,
-              }))}
-            />
-          </Space.Compact>
-        </Form.Item>
-        <Form.Item
-          name="workspace_dir"
-          label={t("agent.workspace")}
-          help={!editingAgent ? t("agent.workspaceHelp") : undefined}
-        >
-          <Input
-            placeholder="~/.qwenpaw/workspaces/my-agent"
-            disabled={!!editingAgent}
-          />
-        </Form.Item>
-      </Form>
-
-      <div style={{ marginTop: 4 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 8,
-          }}
-        >
-          <Text type="secondary" style={{ fontSize: 13 }}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>
             {editingAgent
-              ? t("agent.addSkillsToAgent")
-              : t("agent.initialSkills")}
-          </Text>
-          <Space size={4}>
-            <Button size="small" type="primary" onClick={handleSelectAll}>
-              {t("agent.selectAll")}
-            </Button>
-            <Button size="small" type="default" onClick={handleSelectBuiltin}>
-              {t("agent.selectBuiltin")}
-            </Button>
-            <Button size="small" type="default" onClick={handleSelectNone}>
-              {t("agent.selectNone")}
-            </Button>
-          </Space>
+              ? t("agent.editTitle", {
+                  name: getAgentDisplayName(editingAgent, t),
+                })
+              : t("agent.createTitle")}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            {editingAgent
+              ? t("agent.editTitle", {
+                  name: getAgentDisplayName(editingAgent, t),
+                })
+              : t("agent.createTitle")}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* ID */}
+          <div className="space-y-1.5">
+            <Label htmlFor="agent-id">
+              {editingAgent ? t("agent.id") : t("agent.idLabel")}
+            </Label>
+            {editingAgent ? (
+              <Input id="agent-id" value={formVals.id} disabled />
+            ) : (
+              <>
+                <Input
+                  id="agent-id"
+                  value={formVals.id}
+                  placeholder={t("agent.idPlaceholder")}
+                  onChange={(e) => setField("id", e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("agent.idHelp")}
+                </p>
+              </>
+            )}
+          </div>
+
+          {/* Name */}
+          <div className="space-y-1.5">
+            <Label htmlFor="agent-name">
+              {t("agent.name")} <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="agent-name"
+              value={formVals.name}
+              placeholder={t("agent.namePlaceholder")}
+              onChange={(e) => {
+                setField("name", e.target.value);
+                if (nameError) setNameError("");
+              }}
+            />
+            {nameError && (
+              <p className="text-xs text-destructive">{nameError}</p>
+            )}
+          </div>
+
+          {/* Description */}
+          <div className="space-y-1.5">
+            <Label htmlFor="agent-desc">{t("agent.description")}</Label>
+            <Textarea
+              id="agent-desc"
+              value={formVals.description}
+              placeholder={t("agent.descriptionPlaceholder")}
+              rows={3}
+              onChange={(e) => setField("description", e.target.value)}
+            />
+          </div>
+
+          {/* Model */}
+          <div className="space-y-1.5">
+            <Label>{t("agent.model")}</Label>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Select
+                  value={formVals.active_model_provider ?? ""}
+                  onValueChange={handleProviderChange}
+                  disabled={loadingProviders}
+                >
+                  <SelectTrigger className="w-full">
+                    {loadingProviders ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <SelectValue placeholder={t("agent.modelPlaceholder")} />
+                    )}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {eligibleProviders.length === 0 ? (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        {t("agent.noConfiguredModels")}
+                      </div>
+                    ) : (
+                      eligibleProviders.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          <div className="flex items-center gap-1.5">
+                            <img
+                              src={providerIcon(p.id)}
+                              alt=""
+                              className="w-4 h-4"
+                            />
+                            <span>{p.name}</span>
+                          </div>
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex-1">
+                <Select
+                  value={formVals.active_model_model ?? ""}
+                  onValueChange={handleModelChange}
+                  disabled={!formVals.active_model_provider}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue
+                      placeholder={
+                        formVals.active_model_provider
+                          ? t("models.model")
+                          : t("agent.modelPlaceholder")
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableModels.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.name || m.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {(formVals.active_model_provider ||
+                formVals.active_model_model) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleClearModel}
+                  type="button"
+                >
+                  {t("common.clear", "Clear")}
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t("agent.modelHelp")}
+            </p>
+          </div>
+
+          {/* Workspace */}
+          <div className="space-y-1.5">
+            <Label htmlFor="agent-workspace">{t("agent.workspace")}</Label>
+            <Input
+              id="agent-workspace"
+              value={formVals.workspace_dir}
+              placeholder="~/.qwenpaw/workspaces/my-agent"
+              disabled={!!editingAgent}
+              onChange={(e) => setField("workspace_dir", e.target.value)}
+            />
+            {!editingAgent && (
+              <p className="text-xs text-muted-foreground">
+                {t("agent.workspaceHelp")}
+              </p>
+            )}
+          </div>
+
+          {/* Skills */}
+          <div className="space-y-2 pt-2 border-t">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                {editingAgent
+                  ? t("agent.addSkillsToAgent")
+                  : t("agent.initialSkills")}
+              </p>
+              <div className="flex gap-1">
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={handleSelectAll}
+                  type="button"
+                >
+                  {t("agent.selectAll")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSelectBuiltin}
+                  type="button"
+                >
+                  {t("agent.selectBuiltin")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSelectNone}
+                  type="button"
+                >
+                  {t("agent.selectNone")}
+                </Button>
+              </div>
+            </div>
+
+            {loadingSkills ? (
+              <div className="flex justify-center py-4">
+                <Loader2 className="animate-spin" size={20} />
+              </div>
+            ) : poolSkills.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-4 text-muted-foreground">
+                <PackageOpen size={32} strokeWidth={1} />
+                <span className="text-sm">{t("agent.noPoolSkills")}</span>
+              </div>
+            ) : (
+              <div className={styles.pickerGrid}>
+                {poolSkills.map((skill) => {
+                  const selected = selectedSkills.includes(skill.name);
+                  const isInstalled =
+                    !!editingAgent && installedSkills.includes(skill.name);
+                  return (
+                    <div
+                      key={skill.name}
+                      className={`${styles.pickerCard} ${
+                        selected ? styles.pickerCardSelected : ""
+                      } ${isInstalled ? styles.pickerCardDisabled : ""}`}
+                      onClick={() => toggleSkill(skill.name)}
+                    >
+                      {selected && (
+                        <span className={styles.pickerCheck}>
+                          <Check size={12} />
+                        </span>
+                      )}
+                      <div className={styles.pickerCardTitle}>{skill.name}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
-        {loadingSkills ? (
-          <div style={{ textAlign: "center", padding: "16px 0" }}>
-            <Spin size="small" />
-          </div>
-        ) : poolSkills.length === 0 ? (
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={t("agent.noPoolSkills")}
-          />
-        ) : (
-          <div className={styles.pickerGrid}>
-            {poolSkills.map((skill) => {
-              const selected = selectedSkills.includes(skill.name);
-              const isInstalled =
-                !!editingAgent && installedSkills.includes(skill.name);
-              return (
-                <div
-                  key={skill.name}
-                  className={`${styles.pickerCard} ${
-                    selected ? styles.pickerCardSelected : ""
-                  } ${isInstalled ? styles.pickerCardDisabled : ""}`}
-                  onClick={() => toggleSkill(skill.name)}
-                >
-                  {selected && (
-                    <span className={styles.pickerCheck}>
-                      <CheckOutlined />
-                    </span>
-                  )}
-                  <div className={styles.pickerCardTitle}>{skill.name}</div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </Modal>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel} disabled={saving}>
+            {t("common.cancel")}
+          </Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving && <Loader2 size={14} className="animate-spin mr-1" />}
+            {t("common.save")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

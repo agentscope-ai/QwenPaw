@@ -1,31 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
-import { Spin } from "antd";
+import { Card, CardContent } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
-  Card,
-  Switch,
-  Empty,
-  Button,
-  Modal,
-  Form,
-  Input,
-  InputNumber,
   Select,
-} from "@agentscope-ai/design";
-import api from "../../../api";
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
-  EyeOutlined,
-  EyeInvisibleOutlined,
-  ThunderboltOutlined,
-  ClockCircleOutlined,
-  SettingOutlined,
-} from "@ant-design/icons";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import api from "../../../api";
+import { Eye, EyeOff, Zap, Clock, Settings, Loader2 } from "lucide-react";
 import { useTools } from "./useTools";
 import { useTranslation } from "react-i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
 import { PageHeader } from "@/components/PageHeader";
+import { Controller, useForm } from "react-hook-form";
 import styles from "./index.module.less";
 
-/** Stable background colours for the initial-letter fallback icon. */
 const ICON_PALETTE = [
   "#f56a00",
   "#7265e6",
@@ -45,7 +47,6 @@ function hashStringToIndex(value: string, mod: number): number {
   return Math.abs(hash) % mod;
 }
 
-/** Renders the emoji icon or a coloured initial-letter badge as fallback. */
 function ToolIcon({ icon, name }: { icon: string; name: string }) {
   if (icon) {
     return <span>{icon}</span>;
@@ -60,7 +61,6 @@ function ToolIcon({ icon, name }: { icon: string; name: string }) {
   );
 }
 
-/** Configuration modal for tools that require configuration */
 function ToolConfigModal({
   tool,
   visible,
@@ -70,28 +70,24 @@ function ToolConfigModal({
   tool: ToolInfo;
   visible: boolean;
   onClose: () => void;
-  onSave: (values: Record<string, any>) => Promise<void>;
+  onSave: (values: Record<string, unknown>) => Promise<void>;
 }) {
-  const [form] = Form.useForm();
+  const form = useForm<Record<string, unknown>>();
   const [saving, setSaving] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(false);
   const { t } = useTranslation();
 
-  // Fetch latest config from backend whenever the modal opens.
-  // Cleanup cancels stale in-flight requests on rapid tool switches.
   useEffect(() => {
     if (!visible || !tool) return;
-    form.resetFields();
+    form.reset({});
     setLoadingConfig(true);
     let cancelled = false;
     api
       .getToolConfig(tool.name)
       .then((config) => {
-        if (!cancelled) form.setFieldsValue(config || {});
+        if (!cancelled) form.reset(config || {});
       })
-      .catch(() => {
-        // Leave form empty on error
-      })
+      .catch(() => {})
       .finally(() => {
         if (!cancelled) setLoadingConfig(false);
       });
@@ -100,106 +96,138 @@ function ToolConfigModal({
     };
   }, [visible, tool.name, form]);
 
-  const handleSave = async () => {
+  const handleSave = form.handleSubmit(async (values) => {
+    setSaving(true);
     try {
-      const values = await form.validateFields();
-      setSaving(true);
       await onSave(values);
-      // Success message is shown in useTools.saveToolConfig
       onClose();
     } catch (error) {
       console.error("Failed to save config:", error);
-      // Error is already handled and shown in useTools
     } finally {
       setSaving(false);
+    }
+  });
+
+  const renderField = (
+    field: import("../../../api/modules/tools").ToolConfigField,
+  ) => {
+    switch (field.type) {
+      case "password":
+        return (
+          <Input
+            type="password"
+            placeholder={field.placeholder}
+            autoComplete="off"
+            {...form.register(field.name)}
+          />
+        );
+
+      case "number":
+        return (
+          <Input
+            type="number"
+            placeholder={field.placeholder}
+            min={field.min}
+            max={field.max}
+            {...form.register(field.name, { valueAsNumber: true })}
+          />
+        );
+
+      case "boolean":
+        return (
+          <Controller
+            control={form.control}
+            name={field.name}
+            render={({ field: f }) => (
+              <Switch checked={Boolean(f.value)} onCheckedChange={f.onChange} />
+            )}
+          />
+        );
+
+      case "select":
+        return (
+          <Controller
+            control={form.control}
+            name={field.name}
+            render={({ field: f }) => (
+              <Select value={String(f.value || "")} onValueChange={f.onChange}>
+                <SelectTrigger>
+                  <SelectValue placeholder={field.placeholder} />
+                </SelectTrigger>
+                <SelectContent>
+                  {field.options?.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+        );
+
+      case "textarea":
+        return (
+          <Textarea
+            placeholder={field.placeholder}
+            rows={4}
+            {...form.register(field.name)}
+          />
+        );
+
+      case "text":
+      default:
+        return (
+          <Input
+            placeholder={field.placeholder}
+            {...form.register(field.name)}
+          />
+        );
     }
   };
 
   return (
-    <Modal
-      title={`${t("tools.configure")} - ${tool.name}`}
-      open={visible}
-      onCancel={onClose}
-      onOk={handleSave}
-      confirmLoading={saving || loadingConfig}
-      okButtonProps={{ disabled: loadingConfig }}
-      okText={t("common.save")}
-      cancelText={t("common.cancel")}
-    >
-      <Spin spinning={loadingConfig}>
-        <Form form={form} layout="vertical">
-          {tool.config_fields?.map((field) => {
-            // Render different input types based on field type
-            const renderInput = () => {
-              switch (field.type) {
-                case "password":
-                  return (
-                    <Input.Password
-                      placeholder={field.placeholder}
-                      autoComplete="off"
-                    />
-                  );
-
-                case "number":
-                  return (
-                    <InputNumber
-                      placeholder={field.placeholder}
-                      min={field.min}
-                      max={field.max}
-                      style={{ width: "100%" }}
-                    />
-                  );
-
-                case "boolean":
-                  return <Switch />;
-
-                case "select":
-                  return (
-                    <Select placeholder={field.placeholder}>
-                      {field.options?.map((option) => (
-                        <Select.Option key={option} value={option}>
-                          {option}
-                        </Select.Option>
-                      ))}
-                    </Select>
-                  );
-
-                case "textarea":
-                  return (
-                    <Input.TextArea
-                      placeholder={field.placeholder}
-                      rows={4}
-                      autoSize={{ minRows: 2, maxRows: 8 }}
-                    />
-                  );
-
-                case "text":
-                default:
-                  return <Input placeholder={field.placeholder} />;
-              }
-            };
-
-            return (
-              <Form.Item
-                key={field.name}
-                name={field.name}
-                label={field.label}
-                rules={[
-                  {
-                    required: field.required,
-                    message: `${field.label} is required`,
-                  },
-                ]}
-                help={field.help}
-                valuePropName={field.type === "boolean" ? "checked" : "value"}
-              >
-                {renderInput()}
-              </Form.Item>
-            );
-          })}
-        </Form>
-      </Spin>
-    </Modal>
+    <Dialog open={visible} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{`${t("tools.configure")} - ${tool.name}`}</DialogTitle>
+        </DialogHeader>
+        {loadingConfig ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="animate-spin" />
+          </div>
+        ) : (
+          <form
+            id="tool-config-form"
+            onSubmit={handleSave}
+            className="space-y-4"
+          >
+            {tool.config_fields?.map((field) => (
+              <div key={field.name} className="space-y-1">
+                <Label>{field.label}</Label>
+                {renderField(field)}
+                {field.help && (
+                  <p className="text-xs text-muted-foreground">{field.help}</p>
+                )}
+              </div>
+            ))}
+          </form>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            type="submit"
+            form="tool-config-form"
+            disabled={saving || loadingConfig}
+          >
+            {saving && <Loader2 size={14} className="animate-spin mr-1" />}
+            {t("common.save")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -228,7 +256,7 @@ export default function ToolsPage() {
     setConfigModalVisible(true);
   };
 
-  const handleSaveConfig = async (values: Record<string, any>) => {
+  const handleSaveConfig = async (values: Record<string, unknown>) => {
     if (!currentTool) return;
     await saveToolConfig(currentTool.name, values);
     await loadTools();
@@ -251,10 +279,10 @@ export default function ToolsPage() {
           <div className={styles.headerAction}>
             <Switch
               checked={hasEnabledTools && !hasDisabledTools}
-              onChange={() => (hasDisabledTools ? enableAll() : disableAll())}
+              onCheckedChange={() =>
+                hasDisabledTools ? enableAll() : disableAll()
+              }
               disabled={batchLoading || loading}
-              checkedChildren={t("tools.enableAll")}
-              unCheckedChildren={t("tools.disableAll")}
             />
           </div>
         }
@@ -265,7 +293,9 @@ export default function ToolsPage() {
             <p>{t("common.loading")}</p>
           </div>
         ) : tools.length === 0 ? (
-          <Empty description={t("tools.emptyState")} />
+          <p className="text-sm text-muted-foreground">
+            {t("tools.emptyState")}
+          </p>
         ) : (
           <div className={styles.toolsGrid}>
             {tools.map((tool) => (
@@ -275,87 +305,92 @@ export default function ToolsPage() {
                   tool.enabled ? styles.enabledCard : ""
                 }`}
               >
-                <div className={styles.cardHeader}>
-                  <h3 className={styles.toolName}>
-                    <ToolIcon icon={tool.icon} name={tool.name} /> {tool.name}
-                  </h3>
-                  <div className={styles.statusContainer}>
-                    <span className={styles.statusDot} />
-                    <span className={styles.statusText}>
-                      {tool.enabled
-                        ? t("common.enabled")
-                        : t("common.disabled")}
-                    </span>
-                  </div>
-                </div>
-
-                <p className={styles.toolDescription}>{tool.description}</p>
-
-                {/* Show config status */}
-                {tool.requires_config && (
-                  <div className={styles.configStatus}>
-                    {tool.config_values &&
-                    Object.keys(tool.config_values).length > 0 ? (
-                      <span className={styles.configured}>
-                        ✓ {t("tools.configured")}
+                <CardContent className="p-0">
+                  <div className={styles.cardHeader}>
+                    <h3 className={styles.toolName}>
+                      <ToolIcon icon={tool.icon} name={tool.name} /> {tool.name}
+                    </h3>
+                    <div className={styles.statusContainer}>
+                      <span className={styles.statusDot} />
+                      <span className={styles.statusText}>
+                        {tool.enabled
+                          ? t("common.enabled")
+                          : t("common.disabled")}
                       </span>
-                    ) : (
-                      <span className={styles.notConfigured}>
-                        ⚠ {t("tools.requiresConfig")}
-                      </span>
-                    )}
+                    </div>
                   </div>
-                )}
 
-                <div className={styles.cardFooter}>
-                  {[
-                    "execute_shell_command",
-                    "delegate_external_agent",
-                  ].includes(tool.name) && (
-                    <Button
-                      className={styles.toggleButton}
-                      onClick={() => toggleAsyncExecution(tool)}
-                      disabled={!tool.enabled}
-                      icon={
-                        tool.async_execution ? (
-                          <ThunderboltOutlined />
-                        ) : (
-                          <ClockCircleOutlined />
-                        )
-                      }
-                    >
-                      {tool.async_execution
-                        ? t("tools.asyncExecutionEnabled")
-                        : t("tools.asyncExecutionDisabled")}
-                    </Button>
-                  )}
-                  {/* Add configure button */}
+                  <p className={styles.toolDescription}>{tool.description}</p>
+
                   {tool.requires_config && (
-                    <Button
-                      className={styles.toggleButton}
-                      onClick={() => handleConfigure(tool)}
-                      icon={<SettingOutlined />}
-                    >
-                      {t("tools.configure")}
-                    </Button>
+                    <div className={styles.configStatus}>
+                      {tool.config_values &&
+                      Object.keys(tool.config_values).length > 0 ? (
+                        <span className={styles.configured}>
+                          {t("tools.configured")}
+                        </span>
+                      ) : (
+                        <span className={styles.notConfigured}>
+                          {t("tools.requiresConfig")}
+                        </span>
+                      )}
+                    </div>
                   )}
-                  <Button
-                    className={styles.toggleButton}
-                    onClick={() => handleToggle(tool)}
-                    icon={
-                      tool.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />
-                    }
-                  >
-                    {tool.enabled ? t("common.disable") : t("common.enable")}
-                  </Button>
-                </div>
+
+                  <div className={styles.cardFooter}>
+                    {[
+                      "execute_shell_command",
+                      "delegate_external_agent",
+                    ].includes(tool.name) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={styles.toggleButton}
+                        onClick={() => toggleAsyncExecution(tool)}
+                        disabled={!tool.enabled}
+                      >
+                        {tool.async_execution ? (
+                          <Zap size={14} className="mr-1" />
+                        ) : (
+                          <Clock size={14} className="mr-1" />
+                        )}
+                        {tool.async_execution
+                          ? t("tools.asyncExecutionEnabled")
+                          : t("tools.asyncExecutionDisabled")}
+                      </Button>
+                    )}
+                    {tool.requires_config && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={styles.toggleButton}
+                        onClick={() => handleConfigure(tool)}
+                      >
+                        <Settings size={14} className="mr-1" />
+                        {t("tools.configure")}
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={styles.toggleButton}
+                      onClick={() => handleToggle(tool)}
+                    >
+                      {tool.enabled ? (
+                        <EyeOff size={14} className="mr-1" />
+                      ) : (
+                        <Eye size={14} className="mr-1" />
+                      )}
+                      {tool.enabled ? t("common.disable") : t("common.enable")}
+                    </Button>
+                  </div>
+                </CardContent>
               </Card>
             ))}
           </div>
         )}
       </div>
 
-      {/* Config modal — key forces remount when switching tools */}
       {currentTool && (
         <ToolConfigModal
           key={currentTool.name}

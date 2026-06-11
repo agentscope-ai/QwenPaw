@@ -1,10 +1,10 @@
-import { Button, Tag } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import type { ColumnsType } from "antd/es/table";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { formatTime, type Session } from "./constants";
 import { CHANNEL_COLORS } from "../../../../constants/channel";
-import styles from "../index.module.less";
 
 interface ColumnHandlers {
   onEdit: (session: Session) => void;
@@ -21,96 +21,103 @@ const toUTCTime = (ts: string | null | undefined): number => {
   return new Date(normalized).getTime();
 };
 
+// Map CHANNEL_COLORS values to Badge variant classes
+function channelBadgeClass(channel: string): string {
+  const color = CHANNEL_COLORS[channel];
+  if (!color || color === "default") return "";
+  return "";
+}
+
 export const createColumns = (
   handlers: ColumnHandlers,
-): ColumnsType<Session> => {
+): ColumnDef<Session>[] => {
   const { t } = useTranslation();
 
   return [
     {
-      title: "ID",
-      dataIndex: "id",
-      key: "id",
-      width: 250,
+      accessorKey: "id",
+      header: "ID",
+      size: 250,
     },
     {
-      title: "Name",
-      dataIndex: "name",
-      key: "name",
-      width: 200,
+      accessorKey: "name",
+      header: "Name",
+      size: 200,
     },
     {
-      title: "SessionID",
-      dataIndex: "session_id",
-      key: "session_id",
-      width: 180,
+      accessorKey: "session_id",
+      header: "SessionID",
+      size: 180,
     },
     {
-      title: "UserID",
-      dataIndex: "user_id",
-      key: "user_id",
-      width: 150,
+      accessorKey: "user_id",
+      header: "UserID",
+      size: 150,
     },
     {
-      title: "Channel",
-      dataIndex: "channel",
-      key: "channel",
-      width: 120,
-      render: (channel: string) => (
-        <Tag color={CHANNEL_COLORS[channel] || "default"}>{channel}</Tag>
-      ),
+      accessorKey: "channel",
+      header: "Channel",
+      size: 120,
+      cell: ({ row }) => {
+        const channel: string = row.getValue("channel");
+        return (
+          <Badge variant="secondary" className={channelBadgeClass(channel)}>
+            {channel}
+          </Badge>
+        );
+      },
     },
     {
-      title: "CreatedAt",
-      dataIndex: "created_at",
-      key: "created_at",
-      width: 180,
-      render: (timestamp: string | number | null) => formatTime(timestamp),
-      sorter: (a: Session, b: Session) =>
-        toUTCTime(a.created_at) - toUTCTime(b.created_at),
+      accessorKey: "created_at",
+      header: "CreatedAt",
+      size: 180,
+      cell: ({ row }) => formatTime(row.getValue("created_at")),
+      sortingFn: (a, b) =>
+        toUTCTime(a.original.created_at) - toUTCTime(b.original.created_at),
     },
     {
-      title: "UpdatedAt",
-      dataIndex: "updated_at",
-      key: "updated_at",
-      width: 180,
-      render: (timestamp: string | number | null) => formatTime(timestamp),
-      sorter: (a: Session, b: Session) =>
-        toUTCTime(a.updated_at) - toUTCTime(b.updated_at),
-      defaultSortOrder: "descend",
+      accessorKey: "updated_at",
+      header: "UpdatedAt",
+      size: 180,
+      cell: ({ row }) => formatTime(row.getValue("updated_at")),
+      sortingFn: (a, b) =>
+        toUTCTime(a.original.updated_at) - toUTCTime(b.original.updated_at),
     },
     {
-      title: "Action",
-      key: "action",
-      width: 180,
-      fixed: "right",
-      render: (_: unknown, record: Session) => (
-        <div className={styles.actionColumn}>
-          <Button
-            type="link"
-            size="small"
-            onClick={() => handlers.onEdit(record)}
-          >
-            {t("common.edit")}
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            style={{ color: "#52c41a" }}
-            onClick={() => handlers.onView(record)}
-          >
-            {t("common.view")}
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            danger
-            onClick={() => handlers.onDelete(record.id)}
-          >
-            {t("common.delete")}
-          </Button>
-        </div>
-      ),
+      id: "action",
+      header: "Action",
+      size: 180,
+      cell: ({ row }) => {
+        const record = row.original;
+        return (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-xs"
+              onClick={() => handlers.onEdit(record)}
+            >
+              {t("common.edit")}
+            </Button>
+            <Button
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-xs text-green-600"
+              onClick={() => handlers.onView(record)}
+            >
+              {t("common.view")}
+            </Button>
+            <Button
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-xs text-destructive"
+              onClick={() => handlers.onDelete(record.id)}
+            >
+              {t("common.delete")}
+            </Button>
+          </div>
+        );
+      },
     },
   ];
 };

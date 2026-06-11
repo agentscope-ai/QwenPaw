@@ -1,5 +1,6 @@
 import React from "react";
-import { Card, Button } from "@agentscope-ai/design";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import type { ProviderInfo } from "../../../../../api/types";
 import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
@@ -23,7 +24,7 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
     : t("models.unavailable");
 
   return (
-    <Card hoverable className={styles.providerCard}>
+    <Card className={styles.providerCard}>
       {/* Card Header with Icon and Status */}
       <div className={styles.cardHeaderRow}>
         <ProviderIcon providerId={provider.id} size={32} />
@@ -71,8 +72,8 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
 
       <div className={styles.cardActions}>
         <Button
-          type="default"
-          size="small"
+          variant="outline"
+          size="sm"
           onClick={(e) => {
             e.stopPropagation();
             onOpenModels(provider);

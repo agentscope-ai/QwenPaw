@@ -1,12 +1,19 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Input, Select, Spin, Typography, Alert, Tag } from "antd";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Download, RefreshCw, Package } from "lucide-react";
 import type { OfficialPluginCatalogEntry } from "@/api/modules/plugin";
 import { useOfficialPlugins } from "../hooks/useOfficialPlugins";
 import styles from "./OfficialPluginList.module.less";
-
-const { Text } = Typography;
 
 /**
  * Resolve the best-matching description from `description_i18n` based on
@@ -90,43 +97,51 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
         <div className={styles.catalogFilters}>
           <Input
             placeholder={t("pluginManager.filterByName")}
-            allowClear
             value={nameFilter}
             onChange={(e) => setNameFilter(e.target.value)}
             style={{ width: 220 }}
           />
           <Select
-            placeholder={t("pluginManager.filterByKind")}
-            allowClear
-            value={kindFilter}
-            onChange={(val) => setKindFilter(val)}
-            options={kindOptions}
-            style={{ width: 150 }}
-          />
+            value={kindFilter ?? ""}
+            onValueChange={(val) => setKindFilter(val || undefined)}
+          >
+            <SelectTrigger style={{ width: 150 }}>
+              <SelectValue placeholder={t("pluginManager.filterByKind")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">
+                {t("pluginManager.allKinds", "All")}
+              </SelectItem>
+              {kindOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <Button
-          type="default"
-          size="small"
-          icon={<RefreshCw size={14} />}
+          variant="outline"
+          size="sm"
           onClick={() => void loadCatalog()}
           disabled={loading}
         >
+          <RefreshCw size={14} className="mr-1" />
           {t("pluginManager.catalogRefresh")}
         </Button>
       </div>
 
       {catalogError && (
-        <Alert
-          type="warning"
-          showIcon
-          message={catalogError}
-          style={{ marginBottom: 12 }}
-        />
+        <div className="flex items-center gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800 dark-mode:border-yellow-800 dark-mode:bg-yellow-950 dark-mode:text-yellow-200 mb-3">
+          {catalogError}
+        </div>
       )}
 
-      <Spin spinning={loading}>
+      <div className={loading ? "opacity-60 pointer-events-none" : ""}>
         {!loading && filteredPlugins.length === 0 && !catalogError && (
-          <Text type="secondary">{t("pluginManager.catalogEmpty")}</Text>
+          <span className="text-sm text-muted-foreground">
+            {t("pluginManager.catalogEmpty")}
+          </span>
         )}
         <div className={styles.catalogList}>
           {filteredPlugins.map((entry) => (
@@ -136,33 +151,32 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
               </div>
               <div className={styles.catalogInfo}>
                 <div className={styles.catalogNameRow}>
-                  <Text strong>{entry.name}</Text>
+                  <span className="font-medium">{entry.name}</span>
                   {entry.kind && (
-                    <Tag
-                      color={
-                        entry.kind.toLowerCase() === "bundle"
-                          ? "purple"
-                          : "blue"
-                      }
-                      style={{ margin: 0, fontSize: 11 }}
-                    >
+                    <Badge variant="outline" className="text-xs">
                       {t(
                         `pluginManager.kind${entry.kind
                           .charAt(0)
                           .toUpperCase()}${entry.kind.slice(1).toLowerCase()}`,
                         { defaultValue: entry.kind },
                       )}
-                    </Tag>
+                    </Badge>
                   )}
                   {entry.installed && !entry.upgrade_available && (
-                    <Tag color="success" style={{ margin: 0, fontSize: 11 }}>
+                    <Badge
+                      variant="outline"
+                      className="text-xs text-green-600 border-green-300"
+                    >
                       {t("pluginManager.catalogInstalled")}
-                    </Tag>
+                    </Badge>
                   )}
                   {entry.upgrade_available && (
-                    <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>
+                    <Badge
+                      variant="outline"
+                      className="text-xs text-blue-600 border-blue-300"
+                    >
                       {t("pluginManager.catalogUpgrade")}
-                    </Tag>
+                    </Badge>
                   )}
                 </div>
                 {(entry.description || entry.description_i18n) && (
@@ -178,17 +192,16 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
               </div>
               <div className={styles.catalogActions}>
                 <Button
-                  type={
+                  variant={
                     entry.installed && !entry.upgrade_available
-                      ? "default"
-                      : "primary"
+                      ? "outline"
+                      : "default"
                   }
-                  size="small"
-                  icon={<Download size={14} />}
-                  loading={installingId === entry.id}
-                  disabled={installingId !== null && installingId !== entry.id}
+                  size="sm"
+                  disabled={installingId !== null}
                   onClick={() => void handleInstall(entry)}
                 >
+                  <Download size={14} className="mr-1" />
                   {entry.upgrade_available
                     ? t("pluginManager.catalogUpgradeBtn")
                     : entry.installed
@@ -199,7 +212,7 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
             </div>
           ))}
         </div>
-      </Spin>
+      </div>
     </div>
   );
 }

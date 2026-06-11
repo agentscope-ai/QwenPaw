@@ -1,10 +1,6 @@
 import React from "react";
-import { Switch, Tooltip } from "@agentscope-ai/design";
-import {
-  CaretDownOutlined,
-  CaretRightOutlined,
-  HolderOutlined,
-} from "@ant-design/icons";
+import { Switch } from "@/components/ui/switch";
+import { ChevronDown, ChevronRight, GripVertical } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
@@ -58,13 +54,7 @@ export const FileItem: React.FC<FileItemProps> = ({
     zIndex: isDragging ? 1 : undefined,
   };
 
-  const handleToggleClick = (
-    _checked: boolean,
-    event:
-      | React.MouseEvent<HTMLButtonElement>
-      | React.KeyboardEvent<HTMLButtonElement>,
-  ) => {
-    event.stopPropagation();
+  const handleToggleClick = (_checked: boolean) => {
     onToggleEnabled(file.filename);
   };
 
@@ -84,7 +74,7 @@ export const FileItem: React.FC<FileItemProps> = ({
               {...listeners}
               onClick={(e) => e.stopPropagation()}
             >
-              <HolderOutlined />
+              <GripVertical size={14} />
             </div>
           )}
           <div className={styles.fileInfo}>
@@ -97,19 +87,18 @@ export const FileItem: React.FC<FileItemProps> = ({
             </div>
           </div>
           <div className={styles.fileItemActions}>
-            <Tooltip title={t("workspace.systemPromptToggleTooltip")}>
-              <Switch
-                size="small"
-                checked={enabled}
-                onClick={handleToggleClick}
-              />
-            </Tooltip>
+            <span
+              title={t("workspace.systemPromptToggleTooltip")}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Switch checked={enabled} onCheckedChange={handleToggleClick} />
+            </span>
             {isMemoryFile && (
               <span className={styles.expandIcon}>
                 {expandedMemory ? (
-                  <CaretDownOutlined />
+                  <ChevronDown size={14} />
                 ) : (
-                  <CaretRightOutlined />
+                  <ChevronRight size={14} />
                 )}
               </span>
             )}

@@ -6,8 +6,9 @@ import {
   useState,
 } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Button, Input } from "@agentscope-ai/design";
-import { PlusOutlined, SearchOutlined, SyncOutlined } from "@ant-design/icons";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Plus, Search, RefreshCw } from "lucide-react";
 import { useProviders } from "./useProviders";
 import {
   LoadingState,
@@ -176,29 +177,32 @@ function ModelsPage() {
                 <div className={styles.headerRight}>
                   {/* ---- Search ---- */}
                   <div className={styles.searchRow}>
-                    <Input
-                      placeholder={t("models.searchPlaceholder")}
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className={styles.searchInput}
-                      prefix={<SearchOutlined />}
-                      allowClear
-                      autoComplete="off"
-                      data-form-type="other"
-                    />
+                    <div className={`relative ${styles.searchInput}`}>
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder={t("models.searchPlaceholder")}
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-9"
+                        autoComplete="nope"
+                        name="provider-search-nofill"
+                      />
+                    </div>
                     <Button
-                      icon={<SyncOutlined />}
+                      variant="outline"
+                      size="icon"
                       onClick={() => fetchAll()}
                       className={styles.searchBtn}
                       title={t("common.refresh")}
-                    />
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                    </Button>
                   </div>
                   <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
                     onClick={() => setAddProviderOpen(true)}
                     className={styles.addProviderBtn}
                   >
+                    <Plus className="mr-2 h-4 w-4" />
                     {t("models.addProvider")}
                   </Button>
                 </div>

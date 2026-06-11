@@ -1,10 +1,17 @@
-import type { ReactNode } from "react";
-import type { ComponentProps } from "@ant-design/x-markdown";
+import type { ReactNode, ComponentPropsWithoutRef } from "react";
+import type { Element } from "hast";
 import { MermaidCodeBlock } from "./MermaidCodeBlock";
+
+/** react-markdown v10 `code` component props. */
+interface CodeProps extends ComponentPropsWithoutRef<"code"> {
+  node?: Element;
+  /** Whether this is a fenced block vs inline code span. */
+  inline?: boolean;
+  children?: ReactNode;
+}
 
 /**
  * Extracts plain text from React children recursively.
- * XMarkdown may pass children as string or nested ReactNode elements.
  */
 function extractText(children: ReactNode): string {
   if (typeof children === "string") return children;
@@ -19,19 +26,20 @@ function extractText(children: ReactNode): string {
 }
 
 /**
- * Custom code component for XMarkdown that renders mermaid code blocks
- * as interactive diagrams, while leaving other code blocks as default.
+ * Custom `code` component for react-markdown that renders mermaid fenced
+ * blocks as interactive diagrams, leaving all other code as default.
+ *
+ * Language is encoded in `className` as `language-mermaid` by react-markdown.
  */
 function CodeWithMermaid({
   children,
-  lang,
-  block,
   className,
-  domNode: _domNode,
-  streamStatus: _streamStatus,
+  inline,
+  node: _node,
   ...rest
-}: ComponentProps) {
-  if (block && lang === "mermaid") {
+}: CodeProps) {
+  const isMermaid = !inline && className === "language-mermaid";
+  if (isMermaid) {
     const chartSource = extractText(children);
     if (chartSource.trim()) {
       return <MermaidCodeBlock chart={chartSource} />;
@@ -46,16 +54,15 @@ function CodeWithMermaid({
 }
 
 /**
- * XMarkdown components mapping that enables Mermaid diagram rendering.
+ * react-markdown `components` mapping that enables Mermaid diagram rendering.
  *
  * Usage:
  * ```tsx
- * <XMarkdown content={markdown} components={mermaidComponents} />
+ * <ReactMarkdown remarkPlugins={[remarkGfm]} components={mermaidComponents}>
+ *   {markdown}
+ * </ReactMarkdown>
  * ```
  */
-export const mermaidComponents: Record<
-  string,
-  React.ComponentType<ComponentProps>
-> = {
+export const mermaidComponents = {
   code: CodeWithMermaid,
-};
+} as const;

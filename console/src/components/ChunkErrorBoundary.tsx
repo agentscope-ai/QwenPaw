@@ -1,6 +1,7 @@
 import { Component } from "react";
 import type { ReactNode, ErrorInfo } from "react";
-import { Button, Result } from "antd";
+import { AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import i18n from "../i18n";
 
 interface Props {
@@ -66,17 +67,16 @@ export class ChunkErrorBoundary extends Component<Props, State> {
         : "chunkError.genericSubTitle";
 
       return (
-        <Result
-          status="error"
-          title={i18n.t(titleKey)}
-          subTitle={i18n.t(subTitleKey)}
-          extra={
-            <Button type="primary" onClick={() => window.location.reload()}>
-              {i18n.t("chunkError.reload")}
-            </Button>
-          }
-          style={{ marginTop: "10vh" }}
-        />
+        <div className="flex flex-col items-center justify-center mt-[10vh] gap-4 text-center px-4">
+          <AlertTriangle size={48} className="text-destructive" />
+          <h2 className="text-xl font-semibold">{i18n.t(titleKey)}</h2>
+          <p className="text-muted-foreground max-w-md">
+            {i18n.t(subTitleKey)}
+          </p>
+          <Button onClick={() => window.location.reload()}>
+            {i18n.t("chunkError.reload")}
+          </Button>
+        </div>
       );
     }
     return this.props.children;

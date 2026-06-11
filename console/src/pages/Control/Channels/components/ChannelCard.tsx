@@ -1,9 +1,7 @@
-import { Card } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import React, { useState } from "react";
+import React from "react";
 import { ChannelIcon } from "./ChannelIcon";
 import { getChannelLabel, type ChannelKey } from "./constants";
-import styles from "../index.module.less";
 
 interface ChannelCardProps {
   channelKey: ChannelKey;
@@ -17,45 +15,44 @@ export const ChannelCard = React.memo(function ChannelCard({
   onClick,
 }: ChannelCardProps) {
   const { t } = useTranslation();
-  const [isHover, setIsHover] = useState(false);
   const enabled = Boolean(config.enabled);
   const isBuiltin = Boolean(config.isBuiltin);
   const label = getChannelLabel(channelKey, t);
-  const getConfigString = (key: string) =>
-    typeof config[key] === "string" ? config[key] : "";
-  const botPrefix = getConfigString("bot_prefix");
-
-  const getChannelIcon = () => (
-    <ChannelIcon channelKey={channelKey} size={32} />
-  );
-
-  const getCardClassNames = () => {
-    if (isHover) return `${styles.channelCard} ${styles.hover}`;
-    if (enabled) return `${styles.channelCard} ${styles.enabled}`;
-    return `${styles.channelCard} ${styles.normal}`;
-  };
+  const botPrefix =
+    typeof config.bot_prefix === "string" ? config.bot_prefix : "";
 
   return (
-    <Card
-      hoverable
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      onMouseEnter={() => setIsHover(true)}
-      onMouseLeave={() => setIsHover(false)}
-      className={getCardClassNames()}
-      bodyStyle={{ padding: 24 }}
+      onKeyDown={(e) => e.key === "Enter" && onClick()}
+      className={`
+        group border rounded-xl p-6 cursor-pointer transition-all select-none
+        hover:border-primary/60 hover:shadow-md
+        ${
+          enabled
+            ? "border-green-500/40 bg-green-500/5"
+            : "border-border bg-card"
+        }
+      `}
     >
-      {/* Top section: Icon and Status */}
-      <div className={styles.cardTopSection}>
-        <div className={styles.channelIcon}>{getChannelIcon()}</div>
-        <div className={styles.statusIndicator}>
-          <div
-            className={`${styles.statusDot} ${
-              enabled ? styles.enabled : styles.disabled
+      {/* Top: Icon + Status */}
+      <div className="flex items-start justify-between mb-4">
+        <div className="w-10 h-10 flex items-center justify-center rounded-lg bg-muted">
+          <ChannelIcon channelKey={channelKey} size={28} />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span
+            className={`inline-block w-2 h-2 rounded-full ${
+              enabled ? "bg-green-500" : "bg-muted-foreground/40"
             }`}
           />
           <span
-            className={`${styles.statusText} ${
-              enabled ? styles.enabled : styles.disabled
+            className={`text-xs ${
+              enabled
+                ? "text-green-600 dark-mode:text-green-400"
+                : "text-muted-foreground"
             }`}
           >
             {enabled ? t("common.enabled") : t("common.disabled")}
@@ -63,22 +60,24 @@ export const ChannelCard = React.memo(function ChannelCard({
         </div>
       </div>
 
-      {/* Middle section: Name and Tag */}
-      <div className={styles.cardMiddleSection}>
-        <div className={styles.cardTitle}>{label}</div>
-        {isBuiltin ? (
-          <span className={styles.builtinTag}>{t("channels.builtin")}</span>
-        ) : (
-          <span className={styles.customTag}>{t("channels.custom")}</span>
-        )}
+      {/* Middle: Name + Tag */}
+      <div className="flex items-center gap-2 mb-2">
+        <span className="font-semibold text-sm">{label}</span>
+        <span
+          className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+            isBuiltin
+              ? "bg-primary/10 text-primary"
+              : "bg-secondary text-secondary-foreground"
+          }`}
+        >
+          {isBuiltin ? t("channels.builtin") : t("channels.custom")}
+        </span>
       </div>
 
-      {/* Bottom section: Bot Prefix */}
-      <div className={styles.cardBottomSection}>
-        <div className={styles.cardDescription}>
-          {t("channels.botPrefix")}: {botPrefix || t("channels.notSet")}
-        </div>
+      {/* Bottom: Bot Prefix */}
+      <div className="text-xs text-muted-foreground">
+        {t("channels.botPrefix")}: {botPrefix || t("channels.notSet")}
       </div>
-    </Card>
+    </div>
   );
 });

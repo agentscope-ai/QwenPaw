@@ -29,7 +29,11 @@ import {
   Save,
   X,
 } from "lucide-react";
-import { Tooltip } from "antd";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import FilePreview, { isPreviewable } from "./FilePreview";
 import { workspaceApi } from "../../api/modules/workspace";
 import { useWorkspaceWatch } from "../../hooks/useWorkspaceWatch";
@@ -834,72 +838,87 @@ export default function TabbedEditor({
               <GitCompareArrows size={12} />
               Agent changed this file
             </span>
-            <Tooltip title="Keep all changes in this file">
-              <button
-                type="button"
-                className={`${styles.iconBtn} ${styles.keepBtn}`}
-                onClick={handleKeep}
-              >
-                <Check size={13} />
-                Keep all
-              </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className={`${styles.iconBtn} ${styles.keepBtn}`}
+                  onClick={handleKeep}
+                >
+                  <Check size={13} />
+                  Keep all
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Keep all changes in this file</TooltipContent>
             </Tooltip>
-            <Tooltip title="Undo all changes in this file (revert to original)">
-              <button
-                type="button"
-                className={`${styles.iconBtn} ${styles.undoBtn}`}
-                onClick={() => void handleUndo()}
-              >
-                <RotateCcw size={13} />
-                Undo all
-              </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className={`${styles.iconBtn} ${styles.undoBtn}`}
+                  onClick={() => void handleUndo()}
+                >
+                  <RotateCcw size={13} />
+                  Undo all
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Undo all changes in this file (revert to original)
+              </TooltipContent>
             </Tooltip>
           </div>
         ) : (
           /* Normal mode: Preview toggle + Copy-to-Chat + Save */
           <div className={styles.toolbarRight}>
             {activeIsPreviewable && (
-              <Tooltip
-                title={activeInPreview ? "Switch to Code" : "Open Preview"}
-              >
-                <button
-                  type="button"
-                  className={`${styles.iconBtn} ${
-                    activeInPreview ? styles.previewActiveBtn : ""
-                  }`}
-                  onClick={() => togglePreview(activeTabPath)}
-                >
-                  {activeInPreview ? <Code2 size={13} /> : <Eye size={13} />}
-                </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className={`${styles.iconBtn} ${
+                      activeInPreview ? styles.previewActiveBtn : ""
+                    }`}
+                    onClick={() => togglePreview(activeTabPath)}
+                  >
+                    {activeInPreview ? <Code2 size={13} /> : <Eye size={13} />}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {activeInPreview ? "Switch to Code" : "Open Preview"}
+                </TooltipContent>
               </Tooltip>
             )}
             {!activeInPreview && (
               <>
-                <Tooltip
-                  title={
-                    hasSelection
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className={styles.iconBtn}
+                      onClick={handleCopyToChat}
+                      disabled={!activeTabPath}
+                    >
+                      <MessageSquarePlus size={13} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {hasSelection
                       ? "Copy selection to Chat"
-                      : "Copy file to Chat"
-                  }
-                >
-                  <button
-                    type="button"
-                    className={styles.iconBtn}
-                    onClick={handleCopyToChat}
-                    disabled={!activeTabPath}
-                  >
-                    <MessageSquarePlus size={13} />
-                  </button>
+                      : "Copy file to Chat"}
+                  </TooltipContent>
                 </Tooltip>
-                <Tooltip title="Save (Cmd+S)">
-                  <button
-                    type="button"
-                    className={styles.iconBtn}
-                    onClick={handleSave}
-                    disabled={saving || !activeTab?.dirty}
-                  >
-                    <Save size={13} />
-                  </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className={styles.iconBtn}
+                      onClick={handleSave}
+                      disabled={saving || !activeTab?.dirty}
+                    >
+                      <Save size={13} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Save (Cmd+S)</TooltipContent>
                 </Tooltip>
               </>
             )}

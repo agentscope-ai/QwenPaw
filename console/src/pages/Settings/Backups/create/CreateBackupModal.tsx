@@ -4,10 +4,21 @@
  * Does NOT handle the silent pre-restore case — see SilentBackupModal for that.
  */
 import { useState } from "react";
-import { Modal, Input, Alert, Space } from "antd";
 import { useTranslation } from "react-i18next";
 import dayjs from "dayjs";
 import type { AgentSummary } from "@/api/types/agents";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { useBackupRunner } from "../shared/useBackupRunner";
 import { buildScope, defaultCreateScope } from "../shared/scope";
 import BackupProgress from "./BackupProgress";
@@ -37,13 +48,14 @@ export default function CreateBackupModal({
 
   const runner = useBackupRunner({ onSuccess, onClose });
 
-  /** Resets form and runner state each time the modal opens for a fresh session. */
-  const handleAfterOpenChange = (visible: boolean) => {
+  const handleOpenChange = (visible: boolean) => {
     if (visible) {
       setName(`Backup ${dayjs().format("YYYY-MM-DD HH:mm")}`);
       setDescription("");
       setScope(defaultCreateScope(agents.map((a) => a.id)));
       runner.reset();
+    } else if (!runner.loading) {
+      onClose();
     }
   };
 
@@ -51,7 +63,7 @@ export default function CreateBackupModal({
   const handleOk = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const { scope: backupScope, agents } = buildScope(
+    const { scope: backupScope, agents: scopeAgents } = buildScope(
       scope.backupMode,
       scope.selectedAgents,
       scope.globalConfig,
@@ -62,63 +74,76 @@ export default function CreateBackupModal({
       name: trimmed,
       description: description.trim() || undefined,
       scope: backupScope,
-      agents,
+      agents: scopeAgents,
     });
   };
 
   return (
-    <Modal
-      title={t("backup.createTitle")}
-      open={open}
-      onCancel={runner.loading ? undefined : onClose}
-      onOk={runner.loading ? undefined : handleOk}
-      okButtonProps={
-        runner.loading
-          ? { style: { display: "none" } }
-          : { disabled: !name.trim() }
-      }
-      cancelText={t("common.cancel")}
-      okText={t("common.confirm")}
-      destroyOnHidden
-      afterOpenChange={handleAfterOpenChange}
-      centered
-      closable={!runner.loading}
-      maskClosable={!runner.loading}
-    >
-      {runner.loading ? (
-        <BackupProgress
-          progress={runner.progress}
-          progressMsg={runner.progressMsg}
-        />
-      ) : (
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-          <div>
-            <div className={styles.fieldLabel}>{t("backup.name")}</div>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t("backup.namePlaceholder")}
-            />
-          </div>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t("backup.createTitle")}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("backup.createTitle")}
+          </DialogDescription>
+        </DialogHeader>
 
-          <div>
-            <div className={styles.fieldLabel}>
-              {t("backup.descriptionLabel")}
+        {runner.loading ? (
+          <BackupProgress
+            progress={runner.progress}
+            progressMsg={runner.progressMsg}
+          />
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div>
+              <Label className={styles.fieldLabel}>{t("backup.name")}</Label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t("backup.namePlaceholder")}
+              />
             </div>
-            <Input.TextArea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t("backup.descriptionPlaceholder")}
-              rows={2}
+
+            <div>
+              <Label className={styles.fieldLabel}>
+                {t("backup.descriptionLabel")}
+              </Label>
+              <Textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder={t("backup.descriptionPlaceholder")}
+                rows={2}
+              />
+            </div>
+
+            <BackupScopeForm
+              value={scope}
+              onChange={setScope}
+              agents={agents}
             />
+
+            <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark-mode:border-blue-800 dark-mode:bg-blue-950 dark-mode:text-blue-200">
+              <span>ℹ</span>
+              {t("backup.localModelsNotice")}
+            </div>
+            <div className="flex items-start gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800 dark-mode:border-yellow-800 dark-mode:bg-yellow-950 dark-mode:text-yellow-200">
+              <span>⚠</span>
+              {t("backup.securityNotice")}
+            </div>
           </div>
+        )}
 
-          <BackupScopeForm value={scope} onChange={setScope} agents={agents} />
-
-          <Alert type="info" showIcon message={t("backup.localModelsNotice")} />
-          <Alert type="warning" showIcon message={t("backup.securityNotice")} />
-        </Space>
-      )}
-    </Modal>
+        {!runner.loading && (
+          <DialogFooter>
+            <Button variant="outline" onClick={onClose}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={handleOk} disabled={!name.trim()}>
+              {t("common.confirm")}
+            </Button>
+          </DialogFooter>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

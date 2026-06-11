@@ -1,19 +1,4 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import {
-  Button,
-  Card,
-  Form,
-  Modal,
-  Popover,
-  Select,
-  Table,
-} from "@agentscope-ai/design";
-import {
-  CalendarOutlined,
-  LeftOutlined,
-  RightOutlined,
-  UnorderedListOutlined,
-} from "@ant-design/icons";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
@@ -33,7 +18,59 @@ import {
 } from "./components";
 import { parseCron, serializeCron } from "./components/parseCron";
 import { PageHeader } from "@/components/PageHeader";
-import styles from "./index.module.less";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getPaginationRowModel,
+  flexRender,
+  type SortingState,
+  getSortedRowModel,
+} from "@tanstack/react-table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Loader2,
+  List,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 
 type CronJob = CronJobSpecOutput;
 type OneTimeCronJob = CronJob & {
@@ -53,6 +90,13 @@ type OneTimeJobEvent = {
   job: OneTimeCronJob;
   runAtInUserTimezone: dayjs.Dayjs;
 };
+
+interface ConfirmState {
+  open: boolean;
+  title: string;
+  description: string;
+  onConfirm: () => Promise<void>;
+}
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -89,11 +133,27 @@ function CronJobsPage() {
     Set<string>
   >(new Set());
   const [userTimezone, setUserTimezone] = useState("UTC");
-  const [form] = Form.useForm<CronJob>();
+  const [confirmState, setConfirmState] = useState<ConfirmState>({
+    open: false,
+    title: "",
+    description: "",
+    onConfirm: async () => {},
+  });
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
+
+  // Form proxy — satisfies JobDrawer.form interface; JobDrawer overrides the methods internally
+  const form = useRef({
+    getFieldValue: (_name: string | string[]) => undefined as any,
+    setFieldsValue: (_values: Record<string, any>) => {},
+    resetFields: () => {},
+    submit: () => {},
+  });
+
   const userTimezoneRef = useRef("UTC");
   const [targetItems, setTargetItems] = useState<CronDispatchTargetItem[]>([]);
   const [targetChannels, setTargetChannels] = useState<string[]>(["console"]);
-  const [targetsLoading, setTargetsLoading] = useState(false);
+  const [, setTargetsLoading] = useState(false);
 
   const isOneTimeJob = (job: CronJob): job is OneTimeCronJob =>
     job.schedule?.type === "once" && typeof job.schedule?.run_at === "string";
@@ -132,8 +192,8 @@ function CronJobsPage() {
 
   const handleCreate = () => {
     setEditingJob(null);
-    form.resetFields();
-    form.setFieldsValue({
+    form.current.resetFields();
+    form.current.setFieldsValue({
       ...DEFAULT_FORM_VALUES,
       schedule: {
         ...DEFAULT_FORM_VALUES.schedule,
@@ -150,8 +210,8 @@ function CronJobsPage() {
   const handleUseTemplate = (templateValues: Record<string, unknown>) => {
     setTemplateModalOpen(false);
     setEditingJob(null);
-    form.resetFields();
-    form.setFieldsValue({
+    form.current.resetFields();
+    form.current.setFieldsValue({
       ...DEFAULT_FORM_VALUES,
       schedule: {
         ...DEFAULT_FORM_VALUES.schedule,
@@ -188,40 +248,34 @@ function CronJobsPage() {
         : null;
       formValues.onceRepeatCount = job.schedule.repeat_count || 2;
     } else {
-      // Parse cron expression to form fields
       const cronParts = parseCron(job.schedule?.cron || "0 9 * * *");
       formValues.cronType = cronParts.type;
 
-      // Set time picker value
       if (cronParts.type === "daily" || cronParts.type === "weekly") {
         const h = cronParts.hour ?? 9;
         const m = cronParts.minute ?? 0;
         formValues.cronTime = dayjs().hour(h).minute(m);
       }
 
-      // Set days of week
       if (cronParts.type === "weekly" && cronParts.daysOfWeek) {
         formValues.cronDaysOfWeek = cronParts.daysOfWeek;
       }
 
-      // Set custom cron
       if (cronParts.type === "custom" && cronParts.rawCron) {
         formValues.cronCustom = cronParts.rawCron;
       }
     }
 
-    form.setFieldsValue(formValues);
+    form.current.setFieldsValue(formValues);
     setDrawerOpen(true);
   };
 
   const handleDelete = (jobId: string) => {
-    Modal.confirm({
+    setConfirmState({
+      open: true,
       title: t("cronJobs.confirmDelete"),
-      content: t("cronJobs.deleteConfirm"),
-      okText: t("cronJobs.deleteText"),
-      okType: "primary",
-      cancelText: t("cronJobs.cancelText"),
-      onOk: async () => {
+      description: t("cronJobs.deleteConfirm"),
+      onConfirm: async () => {
         await deleteJob(jobId);
       },
     });
@@ -231,14 +285,12 @@ function CronJobsPage() {
     await toggleEnabled(job);
   };
 
-  const handleExecuteNow = async (job: CronJob) => {
-    Modal.confirm({
+  const handleExecuteNow = (job: CronJob) => {
+    setConfirmState({
+      open: true,
       title: t("cronJobs.executeNowTitle"),
-      content: t("cronJobs.executeNowContent", { name: job.name }),
-      okText: t("cronJobs.executeNowConfirm"),
-      okType: "primary",
-      cancelText: t("cronJobs.cancelText"),
-      onOk: async () => {
+      description: t("cronJobs.executeNowContent", { name: job.name }),
+      onConfirm: async () => {
         await executeNow(job.id);
       },
     });
@@ -318,7 +370,7 @@ function CronJobsPage() {
       };
     }
 
-    let processedValues = {
+    const processedValues = {
       ...values,
       schedule,
     };
@@ -335,15 +387,11 @@ function CronJobsPage() {
     delete processedValues.cronCustom;
 
     if (processedValues.task_type === "text") {
-      // Remove request object entirely for text tasks
       delete processedValues.request;
     } else if (processedValues.task_type === "agent") {
-      //Ensure request object exists
       if (!processedValues.request) {
         processedValues.request = {};
       }
-
-      // Parse request input JSON
       if (
         processedValues.request?.input &&
         typeof processedValues.request.input === "string"
@@ -353,7 +401,7 @@ function CronJobsPage() {
             processedValues.request.input,
           );
         } catch (error) {
-          console.error("❌ Failed to parse request.input JSON:", error);
+          console.error("Failed to parse request.input JSON:", error);
         }
       }
     }
@@ -373,15 +421,6 @@ function CronJobsPage() {
       setDrawerOpen(false);
     }
   };
-
-  const columns = createColumns({
-    onToggleEnabled: handleToggleEnabled,
-    onExecuteNow: handleExecuteNow,
-    onViewHistory: handleViewHistory,
-    onEdit: handleEdit,
-    onDelete: handleDelete,
-    t,
-  });
 
   const HISTORY_ERROR_PREVIEW_LINES = 4;
   const HISTORY_ERROR_PREVIEW_CHARS = 280;
@@ -421,6 +460,28 @@ function CronJobsPage() {
     return jobs.filter((job) => job.schedule?.type === scheduleTypeFilter);
   }, [jobs, scheduleTypeFilter]);
 
+  const columns = createColumns({
+    onToggleEnabled: handleToggleEnabled,
+    onExecuteNow: handleExecuteNow,
+    onViewHistory: handleViewHistory,
+    onEdit: handleEdit,
+    onDelete: handleDelete,
+    t,
+  });
+
+  const table = useReactTable({
+    data: filteredListJobs,
+    columns,
+    state: { sorting, pagination },
+    onSortingChange: setSorting,
+    onPaginationChange: setPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getRowId: (row) => row.id,
+    manualPagination: false,
+  });
+
   const calendarDays = useMemo(() => {
     const monthStart = calendarMonth.startOf("month");
     const calendarStart = monthStart.startOf("week");
@@ -451,10 +512,7 @@ function CronJobsPage() {
           !runAtInUserTimezone.isBefore(rangeStartInUserTz) &&
           !runAtInUserTimezone.isAfter(rangeEndInUserTz)
         ) {
-          events.push({
-            job,
-            runAtInUserTimezone,
-          });
+          events.push({ job, runAtInUserTimezone });
         }
         return;
       }
@@ -524,56 +582,60 @@ function CronJobsPage() {
   }, [oneTimeJobEvents]);
 
   return (
-    <div className={styles.cronJobsPage}>
+    <div className="flex flex-col h-full">
       <PageHeader
         items={[{ title: t("nav.control") }, { title: t("cronJobs.title") }]}
         extra={
-          <div className={styles.headerActions}>
+          <div className="flex items-center gap-2">
             {viewMode === "list" && (
-              <Select<ScheduleTypeFilter>
+              <Select
                 value={scheduleTypeFilter}
-                onChange={setScheduleTypeFilter}
-                style={{ width: 200 }}
-                options={[
-                  {
-                    label: t("cronJobs.scheduleFilterAll"),
-                    value: "all",
-                  },
-                  {
-                    label: t("cronJobs.scheduleTypeRecurring"),
-                    value: "cron",
-                  },
-                  {
-                    label: t("cronJobs.scheduleTypeOnce"),
-                    value: "once",
-                  },
-                ]}
-              />
+                onValueChange={(v) =>
+                  setScheduleTypeFilter(v as ScheduleTypeFilter)
+                }
+              >
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    {t("cronJobs.scheduleFilterAll")}
+                  </SelectItem>
+                  <SelectItem value="cron">
+                    {t("cronJobs.scheduleTypeRecurring")}
+                  </SelectItem>
+                  <SelectItem value="once">
+                    {t("cronJobs.scheduleTypeOnce")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             )}
-            <div className={styles.viewToggle}>
+            <div className="flex items-center border rounded-md overflow-hidden">
               <button
-                className={`${styles.viewToggleBtn} ${
-                  viewMode === "list" ? styles.viewToggleBtnActive : ""
+                className={`px-2.5 py-1.5 text-sm transition-colors ${
+                  viewMode === "list"
+                    ? "bg-primary text-primary-foreground"
+                    : "hover:bg-muted"
                 }`}
                 onClick={() => setViewMode("list")}
                 title={t("cronJobs.listView")}
               >
-                <UnorderedListOutlined />
+                <List size={16} />
               </button>
               <button
-                className={`${styles.viewToggleBtn} ${
-                  viewMode === "calendar" ? styles.viewToggleBtnActive : ""
+                className={`px-2.5 py-1.5 text-sm transition-colors ${
+                  viewMode === "calendar"
+                    ? "bg-primary text-primary-foreground"
+                    : "hover:bg-muted"
                 }`}
                 onClick={() => setViewMode("calendar")}
                 title={t("cronJobs.calendarView")}
               >
-                <CalendarOutlined />
+                <Calendar size={16} />
               </button>
             </div>
-            <Button type="primary" onClick={handleCreate}>
-              + {t("cronJobs.createJob")}
-            </Button>
-            <Button onClick={handleOpenTemplateModal}>
+            <Button onClick={handleCreate}>+ {t("cronJobs.createJob")}</Button>
+            <Button variant="outline" onClick={handleOpenTemplateModal}>
               {t("cronJobs.createFromTemplate")}
             </Button>
           </div>
@@ -581,153 +643,233 @@ function CronJobsPage() {
       />
 
       {viewMode === "list" ? (
-        <Card className={styles.tableCard} bodyStyle={{ padding: 0 }}>
-          <Table
-            columns={columns}
-            dataSource={filteredListJobs}
-            loading={loading}
-            rowKey="id"
-            scroll={{ x: 2840 }}
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: false,
-            }}
-          />
+        <Card className="flex-1 mx-4 mb-4">
+          <CardContent className="p-0">
+            {loading ? (
+              <div className="flex items-center justify-center h-32">
+                <Loader2 className="animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    {table.getHeaderGroups().map((hg) => (
+                      <TableRow key={hg.id}>
+                        {hg.headers.map((header) => (
+                          <TableHead
+                            key={header.id}
+                            style={{ width: header.getSize() }}
+                          >
+                            {flexRender(
+                              header.column.columnDef.header,
+                              header.getContext(),
+                            )}
+                          </TableHead>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableHeader>
+                  <TableBody>
+                    {table.getRowModel().rows.map((row) => (
+                      <TableRow key={row.id}>
+                        {row.getVisibleCells().map((cell) => (
+                          <TableCell key={cell.id} className="text-sm">
+                            {flexRender(
+                              cell.column.columnDef.cell,
+                              cell.getContext(),
+                            )}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                    {table.getRowModel().rows.length === 0 && (
+                      <TableRow>
+                        <TableCell
+                          colSpan={columns.length}
+                          className="h-24 text-center text-muted-foreground"
+                        >
+                          {t("common.noData", "No data")}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+                {table.getPageCount() > 1 && (
+                  <div className="flex items-center justify-end gap-2 px-4 py-3 border-t text-sm">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => table.previousPage()}
+                      disabled={!table.getCanPreviousPage()}
+                    >
+                      <ChevronLeft size={14} />
+                    </Button>
+                    <span className="text-muted-foreground">
+                      {table.getState().pagination.pageIndex + 1} /{" "}
+                      {table.getPageCount()}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => table.nextPage()}
+                      disabled={!table.getCanNextPage()}
+                    >
+                      <ChevronRight size={14} />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
         </Card>
       ) : (
-        <Card className={styles.calendarCard} bodyStyle={{ padding: 0 }}>
-          <div className={styles.calendarHeader}>
-            <Button
-              type="text"
-              icon={<LeftOutlined />}
-              onClick={() =>
-                setCalendarMonth((prev) => prev.subtract(1, "month"))
-              }
-            />
-            <div className={styles.calendarTitle}>
-              {calendarMonth.tz(userTimezone).format("YYYY-MM")}
+        <Card className="flex-1 mx-4 mb-4">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-center gap-4 mb-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  setCalendarMonth((prev) => prev.subtract(1, "month"))
+                }
+              >
+                <ChevronLeft size={16} />
+              </Button>
+              <span className="font-medium">
+                {calendarMonth.tz(userTimezone).format("YYYY-MM")}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setCalendarMonth((prev) => prev.add(1, "month"))}
+              >
+                <ChevronRight size={16} />
+              </Button>
             </div>
-            <Button
-              type="text"
-              icon={<RightOutlined />}
-              onClick={() => setCalendarMonth((prev) => prev.add(1, "month"))}
-            />
-          </div>
 
-          {oneTimeJobs.length === 0 && (
-            <div className={styles.calendarEmptyHint}>
-              {t("cronJobs.calendarEmptyHint")}
-            </div>
-          )}
-
-          <div className={styles.calendarWeekHeader}>
-            {[0, 1, 2, 3, 4, 5, 6].map((day) => (
-              <div key={day} className={styles.calendarWeekCell}>
-                {dayjs().day(day).format("dd")}
+            {oneTimeJobs.length === 0 && (
+              <div className="text-center text-muted-foreground text-sm py-4">
+                {t("cronJobs.calendarEmptyHint")}
               </div>
-            ))}
-          </div>
-          <div className={styles.calendarGrid}>
-            {calendarDays.map((day) => {
-              const dateKey = day.format("YYYY-MM-DD");
-              const dayEvents = oneTimeJobsByDate[dateKey] || [];
-              const isCurrentMonth = day.month() === calendarMonth.month();
-              const isToday = day.isSame(dayjs().tz(userTimezone), "day");
-              const visibleEvents = dayEvents.slice(0, 3);
-              const hiddenCount = Math.max(dayEvents.length - 3, 0);
-              const popoverContent = (
-                <div className={styles.dayJobPopover}>
-                  <div className={styles.dayJobPopoverHeader}>
-                    <span className={styles.dayJobPopoverDay}>
-                      {day.format("D")}
-                    </span>
-                    <span className={styles.dayJobPopoverWeek}>
-                      {day.format("ddd")}
-                    </span>
-                  </div>
-                  <div className={styles.dayJobList}>
-                    {dayEvents.map(({ job, runAtInUserTimezone }) => (
-                      <div
-                        key={job.id}
-                        className={`${styles.dayJobItem} ${
-                          job.enabled ? "" : styles.dayJobItemDisabled
-                        }`}
-                        onClick={() => {
-                          setActivePopoverDate(null);
-                          handleEdit(job);
-                        }}
-                      >
-                        <span className={styles.dayJobItemTime}>
-                          {runAtInUserTimezone.format("HH:mm")}
-                        </span>
-                        <span className={styles.dayJobItemName}>
-                          {job.name}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-              return (
+            )}
+
+            <div className="grid grid-cols-7 mb-1">
+              {[0, 1, 2, 3, 4, 5, 6].map((day) => (
                 <div
-                  key={dateKey}
-                  className={`${styles.calendarCell} ${
-                    !isCurrentMonth ? styles.calendarCellMuted : ""
-                  } ${isToday ? styles.calendarCellToday : ""}`}
+                  key={day}
+                  className="text-center text-xs font-medium text-muted-foreground py-1"
                 >
-                  <div className={styles.calendarCellDate}>{day.date()}</div>
-                  <div className={styles.calendarEvents}>
-                    {visibleEvents.map(({ job, runAtInUserTimezone }) => (
-                      <div
-                        key={job.id}
-                        className={`${styles.calendarEvent} ${
-                          job.enabled ? "" : styles.calendarEventDisabled
-                        }`}
-                        title={`${runAtInUserTimezone.format("HH:mm")} ${
-                          job.name
-                        }`}
-                        onClick={() => handleEdit(job)}
-                      >
-                        <span className={styles.calendarEventDot} />
-                        <span className={styles.calendarEventText}>
-                          {runAtInUserTimezone.format("HH:mm")} {job.name}
-                        </span>
-                      </div>
-                    ))}
-                    {hiddenCount > 0 && (
-                      <Popover
-                        trigger="click"
-                        placement="rightTop"
-                        open={activePopoverDate === dateKey}
-                        onOpenChange={(open) =>
-                          setActivePopoverDate(open ? dateKey : null)
-                        }
-                        overlayClassName={styles.dayJobPopoverOverlay}
-                        content={popoverContent}
-                      >
-                        <button className={styles.calendarMoreBtn}>
-                          {t("cronJobs.calendarMoreItems", {
-                            count: hiddenCount,
-                          })}
-                        </button>
-                      </Popover>
-                    )}
-                  </div>
+                  {dayjs().day(day).format("dd")}
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 border-l border-t">
+              {calendarDays.map((day) => {
+                const dateKey = day.format("YYYY-MM-DD");
+                const dayEvents = oneTimeJobsByDate[dateKey] || [];
+                const isCurrentMonth = day.month() === calendarMonth.month();
+                const isToday = day.isSame(dayjs().tz(userTimezone), "day");
+                const visibleEvents = dayEvents.slice(0, 3);
+                const hiddenCount = Math.max(dayEvents.length - 3, 0);
+
+                return (
+                  <div
+                    key={dateKey}
+                    className={`border-r border-b min-h-[80px] p-1 ${
+                      !isCurrentMonth ? "opacity-40" : ""
+                    }`}
+                  >
+                    <div
+                      className={`text-xs w-6 h-6 flex items-center justify-center rounded-full mb-1 ${
+                        isToday
+                          ? "bg-primary text-primary-foreground font-semibold"
+                          : "text-foreground"
+                      }`}
+                    >
+                      {day.date()}
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      {visibleEvents.map(({ job, runAtInUserTimezone }) => (
+                        <div
+                          key={job.id}
+                          className={`text-[10px] px-1 rounded truncate cursor-pointer hover:opacity-80 ${
+                            job.enabled
+                              ? "bg-primary/20 text-primary"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                          title={`${runAtInUserTimezone.format("HH:mm")} ${
+                            job.name
+                          }`}
+                          onClick={() => handleEdit(job)}
+                        >
+                          {runAtInUserTimezone.format("HH:mm")} {job.name}
+                        </div>
+                      ))}
+                      {hiddenCount > 0 && (
+                        <Popover
+                          open={activePopoverDate === dateKey}
+                          onOpenChange={(open) =>
+                            setActivePopoverDate(open ? dateKey : null)
+                          }
+                        >
+                          <PopoverTrigger asChild>
+                            <button className="text-[10px] text-primary hover:underline text-left px-1">
+                              {t("cronJobs.calendarMoreItems", {
+                                count: hiddenCount,
+                              })}
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            side="right"
+                            align="start"
+                            className="w-64 p-3"
+                          >
+                            <div className="flex items-baseline gap-2 mb-2">
+                              <span className="font-semibold">
+                                {day.format("D")}
+                              </span>
+                              <span className="text-muted-foreground text-xs">
+                                {day.format("ddd")}
+                              </span>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              {dayEvents.map(({ job, runAtInUserTimezone }) => (
+                                <div
+                                  key={job.id}
+                                  className={`text-xs flex gap-2 items-center cursor-pointer hover:opacity-70 ${
+                                    job.enabled ? "" : "opacity-40"
+                                  }`}
+                                  onClick={() => {
+                                    setActivePopoverDate(null);
+                                    handleEdit(job);
+                                  }}
+                                >
+                                  <span className="font-mono">
+                                    {runAtInUserTimezone.format("HH:mm")}
+                                  </span>
+                                  <span className="truncate">{job.name}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
         </Card>
       )}
 
       <JobDrawer
         open={drawerOpen}
         editingJob={editingJob}
-        form={form}
+        form={form.current}
         saving={saving}
         targetItems={targetItems}
         targetChannels={targetChannels}
-        targetsLoading={targetsLoading}
         onReloadTargets={loadDispatchTargets}
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
@@ -740,87 +882,126 @@ function CronJobsPage() {
         onUseTemplate={handleUseTemplate}
       />
 
-      <Modal
-        visible={historyModalOpen}
-        title={t("cronJobs.historyTitle", { name: historyJobName })}
-        footer={null}
-        onCancel={() => setHistoryModalOpen(false)}
+      {/* History Dialog */}
+      <Dialog
+        open={historyModalOpen}
+        onOpenChange={(o) => !o && setHistoryModalOpen(false)}
       >
-        <div className={styles.historyList}>
-          {historyLoading ? (
-            <div className={styles.historyEmpty}>{t("common.loading")}</div>
-          ) : historyRecords.length === 0 ? (
-            <div className={styles.historyEmpty}>
-              {t("cronJobs.historyEmpty")}
-            </div>
-          ) : (
-            historyRecords.map((record, index) => (
-              <div
-                key={`${record.run_at}-${index}`}
-                className={styles.historyItem}
-              >
-                <div className={styles.historyItemMain}>
-                  <span className={styles.historyItemTime}>
-                    {dayjs(record.run_at)
-                      .tz(userTimezone)
-                      .format("YYYY-MM-DD HH:mm:ss")}
-                  </span>
-                  <span
-                    className={`${styles.historyItemStatus} ${
-                      record.status === "success"
-                        ? styles.historyItemStatusSuccess
-                        : styles.historyItemStatusError
-                    }`}
-                  >
-                    {record.status === "success"
-                      ? t("cronJobs.historyStatusSuccess")
-                      : record.status === "running"
-                      ? t("cronJobs.historyStatusRunning")
-                      : record.status === "cancelled"
-                      ? t("cronJobs.historyStatusCancelled")
-                      : t("cronJobs.historyStatusFailed")}
-                  </span>
-                </div>
-                <div className={styles.historyItemMeta}>
-                  {record.trigger === "manual"
-                    ? t("cronJobs.historyTriggerManual")
-                    : t("cronJobs.historyTriggerScheduled")}
-                </div>
-                {record.error &&
-                  (() => {
-                    const recordKey = `${record.run_at}-${index}`;
-                    const expanded = expandedHistoryErrors.has(recordKey);
-                    const showToggle = shouldShowErrorToggle(record.error);
-                    return (
-                      <div>
-                        <div
-                          className={`${styles.historyItemError} ${
-                            !expanded && showToggle
-                              ? styles.historyItemErrorCollapsed
-                              : ""
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {t("cronJobs.historyTitle", { name: historyJobName })}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto pr-1">
+            {historyLoading ? (
+              <div className="flex items-center justify-center h-24">
+                <Loader2 className="animate-spin text-muted-foreground" />
+              </div>
+            ) : historyRecords.length === 0 ? (
+              <div className="text-center text-muted-foreground py-8 text-sm">
+                {t("cronJobs.historyEmpty")}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {historyRecords.map((record, index) => {
+                  const recordKey = `${record.run_at}-${index}`;
+                  const expanded = expandedHistoryErrors.has(recordKey);
+                  const showToggle = record.error
+                    ? shouldShowErrorToggle(record.error)
+                    : false;
+                  return (
+                    <div
+                      key={recordKey}
+                      className="border rounded-lg p-3 flex flex-col gap-1"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-mono text-muted-foreground">
+                          {dayjs(record.run_at)
+                            .tz(userTimezone)
+                            .format("YYYY-MM-DD HH:mm:ss")}
+                        </span>
+                        <span
+                          className={`text-xs font-medium ${
+                            record.status === "success"
+                              ? "text-green-600"
+                              : record.status === "running"
+                              ? "text-blue-600"
+                              : "text-destructive"
                           }`}
                         >
-                          {record.error}
-                        </div>
-                        {showToggle && (
-                          <button
-                            type="button"
-                            className={styles.historyItemErrorToggle}
-                            onClick={() => toggleHistoryError(recordKey)}
-                          >
-                            {expanded
-                              ? t("cronJobs.historyCollapse")
-                              : t("cronJobs.historyExpand")}
-                          </button>
-                        )}
+                          {record.status === "success"
+                            ? t("cronJobs.historyStatusSuccess")
+                            : record.status === "running"
+                            ? t("cronJobs.historyStatusRunning")
+                            : record.status === "cancelled"
+                            ? t("cronJobs.historyStatusCancelled")
+                            : t("cronJobs.historyStatusFailed")}
+                        </span>
                       </div>
-                    );
-                  })()}
+                      <div className="text-xs text-muted-foreground">
+                        {record.trigger === "manual"
+                          ? t("cronJobs.historyTriggerManual")
+                          : t("cronJobs.historyTriggerScheduled")}
+                      </div>
+                      {record.error && (
+                        <div>
+                          <pre
+                            className={`text-xs bg-muted rounded p-2 whitespace-pre-wrap break-all overflow-hidden ${
+                              !expanded && showToggle ? "max-h-[5rem]" : ""
+                            }`}
+                          >
+                            {record.error}
+                          </pre>
+                          {showToggle && (
+                            <button
+                              type="button"
+                              className="text-xs text-primary hover:underline mt-1"
+                              onClick={() => toggleHistoryError(recordKey)}
+                            >
+                              {expanded
+                                ? t("cronJobs.historyCollapse")
+                                : t("cronJobs.historyExpand")}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            ))
-          )}
-        </div>
-      </Modal>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm Dialog */}
+      <AlertDialog
+        open={confirmState.open}
+        onOpenChange={(o) =>
+          !o && setConfirmState((s) => ({ ...s, open: false }))
+        }
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmState.title}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmState.description}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cronJobs.cancelText")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                await confirmState.onConfirm();
+                setConfirmState((s) => ({ ...s, open: false }));
+              }}
+            >
+              {t("cronJobs.deleteText")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

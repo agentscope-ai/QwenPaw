@@ -1,13 +1,12 @@
 import React, { useState } from "react";
-import { IconButton } from "@agentscope-ai/design";
-import {
-  SparkHistoryLine,
-  SparkNewChatFill,
-  SparkSearchLine,
-} from "@agentscope-ai/icons";
+import { History, MessageSquarePlus, Search } from "lucide-react";
 import { useChatAnywhereSessions } from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
-import { Flex, Tooltip } from "antd";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import ChatSessionDrawer from "../ChatSessionDrawer";
 import ChatSearchPanel from "../ChatSearchPanel";
 import PlanPanel from "../../../../components/PlanPanel";
@@ -67,37 +66,60 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   const [planOpen, setPlanOpen] = useState(false);
   const { createSession } = useChatAnywhereSessions();
 
+  const iconBtnClass =
+    "inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors";
+
   return (
-    <Flex gap={8} align="center">
+    <div className="flex items-center gap-2">
       {planEnabled && (
-        <Tooltip title={t("plan.title", "Plan")} mouseEnterDelay={0.5}>
-          <IconButton
-            bordered={false}
-            icon={<PlanIcon />}
-            onClick={() => setPlanOpen(true)}
-          />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={iconBtnClass}
+              onClick={() => setPlanOpen(true)}
+            >
+              <PlanIcon />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{t("plan.title", "Plan")}</TooltipContent>
         </Tooltip>
       )}
-      <Tooltip title={t("chat.newChatTooltip")} mouseEnterDelay={0.5}>
-        <IconButton
-          bordered={false}
-          icon={<SparkNewChatFill />}
-          onClick={() => createSession()}
-        />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className={iconBtnClass}
+            onClick={() => createSession()}
+          >
+            <MessageSquarePlus size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{t("chat.newChatTooltip")}</TooltipContent>
       </Tooltip>
-      <Tooltip title={t("chat.searchTooltip")} mouseEnterDelay={0.5}>
-        <IconButton
-          bordered={false}
-          icon={<SparkSearchLine />}
-          onClick={() => setSearchOpen(true)}
-        />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className={iconBtnClass}
+            onClick={() => setSearchOpen(true)}
+          >
+            <Search size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{t("chat.searchTooltip")}</TooltipContent>
       </Tooltip>
-      <Tooltip title={t("chat.chatHistoryTooltip")} mouseEnterDelay={0.5}>
-        <IconButton
-          bordered={false}
-          icon={<SparkHistoryLine />}
-          onClick={() => setHistoryOpen(true)}
-        />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className={iconBtnClass}
+            onClick={() => setHistoryOpen(true)}
+          >
+            <History size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{t("chat.chatHistoryTooltip")}</TooltipContent>
       </Tooltip>
       <ChatSessionDrawer
         open={historyOpen}
@@ -109,7 +131,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
       {planEnabled && (
         <PlanPanel open={planOpen} onClose={() => setPlanOpen(false)} />
       )}
-    </Flex>
+    </div>
   );
 };
 

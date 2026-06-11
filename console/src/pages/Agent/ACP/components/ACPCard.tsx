@@ -1,11 +1,6 @@
 import React, { useState, type ReactNode } from "react";
-import { Card } from "@agentscope-ai/design";
-import {
-  ApiOutlined,
-  CodeOutlined,
-  ThunderboltOutlined,
-  ToolOutlined,
-} from "@ant-design/icons";
+import { Card, CardContent } from "@/components/ui/card";
+import { Code, Wrench, Zap, Plug } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ACPAgentConfig } from "../../../../api/types";
 import styles from "../../../Control/Channels/index.module.less";
@@ -16,22 +11,14 @@ interface ACPCardIconSpec {
 }
 
 const BUILTIN_ACP_ICON_MAP: Record<string, ACPCardIconSpec> = {
-  opencode: {
-    icon: <CodeOutlined />,
-  },
-  qwen_code: {
-    icon: <ToolOutlined />,
-  },
-  claude_code: {
-    icon: <ThunderboltOutlined />,
-  },
-  codex: {
-    icon: <ApiOutlined />,
-  },
+  opencode: { icon: <Code size={20} /> },
+  qwen_code: { icon: <Wrench size={20} /> },
+  claude_code: { icon: <Zap size={20} /> },
+  codex: { icon: <Plug size={20} /> },
 };
 
 const DEFAULT_ACP_ICON: ACPCardIconSpec = {
-  icon: <ApiOutlined />,
+  icon: <Plug size={20} />,
 };
 
 interface ACPCardProps {
@@ -59,59 +46,59 @@ export const ACPCard = React.memo(function ACPCard({
 
   return (
     <Card
-      hoverable
       onClick={onClick}
       onMouseEnter={() => setIsHover(true)}
       onMouseLeave={() => setIsHover(false)}
-      className={getCardClassNames()}
-      bodyStyle={{ padding: 24 }}
+      className={`${getCardClassNames()} cursor-pointer`}
     >
-      <div className={styles.cardTopSection}>
-        <div className={styles.channelIcon}>
-          {iconSpec.imageUrl ? (
-            <img
-              src={iconSpec.imageUrl}
-              alt={agentKey}
-              width={40}
-              height={40}
+      <CardContent className="p-6">
+        <div className={styles.cardTopSection}>
+          <div className={styles.channelIcon}>
+            {iconSpec.imageUrl ? (
+              <img
+                src={iconSpec.imageUrl}
+                alt={agentKey}
+                width={40}
+                height={40}
+              />
+            ) : (
+              iconSpec.icon
+            )}
+          </div>
+          <div className={styles.statusIndicator}>
+            <div
+              className={`${styles.statusDot} ${
+                config.enabled ? styles.enabled : styles.disabled
+              }`}
             />
+            <span
+              className={`${styles.statusText} ${
+                config.enabled ? styles.enabled : styles.disabled
+              }`}
+            >
+              {config.enabled ? t("common.enabled") : t("common.disabled")}
+            </span>
+          </div>
+        </div>
+
+        <div className={styles.cardMiddleSection}>
+          <div className={styles.cardTitle}>{agentKey}</div>
+          {isBuiltin ? (
+            <span className={styles.builtinTag}>{t("acp.builtin")}</span>
           ) : (
-            iconSpec.icon
+            <span className={styles.customTag}>{t("acp.custom")}</span>
           )}
         </div>
-        <div className={styles.statusIndicator}>
-          <div
-            className={`${styles.statusDot} ${
-              config.enabled ? styles.enabled : styles.disabled
-            }`}
-          />
-          <span
-            className={`${styles.statusText} ${
-              config.enabled ? styles.enabled : styles.disabled
-            }`}
-          >
-            {config.enabled ? t("common.enabled") : t("common.disabled")}
-          </span>
-        </div>
-      </div>
 
-      <div className={styles.cardMiddleSection}>
-        <div className={styles.cardTitle}>{agentKey}</div>
-        {isBuiltin ? (
-          <span className={styles.builtinTag}>{t("acp.builtin")}</span>
-        ) : (
-          <span className={styles.customTag}>{t("acp.custom")}</span>
-        )}
-      </div>
-
-      <div className={styles.cardBottomSection}>
-        <div className={styles.cardDescription}>
-          {t("acp.command")}: {config.command || t("acp.notSet")}
+        <div className={styles.cardBottomSection}>
+          <div className={styles.cardDescription}>
+            {t("acp.command")}: {config.command || t("acp.notSet")}
+          </div>
+          <div className={styles.cardDescription}>
+            {t("acp.args")}: {argsSummary}
+          </div>
         </div>
-        <div className={styles.cardDescription}>
-          {t("acp.args")}: {argsSummary}
-        </div>
-      </div>
+      </CardContent>
     </Card>
   );
 });

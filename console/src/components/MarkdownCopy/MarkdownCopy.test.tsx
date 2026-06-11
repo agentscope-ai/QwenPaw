@@ -11,10 +11,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
 
-// Mock XMarkdown and MermaidCodeBlock to avoid heavy deps
-vi.mock("@ant-design/x-markdown", () => ({
-  XMarkdown: ({ content }: { content: string }) => (
-    <div data-testid="x-markdown">{content}</div>
+// Mock react-markdown to avoid heavy deps and provide a testid
+vi.mock("react-markdown", () => ({
+  default: ({ children }: { children: string }) => (
+    <div data-testid="x-markdown">{children}</div>
   ),
 }));
 

@@ -5,7 +5,7 @@
 
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { CodeOutlined } from "@ant-design/icons";
+import { Terminal } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell } from "../shared";
 import { DefaultBlock } from "../shared";
@@ -26,7 +26,7 @@ const ShellCard: React.FC<ShellCardProps> = ({ content }) => {
 
   return (
     <ToolCardShell
-      icon={<CodeOutlined />}
+      icon={<Terminal size={13} />}
       title={command ? t("tool.shell", { command }) : t("tool.shellDefault")}
       content={content}
     >

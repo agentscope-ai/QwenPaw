@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
-import { Card, Button, Form } from "antd";
+import { Button } from "@/components/ui/button";
 import { useAppMessage } from "../../../hooks/useAppMessage";
-import { PlusOutlined } from "@ant-design/icons";
+import { Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../../api/modules/agents";
 import { invalidateSkillCache, skillApi } from "../../../api/modules/skill";
@@ -9,6 +9,7 @@ import type { AgentSummary } from "../../../api/types/agents";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useAgents } from "./useAgents";
 import { AgentTable, AgentModal } from "./components";
+import { useAgentForm } from "./components/AgentModal";
 import { PageHeader } from "@/components/PageHeader";
 import { reorderAgents } from "./reorder";
 import styles from "./index.module.less";
@@ -21,7 +22,7 @@ export default function AgentsPage() {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingAgent, setEditingAgent] = useState<AgentSummary | null>(null);
   const [reordering, setReordering] = useState(false);
-  const [form] = Form.useForm();
+  const form = useAgentForm();
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const installedSkillsRef = useRef<string[]>([]);
   const { message } = useAppMessage();
@@ -29,7 +30,7 @@ export default function AgentsPage() {
   const handleCreate = () => {
     setEditingAgent(null);
     form.resetFields();
-    form.setFieldsValue({
+    form.setValues({
       workspace_dir: "",
       active_model_provider: undefined,
       active_model_model: undefined,
@@ -46,7 +47,7 @@ export default function AgentsPage() {
       invalidateSkillCache({ agentId: agent.id });
       const config = await agentsApi.getAgent(agent.id);
       setEditingAgent(agent);
-      form.setFieldsValue({
+      form.setValues({
         ...config,
         active_model_provider: config.active_model?.provider_id || undefined,
         active_model_model: config.active_model?.model || undefined,
@@ -61,7 +62,6 @@ export default function AgentsPage() {
   const handleDelete = async (agentId: string) => {
     try {
       await deleteAgent(agentId);
-
       if (selectedAgent === agentId) {
         setSelectedAgent("default");
         message.info(t("agent.switchedToDefault"));
@@ -75,7 +75,6 @@ export default function AgentsPage() {
     const newEnabled = !currentEnabled;
     try {
       await toggleAgent(agentId, newEnabled);
-
       if (!newEnabled && selectedAgent === agentId) {
         setSelectedAgent("default");
         message.info(t("agent.switchedToDefault"));
@@ -90,70 +89,60 @@ export default function AgentsPage() {
   }, []);
 
   const handleSubmit = async () => {
-    try {
-      const values = await form.validateFields();
-      const workspaceRaw = values.workspace_dir;
-      const workspace_dir =
-        typeof workspaceRaw === "string"
-          ? workspaceRaw.trim() || undefined
-          : workspaceRaw;
+    const values = await form.validateFields();
+    const workspaceRaw = values.workspace_dir;
+    const workspace_dir =
+      typeof workspaceRaw === "string"
+        ? workspaceRaw.trim() || undefined
+        : workspaceRaw;
 
-      const providerId = values.active_model_provider;
-      const modelId = values.active_model_model;
-      const active_model =
-        providerId && modelId
-          ? { provider_id: providerId, model: modelId }
-          : null;
+    const providerId = values.active_model_provider;
+    const modelId = values.active_model_model;
+    const active_model =
+      providerId && modelId
+        ? { provider_id: providerId, model: modelId }
+        : null;
 
-      const { active_model_provider, active_model_model, ...rest } = values;
-      const payload = { ...rest, workspace_dir, active_model };
+    const { active_model_provider, active_model_model, ...rest } = values;
+    const payload = { ...rest, workspace_dir, active_model };
 
-      if (editingAgent) {
-        const previousInstalledSkills = installedSkillsRef.current;
-        const newSkills = selectedSkills.filter(
-          (skill) => !previousInstalledSkills.includes(skill),
-        );
+    if (editingAgent) {
+      const previousInstalledSkills = installedSkillsRef.current;
+      const newSkills = selectedSkills.filter(
+        (skill) => !previousInstalledSkills.includes(skill),
+      );
 
-        for (const skill of newSkills) {
-          await skillApi.downloadSkillPoolSkill({
-            skill_name: skill,
-            targets: [{ workspace_id: editingAgent.id }],
-          });
-        }
-        await agentsApi.updateAgent(editingAgent.id, payload);
-        installedSkillsRef.current = [
-          ...previousInstalledSkills,
-          ...newSkills.filter(
-            (skill) => !previousInstalledSkills.includes(skill),
-          ),
-        ];
-        invalidateSkillCache({ agentId: editingAgent.id });
-        message.success(t("agent.updateSuccess"));
-      } else {
-        const result = await agentsApi.createAgent({
-          ...payload,
-          language: i18n.language,
-          skill_names: selectedSkills,
+      for (const skill of newSkills) {
+        await skillApi.downloadSkillPoolSkill({
+          skill_name: skill,
+          targets: [{ workspace_id: editingAgent.id }],
         });
-        message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);
       }
-
-      setModalVisible(false);
-      await loadAgents();
-    } catch (error: any) {
-      console.error("Failed to save agent:", error);
-      if (editingAgent) {
-        invalidateSkillCache({ agentId: editingAgent.id });
-      }
-      message.error(error.message || t("agent.saveFailed"));
+      await agentsApi.updateAgent(editingAgent.id, payload);
+      installedSkillsRef.current = [
+        ...previousInstalledSkills,
+        ...newSkills.filter(
+          (skill) => !previousInstalledSkills.includes(skill),
+        ),
+      ];
+      invalidateSkillCache({ agentId: editingAgent.id });
+      message.success(t("agent.updateSuccess"));
+    } else {
+      const result = await agentsApi.createAgent({
+        ...payload,
+        language: i18n.language,
+        skill_names: selectedSkills,
+      });
+      message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);
     }
+
+    setModalVisible(false);
+    await loadAgents();
   };
 
   const handleReorder = async (activeId: string, overId: string) => {
     const nextAgents = reorderAgents(agents, activeId, overId);
-    if (nextAgents === agents) {
-      return;
-    }
+    if (nextAgents === agents) return;
 
     const previousAgents = agents;
     setAgents(nextAgents);
@@ -178,18 +167,15 @@ export default function AgentsPage() {
         current={t("agent.agents")}
         extra={
           <div className={styles.headerRight}>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={handleCreate}
-            >
+            <Button onClick={handleCreate}>
+              <Plus size={14} className="mr-1" />
               {t("agent.create")}
             </Button>
           </div>
         }
       />
 
-      <Card className={styles.tableCard}>
+      <div className={`${styles.tableCard} border rounded-lg p-4`}>
         <AgentTable
           agents={agents}
           loading={loading || reordering}
@@ -199,12 +185,12 @@ export default function AgentsPage() {
           onToggle={handleToggle}
           onReorder={handleReorder}
         />
-      </Card>
+      </div>
 
       <AgentModal
         open={modalVisible}
         editingAgent={editingAgent}
-        form={form}
+        formRef={form}
         selectedSkills={selectedSkills}
         onSelectedSkillsChange={setSelectedSkills}
         onInstalledSkillsLoaded={handleInstalledSkillsLoaded}

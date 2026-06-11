@@ -1,21 +1,28 @@
 import { useState, useEffect, useCallback } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import {
-  Card,
-  Button,
-  Input,
   Table,
-  Popconfirm,
-  Tag,
-  Switch,
-} from "@agentscope-ai/design";
-import { useAppMessage } from "../../../../hooks/useAppMessage";
-import { Space } from "antd";
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
-  PlusCircleOutlined,
-  DeleteOutlined,
-  FolderOutlined,
-  FileOutlined,
-} from "@ant-design/icons";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
+import { PlusCircle, Trash2, Folder, File } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import api from "../../../../api";
 import styles from "../index.module.less";
@@ -37,6 +44,7 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [newPath, setNewPath] = useState("");
+  const [removeConfirm, setRemoveConfirm] = useState<string | null>(null);
   const { message } = useAppMessage();
 
   const fetchData = useCallback(async () => {
@@ -102,6 +110,7 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
 
   const handleRemove = useCallback((path: string) => {
     setPaths((prev) => prev.filter((p) => p !== path));
+    setRemoveConfirm(null);
   }, []);
 
   const handleSave = useCallback(async () => {
@@ -124,118 +133,133 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
     onSave?.({ save: handleSave, reset: handleReset, saving });
   }, [handleSave, handleReset, saving, onSave]);
 
-  const columns = [
-    {
-      title: t("security.fileGuard.path"),
-      dataIndex: "path",
-      key: "path",
-      render: (path: string) => {
-        const isDir = path.endsWith("/") || path.endsWith("\\");
-        return (
-          <Space>
-            {isDir ? (
-              <FolderOutlined style={{ color: "#faad14" }} />
-            ) : (
-              <FileOutlined style={{ color: "#1890ff" }} />
-            )}
-            <code>{path}</code>
-            {isDir && (
-              <Tag color="orange">{t("security.fileGuard.directory")}</Tag>
-            )}
-          </Space>
-        );
-      },
-    },
-    {
-      title: t("security.fileGuard.actions"),
-      key: "actions",
-      width: 80,
-      render: (_: unknown, record: { path: string }) => (
-        <Popconfirm
-          title={t("security.fileGuard.removeConfirm")}
-          onConfirm={() => handleRemove(record.path)}
-          okText={t("common.delete")}
-          cancelText={t("common.cancel")}
-        >
-          <Button type="text" danger icon={<DeleteOutlined />} size="small" />
-        </Popconfirm>
-      ),
-    },
-  ];
-
-  const dataSource = paths.map((path) => ({ key: path, path }));
-
   return (
     <>
-      <Card className={styles.formCard}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 16,
-          }}
-        >
-          <span style={{ fontWeight: 500 }}>
+      <div
+        className={`${styles.formCard} border rounded-lg p-4 flex flex-col gap-4`}
+      >
+        <div className="flex items-center justify-between">
+          <span className="font-medium">
             {t("security.fileGuard.enableLabel")}
           </span>
-          <Switch checked={enabled} onChange={handleToggle} />
+          <Switch checked={enabled} onCheckedChange={handleToggle} />
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 16,
-          }}
-        >
+        <div className="flex items-center justify-between">
           <div>
-            <span style={{ fontWeight: 500 }}>
+            <span className="font-medium">
               {t("security.fileGuard.allowPreviewOutsideWorkspace")}
             </span>
-            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+            <div className="text-xs text-muted-foreground mt-0.5">
               {t("security.fileGuard.allowPreviewOutsideWorkspaceDesc")}
             </div>
           </div>
           <Switch
             checked={allowPreviewOutsideWorkspace}
-            onChange={handlePreviewToggle}
+            onCheckedChange={handlePreviewToggle}
           />
         </div>
 
-        <Space.Compact style={{ width: "100%" }}>
+        <div className="flex gap-2">
           <Input
             value={newPath}
             onChange={(e) => setNewPath(e.target.value)}
             placeholder={t("security.fileGuard.inputPlaceholder")}
-            onPressEnter={handleAdd}
-            allowClear
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAdd();
+            }}
             disabled={!enabled}
+            className="flex-1"
           />
-          <Button
-            type="primary"
-            icon={<PlusCircleOutlined />}
-            onClick={handleAdd}
-            disabled={!newPath.trim() || !enabled}
-          >
+          <Button onClick={handleAdd} disabled={!newPath.trim() || !enabled}>
+            <PlusCircle size={16} className="mr-2" />
             {t("security.fileGuard.add")}
           </Button>
-        </Space.Compact>
-      </Card>
+        </div>
+      </div>
 
-      <Card className={styles.tableCard}>
-        <Table
-          columns={columns}
-          dataSource={dataSource}
-          loading={loading}
-          pagination={false}
-          size="middle"
-          locale={{
-            emptyText: t("security.fileGuard.empty"),
-          }}
-        />
-      </Card>
+      <div className={`${styles.tableCard} border rounded-lg mt-2`}>
+        <div className={loading ? "opacity-60 pointer-events-none" : ""}>
+          {paths.length === 0 && !loading ? (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              {t("security.fileGuard.empty")}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("security.fileGuard.path")}</TableHead>
+                  <TableHead style={{ width: 80 }}>
+                    {t("security.fileGuard.actions")}
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paths.map((path) => {
+                  const isDir = path.endsWith("/") || path.endsWith("\\");
+                  return (
+                    <TableRow key={path}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {isDir ? (
+                            <Folder size={16} className="text-yellow-500" />
+                          ) : (
+                            <File size={16} className="text-blue-500" />
+                          )}
+                          <code className="text-sm">{path}</code>
+                          {isDir && (
+                            <Badge
+                              variant="outline"
+                              className="text-xs border-orange-300 text-orange-600"
+                            >
+                              {t("security.fileGuard.directory")}
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                          onClick={() => setRemoveConfirm(path)}
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </div>
+
+      <AlertDialog
+        open={!!removeConfirm}
+        onOpenChange={(v) => {
+          if (!v) setRemoveConfirm(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("security.fileGuard.removeConfirm")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>{removeConfirm}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => removeConfirm && handleRemove(removeConfirm)}
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

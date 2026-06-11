@@ -1,19 +1,4 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import {
-  Drawer,
-  Table,
-  Button,
-  Space,
-  Tooltip,
-  Typography,
-  Select,
-  Popconfirm,
-} from "antd";
-import {
-  CheckOutlined,
-  CloseOutlined,
-  DeleteOutlined,
-} from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import {
@@ -22,8 +7,52 @@ import {
 } from "../../../../api/modules/accessControl";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import { ChannelIcon } from "./ChannelIcon";
-
-const { Text } = Typography;
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getPaginationRowModel,
+  flexRender,
+  type ColumnDef,
+} from "@tanstack/react-table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2, Check, X, Trash2, Copy } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type PendingAction = "approve" | "deny" | "dismiss";
 
@@ -47,6 +76,71 @@ interface PendingApprovalsDrawerProps {
   onClose: () => void;
 }
 
+// Inline editable cell
+function EditableCell({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const commit = () => {
+    if (draft !== value) onChange(draft);
+    setEditing(false);
+  };
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        className="w-full border-b border-primary bg-transparent text-sm outline-none py-0.5"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") {
+            setDraft(value);
+            setEditing(false);
+          }
+        }}
+      />
+    );
+  }
+  return (
+    <span
+      className="cursor-pointer hover:text-primary text-sm"
+      onClick={() => {
+        setDraft(value);
+        setEditing(true);
+      }}
+    >
+      {value || <span className="text-muted-foreground/40">-</span>}
+    </span>
+  );
+}
+
+// Copy button
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  };
+  return (
+    <button
+      onClick={copy}
+      className="text-muted-foreground hover:text-foreground"
+    >
+      {copied ? <Check size={12} /> : <Copy size={12} />}
+    </button>
+  );
+}
+
 export function PendingApprovalsDrawer({
   open,
   onClose,
@@ -57,8 +151,9 @@ export function PendingApprovalsDrawer({
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [batchLoading, setBatchLoading] = useState(false);
-  const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
-  const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
+  const [confirmBatch, setConfirmBatch] = useState<PendingAction | null>(null);
+  const [channelFilter, setChannelFilter] = useState<string>("all");
 
   const fetchPending = useCallback(async () => {
     setLoading(true);
@@ -75,27 +170,26 @@ export function PendingApprovalsDrawer({
   useEffect(() => {
     if (open) {
       fetchPending();
-      setSelectedRowKeys([]);
+      setSelectedRowIds(new Set());
     }
   }, [open, fetchPending]);
 
   const availableChannels = useMemo(() => {
-    const channelSet = new Set(pending.map((entry) => entry.channel));
-    return Array.from(channelSet);
+    return Array.from(new Set(pending.map((e) => e.channel)));
   }, [pending]);
 
   const filteredPending = useMemo(() => {
-    if (selectedChannels.length === 0) return pending;
-    return pending.filter((entry) => selectedChannels.includes(entry.channel));
-  }, [pending, selectedChannels]);
+    if (channelFilter === "all") return pending;
+    return pending.filter((e) => e.channel === channelFilter);
+  }, [pending, channelFilter]);
 
   const selectedEntries = useMemo(
     () =>
-      selectedRowKeys.map((key) => {
+      Array.from(selectedRowIds).map((key) => {
         const [channel, ...rest] = key.split(":");
         return { channel, user_id: rest.join(":") };
       }),
-    [selectedRowKeys],
+    [selectedRowIds],
   );
 
   const handleRemarkSave = async (entry: PendingEntry, remark: string) => {
@@ -159,7 +253,7 @@ export function PendingApprovalsDrawer({
       message.success(
         t("channels.batchSuccess", { count: selectedEntries.length }),
       );
-      setSelectedRowKeys([]);
+      setSelectedRowIds(new Set());
       await fetchPending();
     } catch {
       message.error(t("channels.operationFailed"));
@@ -168,244 +262,366 @@ export function PendingApprovalsDrawer({
     }
   };
 
-  const columns = [
+  const columns: ColumnDef<PendingEntry>[] = [
     {
-      title: t("channels.channel"),
-      dataIndex: "channel",
-      key: "channel",
-      width: 100,
-      fixed: "left" as const,
-      render: (channel: string) => (
-        <Tooltip title={getChannelLabel(channel as ChannelKey, t)}>
-          <Space size={4}>
-            <ChannelIcon channelKey={channel as ChannelKey} size={16} />
-            <span>{getChannelLabel(channel as ChannelKey, t)}</span>
-          </Space>
+      id: "channel",
+      header: t("channels.channel"),
+      size: 100,
+      cell: ({ row }) => (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-1.5">
+              <ChannelIcon
+                channelKey={row.original.channel as ChannelKey}
+                size={16}
+              />
+              <span className="text-sm">
+                {getChannelLabel(row.original.channel as ChannelKey, t)}
+              </span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            {getChannelLabel(row.original.channel as ChannelKey, t)}
+          </TooltipContent>
         </Tooltip>
       ),
     },
     {
-      title: t("channels.username"),
-      dataIndex: "username",
-      key: "username",
-      width: 120,
-      render: (username: string, record: PendingEntry) => (
-        <Text
-          editable={{
-            onChange: (value) => handleUsernameSave(record, value),
-            text: username || "",
-          }}
-        >
-          {username || <span style={{ color: "#bbb" }}>-</span>}
-        </Text>
+      id: "username",
+      header: t("channels.username"),
+      size: 120,
+      cell: ({ row }) => (
+        <EditableCell
+          value={row.original.username || ""}
+          onChange={(v) => handleUsernameSave(row.original, v)}
+        />
       ),
     },
     {
-      title: t("channels.userId"),
-      dataIndex: "user_id",
-      key: "user_id",
-      width: 160,
-      ellipsis: { showTitle: false },
-      render: (userId: string) => (
-        <Space size={4}>
-          <Text ellipsis={{ tooltip: userId }} style={{ maxWidth: 120 }}>
-            {userId}
-          </Text>
-          <Text copyable={{ text: userId }} />
-        </Space>
+      id: "user_id",
+      header: t("channels.userId"),
+      size: 140,
+      cell: ({ row }) => (
+        <div className="flex items-center gap-1 max-w-[140px]">
+          <span className="truncate text-sm" title={row.original.user_id}>
+            {row.original.user_id}
+          </span>
+          <CopyButton text={row.original.user_id} />
+        </div>
       ),
     },
     {
-      title: t("channels.firstMessage"),
-      dataIndex: "first_message",
-      key: "first_message",
-      width: 160,
-      ellipsis: true,
-      render: (msg: string) => (
-        <Tooltip title={msg}>
-          <span>{msg || "-"}</span>
+      id: "first_message",
+      header: t("channels.firstMessage"),
+      size: 150,
+      cell: ({ row }) => (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="truncate max-w-[140px] block text-sm">
+              {row.original.first_message || "-"}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{row.original.first_message}</TooltipContent>
         </Tooltip>
       ),
     },
     {
-      title: t("channels.remark"),
-      dataIndex: "remark",
-      key: "remark",
-      width: 130,
-      render: (remark: string, record: PendingEntry) => (
-        <Text
-          editable={{
-            onChange: (value) => handleRemarkSave(record, value),
-            text: remark || "",
-          }}
-        >
-          {remark || <span style={{ color: "#bbb" }}>-</span>}
-        </Text>
+      id: "remark",
+      header: t("channels.remark"),
+      size: 130,
+      cell: ({ row }) => (
+        <EditableCell
+          value={row.original.remark || ""}
+          onChange={(v) => handleRemarkSave(row.original, v)}
+        />
       ),
     },
     {
-      title: t("channels.time"),
-      dataIndex: "timestamp",
-      key: "timestamp",
-      width: 150,
-      render: (ts: number) => (ts ? new Date(ts * 1000).toLocaleString() : "-"),
+      id: "timestamp",
+      header: t("channels.time"),
+      size: 150,
+      cell: ({ row }) => (
+        <span className="text-xs text-muted-foreground">
+          {row.original.timestamp
+            ? new Date(row.original.timestamp * 1000).toLocaleString()
+            : "-"}
+        </span>
+      ),
     },
     {
-      title: t("channels.actions"),
-      key: "actions",
-      width: 200,
-      fixed: "right" as const,
-      render: (_: unknown, record: PendingEntry) => {
-        const key = `${record.channel}:${record.user_id}`;
+      id: "actions",
+      header: t("channels.actions"),
+      size: 200,
+      cell: ({ row }) => {
+        const key = `${row.original.channel}:${row.original.user_id}`;
         const isLoading = actionLoading === key;
         return (
-          <Space size={0}>
+          <div className="flex items-center gap-0.5">
             <Button
-              type="text"
-              size="small"
-              loading={isLoading}
-              onClick={() => handleAction(record, "approve")}
-              style={{ color: "#52c41a", padding: "0 4px" }}
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-green-600 hover:text-green-600 text-xs"
+              disabled={isLoading}
+              onClick={() => handleAction(row.original, "approve")}
             >
+              {isLoading ? (
+                <Loader2 size={10} className="animate-spin" />
+              ) : (
+                <Check size={12} className="mr-1" />
+              )}
               {t("channels.approve")}
             </Button>
             <Button
-              type="text"
-              size="small"
-              danger
-              loading={isLoading}
-              onClick={() => handleAction(record, "deny")}
-              style={{ padding: "0 4px" }}
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-destructive hover:text-destructive text-xs"
+              disabled={isLoading}
+              onClick={() => handleAction(row.original, "deny")}
             >
+              <X size={12} className="mr-1" />
               {t("channels.deny")}
             </Button>
             <Button
-              type="text"
-              size="small"
-              loading={isLoading}
-              onClick={() => handleAction(record, "dismiss")}
-              style={{ padding: "0 4px" }}
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-muted-foreground text-xs"
+              disabled={isLoading}
+              onClick={() => handleAction(row.original, "dismiss")}
             >
               {t("channels.dismiss")}
             </Button>
-          </Space>
+          </div>
         );
       },
     },
   ];
 
-  const hasSelection = selectedRowKeys.length > 0;
+  const table = useReactTable({
+    data: filteredPending,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getRowId: (row) => `${row.channel}:${row.user_id}`,
+    initialState: { pagination: { pageSize: 10 } },
+  });
+
+  const hasSelection = selectedRowIds.size > 0;
 
   return (
-    <Drawer
-      width={920}
-      title={t("channels.pendingApprovals")}
-      open={open}
-      onClose={onClose}
-      destroyOnHidden
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 12,
-        }}
-      >
-        <Select
-          mode="multiple"
-          allowClear
-          placeholder={t("channels.filterByChannel")}
-          value={selectedChannels}
-          onChange={(values) => {
-            setSelectedChannels(values);
-            setSelectedRowKeys([]);
-          }}
-          style={{ minWidth: 200 }}
-          options={availableChannels.map((ch) => ({
-            label: getChannelLabel(ch as ChannelKey, t),
-            value: ch,
-          }))}
-        />
-        <Space>
-          {hasSelection && (
-            <Text type="secondary" style={{ fontSize: 13 }}>
-              {t("channels.selectedCount", { count: selectedRowKeys.length })}
-            </Text>
-          )}
-          <Popconfirm
-            title={t("channels.batchApproveConfirm", {
-              count: selectedRowKeys.length,
-            })}
-            onConfirm={() => handleBatchAction("approve")}
-            disabled={!hasSelection}
-          >
-            <Button
-              type="primary"
-              size="small"
-              icon={<CheckOutlined />}
-              disabled={!hasSelection}
-              loading={batchLoading}
-            >
-              {t("channels.batchApprove")}
-            </Button>
-          </Popconfirm>
-          <Popconfirm
-            title={t("channels.batchDenyConfirm", {
-              count: selectedRowKeys.length,
-            })}
-            onConfirm={() => handleBatchAction("deny")}
-            disabled={!hasSelection}
-          >
-            <Button
-              size="small"
-              icon={<CloseOutlined />}
-              disabled={!hasSelection}
-              loading={batchLoading}
-            >
-              {t("channels.batchDeny")}
-            </Button>
-          </Popconfirm>
-          <Popconfirm
-            title={t("channels.batchDismissConfirm", {
-              count: selectedRowKeys.length,
-            })}
-            onConfirm={() => handleBatchAction("dismiss")}
-            disabled={!hasSelection}
-          >
-            <Button
-              danger
-              size="small"
-              icon={<DeleteOutlined />}
-              disabled={!hasSelection}
-              loading={batchLoading}
-            >
-              {t("channels.batchDismiss")}
-            </Button>
-          </Popconfirm>
-        </Space>
-      </div>
+    <>
+      <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
+        <SheetContent side="right" className="w-[960px] flex flex-col p-0">
+          <SheetHeader className="px-6 py-4 border-b">
+            <SheetTitle>{t("channels.pendingApprovals")}</SheetTitle>
+          </SheetHeader>
 
-      <Table
-        dataSource={filteredPending}
-        columns={columns}
-        rowKey={(r) => `${r.channel}:${r.user_id}`}
-        rowSelection={{
-          selectedRowKeys,
-          onChange: (keys) => setSelectedRowKeys(keys as string[]),
-        }}
-        size="small"
-        loading={loading}
-        pagination={{ pageSize: 10, showSizeChanger: false }}
-        scroll={{ x: 1050 }}
-        locale={{
-          emptyText: (
-            <div style={{ padding: "48px 0" }}>
-              {t("channels.noPendingApprovals")}
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            {/* Filter + batch actions */}
+            <div className="flex items-center justify-between mb-4 gap-2">
+              <Select
+                value={channelFilter}
+                onValueChange={(v) => {
+                  setChannelFilter(v);
+                  setSelectedRowIds(new Set());
+                }}
+              >
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder={t("channels.filterByChannel")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    {t("channels.filterByChannel")}
+                  </SelectItem>
+                  {availableChannels.map((ch) => (
+                    <SelectItem key={ch} value={ch}>
+                      {getChannelLabel(ch as ChannelKey, t)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <div className="flex items-center gap-2">
+                {hasSelection && (
+                  <span className="text-xs text-muted-foreground">
+                    {t("channels.selectedCount", {
+                      count: selectedRowIds.size,
+                    })}
+                  </span>
+                )}
+                <Button
+                  size="sm"
+                  disabled={!hasSelection}
+                  onClick={() => setConfirmBatch("approve")}
+                >
+                  {batchLoading ? (
+                    <Loader2 size={12} className="animate-spin mr-1" />
+                  ) : (
+                    <Check size={12} className="mr-1" />
+                  )}
+                  {t("channels.batchApprove")}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!hasSelection}
+                  onClick={() => setConfirmBatch("deny")}
+                >
+                  <X size={12} className="mr-1" />
+                  {t("channels.batchDeny")}
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={!hasSelection}
+                  onClick={() => setConfirmBatch("dismiss")}
+                >
+                  <Trash2 size={12} className="mr-1" />
+                  {t("channels.batchDismiss")}
+                </Button>
+              </div>
             </div>
-          ),
-        }}
-      />
-    </Drawer>
+
+            {/* Table */}
+            {loading ? (
+              <div className="flex justify-center items-center h-24">
+                <Loader2 className="animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <div className="border rounded-md overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    {table.getHeaderGroups().map((hg) => (
+                      <TableRow key={hg.id}>
+                        <TableHead className="w-10">
+                          <input
+                            type="checkbox"
+                            className="cursor-pointer"
+                            checked={
+                              filteredPending.length > 0 &&
+                              filteredPending.every((r) =>
+                                selectedRowIds.has(`${r.channel}:${r.user_id}`),
+                              )
+                            }
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedRowIds(
+                                  new Set(
+                                    filteredPending.map(
+                                      (r) => `${r.channel}:${r.user_id}`,
+                                    ),
+                                  ),
+                                );
+                              } else {
+                                setSelectedRowIds(new Set());
+                              }
+                            }}
+                          />
+                        </TableHead>
+                        {hg.headers.map((header) => (
+                          <TableHead
+                            key={header.id}
+                            style={{ width: header.getSize() }}
+                          >
+                            {flexRender(
+                              header.column.columnDef.header,
+                              header.getContext(),
+                            )}
+                          </TableHead>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableHeader>
+                  <TableBody>
+                    {table.getRowModel().rows.map((row) => {
+                      const rowKey = `${row.original.channel}:${row.original.user_id}`;
+                      return (
+                        <TableRow
+                          key={row.id}
+                          className={cn(
+                            selectedRowIds.has(rowKey) ? "bg-muted/50" : "",
+                          )}
+                        >
+                          <TableCell>
+                            <input
+                              type="checkbox"
+                              className="cursor-pointer"
+                              checked={selectedRowIds.has(rowKey)}
+                              onChange={(e) => {
+                                const next = new Set(selectedRowIds);
+                                if (e.target.checked) next.add(rowKey);
+                                else next.delete(rowKey);
+                                setSelectedRowIds(next);
+                              }}
+                            />
+                          </TableCell>
+                          {row.getVisibleCells().map((cell) => (
+                            <TableCell key={cell.id}>
+                              {flexRender(
+                                cell.column.columnDef.cell,
+                                cell.getContext(),
+                              )}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      );
+                    })}
+                    {table.getRowModel().rows.length === 0 && (
+                      <TableRow>
+                        <TableCell
+                          colSpan={columns.length + 1}
+                          className="h-16 text-center text-muted-foreground text-sm"
+                        >
+                          {t("channels.noPendingApprovals")}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Batch action confirm */}
+      <AlertDialog
+        open={!!confirmBatch}
+        onOpenChange={(o) => !o && setConfirmBatch(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmBatch === "approve"
+                ? t("channels.batchApprove")
+                : confirmBatch === "deny"
+                ? t("channels.batchDeny")
+                : t("channels.batchDismiss")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmBatch === "approve"
+                ? t("channels.batchApproveConfirm", {
+                    count: selectedRowIds.size,
+                  })
+                : confirmBatch === "deny"
+                ? t("channels.batchDenyConfirm", { count: selectedRowIds.size })
+                : t("channels.batchDismissConfirm", {
+                    count: selectedRowIds.size,
+                  })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (confirmBatch) await handleBatchAction(confirmBatch);
+                setConfirmBatch(null);
+              }}
+            >
+              {t("common.confirm", "Confirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

@@ -1,8 +1,8 @@
-import { Checkbox, Input } from "@agentscope-ai/design";
-import { SparkDeleteLine, SparkPlusLine } from "@agentscope-ai/icons";
-import { EyeOutlined, EyeInvisibleOutlined } from "@ant-design/icons";
 import { useState } from "react";
+import { Eye, EyeOff, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import styles from "../index.module.less";
 
 export interface Row {
@@ -39,7 +39,7 @@ export function EnvRow({
     <div className={`${styles.envRow} ${checked ? styles.envRowSelected : ""}`}>
       <Checkbox
         checked={checked}
-        onChange={() => onToggle(idx)}
+        onCheckedChange={() => onToggle(idx)}
         className={styles.rowCheckbox}
       />
 
@@ -62,27 +62,27 @@ export function EnvRow({
 
         <div className={styles.inputGroup}>
           <span className={styles.inputLabel}>Value</span>
-          <Input
-            value={row.value}
-            placeholder="Value"
-            type={isPasswordVisible ? "text" : "password"}
-            onChange={(e) => onChange(idx, "value", e.target.value)}
-            className={styles.inputField}
-            suffix={
-              <button
-                className={styles.passwordToggle}
-                onClick={() => setIsPasswordVisible(!isPasswordVisible)}
-                type="button"
-                title={
-                  isPasswordVisible
-                    ? t("environments.hideValue")
-                    : t("environments.showValue")
-                }
-              >
-                {isPasswordVisible ? <EyeOutlined /> : <EyeInvisibleOutlined />}
-              </button>
-            }
-          />
+          <div className="relative">
+            <Input
+              value={row.value}
+              placeholder="Value"
+              type={isPasswordVisible ? "text" : "password"}
+              onChange={(e) => onChange(idx, "value", e.target.value)}
+              className={`${styles.inputField} pr-8`}
+            />
+            <button
+              className={`${styles.passwordToggle} absolute right-2 top-1/2 -translate-y-1/2`}
+              onClick={() => setIsPasswordVisible(!isPasswordVisible)}
+              type="button"
+              title={
+                isPasswordVisible
+                  ? t("environments.hideValue")
+                  : t("environments.showValue")
+              }
+            >
+              {isPasswordVisible ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -92,14 +92,14 @@ export function EnvRow({
           onClick={() => onInsert(idx)}
           title={t("environments.insertRowBelow")}
         >
-          <SparkPlusLine />
+          <Plus size={14} />
         </button>
         <button
           className={`${styles.rowIconBtn} ${styles.rowIconBtnDanger}`}
           onClick={() => onRemove(idx)}
           title={t("environments.deleteRow")}
         >
-          <SparkDeleteLine />
+          <Trash2 size={14} />
         </button>
       </div>
 

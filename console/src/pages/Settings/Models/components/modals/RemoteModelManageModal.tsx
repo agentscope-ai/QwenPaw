@@ -4,34 +4,49 @@ import {
   useMemo,
   useCallback,
   useDeferredValue,
+  useRef,
 } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
-  Button,
-  Form,
-  Input,
-  InputNumber,
-  Modal,
-  Tag,
   Tooltip,
-} from "@agentscope-ai/design";
-import { AutoComplete } from "antd";
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
-  DeleteOutlined,
-  PlusOutlined,
-  ApiOutlined,
-  EyeOutlined,
-  SettingOutlined,
-  DownOutlined,
-  SearchOutlined,
-  ExperimentOutlined,
-  AppstoreOutlined,
-  VideoCameraOutlined,
-  FileTextOutlined,
-  QuestionCircleOutlined,
-  DatabaseOutlined,
-  UserOutlined,
-  GiftOutlined,
-} from "@ant-design/icons";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Trash2,
+  Plus,
+  Network,
+  Eye,
+  Settings,
+  ChevronDown,
+  Search,
+  FlaskConical,
+  Database,
+  User,
+  Gift,
+  VideoIcon,
+  FileText,
+  Layers,
+  HelpCircle,
+} from "lucide-react";
 import type {
   ProviderInfo,
   SeriesResponse,
@@ -50,198 +65,6 @@ import {
 } from "./testConnectionMessage";
 import { OpenRouterFilterSection } from "./OpenRouterFilterSection";
 import styles from "../../index.module.less";
-
-function ModelConfigEditor({
-  providerId,
-  model,
-  onSaved,
-  onClose,
-  isDark,
-}: {
-  providerId: string;
-  model: ModelInfo;
-  onSaved: () => void | Promise<void>;
-  onClose: () => void;
-  isDark: boolean;
-}) {
-  const { t } = useTranslation();
-  const { message } = useAppMessage();
-  const [saving, setSaving] = useState(false);
-
-  const [maxTokens, setMaxTokens] = useState<number | null>(
-    model.max_tokens ?? 8192,
-  );
-  const [maxInputLength, setMaxInputLength] = useState<number | null>(
-    model.max_input_length ?? 131072,
-  );
-
-  const initialText = useMemo(
-    () =>
-      model.generate_kwargs && Object.keys(model.generate_kwargs).length > 0
-        ? JSON.stringify(model.generate_kwargs, null, 2)
-        : "",
-    [model.generate_kwargs],
-  );
-
-  const [text, setText] = useState(initialText);
-  const [dirty, setDirty] = useState(false);
-
-  useEffect(() => {
-    setText(initialText);
-    setMaxTokens(model.max_tokens ?? 8192);
-    setMaxInputLength(model.max_input_length ?? 131072);
-    setDirty(false);
-  }, [initialText, model.max_tokens, model.max_input_length]);
-
-  const effectiveMaxTokens = maxTokens ?? 8192;
-  const effectiveMaxInputLength = maxInputLength ?? 131072;
-
-  const handleChange = useCallback((val: string) => {
-    setText(val);
-    setDirty(true);
-  }, []);
-
-  const handleMaxTokensChange = useCallback((val: number | null) => {
-    setMaxTokens(val);
-    setDirty(true);
-  }, []);
-
-  const handleMaxInputLengthChange = useCallback((val: number | null) => {
-    setMaxInputLength(val);
-    setDirty(true);
-  }, []);
-
-  const handleSave = async () => {
-    const trimmed = text.trim();
-    let parsed: Record<string, unknown> = {};
-    if (trimmed) {
-      try {
-        const obj = JSON.parse(trimmed);
-        if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
-          message.error(t("models.generateConfigMustBeObject"));
-          return;
-        }
-        parsed = obj;
-      } catch {
-        message.error(t("models.generateConfigInvalidJson"));
-        return;
-      }
-    }
-
-    setSaving(true);
-    try {
-      await api.configureModel(providerId, model.id, {
-        max_tokens: effectiveMaxTokens,
-        max_input_length: effectiveMaxInputLength,
-        generate_kwargs: parsed,
-      });
-      message.success(t("models.modelConfigSaved", { name: model.name }));
-      setDirty(false);
-      await onSaved();
-      onClose();
-    } catch (error) {
-      const errMsg =
-        error instanceof Error
-          ? error.message
-          : t("models.modelConfigSaveFailed");
-      message.error(errMsg);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const labelStyle: React.CSSProperties = {
-    fontSize: 13,
-    color: isDark ? "rgba(255,255,255,0.85)" : "#333",
-    marginBottom: 4,
-  };
-
-  return (
-    <div style={{ padding: "8px 0 4px" }}>
-      <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
-        <div style={{ flex: 1 }}>
-          <div style={labelStyle}>
-            {t("models.maxTokensLabel", "Max Tokens")}
-          </div>
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            step={1024}
-            value={maxTokens}
-            placeholder="8192"
-            onChange={handleMaxTokensChange}
-          />
-          <div
-            style={{
-              fontSize: 11,
-              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
-              marginTop: 2,
-            }}
-          >
-            {t("models.maxTokensHint", "每次响应的最大输出 token 数")}
-          </div>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={labelStyle}>
-            {t("models.maxInputLengthLabel", "Max Context Length")}
-          </div>
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1000}
-            step={1024}
-            value={maxInputLength}
-            placeholder="131072"
-            onChange={handleMaxInputLengthChange}
-          />
-          <div
-            style={{
-              fontSize: 11,
-              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
-              marginTop: 2,
-            }}
-          >
-            {t(
-              "models.maxInputLengthHint",
-              "模型上下文窗口大小，控制上下文压缩阈值（≥1000）",
-            )}
-          </div>
-        </div>
-      </div>
-      <div
-        style={{
-          fontSize: 12,
-          color: isDark ? "rgba(255,255,255,0.45)" : "#888",
-          marginBottom: 4,
-        }}
-      >
-        {t("models.modelGenerateConfigHint")}
-      </div>
-      <JsonConfigEditor
-        value={text}
-        onChange={handleChange}
-        placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  }\n}`}
-      />
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          marginTop: 8,
-          gap: 8,
-        }}
-      >
-        <Button
-          type="primary"
-          size="small"
-          loading={saving}
-          disabled={!dirty}
-          onClick={handleSave}
-        >
-          {t("models.save")}
-        </Button>
-      </div>
-    </div>
-  );
-}
 
 const tagColors = (isDark: boolean) => ({
   multimodal: {
@@ -304,41 +127,223 @@ function CapabilityTags({
   const c = tagColors(isDark);
   if (model.supports_image && model.supports_video) {
     return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.multimodal }}>
-        <AppstoreOutlined style={{ fontSize: 10, marginRight: 3 }} />
+      <Badge
+        variant="outline"
+        style={{ fontSize: 11, marginRight: 4, ...c.multimodal }}
+      >
+        <Layers
+          style={{ fontSize: 10, marginRight: 3, height: 10, width: 10 }}
+        />
         {t("models.tagMultimodal", "多模态")}
-      </Tag>
+      </Badge>
     );
   }
   if (model.supports_image) {
     return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.vision }}>
-        <EyeOutlined style={{ fontSize: 10, marginRight: 3 }} />
+      <Badge
+        variant="outline"
+        style={{ fontSize: 11, marginRight: 4, ...c.vision }}
+      >
+        <Eye style={{ fontSize: 10, marginRight: 3, height: 10, width: 10 }} />
         {t("models.tagVision", "视觉")}
-      </Tag>
+      </Badge>
     );
   }
   if (model.supports_video) {
     return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.video }}>
-        <VideoCameraOutlined style={{ fontSize: 10, marginRight: 3 }} />
+      <Badge
+        variant="outline"
+        style={{ fontSize: 11, marginRight: 4, ...c.video }}
+      >
+        <VideoIcon
+          style={{ fontSize: 10, marginRight: 3, height: 10, width: 10 }}
+        />
         {t("models.tagVideo", "视频")}
-      </Tag>
+      </Badge>
     );
   }
   if (model.supports_multimodal === false) {
     return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.text }}>
-        <FileTextOutlined style={{ fontSize: 10, marginRight: 3 }} />
+      <Badge
+        variant="outline"
+        style={{ fontSize: 11, marginRight: 4, ...c.text }}
+      >
+        <FileText
+          style={{ fontSize: 10, marginRight: 3, height: 10, width: 10 }}
+        />
         {t("models.tagText", "文本")}
-      </Tag>
+      </Badge>
     );
   }
   return (
-    <Tag style={{ fontSize: 11, marginRight: 4, ...c.notProbed }}>
-      <QuestionCircleOutlined style={{ fontSize: 10, marginRight: 3 }} />
+    <Badge
+      variant="outline"
+      style={{ fontSize: 11, marginRight: 4, ...c.notProbed }}
+    >
+      <HelpCircle
+        style={{ fontSize: 10, marginRight: 3, height: 10, width: 10 }}
+      />
       {t("models.tagNotProbed", "未检测")}
-    </Tag>
+    </Badge>
+  );
+}
+
+function ModelConfigEditor({
+  providerId,
+  model,
+  onSaved,
+  onClose,
+  isDark,
+}: {
+  providerId: string;
+  model: ModelInfo;
+  onSaved: () => void | Promise<void>;
+  onClose: () => void;
+  isDark: boolean;
+}) {
+  const { t } = useTranslation();
+  const { message } = useAppMessage();
+  const [saving, setSaving] = useState(false);
+
+  const [maxTokens, setMaxTokens] = useState<number | null>(
+    model.max_tokens ?? 8192,
+  );
+  const [maxInputLength, setMaxInputLength] = useState<number | null>(
+    model.max_input_length ?? 131072,
+  );
+
+  const initialText = useMemo(
+    () =>
+      model.generate_kwargs && Object.keys(model.generate_kwargs).length > 0
+        ? JSON.stringify(model.generate_kwargs, null, 2)
+        : "",
+    [model.generate_kwargs],
+  );
+
+  const [text, setText] = useState(initialText);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    setText(initialText);
+    setMaxTokens(model.max_tokens ?? 8192);
+    setMaxInputLength(model.max_input_length ?? 131072);
+    setDirty(false);
+  }, [initialText, model.max_tokens, model.max_input_length]);
+
+  const effectiveMaxTokens = maxTokens ?? 8192;
+  const effectiveMaxInputLength = maxInputLength ?? 131072;
+
+  const handleChange = useCallback((val: string) => {
+    setText(val);
+    setDirty(true);
+  }, []);
+
+  const handleSave = async () => {
+    const trimmed = text.trim();
+    let parsed: Record<string, unknown> = {};
+    if (trimmed) {
+      try {
+        const obj = JSON.parse(trimmed);
+        if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
+          message.error(t("models.generateConfigMustBeObject"));
+          return;
+        }
+        parsed = obj;
+      } catch {
+        message.error(t("models.generateConfigInvalidJson"));
+        return;
+      }
+    }
+
+    setSaving(true);
+    try {
+      await api.configureModel(providerId, model.id, {
+        max_tokens: effectiveMaxTokens,
+        max_input_length: effectiveMaxInputLength,
+        generate_kwargs: parsed,
+      });
+      message.success(t("models.modelConfigSaved", { name: model.name }));
+      setDirty(false);
+      await onSaved();
+      onClose();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.modelConfigSaveFailed");
+      message.error(errMsg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const labelClass = `text-sm font-medium mb-1 ${
+    isDark ? "text-white/85" : "text-gray-800"
+  }`;
+  const hintClass = `text-xs mt-1 ${
+    isDark ? "text-white/35" : "text-gray-400"
+  }`;
+
+  return (
+    <div className="py-2">
+      <div className="flex gap-4 mb-3">
+        <div className="flex-1">
+          <div className={labelClass}>
+            {t("models.maxTokensLabel", "Max Tokens")}
+          </div>
+          <Input
+            type="number"
+            min={1}
+            step={1024}
+            value={maxTokens ?? ""}
+            placeholder="8192"
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10);
+              setMaxTokens(isNaN(v) ? null : v);
+              setDirty(true);
+            }}
+          />
+          <div className={hintClass}>
+            {t("models.maxTokensHint", "每次响应的最大输出 token 数")}
+          </div>
+        </div>
+        <div className="flex-1">
+          <div className={labelClass}>
+            {t("models.maxInputLengthLabel", "Max Context Length")}
+          </div>
+          <Input
+            type="number"
+            min={1000}
+            step={1024}
+            value={maxInputLength ?? ""}
+            placeholder="131072"
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10);
+              setMaxInputLength(isNaN(v) ? null : v);
+              setDirty(true);
+            }}
+          />
+          <div className={hintClass}>
+            {t("models.maxInputLengthHint", "模型上下文窗口大小")}
+          </div>
+        </div>
+      </div>
+      <div
+        className={`text-xs mb-1 ${isDark ? "text-white/45" : "text-gray-500"}`}
+      >
+        {t("models.modelGenerateConfigHint")}
+      </div>
+      <JsonConfigEditor
+        value={text}
+        onChange={handleChange}
+        placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  }\n}`}
+      />
+      <div className="flex justify-end mt-2 gap-2">
+        <Button size="sm" disabled={!dirty || saving} onClick={handleSave}>
+          {t("models.save")}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -350,7 +355,6 @@ export function RemoteModelManageModal({
 }: RemoteModelManageModalProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
-  const darkBtnStyle = isDark ? { color: "rgba(255,255,255,0.65)" } : undefined;
   const { message } = useAppMessage();
   const supportsAutoDiscover = provider.support_model_discovery;
   const [adding, setAdding] = useState(false);
@@ -362,7 +366,23 @@ export function RemoteModelManageModal({
     null,
   );
   const [modelSearchQuery, setModelSearchQuery] = useState("");
-  const [form] = Form.useForm();
+  const [modelIdInput, setModelIdInput] = useState("");
+  const [modelNameInput, setModelNameInput] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // AlertDialog states
+  const [testFailDialog, setTestFailDialog] = useState<{
+    open: boolean;
+    id: string;
+    name: string;
+    message: string;
+  } | null>(null);
+  const [removeDialog, setRemoveDialog] = useState<{
+    open: boolean;
+    id: string;
+    name: string;
+  } | null>(null);
+
   // OpenRouter filter state
   const isOpenRouter = provider.id === "openrouter";
   const [showFilters, setShowFilters] = useState(false);
@@ -376,79 +396,54 @@ export function RemoteModelManageModal({
   >([]);
   const [showFreeOnly, setShowFreeOnly] = useState(false);
   const [loadingFilters, setLoadingFilters] = useState(false);
-
   const [loadingDiscoveredModels, setLoadingDiscoveredModels] = useState(false);
+
   const PAGE_SIZE = 30;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  // For custom providers ALL models are deletable.
-  // For built-in providers only extra_models are deletable.
   const extraModelIds = new Set((provider.extra_models || []).map((m) => m.id));
+  const suggestionsRef = useRef<HTMLDivElement>(null);
 
   const doAddModel = async (id: string, name: string) => {
     await api.addModel(provider.id, { id, name });
     message.success(t("models.modelAdded", { name }));
-    form.resetFields();
+    setModelIdInput("");
+    setModelNameInput("");
     setAdding(false);
     onSaved();
   };
 
   const handleAddModel = async () => {
+    const id = modelIdInput.trim();
+    if (!id) return;
+    const name = modelNameInput.trim() || id;
+    const modelAlreadyExists = [
+      ...(provider.models ?? []),
+      ...(provider.extra_models ?? []),
+    ].some((model) => model.id.trim() === id);
+
+    if (modelAlreadyExists) {
+      message.warning(t("models.modelAlreadyExists", { id }));
+      return;
+    }
+
+    setSaving(true);
+    const testResult = await api.testModelConnection(provider.id, {
+      model_id: id,
+    });
+
+    if (!testResult.success) {
+      setSaving(false);
+      const failureDetail =
+        getTestConnectionFailureDetail(testResult.message) ||
+        t("models.modelTestFailed");
+      setTestFailDialog({ open: true, id, name, message: failureDetail });
+      return;
+    }
+
     try {
-      const values = await form.validateFields();
-      const id = values.id.trim();
-      const name = values.name?.trim() || id;
-      const modelAlreadyExists = [
-        ...(provider.models ?? []),
-        ...(provider.extra_models ?? []),
-      ].some((model) => model.id.trim() === id);
-
-      if (modelAlreadyExists) {
-        message.warning(t("models.modelAlreadyExists", { id }));
-        return;
-      }
-
-      // Step 1: Test the model connection first
-      setSaving(true);
-      const testResult = await api.testModelConnection(provider.id, {
-        model_id: id,
-      });
-
-      if (!testResult.success) {
-        // Test failed – ask user whether to proceed anyway
-        setSaving(false);
-        const failureDetail =
-          getTestConnectionFailureDetail(testResult.message) ||
-          t("models.modelTestFailed");
-        Modal.confirm({
-          title: t("models.testConnectionFailed"),
-          content: t("models.modelTestFailedConfirm", {
-            message: failureDetail,
-          }),
-          okText: t("models.addModel"),
-          cancelText: t("models.cancel"),
-          onOk: async () => {
-            setSaving(true);
-            try {
-              await doAddModel(id, name);
-            } catch (error) {
-              const errMsg =
-                error instanceof Error
-                  ? error.message
-                  : t("models.modelAddFailed");
-              message.error(errMsg);
-            } finally {
-              setSaving(false);
-            }
-          },
-        });
-        return;
-      }
-
-      // Step 2: If test passed, add the model
       await doAddModel(id, name);
     } catch (error) {
-      if (error && typeof error === "object" && "errorFields" in error) return;
       const errMsg =
         error instanceof Error ? error.message : t("models.modelAddFailed");
       message.error(errMsg);
@@ -485,14 +480,10 @@ export function RemoteModelManageModal({
       const result = await api.probeMultimodal(provider.id, modelId);
       const parts: string[] = [];
       if (result.supports_image) parts.push(t("models.probeImage"));
-
       if (result.supports_video) parts.push(t("models.probeVideo"));
-
       if (parts.length > 0) {
         message.success(
-          t("models.probeSupported", {
-            types: parts.join(", "),
-          }),
+          t("models.probeSupported", { types: parts.join(", ") }),
         );
       } else {
         message.info(t("models.probeNotSupported"));
@@ -501,7 +492,6 @@ export function RemoteModelManageModal({
     } catch (error) {
       const errMsg =
         error instanceof Error ? error.message : t("models.probeFailed");
-
       message.error(errMsg);
     } finally {
       setProbingModelId(null);
@@ -509,29 +499,22 @@ export function RemoteModelManageModal({
   };
 
   const handleRemoveModel = (modelId: string, modelName: string) => {
-    Modal.confirm({
-      title: t("models.removeModel"),
-      content: t("models.removeModelConfirm", {
-        name: modelName,
-        provider: provider.name,
-      }),
-      okText: t("common.delete"),
-      okButtonProps: { danger: true },
-      cancelText: t("models.cancel"),
-      onOk: async () => {
-        try {
-          await api.removeModel(provider.id, modelId);
-          message.success(t("models.modelRemoved", { name: modelName }));
-          await onSaved();
-        } catch (error) {
-          const errMsg =
-            error instanceof Error
-              ? error.message
-              : t("models.modelRemoveFailed");
-          message.error(errMsg);
-        }
-      },
-    });
+    setRemoveDialog({ open: true, id: modelId, name: modelName });
+  };
+
+  const confirmRemoveModel = async () => {
+    if (!removeDialog) return;
+    try {
+      await api.removeModel(provider.id, removeDialog.id);
+      message.success(t("models.modelRemoved", { name: removeDialog.name }));
+      await onSaved();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error ? error.message : t("models.modelRemoveFailed");
+      message.error(errMsg);
+    } finally {
+      setRemoveDialog(null);
+    }
   };
 
   const handleClose = () => {
@@ -539,7 +522,8 @@ export function RemoteModelManageModal({
     setConfigOpenModelId(null);
     setModelSearchQuery("");
     setVisibleCount(PAGE_SIZE);
-    form.resetFields();
+    setModelIdInput("");
+    setModelNameInput("");
     onClose();
   };
 
@@ -564,10 +548,8 @@ export function RemoteModelManageModal({
     }
   }, [isOpenRouter]);
 
-  // Fetch models with current filters
   const handleFetchModels = async () => {
     if (!isOpenRouter) return;
-
     setLoadingFilters(true);
     try {
       const filterBody: Record<string, unknown> = {};
@@ -583,7 +565,6 @@ export function RemoteModelManageModal({
       if (showFreeOnly) {
         filterBody.is_free = true;
       }
-
       const result = await api.filterOpenRouterModels(filterBody);
       if (result.success) {
         setDiscoveredModels(result.models || []);
@@ -626,28 +607,20 @@ export function RemoteModelManageModal({
     setDiscoveringModels(true);
     try {
       const result = await api.discoverModels(provider.id, undefined, true);
-
       if (!result.success) {
         message.error(result.message || t("models.autoDiscoverModelsFailed"));
         return;
       }
-
       await onSaved();
-
       if (result.added_count > 0) {
         message.success(
-          t("models.autoDiscoverModelsSuccess", {
-            count: result.added_count,
-          }),
+          t("models.autoDiscoverModelsSuccess", { count: result.added_count }),
         );
         return;
       }
-
       message.info(
         result.message ||
-          t("models.autoDiscoverModelsNoNew", {
-            count: result.models.length,
-          }),
+          t("models.autoDiscoverModelsNoNew", { count: result.models.length }),
       );
     } catch (error) {
       const errMsg =
@@ -681,8 +654,9 @@ export function RemoteModelManageModal({
   useEffect(() => {
     if (!isOpenRouter || !adding) return;
     setAdding(false);
-    form.resetFields();
-  }, [adding, form, isOpenRouter]);
+    setModelIdInput("");
+    setModelNameInput("");
+  }, [adding, isOpenRouter]);
 
   const deferredSearchQuery = useDeferredValue(modelSearchQuery);
 
@@ -704,289 +678,439 @@ export function RemoteModelManageModal({
 
   const colors = tagColors(isDark);
 
-  return (
-    <Modal
-      title={t("models.manageModelsTitle", { provider: provider.name })}
-      open={open}
-      onCancel={handleClose}
-      footer={null}
-      width={800}
-      destroyOnHidden
-    >
-      <Input
-        placeholder={t("models.searchModelPlaceholder", "搜索模型...")}
-        value={modelSearchQuery}
-        onChange={(e) => setModelSearchQuery(e.target.value)}
-        prefix={<SearchOutlined />}
-        allowClear
-      />
+  const filteredSuggestions = useMemo(() => {
+    const q = modelIdInput.trim().toLowerCase();
+    if (!q) return discoveredModels;
+    return discoveredModels.filter((m) => m.id.toLowerCase().includes(q));
+  }, [discoveredModels, modelIdInput]);
 
-      {/* Model list */}
-      <div className={styles.modelList}>
-        {filteredModels.length === 0 ? (
-          <div className={styles.modelListEmpty}>{t("models.noModels")}</div>
-        ) : (
-          <>
-            {filteredModels.slice(0, visibleCount).map((m) => {
-              const isDeletable = provider.is_custom || extraModelIds.has(m.id);
-              const isConfigOpen = configOpenModelId === m.id;
-              return (
-                <div key={m.id}>
-                  <div className={styles.modelListItem}>
-                    <div className={styles.modelListItemInfo}>
-                      <span className={styles.modelListItemName}>{m.name}</span>
-                      <span className={styles.modelListItemId}>{m.id}</span>
-                    </div>
-                    <div className={styles.modelListItemActions}>
-                      <CapabilityTags model={m} isDark={isDark} />
-                      {m.is_free && (
-                        <Tag
+  return (
+    <>
+      <Dialog
+        open={open}
+        onOpenChange={(v) => {
+          if (!v) handleClose();
+        }}
+      >
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {t("models.manageModelsTitle", { provider: provider.name })}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder={t("models.searchModelPlaceholder", "搜索模型...")}
+              value={modelSearchQuery}
+              onChange={(e) => setModelSearchQuery(e.target.value)}
+            />
+          </div>
+
+          {/* Model list */}
+          <div className={styles.modelList}>
+            {filteredModels.length === 0 ? (
+              <div className={styles.modelListEmpty}>
+                {t("models.noModels")}
+              </div>
+            ) : (
+              <>
+                {filteredModels.slice(0, visibleCount).map((m) => {
+                  const isDeletable =
+                    provider.is_custom || extraModelIds.has(m.id);
+                  const isConfigOpen = configOpenModelId === m.id;
+                  return (
+                    <div key={m.id}>
+                      <div className={styles.modelListItem}>
+                        <div className={styles.modelListItemInfo}>
+                          <span className={styles.modelListItemName}>
+                            {m.name}
+                          </span>
+                          <span className={styles.modelListItemId}>{m.id}</span>
+                        </div>
+                        <div className={styles.modelListItemActions}>
+                          <CapabilityTags model={m} isDark={isDark} />
+                          {m.is_free && (
+                            <Badge
+                              variant="outline"
+                              style={{
+                                fontSize: 11,
+                                marginRight: 4,
+                                ...colors.free,
+                              }}
+                            >
+                              <Gift
+                                style={{
+                                  height: 10,
+                                  width: 10,
+                                  marginRight: 3,
+                                }}
+                              />
+                              {t("models.free")}
+                            </Badge>
+                          )}
+                          <Badge
+                            variant="outline"
+                            style={{
+                              fontSize: 11,
+                              marginRight: 4,
+                              ...(isDeletable
+                                ? colors.userAdded
+                                : colors.builtin),
+                            }}
+                          >
+                            {isDeletable ? (
+                              <User
+                                style={{
+                                  height: 10,
+                                  width: 10,
+                                  marginRight: 3,
+                                }}
+                              />
+                            ) : (
+                              <Database
+                                style={{
+                                  height: 10,
+                                  width: 10,
+                                  marginRight: 3,
+                                }}
+                              />
+                            )}
+                            {t(
+                              isDeletable
+                                ? "models.userAdded"
+                                : "models.builtin",
+                            )}
+                          </Badge>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              width: 1,
+                              height: 16,
+                              background: isDark
+                                ? "rgba(255,255,255,0.15)"
+                                : "#e5e7eb",
+                              margin: "0 8px",
+                              flexShrink: 0,
+                            }}
+                          />
+                          {m.probe_source !== "documentation" && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={probingModelId === m.id}
+                                  onClick={() => handleProbeMultimodal(m.id)}
+                                  className="h-7 w-7 p-0"
+                                >
+                                  <FlaskConical className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {t("models.probeMultimodal", "测试多模态")}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={testingModelId === m.id}
+                                onClick={() => handleTestModel(m.id)}
+                                className="h-7 w-7 p-0"
+                              >
+                                <Network className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {t("models.testConnection")}
+                            </TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  setConfigOpenModelId(
+                                    isConfigOpen ? null : m.id,
+                                  )
+                                }
+                                className="h-7 w-7 p-0"
+                              >
+                                {isConfigOpen ? (
+                                  <ChevronDown className="h-4 w-4" />
+                                ) : (
+                                  <Settings className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {t("models.modelConfigLabel", "模型配置")}
+                            </TooltipContent>
+                          </Tooltip>
+                          {isDeletable && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                              onClick={() => handleRemoveModel(m.id, m.name)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      {isConfigOpen && (
+                        <div
                           style={{
-                            fontSize: 11,
-                            marginRight: 4,
-                            ...colors.free,
+                            padding: "0 16px 12px",
+                            borderBottom: isDark
+                              ? "1px solid rgba(255,255,255,0.06)"
+                              : "1px solid #f5f5f5",
                           }}
                         >
-                          <GiftOutlined
-                            style={{ fontSize: 10, marginRight: 3 }}
+                          <ModelConfigEditor
+                            providerId={provider.id}
+                            model={m}
+                            onSaved={onSaved}
+                            onClose={() => setConfigOpenModelId(null)}
+                            isDark={isDark}
                           />
-                          {t("models.free")}
-                        </Tag>
+                        </div>
                       )}
-                      <Tag
-                        style={{
-                          fontSize: 11,
-                          marginRight: 4,
-                          ...(isDeletable ? colors.userAdded : colors.builtin),
+                    </div>
+                  );
+                })}
+                {filteredModels.length > visibleCount && (
+                  <div className={styles.modelListLoadMore}>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                    >
+                      {t("models.loadMore", {
+                        count: Math.min(
+                          PAGE_SIZE,
+                          filteredModels.length - visibleCount,
+                        ),
+                        total: filteredModels.length,
+                      })}
+                    </Button>
+                    <span className={styles.modelListCount}>
+                      {visibleCount} / {filteredModels.length}
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {isOpenRouter && (
+            <OpenRouterFilterSection
+              showFilters={showFilters}
+              availableSeries={availableSeries}
+              selectedSeries={selectedSeries}
+              selectedInputModalities={selectedInputModalities}
+              showFreeOnly={showFreeOnly}
+              loadingFilters={loadingFilters}
+              discoveredModels={discoveredModels}
+              saving={saving}
+              isDark={isDark}
+              freeTagStyle={colors.free}
+              onToggleFilters={() => setShowFilters(!showFilters)}
+              onSelectedSeriesChange={setSelectedSeries}
+              onSelectedInputModalitiesChange={setSelectedInputModalities}
+              onShowFreeOnlyChange={setShowFreeOnly}
+              onFetchModels={handleFetchModels}
+              onAddModel={handleAddFilteredModel}
+            />
+          )}
+
+          {/* Add model section */}
+          {!isOpenRouter &&
+            (adding ? (
+              <div className={styles.modelAddForm}>
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">
+                      {t("models.modelIdLabel")}
+                    </label>
+                    <div className="relative" ref={suggestionsRef}>
+                      <Input
+                        value={modelIdInput}
+                        onChange={(e) => {
+                          setModelIdInput(e.target.value);
+                          setShowSuggestions(true);
                         }}
-                      >
-                        {isDeletable ? (
-                          <UserOutlined
-                            style={{ fontSize: 10, marginRight: 3 }}
-                          />
-                        ) : (
-                          <DatabaseOutlined
-                            style={{ fontSize: 10, marginRight: 3 }}
-                          />
-                        )}
-                        {t(isDeletable ? "models.userAdded" : "models.builtin")}
-                      </Tag>
-                      <span
-                        style={{
-                          display: "inline-block",
-                          width: 1,
-                          height: 16,
-                          background: isDark
-                            ? "rgba(255,255,255,0.15)"
-                            : "#e5e7eb",
-                          margin: "0 8px",
-                          flexShrink: 0,
-                        }}
+                        onFocus={() => setShowSuggestions(true)}
+                        onBlur={() =>
+                          setTimeout(() => setShowSuggestions(false), 150)
+                        }
+                        placeholder={t("models.modelIdPlaceholder")}
                       />
-                      {m.probe_source !== "documentation" && (
-                        <Tooltip
-                          title={t("models.probeMultimodal", "测试多模态")}
-                        >
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<ExperimentOutlined />}
-                            onClick={() => handleProbeMultimodal(m.id)}
-                            loading={probingModelId === m.id}
-                            style={darkBtnStyle}
-                          />
-                        </Tooltip>
+                      {showSuggestions && filteredSuggestions.length > 0 && (
+                        <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
+                          {filteredSuggestions.map((sug) => (
+                            <div
+                              key={sug.id}
+                              className="px-3 py-2 text-sm cursor-pointer hover:bg-accent"
+                              onMouseDown={() => {
+                                setModelIdInput(sug.id);
+                                setShowSuggestions(false);
+                              }}
+                            >
+                              {sug.id}
+                            </div>
+                          ))}
+                        </div>
                       )}
-                      <Tooltip title={t("models.testConnection")}>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<ApiOutlined />}
-                          onClick={() => handleTestModel(m.id)}
-                          loading={testingModelId === m.id}
-                          style={darkBtnStyle}
-                        />
-                      </Tooltip>
-                      <Tooltip title={t("models.modelConfigLabel", "模型配置")}>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={
-                            isConfigOpen ? (
-                              <DownOutlined />
-                            ) : (
-                              <SettingOutlined />
-                            )
-                          }
-                          onClick={() =>
-                            setConfigOpenModelId(isConfigOpen ? null : m.id)
-                          }
-                          style={darkBtnStyle}
-                        />
-                      </Tooltip>
-                      {isDeletable && (
-                        <Button
-                          type="text"
-                          size="small"
-                          danger
-                          icon={<DeleteOutlined />}
-                          onClick={() => handleRemoveModel(m.id, m.name)}
-                        />
-                      )}
+                      {showSuggestions &&
+                        filteredSuggestions.length === 0 &&
+                        modelIdInput && (
+                          <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md px-3 py-2 text-sm text-muted-foreground">
+                            {loadingDiscoveredModels
+                              ? t("common.loading")
+                              : t("models.modelDiscoveryUnavailableHint")}
+                          </div>
+                        )}
                     </div>
                   </div>
-                  {isConfigOpen && (
-                    <div
-                      style={{
-                        padding: "0 16px 12px",
-                        borderBottom: isDark
-                          ? "1px solid rgba(255,255,255,0.06)"
-                          : "1px solid #f5f5f5",
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">
+                      {t("models.modelNameLabel")}
+                    </label>
+                    <Input
+                      value={modelNameInput}
+                      onChange={(e) => setModelNameInput(e.target.value)}
+                      placeholder={t("models.modelNamePlaceholder")}
+                    />
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setAdding(false);
+                        setModelIdInput("");
+                        setModelNameInput("");
                       }}
                     >
-                      <ModelConfigEditor
-                        providerId={provider.id}
-                        model={m}
-                        onSaved={onSaved}
-                        onClose={() => setConfigOpenModelId(null)}
-                        isDark={isDark}
-                      />
-                    </div>
-                  )}
+                      {t("models.cancel")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={!modelIdInput.trim() || saving}
+                      onClick={handleAddModel}
+                    >
+                      {t("models.addModel")}
+                    </Button>
+                  </div>
                 </div>
-              );
-            })}
-            {filteredModels.length > visibleCount && (
-              <div className={styles.modelListLoadMore}>
-                <Button
-                  type="link"
-                  size="small"
-                  onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-                >
-                  {t("models.loadMore", {
-                    count: Math.min(
-                      PAGE_SIZE,
-                      filteredModels.length - visibleCount,
-                    ),
-                    total: filteredModels.length,
-                  })}
-                </Button>
-                <span className={styles.modelListCount}>
-                  {visibleCount} / {filteredModels.length}
-                </span>
               </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {isOpenRouter && (
-        <OpenRouterFilterSection
-          showFilters={showFilters}
-          availableSeries={availableSeries}
-          selectedSeries={selectedSeries}
-          selectedInputModalities={selectedInputModalities}
-          showFreeOnly={showFreeOnly}
-          loadingFilters={loadingFilters}
-          discoveredModels={discoveredModels}
-          saving={saving}
-          isDark={isDark}
-          freeTagStyle={colors.free}
-          onToggleFilters={() => setShowFilters(!showFilters)}
-          onSelectedSeriesChange={setSelectedSeries}
-          onSelectedInputModalitiesChange={setSelectedInputModalities}
-          onShowFreeOnlyChange={setShowFreeOnly}
-          onFetchModels={handleFetchModels}
-          onAddModel={handleAddFilteredModel}
-        />
-      )}
-
-      {/* Add model section */}
-      {!isOpenRouter &&
-        (adding ? (
-          <div className={styles.modelAddForm}>
-            <Form form={form} layout="vertical" style={{ marginBottom: 0 }}>
-              <Form.Item
-                name="id"
-                label={t("models.modelIdLabel")}
-                rules={[{ required: true, message: t("models.modelIdLabel") }]}
-                style={{ marginBottom: 12 }}
-              >
-                <AutoComplete
-                  placeholder={t("models.modelIdPlaceholder")}
-                  options={discoveredModels.map((model) => ({
-                    value: model.id,
-                    label: model.id,
-                  }))}
-                  filterOption={(
-                    inputValue: string,
-                    option?: { value?: string },
-                  ) =>
-                    option?.value
-                      ?.toLowerCase()
-                      .includes(inputValue.toLowerCase()) ?? false
-                  }
-                  notFoundContent={
-                    loadingDiscoveredModels
-                      ? t("common.loading")
-                      : t("models.modelDiscoveryUnavailableHint")
-                  }
-                >
-                  <Input />
-                </AutoComplete>
-              </Form.Item>
-              <Form.Item
-                name="name"
-                label={t("models.modelNameLabel")}
-                style={{ marginBottom: 12 }}
-              >
-                <Input placeholder={t("models.modelNamePlaceholder")} />
-              </Form.Item>
-              <div
-                style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}
-              >
+            ) : (
+              <div className={styles.modalActionRow}>
+                {supportsAutoDiscover && (
+                  <Button
+                    variant="outline"
+                    disabled={discoveringModels}
+                    onClick={handleAutoDiscoverModels}
+                    style={{ flex: 1 }}
+                  >
+                    <Search className="mr-2 h-4 w-4" />
+                    {t("models.autoDiscoverModels")}
+                  </Button>
+                )}
                 <Button
-                  size="small"
-                  onClick={() => {
-                    setAdding(false);
-                    form.resetFields();
-                  }}
+                  variant="outline"
+                  onClick={() => setAdding(true)}
+                  style={{ flex: 1 }}
                 >
-                  {t("models.cancel")}
-                </Button>
-                <Button
-                  type="primary"
-                  size="small"
-                  loading={saving}
-                  onClick={handleAddModel}
-                >
+                  <Plus className="mr-2 h-4 w-4" />
                   {t("models.addModel")}
                 </Button>
               </div>
-            </Form>
-          </div>
-        ) : (
-          <div className={styles.modalActionRow}>
-            {supportsAutoDiscover && (
-              <Button
-                icon={<SearchOutlined />}
-                loading={discoveringModels}
-                onClick={handleAutoDiscoverModels}
-                style={{ flex: 1 }}
-              >
-                {t("models.autoDiscoverModels")}
-              </Button>
-            )}
-            <Button
-              type="dashed"
-              icon={<PlusOutlined />}
-              onClick={() => setAdding(true)}
-              style={{ flex: 1 }}
+            ))}
+        </DialogContent>
+      </Dialog>
+
+      {/* Test failure confirm dialog */}
+      <AlertDialog
+        open={Boolean(testFailDialog?.open)}
+        onOpenChange={(v) => {
+          if (!v) setTestFailDialog(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("models.testConnectionFailed")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("models.modelTestFailedConfirm", {
+                message: testFailDialog?.message ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("models.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (!testFailDialog) return;
+                const { id, name } = testFailDialog;
+                setTestFailDialog(null);
+                setSaving(true);
+                try {
+                  await doAddModel(id, name);
+                } catch (error) {
+                  const errMsg =
+                    error instanceof Error
+                      ? error.message
+                      : t("models.modelAddFailed");
+                  message.error(errMsg);
+                } finally {
+                  setSaving(false);
+                }
+              }}
             >
               {t("models.addModel")}
-            </Button>
-          </div>
-        ))}
-    </Modal>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Remove confirm dialog */}
+      <AlertDialog
+        open={Boolean(removeDialog?.open)}
+        onOpenChange={(v) => {
+          if (!v) setRemoveDialog(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("models.removeModel")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("models.removeModelConfirm", {
+                name: removeDialog?.name ?? "",
+                provider: provider.name,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("models.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmRemoveModel}
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

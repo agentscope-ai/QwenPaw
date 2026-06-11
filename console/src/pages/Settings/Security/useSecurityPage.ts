@@ -1,5 +1,4 @@
 import { useState, useCallback } from "react";
-import { Form } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
@@ -22,10 +21,13 @@ const BUILTIN_TOOLS = [
 
 export function useSecurityPage() {
   const { t } = useTranslation();
-  const [form] = Form.useForm();
-  const [editForm] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState("toolGuard");
+
+  // Uncontrolled form state for ToolGuard
+  const [formEnabled, setFormEnabled] = useState(true);
+  const [formGuardedTools, setFormGuardedTools] = useState<string[]>([]);
+  const [formDeniedTools, setFormDeniedTools] = useState<string[]>([]);
 
   // FileGuard handlers exposed from child component
   const [fileGuardHandlers, setFileGuardHandlers] = useState<{
@@ -94,13 +96,11 @@ export function useSecurityPage() {
   const handleSave = useCallback(async () => {
     try {
       setSaving(true);
-      const values = await form.validateFields();
-      const guardedTools: string[] = values.guarded_tools ?? [];
       const savedBody = buildSaveBody();
       const body = {
-        enabled: values.enabled,
-        guarded_tools: guardedTools.length > 0 ? guardedTools : null,
-        denied_tools: values.denied_tools ?? [],
+        enabled: formEnabled,
+        guarded_tools: formGuardedTools.length > 0 ? formGuardedTools : null,
+        denied_tools: formDeniedTools,
         custom_rules: customRules,
         disabled_rules: Array.from(savedBody.disabled_rules),
         auto_denied_rules: savedBody.auto_denied_rules,
@@ -110,58 +110,56 @@ export function useSecurityPage() {
       setEnabled(body.enabled);
       message.success(t("security.saveSuccess"));
     } catch (err) {
-      if (err instanceof Error && "errorFields" in err) {
-        return;
-      }
       const errMsg =
         err instanceof Error ? err.message : t("security.saveFailed");
       message.error(errMsg);
     } finally {
       setSaving(false);
     }
-  }, [customRules, buildSaveBody, form, t]);
+  }, [
+    customRules,
+    buildSaveBody,
+    formEnabled,
+    formGuardedTools,
+    formDeniedTools,
+    setEnabled,
+    t,
+  ]);
 
   const handleReset = useCallback(() => {
-    form.resetFields();
     fetchAll();
-  }, [form, fetchAll]);
+  }, [fetchAll]);
 
   // Rule modal handlers
   const openAddRule = useCallback(() => {
     setEditingRule(null);
-    editForm.resetFields();
-    editForm.setFieldsValue({
-      severity: "HIGH",
-      category: "command_injection",
-      tools: [],
-      params: [],
-      patterns: "",
-      exclude_patterns: "",
-    });
     setEditModal(true);
-  }, [editForm]);
+  }, []);
 
-  const openEditRule = useCallback(
-    (rule: MergedRule) => {
-      setEditingRule(rule);
-      editForm.setFieldsValue({
-        ...rule,
-        patterns: rule.patterns.join("\n"),
-        exclude_patterns: rule.exclude_patterns.join("\n"),
-      });
-      setEditModal(true);
-    },
-    [editForm],
-  );
+  const openEditRule = useCallback((rule: MergedRule) => {
+    setEditingRule(rule);
+    setEditModal(true);
+  }, []);
 
-  const handleEditSave = useCallback(async () => {
-    try {
-      const values = await editForm.validateFields();
-      const patterns = (values.patterns as string)
+  interface RuleFormValues {
+    id: string;
+    tools: string[];
+    params: string[];
+    category: string;
+    severity: string;
+    patterns: string;
+    exclude_patterns: string;
+    description: string;
+    remediation: string;
+  }
+
+  const handleEditSave = useCallback(
+    (values: RuleFormValues) => {
+      const patterns = values.patterns
         .split("\n")
         .map((s: string) => s.trim())
         .filter(Boolean);
-      const excludePatterns = ((values.exclude_patterns as string) || "")
+      const excludePatterns = (values.exclude_patterns || "")
         .split("\n")
         .map((s: string) => s.trim())
         .filter(Boolean);
@@ -192,18 +190,16 @@ export function useSecurityPage() {
         addCustomRule(rule);
       }
       setEditModal(false);
-    } catch {
-      // validation failed
-    }
-  }, [
-    editingRule,
-    builtinRules,
-    customRules,
-    updateCustomRule,
-    addCustomRule,
-    editForm,
-    t,
-  ]);
+    },
+    [
+      editingRule,
+      builtinRules,
+      customRules,
+      updateCustomRule,
+      addCustomRule,
+      t,
+    ],
+  );
 
   const toolOptions = BUILTIN_TOOLS.map((name) => ({
     label: name,
@@ -215,8 +211,13 @@ export function useSecurityPage() {
     activeTab,
     setActiveTab,
 
-    // Tool Guard form
-    form,
+    // Tool Guard form state (uncontrolled)
+    formEnabled,
+    setFormEnabled,
+    formGuardedTools,
+    setFormGuardedTools,
+    formDeniedTools,
+    setFormDeniedTools,
     config,
     enabled,
     setEnabled,
@@ -243,7 +244,6 @@ export function useSecurityPage() {
     editModal,
     setEditModal,
     editingRule,
-    editForm,
     handleEditSave,
     previewRule,
     setPreviewRule,

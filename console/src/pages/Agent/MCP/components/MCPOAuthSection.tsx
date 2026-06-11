@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { Button, Input, Tooltip } from "@agentscope-ai/design";
-import { Switch } from "antd";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   ShieldCheck,
   ShieldX,
@@ -9,6 +10,7 @@ import {
   Unlink,
   ExternalLink,
   Info,
+  Loader2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import api from "../../../../api";
@@ -16,19 +18,12 @@ import type { MCPClientOAuthStatus } from "../../../../api/types";
 import { openExternalLink } from "../../../../utils/openExternalLink";
 
 interface MCPOAuthSectionProps {
-  /** MCP server URL — used for OAuth discovery */
   url: string;
-  /** Client key (must already exist for re-auth; leave blank for new client) */
   clientKey?: string;
-  /** Called when OAuth auth state changes (authorized or revoked) */
   onAuthChanged?: () => void;
-  /** Whether this section is inside the "create" modal (no clientKey yet) */
   isNewClient?: boolean;
-  /** Current OAuth status from the server (for existing clients) */
   currentOAuthStatus?: MCPClientOAuthStatus | null;
-  /** Whether OAuth is toggled on */
   oauthEnabled?: boolean;
-  /** External OAuth params controlled by parent */
   clientId?: string;
   scope?: string;
   authEndpoint?: string;
@@ -69,7 +64,6 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
   const [errorMsg, setErrorMsg] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Poll backend every 2s when waiting, for existing clients
   useEffect(() => {
     if (phase !== "waiting" || !clientKey) return;
     const timer = setInterval(async () => {
@@ -86,7 +80,6 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
     return () => clearInterval(timer);
   }, [phase, clientKey, onAuthChanged]);
 
-  // Determine combined authorized state
   const isAuthorized =
     phase === "success" ||
     (!isNewClient &&
@@ -100,7 +93,6 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
     currentOAuthStatus.expires_at > 0 &&
     currentOAuthStatus.expires_at < Date.now() / 1000;
 
-  // Capture before any type narrowing caused by isAuthorized/isExpired guards
   const isRevoking = phase === "revoking";
 
   const handleStartOAuth = useCallback(async () => {
@@ -127,7 +119,6 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
 
       setPhase("waiting");
       openExternalLink(resp.auth_url, "_blank", "popup,width=600,height=700");
-      // The existing useEffect polls backend every 2s while phase === "waiting"
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : t("mcp.oauth.startFailed");
@@ -153,149 +144,165 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
   }
 
   return (
-    <div style={sectionStyle}>
-      {/* Status badge */}
-      <div style={statusRowStyle}>
-        {isExpired ? (
-          <OAuthBadge
-            icon={<ShieldAlert size={14} />}
-            label={t("mcp.oauth.expired")}
-            color="#e67e22"
-          />
-        ) : isAuthorized ? (
-          <OAuthBadge
-            icon={<ShieldCheck size={14} />}
-            label={t("mcp.oauth.authorized")}
-            color="#27ae60"
-          />
-        ) : phase === "waiting" ? (
-          <OAuthBadge
-            icon={<KeyRound size={14} />}
-            label={t("mcp.oauth.waiting")}
-            color="#2980b9"
-          />
-        ) : phase === "error" ? (
-          <OAuthBadge
-            icon={<ShieldX size={14} />}
-            label={t("mcp.oauth.failed")}
-            color="#c0392b"
-          />
-        ) : (
-          <OAuthBadge
-            icon={<ShieldX size={14} />}
-            label={t("mcp.oauth.notAuthorized")}
-            color="#7f8c8d"
-          />
-        )}
+    <div className="rounded-md border bg-muted/30 p-3 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <OAuthBadge
+          isExpired={Boolean(isExpired)}
+          isAuthorized={isAuthorized}
+          phase={phase}
+          t={t}
+        />
 
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div className="flex items-center gap-2">
           {(isAuthorized || isExpired) && clientKey && (
-            <Button size="small" onClick={handleRevoke} loading={isRevoking}>
-              <span
-                style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-              >
-                <Unlink size={12} />
-                {t("mcp.oauth.revoke")}
-              </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleRevoke}
+              disabled={isRevoking}
+            >
+              {isRevoking && (
+                <Loader2 size={12} className="animate-spin mr-1" />
+              )}
+              <Unlink size={12} className="mr-1" />
+              {t("mcp.oauth.revoke")}
             </Button>
           )}
           <Button
-            size="small"
-            type={isAuthorized && !isExpired ? "default" : "primary"}
+            size="sm"
+            variant={isAuthorized && !isExpired ? "outline" : "default"}
             onClick={handleStartOAuth}
-            loading={phase === "starting" || phase === "waiting"}
-            disabled={!url.trim()}
+            disabled={
+              !url.trim() || phase === "starting" || phase === "waiting"
+            }
           >
-            <span
-              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-            >
-              <ExternalLink size={12} />
-              {isAuthorized && !isExpired
-                ? t("mcp.oauth.reauthorize")
-                : t("mcp.oauth.authorize")}
-            </span>
+            {(phase === "starting" || phase === "waiting") && (
+              <Loader2 size={12} className="animate-spin mr-1" />
+            )}
+            <ExternalLink size={12} className="mr-1" />
+            {isAuthorized && !isExpired
+              ? t("mcp.oauth.reauthorize")
+              : t("mcp.oauth.authorize")}
           </Button>
         </div>
       </div>
 
-      {errorMsg && <p style={errorStyle}>{errorMsg}</p>}
+      {errorMsg && <p className="text-xs text-destructive">{errorMsg}</p>}
 
-      {/* Advanced fields (client_id, scope, manual endpoints) */}
       <div
-        style={{ marginTop: 8, cursor: "pointer", color: "#888", fontSize: 12 }}
+        className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer"
         onClick={() => setShowAdvanced((v) => !v)}
       >
-        <Info size={11} style={{ verticalAlign: "middle", marginRight: 4 }} />
+        <Info size={11} />
         {showAdvanced
           ? t("mcp.oauth.hideAdvanced")
           : t("mcp.oauth.showAdvanced")}
       </div>
 
       {showAdvanced && (
-        <div style={advancedStyle}>
-          <label style={labelStyle}>{t("mcp.oauth.clientId")}</label>
-          <Input
-            size="small"
-            placeholder={t("mcp.oauth.clientIdPlaceholder")}
-            value={clientId}
-            onChange={(e) => onClientIdChange?.(e.target.value)}
-          />
-
-          <label style={{ ...labelStyle, marginTop: 8 }}>
-            {t("mcp.oauth.scope")}
-          </label>
-          <Input
-            size="small"
-            placeholder={t("mcp.oauth.scopePlaceholder")}
-            value={scope}
-            onChange={(e) => onScopeChange?.(e.target.value)}
-          />
-
-          <Tooltip title={t("mcp.oauth.endpointHint")}>
-            <label style={{ ...labelStyle, marginTop: 8 }}>
+        <div className="space-y-2 rounded border bg-background p-3">
+          <div>
+            <label className="text-xs text-muted-foreground">
+              {t("mcp.oauth.clientId")}
+            </label>
+            <Input
+              size={undefined}
+              className="h-7 text-xs mt-1"
+              placeholder={t("mcp.oauth.clientIdPlaceholder")}
+              value={clientId}
+              onChange={(e) => onClientIdChange?.(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">
+              {t("mcp.oauth.scope")}
+            </label>
+            <Input
+              className="h-7 text-xs mt-1"
+              placeholder={t("mcp.oauth.scopePlaceholder")}
+              value={scope}
+              onChange={(e) => onScopeChange?.(e.target.value)}
+            />
+          </div>
+          <div>
+            <label
+              className="text-xs text-muted-foreground"
+              title={t("mcp.oauth.endpointHint")}
+            >
               {t("mcp.oauth.authEndpoint")}
             </label>
-          </Tooltip>
-          <Input
-            size="small"
-            placeholder="https://auth.example.com/authorize"
-            value={authEndpoint}
-            onChange={(e) => onAuthEndpointChange?.(e.target.value)}
-          />
-
-          <label style={{ ...labelStyle, marginTop: 8 }}>
-            {t("mcp.oauth.tokenEndpoint")}
-          </label>
-          <Input
-            size="small"
-            placeholder="https://auth.example.com/token"
-            value={tokenEndpoint}
-            onChange={(e) => onTokenEndpointChange?.(e.target.value)}
-          />
+            <Input
+              className="h-7 text-xs mt-1"
+              placeholder="https://auth.example.com/authorize"
+              value={authEndpoint}
+              onChange={(e) => onAuthEndpointChange?.(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">
+              {t("mcp.oauth.tokenEndpoint")}
+            </label>
+            <Input
+              className="h-7 text-xs mt-1"
+              placeholder="https://auth.example.com/token"
+              value={tokenEndpoint}
+              onChange={(e) => onTokenEndpointChange?.(e.target.value)}
+            />
+          </div>
         </div>
       )}
     </div>
   );
 };
 
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
 interface OAuthBadgeProps {
-  icon: React.ReactNode;
-  label: string;
-  color: string;
+  isExpired: boolean;
+  isAuthorized: boolean;
+  phase: string;
+  t: (key: string) => string;
 }
 
-const OAuthBadge: React.FC<OAuthBadgeProps> = ({ icon, label, color }) => (
-  <span style={{ ...badgeStyle, color, borderColor: color }}>
-    {icon}
-    <span style={{ marginLeft: 4 }}>{label}</span>
-  </span>
-);
+function OAuthBadge({ isExpired, isAuthorized, phase, t }: OAuthBadgeProps) {
+  if (isExpired) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-orange-300 bg-white px-2 py-0.5 text-xs text-orange-500">
+        <ShieldAlert size={12} />
+        {t("mcp.oauth.expired")}
+      </span>
+    );
+  }
+  if (isAuthorized) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-green-300 bg-white px-2 py-0.5 text-xs text-green-600">
+        <ShieldCheck size={12} />
+        {t("mcp.oauth.authorized")}
+      </span>
+    );
+  }
+  if (phase === "waiting") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-blue-300 bg-white px-2 py-0.5 text-xs text-blue-600">
+        <KeyRound size={12} />
+        {t("mcp.oauth.waiting")}
+      </span>
+    );
+  }
+  if (phase === "error") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-destructive bg-white px-2 py-0.5 text-xs text-destructive">
+        <ShieldX size={12} />
+        {t("mcp.oauth.failed")}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-muted-foreground/30 bg-white px-2 py-0.5 text-xs text-muted-foreground">
+      <ShieldX size={12} />
+      {t("mcp.oauth.notAuthorized")}
+    </span>
+  );
+}
 
-// Toggle row shown in the parent form to enable/disable OAuth
 interface OAuthToggleRowProps {
   enabled: boolean;
   onChange: (v: boolean) => void;
@@ -309,76 +316,16 @@ export const OAuthToggleRow: React.FC<OAuthToggleRowProps> = ({
 }) => {
   const { t } = useTranslation();
   return (
-    <div style={toggleRowStyle}>
-      <KeyRound size={14} style={{ color: "#888" }} />
-      <span style={{ marginLeft: 6, fontSize: 13, color: "#555" }}>
+    <div className="flex items-center py-1.5">
+      <KeyRound size={14} className="text-muted-foreground" />
+      <span className="ml-1.5 text-sm text-muted-foreground">
         {label ?? t("mcp.oauth.enableOAuth")}
       </span>
       <Switch
-        size="small"
         checked={enabled}
-        onChange={onChange}
-        style={{ marginLeft: "auto" }}
+        onCheckedChange={onChange}
+        className="ml-auto"
       />
     </div>
   );
-};
-
-// ---------------------------------------------------------------------------
-// Inline styles (keeps JSX concise, avoids extra CSS module entries)
-// ---------------------------------------------------------------------------
-
-const sectionStyle: React.CSSProperties = {
-  background: "#f8f9fa",
-  border: "1px solid #e9ecef",
-  borderRadius: 8,
-  padding: "12px 14px",
-  marginTop: 8,
-};
-
-const statusRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 8,
-};
-
-const badgeStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  fontSize: 12,
-  padding: "2px 8px",
-  borderRadius: 12,
-  border: "1px solid",
-  background: "white",
-};
-
-const errorStyle: React.CSSProperties = {
-  color: "#c0392b",
-  fontSize: 12,
-  marginTop: 6,
-  marginBottom: 0,
-};
-
-const advancedStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 4,
-  marginTop: 10,
-  padding: "10px 12px",
-  background: "white",
-  borderRadius: 6,
-  border: "1px solid #e9ecef",
-};
-
-const labelStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: "#888",
-  marginBottom: 2,
-};
-
-const toggleRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  padding: "6px 0",
 };

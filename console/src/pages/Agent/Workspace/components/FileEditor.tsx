@@ -1,8 +1,12 @@
 import React, { useState, useMemo } from "react";
-import { Button, Card, Input, Switch } from "@agentscope-ai/design";
-import { CopyOutlined, UndoOutlined, SaveOutlined } from "@ant-design/icons";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Copy, Undo2, Save } from "lucide-react";
 import type { MarkdownFile } from "../../../../api/types";
-import { XMarkdown } from "@ant-design/x-markdown";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { stripFrontmatter } from "../../../../utils/markdown";
@@ -65,88 +69,88 @@ export const FileEditor: React.FC<FileEditorProps> = ({
   return (
     <div className={styles.fileEditor}>
       <Card className={styles.editorCard}>
-        {selectedFile ? (
-          <>
-            <div className={styles.editorHeader}>
-              <div>
-                <div className={styles.fileName}>{selectedFile.filename}</div>
-                <div className={styles.filePath}>{selectedFile.path}</div>
+        <CardContent className="p-0">
+          {selectedFile ? (
+            <>
+              <div className={styles.editorHeader}>
+                <div>
+                  <div className={styles.fileName}>{selectedFile.filename}</div>
+                  <div className={styles.filePath}>{selectedFile.path}</div>
+                </div>
+                <div className={styles.buttonGroup}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={onReset}
+                    disabled={!hasChanges}
+                  >
+                    <Undo2 size={14} className="mr-1" />
+                    {t("common.reset")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={onSave}
+                    disabled={!hasChanges || loading}
+                  >
+                    {loading ? (
+                      <span className="animate-pulse mr-1">...</span>
+                    ) : (
+                      <Save size={14} className="mr-1" />
+                    )}
+                    {t("common.save")}
+                  </Button>
+                </div>
               </div>
-              <div className={styles.buttonGroup}>
-                <Button
-                  size="small"
-                  onClick={onReset}
-                  disabled={!hasChanges}
-                  icon={<UndoOutlined />}
-                >
-                  {t("common.reset")}
-                </Button>
-                <Button
-                  type="primary"
-                  size="small"
-                  onClick={onSave}
-                  disabled={!hasChanges}
-                  loading={loading}
-                  icon={<SaveOutlined />}
-                >
-                  {t("common.save")}
-                </Button>
-              </div>
-            </div>
 
-            <div className={styles.editorContent}>
-              <div className={styles.contentLabel}>
-                <div>{t("common.content")}</div>
-                {isMarkdownFile && (
-                  <div className={styles.buttonGroup}>
-                    <div className={styles.markdownToggle}>
-                      <span className={styles.toggleLabel}>
-                        {t("common.preview")}
-                      </span>
-                      <Switch
-                        checked={showMarkdown}
-                        onChange={setShowMarkdown}
-                        size="small"
-                      />
+              <div className={styles.editorContent}>
+                <div className={styles.contentLabel}>
+                  <div>{t("common.content")}</div>
+                  {isMarkdownFile && (
+                    <div className={styles.buttonGroup}>
+                      <div className={styles.markdownToggle}>
+                        <span className={styles.toggleLabel}>
+                          {t("common.preview")}
+                        </span>
+                        <Switch
+                          checked={showMarkdown}
+                          onCheckedChange={setShowMarkdown}
+                        />
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={copyToClipboard}
+                        className={styles.copyButton}
+                      >
+                        <Copy size={14} />
+                      </Button>
                     </div>
-                    <Button
-                      icon={<CopyOutlined />}
-                      type="text"
-                      onClick={copyToClipboard}
-                      className={styles.copyButton}
-                    />
+                  )}
+                </div>
+                {showMarkdown && isMarkdownFile ? (
+                  <div className={styles.markdownViewer}>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={mermaidComponents}
+                    >
+                      {markdownContent}
+                    </ReactMarkdown>
                   </div>
+                ) : (
+                  <Textarea
+                    value={fileContent}
+                    onChange={(e) => onContentChange(e.target.value)}
+                    className={styles.textarea}
+                    placeholder={t("workspace.fileContent")}
+                  />
                 )}
               </div>
-              {showMarkdown && isMarkdownFile ? (
-                <XMarkdown
-                  content={markdownContent}
-                  className={styles.markdownViewer}
-                  components={mermaidComponents}
-                  dompurifyConfig={{
-                    ADD_TAGS: ["pre", "code"],
-                    ADD_ATTR: [
-                      "data-block",
-                      "data-state",
-                      "data-lang",
-                      "class",
-                    ],
-                  }}
-                />
-              ) : (
-                <Input.TextArea
-                  value={fileContent}
-                  onChange={(e) => onContentChange(e.target.value)}
-                  className={styles.textarea}
-                  placeholder={t("workspace.fileContent")}
-                />
-              )}
-            </div>
-          </>
-        ) : (
-          <div className={styles.emptyState}>{t("workspace.selectFile")}</div>
-        )}
-        <p className={styles.attribution}>{t("workspace.attribution")}</p>
+            </>
+          ) : (
+            <div className={styles.emptyState}>{t("workspace.selectFile")}</div>
+          )}
+          <p className={styles.attribution}>{t("workspace.attribution")}</p>
+        </CardContent>
       </Card>
     </div>
   );

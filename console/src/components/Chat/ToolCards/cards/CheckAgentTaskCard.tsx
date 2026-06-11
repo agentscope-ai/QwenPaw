@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { SyncOutlined } from "@ant-design/icons";
+import { RefreshCw } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
 import { stringifyResult } from "../shared/utils";
@@ -34,7 +34,7 @@ const CheckAgentTaskCard: React.FC<CheckAgentTaskCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<SyncOutlined />}
+      icon={<RefreshCw size={13} />}
       title={title}
     >
       {resultText && <DefaultBlock title="Output" content={resultText} />}

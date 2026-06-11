@@ -1,9 +1,21 @@
 import { useMemo, useState } from "react";
-import { Button, Modal, Select } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { CronTemplateCategory, CronTemplateDefinition } from "./templates";
 import { CRON_TEMPLATES } from "./templates";
-import styles from "../index.module.less";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface TemplatePickerModalProps {
   open: boolean;
@@ -26,17 +38,6 @@ export function TemplatePickerModal({
     [category],
   );
 
-  const categoryOptions = [
-    {
-      label: t("cronJobs.scheduleTypeRecurring"),
-      value: "cron",
-    },
-    {
-      label: t("cronJobs.scheduleTypeOnce"),
-      value: "once",
-    },
-  ];
-
   const handleUseTemplate = (template: CronTemplateDefinition) => {
     const templateValues = template.toFormValues(timezone);
     onUseTemplate({
@@ -51,45 +52,56 @@ export function TemplatePickerModal({
   };
 
   return (
-    <Modal
-      visible={open}
-      title={t("cronJobs.templateModalTitle")}
-      footer={null}
-      width={860}
-      onCancel={onCancel}
-    >
-      <div className={styles.templateModalHeader}>
-        <div className={styles.templateModalDesc}>
-          {t("cronJobs.templateModalDescription")}
+    <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent className="max-w-[900px] w-full">
+        <DialogHeader>
+          <DialogTitle>{t("cronJobs.templateModalTitle")}</DialogTitle>
+        </DialogHeader>
+
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-sm text-muted-foreground">
+            {t("cronJobs.templateModalDescription")}
+          </p>
+          <Select
+            value={category}
+            onValueChange={(v) => setCategory(v as CronTemplateCategory)}
+          >
+            <SelectTrigger className="w-[220px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="cron">
+                {t("cronJobs.scheduleTypeRecurring")}
+              </SelectItem>
+              <SelectItem value="once">
+                {t("cronJobs.scheduleTypeOnce")}
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        <Select<CronTemplateCategory>
-          value={category}
-          options={categoryOptions}
-          style={{ width: 220 }}
-          onChange={setCategory}
-        />
-      </div>
-      <div className={styles.templateGrid}>
-        {filteredTemplates.map((template) => (
-          <div key={template.id} className={styles.templateCard}>
-            <div className={styles.templateTitle}>{t(template.titleKey)}</div>
-            <div className={styles.templateDesc}>
-              {t(template.descriptionKey)}
+
+        <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto pr-1">
+          {filteredTemplates.map((template) => (
+            <div
+              key={template.id}
+              className="border rounded-lg p-4 flex flex-col gap-2 hover:border-primary/50 transition-colors"
+            >
+              <div className="font-medium text-sm">{t(template.titleKey)}</div>
+              <div className="text-xs text-muted-foreground flex-1">
+                {t(template.descriptionKey)}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {t(template.frequencyKey)}
+              </div>
+              <div className="mt-2">
+                <Button size="sm" onClick={() => handleUseTemplate(template)}>
+                  {t("cronJobs.useTemplate")}
+                </Button>
+              </div>
             </div>
-            <div className={styles.templateMeta}>
-              {t(template.frequencyKey)}
-            </div>
-            <div className={styles.templateActions}>
-              <Button
-                type="primary"
-                onClick={() => handleUseTemplate(template)}
-              >
-                {t("cronJobs.useTemplate")}
-              </Button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </Modal>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

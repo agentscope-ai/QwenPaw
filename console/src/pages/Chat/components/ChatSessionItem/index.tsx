@@ -1,12 +1,5 @@
 import React, { useCallback, useRef } from "react";
-import { Input } from "antd";
-import { IconButton } from "@agentscope-ai/design";
-import {
-  SparkEditLine,
-  SparkDeleteLine,
-  SparkMarkLine,
-  SparkMarkFill,
-} from "@agentscope-ai/icons";
+import { Pencil, Trash2, Bookmark, BookmarkCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ChannelIcon } from "../../../Control/Channels/components";
 import type { ChatStatus } from "../../../../api/types/chat";
@@ -123,9 +116,9 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
       <div className={styles.iconPlaceholder} />
       <div className={styles.content}>
         {props.editing ? (
-          <Input
+          <input
             autoFocus
-            size="small"
+            className="w-full text-sm border border-input rounded px-2 py-0.5 bg-background focus:outline-none focus:ring-1 focus:ring-ring"
             value={props.editValue}
             onChange={(e) => props.onEditChange?.(e.target.value)}
             onCompositionStart={() => {
@@ -149,9 +142,6 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
               }
             }}
             onBlur={() => {
-              /* Delay slightly so that IME composition end + blur
-                 ordering issues on some browsers don't cause
-                 premature submit */
               setTimeout(() => {
                 if (!isComposingRef.current) {
                   props.onEditSubmit?.();
@@ -198,30 +188,32 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
       </div>
       {/* Pin button - always visible when pinned, positioned independently */}
       {!props.editing && (
-        <IconButton
-          bordered={false}
-          size="small"
-          className={styles.pinButton}
+        <button
+          type="button"
+          className={`${styles.pinButton} inline-flex items-center justify-center rounded p-1 text-muted-foreground hover:text-foreground transition-colors`}
           data-pinned={props.pinned}
-          icon={props.pinned ? <SparkMarkFill /> : <SparkMarkLine />}
           onClick={handlePin}
-        />
+        >
+          {props.pinned ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}
+        </button>
       )}
       {/* Action buttons - edit and delete, only visible on hover */}
       {!props.editing && (
         <div className={styles.actions}>
-          <IconButton
-            bordered={false}
-            size="small"
-            icon={<SparkEditLine />}
+          <button
+            type="button"
+            className="inline-flex items-center justify-center rounded p-1 text-muted-foreground hover:text-foreground transition-colors"
             onClick={handleEdit}
-          />
-          <IconButton
-            bordered={false}
-            size="small"
-            icon={<SparkDeleteLine />}
+          >
+            <Pencil size={13} />
+          </button>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center rounded p-1 text-muted-foreground hover:text-destructive transition-colors"
             onClick={handleDelete}
-          />
+          >
+            <Trash2 size={13} />
+          </button>
         </div>
       )}
     </div>

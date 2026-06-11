@@ -1,17 +1,32 @@
-import { Button, Input, Select, Tooltip } from "@agentscope-ai/design";
-import { Badge } from "antd";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
-  AppstoreOutlined,
-  CloseOutlined,
-  DeleteOutlined,
-  ImportOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-  SendOutlined,
-  SyncOutlined,
-  UnorderedListOutlined,
-  UploadOutlined,
-} from "@ant-design/icons";
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  LayoutGrid,
+  X,
+  Trash2,
+  Import,
+  Plus,
+  RefreshCw,
+  Send,
+  RefreshCcw,
+  Upload,
+  List,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ImportHubModal } from "../../Agent/Skills/components/ImportHubModal";
 import { SkillFilterDropdown } from "../../Agent/Skills/components/SkillFilterDropdown";
@@ -59,51 +74,88 @@ function SkillPoolPage() {
                     count: pool.selectedPoolSkills.size,
                   })}
                 </span>
-                <Button type="default" onClick={pool.selectAllPool}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={pool.selectAllPool}
+                >
                   {t("skills.selectAll")}
                 </Button>
                 <Button
-                  type="default"
+                  variant="outline"
+                  size="sm"
                   onClick={pool.clearPoolSelection}
-                  icon={<CloseOutlined />}
                 >
+                  <X size={14} className="mr-1" />
                   {t("skills.clearSelection")}
                 </Button>
                 <Button
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={pool.handleBatchDeletePool}
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => void pool.handleBatchDeletePool()}
                 >
+                  <Trash2 size={14} className="mr-1" />
                   {t("common.delete")} ({pool.selectedPoolSkills.size})
                 </Button>
-                <Button type="primary" onClick={pool.toggleBatchMode}>
+                <Button size="sm" onClick={pool.toggleBatchMode}>
                   {t("skills.exitBatch")}
                 </Button>
               </div>
             ) : (
               <>
                 <div className={styles.headerActionsLeft}>
-                  <Tooltip title={t("skillPool.refreshHint")}>
-                    <Button
-                      type="default"
-                      icon={<ReloadOutlined spin={pool.loading} />}
-                      onClick={pool.handleRefresh}
-                      disabled={pool.loading}
-                    />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void pool.handleRefresh()}
+                        disabled={pool.loading}
+                      >
+                        <RefreshCw
+                          size={14}
+                          className={pool.loading ? "animate-spin" : ""}
+                        />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("skillPool.refreshHint")}
+                    </TooltipContent>
                   </Tooltip>
-                  <Tooltip title={t("skillPool.broadcastHint")}>
-                    <Button
-                      type="default"
-                      className={styles.primaryTransferButton}
-                      icon={<SendOutlined />}
-                      onClick={() => pool.openBroadcast()}
-                    >
-                      {t("skillPool.broadcast")}
-                    </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={styles.primaryTransferButton}
+                        onClick={() => pool.openBroadcast()}
+                      >
+                        <Send size={14} className="mr-1" />
+                        {t("skillPool.broadcast")}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("skillPool.broadcastHint")}
+                    </TooltipContent>
                   </Tooltip>
-                  <Tooltip
-                    title={
-                      pool.hasUnseenBuiltinNotice
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="relative">
+                        {pool.hasUnseenBuiltinNotice && (
+                          <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-primary" />
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void pool.openImportBuiltin()}
+                        >
+                          <RefreshCcw size={14} className="mr-1" />
+                          {t("skillPool.importBuiltin")}
+                        </Button>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {pool.hasUnseenBuiltinNotice
                         ? builtinNoticeLines.length > 0
                           ? builtinNoticeLines.map((line) => (
                               <div key={line}>{line}</div>
@@ -111,55 +163,62 @@ function SkillPoolPage() {
                           : t("skillPool.importBuiltinAlertHint", {
                               count: pool.builtinNoticeTotal,
                             })
-                        : t("skillPool.importBuiltinHint")
-                    }
-                  >
-                    <Badge
-                      dot={pool.hasUnseenBuiltinNotice}
-                      color="rgba(255, 157, 77, 1)"
-                      offset={[-4, 4]}
-                    >
-                      <Button
-                        type="default"
-                        icon={<SyncOutlined />}
-                        onClick={() => void pool.openImportBuiltin()}
-                      >
-                        {t("skillPool.importBuiltin")}
-                      </Button>
-                    </Badge>
+                        : t("skillPool.importBuiltinHint")}
+                    </TooltipContent>
                   </Tooltip>
                 </div>
                 <div className={styles.headerActionsRight}>
-                  <Tooltip title={t("skillPool.uploadZipHint")}>
-                    <Button
-                      type="default"
-                      icon={<UploadOutlined />}
-                      onClick={() => pool.zipInputRef.current?.click()}
-                    >
-                      {t("skills.uploadZip")}
-                    </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => pool.zipInputRef.current?.click()}
+                      >
+                        <Upload size={14} className="mr-1" />
+                        {t("skills.uploadZip")}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("skillPool.uploadZipHint")}
+                    </TooltipContent>
                   </Tooltip>
-                  <Tooltip title={t("skillPool.importHubHint")}>
-                    <Button
-                      type="default"
-                      icon={<ImportOutlined />}
-                      onClick={() => pool.setImportModalOpen(true)}
-                    >
-                      {t("skills.importHub")}
-                    </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => pool.setImportModalOpen(true)}
+                      >
+                        <Import size={14} className="mr-1" />
+                        {t("skills.importHub")}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("skillPool.importHubHint")}
+                    </TooltipContent>
                   </Tooltip>
-                  <Button type="primary" onClick={pool.toggleBatchMode}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={pool.toggleBatchMode}
+                  >
                     {t("skills.batchOperation")}
                   </Button>
-                  <Tooltip title={t("skills.createSkillHint")}>
-                    <Button
-                      type="primary"
-                      className={styles.primaryActionButton}
-                      icon={<PlusOutlined />}
-                      onClick={pool.openCreate}
-                    >
-                      {t("skills.createSkill")}
-                    </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="sm"
+                        className={styles.primaryActionButton}
+                        onClick={pool.openCreate}
+                      >
+                        <Plus size={14} className="mr-1" />
+                        {t("skills.createSkill")}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("skills.createSkillHint")}
+                    </TooltipContent>
                   </Tooltip>
                 </div>
               </>
@@ -168,9 +227,7 @@ function SkillPoolPage() {
         }
       />
 
-      {/* ---- Scrollable Content ---- */}
       <div className={styles.content}>
-        {/* Toolbar */}
         {!pool.loading && pool.skills.length > 0 && (
           <div className={styles.toolbar}>
             <div className={styles.searchContainer}>
@@ -179,34 +236,29 @@ function SkillPoolPage() {
                 placeholder={t("skills.searchPlaceholder")}
                 value={pool.searchQuery}
                 onChange={(e) => pool.setSearchQuery(e.target.value)}
-                allowClear
               />
-              <Select
-                mode="multiple"
-                className={styles.tagSelect}
-                placeholder={t("skills.filterByTag")}
-                value={pool.searchTags}
-                onChange={pool.setSearchTags}
-                open={pool.filterOpen}
-                onOpenChange={pool.setFilterOpen}
-                allowClear
-                maxTagCount="responsive"
-                notFoundContent={<></>}
-                popupRender={() =>
-                  pool.allTags.length > 0 ? (
-                    <SkillFilterDropdown
-                      allTags={pool.allTags}
-                      searchTags={pool.searchTags}
-                      setSearchTags={pool.setSearchTags}
-                      styles={styles}
-                    />
-                  ) : (
-                    <div className={styles.tagSelectEmpty}>
-                      {t("skills.noTags")}
+              {pool.allTags.length > 0 && (
+                <div className="relative">
+                  <button
+                    className={`${styles.tagSelect} border rounded-md px-2 py-1 text-sm`}
+                    onClick={() => pool.setFilterOpen((v) => !v)}
+                  >
+                    {pool.searchTags.length > 0
+                      ? pool.searchTags.join(", ")
+                      : t("skills.filterByTag")}
+                  </button>
+                  {pool.filterOpen && (
+                    <div className="absolute z-50 bg-popover border rounded-md shadow-md mt-1 min-w-[200px]">
+                      <SkillFilterDropdown
+                        allTags={pool.allTags}
+                        searchTags={pool.searchTags}
+                        setSearchTags={pool.setSearchTags}
+                        styles={styles}
+                      />
                     </div>
-                  )
-                }
-              />
+                  )}
+                </div>
+              )}
             </div>
             <div className={styles.toolbarRight}>
               <div className={styles.viewToggle}>
@@ -217,7 +269,7 @@ function SkillPoolPage() {
                   onClick={() => pool.setViewMode("list")}
                   title={t("skills.listView")}
                 >
-                  <UnorderedListOutlined />
+                  <List size={16} />
                 </button>
                 <button
                   className={`${styles.viewToggleBtn} ${
@@ -226,7 +278,7 @@ function SkillPoolPage() {
                   onClick={() => pool.setViewMode("card")}
                   title={t("skills.gridView")}
                 >
-                  <AppstoreOutlined />
+                  <LayoutGrid size={16} />
                 </button>
               </div>
             </div>
@@ -316,7 +368,7 @@ function SkillPoolPage() {
         configText={pool.configText}
         availableTags={pool.allTags}
         onClose={pool.closeDrawer}
-        onSave={pool.handleSavePoolSkill}
+        onSave={() => void pool.handleSavePoolSkill()}
         onContentChange={pool.handleDrawerContentChange}
         onShowMarkdownChange={pool.setShowMarkdown}
         onConfigTextChange={pool.setConfigText}
@@ -325,6 +377,33 @@ function SkillPoolPage() {
       />
 
       {pool.conflictRenameModal}
+
+      {/* Generic confirm dialog (replaces Modal.confirm) */}
+      <AlertDialog
+        open={pool.confirmDialog.open}
+        onOpenChange={(v) => {
+          if (!v) pool.handleConfirmDialogCancel();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{pool.confirmDialog.title}</AlertDialogTitle>
+            {pool.confirmDialog.content && (
+              <AlertDialogDescription asChild>
+                <div>{pool.confirmDialog.content}</div>
+              </AlertDialogDescription>
+            )}
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={pool.handleConfirmDialogCancel}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={pool.handleConfirmDialogOk}>
+              {t("common.confirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

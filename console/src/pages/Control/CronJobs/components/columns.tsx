@@ -1,13 +1,22 @@
-import { Button, Tooltip, Dropdown } from "@agentscope-ai/design";
-import type { ColumnsType } from "antd/es/table";
-import type { MenuProps } from "antd";
+import type { ColumnDef } from "@tanstack/react-table";
 import type { CronJobSpecOutput } from "../../../../api/types";
-import { CopyOutlined, MoreOutlined } from "@ant-design/icons";
+import { Copy, MoreHorizontal } from "lucide-react";
 import dayjs from "dayjs";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { TFunction } from "i18next";
 import { parseCron } from "./parseCron";
-import styles from "../index.module.less";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type CronJob = CronJobSpecOutput;
 
@@ -47,72 +56,76 @@ const createCopyToClipboard = (t: TFunction) => async (text: string) => {
 
 export const createColumns = (
   handlers: ColumnHandlers,
-): ColumnsType<CronJob> => {
+): ColumnDef<CronJob>[] => {
   const copyToClipboard = createCopyToClipboard(handlers.t);
 
   return [
     {
-      title: handlers.t("cronJobs.id"),
-      dataIndex: "id",
-      key: "id",
-      width: 250,
-      fixed: "left",
+      accessorKey: "id",
+      header: handlers.t("cronJobs.id"),
+      size: 250,
     },
     {
-      title: handlers.t("cronJobs.name"),
-      dataIndex: "name",
-      key: "name",
-      width: 250,
+      accessorKey: "name",
+      header: handlers.t("cronJobs.name"),
+      size: 250,
     },
     {
-      title: handlers.t("cronJobs.enabled"),
-      dataIndex: "enabled",
-      key: "enabled",
-      width: 100,
-      render: (enabled: boolean) => (
-        <span className={styles.statusIndicator}>
-          <span
-            className={`${styles.statusDot} ${
-              enabled ? styles.enabled : styles.disabled
-            }`}
-          />
-          {enabled
-            ? handlers.t("common.enabled")
-            : handlers.t("common.disabled")}
-        </span>
-      ),
+      accessorKey: "enabled",
+      header: handlers.t("cronJobs.enabled"),
+      size: 100,
+      cell: ({ row }) => {
+        const enabled: boolean = row.getValue("enabled");
+        return (
+          <span className="flex items-center gap-1.5">
+            <span
+              className={`inline-block w-2 h-2 rounded-full ${
+                enabled ? "bg-green-500" : "bg-gray-400"
+              }`}
+            />
+            {enabled
+              ? handlers.t("common.enabled")
+              : handlers.t("common.disabled")}
+          </span>
+        );
+      },
     },
     {
-      title: handlers.t("cronJobs.scheduleType"),
-      dataIndex: ["schedule", "type"],
-      key: "schedule_type",
-      width: 140,
-      render: (type: string) =>
-        type === "once"
+      id: "schedule_type",
+      header: handlers.t("cronJobs.scheduleType"),
+      size: 140,
+      accessorFn: (row) => row.schedule?.type,
+      cell: ({ row }) => {
+        const type = row.original.schedule?.type;
+        return type === "once"
           ? handlers.t("cronJobs.scheduleTypeOnce")
-          : handlers.t("cronJobs.scheduleTypeRecurring"),
+          : handlers.t("cronJobs.scheduleTypeRecurring");
+      },
     },
     {
-      title: handlers.t("cronJobs.scheduleCron"),
-      dataIndex: "schedule",
-      key: "cron",
-      width: 180,
-      render: (schedule: any) => {
+      id: "cron",
+      header: handlers.t("cronJobs.scheduleCron"),
+      size: 180,
+      cell: ({ row }) => {
+        const schedule = row.original.schedule as any;
         if (schedule?.type === "once") {
           const displayText = schedule?.run_at
             ? dayjs(schedule.run_at).format("YYYY-MM-DD HH:mm")
             : "-";
           return (
-            <Tooltip title={schedule?.run_at || displayText}>
-              <span className={styles.cronText}>{displayText}</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="truncate max-w-[160px] block cursor-default">
+                  {displayText}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{schedule?.run_at || displayText}</TooltipContent>
             </Tooltip>
           );
         }
         const cron = schedule?.cron || "0 9 * * *";
-        // Parse cron to friendly text
         const cronParts = parseCron(cron);
         let displayText = "";
-
         switch (cronParts.type) {
           case "hourly":
             displayText = handlers.t("cronJobs.cronTypeHourly");
@@ -123,19 +136,17 @@ export const createColumns = (
             ).padStart(2, "0")}:${String(cronParts.minute).padStart(2, "0")}`;
             break;
           case "weekly": {
+            const dayMap: Record<string, string> = {
+              mon: handlers.t("cronJobs.cronDayMon"),
+              tue: handlers.t("cronJobs.cronDayTue"),
+              wed: handlers.t("cronJobs.cronDayWed"),
+              thu: handlers.t("cronJobs.cronDayThu"),
+              fri: handlers.t("cronJobs.cronDayFri"),
+              sat: handlers.t("cronJobs.cronDaySat"),
+              sun: handlers.t("cronJobs.cronDaySun"),
+            };
             const dayNames = (cronParts.daysOfWeek || [])
-              .map((d) => {
-                const dayMap: Record<string, string> = {
-                  mon: handlers.t("cronJobs.cronDayMon"),
-                  tue: handlers.t("cronJobs.cronDayTue"),
-                  wed: handlers.t("cronJobs.cronDayWed"),
-                  thu: handlers.t("cronJobs.cronDayThu"),
-                  fri: handlers.t("cronJobs.cronDayFri"),
-                  sat: handlers.t("cronJobs.cronDaySat"),
-                  sun: handlers.t("cronJobs.cronDaySun"),
-                };
-                return dayMap[d] || d;
-              })
+              .map((d) => dayMap[d] || d)
               .join(",");
             displayText = `${handlers.t(
               "cronJobs.cronTypeWeekly",
@@ -148,67 +159,63 @@ export const createColumns = (
             displayText = cron;
             break;
         }
-
         return (
-          <Tooltip
-            title={
-              <div>
-                <div>Cron 表达式：{cron}</div>
-                <div
-                  className={styles.tableText}
-                  style={{ opacity: 0.8, marginTop: 4 }}
-                >
-                  格式：分钟 小时 日 月 星期
-                </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="truncate max-w-[160px] block cursor-default">
+                {displayText}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              <div>Cron: {cron}</div>
+              <div className="opacity-80 mt-1 text-xs">
+                Format: min hr day month weekday
               </div>
-            }
-          >
-            <span className={styles.cronText}>{displayText}</span>
+            </TooltipContent>
           </Tooltip>
         );
       },
     },
     {
-      title: handlers.t("cronJobs.scheduleTimezone"),
-      dataIndex: ["schedule", "timezone"],
-      key: "timezone",
-      width: 170,
+      id: "timezone",
+      header: handlers.t("cronJobs.scheduleTimezone"),
+      size: 170,
+      accessorFn: (row) => (row.schedule as any)?.timezone,
     },
     {
-      title: "TaskType",
-      dataIndex: "task_type",
-      key: "task_type",
-      width: 140,
+      accessorKey: "task_type",
+      header: "TaskType",
+      size: 140,
     },
     {
-      title: handlers.t("cronJobs.text"),
-      dataIndex: "text",
-      key: "text",
-      width: 200,
-      ellipsis: {
-        showTitle: true,
-      },
-      render: (text: string) => {
+      accessorKey: "text",
+      header: handlers.t("cronJobs.text"),
+      size: 200,
+      cell: ({ row }) => {
+        const text: string = row.getValue("text");
         if (!text) return "-";
         return (
-          <Tooltip title={text}>
-            <span className={styles.tableText}>{text}</span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="truncate max-w-[180px] block cursor-default">
+                {text}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{text}</TooltipContent>
           </Tooltip>
         );
       },
     },
     {
-      title: handlers.t("cronJobs.requestInput"),
-      dataIndex: ["request", "input"],
-      key: "request_input",
-      width: 350,
-      ellipsis: true,
-      render: (input: unknown) => {
+      id: "request_input",
+      header: handlers.t("cronJobs.requestInput"),
+      size: 350,
+      accessorFn: (row) => row.request?.input,
+      cell: ({ row }) => {
+        const input = row.original.request?.input;
         if (!input) return "-";
-
         let displayText: string;
         let fullText: string;
-
         try {
           fullText = JSON.stringify(input, null, 2);
           displayText = JSON.stringify(input);
@@ -216,116 +223,102 @@ export const createColumns = (
           fullText = String(input);
           displayText = fullText;
         }
-
         if (displayText.length <= 50) {
-          return <code className={styles.codeText}>{displayText}</code>;
+          return <code className="text-xs font-mono">{displayText}</code>;
         }
-
-        const truncatedText =
-          displayText.length > 50
-            ? displayText.substring(0, 50) + "..."
-            : displayText;
-
+        const truncated = displayText.substring(0, 50) + "...";
         return (
-          <Tooltip
-            title={
-              <div className={styles.tooltipContent}>
-                <div className={styles.tooltipJsonContent}>{fullText}</div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <code
+                className="text-xs font-mono text-primary cursor-pointer"
+                onClick={() => copyToClipboard(fullText)}
+              >
+                {truncated}
+              </code>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-[400px]">
+              <div className="flex items-start gap-1">
+                <pre className="text-xs whitespace-pre-wrap break-all max-h-[200px] overflow-auto">
+                  {fullText}
+                </pre>
                 <Button
-                  type="text"
-                  icon={<CopyOutlined />}
-                  size="small"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 shrink-0"
                   onClick={(e) => {
                     e.stopPropagation();
                     copyToClipboard(fullText);
                   }}
-                  className={styles.copyButton}
-                />
+                >
+                  <Copy size={12} />
+                </Button>
               </div>
-            }
-            placement="topLeft"
-            overlayInnerStyle={{ maxWidth: 400 }}
-          >
-            <code className={styles.codeLink}>{truncatedText}</code>
+            </TooltipContent>
           </Tooltip>
         );
       },
     },
     {
-      title: "DispatchType",
-      dataIndex: ["dispatch", "type"],
-      key: "dispatch_type",
-      width: 140,
+      id: "dispatch_type",
+      header: "DispatchType",
+      size: 140,
+      accessorFn: (row) => (row as any).dispatch?.type,
     },
     {
-      title: "DispatchChannel",
-      dataIndex: ["dispatch", "channel"],
-      key: "channel",
-      width: 150,
+      id: "channel",
+      header: "DispatchChannel",
+      size: 150,
+      accessorFn: (row) => (row as any).dispatch?.channel,
     },
     {
-      title: "DispatchTargetUserID",
-      dataIndex: ["dispatch", "target", "user_id"],
-      key: "target_user_id",
-      width: 190,
+      id: "target_user_id",
+      header: "DispatchTargetUserID",
+      size: 190,
+      accessorFn: (row) => (row as any).dispatch?.target?.user_id,
     },
     {
-      title: "DispatchTargetSessionID",
-      dataIndex: ["dispatch", "target", "session_id"],
-      key: "target_session_id",
-      width: 210,
+      id: "target_session_id",
+      header: "DispatchTargetSessionID",
+      size: 210,
+      accessorFn: (row) => (row as any).dispatch?.target?.session_id,
     },
     {
-      title: "DispatchMode",
-      dataIndex: ["dispatch", "mode"],
-      key: "mode",
-      width: 140,
+      id: "mode",
+      header: "DispatchMode",
+      size: 140,
+      accessorFn: (row) => (row as any).dispatch?.mode,
     },
     {
-      title: "RuntimeMaxConcurrency",
-      dataIndex: ["runtime", "max_concurrency"],
-      key: "max_concurrency",
-      width: 210,
+      id: "max_concurrency",
+      header: "RuntimeMaxConcurrency",
+      size: 210,
+      accessorFn: (row) => (row as any).runtime?.max_concurrency,
     },
     {
-      title: "RuntimeTimeoutSeconds",
-      dataIndex: ["runtime", "timeout_seconds"],
-      key: "timeout_seconds",
-      width: 210,
+      id: "timeout_seconds",
+      header: "RuntimeTimeoutSeconds",
+      size: 210,
+      accessorFn: (row) => (row as any).runtime?.timeout_seconds,
     },
     {
-      title: "RuntimeMisfireGraceSeconds",
-      dataIndex: ["runtime", "misfire_grace_seconds"],
-      key: "misfire_grace_seconds",
-      width: 240,
+      id: "misfire_grace_seconds",
+      header: "RuntimeMisfireGraceSeconds",
+      size: 240,
+      accessorFn: (row) => (row as any).runtime?.misfire_grace_seconds,
     },
     {
-      title: handlers.t("cronJobs.action"),
-      key: "action",
-      width: 320,
-      fixed: "right",
-      render: (_: unknown, record: CronJob) => {
-        const menuItems: MenuProps["items"] = [
-          {
-            key: "edit",
-            label: handlers.t("cronJobs.edit"),
-            disabled: record.enabled,
-            onClick: () => handlers.onEdit(record),
-          },
-          {
-            key: "delete",
-            label: handlers.t("cronJobs.delete"),
-            disabled: record.enabled,
-            danger: true,
-            onClick: () => handlers.onDelete(record.id),
-          },
-        ];
-
+      id: "action",
+      header: handlers.t("cronJobs.action"),
+      size: 320,
+      cell: ({ row }) => {
+        const record = row.original;
         return (
-          <div className={styles.actionColumn}>
+          <div className="flex items-center gap-1">
             <Button
-              type="link"
-              size="small"
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-xs"
               onClick={() => handlers.onToggleEnabled(record)}
             >
               {record.enabled
@@ -333,22 +326,43 @@ export const createColumns = (
                 : handlers.t("common.enable")}
             </Button>
             <Button
-              type="link"
-              size="small"
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-xs"
               onClick={() => handlers.onExecuteNow(record)}
             >
               {handlers.t("cronJobs.executeNow")}
             </Button>
             <Button
-              type="link"
-              size="small"
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-xs"
               onClick={() => handlers.onViewHistory(record)}
             >
               {handlers.t("cronJobs.executionHistory")}
             </Button>
-            <Dropdown menu={{ items: menuItems }} placement="bottomRight">
-              <Button type="text" size="small" icon={<MoreOutlined />} />
-            </Dropdown>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                  <MoreHorizontal size={14} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  disabled={record.enabled}
+                  onClick={() => handlers.onEdit(record)}
+                >
+                  {handlers.t("cronJobs.edit")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={record.enabled}
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => handlers.onDelete(record.id)}
+                >
+                  {handlers.t("cronJobs.delete")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         );
       },

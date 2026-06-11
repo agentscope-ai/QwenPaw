@@ -1,4 +1,4 @@
-import { Tag } from "antd";
+import { Badge } from "@/components/ui/badge";
 import {
   Package,
   Wrench,
@@ -48,12 +48,9 @@ const PLUGIN_TYPE_CONFIG: Record<
 export function PluginTypeTag({ type }: { type: PluginType }) {
   const cfg = PLUGIN_TYPE_CONFIG[type] ?? PLUGIN_TYPE_CONFIG.general;
   return (
-    <Tag
-      color={cfg.color}
-      icon={cfg.icon}
-      style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-    >
+    <Badge variant="outline" className="inline-flex items-center gap-1 text-xs">
+      {cfg.icon}
       {cfg.label}
-    </Tag>
+    </Badge>
   );
 }

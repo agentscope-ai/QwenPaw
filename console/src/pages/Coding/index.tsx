@@ -13,7 +13,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { Group, Panel, Separator } from "react-resizable-panels";
-import { Badge, Tooltip } from "antd";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   GitBranch,
   MessageSquare,
@@ -143,32 +147,38 @@ export default function CodingPage() {
     <div className={styles.root}>
       {/* ── Activity bar (left edge, icon-only like VS Code) ───────────── */}
       <div className={styles.activityBar}>
-        <Tooltip title="Explorer" placement="right">
-          <button
-            type="button"
-            className={`${styles.actBtn} ${
-              leftOpen && leftPane === "files" ? styles.actBtnActive : ""
-            }`}
-            onClick={() => toggleLeft("files")}
-          >
-            {leftOpen && leftPane === "files" ? (
-              <PanelLeftClose size={18} />
-            ) : (
-              <PanelLeftOpen size={18} />
-            )}
-          </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={`${styles.actBtn} ${
+                leftOpen && leftPane === "files" ? styles.actBtnActive : ""
+              }`}
+              onClick={() => toggleLeft("files")}
+            >
+              {leftOpen && leftPane === "files" ? (
+                <PanelLeftClose size={18} />
+              ) : (
+                <PanelLeftOpen size={18} />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">Explorer</TooltipContent>
         </Tooltip>
 
-        <Tooltip title="Source Control" placement="right">
-          <button
-            type="button"
-            className={`${styles.actBtn} ${
-              leftOpen && leftPane === "git" ? styles.actBtnActive : ""
-            }`}
-            onClick={() => toggleLeft("git")}
-          >
-            <GitBranch size={18} />
-          </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={`${styles.actBtn} ${
+                leftOpen && leftPane === "git" ? styles.actBtnActive : ""
+              }`}
+              onClick={() => toggleLeft("git")}
+            >
+              <GitBranch size={18} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">Source Control</TooltipContent>
         </Tooltip>
 
         <div className={styles.actBarSpacer} />
@@ -221,14 +231,17 @@ export default function CodingPage() {
                     <MessageSquare size={13} style={{ marginRight: 5 }} />
                     Chat
                   </span>
-                  <Tooltip title="Hide chat panel">
-                    <button
-                      type="button"
-                      className={styles.chatCloseBtn}
-                      onClick={() => setRightOpen(false)}
-                    >
-                      <PanelRightClose size={13} />
-                    </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className={styles.chatCloseBtn}
+                        onClick={() => setRightOpen(false)}
+                      >
+                        <PanelRightClose size={13} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Hide chat panel</TooltipContent>
                   </Tooltip>
                 </div>
                 <div className={styles.chatBody}>
@@ -241,16 +254,24 @@ export default function CodingPage() {
 
         {/* Chat re-open button when hidden */}
         {!rightOpen && (
-          <Tooltip title="Show chat panel" placement="left">
-            <button
-              type="button"
-              className={styles.chatReopenBtn}
-              onClick={() => setRightOpen(true)}
-            >
-              <Badge count={dirtyCount} size="small">
-                <PanelRightOpen size={16} />
-              </Badge>
-            </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className={styles.chatReopenBtn}
+                onClick={() => setRightOpen(true)}
+              >
+                <span className="relative inline-flex">
+                  <PanelRightOpen size={16} />
+                  {dirtyCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-0.5 text-[10px] flex items-center justify-center rounded-full bg-primary text-primary-foreground font-semibold">
+                      {dirtyCount}
+                    </span>
+                  )}
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Show chat panel</TooltipContent>
           </Tooltip>
         )}
       </div>

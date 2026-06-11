@@ -1,11 +1,20 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { SaveOutlined } from "@ant-design/icons";
-import { Select, Button, Card } from "@agentscope-ai/design";
+import { Save } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { ModelSlotRequest } from "../../../../../api/types";
 import api from "../../../../../api";
-import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import styles from "../../index.module.less";
 
 interface ModelsSectionProps {
@@ -89,13 +98,11 @@ export const ModelsSection = React.memo(function ModelsSection({
 
   const handleSave = async () => {
     if (!selectedProviderId || !selectedModel) return;
-
     const selectedProvider = providers.find((p) => p.id === selectedProviderId);
     const selectedModelInfo = [
       ...(selectedProvider?.models ?? []),
       ...(selectedProvider?.extra_models ?? []),
     ].find((model) => model.id === selectedModel);
-
     if (selectedProvider && selectedModelInfo) {
       const confirmed = await confirmFreeModelSwitch({
         provider: selectedProvider,
@@ -104,13 +111,11 @@ export const ModelsSection = React.memo(function ModelsSection({
       });
       if (!confirmed) return;
     }
-
     const body: ModelSlotRequest = {
       provider_id: selectedProviderId,
       model: selectedModel,
       scope: "global",
     };
-
     setSaving(true);
     try {
       await api.setActiveLlm(body);
@@ -133,60 +138,77 @@ export const ModelsSection = React.memo(function ModelsSection({
   const canSave = dirty && !!selectedProviderId && !!selectedModel;
 
   return (
-    <Card className={styles.slotSection} title={t("models.defaultLlm")}>
-      <div className={styles.slotForm}>
-        <div className={styles.slotField}>
-          <label className={styles.slotLabel}>{t("models.provider")}</label>
-          <Select
-            style={{ width: "100%" }}
-            placeholder={t("models.selectProvider")}
-            value={selectedProviderId}
-            onChange={handleProviderChange}
-            options={eligible.map((p) => ({
-              value: p.id,
-              label: p.name,
-            }))}
-          />
-        </div>
+    <Card className={styles.slotSection}>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">{t("models.defaultLlm")}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className={styles.slotForm}>
+          <div className={styles.slotField}>
+            <Label className={styles.slotLabel}>{t("models.provider")}</Label>
+            <Select
+              value={selectedProviderId}
+              onValueChange={handleProviderChange}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("models.selectProvider")} />
+              </SelectTrigger>
+              <SelectContent>
+                {eligible.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <div className={styles.slotField}>
-          <label className={styles.slotLabel}>{t("models.model")}</label>
-          <Select
-            style={{ width: "100%" }}
-            placeholder={
-              hasModels ? t("models.selectModel") : t("models.addModelFirst")
-            }
-            disabled={!hasModels}
-            showSearch
-            optionFilterProp="label"
-            value={selectedModel}
-            onChange={handleModelChange}
-            options={modelOptions.map((m) => ({
-              value: m.id,
-              label: `${m.name} (${m.id})`,
-            }))}
-          />
-        </div>
+          <div className={styles.slotField}>
+            <Label className={styles.slotLabel}>{t("models.model")}</Label>
+            <Select
+              value={selectedModel}
+              onValueChange={handleModelChange}
+              disabled={!hasModels}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue
+                  placeholder={
+                    hasModels
+                      ? t("models.selectModel")
+                      : t("models.addModelFirst")
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {modelOptions.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.name} ({m.id})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <div className={[styles.slotField, styles.slotActionField].join(" ")}>
-          <label
-            className={[styles.slotLabel, styles.visuallyHiddenLabel].join(" ")}
-          >
-            {t("models.actions")}
-          </label>
-          <Button
-            type="primary"
-            loading={saving}
-            disabled={!canSave}
-            onClick={handleSave}
-            block
-            icon={<SaveOutlined />}
-          >
-            {isActive ? t("models.saved") : t("models.save")}
-          </Button>
+          <div className={[styles.slotField, styles.slotActionField].join(" ")}>
+            <Label
+              className={[styles.slotLabel, styles.visuallyHiddenLabel].join(
+                " ",
+              )}
+            >
+              {t("models.actions")}
+            </Label>
+            <Button
+              disabled={!canSave || saving}
+              onClick={handleSave}
+              className="w-full"
+            >
+              <Save className="mr-2 h-4 w-4" />
+              {isActive ? t("models.saved") : t("models.save")}
+            </Button>
+          </div>
         </div>
-      </div>
-      <p className={styles.slotDescription}>{t("models.llmDescription")}</p>
+        <p className={styles.slotDescription}>{t("models.llmDescription")}</p>
+      </CardContent>
     </Card>
   );
 });

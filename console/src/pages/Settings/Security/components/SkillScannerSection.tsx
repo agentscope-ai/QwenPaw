@@ -1,18 +1,46 @@
 import { useState, useCallback } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
-  Card,
-  InputNumber,
   Table,
-  Tag,
-  Button,
-  Modal,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Tooltip,
-  Empty,
-  Tabs,
-} from "@agentscope-ai/design";
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
-import { Select, Space } from "antd";
-import { Trash2, ShieldCheck, Eye } from "lucide-react";
+import { Trash2, ShieldCheck, Eye, Package } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSkillScanner } from "../useSkillScanner";
 import type {
@@ -22,7 +50,6 @@ import type {
   SkillScannerMode,
 } from "../../../../api/modules/security";
 import { skillApi } from "../../../../api/modules/skill";
-import { useTheme } from "../../../../contexts/ThemeContext";
 import styles from "../index.module.less";
 
 function FindingsModal({
@@ -39,52 +66,49 @@ function FindingsModal({
   const { t } = useTranslation();
 
   return (
-    <Modal
-      title={`${t(
-        "security.skillScanner.scanAlerts.viewFindings",
-      )} - ${skillName}`}
+    <Dialog
       open={open}
-      onCancel={onClose}
-      footer={null}
-      width={700}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
     >
-      <Table
-        dataSource={findings}
-        rowKey={(_, idx) => String(idx)}
-        pagination={false}
-        size="small"
-        columns={[
-          {
-            title: "Title",
-            dataIndex: "title",
-            key: "title",
-            width: 200,
-          },
-          {
-            title: "File",
-            key: "location",
-            width: 160,
-            render: (_: unknown, record: BlockedSkillFinding) =>
-              record.line_number
-                ? `${record.file_path}:${record.line_number}`
-                : record.file_path,
-          },
-          {
-            title: "Description",
-            dataIndex: "description",
-            key: "description",
-            ellipsis: true,
-          },
-        ]}
-      />
-    </Modal>
+      <DialogContent className="max-w-[700px]">
+        <DialogHeader>
+          <DialogTitle>
+            {t("security.skillScanner.scanAlerts.viewFindings")} - {skillName}
+          </DialogTitle>
+        </DialogHeader>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead style={{ width: 200 }}>Title</TableHead>
+              <TableHead style={{ width: 160 }}>File</TableHead>
+              <TableHead>Description</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {findings.map((f, idx) => (
+              <TableRow key={idx}>
+                <TableCell>{f.title}</TableCell>
+                <TableCell>
+                  {f.line_number
+                    ? `${f.file_path}:${f.line_number}`
+                    : f.file_path}
+                </TableCell>
+                <TableCell className="max-w-[200px] truncate">
+                  {f.description}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 export function SkillScannerSection() {
   const { t } = useTranslation();
-  const { isDark } = useTheme();
-  const darkBtnStyle = isDark ? { color: "rgba(255,255,255,0.75)" } : undefined;
   const {
     config,
     blockedHistory,
@@ -105,6 +129,13 @@ export function SkillScannerSection() {
     skillName: string;
   }>({ open: false, findings: [], skillName: "" });
 
+  const [removeWhitelistDialog, setRemoveWhitelistDialog] = useState<
+    string | null
+  >(null);
+  const [clearHistoryDialog, setClearHistoryDialog] = useState(false);
+
+  const [pendingTimeout, setPendingTimeout] = useState<number | null>(null);
+
   const handleModeChange = useCallback(
     async (mode: SkillScannerMode) => {
       setSaving(true);
@@ -115,8 +146,6 @@ export function SkillScannerSection() {
     },
     [updateConfig, t],
   );
-
-  const [pendingTimeout, setPendingTimeout] = useState<number | null>(null);
 
   const handleTimeoutBlur = useCallback(async () => {
     const value = pendingTimeout;
@@ -145,310 +174,341 @@ export function SkillScannerSection() {
     [addToWhitelist, removeBlockedEntry, t],
   );
 
-  const handleRemoveWhitelist = useCallback(
+  const handleRemoveWhitelistConfirm = useCallback(
     async (skillName: string) => {
-      Modal.confirm({
-        title: t("security.skillScanner.whitelist.removeConfirm"),
-        content: t("security.skillScanner.whitelist.removeWillDisable"),
-        onOk: async () => {
-          const ok = await removeFromWhitelist(skillName);
-          if (!ok) {
-            message.error(t("security.skillScanner.whitelist.removeFailed"));
-            return;
-          }
-          try {
-            await skillApi.disableSkill(skillName);
-            message.success(
-              t("security.skillScanner.whitelist.removeAndDisabled"),
-            );
-          } catch {
-            message.success(t("security.skillScanner.whitelist.removeSuccess"));
-          }
-        },
-      });
+      const ok = await removeFromWhitelist(skillName);
+      if (!ok) {
+        message.error(t("security.skillScanner.whitelist.removeFailed"));
+        return;
+      }
+      try {
+        await skillApi.disableSkill(skillName);
+        message.success(t("security.skillScanner.whitelist.removeAndDisabled"));
+      } catch {
+        message.success(t("security.skillScanner.whitelist.removeSuccess"));
+      }
+      setRemoveWhitelistDialog(null);
     },
     [removeFromWhitelist, t],
   );
 
-  const handleClearHistory = useCallback(() => {
-    Modal.confirm({
-      title: t("security.skillScanner.scanAlerts.clearConfirm"),
-      onOk: async () => {
-        await clearBlockedHistory();
-      },
-    });
-  }, [clearBlockedHistory, t]);
+  const handleClearHistoryConfirm = useCallback(async () => {
+    await clearBlockedHistory();
+    setClearHistoryDialog(false);
+  }, [clearBlockedHistory]);
 
   if (loading || !config) return null;
 
   const enabled = config.mode !== "off";
 
-  const blockedColumns = [
-    {
-      title: t("security.skillScanner.scanAlerts.skillName"),
-      dataIndex: "skill_name",
-      key: "skill_name",
-      width: 180,
-    },
-    {
-      title: t("security.skillScanner.scanAlerts.action"),
-      dataIndex: "action",
-      key: "action",
-      width: 100,
-      render: (action: string) => (
-        <Tag color={action === "blocked" ? "red" : "orange"}>
-          {action === "blocked"
-            ? t("security.skillScanner.scanAlerts.actionBlocked")
-            : t("security.skillScanner.scanAlerts.actionWarned")}
-        </Tag>
-      ),
-    },
-    {
-      title: t("security.skillScanner.scanAlerts.time"),
-      dataIndex: "blocked_at",
-      key: "blocked_at",
-      width: 180,
-      render: (val: string) => {
-        try {
-          return new Date(val).toLocaleString();
-        } catch {
-          return val;
-        }
-      },
-    },
-    {
-      title: t("security.skillScanner.scanAlerts.actions"),
-      key: "actions",
-      width: 200,
-      render: (_: unknown, record: BlockedSkillRecord, index: number) => (
-        <Space size="small">
-          <Tooltip title={t("security.skillScanner.scanAlerts.viewFindings")}>
-            <Button
-              type="text"
-              size="middle"
-              style={darkBtnStyle}
-              onClick={() =>
-                setFindingsModal({
-                  open: true,
-                  findings: record.findings,
-                  skillName: record.skill_name,
-                })
-              }
-            >
-              <Eye size={14} />
-            </Button>
-          </Tooltip>
-          <Tooltip title={t("security.skillScanner.scanAlerts.allowSkill")}>
-            <Button
-              type="text"
-              size="middle"
-              style={darkBtnStyle}
-              onClick={() => handleAllowSkill(record, index)}
-            >
-              <ShieldCheck size={14} />
-            </Button>
-          </Tooltip>
-          <Tooltip title={t("security.skillScanner.scanAlerts.remove")}>
-            <Button
-              type="text"
-              size="middle"
-              danger
-              onClick={() => removeBlockedEntry(index)}
-            >
-              <Trash2 size={14} />
-            </Button>
-          </Tooltip>
-        </Space>
-      ),
-    },
-  ];
-
-  const whitelistColumns = [
-    {
-      title: t("security.skillScanner.whitelist.skillName"),
-      dataIndex: "skill_name",
-      key: "skill_name",
-      width: 200,
-    },
-    {
-      title: t("security.skillScanner.whitelist.contentHash"),
-      dataIndex: "content_hash",
-      key: "content_hash",
-      width: 200,
-      ellipsis: true,
-      render: (hash: string) =>
-        hash ? (
-          <Tooltip title={hash}>
-            <code className={styles.codeHash}>{hash.substring(0, 16)}...</code>
-          </Tooltip>
-        ) : (
-          <span style={{ color: "#999" }}>any</span>
-        ),
-    },
-    {
-      title: t("security.skillScanner.whitelist.addedAt"),
-      dataIndex: "added_at",
-      key: "added_at",
-      width: 180,
-      render: (val: string) => {
-        try {
-          return new Date(val).toLocaleString();
-        } catch {
-          return val;
-        }
-      },
-    },
-    {
-      title: t("security.skillScanner.whitelist.actions"),
-      key: "actions",
-      width: 100,
-      render: (_: unknown, record: SkillScannerWhitelistEntry) => (
-        <Tooltip title={t("security.skillScanner.whitelist.remove")}>
-          <Button
-            type="text"
-            size="middle"
-            danger
-            onClick={() => handleRemoveWhitelist(record.skill_name)}
-          >
-            <Trash2 size={14} />
-          </Button>
-        </Tooltip>
-      ),
-    },
-  ];
-
   return (
     <>
-      <Card className={styles.formCard}>
+      <div className={`${styles.formCard} border rounded-lg p-4`}>
         <div className={styles.skillScannerConfig}>
           <div className={styles.skillScannerConfigItem}>
-            <Tooltip title={t("security.skillScanner.modeTooltip")}>
-              <span className={styles.skillScannerLabel}>
-                {t("security.skillScanner.mode")}
-              </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className={`${styles.skillScannerLabel} cursor-default`}>
+                  {t("security.skillScanner.mode")}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t("security.skillScanner.modeTooltip")}
+              </TooltipContent>
             </Tooltip>
             <Select
               value={config.mode}
-              onChange={handleModeChange}
+              onValueChange={(v) => handleModeChange(v as SkillScannerMode)}
               disabled={saving}
-              style={{ width: 140 }}
-              options={[
-                {
-                  value: "block",
-                  label: t("security.skillScanner.modeBlock"),
-                },
-                { value: "warn", label: t("security.skillScanner.modeWarn") },
-                { value: "off", label: t("security.skillScanner.modeOff") },
-              ]}
-            />
+            >
+              <SelectTrigger style={{ width: 140 }}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="block">
+                  {t("security.skillScanner.modeBlock")}
+                </SelectItem>
+                <SelectItem value="warn">
+                  {t("security.skillScanner.modeWarn")}
+                </SelectItem>
+                <SelectItem value="off">
+                  {t("security.skillScanner.modeOff")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className={styles.skillScannerConfigItem}>
-            <Tooltip title={t("security.skillScanner.timeoutTooltip")}>
-              <span className={styles.skillScannerLabel}>
-                {t("security.skillScanner.timeout")}
-              </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className={`${styles.skillScannerLabel} cursor-default`}>
+                  {t("security.skillScanner.timeout")}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t("security.skillScanner.timeoutTooltip")}
+              </TooltipContent>
             </Tooltip>
-            <InputNumber
+            <Input
+              type="number"
               min={5}
               max={300}
               value={pendingTimeout ?? config.timeout}
-              onChange={(v) => setPendingTimeout(v)}
+              onChange={(e) => setPendingTimeout(parseInt(e.target.value, 10))}
               onBlur={handleTimeoutBlur}
-              onPressEnter={handleTimeoutBlur}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleTimeoutBlur();
+              }}
               disabled={!enabled}
               style={{ width: 100 }}
             />
           </div>
         </div>
-      </Card>
+      </div>
 
-      <Tabs
-        className={styles.innerTabs}
-        items={[
-          {
-            key: "scanAlerts",
-            label: (
-              <span>
-                {t("security.skillScanner.scanAlerts.title")}
-                {blockedHistory.length > 0 && (
-                  <span className={styles.tabBadge}>
-                    {blockedHistory.length}
+      <Tabs defaultValue="scanAlerts" className={styles.innerTabs}>
+        <TabsList>
+          <TabsTrigger value="scanAlerts">
+            {t("security.skillScanner.scanAlerts.title")}
+            {blockedHistory.length > 0 && (
+              <span className={styles.tabBadge}>{blockedHistory.length}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="whitelist">
+            {t("security.skillScanner.whitelist.title")}
+            {whitelist.length > 0 && (
+              <span className={styles.tabBadge}>{whitelist.length}</span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="scanAlerts">
+          <div className={styles.tabPanelContent}>
+            {blockedHistory.length > 0 && (
+              <div className={styles.tabPanelHeader}>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => setClearHistoryDialog(true)}
+                >
+                  {t("security.skillScanner.scanAlerts.clearAll")}
+                </Button>
+              </div>
+            )}
+            <div className={`${styles.tableCard} border rounded-lg`}>
+              {blockedHistory.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
+                  <Package size={48} strokeWidth={1} />
+                  <span className={styles.emptyText}>
+                    {t("security.skillScanner.scanAlerts.empty")}
                   </span>
-                )}
-              </span>
-            ),
-            children: (
-              <div className={styles.tabPanelContent}>
-                {blockedHistory.length > 0 && (
-                  <div className={styles.tabPanelHeader}>
-                    <Button size="small" danger onClick={handleClearHistory}>
-                      {t("security.skillScanner.scanAlerts.clearAll")}
-                    </Button>
-                  </div>
-                )}
-                <Card className={styles.tableCard}>
-                  {blockedHistory.length === 0 ? (
-                    <div className={styles.emptyState}>
-                      <Empty
-                        description={
-                          <span className={styles.emptyText}>
-                            {t("security.skillScanner.scanAlerts.empty")}
-                          </span>
-                        }
-                      />
-                    </div>
-                  ) : (
-                    <Table
-                      dataSource={blockedHistory}
-                      columns={blockedColumns}
-                      rowKey={(_, idx) => String(idx)}
-                      pagination={false}
-                      size="small"
-                    />
-                  )}
-                </Card>
-              </div>
-            ),
-          },
-          {
-            key: "whitelist",
-            label: (
-              <span>
-                {t("security.skillScanner.whitelist.title")}
-                {whitelist.length > 0 && (
-                  <span className={styles.tabBadge}>{whitelist.length}</span>
-                )}
-              </span>
-            ),
-            children: (
-              <div className={styles.tabPanelContent}>
-                <Card className={styles.tableCard}>
-                  {whitelist.length === 0 ? (
-                    <div className={styles.emptyState}>
-                      <Empty
-                        description={
-                          <span className={styles.emptyText}>
-                            {t("security.skillScanner.whitelist.empty")}
-                          </span>
-                        }
-                      />
-                    </div>
-                  ) : (
-                    <Table
-                      dataSource={whitelist}
-                      columns={whitelistColumns}
-                      rowKey="skill_name"
-                      pagination={false}
-                      size="small"
-                    />
-                  )}
-                </Card>
-              </div>
-            ),
-          },
-        ]}
-      />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead style={{ width: 180 }}>
+                        {t("security.skillScanner.scanAlerts.skillName")}
+                      </TableHead>
+                      <TableHead style={{ width: 100 }}>
+                        {t("security.skillScanner.scanAlerts.action")}
+                      </TableHead>
+                      <TableHead style={{ width: 180 }}>
+                        {t("security.skillScanner.scanAlerts.time")}
+                      </TableHead>
+                      <TableHead style={{ width: 200 }}>
+                        {t("security.skillScanner.scanAlerts.actions")}
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {blockedHistory.map((record, index) => (
+                      <TableRow key={index}>
+                        <TableCell>{record.skill_name}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={`text-xs ${
+                              record.action === "blocked"
+                                ? "border-red-400 text-red-600"
+                                : "border-orange-400 text-orange-600"
+                            }`}
+                          >
+                            {record.action === "blocked"
+                              ? t(
+                                  "security.skillScanner.scanAlerts.actionBlocked",
+                                )
+                              : t(
+                                  "security.skillScanner.scanAlerts.actionWarned",
+                                )}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            try {
+                              return new Date(
+                                record.blocked_at,
+                              ).toLocaleString();
+                            } catch {
+                              return record.blocked_at;
+                            }
+                          })()}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0"
+                                  onClick={() =>
+                                    setFindingsModal({
+                                      open: true,
+                                      findings: record.findings,
+                                      skillName: record.skill_name,
+                                    })
+                                  }
+                                >
+                                  <Eye size={14} />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {t(
+                                  "security.skillScanner.scanAlerts.viewFindings",
+                                )}
+                              </TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0"
+                                  onClick={() =>
+                                    void handleAllowSkill(record, index)
+                                  }
+                                >
+                                  <ShieldCheck size={14} />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {t(
+                                  "security.skillScanner.scanAlerts.allowSkill",
+                                )}
+                              </TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                  onClick={() => void removeBlockedEntry(index)}
+                                >
+                                  <Trash2 size={14} />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {t("security.skillScanner.scanAlerts.remove")}
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="whitelist">
+          <div className={styles.tabPanelContent}>
+            <div className={`${styles.tableCard} border rounded-lg`}>
+              {whitelist.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
+                  <Package size={48} strokeWidth={1} />
+                  <span className={styles.emptyText}>
+                    {t("security.skillScanner.whitelist.empty")}
+                  </span>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead style={{ width: 200 }}>
+                        {t("security.skillScanner.whitelist.skillName")}
+                      </TableHead>
+                      <TableHead style={{ width: 200 }}>
+                        {t("security.skillScanner.whitelist.contentHash")}
+                      </TableHead>
+                      <TableHead style={{ width: 180 }}>
+                        {t("security.skillScanner.whitelist.addedAt")}
+                      </TableHead>
+                      <TableHead style={{ width: 100 }}>
+                        {t("security.skillScanner.whitelist.actions")}
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {whitelist.map((entry: SkillScannerWhitelistEntry) => (
+                      <TableRow key={entry.skill_name}>
+                        <TableCell>{entry.skill_name}</TableCell>
+                        <TableCell>
+                          {entry.content_hash ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <code className={styles.codeHash}>
+                                  {entry.content_hash.substring(0, 16)}...
+                                </code>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {entry.content_hash}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <span className="text-muted-foreground">any</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            try {
+                              return new Date(entry.added_at).toLocaleString();
+                            } catch {
+                              return entry.added_at;
+                            }
+                          })()}
+                        </TableCell>
+                        <TableCell>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                onClick={() =>
+                                  setRemoveWhitelistDialog(entry.skill_name)
+                                }
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {t("security.skillScanner.whitelist.remove")}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       <FindingsModal
         findings={findingsModal.findings}
@@ -458,6 +518,60 @@ export function SkillScannerSection() {
           setFindingsModal({ open: false, findings: [], skillName: "" })
         }
       />
+
+      <AlertDialog
+        open={!!removeWhitelistDialog}
+        onOpenChange={(v) => {
+          if (!v) setRemoveWhitelistDialog(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("security.skillScanner.whitelist.removeConfirm")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("security.skillScanner.whitelist.removeWillDisable")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() =>
+                removeWhitelistDialog &&
+                void handleRemoveWhitelistConfirm(removeWhitelistDialog)
+              }
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={clearHistoryDialog}
+        onOpenChange={(v) => {
+          if (!v) setClearHistoryDialog(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("security.skillScanner.scanAlerts.clearConfirm")}
+            </AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void handleClearHistoryConfirm()}
+            >
+              {t("common.confirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

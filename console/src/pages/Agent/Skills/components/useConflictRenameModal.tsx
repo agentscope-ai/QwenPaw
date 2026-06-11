@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { Input, Modal } from "@agentscope-ai/design";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { useTranslation } from "react-i18next";
 
 export interface ConflictItem {
@@ -53,30 +62,42 @@ export function useConflictRenameModal(): {
   };
 
   const conflictRenameModal = (
-    <Modal
-      open={items.length > 0}
-      title={t("skillPool.multiConflictTitle")}
-      onOk={handleOk}
-      onCancel={handleCancel}
-      zIndex={2100}
-    >
-      <p>{t("skillPool.multiConflictDesc")}</p>
-      {items.map((item, i) => (
-        <div key={item.key} style={{ marginBottom: 12 }}>
-          <div style={{ marginBottom: 4 }}>
-            {t("skillPool.renameEntry", { name: item.label })}
-          </div>
-          <Input
-            value={item.new_name}
-            onChange={(e) => {
-              const next = [...items];
-              next[i] = { ...next[i], new_name: e.target.value };
-              setItems(next);
-            }}
-          />
+    <Dialog open={items.length > 0} onOpenChange={(o) => !o && handleCancel()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("skillPool.multiConflictTitle")}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("skillPool.multiConflictTitle")}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            {t("skillPool.multiConflictDesc")}
+          </p>
+          {items.map((item, i) => (
+            <div key={item.key} className="space-y-1">
+              <div className="text-xs text-muted-foreground">
+                {t("skillPool.renameEntry", { name: item.label })}
+              </div>
+              <Input
+                value={item.new_name}
+                onChange={(e) => {
+                  const next = [...items];
+                  next[i] = { ...next[i], new_name: e.target.value };
+                  setItems(next);
+                }}
+              />
+            </div>
+          ))}
         </div>
-      ))}
-    </Modal>
+        <DialogFooter>
+          <Button variant="outline" onClick={handleCancel}>
+            {t("common.cancel")}
+          </Button>
+          <Button onClick={handleOk}>{t("common.confirm")}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 
   return { showConflictRenameModal, conflictRenameModal };

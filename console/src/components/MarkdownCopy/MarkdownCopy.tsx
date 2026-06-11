@@ -1,13 +1,17 @@
 import { useState, useEffect, useMemo } from "react";
-import { Button, Switch, Input } from "@agentscope-ai/design";
-import { CopyOutlined } from "@ant-design/icons";
-import { XMarkdown } from "@ant-design/x-markdown";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { CSSProperties } from "react";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { stripFrontmatter } from "../../utils/markdown";
 import { mermaidComponents } from "../MermaidCodeBlock";
-import styles from "./index.module.less";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 interface MarkdownCopyProps {
   content: string;
@@ -119,83 +123,76 @@ export function MarkdownCopy({
     }
   };
 
-  const handleShowMarkdownChange = (show: boolean) => {
-    setLocalShowMarkdown(show);
+  const handleShowMarkdownChange = (checked: boolean) => {
+    setLocalShowMarkdown(checked);
     if (onShowMarkdownChange) {
-      onShowMarkdownChange(show);
+      onShowMarkdownChange(checked);
     }
   };
 
-  const defaultCopyButtonProps = {
-    type: "text" as const,
-    size: "small" as const,
-    ...copyButtonProps,
-  };
-
-  const defaultMarkdownViewerProps = {
-    style: {
-      padding: 16,
-      height: "100%",
-      overflow: "auto",
-      backgroundColor: "#fff",
-      borderRadius: 6,
-      ...markdownViewerProps.style,
-    },
-    ...markdownViewerProps,
-  };
-
-  const defaultTextareaProps = {
-    rows: 12,
-    placeholder: t("common.contentPlaceholder"),
-    ...textareaProps,
-  };
+  const switchId = "markdown-preview-toggle";
 
   return (
-    <div className={styles.markdownCopy}>
+    <div className={cn("flex flex-col gap-2", copyButtonProps.style ? "" : "")}>
       {showControls && (
-        <div className={styles.controls}>
-          <div>{t("common.content")}</div>
-          <div className={styles.controlGroup}>
-            <div className={styles.previewToggle}>
-              <span className={styles.previewLabel}>{t("common.preview")}</span>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm font-medium">{t("common.content")}</span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <Label
+                htmlFor={switchId}
+                className="text-sm cursor-pointer select-none"
+              >
+                {t("common.preview")}
+              </Label>
               <Switch
+                id={switchId}
                 checked={localShowMarkdown}
-                onChange={handleShowMarkdownChange}
-                size="small"
+                onCheckedChange={handleShowMarkdownChange}
               />
             </div>
             <Button
-              icon={<CopyOutlined />}
-              {...defaultCopyButtonProps}
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
               onClick={copyToClipboard}
-              loading={isCopying}
-            />
+              disabled={isCopying}
+              aria-label={t("common.copied")}
+            >
+              <Copy size={14} />
+            </Button>
           </div>
         </div>
       )}
 
       {localShowMarkdown ? (
-        <div className={styles.markdownViewer}>
-          <XMarkdown
-            content={markdownContent}
-            {...defaultMarkdownViewerProps}
-            components={mermaidComponents}
-            dompurifyConfig={{
-              ADD_TAGS: ["pre", "code"],
-              ADD_ATTR: ["data-block", "data-state", "data-lang", "class"],
-            }}
-          />
+        <div
+          className={cn(
+            "prose prose-sm dark-mode:prose-invert max-w-none p-4 overflow-auto rounded-md bg-white border",
+            markdownViewerProps.className,
+          )}
+          style={markdownViewerProps.style}
+        >
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={mermaidComponents as any}
+          >
+            {markdownContent}
+          </ReactMarkdown>
         </div>
       ) : (
-        <div className={styles.textareaContainer}>
-          <Input.TextArea
-            value={editable ? editContent : content}
-            onChange={handleContentChange}
-            {...defaultTextareaProps}
-            className={styles.textarea}
-            readOnly={!editable || textareaProps.disabled}
-          />
-        </div>
+        <Textarea
+          value={editable ? editContent : content}
+          onChange={handleContentChange}
+          rows={textareaProps.rows ?? 12}
+          placeholder={
+            textareaProps.placeholder ?? t("common.contentPlaceholder")
+          }
+          disabled={textareaProps.disabled}
+          readOnly={!editable || textareaProps.disabled}
+          className={cn("font-mono text-sm resize-y", textareaProps.className)}
+          style={textareaProps.style}
+        />
       )}
     </div>
   );

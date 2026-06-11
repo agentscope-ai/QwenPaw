@@ -1,10 +1,15 @@
-import { Alert, Modal } from "antd";
 import { useTranslation } from "react-i18next";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 /**
- * Shared confirmation for backups that do not verify with the local signing
- * key. Import and restore both use this dialog so the trust decision is
- * explicit before the backend accepts or signs a foreign/legacy archive.
+ * Shared confirmation for backups that do not verify with the local signing key.
  */
 interface Props {
   open: boolean;
@@ -27,44 +32,53 @@ export default function BackupTrustDialog({
   const isLegacy = mode === "legacy";
 
   return (
-    <Modal
-      title={
-        isLegacy
-          ? t("backup.trustLegacyTitle", {
-              defaultValue: "Trust legacy backup?",
-            })
-          : t("backup.trustForeignTitle", {
-              defaultValue: "Trust this backup?",
-            })
-      }
-      open={open}
-      onOk={onConfirm}
-      onCancel={onCancel}
-      confirmLoading={confirmLoading}
-      okButtonProps={{ danger: true }}
-      okText={t("common.confirm")}
-      cancelText={t("common.cancel")}
-      centered
-    >
-      <Alert
-        type="warning"
-        showIcon
-        message={
-          backupName ||
-          t("backup.unknownBackupName", { defaultValue: "Backup archive" })
-        }
-        description={
-          isLegacy
-            ? t("backup.trustLegacyDesc", {
-                defaultValue:
-                  "This older backup has no local signature. Only continue if you trust where it came from; this instance will sign it before restore.",
-              })
-            : t("backup.trustForeignDesc", {
-                defaultValue:
-                  "This backup was not signed by this instance. Only continue if you trust the source; local security and MCP settings will be preserved by default when restored.",
-              })
-        }
-      />
-    </Modal>
+    <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {isLegacy
+              ? t("backup.trustLegacyTitle", {
+                  defaultValue: "Trust legacy backup?",
+                })
+              : t("backup.trustForeignTitle", {
+                  defaultValue: "Trust this backup?",
+                })}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm dark-mode:border-yellow-800 dark-mode:bg-yellow-950">
+          <div className="font-medium text-yellow-800 dark-mode:text-yellow-200">
+            {backupName ||
+              t("backup.unknownBackupName", { defaultValue: "Backup archive" })}
+          </div>
+          <div className="mt-1 text-yellow-700 dark-mode:text-yellow-300">
+            {isLegacy
+              ? t("backup.trustLegacyDesc", {
+                  defaultValue:
+                    "This older backup has no local signature. Only continue if you trust where it came from; this instance will sign it before restore.",
+                })
+              : t("backup.trustForeignDesc", {
+                  defaultValue:
+                    "This backup was not signed by this instance. Only continue if you trust the source; local security and MCP settings will be preserved by default when restored.",
+                })}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={onCancel}
+            disabled={confirmLoading}
+          >
+            {t("common.cancel")}
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={onConfirm}
+            disabled={confirmLoading}
+          >
+            {t("common.confirm")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

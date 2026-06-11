@@ -1,0 +1,50 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import sys, json; d=json.load(sys.stdin); f=d.get('file_path',''); blocked=['/.env','\\\\,.env','.env.','secret','credentials','keyring']; found=[x for x in blocked if x in f.lower()]; sys.exit(1) if found else sys.exit(0)\""
+          },
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect_lockfiles.py\""
+          },
+          {
+            "type": "command",
+            "command": "python scripts/agentscope_guardian_hook.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import sys, json, subprocess, os; d=json.load(sys.stdin); f=d.get('file_path',''); exts=['.ts','.tsx','.js','.jsx','.css','.json']; ext=os.path.splitext(f)[1]; subprocess.run(['npx','prettier','--write','--cache',f],cwd=os.path.join(os.path.dirname(f),'..','..','console') if 'console' in f else os.getcwd()) if ext in exts else None\""
+          },
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/eslint_fix_console.py\""
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "ruflo-rvf@ruflo": true,
+    "ruflo-adr@ruflo": true,
+    "ruflo-ruvllm@ruflo": true,
+    "ruflo-workflows@ruflo": true,
+    "ruflo-agent@ruflo": true,
+    "ruflo-aidefence@ruflo": true,
+    "ruflo-intelligence@ruflo": true,
+    "ruflo-autopilot@ruflo": true,
+    "ruflo-loop-workers@ruflo": true,
+    "ruflo-security-audit@ruflo": true
+  }
+}

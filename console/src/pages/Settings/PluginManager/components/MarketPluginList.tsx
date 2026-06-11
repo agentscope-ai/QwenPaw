@@ -1,13 +1,19 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Button, Input, Pagination, Spin, Tag, Typography } from "antd";
-import { Download, ExternalLink, Package, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  Download,
+  ExternalLink,
+  Package,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 import type { MarketPluginEntry } from "@/api/modules/pluginMarket";
 import { useMarketPlugins } from "../hooks/useMarketPlugins";
 import styles from "./OfficialPluginList.module.less";
 import marketStyles from "./MarketPluginList.module.less";
-
-const { Text } = Typography;
 
 const PLUGIN_CATEGORIES = [
   { code: "agent-tool", zh: "Agent 工具", en: "Agent Tool" },
@@ -115,41 +121,47 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
           </div>
         )}
         <div className={marketStyles.toolbarRight}>
-          <Input.Search
-            placeholder={t("pluginManager.marketSearch")}
-            allowClear
-            value={searchInput}
-            onChange={(e) => {
-              setSearchInput(e.target.value);
-              if (!e.target.value) onSearch("");
-            }}
-            onSearch={onSearch}
-            style={{ width: 220 }}
-          />
+          <div className="relative" style={{ width: 220 }}>
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              className="pl-8"
+              placeholder={t("pluginManager.marketSearch")}
+              value={searchInput}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
+                if (!e.target.value) onSearch("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onSearch(searchInput);
+              }}
+            />
+          </div>
           <Button
-            type="default"
-            size="small"
-            icon={<RefreshCw size={14} />}
+            variant="outline"
+            size="sm"
             onClick={handleRefresh}
             disabled={loading}
           >
+            <RefreshCw size={14} className="mr-1" />
             {t("pluginManager.catalogRefresh")}
           </Button>
         </div>
       </div>
 
       {error && (
-        <Alert
-          type="warning"
-          showIcon
-          message={<span style={{ fontSize: 15 }}>{error}</span>}
-          style={{ marginBottom: 12 }}
-        />
+        <div className="flex items-center gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800 dark-mode:border-yellow-800 dark-mode:bg-yellow-950 dark-mode:text-yellow-200 mb-3">
+          {error}
+        </div>
       )}
 
-      <Spin spinning={loading}>
+      <div className={loading ? "opacity-60 pointer-events-none" : ""}>
         {!loading && plugins.length === 0 && !error && (
-          <Text type="secondary">{t("pluginManager.marketEmpty")}</Text>
+          <span className="text-sm text-muted-foreground">
+            {t("pluginManager.marketEmpty")}
+          </span>
         )}
         <div className={styles.catalogList}>
           {plugins.map((entry) => (
@@ -172,11 +184,11 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
               </div>
               <div className={styles.catalogInfo}>
                 <div className={styles.catalogNameRow}>
-                  <Text strong>{entry.display_name}</Text>
+                  <span className="font-medium">{entry.display_name}</span>
                   {entry.locales?.[lang]?.category && (
-                    <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>
+                    <Badge variant="outline" className="text-xs">
                       {entry.locales[lang].category}
-                    </Tag>
+                    </Badge>
                   )}
                 </div>
                 {entry.locales && (
@@ -201,22 +213,20 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
               <div className={styles.catalogActions}>
                 {entry.details_url && (
                   <Button
-                    type="default"
-                    size="small"
-                    icon={<ExternalLink size={14} />}
+                    variant="outline"
+                    size="sm"
                     onClick={() => window.open(entry.details_url!, "_blank")}
                   >
+                    <ExternalLink size={14} className="mr-1" />
                     {t("pluginManager.marketDetails")}
                   </Button>
                 )}
                 <Button
-                  type="primary"
-                  size="small"
-                  icon={<Download size={14} />}
-                  loading={installingId === entry.id}
-                  disabled={installingId !== null && installingId !== entry.id}
+                  size="sm"
+                  disabled={installingId !== null}
                   onClick={() => void handleInstall(entry)}
                 >
+                  <Download size={14} className="mr-1" />
                   {t("pluginManager.catalogInstall")}
                 </Button>
               </div>
@@ -225,18 +235,29 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
         </div>
 
         {total > pageSize && (
-          <div style={{ marginTop: 16, textAlign: "center" }}>
-            <Pagination
-              current={page}
-              pageSize={pageSize}
-              total={total}
-              onChange={handlePageChange}
-              showSizeChanger={false}
-              size="small"
-            />
+          <div className="mt-4 flex justify-center items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => handlePageChange(page - 1)}
+            >
+              &lt;
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              {page} / {Math.ceil(total / pageSize)}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= Math.ceil(total / pageSize)}
+              onClick={() => handlePageChange(page + 1)}
+            >
+              &gt;
+            </Button>
           </div>
         )}
-      </Spin>
+      </div>
     </div>
   );
 }

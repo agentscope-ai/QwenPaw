@@ -1,5 +1,14 @@
-import { Card, Table } from "@agentscope-ai/design";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { formatCompact } from "../../../../utils/formatNumber";
 import styles from "../index.module.less";
 
@@ -24,113 +33,216 @@ interface DataTablesProps {
   byDateData: ByDateData[];
 }
 
+type SortDir = "asc" | "desc" | null;
+
+function SortIcon({ dir }: { dir: SortDir }) {
+  if (dir === "asc") return <ArrowUp size={12} className="inline ml-1" />;
+  if (dir === "desc") return <ArrowDown size={12} className="inline ml-1" />;
+  return <ArrowUpDown size={12} className="inline ml-1 opacity-40" />;
+}
+
+function useSortState<T>(initial: T[], getKey: (r: T) => string) {
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>(null);
+
+  const handleSort = (col: string) => {
+    if (sortCol !== col) {
+      setSortCol(col);
+      setSortDir("desc");
+    } else if (sortDir === "desc") {
+      setSortDir("asc");
+    } else {
+      setSortCol(null);
+      setSortDir(null);
+    }
+  };
+
+  const sorted = [...initial].sort((a, b) => {
+    if (!sortCol || !sortDir) return 0;
+    const av = (a as Record<string, unknown>)[sortCol];
+    const bv = (b as Record<string, unknown>)[sortCol];
+    const n =
+      typeof av === "number" && typeof bv === "number"
+        ? av - bv
+        : String(av).localeCompare(String(bv));
+    return sortDir === "asc" ? n : -n;
+  });
+
+  return { sorted, sortCol, sortDir, handleSort, getKey };
+}
+
 export function DataTables({ byModelData, byDateData }: DataTablesProps) {
   const { t } = useTranslation();
 
-  const byModelColumns = [
-    {
-      title: t("tokenUsage.model"),
-      dataIndex: "model",
-      key: "model",
-    },
-    {
-      title: t("tokenUsage.promptTokens"),
-      dataIndex: "prompt_tokens",
-      key: "prompt_tokens",
-      render: (v: number) => formatCompact(v),
-      sorter: (a: ByModelData, b: ByModelData) =>
-        a.prompt_tokens - b.prompt_tokens,
-    },
-    {
-      title: t("tokenUsage.completionTokens"),
-      dataIndex: "completion_tokens",
-      key: "completion_tokens",
-      render: (v: number) => formatCompact(v),
-      sorter: (a: ByModelData, b: ByModelData) =>
-        a.completion_tokens - b.completion_tokens,
-    },
-    {
-      title: t("tokenUsage.totalTokens"),
-      key: "total_tokens",
-      render: (_: unknown, record: ByModelData) =>
-        formatCompact(record.prompt_tokens + record.completion_tokens),
-      sorter: (a: ByModelData, b: ByModelData) =>
-        a.prompt_tokens +
-        a.completion_tokens -
-        (b.prompt_tokens + b.completion_tokens),
-    },
-    {
-      title: t("tokenUsage.totalCalls"),
-      dataIndex: "call_count",
-      key: "call_count",
-      render: (v: number) => formatCompact(v),
-      sorter: (a: ByModelData, b: ByModelData) => a.call_count - b.call_count,
-    },
-  ];
+  const modelSort = useSortState(byModelData, (r) => r.key);
+  const dateSort = useSortState(byDateData, (r) => r.key);
 
-  const byDateColumns = [
-    {
-      title: t("tokenUsage.date"),
-      dataIndex: "date",
-      key: "date",
-    },
-    {
-      title: t("tokenUsage.promptTokens"),
-      dataIndex: "prompt_tokens",
-      key: "prompt_tokens",
-      render: (v: number) => formatCompact(v),
-      sorter: (a: ByDateData, b: ByDateData) =>
-        a.prompt_tokens - b.prompt_tokens,
-    },
-    {
-      title: t("tokenUsage.completionTokens"),
-      dataIndex: "completion_tokens",
-      key: "completion_tokens",
-      render: (v: number) => formatCompact(v),
-      sorter: (a: ByDateData, b: ByDateData) =>
-        a.completion_tokens - b.completion_tokens,
-    },
-    {
-      title: t("tokenUsage.totalTokens"),
-      key: "total_tokens",
-      render: (_: unknown, record: ByDateData) =>
-        formatCompact(record.prompt_tokens + record.completion_tokens),
-      sorter: (a: ByDateData, b: ByDateData) =>
-        a.prompt_tokens +
-        a.completion_tokens -
-        (b.prompt_tokens + b.completion_tokens),
-    },
-    {
-      title: t("tokenUsage.totalCalls"),
-      dataIndex: "call_count",
-      key: "call_count",
-      render: (v: number) => formatCompact(v),
-      sorter: (a: ByDateData, b: ByDateData) => a.call_count - b.call_count,
-    },
-  ];
+  const SH = ({
+    col,
+    state,
+    children,
+  }: {
+    col: string;
+    state: ReturnType<typeof useSortState<ByModelData | ByDateData>>;
+    children: React.ReactNode;
+  }) => (
+    <TableHead
+      className="cursor-pointer select-none"
+      onClick={() => state.handleSort(col)}
+    >
+      {children}
+      <SortIcon dir={state.sortCol === col ? state.sortDir : null} />
+    </TableHead>
+  );
 
   return (
     <>
       {byModelData.length > 0 && (
-        <Card className={styles.tableCard} title={t("tokenUsage.byModel")}>
-          <Table
-            columns={byModelColumns}
-            dataSource={byModelData}
-            pagination={{ pageSize: 10 }}
-            size="small"
-          />
-        </Card>
+        <div className={`${styles.tableCard} border rounded-lg p-4`}>
+          <div className="text-sm font-semibold mb-3">
+            {t("tokenUsage.byModel")}
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <SH
+                  col="model"
+                  state={
+                    modelSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.model")}
+                </SH>
+                <SH
+                  col="prompt_tokens"
+                  state={
+                    modelSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.promptTokens")}
+                </SH>
+                <SH
+                  col="completion_tokens"
+                  state={
+                    modelSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.completionTokens")}
+                </SH>
+                <TableHead>{t("tokenUsage.totalTokens")}</TableHead>
+                <SH
+                  col="call_count"
+                  state={
+                    modelSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.totalCalls")}
+                </SH>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {modelSort.sorted.map((row) => (
+                <TableRow key={row.key}>
+                  <TableCell className="text-sm">{row.model}</TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.prompt_tokens)}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.completion_tokens)}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.prompt_tokens + row.completion_tokens)}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.call_count)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       )}
 
       {byDateData.length > 0 && (
-        <Card className={styles.tableCard} title={t("tokenUsage.byDate")}>
-          <Table
-            columns={byDateColumns}
-            dataSource={byDateData}
-            pagination={{ pageSize: 10 }}
-            size="small"
-          />
-        </Card>
+        <div className={`${styles.tableCard} border rounded-lg p-4`}>
+          <div className="text-sm font-semibold mb-3">
+            {t("tokenUsage.byDate")}
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <SH
+                  col="date"
+                  state={
+                    dateSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.date")}
+                </SH>
+                <SH
+                  col="prompt_tokens"
+                  state={
+                    dateSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.promptTokens")}
+                </SH>
+                <SH
+                  col="completion_tokens"
+                  state={
+                    dateSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.completionTokens")}
+                </SH>
+                <TableHead>{t("tokenUsage.totalTokens")}</TableHead>
+                <SH
+                  col="call_count"
+                  state={
+                    dateSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.totalCalls")}
+                </SH>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {dateSort.sorted.map((row) => (
+                <TableRow key={row.key}>
+                  <TableCell className="text-sm">{row.date}</TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.prompt_tokens)}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.completion_tokens)}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.prompt_tokens + row.completion_tokens)}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.call_count)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       )}
     </>
   );

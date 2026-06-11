@@ -1,6 +1,13 @@
-import { Card, Select, Alert } from "antd";
 import { useTranslation } from "react-i18next";
 import type { TranscriptionProvider } from "../useVoiceTranscription";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import styles from "../index.module.less";
 
 interface ProviderSelectCardProps {
@@ -18,33 +25,39 @@ export function ProviderSelectCard({
 
   return (
     <Card className={styles.card}>
-      <h3 className={styles.cardTitle}>
-        {t("voiceTranscription.providerLabel")}
-      </h3>
-      <p className={styles.cardDescription}>
-        {t("voiceTranscription.providerDescription")}
-      </p>
+      <CardContent className="pt-4">
+        <h3 className={styles.cardTitle}>
+          {t("voiceTranscription.providerLabel")}
+        </h3>
+        <p className={styles.cardDescription}>
+          {t("voiceTranscription.providerDescription")}
+        </p>
 
-      {availableProviders.length === 0 ? (
-        <Alert
-          type="warning"
-          showIcon
-          message={t("voiceTranscription.noProvidersWarning")}
-        />
-      ) : (
-        <Select
-          value={selectedProviderId || undefined}
-          onChange={onProviderChange}
-          placeholder={t("voiceTranscription.providerPlaceholder")}
-          style={{ width: "100%", maxWidth: 400 }}
-        >
-          {availableProviders.map((p) => (
-            <Select.Option key={p.id} value={p.id}>
-              {p.name}
-            </Select.Option>
-          ))}
-        </Select>
-      )}
+        {availableProviders.length === 0 ? (
+          <div className="flex items-center gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800 dark-mode:border-yellow-800 dark-mode:bg-yellow-950 dark-mode:text-yellow-200">
+            <span>⚠</span>
+            {t("voiceTranscription.noProvidersWarning")}
+          </div>
+        ) : (
+          <Select
+            value={selectedProviderId || undefined}
+            onValueChange={onProviderChange}
+          >
+            <SelectTrigger className="w-full max-w-[400px]">
+              <SelectValue
+                placeholder={t("voiceTranscription.providerPlaceholder")}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {availableProviders.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </CardContent>
     </Card>
   );
 }

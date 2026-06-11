@@ -9,8 +9,9 @@
  */
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { Markdown } from "@agentscope-ai/chat";
-import { CopyOutlined, CheckOutlined } from "@ant-design/icons";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Copy, Check } from "lucide-react";
 import { looksLikeMarkdown } from "./utils";
 import styles from "./toolCards.module.less";
 
@@ -129,7 +130,7 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
     if (isMarkdown) {
       return (
         <div className={styles.defaultBlockContentMd}>
-          <Markdown content={content} />
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
         </div>
       );
     }
@@ -152,7 +153,7 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
           onClick={handleCopy}
           title={copyTitle}
         >
-          {copied ? <CheckOutlined /> : <CopyOutlined />}
+          {copied ? <Check size={13} /> : <Copy size={13} />}
         </button>
       </div>
       {renderContent()}

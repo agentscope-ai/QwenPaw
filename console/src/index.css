@@ -1,0 +1,172 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark-mode *));
+/* Alias: some migrated components were authored with the `dark-mode:` prefix.
+   Register it so both `dark:` and `dark-mode:` resolve to the .dark-mode class. */
+@custom-variant dark-mode (&:is(.dark-mode *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  /* AionUi-style accent (subtle violet ink) for optional highlights */
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --font-sans: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+
+/*
+  AionUi-inspired design language:
+  - warm off-white canvas (#f5f5f5), violet-tinted near-black ink (#13111c)
+  - white cards with large radius + soft layered violet shadow
+  - monochrome ink as primary (pill buttons), no orange chrome
+*/
+:root {
+  --background: #f5f5f4;
+  --foreground: #13111c;
+  --card: #ffffff;
+  --card-foreground: #13111c;
+  --popover: #ffffff;
+  --popover-foreground: #13111c;
+  /* ink primary -> black pills like AionUi */
+  --primary: #13111c;
+  --primary-foreground: #ffffff;
+  --secondary: #ecebef;
+  --secondary-foreground: #13111c;
+  --muted: #efeef1;
+  --muted-foreground: #6b6575;
+  --accent: #eceaf0;
+  --accent-foreground: #13111c;
+  --destructive: #e5484d;
+  --border: #e6e4ea;
+  --input: #e6e4ea;
+  --ring: #13111c;
+  /* optional brand accent (violet from AionUi's elevation tint) */
+  --brand: #5b4b8a;
+  --brand-foreground: #ffffff;
+  --radius: 1rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #13111c;
+  --sidebar-primary: #13111c;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f0eff2;
+  --sidebar-accent-foreground: #13111c;
+  --sidebar-border: #ececef;
+  --sidebar-ring: #13111c;
+  /* soft, layered violet-tinted elevation (AionUi card shadow) */
+  --shadow-aion: 0 1px 1px 0 rgba(19, 17, 28, 0.04),
+    0 4px 8px 0 rgba(19, 17, 28, 0.04), 0 16px 32px 0 rgba(19, 17, 28, 0.06),
+    0 40px 80px 0 rgba(75, 60, 122, 0.08);
+  --shadow-aion-sm: 0 1px 2px 0 rgba(19, 17, 28, 0.05),
+    0 4px 12px 0 rgba(19, 17, 28, 0.06);
+}
+
+.dark-mode {
+  /* AionUi deep navy-ink canvas */
+  --background: #13111c;
+  --foreground: #f4f3f7;
+  --card: #1c1a26;
+  --card-foreground: #f4f3f7;
+  --popover: #1c1a26;
+  --popover-foreground: #f4f3f7;
+  /* on dark, the pill inverts to light ink */
+  --primary: #f4f3f7;
+  --primary-foreground: #13111c;
+  --secondary: #232030;
+  --secondary-foreground: #f4f3f7;
+  --muted: #232030;
+  --muted-foreground: #9b96a9;
+  --accent: #2a2738;
+  --accent-foreground: #f4f3f7;
+  --destructive: #ff5c61;
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.12);
+  --ring: #cfc9e0;
+  --brand: #8b7fb8;
+  --brand-foreground: #13111c;
+  --sidebar: #16131f;
+  --sidebar-foreground: #f4f3f7;
+  --sidebar-primary: #f4f3f7;
+  --sidebar-primary-foreground: #13111c;
+  --sidebar-accent: #232030;
+  --sidebar-accent-foreground: #f4f3f7;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: #cfc9e0;
+  --shadow-aion: 0 1px 1px 0 rgba(0, 0, 0, 0.4),
+    0 8px 24px 0 rgba(0, 0, 0, 0.45), 0 40px 80px 0 rgba(0, 0, 0, 0.5);
+  --shadow-aion-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4),
+    0 4px 12px 0 rgba(0, 0, 0, 0.45);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  /* AionUi headings: tight tracking, semibold */
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer utilities {
+  /* AionUi soft elevation helpers */
+  .shadow-aion {
+    box-shadow: var(--shadow-aion);
+  }
+  .shadow-aion-sm {
+    box-shadow: var(--shadow-aion-sm);
+  }
+  /* lowercase + serif-italic accent reserved for hero/empty states */
+  .aion-hero {
+    text-transform: lowercase;
+    letter-spacing: -0.03em;
+    font-weight: 600;
+  }
+  .aion-accent {
+    font-family: Georgia, "Times New Roman", serif;
+    font-style: italic;
+    font-weight: 500;
+  }
+}

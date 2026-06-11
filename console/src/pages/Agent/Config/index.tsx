@@ -1,5 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
-import { Button, Form, Tabs } from "@agentscope-ai/design";
+import { FormProvider, useWatch } from "react-hook-form";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAgentConfig } from "./useAgentConfig.tsx";
 import {
@@ -34,13 +37,21 @@ function AgentConfigPage() {
     handleSave,
     handleLanguageChange,
     handleTimezoneChange,
+    languageConfirmDialog,
   } = useAgentConfig();
 
-  const llmRetryEnabled = Form.useWatch("llm_retry_enabled", form) ?? true;
+  const llmRetryEnabled =
+    useWatch({ control: form.control, name: "llm_retry_enabled" }) ?? true;
   const contextBackend =
-    Form.useWatch("context_manager_backend", form) || "light";
+    (useWatch({
+      control: form.control,
+      name: "context_manager_backend",
+    }) as string) || "light";
   const memoryBackend =
-    Form.useWatch("memory_manager_backend", form) || "remelight";
+    (useWatch({
+      control: form.control,
+      name: "memory_manager_backend",
+    }) as string) || "remelight";
 
   const [maxInputLength, setMaxInputLength] = useState(131072);
   useEffect(() => {
@@ -67,11 +78,7 @@ function AgentConfigPage() {
     const baseTabs = [
       {
         key: "reactAgent",
-        label: (
-          <span className={styles.tabLabel}>
-            {t("agentConfig.reactAgentTitle")}
-          </span>
-        ),
+        label: t("agentConfig.reactAgentTitle"),
         children: (
           <div className={styles.tabContent}>
             <ReactAgentCard
@@ -87,24 +94,16 @@ function AgentConfigPage() {
       },
       {
         key: "llmRetry",
-        label: (
-          <span className={styles.tabLabel}>
-            {t("agentConfig.llmRetryTitle")}
-          </span>
-        ),
+        label: t("agentConfig.llmRetryTitle"),
         children: (
           <div className={styles.tabContent}>
-            <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
+            <LlmRetryCard llmRetryEnabled={Boolean(llmRetryEnabled)} />
           </div>
         ),
       },
       {
         key: "llmRateLimiter",
-        label: (
-          <span className={styles.tabLabel}>
-            {t("agentConfig.llmRateLimiterTitle")}
-          </span>
-        ),
+        label: t("agentConfig.llmRateLimiterTitle"),
         children: (
           <div className={styles.tabContent}>
             <LlmRateLimiterCard />
@@ -118,11 +117,7 @@ function AgentConfigPage() {
       const ContextComponent = contextMapping.component;
       baseTabs.push({
         key: contextMapping.tabKey,
-        label: (
-          <span className={styles.tabLabel}>
-            {t(`agentConfig.${contextMapping.tabKey}Title`)}
-          </span>
-        ),
+        label: t(`agentConfig.${contextMapping.tabKey}Title`),
         children: (
           <div className={styles.tabContent}>
             <ContextComponent maxInputLength={maxInputLength} />
@@ -136,11 +131,7 @@ function AgentConfigPage() {
       const MemoryComponent = memoryMapping.component;
       baseTabs.push({
         key: memoryMapping.tabKey,
-        label: (
-          <span className={styles.tabLabel}>
-            {t(`agentConfig.${memoryMapping.tabKey}Title`)}
-          </span>
-        ),
+        label: t(`agentConfig.${memoryMapping.tabKey}Title`),
         children: (
           <div className={styles.tabContent}>
             <MemoryComponent />
@@ -149,14 +140,9 @@ function AgentConfigPage() {
       });
     }
 
-    // Add Tool Execution Level tab
     baseTabs.push({
       key: "toolExecutionLevel",
-      label: (
-        <span className={styles.tabLabel}>
-          {t("agentConfig.toolExecutionLevelTitle")}
-        </span>
-      ),
+      label: t("agentConfig.toolExecutionLevelTitle"),
       children: (
         <div className={styles.tabContent}>
           <ToolExecutionLevelCard
@@ -187,7 +173,7 @@ function AgentConfigPage() {
   ]);
 
   useEffect(() => {
-    const tabKeys = dynamicTabs.map((t) => t.key);
+    const tabKeys = dynamicTabs.map((tab) => tab.key);
     if (!tabKeys.includes(activeTab)) {
       setActiveTab(tabKeys[0] ?? "reactAgent");
     }
@@ -197,6 +183,7 @@ function AgentConfigPage() {
     return (
       <div className={styles.configPage}>
         <div className={styles.centerState}>
+          <Loader2 className="animate-spin" />
           <span className={styles.stateText}>{t("common.loading")}</span>
         </div>
       </div>
@@ -208,7 +195,12 @@ function AgentConfigPage() {
       <div className={styles.configPage}>
         <div className={styles.centerState}>
           <span className={styles.stateTextError}>{error}</span>
-          <Button size="small" onClick={fetchConfig} style={{ marginTop: 12 }}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={fetchConfig}
+            className="mt-3"
+          >
             {t("environments.retry")}
           </Button>
         </div>
@@ -221,29 +213,44 @@ function AgentConfigPage() {
       <PageHeader parent={t("nav.agent")} current={t("agentConfig.title")} />
 
       <div className={styles.content}>
-        <Form form={form} layout="vertical" className={styles.form}>
+        <FormProvider {...form}>
           <Tabs
             className={styles.mainTabs}
-            activeKey={activeTab}
-            onChange={setActiveTab}
-            items={dynamicTabs}
-            destroyInactiveTabPane={false}
-          />
-        </Form>
+            value={activeTab}
+            onValueChange={setActiveTab}
+          >
+            <TabsList className="flex flex-wrap h-auto gap-1 mb-4">
+              {dynamicTabs.map((tab) => (
+                <TabsTrigger key={tab.key} value={tab.key}>
+                  <span className={styles.tabLabel}>{tab.label}</span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {dynamicTabs.map((tab) => (
+              <TabsContent key={tab.key} value={tab.key}>
+                {tab.children}
+              </TabsContent>
+            ))}
+          </Tabs>
+        </FormProvider>
       </div>
 
       <div className={styles.footerActions}>
         <Button
+          variant="outline"
           onClick={fetchConfig}
           disabled={saving}
-          style={{ marginRight: 8 }}
+          className="mr-2"
         >
           {t("common.reset")}
         </Button>
-        <Button type="primary" onClick={handleSave} loading={saving}>
+        <Button onClick={handleSave} disabled={saving}>
+          {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {t("common.save")}
         </Button>
       </div>
+
+      {languageConfirmDialog}
     </div>
   );
 }

@@ -1,5 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Modal, Button } from "@agentscope-ai/design";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Loader2, ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { providerApi } from "../../../api/modules/provider";
@@ -80,48 +87,63 @@ export function OAuthConfirmModal({
   }, [providerId, providerName, onSuccess, onCancel, message, t]);
 
   return (
-    <Modal
+    <Dialog
       open={open}
-      onCancel={onCancel}
-      footer={null}
-      closable={phase === "confirm"}
-      maskClosable={phase === "confirm"}
-      width={420}
+      onOpenChange={(v) => {
+        if (!v && phase === "confirm") onCancel();
+      }}
     >
-      {phase === "confirm" ? (
-        <div style={{ textAlign: "center", padding: "16px 0" }}>
-          <ExternalLink
-            size={40}
-            style={{ color: "#6366f1", marginBottom: 16 }}
-          />
-          <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 600 }}>
-            {t("modelSelector.oauthTitle", { provider: providerName })}
-          </h3>
-          <p style={{ color: "var(--text-secondary)", margin: "0 0 24px" }}>
-            {t("modelSelector.oauthDescription", { provider: providerName })}
-          </p>
-          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-            <Button onClick={onCancel}>{t("common.cancel")}</Button>
-            <Button type="primary" onClick={handleContinue}>
-              {t("modelSelector.oauthContinue")}
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div style={{ textAlign: "center", padding: "24px 0" }}>
-          <Loader2
-            size={32}
-            style={{ color: "#6366f1", animation: "spin 1s linear infinite" }}
-          />
-          <h3 style={{ margin: "16px 0 8px", fontSize: 16, fontWeight: 600 }}>
-            {t("modelSelector.oauthWaiting")}
-          </h3>
-          <p style={{ color: "var(--text-secondary)", margin: "0 0 24px" }}>
-            {t("modelSelector.oauthWaitingDescription")}
-          </p>
-          <Button onClick={onCancel}>{t("common.cancel")}</Button>
-        </div>
-      )}
-    </Modal>
+      <DialogContent
+        className="max-w-[420px]"
+        onInteractOutside={
+          phase !== "confirm" ? (e) => e.preventDefault() : undefined
+        }
+      >
+        {phase === "confirm" ? (
+          <>
+            <DialogHeader>
+              <div className="flex justify-center mb-4">
+                <ExternalLink size={40} className="text-indigo-500" />
+              </div>
+              <DialogTitle className="text-center">
+                {t("modelSelector.oauthTitle", { provider: providerName })}
+              </DialogTitle>
+              <DialogDescription className="text-center">
+                {t("modelSelector.oauthDescription", {
+                  provider: providerName,
+                })}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex gap-3 justify-center mt-4">
+              <Button variant="outline" onClick={onCancel}>
+                {t("common.cancel")}
+              </Button>
+              <Button onClick={handleContinue}>
+                {t("modelSelector.oauthContinue")}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <div className="flex justify-center mb-4">
+                <Loader2 size={32} className="animate-spin text-indigo-500" />
+              </div>
+              <DialogTitle className="text-center">
+                {t("modelSelector.oauthWaiting")}
+              </DialogTitle>
+              <DialogDescription className="text-center">
+                {t("modelSelector.oauthWaitingDescription")}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex justify-center mt-4">
+              <Button variant="outline" onClick={onCancel}>
+                {t("common.cancel")}
+              </Button>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,15 +1,25 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Drawer, Form, Input, Button, Select } from "@agentscope-ai/design";
+import { useState, useEffect, useRef } from "react";
+import type { UseFormReturn } from "react-hook-form";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+} from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
-import { ThunderboltOutlined, StopOutlined } from "@ant-design/icons";
-import type { FormInstance } from "antd";
+import { Zap, StopCircle } from "lucide-react";
 import type { SkillSpec } from "../../../../api/types";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
 import { api } from "../../../../api";
 import { deriveInstalledFromLabel } from "../../../../utils/skill";
 
-/** Parse YAML frontmatter from a `---`-delimited content string. */
 export function parseFrontmatter(
   content: string,
 ): Record<string, string> | null {
@@ -36,17 +46,17 @@ export function parseFrontmatter(
 }
 
 const CHANNEL_OPTIONS = [
-  { label: "all", value: "all" },
-  { label: "console", value: "console" },
-  { label: "discord", value: "discord" },
-  { label: "telegram", value: "telegram" },
-  { label: "dingtalk", value: "dingtalk" },
-  { label: "feishu", value: "feishu" },
-  { label: "imessage", value: "imessage" },
-  { label: "qq", value: "qq" },
-  { label: "mattermost", value: "mattermost" },
-  { label: "wecom", value: "wecom" },
-  { label: "mqtt", value: "mqtt" },
+  "all",
+  "console",
+  "discord",
+  "telegram",
+  "dingtalk",
+  "feishu",
+  "imessage",
+  "qq",
+  "mattermost",
+  "wecom",
+  "mqtt",
 ];
 
 export const MAX_TAGS = 8;
@@ -66,7 +76,7 @@ export interface SkillDrawerFormValues {
 interface SkillDrawerProps {
   open: boolean;
   editingSkill: SkillSpec | null;
-  form: FormInstance<SkillDrawerFormValues>;
+  form: UseFormReturn<SkillDrawerFormValues>;
   availableTags?: string[];
   onClose: () => void;
   onSubmit: (values: SkillSpec) => void;
@@ -77,7 +87,7 @@ export function SkillDrawer({
   open,
   editingSkill,
   form,
-  availableTags = [],
+  availableTags: _availableTags = [],
   onClose,
   onSubmit,
   onContentChange,
@@ -91,29 +101,6 @@ export function SkillDrawer({
   const [configError, setConfigError] = useState("");
   const { message } = useAppMessage();
 
-  const validateFrontmatter = useCallback(
-    (_: unknown, value: string) => {
-      const content = contentValue || value;
-      if (!content || !content.trim()) {
-        return Promise.reject(new Error(t("skills.pleaseInputContent")));
-      }
-      const fm = parseFrontmatter(content);
-      if (!fm) {
-        return Promise.reject(new Error(t("skills.frontmatterRequired")));
-      }
-      if (!fm.name) {
-        return Promise.reject(new Error(t("skills.frontmatterNameRequired")));
-      }
-      if (!fm.description) {
-        return Promise.reject(
-          new Error(t("skills.frontmatterDescriptionRequired")),
-        );
-      }
-      return Promise.resolve();
-    },
-    [contentValue, t],
-  );
-
   useEffect(() => {
     if (editingSkill) {
       const channels = editingSkill.channels || ["all"];
@@ -124,7 +111,7 @@ export function SkillDrawer({
       );
       setContentValue(editingSkill.content);
       setConfigText(fallbackConfigText);
-      form.setFieldsValue({
+      form.reset({
         name: editingSkill.name,
         content: editingSkill.content,
         channels,
@@ -150,11 +137,11 @@ export function SkillDrawer({
       setContentValue("");
       setConfigText("{}");
       setConfigError("");
-      form.resetFields();
+      form.reset();
     }
   }, [editingSkill, form, t]);
 
-  const handleSubmit = async (values: SkillDrawerFormValues) => {
+  const handleFormSubmit = form.handleSubmit(async (values) => {
     let parsedConfig: Record<string, unknown> | undefined;
     const trimmed = configText.trim();
     if (!trimmed) {
@@ -175,12 +162,11 @@ export function SkillDrawer({
       source: editingSkill?.source || "",
       config: parsedConfig,
     });
-  };
+  });
 
   const handleContentChange = (content: string) => {
     setContentValue(content);
-    form.setFieldsValue({ content });
-    form.validateFields(["content"]).catch(() => {});
+    form.setValue("content", content);
     if (onContentChange) {
       onContentChange(content);
     }
@@ -195,7 +181,7 @@ export function SkillDrawer({
     setOptimizing(true);
     abortControllerRef.current = new AbortController();
     const originalContent = contentValue;
-    setContentValue(""); // Clear content for streaming output
+    setContentValue("");
 
     try {
       await api.streamOptimizeSkill(
@@ -203,12 +189,12 @@ export function SkillDrawer({
         (textChunk) => {
           setContentValue((prev) => {
             const newContent = prev + textChunk;
-            form.setFieldsValue({ content: newContent });
+            form.setValue("content", newContent);
             return newContent;
           });
         },
         abortControllerRef.current.signal,
-        i18n.language, // Pass current language to API
+        i18n.language,
       );
       message.success(t("skills.optimizeSuccess"));
     } catch (error: unknown) {
@@ -233,159 +219,160 @@ export function SkillDrawer({
     }
   };
 
-  const drawerFooter = !editingSkill ? (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        width: "100%",
-      }}
-    >
-      <div>
-        {!optimizing ? (
-          <Button
-            type="default"
-            icon={<ThunderboltOutlined />}
-            onClick={handleOptimize}
-            disabled={!contentValue.trim()}
-          >
-            {t("skills.optimizeWithAI")}
-          </Button>
-        ) : (
-          <Button
-            type="default"
-            danger
-            icon={<StopOutlined />}
-            onClick={handleStopOptimize}
-          >
-            {t("skills.stopOptimize")}
-          </Button>
-        )}
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <Button onClick={onClose}>{t("common.cancel")}</Button>
-        <Button type="primary" onClick={() => form.submit()}>
-          {t("skills.create")}
-        </Button>
-      </div>
-    </div>
-  ) : (
-    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-      <Button onClick={onClose}>{t("common.cancel")}</Button>
-      <Button type="primary" onClick={() => form.submit()}>
-        {t("common.save")}
-      </Button>
-    </div>
-  );
+  const channels = form.watch("channels") || [];
+
+  const toggleChannel = (ch: string) => {
+    const next = channels.includes(ch)
+      ? channels.filter((c) => c !== ch)
+      : [...channels, ch];
+    form.setValue("channels", next);
+  };
 
   return (
-    <Drawer
-      width={520}
-      placement="right"
-      title={editingSkill ? t("skills.viewSkill") : t("skills.createSkill")}
-      open={open}
-      onClose={onClose}
-      destroyOnHidden
-      footer={drawerFooter}
-    >
-      <Form form={form} layout="vertical" onFinish={handleSubmit}>
-        {!editingSkill ? (
-          <Form.Item
-            name="name"
-            label="Name"
-            rules={[{ required: true, message: t("skills.pleaseInputName") }]}
-          >
-            <Input placeholder={t("skills.skillNamePlaceholder")} />
-          </Form.Item>
-        ) : (
-          <Form.Item name="name" label="Name">
-            <Input />
-          </Form.Item>
-        )}
+    <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent
+        side="right"
+        className="w-[520px] sm:max-w-[520px] overflow-y-auto flex flex-col"
+      >
+        <SheetHeader>
+          <SheetTitle>
+            {editingSkill ? t("skills.viewSkill") : t("skills.createSkill")}
+          </SheetTitle>
+          <SheetDescription className="sr-only">
+            {editingSkill ? t("skills.viewSkill") : t("skills.createSkill")}
+          </SheetDescription>
+        </SheetHeader>
 
-        <Form.Item
-          name="content"
-          label="Content"
-          rules={[{ required: true, validator: validateFrontmatter }]}
+        <form
+          id="skill-drawer-form"
+          onSubmit={handleFormSubmit}
+          className="flex-1 space-y-4 py-4"
         >
-          <MarkdownCopy
-            content={contentValue}
-            showMarkdown={showMarkdown}
-            onShowMarkdownChange={setShowMarkdown}
-            editable={true}
-            onContentChange={handleContentChange}
-            textareaProps={{
-              ...(!editingSkill && {
-                placeholder: t("skills.contentPlaceholder"),
-              }),
-              rows: 12,
-            }}
-          />
-        </Form.Item>
+          <div className="space-y-1">
+            <Label>Name</Label>
+            <Input
+              {...form.register("name", {
+                required: !editingSkill
+                  ? t("skills.pleaseInputName")
+                  : undefined,
+              })}
+              disabled={Boolean(editingSkill)}
+              placeholder={
+                !editingSkill ? t("skills.skillNamePlaceholder") : undefined
+              }
+            />
+            {form.formState.errors.name && (
+              <p className="text-xs text-destructive">
+                {form.formState.errors.name.message}
+              </p>
+            )}
+          </div>
 
-        <Form.Item name="channels" label={t("skills.channels")}>
-          <Select mode="multiple" options={CHANNEL_OPTIONS} />
-        </Form.Item>
+          <div className="space-y-1">
+            <Label>Content</Label>
+            <MarkdownCopy
+              content={contentValue}
+              showMarkdown={showMarkdown}
+              onShowMarkdownChange={setShowMarkdown}
+              editable={true}
+              onContentChange={handleContentChange}
+              textareaProps={{
+                ...(!editingSkill && {
+                  placeholder: t("skills.contentPlaceholder"),
+                }),
+                rows: 12,
+              }}
+            />
+          </div>
 
-        <Form.Item
-          name="tags"
-          label={t("skillPool.tags")}
-          rules={[
-            {
-              validator: (_, value: string[] | undefined) => {
-                const bad = (value || []).find(
-                  (v) => v.length > MAX_TAG_LENGTH,
-                );
-                if (bad)
-                  return Promise.reject(
-                    t("skillPool.tagTooLong", { max: MAX_TAG_LENGTH }),
-                  );
-                return Promise.resolve();
-              },
-            },
-          ]}
-        >
-          <Select
-            mode="tags"
-            options={availableTags.map((tag) => ({
-              label: tag,
-              value: tag,
-            }))}
-            placeholder={t("skillPool.tagsPlaceholder")}
-            maxCount={MAX_TAGS}
-          />
-        </Form.Item>
+          <div className="space-y-1">
+            <Label>{t("skills.channels")}</Label>
+            <div className="flex flex-wrap gap-1">
+              {CHANNEL_OPTIONS.map((ch) => (
+                <button
+                  key={ch}
+                  type="button"
+                  onClick={() => toggleChannel(ch)}
+                  className={`rounded px-2 py-0.5 text-xs border transition-colors ${
+                    channels.includes(ch)
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-muted-foreground/30 text-muted-foreground hover:border-primary"
+                  }`}
+                >
+                  {ch}
+                </button>
+              ))}
+            </div>
+          </div>
 
-        <Form.Item
-          label={t("skills.config")}
-          validateStatus={configError ? "error" : undefined}
-          help={configError || undefined}
-        >
-          <Input.TextArea
-            rows={4}
-            value={configText}
-            onChange={(e) => {
-              setConfigText(e.target.value);
-              setConfigError("");
-            }}
-            placeholder={t("skills.configPlaceholder")}
-          />
-        </Form.Item>
+          <div className="space-y-1">
+            <Label>{t("skills.config")}</Label>
+            <Textarea
+              rows={4}
+              value={configText}
+              onChange={(e) => {
+                setConfigText(e.target.value);
+                setConfigError("");
+              }}
+              placeholder={t("skills.configPlaceholder")}
+            />
+            {configError && (
+              <p className="text-xs text-destructive">{configError}</p>
+            )}
+          </div>
 
-        {editingSkill && (
-          <>
-            <Form.Item name="source" label={t("skills.type")}>
-              <Input disabled />
-            </Form.Item>
-            <Form.Item label={t("skills.installedFrom")}>
-              <Input
-                disabled
-                value={deriveInstalledFromLabel(editingSkill.installed_from)}
-              />
-            </Form.Item>
-          </>
-        )}
-      </Form>
-    </Drawer>
+          {editingSkill && (
+            <>
+              <div className="space-y-1">
+                <Label>{t("skills.type")}</Label>
+                <Input disabled value={editingSkill.source || ""} />
+              </div>
+              <div className="space-y-1">
+                <Label>{t("skills.installedFrom")}</Label>
+                <Input
+                  disabled
+                  value={deriveInstalledFromLabel(editingSkill.installed_from)}
+                />
+              </div>
+            </>
+          )}
+        </form>
+
+        <SheetFooter className="flex items-center justify-between gap-2 pt-2">
+          {!editingSkill && (
+            <div>
+              {!optimizing ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleOptimize}
+                  disabled={!contentValue.trim()}
+                >
+                  <Zap size={14} className="mr-1" />
+                  {t("skills.optimizeWithAI")}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleStopOptimize}
+                >
+                  <StopCircle size={14} className="mr-1" />
+                  {t("skills.stopOptimize")}
+                </Button>
+              )}
+            </div>
+          )}
+          <div className="flex gap-2 ml-auto">
+            <Button type="button" variant="outline" onClick={onClose}>
+              {t("common.cancel")}
+            </Button>
+            <Button type="submit" form="skill-drawer-form">
+              {editingSkill ? t("common.save") : t("skills.create")}
+            </Button>
+          </div>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }

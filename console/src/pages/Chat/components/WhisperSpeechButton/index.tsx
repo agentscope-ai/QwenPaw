@@ -5,10 +5,13 @@ import React, {
   forwardRef,
   useImperativeHandle,
 } from "react";
-import { IconButton } from "@agentscope-ai/design";
-import { SparkMicLine } from "@agentscope-ai/icons";
-import { Tooltip, message } from "antd";
-import { LoadingOutlined } from "@ant-design/icons";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Loader2, Mic } from "lucide-react";
+import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { agentApi, TranscriptionError } from "@/api/modules/agent";
 import { useUploadLimitStore } from "@/stores/uploadLimitStore";
@@ -135,7 +138,7 @@ const WhisperSpeechButton = forwardRef<
         const sizeMb = blob.size / 1024 / 1024;
         const uploadLimit = useUploadLimitStore.getState().uploadMaxSizeMb;
         if (uploadLimit !== null && sizeMb > uploadLimit) {
-          message.error(
+          toast.error(
             t("chat.speech.fileTooLarge", {
               size: sizeMb.toFixed(1),
               limit: uploadLimit,
@@ -154,10 +157,10 @@ const WhisperSpeechButton = forwardRef<
           if (err instanceof TranscriptionError) {
             switch (err.code) {
               case "TRANSCRIPTION_DISABLED":
-                message.warning(t("chat.speech.transcriptionDisabled"));
+                toast.warning(t("chat.speech.transcriptionDisabled"));
                 break;
               case "FILE_TOO_LARGE":
-                message.error(
+                toast.error(
                   t("chat.speech.fileTooLarge", {
                     size: sizeMb.toFixed(1),
                     limit: uploadLimit ?? "?",
@@ -165,10 +168,10 @@ const WhisperSpeechButton = forwardRef<
                 );
                 break;
               default:
-                message.error(t("chat.speech.transcriptionFailed"));
+                toast.error(t("chat.speech.transcriptionFailed"));
             }
           } else {
-            message.error(t("chat.speech.transcriptionFailed"));
+            toast.error(t("chat.speech.transcriptionFailed"));
           }
           console.error("Transcription error:", err);
         } finally {
@@ -184,7 +187,7 @@ const WhisperSpeechButton = forwardRef<
       // Auto-stop after max duration
       recordingTimerRef.current = setTimeout(() => {
         if (internalRecordingRef.current) {
-          message.warning(
+          toast.warning(
             t("chat.speech.recordingTooLong", {
               limit: MAX_RECORDING_DURATION_MS / 1000,
             }),
@@ -194,7 +197,7 @@ const WhisperSpeechButton = forwardRef<
       }, MAX_RECORDING_DURATION_MS);
     } catch (err) {
       console.error("Microphone access error:", err);
-      message.error(t("chat.speech.microphoneError"));
+      toast.error(t("chat.speech.microphoneError"));
     }
   }, [onTranscription, t, loading, stopRecording]);
 
@@ -221,33 +224,31 @@ const WhisperSpeechButton = forwardRef<
   const isDisabled = disabled || loading;
 
   return (
-    <Tooltip
-      title={
-        loading
-          ? t("chat.speech.transcribing")
-          : recording
-          ? t("chat.speech.stopRecording")
-          : t("chat.speech.startRecording")
-      }
-      mouseEnterDelay={0.5}
-    >
-      <IconButton
-        bordered={false}
-        icon={
-          loading ? (
-            <LoadingOutlined style={{ fontSize: "1.2em" }} />
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center justify-center rounded-md p-1.5 transition-colors disabled:opacity-50"
+          style={{ color: recording || loading ? "#1890ff" : undefined }}
+          onClick={toggleRecording}
+          disabled={isDisabled}
+        >
+          {loading ? (
+            <Loader2 size={16} className="animate-spin" />
           ) : recording ? (
             <RecordingIcon />
           ) : (
-            <SparkMicLine />
-          )
-        }
-        onClick={toggleRecording}
-        disabled={isDisabled}
-        style={{
-          color: recording || loading ? "#1890ff" : undefined,
-        }}
-      />
+            <Mic size={16} />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {loading
+          ? t("chat.speech.transcribing")
+          : recording
+          ? t("chat.speech.stopRecording")
+          : t("chat.speech.startRecording")}
+      </TooltipContent>
     </Tooltip>
   );
 });

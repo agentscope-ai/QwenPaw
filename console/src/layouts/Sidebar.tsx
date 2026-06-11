@@ -1,40 +1,51 @@
-import { Layout, Menu, Button, Modal, Input, Form, Tooltip, Badge } from "antd";
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
 import {
-  SparkChatTabFill,
-  SparkExitFullscreenLine,
-  SparkSearchUserLine,
-  SparkMenuExpandLine,
-  SparkMenuFoldLine,
-  SparkEmailLine,
-} from "@agentscope-ai/icons";
+  MessageSquare,
+  Minimize2,
+  UserSearch,
+  PanelLeftOpen,
+  PanelLeftClose,
+  Mail,
+} from "lucide-react";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import api from "../api";
 import { useCodingMode } from "../stores/codingModeStore";
-import styles from "./index.module.less";
-import { useTheme } from "../contexts/ThemeContext";
 import { useMenuItems, useRoutes } from "../plugins/registry/hooks";
 import { Slot } from "../plugins/registry/Slot";
 import {
   deriveOpenKeys,
-  findMenuItem,
   flattenMenu,
   renderIcon,
   routeIdToPath,
-  toAntdItems,
 } from "./registry/adapter";
 import type { FlatMenuEntry } from "./registry/adapter";
 import type { MenuItem } from "../plugins/registry/types";
-import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
-// ── Layout ────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────
 
-const { Sider } = Layout;
 const MOBILE_SIDEBAR_QUERY = "(max-width: 768px)";
 
 function isMobileSidebarViewport() {
@@ -53,21 +64,122 @@ interface SidebarProps {
   selectedKey: string;
 }
 
+// ── Account form state ────────────────────────────────────────────────────
+
+interface AccountFormValues {
+  currentPassword: string;
+  newUsername: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
+function emptyAccount(): AccountFormValues {
+  return {
+    currentPassword: "",
+    newUsername: "",
+    newPassword: "",
+    confirmPassword: "",
+  };
+}
+
+// ── NavItem (leaf menu item) ──────────────────────────────────────────────
+
+// ── ExpandedMenu (renders group label + children) ─────────────────────────
+
+interface ExpandedMenuProps {
+  items: MenuItem[];
+  selectedKey: string;
+  onItemClick: (item: MenuItem) => void;
+}
+
+function ExpandedMenu({ items, selectedKey, onItemClick }: ExpandedMenuProps) {
+  const visibleItems = items.filter((i) => i.visible?.() !== false);
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      {visibleItems.map((rawItem) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const item = rawItem as any;
+        const children: MenuItem[] = item.__children ?? [];
+        const isGroup = item.isGroup || children.length > 0;
+
+        if (isGroup) {
+          const visibleChildren = children.filter(
+            (c: MenuItem) => c.visible?.() !== false,
+          );
+          return (
+            <div key={item.id} className="mb-1">
+              {/* Group label */}
+              <div className="px-2 py-1 text-[11px] font-medium text-foreground/25 tracking-wide uppercase leading-8">
+                {typeof item.label === "function" ? item.label() : item.label}
+              </div>
+              {/* Group children */}
+              <div className="flex flex-col gap-0.5">
+                {visibleChildren.map((child: MenuItem) => {
+                  const isActive = selectedKey === child.id;
+                  return (
+                    <button
+                      key={child.id}
+                      className={cn(
+                        "flex items-center gap-2.5 w-full h-10 px-2 rounded-lg border-none bg-transparent text-sm cursor-pointer transition-colors text-left",
+                        "text-foreground/70 hover:bg-accent",
+                        isActive && "!bg-accent !text-foreground",
+                      )}
+                      onClick={() => onItemClick(child)}
+                    >
+                      {renderIcon(child.icon, 16)}
+                      <span className="truncate">
+                        {typeof child.label === "function"
+                          ? child.label()
+                          : child.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        }
+
+        // Leaf
+        const isActive = selectedKey === item.id;
+        return (
+          <button
+            key={item.id}
+            className={cn(
+              "flex items-center gap-2.5 w-full h-10 px-2 rounded-lg border-none bg-transparent text-sm cursor-pointer transition-colors text-left",
+              "text-foreground/70 hover:bg-accent",
+              isActive && "!bg-accent !text-foreground",
+            )}
+            onClick={() => onItemClick(item)}
+          >
+            {renderIcon(item.icon, 16)}
+            <span className="truncate">
+              {typeof item.label === "function" ? item.label() : item.label}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Sidebar ───────────────────────────────────────────────────────────────
 
 export default function Sidebar({ selectedKey }: SidebarProps) {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { message } = useAppMessage();
-  const { isDark } = useTheme();
-  // When coding mode is on, the sidebar "Chat" entry should land on /coding
-  // (FileTree + Editor + Chat panel) rather than the bare Chat page.
   const { codingMode } = useCodingMode();
   const chatPath = codingMode ? "/coding" : "/chat";
   const [authEnabled, setAuthEnabled] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
-  const [accountForm] = Form.useForm();
+  const [accountForm, setAccountForm] =
+    useState<AccountFormValues>(emptyAccount);
+  const [accountErrors, setAccountErrors] = useState<
+    Partial<AccountFormValues>
+  >({});
   const [collapsed, setCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(isMobileSidebarViewport);
   const [hasInboxUnread, setHasInboxUnread] = useState(false);
@@ -109,6 +221,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       mediaQuery.removeEventListener("change", syncMobileSidebar);
     };
   }, []);
+
   useEffect(() => {
     const loadUnreadState = async () => {
       try {
@@ -134,104 +247,42 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     return () => window.clearInterval(timer);
   }, []);
 
-  // ── Adapter: convert MenuItem trees to antd, with inbox badge decoration.
-
-  /** Wrap the inbox label with the unread-Badge while keeping all other labels intact. */
-  const decorateLabel = (item: MenuItem, label: ReactNode): ReactNode => {
-    if (item.id !== "core.inbox" || label == null) return label;
-    return (
-      <Badge dot={hasInboxUnread} color="rgba(255, 157, 77, 1)" offset={[5, 7]}>
-        <span>{label}</span>
-      </Badge>
-    );
-  };
-
-  const agentMenuItems = useMemo(
-    () => toAntdItems(agentMenu, { collapsed, decorateLabel }),
-    // hasInboxUnread closure inside decorateLabel — listed as dep explicitly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [agentMenu, collapsed, hasInboxUnread],
-  );
-
-  const settingsMenuItems = useMemo(
-    () => toAntdItems(settingsMenu, { collapsed }),
-    [settingsMenu, collapsed],
-  );
-
-  const openKeys = useMemo(
-    () => [...deriveOpenKeys(agentMenu), ...deriveOpenKeys(settingsMenu)],
-    [agentMenu, settingsMenu],
-  );
-
-  const collapsedNavItems = useMemo(() => {
-    // Sticky chat is its own carve-out (lives outside menu data — see builtinMenu.ts).
-    const stickyChat: FlatMenuEntry = {
-      key: "core.chat",
-      icon: <SparkChatTabFill size={18} />,
-      path: chatPath,
-      label: t("nav.chat"),
-    };
-    // Inbox in collapsed mode shows a dot overlay on its icon (kept Sidebar-local
-    // for the same reason as decorateLabel: live state isn't menu data).
-    const decorateInboxIcon = (icon: ReactNode): ReactNode => (
-      <span style={{ position: "relative", display: "inline-flex" }}>
-        {icon ?? <SparkEmailLine size={18} />}
-        {hasInboxUnread && (
-          <span
-            style={{
-              position: "absolute",
-              top: -1,
-              right: -3,
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: "rgba(255, 157, 77, 1)",
-            }}
-          />
-        )}
-      </span>
-    );
-    const flat = [
-      stickyChat,
-      ...flattenMenu(agentMenu, routes, 18),
-      ...flattenMenu(settingsMenu, routes, 18),
-    ];
-    return flat.map((entry) =>
-      entry.key === "core.inbox"
-        ? { ...entry, icon: decorateInboxIcon(entry.icon) }
-        : entry,
-    );
-  }, [agentMenu, settingsMenu, routes, chatPath, t, hasInboxUnread]);
-
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  const handleMenuClick = (key: string, allItems: MenuItem[]) => {
-    const item = findMenuItem(allItems, key);
-    if (item?.href) {
-      window.open(item.href, "_blank", "noopener,noreferrer");
+  const handleMenuItemClick = (item: MenuItem) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cast = item as any;
+    if (cast.href) {
+      window.open(cast.href, "_blank", "noopener,noreferrer");
       return;
     }
-    const path = routeIdToPath(item?.route, routes);
+    const path = routeIdToPath(item.route, routes);
     if (path) navigate(path);
   };
 
-  const handleUpdateProfile = async (values: {
-    currentPassword: string;
-    newUsername?: string;
-    newPassword?: string;
-  }) => {
-    const trimmedUsername = values.newUsername?.trim() || undefined;
-    const trimmedPassword = values.newPassword?.trim() || undefined;
+  const handleUpdateProfile = async () => {
+    const trimmedUsername = accountForm.newUsername?.trim() || undefined;
+    const trimmedPassword = accountForm.newPassword?.trim() || undefined;
+    const errors: Partial<AccountFormValues> = {};
 
-    if (values.newPassword && !trimmedPassword) {
-      message.error(t("account.passwordEmpty"));
-      return;
+    if (!accountForm.currentPassword) {
+      errors.currentPassword = t("account.currentPasswordRequired");
+    }
+    if (accountForm.newPassword && !trimmedPassword) {
+      errors.newPassword = t("account.passwordEmpty");
+    }
+    if (accountForm.newUsername && !trimmedUsername) {
+      errors.newUsername = t("account.usernameEmpty");
+    }
+    if (
+      accountForm.newPassword &&
+      accountForm.confirmPassword !== accountForm.newPassword
+    ) {
+      errors.confirmPassword = t("account.passwordMismatch");
     }
 
-    if (values.newUsername && !trimmedUsername) {
-      message.error(t("account.usernameEmpty"));
-      return;
-    }
+    setAccountErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
     if (!trimmedUsername && !trimmedPassword) {
       message.warning(t("account.nothingToUpdate"));
@@ -241,13 +292,13 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     setAccountLoading(true);
     try {
       await authApi.updateProfile(
-        values.currentPassword,
+        accountForm.currentPassword,
         trimmedUsername,
         trimmedPassword,
       );
-      message.success(t("account.updateSuccess"));
+      toast.success(t("account.updateSuccess"));
       setAccountModalOpen(false);
-      accountForm.resetFields();
+      setAccountForm(emptyAccount());
       clearAuthToken();
       window.location.href = "/login";
     } catch (err: unknown) {
@@ -262,216 +313,329 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       } else if (raw) {
         msg = raw;
       }
-      message.error(msg);
+      toast.error(msg);
     } finally {
       setAccountLoading(false);
     }
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Collapsed nav items ──────────────────────────────────────────────────
+
+  const collapsedNavItems = useMemo(() => {
+    const stickyChat: FlatMenuEntry = {
+      key: "core.chat",
+      icon: <MessageSquare size={18} />,
+      path: chatPath,
+      label: t("nav.chat"),
+    };
+
+    const flat = [
+      stickyChat,
+      ...flattenMenu(agentMenu, routes, 18),
+      ...flattenMenu(settingsMenu, routes, 18),
+    ];
+
+    return flat.map((entry) => {
+      if (entry.key !== "core.inbox") return entry;
+      return {
+        ...entry,
+        icon: (
+          <span className="relative inline-flex">
+            {entry.icon ?? <Mail size={18} />}
+            {hasInboxUnread && (
+              <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-primary" />
+            )}
+          </span>
+        ),
+      };
+    });
+  }, [agentMenu, settingsMenu, routes, chatPath, t, hasInboxUnread]);
+
+  // ── Sizes ────────────────────────────────────────────────────────────────
 
   const siderWidth = collapsed ? (isMobile ? 56 : 72) : 240;
-  // Sticky chat is active when on /chat* or /coding routes.
   const isChatActive =
     selectedKey === "core.chat" || selectedKey === "core.coding";
+
   // `renderIcon` retained for tree-shaking awareness.
   void renderIcon;
+  // deriveOpenKeys retained for future use.
+  void deriveOpenKeys;
 
   return (
-    <Sider
-      width={siderWidth}
-      className={`${styles.sider}${
-        collapsed ? ` ${styles.siderCollapsed}` : ""
-      }${isDark ? ` ${styles.siderDark}` : ""}`}
+    <aside
+      style={{ width: siderWidth }}
+      className={cn(
+        "flex flex-col shrink-0 h-full transition-[width] duration-200 border-r border-border",
+        "bg-sidebar border-sidebar-border",
+        collapsed ? "px-2" : "px-4",
+      )}
     >
       {collapsed ? (
-        <nav className={styles.collapsedNav}>
-          {collapsedNavItems.map((item) => {
-            const isActive =
-              item.key === "core.chat"
-                ? isChatActive
-                : selectedKey === item.key;
-            return (
-              <Tooltip
-                key={item.key}
-                title={item.label}
-                placement="right"
-                overlayInnerStyle={{
-                  background: "rgba(0,0,0,0.75)",
-                  color: "#fff",
-                }}
-              >
-                <button
-                  className={`${styles.collapsedNavItem} ${
-                    isActive ? styles.collapsedNavItemActive : ""
-                  }`}
-                  onClick={() =>
-                    item.href
-                      ? window.open(item.href, "_blank", "noopener,noreferrer")
-                      : navigate(item.path)
-                  }
-                >
-                  {item.icon}
-                </button>
-              </Tooltip>
-            );
-          })}
-        </nav>
+        /* ── COLLAPSED (icon-only) ── */
+        <ScrollArea className="flex-1">
+          <nav className="flex flex-col items-center gap-1 py-1">
+            {collapsedNavItems.map((item) => {
+              const isActive =
+                item.key === "core.chat"
+                  ? isChatActive
+                  : selectedKey === item.key;
+              return (
+                <Tooltip key={item.key}>
+                  <TooltipTrigger asChild>
+                    <button
+                      className={cn(
+                        "w-10 h-10 flex items-center justify-center rounded-[10px] border-none bg-transparent cursor-pointer transition-all",
+                        "text-foreground/55 hover:bg-accent hover:text-foreground/88",
+                        isActive && "!bg-accent !text-foreground/88",
+                        isMobile && "w-9 h-9 rounded-lg",
+                      )}
+                      onClick={() =>
+                        item.href
+                          ? window.open(
+                              item.href,
+                              "_blank",
+                              "noopener,noreferrer",
+                            )
+                          : navigate(item.path)
+                      }
+                    >
+                      {item.icon}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">{item.label}</TooltipContent>
+                </Tooltip>
+              );
+            })}
+          </nav>
+        </ScrollArea>
       ) : (
-        <>
-          {/* Agent-scoped section: selector + Chat + Control + Workspace */}
-          <div className={styles.agentScopedSection}>
-            <div className={styles.agentSelectorContainer}>
-              <AgentSelector collapsed={collapsed} />
-              {/* Chat entry — sticky together with agent selector */}
-              <button
-                className={`${styles.stickyChatButton}${
-                  isChatActive ? ` ${styles.stickyChatButtonActive}` : ""
-                }`}
-                onClick={() => navigate(chatPath)}
-              >
-                <SparkChatTabFill size={16} />
-                <span>{t("nav.chat")}</span>
-              </button>
-            </div>
-            <Slot name="sider.top" kind="fill" />
-            <Menu
-              mode="inline"
-              selectedKeys={[selectedKey]}
-              openKeys={openKeys}
-              onClick={({ key }) => handleMenuClick(String(key), agentMenu)}
-              items={agentMenuItems}
-              theme={isDark ? "dark" : "light"}
-              className={styles.sideMenu}
-            />
-          </div>
+        /* ── EXPANDED ── */
+        <ScrollArea className="flex-1">
+          <div className="flex flex-col gap-1 py-2">
+            {/* Agent-scoped section */}
+            <div className="bg-muted/50 border border-border rounded-xl p-1 mb-1">
+              {/* Sticky agent selector + chat button */}
+              <div className="sticky top-0 z-10 bg-muted rounded-[12px_12px_0_0] mb-1">
+                <AgentSelector collapsed={collapsed} />
+                {/* Sticky Chat button */}
+                <button
+                  className={cn(
+                    "flex items-center gap-2.5 w-full h-10 px-3 rounded-lg border-none bg-transparent text-sm cursor-pointer transition-colors text-left",
+                    "text-foreground/88 hover:bg-accent",
+                    isChatActive && "!bg-accent !text-foreground",
+                  )}
+                  onClick={() => navigate(chatPath)}
+                >
+                  <MessageSquare size={16} />
+                  <span>{t("nav.chat")}</span>
+                  {hasInboxUnread && (
+                    <span
+                      className="ml-1 w-1.5 h-1.5 rounded-full bg-primary"
+                      style={{ marginTop: 1 }}
+                    />
+                  )}
+                </button>
+              </div>
 
-          {/* Global settings section */}
-          <Menu
-            mode="inline"
-            selectedKeys={[selectedKey]}
-            openKeys={openKeys}
-            onClick={({ key }) => handleMenuClick(String(key), settingsMenu)}
-            items={settingsMenuItems}
-            theme={isDark ? "dark" : "light"}
-            className={styles.sideMenu}
-          />
-          <Slot name="sider.bottom" kind="fill" />
-        </>
+              <Slot name="sider.top" kind="fill" />
+
+              {/* Agent-scoped menu */}
+              <ExpandedMenu
+                items={agentMenu}
+                selectedKey={selectedKey}
+                onItemClick={handleMenuItemClick}
+              />
+            </div>
+
+            {/* Settings menu */}
+            <ExpandedMenu
+              items={settingsMenu}
+              selectedKey={selectedKey}
+              onItemClick={handleMenuItemClick}
+            />
+
+            <Slot name="sider.bottom" kind="fill" />
+          </div>
+        </ScrollArea>
       )}
 
+      {/* Auth actions (account + logout) */}
       {authEnabled && !collapsed && (
-        <div className={styles.authActions}>
-          <Button
-            type="text"
-            icon={<SparkSearchUserLine size={16} />}
+        <div className="px-4 py-3 border-t border-border flex flex-col gap-1">
+          <button
+            className={cn(
+              "flex items-center gap-2 w-full px-2 py-1.5 rounded-lg text-sm text-foreground/65 bg-transparent border-none cursor-pointer text-left transition-colors",
+              "hover:text-foreground/88 hover:bg-accent",
+            )}
             onClick={() => {
-              accountForm.resetFields();
+              setAccountForm(emptyAccount());
+              setAccountErrors({});
               setAccountModalOpen(true);
             }}
-            block
-            className={`${styles.authBtn} ${
-              collapsed ? styles.authBtnCollapsed : ""
-            }`}
           >
-            {!collapsed && t("account.title")}
-          </Button>
-          <Button
-            type="text"
-            icon={<SparkExitFullscreenLine size={16} />}
+            <UserSearch size={16} />
+            {t("account.title")}
+          </button>
+          <button
+            className={cn(
+              "flex items-center gap-2 w-full px-2 py-1.5 rounded-lg text-sm text-foreground/65 bg-transparent border-none cursor-pointer text-left transition-colors",
+              "hover:text-foreground/88 hover:bg-accent",
+            )}
             onClick={() => {
               clearAuthToken();
               window.location.href = "/login";
             }}
-            block
-            className={`${styles.authBtn} ${
-              collapsed ? styles.authBtnCollapsed : ""
-            }`}
           >
-            {!collapsed && t("login.logout")}
-          </Button>
+            <Minimize2 size={16} />
+            {t("login.logout")}
+          </button>
         </div>
       )}
 
-      <div className={styles.collapseToggleContainer}>
-        <Button
-          type="text"
-          icon={
-            collapsed ? (
-              <SparkMenuExpandLine size={20} />
-            ) : (
-              <SparkMenuFoldLine size={20} />
-            )
-          }
+      {/* Collapse toggle */}
+      <div
+        className={cn(
+          "shrink-0 z-10 flex items-center py-2 border-t border-border",
+          collapsed ? "justify-center" : "justify-end",
+        )}
+      >
+        <button
+          className={cn(
+            "p-1.5 rounded-lg text-foreground/45 bg-transparent border-none cursor-pointer transition-all",
+            "hover:bg-accent hover:text-foreground",
+          )}
           onClick={() => setCollapsed(!collapsed)}
-          className={styles.collapseToggle}
-        />
+        >
+          {collapsed ? (
+            <PanelLeftOpen size={20} />
+          ) : (
+            <PanelLeftClose size={20} />
+          )}
+        </button>
       </div>
 
-      <Modal
+      {/* Account modal */}
+      <Dialog
         open={accountModalOpen}
-        onCancel={() => setAccountModalOpen(false)}
-        title={t("account.title")}
-        footer={null}
-        destroyOnHidden
-        centered
+        onOpenChange={(open) => {
+          setAccountModalOpen(open);
+          if (!open) setAccountErrors({});
+        }}
       >
-        <Form
-          form={accountForm}
-          layout="vertical"
-          onFinish={handleUpdateProfile}
-        >
-          <Form.Item
-            name="currentPassword"
-            label={t("account.currentPassword")}
-            rules={[
-              { required: true, message: t("account.currentPasswordRequired") },
-            ]}
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("account.title")}</DialogTitle>
+            <DialogDescription className="sr-only">
+              {t("account.description", "Update your username or password.")}
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="flex flex-col gap-4 pt-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleUpdateProfile();
+            }}
           >
-            <Input.Password />
-          </Form.Item>
-          <Form.Item name="newUsername" label={t("account.newUsername")}>
-            <Input placeholder={t("account.newUsernamePlaceholder")} />
-          </Form.Item>
-          <Form.Item name="newPassword" label={t("account.newPassword")}>
-            <Input.Password placeholder={t("account.newPasswordPlaceholder")} />
-          </Form.Item>
-          <Form.Item
-            name="confirmPassword"
-            label={t("account.confirmPassword")}
-            dependencies={["newPassword"]}
-            rules={[
-              ({ getFieldValue }) => ({
-                validator(_, value) {
-                  if (!value && !getFieldValue("newPassword")) {
-                    return Promise.resolve();
-                  }
-                  if (value === getFieldValue("newPassword")) {
-                    return Promise.resolve();
-                  }
-                  return Promise.reject(
-                    new Error(t("account.passwordMismatch")),
-                  );
-                },
-              }),
-            ]}
-          >
-            <Input.Password
-              placeholder={t("account.confirmPasswordPlaceholder")}
-            />
-          </Form.Item>
-          <Form.Item>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="currentPassword">
+                {t("account.currentPassword")}
+                <span className="text-destructive ml-0.5">*</span>
+              </Label>
+              <Input
+                id="currentPassword"
+                type="password"
+                value={accountForm.currentPassword}
+                onChange={(e) =>
+                  setAccountForm((f) => ({
+                    ...f,
+                    currentPassword: e.target.value,
+                  }))
+                }
+              />
+              {accountErrors.currentPassword && (
+                <p className="text-[12px] text-destructive">
+                  {accountErrors.currentPassword}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="newUsername">{t("account.newUsername")}</Label>
+              <Input
+                id="newUsername"
+                type="text"
+                placeholder={t("account.newUsernamePlaceholder")}
+                value={accountForm.newUsername}
+                onChange={(e) =>
+                  setAccountForm((f) => ({ ...f, newUsername: e.target.value }))
+                }
+              />
+              {accountErrors.newUsername && (
+                <p className="text-[12px] text-destructive">
+                  {accountErrors.newUsername}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="newPassword">{t("account.newPassword")}</Label>
+              <Input
+                id="newPassword"
+                type="password"
+                placeholder={t("account.newPasswordPlaceholder")}
+                value={accountForm.newPassword}
+                onChange={(e) =>
+                  setAccountForm((f) => ({ ...f, newPassword: e.target.value }))
+                }
+              />
+              {accountErrors.newPassword && (
+                <p className="text-[12px] text-destructive">
+                  {accountErrors.newPassword}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="confirmPassword">
+                {t("account.confirmPassword")}
+              </Label>
+              <Input
+                id="confirmPassword"
+                type="password"
+                placeholder={t("account.confirmPasswordPlaceholder")}
+                value={accountForm.confirmPassword}
+                onChange={(e) =>
+                  setAccountForm((f) => ({
+                    ...f,
+                    confirmPassword: e.target.value,
+                  }))
+                }
+              />
+              {accountErrors.confirmPassword && (
+                <p className="text-[12px] text-destructive">
+                  {accountErrors.confirmPassword}
+                </p>
+              )}
+            </div>
+
             <Button
-              type="primary"
-              htmlType="submit"
-              loading={accountLoading}
-              block
+              type="submit"
+              className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+              disabled={accountLoading}
             >
-              {t("account.save")}
+              {accountLoading ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  {t("account.save")}
+                </span>
+              ) : (
+                t("account.save")
+              )}
             </Button>
-          </Form.Item>
-        </Form>
-      </Modal>
-    </Sider>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </aside>
   );
 }

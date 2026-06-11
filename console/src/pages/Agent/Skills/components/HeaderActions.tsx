@@ -1,16 +1,16 @@
-import { Button, Tooltip } from "@agentscope-ai/design";
+import { Button } from "@/components/ui/button";
 import {
-  CloseOutlined,
-  DeleteOutlined,
-  DownloadOutlined,
-  ImportOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-  SwapOutlined,
-  UploadOutlined,
-  EyeOutlined,
-  EyeInvisibleOutlined,
-} from "@ant-design/icons";
+  X,
+  Trash2,
+  Download,
+  Import,
+  Plus,
+  RefreshCw,
+  ArrowLeftRight,
+  Upload,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
@@ -74,121 +74,116 @@ export function HeaderActions({
             <span className={styles.batchCount}>
               {t("skills.selectedCount", { count: selectedSkills.size })}
             </span>
-            <Button type="default" onClick={onSelectAll}>
+            <Button variant="outline" size="sm" onClick={onSelectAll}>
               {t("skills.selectAll")}
             </Button>
-            <Button
-              type="default"
-              onClick={onClearSelection}
-              icon={<CloseOutlined />}
-            >
+            <Button variant="outline" size="sm" onClick={onClearSelection}>
+              <X size={14} className="mr-1" />
               {t("skills.clearSelection")}
             </Button>
-            <Tooltip title={t("skills.uploadToPoolHint")}>
-              <Button
-                type="default"
-                className={styles.primaryTransferButton}
-                onClick={() => {
-                  const names = Array.from(selectedSkills);
-                  if (names.length === 0) return;
-                  onClearSelection();
-                  void onUploadToPool(names);
-                }}
-                icon={<SwapOutlined />}
-              >
-                {t("skills.uploadToPool")}
-              </Button>
-            </Tooltip>
             <Button
-              type="default"
-              icon={<EyeOutlined />}
-              onClick={onBatchEnable}
+              variant="outline"
+              size="sm"
+              className={styles.primaryTransferButton}
+              title={t("skills.uploadToPoolHint")}
+              onClick={() => {
+                const names = Array.from(selectedSkills);
+                if (names.length === 0) return;
+                onClearSelection();
+                void onUploadToPool(names);
+              }}
             >
+              <ArrowLeftRight size={14} className="mr-1" />
+              {t("skills.uploadToPool")}
+            </Button>
+            <Button variant="outline" size="sm" onClick={onBatchEnable}>
+              <Eye size={14} className="mr-1" />
               {t("skills.batchEnable")}
             </Button>
-            <Button
-              danger
-              icon={<EyeInvisibleOutlined />}
-              onClick={onBatchDisable}
-            >
+            <Button variant="destructive" size="sm" onClick={onBatchDisable}>
+              <EyeOff size={14} className="mr-1" />
               {t("skills.batchDisable")}
             </Button>
-            <Button danger icon={<DeleteOutlined />} onClick={onBatchDelete}>
+            <Button variant="destructive" size="sm" onClick={onBatchDelete}>
+              <Trash2 size={14} className="mr-1" />
               {t("common.delete")} ({selectedSkills.size})
             </Button>
           </>
-          <Button type="primary" onClick={onToggleBatchMode}>
+          <Button size="sm" onClick={onToggleBatchMode}>
             {t("skills.exitBatch")}
           </Button>
         </div>
       ) : (
         <>
           <div className={styles.headerActionsLeft}>
-            <Tooltip title={t("skills.refreshHint")}>
-              <Button
-                type="default"
-                icon={<ReloadOutlined spin={loading} />}
-                onClick={onHardRefresh}
-                disabled={loading}
-              />
-            </Tooltip>
-            <Tooltip title={t("skills.downloadFromPoolHint")}>
-              <Button
-                type="default"
-                className={styles.primaryTransferButton}
-                onClick={onOpenDownloadPool}
-                icon={<DownloadOutlined />}
-              >
-                {t("skills.downloadFromPool")}
-              </Button>
-            </Tooltip>
-            <Tooltip title={t("skills.uploadToPoolHint")}>
-              <Button
-                type="default"
-                className={styles.primaryTransferButton}
-                onClick={onOpenUploadPool}
-                icon={<SwapOutlined />}
-              >
-                {t("skills.uploadToPool")}
-              </Button>
-            </Tooltip>
+            <Button
+              variant="outline"
+              size="sm"
+              title={t("skills.refreshHint")}
+              onClick={onHardRefresh}
+              disabled={loading}
+            >
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className={styles.primaryTransferButton}
+              title={t("skills.downloadFromPoolHint")}
+              onClick={onOpenDownloadPool}
+            >
+              <Download size={14} className="mr-1" />
+              {t("skills.downloadFromPool")}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className={styles.primaryTransferButton}
+              title={t("skills.uploadToPoolHint")}
+              onClick={onOpenUploadPool}
+            >
+              <ArrowLeftRight size={14} className="mr-1" />
+              {t("skills.uploadToPool")}
+            </Button>
           </div>
           <div className={styles.headerActionsRight}>
-            <Tooltip title={t("skills.uploadZipHint")}>
-              <Button
-                type="default"
-                className={styles.creationActionButton}
-                onClick={onUploadClick}
-                icon={<UploadOutlined />}
-                loading={uploading}
-                disabled={uploading}
-              >
-                {t("skills.uploadZip")}
-              </Button>
-            </Tooltip>
-            <Tooltip title={t("skills.importHubHint")}>
-              <Button
-                type="default"
-                className={styles.creationActionButton}
-                onClick={onImportHub}
-                icon={<ImportOutlined />}
-              >
-                {t("skills.importHub")}
-              </Button>
-            </Tooltip>
-            <Button type="primary" onClick={onToggleBatchMode}>
+            <Button
+              variant="outline"
+              size="sm"
+              className={styles.creationActionButton}
+              title={t("skills.uploadZipHint")}
+              onClick={onUploadClick}
+              disabled={uploading}
+            >
+              {uploading ? (
+                <RefreshCw size={14} className="animate-spin mr-1" />
+              ) : (
+                <Upload size={14} className="mr-1" />
+              )}
+              {t("skills.uploadZip")}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className={styles.creationActionButton}
+              title={t("skills.importHubHint")}
+              onClick={onImportHub}
+            >
+              <Import size={14} className="mr-1" />
+              {t("skills.importHub")}
+            </Button>
+            <Button size="sm" onClick={onToggleBatchMode}>
               {t("skills.batchOperation")}
             </Button>
-            <Tooltip title={t("skills.createSkillHint")}>
-              <Button
-                type="primary"
-                className={styles.primaryActionButton}
-                onClick={onCreate}
-                icon={<PlusOutlined />}
-              >
-                {t("skills.createSkill")}
-              </Button>
-            </Tooltip>
+            <Button
+              size="sm"
+              className={styles.primaryActionButton}
+              title={t("skills.createSkillHint")}
+              onClick={onCreate}
+            >
+              <Plus size={14} className="mr-1" />
+              {t("skills.createSkill")}
+            </Button>
           </div>
         </>
       )}

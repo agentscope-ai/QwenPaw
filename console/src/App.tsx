@@ -1,4 +1,3 @@
-import { createGlobalStyle } from "antd-style";
 import {
   ConfigProvider,
   bailianDarkTheme,
@@ -21,6 +20,7 @@ import "dayjs/locale/zh-cn";
 import "dayjs/locale/ja";
 import "dayjs/locale/ru";
 import "dayjs/locale/id";
+import "dayjs/locale/pt-br";
 dayjs.extend(relativeTime);
 import MainLayout from "./layouts/MainLayout";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
@@ -34,6 +34,8 @@ import { authApi } from "./api/modules/auth";
 import { languageApi } from "./api/modules/language";
 import { useUploadLimitStore } from "./stores/uploadLimitStore";
 import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
+import { TooltipProvider } from "./components/ui/tooltip";
+import { Toaster } from "./components/ui/sonner";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 
@@ -51,14 +53,9 @@ const dayjsLocaleMap: Record<string, string> = {
   ja: "ja",
   ru: "ru",
   id: "id",
+  pt: "pt-br",
+  "pt-BR": "pt-br",
 };
-
-const GlobalStyle = createGlobalStyle`
-* {
-  margin: 0;
-  box-sizing: border-box;
-}
-`;
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<"loading" | "auth-required" | "ok">(
@@ -172,7 +169,6 @@ function AppInner() {
 
   return (
     <BrowserRouter basename={basename}>
-      <GlobalStyle />
       <ConfigProvider
         {...selectedTheme}
         prefix="qwenpaw"
@@ -189,26 +185,29 @@ function AppInner() {
         }}
       >
         <AntdApp>
-          <ApprovalProvider>
-            <Routes>
-              <Route
-                path="/login"
-                element={
-                  <Suspense fallback={null}>
-                    <LoginPage />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="/*"
-                element={
-                  <AuthGuard>
-                    <MainLayout />
-                  </AuthGuard>
-                }
-              />
-            </Routes>
-          </ApprovalProvider>
+          <TooltipProvider>
+            <Toaster theme={isDark ? "dark" : "light"} />
+            <ApprovalProvider>
+              <Routes>
+                <Route
+                  path="/login"
+                  element={
+                    <Suspense fallback={null}>
+                      <LoginPage />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/*"
+                  element={
+                    <AuthGuard>
+                      <MainLayout />
+                    </AuthGuard>
+                  }
+                />
+              </Routes>
+            </ApprovalProvider>
+          </TooltipProvider>
         </AntdApp>
       </ConfigProvider>
     </BrowserRouter>

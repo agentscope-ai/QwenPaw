@@ -11,6 +11,8 @@ declare module "*.less" {
   export default classes;
 }
 
+declare module "@fontsource-variable/inter";
+
 interface PyWebViewAPI {
   open_external_link?: (url: string) => void;
   save_file?: (

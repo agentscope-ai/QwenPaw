@@ -1,26 +1,8 @@
 /**
- * Final step in the restore flow: lets the user pick full or custom restore mode,
- * choose which agents / config items to include, and confirm before applying.
- *
- * On open it fetches the backup detail (real agent list from workspace_stats).
- * If the detail fetch fails the modal shows an error and disables the OK button,
- * since we need workspace_stats to build the explicit agent_ids list.
- * A "confirmed" checkbox gates the submit button to prevent accidental data loss.
+ * Final step in the restore flow.
  */
 import { useState, useEffect, useMemo } from "react";
-import {
-  Modal,
-  Checkbox,
-  Radio,
-  Alert,
-  Input,
-  Tag,
-  Divider,
-  Typography,
-  Tooltip,
-  Space,
-} from "antd";
-import { QuestionCircleOutlined } from "@ant-design/icons";
+import { HelpCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import api from "@/api";
 import { useAppMessage } from "@/hooks/useAppMessage";
@@ -38,9 +20,25 @@ import {
   type BackupTrustMode,
 } from "../trust/trustErrors";
 import RestoreAgentTable from "./RestoreAgentTable";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import styles from "./RestoreBackupModal.module.less";
-
-const { Text } = Typography;
 
 interface Props {
   open: boolean;
@@ -72,8 +70,6 @@ export default function RestoreBackupModal({
   const [restoreMode, setRestoreMode] = useState<RestoreMode>(
     fullBackup ? "full" : "custom",
   );
-  // Foreign/legacy backups default to preserving local security and MCP
-  // controls; local backups can restore them unless the user changes this.
   const [restoreStrategy, setRestoreStrategy] =
     useState<RestoreStrategy>("preserve");
 
@@ -115,7 +111,6 @@ export default function RestoreBackupModal({
         message.error(t("backup.detailLoadFailed"));
       })
       .finally(() => setDetailLoading(false));
-    // keying on backup.id is intentional: re-fetch when a different backup is opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, backup.id]);
 
@@ -134,7 +129,6 @@ export default function RestoreBackupModal({
     [agents],
   );
 
-  // All agent IDs present in the backup (only available after detail loads).
   const allBackupAgentIds = useMemo(
     () => (backupDetail ? Object.keys(backupDetail.workspace_stats) : []),
     [backupDetail],
@@ -143,9 +137,6 @@ export default function RestoreBackupModal({
   const allAgentRows = useMemo(() => {
     return allBackupAgentIds.map((aid) => {
       const agentInfo = existingAgentMap.get(aid);
-      // For new (not-yet-existing) agents we can't look up the name from
-      // /api/agents, so fall back to the name embedded inside the backup's
-      // workspace/agent.json (exposed via workspace_stats[aid].name).
       const backupName = backupDetail?.workspace_stats?.[aid]?.name;
       return {
         key: aid,
@@ -180,7 +171,6 @@ export default function RestoreBackupModal({
       : includeAgents
       ? selectedAgents
       : [];
-
     return {
       mode: restoreMode,
       include_agents: doIncludeAgents,
@@ -189,8 +179,6 @@ export default function RestoreBackupModal({
       include_secrets: isFull ? true : includeSecrets,
       include_skill_pool: isFull ? true : includeSkillPool,
       default_workspace_dir: defaultWorkspaceDir.trim() || null,
-      // Backend overlays local security/MCP config after the selected restore
-      // mode has built its config payload.
       preserve_local_protected_config: restoreStrategy === "preserve",
     };
   };
@@ -220,27 +208,13 @@ export default function RestoreBackupModal({
             (path): path is string => typeof path === "string" && !!path,
           )
         : [];
-
-      message.error({
-        content: (
-          <div className={styles.restoreErrorMessage}>
-            <div>{t("backup.restoreTargetBusy")}</div>
-            {lockedPaths.length > 0 && (
-              <div className={styles.lockedPathList}>
-                {lockedPaths.map((path) => (
-                  <div key={path} className={styles.lockedPath}>
-                    {path}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ),
-        duration: 8,
-      });
+      message.error(
+        lockedPaths.length > 0
+          ? `${t("backup.restoreTargetBusy")}: ${lockedPaths.join(", ")}`
+          : t("backup.restoreTargetBusy"),
+      );
       return;
     }
-
     message.error(t("backup.restoreFailed"));
   };
 
@@ -290,260 +264,307 @@ export default function RestoreBackupModal({
         })
       : null;
 
-  // OK is disabled when detail hasn't loaded (we need workspace_stats to build agent_ids),
-  // or when the user hasn't confirmed the destructive action.
   const okDisabled =
     !confirmed || detailFailed || (detailLoading && !backupDetail);
 
+  const trustBannerClass =
+    trustState === false
+      ? "border-green-200 bg-green-50 text-green-800 dark-mode:border-green-800 dark-mode:bg-green-950 dark-mode:text-green-200"
+      : trustState === true
+      ? "border-yellow-200 bg-yellow-50 text-yellow-800 dark-mode:border-yellow-800 dark-mode:bg-yellow-950 dark-mode:text-yellow-200"
+      : "border-blue-200 bg-blue-50 text-blue-800 dark-mode:border-blue-800 dark-mode:bg-blue-950 dark-mode:text-blue-200";
+
   return (
     <>
-      <Modal
-        title={t("backup.restoreTitle")}
-        open={open}
-        onCancel={onClose}
-        onOk={handleOk}
-        confirmLoading={loading}
-        okButtonProps={{ disabled: okDisabled, danger: true }}
-        okText={t("common.confirm")}
-        destroyOnHidden
-        centered
-        width={680}
-      >
-        <div className={styles.modalBody}>
-          <div className={styles.backupInfoSection}>
-            <Text strong style={{ fontSize: 14 }}>
-              {backup.name}
-            </Text>
-            {backup.description && (
-              <div className={styles.backupDescription}>
-                {backup.description}
+      <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t("backup.restoreTitle")}</DialogTitle>
+          </DialogHeader>
+
+          <div className={styles.modalBody}>
+            <div className={styles.backupInfoSection}>
+              <span className="text-sm font-semibold">{backup.name}</span>
+              {backup.description && (
+                <div
+                  className={`${styles.backupDescription} text-sm text-muted-foreground`}
+                >
+                  {backup.description}
+                </div>
+              )}
+            </div>
+
+            <div
+              className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${trustBannerClass} ${styles.trustBanner}`}
+            >
+              <span>
+                {trustState === false ? "✓" : trustState === true ? "⚠" : "ℹ"}
+              </span>
+              <div>
+                {trustState === false
+                  ? t("backup.trustLocalBanner", {
+                      defaultValue: "Local backup - full restore by default",
+                    })
+                  : trustState === true
+                  ? t("backup.trustForeignBanner", {
+                      defaultValue:
+                        "Imported backup - local security and MCP are preserved by default",
+                    })
+                  : t("backup.trustLegacyBanner", {
+                      defaultValue:
+                        "Legacy backup - trust confirmation is required before restore",
+                    })}
+              </div>
+            </div>
+
+            {detailFailed && (
+              <div
+                className={`flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 ${styles.fullRestoreAlert}`}
+              >
+                <span>✕</span>
+                {t("backup.detailLoadFailed")}
               </div>
             )}
-          </div>
 
-          <Alert
-            showIcon
-            type={
-              trustState === false
-                ? "success"
-                : trustState === true
-                ? "warning"
-                : "info"
-            }
-            message={
-              trustState === false
-                ? t("backup.trustLocalBanner", {
-                    defaultValue: "Local backup - full restore by default",
-                  })
-                : trustState === true
-                ? t("backup.trustForeignBanner", {
-                    defaultValue:
-                      "Imported backup - local security and MCP are preserved by default",
-                  })
-                : t("backup.trustLegacyBanner", {
-                    defaultValue:
-                      "Legacy backup - trust confirmation is required before restore",
-                  })
-            }
-            className={styles.trustBanner}
-          />
-
-          {detailFailed && (
-            <Alert
-              type="error"
-              showIcon
-              message={t("backup.detailLoadFailed")}
-              className={styles.fullRestoreAlert}
-            />
-          )}
-
-          {hasNewAgents && !detailFailed && (
-            <div className={styles.workspaceDirSection}>
-              <div className={styles.workspaceDirLabel}>
-                {t("backup.defaultWorkspaceDir")}
-                <Tooltip title={t("backup.defaultWorkspaceDirHint")}>
-                  <QuestionCircleOutlined className={styles.hintIcon} />
-                </Tooltip>
-              </div>
-              <Input
-                value={defaultWorkspaceDir}
-                onChange={(e) => setDefaultWorkspaceDir(e.target.value)}
-                placeholder={t("backup.defaultWorkspaceDirPlaceholder")}
-              />
-            </div>
-          )}
-
-          <Divider className={styles.dividerTop} />
-
-          <div className={styles.restoreModeSection}>
-            <div className={styles.restoreModeLabel}>
-              {t("backup.restoreMode")}
-            </div>
-            <Radio.Group
-              value={restoreMode}
-              onChange={(e) => setRestoreMode(e.target.value)}
-              className={styles.radioGroup}
-            >
-              <Radio value="full" disabled={!fullBackup}>
-                <div className={styles.radioOption}>
-                  <div className={styles.radioOptionHeader}>
-                    <Text strong>{t("backup.restoreModeFull")}</Text>
-                    {!fullBackup && (
-                      <Tag color="default" className={styles.radioDisabledTag}>
-                        {t("backup.restoreModeFullDisabled")}
-                      </Tag>
-                    )}
-                  </div>
-                  <Text type="secondary" className={styles.radioDesc}>
-                    {t("backup.restoreModeFullDesc")}
-                  </Text>
+            {hasNewAgents && !detailFailed && (
+              <div className={styles.workspaceDirSection}>
+                <div
+                  className={`${styles.workspaceDirLabel} flex items-center gap-1 text-sm font-medium`}
+                >
+                  {t("backup.defaultWorkspaceDir")}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <HelpCircle
+                        size={14}
+                        className="cursor-help text-muted-foreground"
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("backup.defaultWorkspaceDirHint")}
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
-              </Radio>
-              <Radio value="custom">
-                <div className={styles.radioOption}>
-                  <Text strong>{t("backup.restoreModeCustom")}</Text>
-                  <Text type="secondary" className={styles.radioDesc}>
-                    {t("backup.restoreModeCustomDesc")}
-                  </Text>
-                </div>
-              </Radio>
-            </Radio.Group>
-          </div>
-
-          <div className={styles.strategySection}>
-            <div className={styles.strategyLabel}>
-              {t("backup.restoreStrategy", {
-                defaultValue: "Restore strategy",
-              })}
-            </div>
-            <Radio.Group
-              value={restoreStrategy}
-              onChange={(e) => setRestoreStrategy(e.target.value)}
-              className={styles.radioGroup}
-            >
-              <Radio value="preserve">
-                <div className={styles.radioOption}>
-                  <Text strong>
-                    {t("backup.restoreStrategyPreserve", {
-                      defaultValue: "Preserve local security and MCP",
-                    })}
-                  </Text>
-                  <Text type="secondary" className={styles.radioDesc}>
-                    {t("backup.restoreStrategyPreserveDesc", {
-                      defaultValue:
-                        "Keep this instance's security guards and MCP configuration.",
-                    })}
-                  </Text>
-                </div>
-              </Radio>
-              <Radio value="restore">
-                <div className={styles.radioOption}>
-                  <Text strong>
-                    {t("backup.restoreStrategyRestore", {
-                      defaultValue: "Restore these settings from backup",
-                    })}
-                  </Text>
-                  <Text type="secondary" className={styles.radioDesc}>
-                    {t("backup.restoreStrategyRestoreDesc", {
-                      defaultValue:
-                        "Use the backup's security and MCP configuration.",
-                    })}
-                  </Text>
-                </div>
-              </Radio>
-            </Radio.Group>
-          </div>
-
-          {restoreMode === "full" && (
-            <Alert
-              type="warning"
-              showIcon
-              message={t("backup.restoreFullWarning")}
-              className={styles.fullRestoreAlert}
-            />
-          )}
-
-          {restoreMode === "custom" && (
-            <Space
-              direction="vertical"
-              size={0}
-              className={styles.customOptions}
-            >
-              {backup.scope.include_agents && (
-                <RestoreAgentTable
-                  allAgentRows={allAgentRows}
-                  selectedAgents={selectedAgents}
-                  onSelectionChange={setSelectedAgents}
-                  detailLoading={detailLoading}
-                  defaultWorkspaceDir={defaultWorkspaceDir}
-                  includeAgents={includeAgents}
-                  onIncludeAgentsChange={setIncludeAgents}
-                  summaryText={summaryText}
+                <Input
+                  value={defaultWorkspaceDir}
+                  onChange={(e) => setDefaultWorkspaceDir(e.target.value)}
+                  placeholder={t("backup.defaultWorkspaceDirPlaceholder")}
                 />
-              )}
+              </div>
+            )}
 
-              {backup.scope.include_global_config && (
-                <div className={styles.checkboxRow}>
-                  <Checkbox
-                    checked={globalConfig}
-                    onChange={(e) => setGlobalConfig(e.target.checked)}
-                  >
-                    {t("backup.scopeGlobalConfig")}
-                  </Checkbox>
-                </div>
-              )}
+            <Separator className={styles.dividerTop} />
 
-              {backup.scope.include_skill_pool && (
-                <div className={styles.checkboxRow}>
-                  <Checkbox
-                    checked={includeSkillPool}
-                    onChange={(e) => setIncludeSkillPool(e.target.checked)}
+            <div className={styles.restoreModeSection}>
+              <div
+                className={`${styles.restoreModeLabel} text-sm font-medium mb-2`}
+              >
+                {t("backup.restoreMode")}
+              </div>
+              <div className={`${styles.radioGroup} flex flex-col gap-2`}>
+                {(["full", "custom"] as const).map((mode) => (
+                  <label
+                    key={mode}
+                    className={`flex cursor-pointer items-start gap-2 ${
+                      mode === "full" && !fullBackup
+                        ? "opacity-50 cursor-not-allowed"
+                        : ""
+                    }`}
                   >
-                    {t("backup.scopeSkillPool")}
-                  </Checkbox>
-                </div>
-              )}
+                    <input
+                      type="radio"
+                      name="restoreMode"
+                      value={mode}
+                      checked={restoreMode === mode}
+                      disabled={mode === "full" && !fullBackup}
+                      onChange={() => setRestoreMode(mode)}
+                      className="mt-1 accent-primary"
+                    />
+                    <span>
+                      <span className="text-sm font-medium">
+                        {mode === "full"
+                          ? t("backup.restoreModeFull")
+                          : t("backup.restoreModeCustom")}
+                        {mode === "full" && !fullBackup && (
+                          <Badge variant="secondary" className="ml-2 text-xs">
+                            {t("backup.restoreModeFullDisabled")}
+                          </Badge>
+                        )}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {mode === "full"
+                          ? t("backup.restoreModeFullDesc")
+                          : t("backup.restoreModeCustomDesc")}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
 
-              {backup.scope.include_secrets && (
-                <div className={styles.checkboxRow}>
-                  <Checkbox
-                    checked={includeSecrets}
-                    onChange={(e) => setIncludeSecrets(e.target.checked)}
+            <div className={styles.strategySection}>
+              <div
+                className={`${styles.strategyLabel} text-sm font-medium mb-2`}
+              >
+                {t("backup.restoreStrategy", {
+                  defaultValue: "Restore strategy",
+                })}
+              </div>
+              <div className="flex flex-col gap-2">
+                {(["preserve", "restore"] as const).map((strategy) => (
+                  <label
+                    key={strategy}
+                    className="flex cursor-pointer items-start gap-2"
                   >
-                    {t("backup.scopeSecrets")}
-                  </Checkbox>
-                  <div className={styles.secretsHint}>
-                    {t("backup.scopeSecretsHint")}
+                    <input
+                      type="radio"
+                      name="restoreStrategy"
+                      value={strategy}
+                      checked={restoreStrategy === strategy}
+                      onChange={() => setRestoreStrategy(strategy)}
+                      className="mt-1 accent-primary"
+                    />
+                    <span>
+                      <span className="text-sm font-medium">
+                        {strategy === "preserve"
+                          ? t("backup.restoreStrategyPreserve", {
+                              defaultValue: "Preserve local security and MCP",
+                            })
+                          : t("backup.restoreStrategyRestore", {
+                              defaultValue:
+                                "Restore these settings from backup",
+                            })}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {strategy === "preserve"
+                          ? t("backup.restoreStrategyPreserveDesc", {
+                              defaultValue:
+                                "Keep this instance's security guards and MCP configuration.",
+                            })
+                          : t("backup.restoreStrategyRestoreDesc", {
+                              defaultValue:
+                                "Use the backup's security and MCP configuration.",
+                            })}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {restoreMode === "full" && (
+              <div
+                className={`flex items-start gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800 dark-mode:border-yellow-800 dark-mode:bg-yellow-950 dark-mode:text-yellow-200 ${styles.fullRestoreAlert}`}
+              >
+                <span>⚠</span>
+                {t("backup.restoreFullWarning")}
+              </div>
+            )}
+
+            {restoreMode === "custom" && (
+              <div className={styles.customOptions}>
+                {backup.scope.include_agents && (
+                  <RestoreAgentTable
+                    allAgentRows={allAgentRows}
+                    selectedAgents={selectedAgents}
+                    onSelectionChange={setSelectedAgents}
+                    detailLoading={detailLoading}
+                    defaultWorkspaceDir={defaultWorkspaceDir}
+                    includeAgents={includeAgents}
+                    onIncludeAgentsChange={setIncludeAgents}
+                    summaryText={summaryText}
+                  />
+                )}
+
+                {backup.scope.include_global_config && (
+                  <div
+                    className={`${styles.checkboxRow} flex items-center gap-2`}
+                  >
+                    <Checkbox
+                      id="global-config"
+                      checked={globalConfig}
+                      onCheckedChange={(c) => setGlobalConfig(!!c)}
+                    />
+                    <Label htmlFor="global-config" className="cursor-pointer">
+                      {t("backup.scopeGlobalConfig")}
+                    </Label>
                   </div>
-                </div>
-              )}
-            </Space>
-          )}
+                )}
 
-          <Divider className={styles.dividerBottom} />
+                {backup.scope.include_skill_pool && (
+                  <div
+                    className={`${styles.checkboxRow} flex items-center gap-2`}
+                  >
+                    <Checkbox
+                      id="skill-pool"
+                      checked={includeSkillPool}
+                      onCheckedChange={(c) => setIncludeSkillPool(!!c)}
+                    />
+                    <Label htmlFor="skill-pool" className="cursor-pointer">
+                      {t("backup.scopeSkillPool")}
+                    </Label>
+                  </div>
+                )}
 
-          {restoreMode === "custom" && (
-            <Alert
-              type="warning"
-              showIcon
-              message={
-                <ul className={styles.restoreWarningList}>
+                {backup.scope.include_secrets && (
+                  <div className={styles.checkboxRow}>
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="secrets"
+                        checked={includeSecrets}
+                        onCheckedChange={(c) => setIncludeSecrets(!!c)}
+                      />
+                      <Label htmlFor="secrets" className="cursor-pointer">
+                        {t("backup.scopeSecrets")}
+                      </Label>
+                    </div>
+                    <div className="text-xs text-muted-foreground ml-6">
+                      {t("backup.scopeSecretsHint")}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <Separator className={styles.dividerBottom} />
+
+            {restoreMode === "custom" && (
+              <div
+                className={`flex items-start gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800 dark-mode:border-yellow-800 dark-mode:bg-yellow-950 dark-mode:text-yellow-200 ${styles.customRestoreAlert}`}
+              >
+                <span>⚠</span>
+                <ul className="list-disc ml-4">
                   <li>{t("backup.restoreWarningModify")}</li>
                   <li>{t("backup.restoreWarningRestart")}</li>
                 </ul>
-              }
-              className={styles.customRestoreAlert}
-            />
-          )}
+              </div>
+            )}
 
-          <Checkbox
-            checked={confirmed}
-            onChange={(e) => setConfirmed(e.target.checked)}
-          >
-            {t("backup.restoreConfirm")}
-          </Checkbox>
-        </div>
-      </Modal>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="confirm-restore"
+                checked={confirmed}
+                onCheckedChange={(c) => setConfirmed(!!c)}
+              />
+              <Label htmlFor="confirm-restore" className="cursor-pointer">
+                {t("backup.restoreConfirm")}
+              </Label>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={onClose} disabled={loading}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleOk}
+              disabled={okDisabled || loading}
+            >
+              {t("common.confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <BackupTrustDialog
         open={!!trustPrompt}
         mode={trustPrompt?.mode ?? "legacy"}
