@@ -29,12 +29,17 @@ class DataPawPlugin:
         )
 
         from .constants import PLUGIN_DIR
-        from .core.routers import tasks_router
+        from .core.routers import data_sources_router, tasks_router
 
         api.register_http_router(
             tasks_router,
             prefix="/tasks",  # final URL: /api/tasks/...
             tags=["datapaw-tasks"],
+        )
+        api.register_http_router(
+            data_sources_router,
+            prefix="/datapaw/data-sources",
+            tags=["datapaw-data-sources"],
         )
 
         api.register_skill_provider(
