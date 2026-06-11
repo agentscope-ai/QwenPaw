@@ -183,9 +183,11 @@ class TestKeyringAccountIsolation:
     def _clear_relocation_env(self, monkeypatch):
         for var in (
             "QWENPAW_KEYRING_ACCOUNT",
+            "COPAW_KEYRING_ACCOUNT",
             "QWENPAW_WORKING_DIR",
             "COPAW_WORKING_DIR",
             "QWENPAW_SECRET_DIR",
+            "COPAW_SECRET_DIR",
         ):
             monkeypatch.delenv(var, raising=False)
 

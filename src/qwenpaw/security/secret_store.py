@@ -22,7 +22,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from ..constant import EnvVarLoader
+from ..constant import EnvVarLoader, KEYRING_ACCOUNT_ENV
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ def _keyring_account() -> str:
        Distinct secret dirs get distinct, stable keychain items and never
        collide.
     """
-    explicit = EnvVarLoader.get_str("QWENPAW_KEYRING_ACCOUNT")
+    explicit = EnvVarLoader.get_str(KEYRING_ACCOUNT_ENV)
     if explicit:
         return explicit
 
