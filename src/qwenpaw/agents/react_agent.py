@@ -31,10 +31,12 @@ from .prompt import (
     build_system_prompt_from_working_dir,
 )
 from .skill_system import (
+    apply_skill_config_env_overrides,
     ensure_skills_initialized,
     get_workspace_skills_dir,
     resolve_effective_skills,
 )
+from .utils import process_file_and_media_blocks_in_message
 from .coding_mode_mixin import CodingModeMixin
 from .tools import (
     browser_use,
@@ -97,6 +99,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         request_context: Optional[dict[str, str]] = None,
         workspace_dir: Path | None = None,
         task_tracker: Any | None = None,
+        plan_notebook: Any | None = None,
     ):
         """Initialize QwenPawAgent.
 
@@ -115,6 +118,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 user_id, channel, agent_id
             workspace_dir: Workspace directory for reading prompt files
                 (if None, uses global WORKING_DIR)
+            plan_notebook: Optional AgentScope ``PlanNotebook`` instance.
+                When provided it is stored on the agent and consulted by the
+                plan-tool gate (see ``_handle_plan_tool``); pass ``None`` to
+                disable plan gating.
         """
         self._agent_config = agent_config
         self._env_context = env_context
@@ -122,6 +129,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._mcp_clients = mcp_clients or []
         self._workspace_dir = workspace_dir
         self._task_tracker = task_tracker
+        self.plan_notebook = plan_notebook
 
         # Extract configuration from agent_config
         running_config = agent_config.running
@@ -956,13 +964,16 @@ class QwenPawAgent(CodingModeMixin, Agent):
     async def reply(
         self,
         msg: Msg | list[Msg] | None = None,
-        structured_model: Type[BaseModel] | None = None,
     ) -> Msg:
         """Override reply to process file blocks and handle commands.
 
+        Matches the agentscope 2.0 ``Agent.reply`` contract, which accepts a
+        single ``inputs`` argument. Structured output is no longer requested
+        at the agent layer (it moved to ``Model.generate_structured_output``),
+        so the 1.x ``structured_model`` parameter has been dropped.
+
         Args:
             msg: Input message(s) from user
-            structured_model: Optional pydantic model for structured output
 
         Returns:
             Response message
@@ -1016,11 +1027,14 @@ class QwenPawAgent(CodingModeMixin, Agent):
         request_context = getattr(self, "_request_context", {}) or {}
         channel_name = request_context.get("channel", "console")
         workspace_dir = Path(self._workspace_dir or WORKING_DIR)
+        # agentscope 2.0 ``Agent.reply(self, inputs=...)`` takes a single
+        # positional ``inputs`` argument; the 1.x ``msg=`` /
+        # ``structured_model=`` kwargs no longer exist. Structured output now
+        # flows through the model layer (``generate_structured_output``), so
+        # ``structured_model`` is not forwarded here.
+        # See docs/agentscope-v2/building-blocks/model.md.
         with apply_skill_config_env_overrides(workspace_dir, channel_name):
-            return await super().reply(
-                msg=msg,
-                structured_model=structured_model,
-            )
+            return await super().reply(msg)
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
         """Interrupt the current reply process and wait for cleanup."""
