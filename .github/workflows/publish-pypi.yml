@@ -2,6 +2,8 @@
 # Build includes console frontend (see scripts/wheel_build.sh).
 # Manual trigger: can optionally force push to PyPI or just upload artifacts.
 # Release trigger: publishes to PyPI.
+#
+# Pipeline: build → verify (install + boot + health-check) → publish.
 
 name: Publish Python Package to PyPI
 
@@ -20,7 +22,8 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
+  # ── Stage 1: Build wheel ───────────────────────────────────────────────────
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,16 +64,41 @@ jobs:
       - name: Build package
         run: python -m build
 
-      - name: Upload wheel to artifacts (manual trigger without force push)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.force_push_to_pypi != 'true'
+      - name: Upload dist artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: qwenpaw-wheel
-          path: dist/*.whl
+          name: qwenpaw-dist
+          path: dist/
           retention-days: 30
 
+      - name: Upload version metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwenpaw-version
+          path: src/qwenpaw/__version__.py
+          retention-days: 30
+
+  # ── Stage 2: Verify installation ───────────────────────────────────────────
+  verify:
+    needs: [build]
+    uses: ./.github/workflows/release-verify.yml
+    with:
+      verify_pip: true
+      verify_script_install: true
+
+  # ── Stage 3: Publish to PyPI ───────────────────────────────────────────────
+  publish:
+    needs: [verify, build]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.force_push_to_pypi == 'true')
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: qwenpaw-dist
+          path: dist
+
       - name: Publish package to PyPI
-        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.force_push_to_pypi == 'true')
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__
