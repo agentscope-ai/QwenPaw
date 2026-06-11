@@ -2571,7 +2571,8 @@
       "OUTSIDE_WORKSPACE": "该文件位于工作区范围之外。请在 设置 → 安全 → 文件防护 中启用「允许控制台预览工作区外文件」。",
       "FORBIDDEN": "访问被拒绝：没有预览此文件的权限。",
       "NOT_FOUND": "文件未找到，可能已被移动或删除。",
-      "LOAD_FAILED": "加载文件预览失败。"
+      "LOAD_FAILED": "加载文件预览失败。",
+      "LOAD_FAILED_DETAIL": "加载文件预览失败：{{detail}}"
     }
   }
 }

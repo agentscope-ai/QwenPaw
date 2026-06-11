@@ -2394,7 +2394,8 @@
       "OUTSIDE_WORKSPACE": "Este arquivo está fora do escopo do workspace. Ative \"Permitir Preview Fora do Workspace no Console\" em Configurações → Segurança → File Guard.",
       "FORBIDDEN": "Acesso negado: permissões insuficientes para visualizar este arquivo.",
       "NOT_FOUND": "Arquivo não encontrado. Pode ter sido movido ou excluído.",
-      "LOAD_FAILED": "Falha ao carregar a visualização do arquivo."
+      "LOAD_FAILED": "Falha ao carregar a visualização do arquivo.",
+      "LOAD_FAILED_DETAIL": "Falha ao carregar a visualização do arquivo: {{detail}}"
     }
   }
 }
