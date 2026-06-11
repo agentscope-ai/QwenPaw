@@ -1132,6 +1132,8 @@
     "qqQrcodeExpired": "The QR code has expired; please retrieve a new one",
     "atSenderOnReply": "@ Sender on Reply",
     "atSenderOnReplyTooltip": "When enabled, the bot will @mention the sender in its first reply message in group chats. Note: In card mode, @mention only works for enterprise internal members.",
+    "dingtalkEndpoint": "API Endpoint",
+    "dingtalkEndpointTooltip": "Custom API endpoint for private DingTalk deployments. Leave empty to use the official default.",
     "wecomCancelled": "Authorization cancelled",
     "wecomAuthFailed": "Authorization failed: {{msg}}",
     "voiceSetupGuide": "Set up a Twilio account, purchase a phone number, then enter your credentials below. Find your Account SID and Auth Token on the Twilio Console dashboard. The Phone Number SID is listed under Phone Numbers → Active Numbers.",

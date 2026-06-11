@@ -434,6 +434,13 @@ export function ChannelDrawer({
               }}
             </Form.Item>
             <Form.Item
+              name="endpoint"
+              label={t("channels.dingtalkEndpoint")}
+              tooltip={t("channels.dingtalkEndpointTooltip")}
+            >
+              <Input placeholder="https://api.dingtalk.com" />
+            </Form.Item>
+            <Form.Item
               name="at_sender_on_reply"
               label={t("channels.atSenderOnReply")}
               tooltip={t("channels.atSenderOnReplyTooltip")}

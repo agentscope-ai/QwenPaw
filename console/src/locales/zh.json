@@ -981,6 +981,8 @@
     "qqQrcodeExpired": "二维码已过期，请重新获取",
     "atSenderOnReply": "回复时@发送者",
     "atSenderOnReplyTooltip": "开启后，机器人在群聊中回复时会在第一条消息中@发送者。注意：卡片模式下，@功能仅对企业内部成员生效。",
+    "dingtalkEndpoint": "API 地址",
+    "dingtalkEndpointTooltip": "用于钉钉私有化部署的自定义 API 地址。留空则使用官方默认地址。",
     "wecomCancelled": "授权已取消",
     "wecomAuthFailed": "授权失败：{{msg}}",
     "voiceSetupGuide": "请先注册 Twilio 账户并购买电话号码，然后在下方填写凭据。Account SID 和 Auth Token 可在 Twilio 控制台首页找到。Phone Number SID 在 Phone Numbers → Active Numbers 中查看。",

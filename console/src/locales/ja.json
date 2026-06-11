@@ -794,6 +794,8 @@
     "qqQrcodeExpired": "QRコードの有効期限が切れています。再度取得してください。",
     "atSenderOnReply": "返信時に送信者を@メンション",
     "atSenderOnReplyTooltip": "有効にすると、ボットはグループチャットでの返信の最初のメッセージで送信者を@メンションします。注意：カードモードでは、@メンションは企業内部メンバーのみ有効です。",
+    "dingtalkEndpoint": "APIエンドポイント",
+    "dingtalkEndpointTooltip": "DingTalkプライベートデプロイ用のカスタムAPIエンドポイント。空欄の場合は公式デフォルトを使用します。",
     "wecomCancelled": "認証がキャンセルされました",
     "wecomAuthFailed": "認証に失敗しました: {{msg}}",
     "filterAll": "すべて",
