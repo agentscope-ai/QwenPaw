@@ -1,0 +1,42 @@
+# Release Installation Duty Roster
+#
+# Each platform has its own independent rotation list of GitHub usernames.
+# The Action picks the next person sequentially:
+#   index = (number of previous releases) % len(rotation)
+# No state file needed — the count is derived from the GitHub Releases API.
+#
+# To temporarily swap, manually re-assign in the Duty Issue on GitHub.
+
+pypi:
+  rotation:
+    - cuiyuebing
+    - jinliyl
+    - Osier-Yi
+    - qbc2016
+    - rayrayraykk
+    - xiaoming-qxm
+    - xieyxclack
+    - XiuShenAl
+    - zhijianma
+
+docker:
+  rotation:
+    - rayrayraykk
+    - xiaoming-qxm
+    - xieyxclack
+    - XiuShenAl
+    - zhijianma
+    - cuiyuebing
+    - jinliyl
+    - Osier-Yi
+    - qbc2016
+
+macos:
+  rotation:
+    - hongxicheng
+    - lalaliat
+
+windows:
+  rotation:
+    - jinglinpeng
+    - wangfei010313
