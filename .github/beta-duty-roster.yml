@@ -9,20 +9,34 @@
 
 pypi:
   rotation:
-    - placeholder-pypi-1
-    - placeholder-pypi-2
+    - cuiyuebing
+    - jinliyl
+    - Osier-Yi
+    - qbc2016
+    - rayrayraykk
+    - xiaoming-qxm
+    - xieyxclack
+    - XiuShenAl
+    - zhijianma
 
 docker:
   rotation:
-    - placeholder-docker-1
-    - placeholder-docker-2
+    - rayrayraykk
+    - xiaoming-qxm
+    - xieyxclack
+    - XiuShenAl
+    - zhijianma
+    - cuiyuebing
+    - jinliyl
+    - Osier-Yi
+    - qbc2016
 
 macos:
   rotation:
-    - placeholder-macos-1
-    - placeholder-macos-2
+    - hongxicheng
+    - lalaliat
 
 windows:
   rotation:
-    - placeholder-windows-1
-    - placeholder-windows-2
+    - jinglinpeng
+    - wangfei010313
