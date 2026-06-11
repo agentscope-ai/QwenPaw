@@ -165,7 +165,10 @@ export default function ModelSelector() {
       }
       // PRO: show paid models when API key is configured, or when
       // the provider doesn't require an API key (e.g. ollama, lmstudio)
-      if (proModels.length > 0 && (p.has_api_key || p.require_api_key === false)) {
+      if (
+        proModels.length > 0 &&
+        (p.has_api_key || p.require_api_key === false)
+      ) {
         proMap.set(p.id, { ...p, models: proModels });
       }
     }
