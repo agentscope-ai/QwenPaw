@@ -1978,6 +1978,14 @@
       "imageOnlyWarning": "Current model only supports images, non-image files like videos may not be processed correctly"
     },
     "rateLimitHit": "The current model is rate-limited. Try switching to another free model.",
+    "turnUsagePopover": {
+      "ariaLabel": "View turn token and context usage",
+      "turn": "This turn",
+      "turnEstimated": "This turn ~",
+      "tok": "tok",
+      "inOut": "in {{inTok}} · out {{outTok}}",
+      "contextLabel": "Context window:"
+    },
     "rateLimitMessage": "Rate limit reached. Switch to another free model:",
     "rateLimitSwitched": "Switched to {{model}}",
     "speech": {

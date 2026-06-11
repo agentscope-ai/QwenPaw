@@ -1650,6 +1650,14 @@
       "imageOnlyWarning": "現在のモデルは画像のみ対応しています。動画などの非画像ファイルは正しく処理されない場合があります"
     },
     "rateLimitHit": "現在のモデルがレート制限されています。他の無料モデルに切り替えてみてください。",
+    "turnUsagePopover": {
+      "ariaLabel": "このターンのトークンとコンテキスト使用量を表示",
+      "turn": "このターン",
+      "turnEstimated": "このターン約",
+      "tok": "tok",
+      "inOut": "入力 {{inTok}} · 出力 {{outTok}}",
+      "contextLabel": "コンテキストウィンドウ："
+    },
     "rateLimitMessage": "レート制限に達しました。他の無料モデルに切り替え：",
     "rateLimitSwitched": "{{model}} に切り替えました",
     "speech": {

@@ -318,18 +318,61 @@ class ConsoleChannel(BaseChannel):
                 )
         return media_message
 
-    def _extract_token_usage(
+    async def _emit_trailing_usage(
         self,
-        session_id: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
-        from ....token_usage import TokenRecordingModelWrapper
+        session_id: str,
+    ) -> AsyncGenerator[str, None]:
+        """Emit post-turn usage as HEARTBEAT for console UI action popover."""
+        runner = getattr(self._workspace, "runner", None)
+        turn, ctx = (
+            runner.get_pending_usage_for_stream(session_id)
+            if runner is not None
+            else (None, None)
+        )
+        if turn is None and ctx is None:
+            return
 
-        if not session_id:
-            return None
+        if turn:
+            logger.info("Usage for session %s: %s", session_id, turn)
+            if ctx:
+                self._print_status_line(turn, ctx)
 
-        usage = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
-        logger.info("Usage for session %s (cleaned up): %s", session_id, usage)
-        return usage
+        usage_meta: Dict[str, Any] = {"session_id": session_id}
+        if ctx:
+            usage_meta["context_usage"] = ctx
+        signal = Message(
+            type=MessageType.HEARTBEAT,
+            status=RunStatus.Completed,
+            role="assistant",
+            content=[],
+            usage=turn,
+            metadata=usage_meta,
+        )
+        yield f"data: {signal.model_dump_json()}\n\n"
+
+    def _print_status_line(
+        self,
+        turn: Dict[str, Any],
+        ctx: Dict[str, Any],
+    ) -> None:
+        """Print a one-line terminal summary of turn + context usage."""
+        from ....token_usage import fmt_tokens
+
+        pt = turn.get("prompt_tokens", 0)
+        ct = turn.get("completion_tokens", 0)
+        tt = turn.get("total_tokens", 0)
+        est = int(ctx.get("estimated_tokens", 0) or 0)
+        mx = int(ctx.get("max_input_length", 0) or 0)
+        ratio = ctx.get("context_usage_ratio", 0) or 0
+        turn_line = (
+            f"{_GREEN}Turn {_BOLD}{fmt_tokens(tt)}{_RESET} "
+            f"(in {fmt_tokens(pt)} · out {fmt_tokens(ct)})"
+        )
+        ctx_line = (
+            f" · Context {_BOLD}{fmt_tokens(est)}{_RESET} / "
+            f"{fmt_tokens(mx)} ({ratio:.1f}%)"
+        )
+        self._safe_print(f"📝 {turn_line}{ctx_line}")
 
     async def stream_one(self, payload: Any) -> AsyncGenerator[str, None]:
         """Process one payload and yield SSE-formatted events"""
@@ -392,11 +435,6 @@ class ConsoleChannel(BaseChannel):
                         for message in event_output:
                             event.output.append(message)
 
-                if obj == "response":
-                    usage_data = self._extract_token_usage(session_id)
-                    if usage_data and hasattr(event, "usage"):
-                        setattr(event, "usage", usage_data)
-
                 data = self._serialize_event_for_sse(event)
                 yield f"data: {data}\n\n"
 
@@ -406,6 +444,9 @@ class ConsoleChannel(BaseChannel):
 
                 elif obj == "response":
                     last_response = event
+
+            async for sse in self._emit_trailing_usage(session_id):
+                yield sse
 
             logger.info(
                 "console stream done: event_count=%s has_response=%s",

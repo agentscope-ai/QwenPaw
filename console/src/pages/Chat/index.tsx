@@ -28,6 +28,12 @@ import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
+import TurnUsageAction from "./components/TurnUsageAction";
+import {
+  extractUsageHeartbeatFromPayload,
+  schedulePatchLastResponseCardUsage,
+  wrapChatResponseUsageStream,
+} from "./turnUsage";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
@@ -1040,10 +1046,8 @@ export default function ChatPage() {
   // Register session API event callbacks for URL synchronization
 
   useEffect(() => {
-    sessionApi.onSessionIdResolved = (realId) => {
+    sessionApi.onSessionIdResolved = (_tempId, realId) => {
       if (!isChatActiveRef.current) return;
-      // Update URL when realId is resolved, regardless of current chatId
-      // (chatId may be undefined if URL was cleared in onSessionCreated)
       lastSessionIdRef.current = realId;
       navigateRef.current(`/chat/${realId}`, { replace: true });
     };
@@ -1236,7 +1240,7 @@ export default function ChatPage() {
         signal: data.signal,
       });
 
-      return response;
+      return wrapChatResponseUsageStream(response, chatRef);
     },
     [selectedAgent],
   );
@@ -1607,6 +1611,14 @@ export default function ChatPage() {
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
 
+          const usageHeartbeat = extractUsageHeartbeatFromPayload(payload);
+          if (usageHeartbeat) {
+            schedulePatchLastResponseCardUsage(
+              chatRef,
+              usageHeartbeat.snapshot,
+            );
+          }
+
           if (payload.type === "rate_limited") {
             const alts =
               (payload.alternatives as typeof rateLimitAlternatives) || [];
@@ -1643,17 +1655,20 @@ export default function ChatPage() {
             ...buildAuthHeaders(),
           };
 
-          return fetch(getApiUrl("/console/chat"), {
+          const sessionId = window.currentSessionId || data.session_id;
+          const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
             headers,
             body: JSON.stringify({
               reconnect: true,
-              session_id: window.currentSessionId || data.session_id,
+              session_id: sessionId,
               user_id: window.currentUserId || DEFAULT_USER_ID,
               channel: window.currentChannel || DEFAULT_CHANNEL,
             }),
             signal: data.signal,
           });
+
+          return wrapChatResponseUsageStream(response, chatRef);
         },
       },
       customToolRenderConfig:
@@ -1670,6 +1685,13 @@ export default function ChatPage() {
       },
       actions: {
         list: [
+          {
+            render: ({
+              data,
+            }: {
+              data: { data?: Record<string, unknown> };
+            }) => <TurnUsageAction data={data} />,
+          },
           {
             icon: (
               <span title={t("common.copy")}>

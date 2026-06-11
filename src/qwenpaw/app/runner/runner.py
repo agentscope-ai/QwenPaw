@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import sys
+from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Coroutine
 
@@ -40,6 +41,11 @@ from ...agents.utils.file_handling import (
 )
 from ...config.config import load_agent_config
 from ...constant import WORKING_DIR
+from ...token_usage import (
+    TokenRecordingModelWrapper,
+    attach_turn_usage_metadata,
+    snapshot_context_usage_for_agent,
+)
 
 if TYPE_CHECKING:
     from ...agents.memory import BaseMemoryManager
@@ -106,6 +112,43 @@ async def _stream_printing_messages_interruptible(
         await _cancel_streaming_agent_task(task)
 
 
+def _reconcile_turn_with_context(
+    turn: dict[str, Any] | None,
+    ctx: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Fill turn usage from the context snapshot when the provider lies."""
+    if ctx is None:
+        return turn
+    latest_out = int(ctx.get("latest_assistant_tokens", 0) or 0)
+    ctx_est = int(ctx.get("estimated_tokens", 0) or 0)
+    if turn is None and ctx_est > 0:
+        return {
+            "provider_id": "",
+            "model_name": "",
+            "prompt_tokens": max(ctx_est - latest_out, 0),
+            "completion_tokens": latest_out,
+            "total_tokens": ctx_est,
+            "estimated": True,
+        }
+    if turn is not None and latest_out > 0:
+        actual_out = int(turn.get("completion_tokens", 0) or 0)
+        if actual_out <= 1 and latest_out > actual_out:
+            prompt_tokens = int(turn.get("prompt_tokens", 0) or 0)
+            return {
+                **turn,
+                "completion_tokens": latest_out,
+                "total_tokens": prompt_tokens + latest_out,
+                "estimated": True,
+            }
+    return turn
+
+
+_PendingUsageMap = OrderedDict[
+    str,
+    tuple[dict[str, Any] | None, dict[str, Any] | None],
+]
+
+
 class AgentRunner(Runner):
     def __init__(
         self,
@@ -126,6 +169,8 @@ class AgentRunner(Runner):
         self.context_manager: BaseContextManager | None = None
         self._task_tracker = task_tracker  # Task tracker for background tasks
         self._agent_name: str | None = None
+        self._pending_usage_by_session: _PendingUsageMap = OrderedDict()
+        self._usage_finalized_sessions: set[str] = set()
 
     @property
     def agent_name(self) -> str:
@@ -141,6 +186,39 @@ class AgentRunner(Runner):
     def invalidate_agent_name_cache(self) -> None:
         """Clear cached agent_name so next access re-reads config."""
         self._agent_name = None
+
+    _PENDING_USAGE_MAX_SESSIONS = 128
+
+    def _reset_pending_usage(self, session_id: str) -> None:
+        if not session_id:
+            return
+        store = self._pending_usage_by_session
+        store[session_id] = (None, None)
+        store.move_to_end(session_id)
+        self._usage_finalized_sessions.discard(session_id)
+        while len(store) > self._PENDING_USAGE_MAX_SESSIONS:
+            store.popitem(last=False)
+
+    def get_pending_usage_for_stream(
+        self,
+        session_id: str,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        store = self._pending_usage_by_session
+        value = store.get(session_id) if session_id else None
+        if value is None:
+            return (None, None)
+        store.move_to_end(session_id)
+        return value
+
+    def _set_pending_usage_for_stream(
+        self,
+        session_id: str,
+        value: tuple[dict[str, Any] | None, dict[str, Any] | None],
+    ) -> None:
+        if not session_id:
+            return
+        self._pending_usage_by_session[session_id] = value
+        self._pending_usage_by_session.move_to_end(session_id)
 
     def set_chat_manager(self, chat_manager):
         """Set chat manager for auto-registration.
@@ -405,6 +483,7 @@ class AgentRunner(Runner):
 
         # Set session_id in context for token usage tracking
         set_current_session_id(session_id)
+        self._reset_pending_usage(session_id)
 
         agent = None
         chat = None
@@ -939,6 +1018,14 @@ class AgentRunner(Runner):
 
             if agent is not None:
                 await agent.interrupt()
+                await self._finalize_turn_usage(
+                    agent=agent,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    session_state_loaded=session_state_loaded,
+                    reraise_cancel=False,
+                )
             raise AgentException("Task has been cancelled!") from exc
         except AppBaseException:
             raise
@@ -977,9 +1064,7 @@ class AgentRunner(Runner):
                     ) + converted.args[1:]
             raise converted from e
         finally:
-            if agent is not None and session_state_loaded:
-                # For isolated cron: restore the full history (snapshot) plus
-                # the new messages produced by this execution
+            if agent is not None:
                 if (
                     _cron_memory_snapshot is not None
                     and agent.memory is not None
@@ -996,15 +1081,75 @@ class AgentRunner(Runner):
                         session_id,
                     )
 
-                await self.session.save_session_state(
+                await self._finalize_turn_usage(
+                    agent=agent,
                     session_id=session_id,
                     user_id=user_id,
                     channel=channel,
-                    agent=agent,
+                    session_state_loaded=session_state_loaded,
                 )
 
             if self._chat_manager is not None and chat is not None:
                 await self._chat_manager.touch_chat(chat.id)
+
+    async def _finalize_turn_usage(
+        self,
+        *,
+        agent: Any,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        session_state_loaded: bool,
+        reraise_cancel: bool = True,
+    ) -> None:
+        """Snapshot turn + context usage on the closing assistant message."""
+        if session_id in self._usage_finalized_sessions:
+            return
+
+        prev_turn, _ = self.get_pending_usage_for_stream(session_id)
+
+        turn = prev_turn
+        if turn is None:
+            turn = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
+            self._set_pending_usage_for_stream(session_id, (turn, None))
+
+        ctx: dict[str, Any] | None = None
+        try:
+            ctx = await snapshot_context_usage_for_agent(agent, self.agent_id)
+        except asyncio.CancelledError:
+            if reraise_cancel:
+                raise
+            logger.debug("ctx snapshot cancelled", exc_info=True)
+        except Exception:
+            logger.debug("ctx snapshot skipped", exc_info=True)
+
+        turn = _reconcile_turn_with_context(turn, ctx)
+        self._set_pending_usage_for_stream(session_id, (turn, ctx))
+
+        if not session_state_loaded:
+            return
+
+        memory = getattr(agent, "memory", None)
+        if memory is not None:
+            attach_turn_usage_metadata(memory, turn, ctx)
+
+        try:
+            await self.session.save_session_state(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+                agent=agent,
+            )
+        except asyncio.CancelledError:
+            if reraise_cancel:
+                raise
+            logger.debug("save_session_state cancelled", exc_info=True)
+            return
+        except Exception:
+            logger.debug("save_session_state skipped", exc_info=True)
+            return
+
+        self._usage_finalized_sessions.add(session_id)
 
     async def init_handler(self, *args, **kwargs):
         """

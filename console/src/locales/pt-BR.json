@@ -1857,6 +1857,14 @@
       "imageOnlyWarning": "Current model only supports images, non-image files like videos may not be processed correctly"
     },
     "rateLimitHit": "O modelo atual está com limite de taxa. Tente mudar para outro modelo gratuito.",
+    "turnUsagePopover": {
+      "ariaLabel": "Ver uso de tokens e contexto desta rodada",
+      "turn": "Esta rodada",
+      "turnEstimated": "Esta rodada ~",
+      "tok": "tok",
+      "inOut": "in {{inTok}} · out {{outTok}}",
+      "contextLabel": "Janela de contexto:"
+    },
     "rateLimitMessage": "Limite de taxa atingido. Mude para outro modelo gratuito:",
     "rateLimitSwitched": "Mudou para {{model}}",
     "speech": {

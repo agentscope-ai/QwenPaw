@@ -1827,6 +1827,14 @@
       "imageOnlyWarning": "当前模型仅检测到图片支持，视频等非图片文件可能无法被正确处理"
     },
     "rateLimitHit": "当前模型已触发限流，请尝试切换其他免费模型。",
+    "turnUsagePopover": {
+      "ariaLabel": "查看本轮 Token 与上下文用量",
+      "turn": "本轮",
+      "turnEstimated": "本轮约",
+      "tok": "tok",
+      "inOut": "in {{inTok}} · out {{outTok}}",
+      "contextLabel": "上下文窗口："
+    },
     "rateLimitMessage": "已触发限流，切换其他免费模型：",
     "rateLimitSwitched": "已切换至 {{model}}",
     "speech": {
