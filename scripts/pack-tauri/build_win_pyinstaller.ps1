@@ -16,6 +16,33 @@ if (-not [System.IO.Path]::IsPathRooted($DIST)) {
 }
 $VERSION_FILE = "src\qwenpaw\__version__.py"
 
+function Invoke-NativeWithRetry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Description,
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Command,
+        [int]$MaxAttempts = 5,
+        [int]$DelaySeconds = 20
+    )
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        Write-Host "$Description (attempt $attempt/$MaxAttempts)..."
+        & $Command
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 0) {
+            return
+        }
+
+        if ($attempt -eq $MaxAttempts) {
+            throw "$Description failed after $MaxAttempts attempts (exit code $exitCode)"
+        }
+
+        Write-Host "$Description failed with exit code $exitCode; retrying in $DelaySeconds seconds..." -ForegroundColor Yellow
+        Start-Sleep -Seconds $DelaySeconds
+    }
+}
+
 # Extract version
 if (Test-Path $VERSION_FILE) {
     $content = Get-Content $VERSION_FILE -Raw
@@ -135,6 +162,23 @@ if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller build failed"
 }
 Write-Host "PyInstaller backend ready" -ForegroundColor Green
+Write-Host ""
+
+# Step 2b: Fetch Tauri Rust dependencies
+Write-Host "== Step 2b: Fetching Tauri Rust Dependencies ==" -ForegroundColor Yellow
+if (-not $env:CARGO_NET_RETRY) {
+    $env:CARGO_NET_RETRY = "10"
+}
+if (-not $env:CARGO_HTTP_MULTIPLEXING) {
+    $env:CARGO_HTTP_MULTIPLEXING = "false"
+}
+
+$TAURI_MANIFEST = Join-Path $REPO_ROOT "console\src-tauri\Cargo.toml"
+Invoke-NativeWithRetry -Description "cargo fetch for Tauri dependencies" -Command {
+    cargo fetch --locked --target x86_64-pc-windows-msvc --manifest-path $TAURI_MANIFEST
+}
+$env:CARGO_NET_OFFLINE = "true"
+Write-Host "Tauri Rust dependencies fetched; Cargo offline mode enabled" -ForegroundColor Green
 Write-Host ""
 
 # Step 3: Build Tauri app
