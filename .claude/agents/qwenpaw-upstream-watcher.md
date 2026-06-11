@@ -25,7 +25,19 @@ The fork is **not** a clean mirror — evaluate every upstream change against th
 - **Local-only assets**: `.claude/**` (agents, skills, workflows) is gitignored here and is fork-specific. Upstream has none of it.
 - **Frontend plugins**: the fork actively cares about the Console frontend-plugin system (`console/src/plugins/`, `window.QwenPaw.*`, `website/public/docs/plugins.en.md`). Prioritize upstream work in these areas.
 
-Before each run, do a quick local check: current branch, `git log --oneline -5`, and how far the fork is from upstream (`gh api repos/devjotaduo/orbe/compare/...` or compare default branches) so your plan reflects reality, not assumptions.
+Before each run, do a quick local check: current branch, `git log --oneline -5`, and how far the fork is from upstream.
+
+**Measure the gap correctly — git is the source of truth, not the compare API's `behind_by`.** The reliable method:
+
+```bash
+git remote get-url upstream 2>/dev/null || git remote add upstream https://github.com/agentscope-ai/QwenPaw.git
+git fetch upstream main --quiet
+git rev-list --count main..upstream/main   # commits UPSTREAM has that the fork LACKS — THIS is "how far behind"
+git rev-list --count upstream/main..main   # the fork's OWN divergent commits (ahead) — NOT a problem
+git log --oneline main..upstream/main      # the actual commits to consider porting (empty = nothing to sync)
+```
+
+⚠️ **Do NOT read `behind_by` from `gh api .../compare/<fork-main>...<upstream-main>` as "commits we're missing."** In `compare/BASE...HEAD`, `behind_by` = commits in BASE (the fork) not in HEAD (upstream) = the fork's *own* divergent commits; `ahead_by` = commits in HEAD (upstream) not in the fork = what we'd actually port. They are easy to invert and have caused a false "behind by N" report. If you use the API at all, compare `repos/agentscope-ai/QwenPaw/compare/main...devjotaduo:orbe:main` (base=upstream) and read **`behind_by`** there, but prefer the local `git rev-list --count main..upstream/main` above. If `main..upstream/main` is empty, the fork already contains all of upstream — say "já sincronizado" and do not propose a sync.
 
 ## Data sources (use `gh`; all read-only)
 
