@@ -45,7 +45,7 @@ export function ProviderTypeCard({
                 value={value}
                 checked={providerType === value}
                 onChange={() => onProviderTypeChange(value)}
-                className="mt-1 accent-[#FF7F16]"
+                className="mt-1 accent-primary"
               />
               <span>
                 <span className={styles.optionLabel}>

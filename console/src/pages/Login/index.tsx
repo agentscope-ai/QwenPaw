@@ -88,10 +88,7 @@ export default function LoginPage() {
       )}
     >
       <div
-        className={cn(
-          "w-[400px] p-8 rounded-xl shadow-2xl",
-          isDark ? "bg-[#1f1f1f]" : "bg-white",
-        )}
+        className="w-[400px] p-8 rounded-xl shadow-2xl bg-card"
       >
         <div className="text-center mb-8">
           <img
@@ -104,10 +101,7 @@ export default function LoginPage() {
           </h2>
           {!hasUsers && (
             <p
-              className={cn(
-                "mt-2 mb-0 text-[13px]",
-                isDark ? "text-white/45" : "text-[#666]",
-              )}
+              className="mt-2 mb-0 text-[13px] text-muted-foreground"
             >
               {t("login.firstUserHint")}
             </p>
@@ -122,10 +116,7 @@ export default function LoginPage() {
             <div className="relative">
               <User
                 size={16}
-                className={cn(
-                  "absolute left-3 top-1/2 -translate-y-1/2",
-                  isDark ? "text-white/45" : "text-muted-foreground",
-                )}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
               />
               <Input
                 id="login-username"
@@ -146,10 +137,7 @@ export default function LoginPage() {
             <div className="relative">
               <Lock
                 size={16}
-                className={cn(
-                  "absolute left-3 top-1/2 -translate-y-1/2",
-                  isDark ? "text-white/45" : "text-muted-foreground",
-                )}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
               />
               <Input
                 id="login-password"

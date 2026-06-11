@@ -240,7 +240,7 @@ export function ACPDrawer({
                 styles.dingtalkDocBtn +
                 " inline-flex items-center gap-1 text-sm"
               }
-              style={{ color: "#FF7F16" }}
+              style={{ color: "var(--primary)" }}
               onClick={() => openExternalLink(getACPDocsUrl(i18n.language))}
               title={t("acp.docsHelp")}
             >

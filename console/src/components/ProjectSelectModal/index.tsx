@@ -35,6 +35,7 @@ import { useProjectDir } from "../../stores/codingModeStore";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -467,7 +468,7 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
 
   useEffect(() => {
     navigate("~");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   const breadcrumbParts = data?.current.split("/").filter(Boolean) ?? [];
@@ -724,7 +725,7 @@ export default function ProjectSelectModal({
   // Trigger data fetch when modal opens
   useEffect(() => {
     if (open) handleOpen();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [open]);
 
   const handleConfirm = async (path: string | null) => {
@@ -791,6 +792,9 @@ export default function ProjectSelectModal({
       <DialogContent className="w-[560px] max-w-[95vw] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t("codingMode.selectProject")}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("codingMode.selectProjectDesc")}
+          </DialogDescription>
         </DialogHeader>
 
         <p className="text-sm text-muted-foreground -mt-1">

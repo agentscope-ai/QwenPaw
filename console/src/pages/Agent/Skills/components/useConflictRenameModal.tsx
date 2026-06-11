@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -65,6 +66,9 @@ export function useConflictRenameModal(): {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t("skillPool.multiConflictTitle")}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("skillPool.multiConflictTitle")}
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Loader2, Search, ChevronRight, X } from "lucide-react";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
@@ -259,6 +259,10 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
         side="right"
         className={`w-[360px] p-0 flex flex-col h-full overflow-hidden ${styles.drawer ?? ""}`}
       >
+        <SheetHeader className="sr-only">
+          <SheetTitle>{t("chat.search.title") || "Search"}</SheetTitle>
+          <SheetDescription>{t("chat.search.title") || "Search chat sessions"}</SheetDescription>
+        </SheetHeader>
         {/* Header bar */}
         <div className={styles.header}>
           <div className={styles.headerLeft}>

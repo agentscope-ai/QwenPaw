@@ -49,7 +49,7 @@ export default function BackupScopeForm({ value, onChange, agents }: Props) {
                 value={mode}
                 checked={value.backupMode === mode}
                 onChange={() => set({ backupMode: mode })}
-                className="mt-1 accent-[#FF7F16]"
+                className="mt-1 accent-primary"
               />
               <span>
                 <strong>

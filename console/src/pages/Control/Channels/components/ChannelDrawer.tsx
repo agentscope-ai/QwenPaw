@@ -709,7 +709,7 @@ export function ChannelDrawer({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 text-[#FF7F16] text-xs px-2"
+                  className="h-7 text-primary text-xs px-2"
                   onClick={() => openExternalLink(docUrl)}
                 >
                   <ExternalLink size={12} className="mr-1" />
@@ -720,7 +720,7 @@ export function ChannelDrawer({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 text-[#FF7F16] text-xs px-2"
+                  className="h-7 text-primary text-xs px-2"
                   onClick={() => openExternalLink(TWILIO_CONSOLE_URL)}
                 >
                   <ExternalLink size={12} className="mr-1" />

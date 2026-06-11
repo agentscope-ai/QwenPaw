@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -77,6 +78,9 @@ export function PoolTransferModal({
           <DialogTitle>
             {isUpload ? t("skills.uploadToPool") : t("skills.downloadFromPool")}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            {isUpload ? t("skills.uploadToPool") : t("skills.downloadFromPool")}
+          </DialogDescription>
         </DialogHeader>
 
         <div className={styles.pickerSection}>

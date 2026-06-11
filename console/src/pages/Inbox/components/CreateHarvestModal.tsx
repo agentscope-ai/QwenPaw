@@ -6,6 +6,7 @@ import { Sparkles } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -120,6 +121,9 @@ export function CreateHarvestModal({
             <Sparkles size={18} />
             Create Harvest
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Create Harvest
+          </DialogDescription>
         </DialogHeader>
 
         <div className={cn("grid grid-cols-3 gap-3 mt-2", styles.templateGrid)}>

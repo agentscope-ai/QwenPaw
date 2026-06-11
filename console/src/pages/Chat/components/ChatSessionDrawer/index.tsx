@@ -6,7 +6,7 @@ import React, {
   useState,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Loader2, Lock, LockOpen, ChevronRight } from "lucide-react";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
@@ -510,6 +510,10 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         style={{ "--tw-shadow": "none" } as React.CSSProperties}
         onInteractOutside={(e) => { if (props.pinned) e.preventDefault(); }}
       >
+        <SheetHeader className="sr-only">
+          <SheetTitle>{t("chat.allChats") || "Chats"}</SheetTitle>
+          <SheetDescription>{t("chat.allChats") || "Chat sessions"}</SheetDescription>
+        </SheetHeader>
       {/* Header bar */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>

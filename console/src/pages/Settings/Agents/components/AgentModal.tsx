@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -220,6 +221,9 @@ export function AgentModal({
               ? t("agent.editTitle", { name: getAgentDisplayName(editingAgent, t) })
               : t("agent.createTitle")}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            {editingAgent ? t("agent.editTitle", { name: getAgentDisplayName(editingAgent, t) }) : t("agent.createTitle")}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">

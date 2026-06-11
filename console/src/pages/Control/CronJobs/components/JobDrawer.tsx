@@ -6,7 +6,7 @@ import type {
 } from "../../../../api/types";
 import { DEFAULT_FORM_VALUES } from "./constants";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -255,6 +255,9 @@ export function JobDrawer({
           <SheetTitle>
             {editingJob ? t("cronJobs.editJob") : t("cronJobs.createJob")}
           </SheetTitle>
+          <SheetDescription className="sr-only">
+            {editingJob ? t("cronJobs.editJob") : t("cronJobs.createJob")}
+          </SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-4">

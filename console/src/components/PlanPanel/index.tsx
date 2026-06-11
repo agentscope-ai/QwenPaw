@@ -9,6 +9,7 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -115,6 +116,9 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
           <SheetTitle className="text-base font-semibold">
             {t("plan.title", "Plan")}
           </SheetTitle>
+          <SheetDescription className="sr-only">
+            {t("plan.title", "Plan")}
+          </SheetDescription>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
             <ChevronRight size={16} />
           </Button>

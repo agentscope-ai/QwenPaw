@@ -28,7 +28,7 @@ function CircularProgress({
   const radius = 38;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (percent / 100) * circumference;
-  const color = isOverdue ? "#FFD700" : "#FF7F16";
+  const color = isOverdue ? "#FFD700" : "var(--primary)";
 
   return (
     <div className="relative inline-flex items-center justify-center w-[90px] h-[90px]">

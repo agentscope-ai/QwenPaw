@@ -307,7 +307,7 @@ export default function RestoreBackupModal({
                       checked={restoreMode === mode}
                       disabled={mode === "full" && !fullBackup}
                       onChange={() => setRestoreMode(mode)}
-                      className="mt-1 accent-[#FF7F16]"
+                      className="mt-1 accent-primary"
                     />
                     <span>
                       <span className="text-sm font-medium">
@@ -338,7 +338,7 @@ export default function RestoreBackupModal({
                       value={strategy}
                       checked={restoreStrategy === strategy}
                       onChange={() => setRestoreStrategy(strategy)}
-                      className="mt-1 accent-[#FF7F16]"
+                      className="mt-1 accent-primary"
                     />
                     <span>
                       <span className="text-sm font-medium">

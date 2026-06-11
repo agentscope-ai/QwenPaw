@@ -690,7 +690,7 @@ export default function ModelSelector() {
                 )}
               >
                 {saving && (
-                  <Loader2 size={11} className="animate-spin" style={{ color: "#FF7F16" }} />
+                  <Loader2 size={11} className="animate-spin" style={{ color: "var(--primary)" }} />
                 )}
                 {showActiveProviderIcon && activeProviderId && (
                   <ProviderIcon providerId={activeProviderId} size={16} />

@@ -4,6 +4,7 @@ import type { BackupMeta } from "@/api/types/backup";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -56,6 +57,9 @@ export default function SilentBackupModal({
       >
         <DialogHeader>
           <DialogTitle>{t("backup.creatingPreRestoreBackup")}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("backup.creatingPreRestoreBackup")}
+          </DialogDescription>
         </DialogHeader>
         <BackupProgress
           progress={runner.progress}

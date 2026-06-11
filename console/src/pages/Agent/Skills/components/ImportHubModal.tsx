@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -121,6 +122,9 @@ export function ImportHubModal({
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t("skills.importHub")}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("skills.importHub")}
+          </DialogDescription>
         </DialogHeader>
 
         {hint && <p className={styles.hintText}>{hint}</p>}

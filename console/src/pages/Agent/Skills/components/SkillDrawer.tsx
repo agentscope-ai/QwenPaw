@@ -3,6 +3,7 @@ import type { UseFormReturn } from "react-hook-form";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetFooter,
@@ -237,6 +238,9 @@ export function SkillDrawer({
           <SheetTitle>
             {editingSkill ? t("skills.viewSkill") : t("skills.createSkill")}
           </SheetTitle>
+          <SheetDescription className="sr-only">
+            {editingSkill ? t("skills.viewSkill") : t("skills.createSkill")}
+          </SheetDescription>
         </SheetHeader>
 
         <form

@@ -691,7 +691,7 @@ export function ProviderConfigModal({
                         value="api_key"
                         checked={authMode === "api_key"}
                         onChange={() => { setAuthMode("api_key"); markDirty(); }}
-                        className="accent-[#FF7F16]"
+                        className="accent-primary"
                       />
                       {t("models.authModeApiKey")}
                     </label>
@@ -702,7 +702,7 @@ export function ProviderConfigModal({
                         value="auth_token"
                         checked={authMode === "auth_token"}
                         onChange={() => { setAuthMode("auth_token"); markDirty(); }}
-                        className="accent-[#FF7F16]"
+                        className="accent-primary"
                       />
                       {t("models.authModeAuthToken")}
                     </label>

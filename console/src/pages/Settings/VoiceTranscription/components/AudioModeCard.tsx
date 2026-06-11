@@ -34,7 +34,7 @@ export function AudioModeCard({
                 value={value}
                 checked={audioMode === value}
                 onChange={() => onAudioModeChange(value)}
-                className="mt-1 accent-[#FF7F16]"
+                className="mt-1 accent-primary"
               />
               <span>
                 <span className={styles.optionLabel}>

@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -113,6 +114,9 @@ export function CustomProviderModal({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{t("models.addProviderTitle")}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("models.addProviderTitle")}
+          </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>

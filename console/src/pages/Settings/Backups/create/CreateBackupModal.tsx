@@ -10,6 +10,7 @@ import type { AgentSummary } from "@/api/types/agents";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -82,6 +83,9 @@ export default function CreateBackupModal({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{t("backup.createTitle")}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("backup.createTitle")}
+          </DialogDescription>
         </DialogHeader>
 
         {runner.loading ? (
