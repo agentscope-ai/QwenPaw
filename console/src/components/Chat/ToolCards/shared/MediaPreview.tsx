@@ -106,9 +106,7 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
               onClick={() => {
                 downloadFileFromUrl(media.url, media.name).catch((error) => {
                   if (error instanceof DownloadCancelledError) return;
-                  message.error(
-                    error?.message || "Download failed",
-                  );
+                  message.error(error?.message || "Download failed");
                 });
               }}
             >
