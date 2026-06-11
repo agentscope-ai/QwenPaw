@@ -101,20 +101,8 @@ function scheduleTaskCardChatSync(
 
 function syncTaskCardMessage(plan: PlanSnapshot): void {
   if (!isDatapawAgentSelected()) return;
-
-  const message = buildTaskCardMessage(plan);
-  const sessionApi = getHostSessionApi();
-  const setPersistent = sessionApi?.setPersistentMessage as
-    | ((msg: Record<string, unknown>) => void)
-    | undefined;
-  if (typeof setPersistent === "function") {
-    setPersistent(message);
-  }
-
-  chatSyncAttempts = 0;
-  scheduleTaskCardChatSync(message);
-
-  console.info("[datapaw:task-card] synced task card message", {
+  removeTaskCardFromChat();
+  console.info("[datapaw:task-card] cleared persistent task card message", {
     planId: plan.id,
     messageId: TASK_GRAPH_MESSAGE_ID,
   });
@@ -122,8 +110,7 @@ function syncTaskCardMessage(plan: PlanSnapshot): void {
 
 /** Re-inject the current plan into chat after sessionApi patch or chat mount. */
 export function resyncTaskCardFromPlanStore(): void {
-  const plan = getDisplayPlan();
-  if (plan) syncTaskCardMessage(plan);
+  removeTaskCardFromChat();
 }
 
 function removeTaskCardFromChat(): void {
@@ -162,34 +149,11 @@ function purgeLegacyTaskGraphMessages(): void {
 }
 
 function syncPersistentTaskCard(plan: PlanSnapshot): void {
-  const sessionApi = getHostSessionApi();
-  const setPersistent = sessionApi?.setPersistentMessage as
-    | ((message: Record<string, unknown>) => void)
-    | undefined;
-  const getPersistent = sessionApi?.getPersistentMessages as
-    | (() => Array<Record<string, unknown>>)
-    | undefined;
-  const removePersistent = sessionApi?.removePersistentMessage as
-    | ((id: string) => void)
-    | undefined;
-  if (typeof getPersistent === "function" && typeof removePersistent === "function") {
-    for (const msg of getPersistent()) {
-      if (
-        msg.id &&
-        msg.id !== TASK_GRAPH_MESSAGE_ID &&
-        isTaskGraphMessageId(msg.id)
-      ) {
-        removePersistent(String(msg.id));
-      }
-    }
-  }
-  if (typeof setPersistent !== "function") return;
-  logTaskGraphDebug("set-persistent-message", {
+  logTaskGraphDebug("sync-persistent-task-card-skip", {
     planId: plan.id,
     planState: plan.state,
     anchorMessageId: plan.anchor_message_id ?? null,
   });
-  setPersistent(buildTaskCardMessage(plan) as Record<string, unknown>);
 }
 
 function stopDagEventsSubscription(): void {

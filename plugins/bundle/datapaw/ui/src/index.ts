@@ -3,14 +3,12 @@
  *
  * - registerToolRender: fetch_data
  * - response.append: append task graph between assistant response content and actions
- * - chat cards.task_graph: persistent task plan row in the message stream
  * - SSE intercept on /console/chat: create_plan → GET /api/tasks → plan-store
  */
 
 import { PLUGIN_ID } from "./lib/constants";
 import { injectTaskGraphStyles } from "./task-graph/styles";
 import { createFetchDataRender } from "./renders/fetch-data";
-import { createTaskGraphCard } from "./task-graph/card";
 import { createTaskGraphAppend } from "./renders/task-graph-append";
 import { installFetchPatch } from "./patches/fetch-patch";
 import { ensureDefaultAgent } from "./patches/ensure-agent";
@@ -84,11 +82,6 @@ function buildPlugin() {
     console.warn("[datapaw:task-graph] response append/render unavailable");
   }
 
-  const TaskGraphCard = createTaskGraphCard(bundle);
-  QP?.registerCardRender?.(PLUGIN_ID, {
-    task_graph: TaskGraphCard,
-  });
-
   setSessionApiPatchedListener(() => {
     resyncTaskCardFromPlanStore();
   });
@@ -115,7 +108,7 @@ function buildPlugin() {
   patchWelcomeAndTheme();
 
   console.info(
-    `[${PLUGIN_ID}] Plugin UI registered (task_graph card + response append + SSE hook)`,
+    `[${PLUGIN_ID}] Plugin UI registered (response append + SSE hook)`,
   );
 }
 

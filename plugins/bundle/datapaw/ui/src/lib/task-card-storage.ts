@@ -52,9 +52,8 @@ export function loadTaskCardPlan(sessionId: string): PlanSnapshot | null {
 export function loadTaskCardMessage(
   sessionId: string,
 ): ReturnType<typeof buildTaskCardMessage> | null {
-  const plan = loadTaskCardPlan(sessionId);
-  if (!plan) return null;
-  return buildTaskCardMessage(plan);
+  void sessionId;
+  return null;
 }
 
 export function removeTaskCardForSession(sessionId: string): void {
