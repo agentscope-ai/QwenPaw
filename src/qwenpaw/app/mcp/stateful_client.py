@@ -862,7 +862,7 @@ class _MCPClientMixin:
             self._handle_transport_error(exc)
             raise
 
-    async def get_callable_function(
+    async def get_callable_function(  # pylint: disable=unused-argument
         self,
         func_name: str,
         execution_timeout: float | None = None,

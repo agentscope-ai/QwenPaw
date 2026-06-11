@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import logging
 import os
@@ -632,10 +633,14 @@ class AgentRunner(Runner):
             )
             if plan_enabled:
                 try:
-                    from agentscope.plan import (
-                        PlanNotebook,
-                        InMemoryPlanStorage,
-                    )
+                    # ``agentscope.plan`` does not exist in agentscope 2.0
+                    # (it was a 1.x API). Import it dynamically so the missing
+                    # module degrades via the ``except`` below (plan_notebook
+                    # stays None) instead of being a hard static import error.
+                    # Re-point to the v2 plan API once one ships.
+                    _plan_mod = importlib.import_module("agentscope.plan")
+                    PlanNotebook = _plan_mod.PlanNotebook
+                    InMemoryPlanStorage = _plan_mod.InMemoryPlanStorage
                     from ...plan.hints import SimplePlanToHint, set_plan_gate
 
                     hint_gen = SimplePlanToHint()
