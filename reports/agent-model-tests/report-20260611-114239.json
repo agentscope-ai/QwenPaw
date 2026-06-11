@@ -1,0 +1,48 @@
+{
+  "generated_at": "20260611-114239",
+  "scenarios": [
+    {
+      "id": "factual_qa",
+      "prompt": "Qual é a capital da Austrália? Responda em uma única frase curta."
+    },
+    {
+      "id": "reasoning",
+      "prompt": "Se um trem viaja a 60 km/h durante 2,5 horas, quantos km percorre? Mostre o cálculo e termine com 'Resposta: <n> km'."
+    }
+  ],
+  "safe_tools": [
+    "get_current_time",
+    "get_token_usage",
+    "glob_search",
+    "grep_search",
+    "read_file"
+  ],
+  "models": [
+    {
+      "provider": "dashscope",
+      "model": "qwen3-max",
+      "results": [
+        {
+          "scenario": "factual_qa",
+          "ok": true,
+          "latency_ms": 7951,
+          "tool_used": false,
+          "passed": false,
+          "note": "NÃO contém 'Canberra'",
+          "response": "A capital da Austrália é Camberra.",
+          "error": ""
+        },
+        {
+          "scenario": "reasoning",
+          "ok": true,
+          "latency_ms": 3337,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém '150'",
+          "response": "Para calcular a distância percorrida, usamos a fórmula:\n\n**Distância = Velocidade × Tempo**\n\nDado:\n- Velocidade = 60 km/h\n- Tempo = 2,5 horas\n\nCálculo:  \n60 km/h × 2,5 h = 150 km\n\nResposta: 150 km",
+          "error": ""
+        }
+      ]
+    }
+  ]
+}
