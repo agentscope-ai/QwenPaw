@@ -31,12 +31,10 @@ from .prompt import (
     build_system_prompt_from_working_dir,
 )
 from .skill_system import (
-    apply_skill_config_env_overrides,
     ensure_skills_initialized,
     get_workspace_skills_dir,
     resolve_effective_skills,
 )
-from .utils import process_file_and_media_blocks_in_message
 from .coding_mode_mixin import CodingModeMixin
 from .tools import (
     browser_use,
@@ -118,10 +116,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 user_id, channel, agent_id
             workspace_dir: Workspace directory for reading prompt files
                 (if None, uses global WORKING_DIR)
-            plan_notebook: Optional AgentScope ``PlanNotebook`` instance.
-                When provided it is stored on the agent and consulted by the
-                plan-tool gate (see ``_handle_plan_tool``); pass ``None`` to
-                disable plan gating.
         """
         self._agent_config = agent_config
         self._env_context = env_context
@@ -580,11 +574,21 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         except (ValueError, TypeError):
                             pass
 
-    async def _acting(self, tool_call) -> dict | None:
-        """Check plan tool gate before delegating to ToolGuardMixin."""
-        from ..plan.hints import check_plan_tool_gate
+    async def _acting(self, tool_call):
+        """Check plan tool gate, then delegate to the 2.0 async-generator _acting.
 
-        tool_name = str(tool_call.get("name", ""))
+        AgentScope 2.0 invokes ``_acting`` as an async generator yielding
+        ``ToolChunk | ToolResponse`` (1.x returned a single result), so this
+        override must ``yield`` from ``super()._acting(...)`` rather than
+        ``await`` it.
+        """
+        # AgentScope 2.0 passes a ``ToolCallBlock`` object here (1.x passed a
+        # dict), so read fields by attribute, falling back to dict access.
+        tool_name = str(
+            tool_call.get("name", "")
+            if isinstance(tool_call, dict)
+            else getattr(tool_call, "name", "") or ""
+        )
 
         if tool_name in self._PLAN_TOOLS_WITH_JSON_ARGS:
             self._fix_stringified_json_args(tool_call)
@@ -602,6 +606,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
             nb._plan_awaiting_user_confirm = True
 
         if nb is not None:
+            # The qwenpaw `plan` package was dropped in the agentscope 2.0
+            # migration (agentscope.plan no longer exists); plan_notebook is
+            # never set, so this import is only reached if the plan feature is
+            # reintroduced. Keep it local so a missing module can't break the
+            # tool path.
+            from ..plan.hints import check_plan_tool_gate
+
             err = check_plan_tool_gate(nb, tool_name)
             if err:
                 from agentscope.message import ToolResultBlock
@@ -620,9 +631,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 )
                 await self.print(tool_res_msg, True)
                 await self.memory.add(tool_res_msg)
-                return None
+                return
 
-        result = await super()._acting(tool_call)
+        async for chunk in super()._acting(tool_call):
+            yield chunk
 
         if nb is not None and tool_name in {
             "create_plan",
@@ -633,8 +645,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
             # run before the user has confirmed the plan or modified it.
             # pylint: disable=protected-access
             nb._plan_text_only_after_mutation = True
-
-        return result
 
     _AUTO_CONTINUE_MAX_EXTRA = 2
     _AUTO_CONTINUE_TAIL_CHARS = 600
@@ -964,16 +974,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
     async def reply(
         self,
         msg: Msg | list[Msg] | None = None,
+        structured_model: Type[BaseModel] | None = None,
     ) -> Msg:
         """Override reply to process file blocks and handle commands.
 
-        Matches the agentscope 2.0 ``Agent.reply`` contract, which accepts a
-        single ``inputs`` argument. Structured output is no longer requested
-        at the agent layer (it moved to ``Model.generate_structured_output``),
-        so the 1.x ``structured_model`` parameter has been dropped.
-
         Args:
             msg: Input message(s) from user
+            structured_model: Optional pydantic model for structured output
 
         Returns:
             Response message
@@ -1007,6 +1014,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         # Process file and media blocks in messages
         if msg is not None:
+            from .utils import process_file_and_media_blocks_in_message
+
             await process_file_and_media_blocks_in_message(msg)
 
         # Check if message is a system command
@@ -1022,18 +1031,18 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return msg
 
         # Normal message processing
-        logger.info("QwenPawAgent.reply: max_iters=%s", self.max_iters)
+        logger.info(
+            "QwenPawAgent.reply: max_iters=%s", self.react_config.max_iters
+        )
 
         request_context = getattr(self, "_request_context", {}) or {}
         channel_name = request_context.get("channel", "console")
         workspace_dir = Path(self._workspace_dir or WORKING_DIR)
-        # agentscope 2.0 ``Agent.reply(self, inputs=...)`` takes a single
-        # positional ``inputs`` argument; the 1.x ``msg=`` /
-        # ``structured_model=`` kwargs no longer exist. Structured output now
-        # flows through the model layer (``generate_structured_output``), so
-        # ``structured_model`` is not forwarded here.
-        # See docs/agentscope-v2/building-blocks/model.md.
+        from .skill_system import apply_skill_config_env_overrides
+
         with apply_skill_config_env_overrides(workspace_dir, channel_name):
+            # AgentScope 2.0 Agent.reply(inputs=...) takes a single positional
+            # argument and has no ``structured_model`` parameter (1.x had both).
             return await super().reply(msg)
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:

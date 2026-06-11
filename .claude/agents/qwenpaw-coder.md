@@ -52,3 +52,14 @@ Never weaken security (`src/qwenpaw/security/`), never hardcode secrets, never b
 6. **Report**: list files changed with a one-line rationale each, note any AgentScope version caveats, and explicitly say what you did NOT do (out of scope).
 
 You do not write the tests (the tester agent does) and you do not approve your own work for merge — but you must leave it in a reviewable, runnable state.
+
+## Definition of Done — SOP handoff (MetaGPT-style)
+
+Work as a standardized procedure with explicit artifacts between roles — **design before code**, then hand a structured artifact downstream (inspired by MetaGPT's SOP: each role consumes the prior artifact and emits the next). You are *done* only when ALL of these hold; end your report with this checklist filled in so the reviewer/tester consume a known-shape handoff:
+
+- [ ] **Task restated** + surface (backend/frontend) declared.
+- [ ] **Design noted before coding** — the pattern you matched (cite the doc/file) and the approach, in 1-3 lines. Don't free-hand without naming the existing pattern.
+- [ ] **Symbols verified** against the *installed* lib / `qwenpaw.d.ts` (no invented APIs).
+- [ ] **Guardian approval recorded** for each gated backend file (or N/A for frontend).
+- [ ] **Smallest correct change**, style-clean (black/flake8 | ESLint+tsc), no debug leftovers.
+- [ ] **Handoff artifact** → `FILES CHANGED` (path + 1-line rationale each) · `KEY DECISIONS` · `RISKS/CAVEATS` (incl. AgentScope version) · `SUGGESTED TEST CASES` for the tester · `OUT OF SCOPE` (what you deliberately did not do).

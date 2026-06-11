@@ -1,0 +1,482 @@
+{
+  "generated_at": "20260611-121011",
+  "scenarios": [
+    {
+      "id": "factual_qa",
+      "prompt": "Qual é a capital da Austrália? Responda em uma única frase curta."
+    },
+    {
+      "id": "reasoning",
+      "prompt": "Se um trem viaja a 60 km/h durante 2,5 horas, quantos km percorre? Mostre o cálculo e termine com 'Resposta: <n> km'."
+    },
+    {
+      "id": "ptbr_brevity",
+      "prompt": "Explique o que é uma API REST em no máximo duas frases, em português."
+    },
+    {
+      "id": "structured_json",
+      "prompt": "Liste 3 linguagens de programação como um array JSON de objetos com os campos 'nome' e 'ano'. Responda apenas o JSON, sem texto extra."
+    },
+    {
+      "id": "tool_use_time",
+      "prompt": "Que data e hora são agora? Use a ferramenta disponível para descobrir."
+    }
+  ],
+  "safe_tools": [
+    "get_current_time",
+    "get_token_usage",
+    "glob_search",
+    "grep_search",
+    "read_file"
+  ],
+  "models": [
+    {
+      "provider": "dashscope",
+      "model": "qwen3-max",
+      "results": [
+        {
+          "scenario": "factual_qa",
+          "ok": true,
+          "latency_ms": 3011,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém 'Camberra'",
+          "response": "A capital da Austrália é Camberra.",
+          "error": ""
+        },
+        {
+          "scenario": "reasoning",
+          "ok": true,
+          "latency_ms": 4922,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém '150'",
+          "response": "Para calcular a distância percorrida, usamos a fórmula:\n\n**Distância = Velocidade × Tempo**\n\nVelocidade = 60 km/h  \nTempo = 2,5 horas  \n\nDistância = 60 × 2,5 = 150 km  \n\nResposta: 150 km",
+          "error": ""
+        },
+        {
+          "scenario": "ptbr_brevity",
+          "ok": true,
+          "latency_ms": 4015,
+          "tool_used": false,
+          "passed": true,
+          "note": "respondeu",
+          "response": "Uma API REST (Representational State Transfer) é um estilo de arquitetura para sistemas web que usa os métodos HTTP (como GET, POST, PUT e DELETE) para permitir a comunicação entre cliente e servidor. Ela é baseada em recursos identificados por URLs e troca dados geralmente no formato JSON ou XML.",
+          "error": ""
+        },
+        {
+          "scenario": "structured_json",
+          "ok": true,
+          "latency_ms": 2830,
+          "tool_used": false,
+          "passed": true,
+          "note": "JSON válido (3 itens)",
+          "response": "[{\"nome\": \"Python\", \"ano\": 1991}, {\"nome\": \"JavaScript\", \"ano\": 1995}, {\"nome\": \"Java\", \"ano\": 1995}]",
+          "error": ""
+        },
+        {
+          "scenario": "tool_use_time",
+          "ok": true,
+          "latency_ms": 5615,
+          "tool_used": true,
+          "passed": true,
+          "note": "hora via ferramenta",
+          "response": "A data e hora atuais são: 2026-06-11 15:10:35 UTC (quinta-feira).",
+          "error": ""
+        }
+      ]
+    },
+    {
+      "provider": "dashscope",
+      "model": "qwen3-235b-a22b-thinking-2507",
+      "results": [
+        {
+          "scenario": "factual_qa",
+          "ok": true,
+          "latency_ms": 4255,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém 'Canberra'",
+          "response": "A capital da Austrália é Canberra.",
+          "error": ""
+        },
+        {
+          "scenario": "reasoning",
+          "ok": true,
+          "latency_ms": 5172,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém '150'",
+          "response": "60 km/h × 2,5 h = 150 km  \nResposta: 150 km",
+          "error": ""
+        },
+        {
+          "scenario": "ptbr_brevity",
+          "ok": true,
+          "latency_ms": 5849,
+          "tool_used": false,
+          "passed": true,
+          "note": "respondeu",
+          "response": "Uma API REST é um estilo arquitetural que utiliza métodos HTTP padrão, como GET e POST, para permitir a comunicação entre sistemas por meio de recursos identificados por URLs. Ela é amplamente utilizada por ser simples, escalável e independente de linguagem de programação.",
+          "error": ""
+        },
+        {
+          "scenario": "structured_json",
+          "ok": true,
+          "latency_ms": 5295,
+          "tool_used": false,
+          "passed": true,
+          "note": "JSON válido (3 itens)",
+          "response": "[\n  {\"nome\": \"Python\", \"ano\": 1991},\n  {\"nome\": \"JavaScript\", \"ano\": 1995},\n  {\"nome\": \"Java\", \"ano\": 1995}\n]",
+          "error": ""
+        },
+        {
+          "scenario": "tool_use_time",
+          "ok": true,
+          "latency_ms": 13491,
+          "tool_used": true,
+          "passed": true,
+          "note": "hora via ferramenta",
+          "response": "A data e hora atual são 2026-06-11 15:11:02 UTC (Thursday).",
+          "error": ""
+        }
+      ]
+    },
+    {
+      "provider": "dashscope",
+      "model": "deepseek-v3.2",
+      "results": [
+        {
+          "scenario": "factual_qa",
+          "ok": true,
+          "latency_ms": 2577,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém 'Canberra'",
+          "response": "A capital da Austrália é Canberra.",
+          "error": ""
+        },
+        {
+          "scenario": "reasoning",
+          "ok": true,
+          "latency_ms": 2693,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém '150'",
+          "response": "Para calcular a distância percorrida:\n\nDistância = Velocidade × Tempo\n\nDistância = 60 km/h × 2,5 h = 150 km\n\n**Resposta: 150 km**",
+          "error": ""
+        },
+        {
+          "scenario": "ptbr_brevity",
+          "ok": true,
+          "latency_ms": 3074,
+          "tool_used": false,
+          "passed": true,
+          "note": "respondeu",
+          "response": "API REST é uma interface de comunicação entre sistemas que utiliza os princípios REST, usando HTTP como protocolo para transferir dados entre cliente e servidor através de operações como GET, POST, PUT e DELETE.",
+          "error": ""
+        },
+        {
+          "scenario": "structured_json",
+          "ok": true,
+          "latency_ms": 3049,
+          "tool_used": false,
+          "passed": true,
+          "note": "JSON válido (3 itens)",
+          "response": "[\n  {\"nome\": \"Python\", \"ano\": 1991},\n  {\"nome\": \"JavaScript\", \"ano\": 1995},\n  {\"nome\": \"Go\", \"ano\": 2009}\n]",
+          "error": ""
+        },
+        {
+          "scenario": "tool_use_time",
+          "ok": true,
+          "latency_ms": 4943,
+          "tool_used": true,
+          "passed": true,
+          "note": "hora via ferramenta",
+          "response": "A data e hora atual são: 2026-06-11 15:11:26 UTC (Thursday).",
+          "error": ""
+        }
+      ]
+    },
+    {
+      "provider": "dashscope",
+      "model": "qwen3-coder-plus",
+      "results": [
+        {
+          "scenario": "factual_qa",
+          "ok": true,
+          "latency_ms": 2221,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém 'Canberra'",
+          "response": "A capital da Austrália é Canberra.",
+          "error": ""
+        },
+        {
+          "scenario": "reasoning",
+          "ok": true,
+          "latency_ms": 3689,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém '150'",
+          "response": "Para calcular a distância percorrida, usamos a fórmula:\n\n$$\n\\text{Distância} = \\text{Velocidade} \\times \\text{Tempo}\n$$\n\n$$\n\\text{Distância} = 60 \\, \\text{km/h} \\times 2{,}5 \\, \\text{h} = 150 \\, \\text{km}\n$$\n\nResposta: 150 km.",
+          "error": ""
+        },
+        {
+          "scenario": "ptbr_brevity",
+          "ok": true,
+          "latency_ms": 3746,
+          "tool_used": false,
+          "passed": true,
+          "note": "respondeu",
+          "response": "Uma API REST é um tipo de interface que permite a comunicação entre diferentes sistemas ou aplicações usando os métodos HTTP, como GET, POST, PUT e DELETE. Ela segue princípios de arquitetura que tornam o intercâmbio de dados simples, escalável e padronizado na web.",
+          "error": ""
+        },
+        {
+          "scenario": "structured_json",
+          "ok": true,
+          "latency_ms": 2956,
+          "tool_used": false,
+          "passed": true,
+          "note": "JSON válido (3 itens)",
+          "response": "```json\n[\n  {\n    \"nome\": \"Python\",\n    \"ano\": 1991\n  },\n  {\n    \"nome\": \"JavaScript\",\n    \"ano\": 1995\n  },\n  {\n    \"nome\": \"Java\",\n    \"ano\": 1995\n  }\n]\n```",
+          "error": ""
+        },
+        {
+          "scenario": "tool_use_time",
+          "ok": true,
+          "latency_ms": 4705,
+          "tool_used": true,
+          "passed": true,
+          "note": "hora via ferramenta",
+          "response": "A data e hora atuais são: 11 de junho de 2026, às 15:11:43 UTC.",
+          "error": ""
+        }
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "model": "anthropic/claude-opus-4.8",
+      "results": [
+        {
+          "scenario": "factual_qa",
+          "ok": true,
+          "latency_ms": 2963,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém 'Canberra'",
+          "response": "A capital da Austrália é Camberra (Canberra).",
+          "error": ""
+        },
+        {
+          "scenario": "reasoning",
+          "ok": true,
+          "latency_ms": 3095,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém '150'",
+          "response": "60 km/h × 2,5 h = 150 km\n\nResposta: 150 km",
+          "error": ""
+        },
+        {
+          "scenario": "ptbr_brevity",
+          "ok": true,
+          "latency_ms": 4354,
+          "tool_used": false,
+          "passed": true,
+          "note": "respondeu",
+          "response": "Uma API REST é um estilo de arquitetura para comunicação entre sistemas pela web, que usa métodos HTTP (como GET, POST, PUT e DELETE) para acessar e manipular recursos identificados por URLs. Ela é stateless (sem estado), ou seja, cada requisição contém todas as informações necessárias para ser processada, geralmente trocando dados em formatos como JSON ou XML.",
+          "error": ""
+        },
+        {
+          "scenario": "structured_json",
+          "ok": true,
+          "latency_ms": 2872,
+          "tool_used": false,
+          "passed": true,
+          "note": "JSON válido (3 itens)",
+          "response": "```json\n[\n  {\"nome\": \"Python\", \"ano\": 1991},\n  {\"nome\": \"JavaScript\", \"ano\": 1995},\n  {\"nome\": \"Go\", \"ano\": 2009}\n]\n```",
+          "error": ""
+        },
+        {
+          "scenario": "tool_use_time",
+          "ok": true,
+          "latency_ms": 5051,
+          "tool_used": true,
+          "passed": true,
+          "note": "hora via ferramenta",
+          "response": "Agora são **11 de junho de 2026, 15:12:01 (UTC)**, uma quinta-feira.",
+          "error": ""
+        }
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "model": "openai/gpt-chat-latest",
+      "results": [
+        {
+          "scenario": "factual_qa",
+          "ok": true,
+          "latency_ms": 1526,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém 'Canberra'",
+          "response": "Canberra é a capital da Austrália.",
+          "error": ""
+        },
+        {
+          "scenario": "reasoning",
+          "ok": true,
+          "latency_ms": 1757,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém '150'",
+          "response": "60 km/h × 2,5 h = 150 km\n\nResposta: 150 km",
+          "error": ""
+        },
+        {
+          "scenario": "ptbr_brevity",
+          "ok": true,
+          "latency_ms": 1942,
+          "tool_used": false,
+          "passed": true,
+          "note": "respondeu",
+          "response": "Uma API REST é uma interface que permite a comunicação entre sistemas pela web usando recursos identificados por URLs e operações HTTP como GET, POST, PUT e DELETE. Ela segue princípios de arquitetura REST para facilitar integração, escalabilidade e interoperabilidade.",
+          "error": ""
+        },
+        {
+          "scenario": "structured_json",
+          "ok": true,
+          "latency_ms": 1956,
+          "tool_used": false,
+          "passed": true,
+          "note": "JSON válido (3 itens)",
+          "response": "[{\"nome\":\"Python\",\"ano\":1991},{\"nome\":\"Java\",\"ano\":1995},{\"nome\":\"JavaScript\",\"ano\":1995}]",
+          "error": ""
+        },
+        {
+          "scenario": "tool_use_time",
+          "ok": true,
+          "latency_ms": 3386,
+          "tool_used": true,
+          "passed": true,
+          "note": "hora via ferramenta",
+          "response": "2026-06-11 15:12:13 UTC (Thursday)",
+          "error": ""
+        }
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "model": "google/gemini-3.5-flash",
+      "results": [
+        {
+          "scenario": "factual_qa",
+          "ok": true,
+          "latency_ms": 3097,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém 'Camberra'",
+          "response": "A capital da Austrália é Camberra.",
+          "error": ""
+        },
+        {
+          "scenario": "reasoning",
+          "ok": true,
+          "latency_ms": 3171,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém '150'",
+          "response": "O cálculo é: \n\n$\\text{Distância} = \\text{Velocidade} \\times \\text{Tempo}$\n$\\text{Distância} = 60\\text{ km/h} \\times 2{,}5\\text{ h} = 150\\text{ km}$\n\nResposta: 150 km",
+          "error": ""
+        },
+        {
+          "scenario": "ptbr_brevity",
+          "ok": true,
+          "latency_ms": 5082,
+          "tool_used": false,
+          "passed": true,
+          "note": "respondeu",
+          "response": "Uma API REST é um estilo de arquitetura de software que permite a comunicação entre diferentes sistemas utilizando os métodos padronizados do protocolo HTTP (como GET e POST). Ela facilita a troca de dados e a integração de aplicações na web de forma simples, escalável e sem estado (stateless).",
+          "error": ""
+        },
+        {
+          "scenario": "structured_json",
+          "ok": true,
+          "latency_ms": 4104,
+          "tool_used": false,
+          "passed": true,
+          "note": "JSON válido (3 itens)",
+          "response": "[\n  {\n    \"nome\": \"Python\",\n    \"ano\": 1991\n  },\n  {\n    \"nome\": \"Java\",\n    \"ano\": 1995\n  },\n  {\n    \"nome\": \"JavaScript\",\n    \"ano\": 1995\n  }\n]",
+          "error": ""
+        },
+        {
+          "scenario": "tool_use_time",
+          "ok": true,
+          "latency_ms": 5076,
+          "tool_used": true,
+          "passed": true,
+          "note": "hora via ferramenta",
+          "response": "Agora são 15:12:33 do dia 11 de junho de 2026 (UTC, quinta-feira).",
+          "error": ""
+        }
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "model": "nex-agi/nex-n2-pro:free",
+      "results": [
+        {
+          "scenario": "factual_qa",
+          "ok": true,
+          "latency_ms": 2614,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém 'Canberra'",
+          "response": "A capital da Austrália é Canberra.",
+          "error": ""
+        },
+        {
+          "scenario": "reasoning",
+          "ok": true,
+          "latency_ms": 2190,
+          "tool_used": false,
+          "passed": true,
+          "note": "contém '150'",
+          "response": "Distância = velocidade × tempo = 60 km/h × 2,5 h = 150 km.  \nResposta: 150 km",
+          "error": ""
+        },
+        {
+          "scenario": "ptbr_brevity",
+          "ok": true,
+          "latency_ms": 4132,
+          "tool_used": false,
+          "passed": true,
+          "note": "respondeu",
+          "response": "Uma API REST é uma interface que permite que sistemas se comuniquem pela web usando métodos HTTP, como GET, POST, PUT e DELETE. Ela geralmente troca dados em formatos como JSON e segue princípios de arquitetura REST para ser simples, escalável e independente.",
+          "error": ""
+        },
+        {
+          "scenario": "structured_json",
+          "ok": true,
+          "latency_ms": 2972,
+          "tool_used": false,
+          "passed": true,
+          "note": "JSON válido (3 itens)",
+          "response": "[{\"nome\":\"Python\",\"ano\":1991},{\"nome\":\"Java\",\"ano\":1995},{\"nome\":\"JavaScript\",\"ano\":1995}]",
+          "error": ""
+        },
+        {
+          "scenario": "tool_use_time",
+          "ok": true,
+          "latency_ms": 4468,
+          "tool_used": true,
+          "passed": true,
+          "note": "hora via ferramenta",
+          "response": "Agora é 2026-06-11 15:12:49 UTC (quinta-feira).",
+          "error": ""
+        }
+      ]
+    }
+  ]
+}
