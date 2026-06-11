@@ -2,10 +2,8 @@ import type { PlanSnapshot } from "./types";
 import { getStatusConfig, isClickable } from "./constants";
 import { tTaskGraph } from "./i18n";
 import type { HostBundle } from "../types";
-import { createHighlightIcon } from "../lib/icons";
 
 const STATUS_COL_WIDTH = 108;
-const ACTIONS_COL_WIDTH = 248;
 
 type HostReact = typeof import("react");
 type HostAntd = HostBundle["antd"];
@@ -31,14 +29,11 @@ export function TaskGraphPanel({
   plan,
   React,
   antd,
-  PlanCorrectionPopover,
   showActions = false,
   onNodeClick,
-  onPlanCorrection,
   onArtifactManage,
 }: TaskGraphPanelProps) {
   const { Table, Button } = antd;
-  const HighlightIcon = createHighlightIcon(React);
 
   const rows = Object.values(plan.nodes).map((node, index) => ({
     key: node.node_id,
@@ -79,47 +74,24 @@ export function TaskGraphPanel({
     },
   ];
 
-  if (showActions && (onArtifactManage || (PlanCorrectionPopover && onPlanCorrection))) {
-    columns.push({
-      title: React.createElement(
-        "div",
-        { className: "datapaw-header-actions" },
-        PlanCorrectionPopover && onPlanCorrection
-          ? React.createElement(
-              PlanCorrectionPopover,
-              { plan, onConfirm: onPlanCorrection },
-              React.createElement(
-                Button,
-                {
-                  className: "datapaw-correction-btn",
-                  icon: React.createElement(HighlightIcon, { size: 14 }),
-                },
-                tTaskGraph("planCorrection"),
-              ),
-            )
-          : null,
-        onArtifactManage
-          ? React.createElement(
-              Button,
-              {
-                className: "datapaw-artifact-btn",
-                onClick: (event: { stopPropagation: () => void }) => {
-                  event.stopPropagation();
-                  onArtifactManage();
-                },
+  const actions =
+    showActions && onArtifactManage
+      ? React.createElement(
+          "div",
+          { className: "datapaw-header-actions" },
+          React.createElement(
+            Button,
+            {
+              className: "datapaw-artifact-btn",
+              onClick: (event: { stopPropagation: () => void }) => {
+                event.stopPropagation();
+                onArtifactManage();
               },
-              tTaskGraph("artifactManage"),
-            )
-          : null,
-      ),
-      key: "actions",
-      width: ACTIONS_COL_WIDTH,
-      align: "right",
-      onHeaderCell: () => ({ className: "datapaw-actions-header" }),
-      onCell: () => ({ colSpan: 0 }),
-      render: () => null,
-    });
-  }
+            },
+            tTaskGraph("artifactManage"),
+          ),
+        )
+      : null;
 
   return React.createElement(
     "div",
@@ -127,7 +99,12 @@ export function TaskGraphPanel({
     React.createElement(
       "div",
       { className: "datapaw-task-plan-title" },
-      `${tTaskGraph("planTitle")}：${plan.name}`,
+      React.createElement(
+        "span",
+        { className: "datapaw-task-plan-title-text" },
+        `${tTaskGraph("planTitle")}：${plan.name}`,
+      ),
+      actions,
     ),
     React.createElement(Table, {
       className: "datapaw-task-table",
@@ -136,6 +113,8 @@ export function TaskGraphPanel({
       rowKey: "node_id",
       pagination: false,
       tableLayout: "fixed",
+      size: "small",
+      scroll: { y: 240 },
       onRow: (record: (typeof rows)[number]) => ({
         onClick: () => {
           if (onNodeClick && isClickable(String(record.state ?? ""))) {

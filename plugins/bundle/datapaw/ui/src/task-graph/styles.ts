@@ -21,12 +21,22 @@ html.dark-mode .datapaw-task-plan {
   border-color: rgba(255, 255, 255, 0.12);
 }
 .datapaw-task-plan-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 14px 20px 12px;
   font-size: 15px;
   font-weight: 600;
   line-height: 22px;
   color: rgba(0, 0, 0, 0.88);
   border-bottom: 1px solid #f0f0f0;
+}
+.datapaw-task-plan-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 html.dark-mode .datapaw-task-plan-title {
   color: rgba(255, 255, 255, 0.88);
@@ -45,6 +55,11 @@ html.dark-mode .datapaw-task-plan-title {
 .datapaw-task-plan .datapaw-task-table .qwenpaw-table-content table {
   table-layout: fixed;
 }
+.datapaw-task-plan .datapaw-task-table .ant-table-body,
+.datapaw-task-plan .datapaw-task-table .qwenpaw-table-body {
+  max-height: 240px !important;
+  overflow-y: auto !important;
+}
 .datapaw-task-plan .datapaw-task-table .ant-table-thead > tr > th,
 .datapaw-task-plan .datapaw-task-table .qwenpaw-table-thead > tr > th {
   background: #fafafa !important;
@@ -52,7 +67,7 @@ html.dark-mode .datapaw-task-plan-title {
   font-size: 14px;
   font-weight: 600;
   color: rgba(0, 0, 0, 0.88);
-  padding: 12px 16px !important;
+  padding: 8px 12px !important;
 }
 .datapaw-task-plan .datapaw-task-table .ant-table-thead > tr > th::before,
 .datapaw-task-plan .datapaw-task-table .qwenpaw-table-thead > tr > th::before {
@@ -64,9 +79,9 @@ html.dark-mode .datapaw-task-plan-title {
 }
 .datapaw-task-plan .datapaw-task-table .ant-table-tbody > tr > td,
 .datapaw-task-plan .datapaw-task-table .qwenpaw-table-tbody > tr > td {
-  padding: 16px 16px !important;
+  padding: 9px 12px !important;
   font-size: 14px;
-  line-height: 22px;
+  line-height: 20px;
   color: rgba(0, 0, 0, 0.88);
   border-bottom: 1px solid #f0f0f0;
   background: #fff;
@@ -74,6 +89,12 @@ html.dark-mode .datapaw-task-plan-title {
 .datapaw-task-plan .datapaw-task-table .ant-table-tbody > tr > td:first-child,
 .datapaw-task-plan .datapaw-task-table .qwenpaw-table-tbody > tr > td:first-child {
   padding-left: 20px !important;
+}
+.datapaw-task-plan .datapaw-task-table .ant-table-thead > tr > th:last-child,
+.datapaw-task-plan .datapaw-task-table .qwenpaw-table-thead > tr > th:last-child,
+.datapaw-task-plan .datapaw-task-table .ant-table-tbody > tr > td:last-child,
+.datapaw-task-plan .datapaw-task-table .qwenpaw-table-tbody > tr > td:last-child {
+  padding-right: 0 !important;
 }
 .datapaw-task-plan .datapaw-task-table .ant-table-tbody > tr:last-child > td,
 .datapaw-task-plan .datapaw-task-table .qwenpaw-table-tbody > tr:last-child > td {
@@ -118,12 +139,12 @@ html.dark-mode .datapaw-task-plan .datapaw-clickable-row:hover td {
   align-items: center;
   justify-content: center;
   min-width: 64px;
-  padding: 1px 8px;
+  padding: 0 8px;
   border-radius: 4px;
   font-size: 12px;
   font-weight: 400;
   white-space: nowrap;
-  line-height: 20px;
+  line-height: 18px;
 }
 .datapaw-task-plan .datapaw-status-tag.statusDone {
   background: #f6ffed;
@@ -177,7 +198,7 @@ html.dark-mode .datapaw-task-plan .datapaw-status-tag.statusStale {
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
-  width: 100%;
+  flex: 0 0 auto;
 }
 .datapaw-correction-btn {
   height: 32px;
