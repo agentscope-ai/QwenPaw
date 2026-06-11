@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { IconButton } from "@agentscope-ai/design";
 import {
   SparkHistoryLine,
+  SparkLocalFileLine,
   SparkNewChatFill,
   SparkSearchLine,
 } from "@agentscope-ai/icons";
@@ -11,7 +12,13 @@ import { Flex, Tooltip } from "antd";
 import ChatSessionDrawer from "../ChatSessionDrawer";
 import ChatSearchPanel from "../ChatSearchPanel";
 
-const ChatActionGroup: React.FC = () => {
+interface ChatActionGroupProps {
+  onArtifactsOpen?: () => void;
+}
+
+const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
+  onArtifactsOpen,
+}) => {
   const { t } = useTranslation();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -33,6 +40,18 @@ const ChatActionGroup: React.FC = () => {
           onClick={() => setSearchOpen(true)}
         />
       </Tooltip>
+      {onArtifactsOpen && (
+        <Tooltip
+          title={t("taskGraph.artifactManage", "Artifacts")}
+          mouseEnterDelay={0.5}
+        >
+          <IconButton
+            bordered={false}
+            icon={<SparkLocalFileLine />}
+            onClick={onArtifactsOpen}
+          />
+        </Tooltip>
+      )}
       <Tooltip title={t("chat.chatHistoryTooltip")} mouseEnterDelay={0.5}>
         <IconButton
           bordered={false}

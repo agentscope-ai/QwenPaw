@@ -12,7 +12,7 @@ const CSS = `
   margin-top: 8px;
   margin-bottom: 8px;
   background: var(--colorBgContainer, #fff);
-  border-radius: 12px;
+  border-radius: 8px;
   border: 1px solid var(--colorBorder, #e8e8e8);
   overflow: hidden;
 }

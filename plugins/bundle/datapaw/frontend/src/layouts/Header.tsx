@@ -21,8 +21,11 @@ import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CopyOutlined, CheckOutlined, TagOutlined } from "@ant-design/icons";
+import { useAgentStore } from "../stores/agentStore";
 
 const { Header: AntHeader } = Layout;
+const DATAPAW_LOGO_URL =
+  "https://img.alicdn.com/imgextra/i3/O1CN01pr2Xaz1GJlZiSFJrp_!!6000000000602-55-tps-519-132.svg";
 
 // ── Code block with copy button ───────────────────────────────────────────
 function UpdateCodeBlock({ code }: { code: string }) {
@@ -52,6 +55,7 @@ function UpdateCodeBlock({ code }: { code: string }) {
 export default function Header() {
   const { t, i18n } = useTranslation();
   const { isDark } = useTheme();
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
   const [version, setVersion] = useState<string>("");
   const [latestVersion, setLatestVersion] = useState<string>("");
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
@@ -155,12 +159,19 @@ export default function Header() {
         <div className={styles.logoWrapper}>
           <img
             src={
-              isDark
+              selectedAgent === "datapaw"
+                ? DATAPAW_LOGO_URL
+                : isDark
                 ? `https://gw.alicdn.com/imgextra/i4/O1CN01L7e39724RlGeJYJ7l_!!6000000007388-55-tps-771-132.svg`
                 : "https://img.alicdn.com/imgextra/i1/O1CN01yu3NJB1nRtvcsuOeQ_!!6000000005087-2-tps-726-344.png"
             }
-            alt="QwenPaw"
+            alt={selectedAgent === "datapaw" ? "DataPaw" : "QwenPaw"}
             className={styles.logoImg}
+            style={
+              selectedAgent === "datapaw"
+                ? { height: 20, width: 79, objectFit: "contain" }
+                : undefined
+            }
           />
           <div className={styles.logoDivider} />
           {version && (

@@ -32,6 +32,12 @@ export function buildAuthHeaders(): Record<string, string> {
 
 export interface TasksSummaryResponse {
   current_plan: PlanSnapshot | null;
+  historical_plans?: Array<{
+    id: string;
+    name?: string;
+    state?: string;
+    finished_at?: string | null;
+  }>;
 }
 
 export async function fetchTasksSummary(
@@ -59,6 +65,41 @@ export async function fetchTasksSummary(
     planName: data?.current_plan?.name,
   });
   return data;
+}
+
+export async function fetchHistoricalTaskPlan(
+  sessionId: string,
+  planId: string,
+  userId = "default",
+): Promise<PlanSnapshot | null> {
+  const encodedSession = encodeURIComponent(sessionId);
+  const encodedPlan = encodeURIComponent(planId);
+  const url = getApiUrl(
+    `/tasks/${encodedSession}/history/${encodedPlan}?user_id=${encodeURIComponent(userId)}`,
+  );
+  console.info("[datapaw:tasks-api] GET historical plan", {
+    sessionId,
+    planId,
+    url,
+  });
+  const res = await fetch(url, { headers: buildAuthHeaders() });
+  if (!res.ok) {
+    console.warn("[datapaw:tasks-api] GET historical plan failed", {
+      status: res.status,
+      sessionId,
+      planId,
+    });
+    return null;
+  }
+  const data = await res.json();
+  const plan = data?.plan ?? null;
+  console.info("[datapaw:tasks-api] GET historical plan ok", {
+    sessionId,
+    planId,
+    hasPlan: Boolean(plan),
+    planName: plan?.name,
+  });
+  return plan;
 }
 
 export interface TaskMutationResponse {

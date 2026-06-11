@@ -17,6 +17,9 @@ import {
   installChatBridge,
   scheduleSessionTaskPlanSync,
 } from "./patches/task-card";
+import { installConsoleLogoPatch } from "./patches/console-logo";
+import { registerChatArtifactsButton } from "./patches/chat-artifacts-button";
+import { registerDatapawNavigation } from "./patches/datapaw-navigation";
 import type { HostBundle } from "./types";
 
 function buildPlugin() {
@@ -67,6 +70,9 @@ function buildPlugin() {
 
   installChatBridge();
   scheduleSessionTaskPlanSync();
+  registerDatapawNavigation(bundle);
+  registerChatArtifactsButton(bundle);
+  installConsoleLogoPatch(bundle);
   installFetchPatch();
   ensureDefaultAgent();
   patchWelcomeAndTheme();
