@@ -47,9 +47,9 @@ from .store import (
 
 logger = logging.getLogger(__name__)
 
-BUILTIN_SKILL_LANGUAGES = ("en", "zh")
+BUILTIN_SKILL_LANGUAGES = ("en", "zh", "pt")
 _BUILTIN_SKILL_DIR_RE = re.compile(
-    r"^(?P<name>.+)-(?P<language>en|zh)$",
+    r"^(?P<name>.+)-(?P<language>en|zh|pt)$",
 )
 
 _ACTIVE_SKILL_ENV_ENTRIES: dict[str, dict[str, Any]] = {}
