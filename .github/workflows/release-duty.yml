@@ -3,12 +3,31 @@
 # Each platform gets its own assignee from an independent rotation list.
 # Rotation is sequential: index = (number of releases published BEFORE
 # this one) % list length. Stateless — derived from the GitHub Releases API.
+# Supports manual dispatch for testing or re-triggering a missed duty issue.
 
 name: Release Duty Issue
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create duty issue for (e.g. v1.1.11)"
+        required: true
+        type: string
+      release_type:
+        description: "Override release type (leave empty to auto-detect from tag)"
+        required: false
+        type: choice
+        options:
+          - ""
+          - beta
+          - alpha
+          - rc
+          - dev
+          - post
+          - stable
 
 permissions:
   issues: write
@@ -35,8 +54,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          CURRENT_TAG: ${{ github.event.release.tag_name }}
-          IS_PRERELEASE: ${{ github.event.release.prerelease }}
+          CURRENT_TAG: >-
+            ${{ github.event_name == 'workflow_dispatch'
+                && github.event.inputs.tag
+                || github.event.release.tag_name }}
+          TYPE_OVERRIDE: ${{ github.event.inputs.release_type || '' }}
         run: |
           python - << 'EOF'
           import os
@@ -48,22 +70,25 @@ jobs:
           token = os.environ["GH_TOKEN"]
           repo = os.environ["REPO"]
           current_tag = os.environ["CURRENT_TAG"]
+          type_override = os.environ.get("TYPE_OVERRIDE", "").strip()
 
           # ── Classify release type ────────────────────────────────────────
-          tag_lower = current_tag.lower()
-          if re.search(r"(beta|alpha|rc|dev)", tag_lower):
+          if type_override:
+              release_type = type_override
+          else:
+              tag_lower = current_tag.lower()
               if re.search(r"beta", tag_lower):
                   release_type = "beta"
               elif re.search(r"alpha", tag_lower):
                   release_type = "alpha"
               elif re.search(r"rc", tag_lower):
                   release_type = "rc"
-              else:
+              elif re.search(r"dev", tag_lower):
                   release_type = "dev"
-          elif re.search(r"\.post\d*$", tag_lower):
-              release_type = "post"
-          else:
-              release_type = "stable"
+              elif re.search(r"\.post\d*$", tag_lower):
+                  release_type = "post"
+              else:
+                  release_type = "stable"
 
           print(f"Tag: {current_tag}, Release type: {release_type}")
 
@@ -129,11 +154,34 @@ jobs:
           ASSIGNEES_JSON: ${{ steps.meta.outputs.assignees }}
           RELEASE_TYPE: ${{ steps.meta.outputs.release_type }}
           DUE_TIME: ${{ steps.due.outputs.due }}
+          INPUT_TAG: >-
+            ${{ github.event_name == 'workflow_dispatch'
+                && github.event.inputs.tag
+                || '' }}
         with:
           script: |
-            const tag         = context.payload.release.tag_name;
+            const isManual = context.eventName === 'workflow_dispatch';
+            let tag, releaseUrl;
+
+            if (isManual) {
+              tag = process.env.INPUT_TAG.trim();
+              // Try to fetch the release URL from the API
+              try {
+                const { data: rel } = await github.rest.repos.getReleaseByTag({
+                  owner: context.repo.owner,
+                  repo:  context.repo.repo,
+                  tag,
+                });
+                releaseUrl = rel.html_url;
+              } catch (_) {
+                releaseUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/releases/tag/${tag}`;
+              }
+            } else {
+              tag        = context.payload.release.tag_name;
+              releaseUrl = context.payload.release.html_url;
+            }
+
             const version     = tag.replace(/^v/, '');
-            const releaseUrl  = context.payload.release.html_url;
             const dueTime     = process.env.DUE_TIME;
             const assignees   = JSON.parse(process.env.ASSIGNEES_JSON);
             const releaseType = process.env.RELEASE_TYPE;
