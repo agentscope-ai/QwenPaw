@@ -117,10 +117,15 @@ if (Test-Path $CondaUnpack) {
     if ($LASTEXITCODE -ne 0) {
       throw "CRITICAL: huggingface_hub still has import errors after reinstall. See issue.md"
     }
-    & $pythonExe -c "import discord; print('✓ discord.py import OK')"
-    if ($LASTEXITCODE -ne 0) {
-      throw "CRITICAL: discord.py still has import errors after reinstall."
+    $discordPackage = Join-Path $EnvRoot "Lib\site-packages\discord"
+    if (-not (Test-Path $discordPackage)) {
+      throw "CRITICAL: discord.py package not found after reinstall."
     }
+    & $pythonExe -m compileall -q $discordPackage
+    if ($LASTEXITCODE -ne 0) {
+      throw "CRITICAL: discord.py still has syntax errors after reinstall."
+    }
+    Write-Host "[build_win] discord.py compile OK"
     Write-Host "[build_win] ✓ conda-unpack corruption fixed successfully."
   } else {
     Write-Host "[build_win] WARN: wheels_cache not found at $WheelsCache" -ForegroundColor Yellow
